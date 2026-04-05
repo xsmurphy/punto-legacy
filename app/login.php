@@ -3,6 +3,8 @@ session_start();
 require_once(__DIR__ . '/includes/cors.php');
 
 require_once('libraries/whoops/autoload.php');
+require_once('includes/jwt.php');
+require_once('includes/jwt_middleware.php');
 
 $get    = $_GET;
 $post   = $_POST;
@@ -55,11 +57,31 @@ if($email && $pass){
         jsonDieMsg("Error inesperado, por favor contáctenos");
       }
 
+      // Emitir JWT y establecer cookie HttpOnly
+      $jwtSecret = $_ENV['JWT_SECRET'] ?? '';
+      $jwtToken  = '';
+      if ($jwtSecret) {
+          $ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
+          $now = time();
+          $jwtPayload = [
+              'sub'  => $userId,
+              'cid'  => $companyId,
+              'oid'  => $outletId,
+              'rid'  => $registerId,
+              'role' => (int)$result['role'],
+              'iat'  => $now,
+              'exp'  => $now + $ttl,
+          ];
+          $jwtToken = jwtEncode($jwtPayload, $jwtSecret);
+          jwtSetCookie($jwtToken, $ttl);
+      }
+
       $data = json_encode([
-                            'companyId' => enc($companyId),
-                            'outletId'  => enc($outletId),
-                            'registerId'=> enc($registerId),
-                            'userId'    => enc($userId)
+                            'companyId'  => enc($companyId),
+                            'outletId'   => enc($outletId),
+                            'registerId' => enc($registerId),
+                            'userId'     => enc($userId),
+                            'token'      => $jwtToken,
                           ]);
 
       header('Content-Type: application/json');

@@ -21,27 +21,42 @@ function checkExecTime($reference = false)
 }
 
 require_once('libraries/whoops/autoload.php');
+require_once('includes/jwt_middleware.php');
 
-$decode     = base64_decode($_GET['l']);
-$get        = json_decode($decode, true);
-$action     = $get['action'];
-$companyId  = $get['companyId'];
-$outletId   = $get['outletId'];
-$userId     = $get['userId'];
-$roleId     = $get['roleId'];
-$registerId = $get['registerId'];
-
+// Decodificar parámetro legacy l= (siempre necesario para extraer la acción)
+$decode     = base64_decode($_GET['l'] ?? '');
+$get        = json_decode($decode, true) ?? [];
+$action     = $get['action']     ?? null;
+$companyId  = $get['companyId']  ?? null;
+$outletId   = $get['outletId']   ?? null;
+$userId     = $get['userId']     ?? null;
+$roleId     = $get['roleId']     ?? null;
+$registerId = $get['registerId'] ?? null;
 
 if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
   $rateLimiterId = $registerId;
 
   include_once('head.php');
 
-  $companyId  = db_prepare(dec($companyId));
-  $outletId   = db_prepare(dec($outletId));
-  $userId     = db_prepare(dec($userId));
-  $roleId     = db_prepare($roleId);
-  $registerId = db_prepare(dec($registerId));
+  // Autenticación JWT (cookie HttpOnly, header Bearer, o POST _jwt)
+  $jwtValid = jwtAuthenticate();
+
+  if ($jwtValid) {
+    // Identidad validada server-side — valores del token firmado
+    $companyId  = AUTHED_COMPANY_ID;
+    $outletId   = AUTHED_OUTLET_ID;
+    $userId     = AUTHED_USER_ID;
+    $roleId     = AUTHED_ROLE_ID;
+    $registerId = AUTHED_REGISTER_ID;
+  } else {
+    // Ruta legacy: decodificar Hashids del parámetro l=
+    header('X-Legacy-Auth: 1'); // monitoreo de adopción JWT
+    $companyId  = db_prepare(dec($companyId));
+    $outletId   = db_prepare(dec($outletId));
+    $userId     = db_prepare(dec($userId));
+    $roleId     = db_prepare($roleId);
+    $registerId = db_prepare(dec($registerId));
+  }
 
   if (!checkCompanyStatus($companyId)) {
     jsonDieMsg('Company Blocked');

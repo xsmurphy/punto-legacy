@@ -28,15 +28,35 @@ function checkExecTime($reference = false){
 }
 
 require_once('libraries/whoops/autoload.php');
+require_once('includes/jwt_middleware.php');
 
 if(isset($_POST['companyId']) && isset($_POST['outletId'])){
   $rateLimiterId = $_POST['outletId'];
 
   include_once('head.php');
 
-  $companyId  = dec( validateHttp('companyId','post') );
-  $outletId   = dec( validateHttp('outletId','post') );
-  $LOAD       = validateHttp('load');
+  // Autenticación JWT (cookie HttpOnly, header Bearer, o POST _jwt)
+  $jwtValid = jwtAuthenticate();
+
+  if ($jwtValid) {
+    // Identidad validada server-side
+    $companyId = AUTHED_COMPANY_ID;
+    $outletId  = AUTHED_OUTLET_ID;
+    // Verificar que el companyId del POST coincide con el del token (previene mezcla)
+    $postedCompanyId = dec(validateHttp('companyId', 'post'));
+    if ($postedCompanyId && $postedCompanyId !== $companyId) {
+      http_response_code(403);
+      header('Content-Type: application/json');
+      die(json_encode(['error' => 'Mismatch de identidad', 'code' => 403]));
+    }
+  } else {
+    // Ruta legacy: decodificar Hashids del POST
+    header('X-Legacy-Auth: 1');
+    $companyId = dec( validateHttp('companyId','post') );
+    $outletId  = dec( validateHttp('outletId','post') );
+  }
+
+  $LOAD = validateHttp('load');
 
   if(!checkCompanyStatus($companyId)){
     jsonDieMsg('Not found',404);
