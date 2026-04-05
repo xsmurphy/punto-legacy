@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $outlet				= validateHttp('outletId','post');
 $ecom				= validateHttp('ecom','post');
@@ -51,13 +52,10 @@ if($outlet){
 	    	$jsonResult = $jsonResult[0];
 	    }
 
-		jsonDieResult($jsonResult,200);
-	}else{
-		jsonDieResult(['error' => 'Not found'],404);
+		apiOk($jsonResult);
+	} else {
+		apiNotFound('Not found');
 	}
-}else{
-	jsonDieResult(['error' => 'No ID provided'],404);
+} else {
+	apiError('No ID provided', 422);
 }
-
-
-?>

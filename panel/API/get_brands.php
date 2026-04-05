@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 $cache 				= validateHttp('cache','post') ? validateHttp('cache','post') : false;
 $result = ncmExecute("SELECT taxonomyId,taxonomyName FROM taxonomy WHERE taxonomyType = 'brand' AND companyId = ?",[COMPANY_ID],$cache,true);
 $arrays 		= [];
@@ -16,11 +17,8 @@ if($result){
 	}
 	$result->Close();
 
-	jsonDieResult($arrays,200);
-	
-}else{
-	jsonDieMsg('No se encontraron registros',404);
+	apiOk($arrays);
+
+} else {
+	apiNotFound();
 }
-
-
-?>

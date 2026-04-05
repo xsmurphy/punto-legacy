@@ -1,6 +1,7 @@
 <?php
 
-include_once('api_head.php'); 
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $limitQ 		= 500;
 $limit 			= validateHttp('limit','post');
@@ -126,14 +127,6 @@ if($result){
 
 		$result->MoveNext();
 	}
-}else{
-	$array = ['error'=>'No se encontraron registros'];
 }
 
-header('Content-Type: application/json');
-http_response_code(200);
-echo json_encode($array, JSON_PRETTY_PRINT);
-
-
-dai();
-?>
+apiOk($array);

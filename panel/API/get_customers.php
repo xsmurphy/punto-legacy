@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $result 		= ncmExecute('SELECT *
 						FROM contact
@@ -29,9 +30,6 @@ if($result){
 
 		$result->MoveNext();
 	}
-}else{
-	$arrays = array('error'=>'No se encontraron registros');
 }
 
-jsonDieResult($arrays,200);
-?>
+apiOk($arrays);

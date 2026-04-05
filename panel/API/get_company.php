@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $_company		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 $_settings		= ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID], true);
@@ -244,5 +245,4 @@ if($_company){
 						];	
 }
 
-jsonDieResult($jsonResult,200);
-?>
+apiOk($jsonResult);
