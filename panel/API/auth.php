@@ -91,11 +91,12 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
         'secure'   => $isHttps,
     ]);
 
+    $hashids = new Hashids\Hashids(SALT);
     apiOk([
         'token'     => $token,
         'expiresIn' => $ttl,
-        'userId'    => enc((int)$result['contactId']),
-        'companyId' => enc((int)$result['companyId']),
+        'userId'    => $hashids->encode((int)$result['contactId']),
+        'companyId' => $hashids->encode((int)$result['companyId']),
         'role'      => (int)$result['role'],
     ]);
 }

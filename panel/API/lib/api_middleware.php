@@ -25,6 +25,38 @@
 require_once __DIR__ . '/response.php';
 require_once __DIR__ . '/../../includes/jwt.php';
 
+// enc()/dec() son helpers globales que todos los endpoints usan.
+// En api_head.php se definen inline; aquí las proveemos para endpoints migrados.
+if (!function_exists('enc')) {
+    function enc($str): string
+    {
+        global $HASHIDS_INSTANCE;
+        if (!isset($HASHIDS_INSTANCE)) {
+            // SALT se define en simple.config.php — si aún no está cargado, cargarlo
+            if (!defined('SALT')) {
+                include_once __DIR__ . '/../../includes/simple.config.php';
+            }
+            $HASHIDS_INSTANCE = new Hashids\Hashids(SALT);
+        }
+        return $HASHIDS_INSTANCE->encode($str);
+    }
+}
+
+if (!function_exists('dec')) {
+    function dec($str): int
+    {
+        global $HASHIDS_INSTANCE;
+        if (!isset($HASHIDS_INSTANCE)) {
+            if (!defined('SALT')) {
+                include_once __DIR__ . '/../../includes/simple.config.php';
+            }
+            $HASHIDS_INSTANCE = new Hashids\Hashids(SALT);
+        }
+        $decoded = $HASHIDS_INSTANCE->decode($str);
+        return (int)($decoded[0] ?? 0);
+    }
+}
+
 /**
  * Ejecuta el middleware completo.
  * Muere con error JSON si la autenticación falla.
@@ -50,6 +82,9 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
     }
 
     // 3. Bootstrap de dependencias
+    // $db debe ser global para que ncmExecute() lo encuentre con `global $db`
+    global $db, $ADODB_CACHE_DIR, $plansValues, $countries;
+
     require_once __DIR__ . '/../../libraries/whoops/autoload.php';
     include_once __DIR__ . '/../../includes/db.php';
     include_once __DIR__ . '/../../includes/simple.config.php';
