@@ -227,7 +227,8 @@ if(validateHttp('action') == 'list'){
     {{/data}}
   </script>
 
-  <script type="text/javascript" src="https://js.pusher.com/7.2/pusher.min.js"></script> 
+  <script type="text/javascript" src="/standalone/scripts/ncm-ws.js"></script>
+  <script>var WS_URL = '<?= WS_URL ?>';</script>
   <?php
   loadCDNFiles([
                   'https://cdn.jsdelivr.net/npm/simplestorage.js@0.2.1/simpleStorage.min.js',
@@ -262,9 +263,7 @@ if(validateHttp('action') == 'list'){
       var h = $(window).height();
       $('.fullHeight').css({'height':h + 'px'});
 
-      ncmCDS.pusher = new Pusher('24c4d438c59b81f27107', {
-        cluster: 'sa1'
-      });
+      ncmCDS.pusher = new NcmWS(WS_URL);
 
       var channel = ncmCDS.pusher.subscribe(outletID + '-KDS');
       channel.unbind('order').bind('order', (result) => {

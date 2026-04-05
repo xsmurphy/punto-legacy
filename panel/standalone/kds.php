@@ -530,7 +530,6 @@ if (validateHttp('action') == 'update') {
     </div>
     <div id="sound" style="display:none;"></div>
   </script>
-  <script type="text/javascript" src="https://js.pusher.com/7.2/pusher.min.js"></script>
   <?php
   loadCDNFiles([
     'https://cdn.jsdelivr.net/npm/simplestorage.js@0.2.1/simpleStorage.min.js',
@@ -546,10 +545,12 @@ if (validateHttp('action') == 'update') {
     'https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js'
   ], 'js');
   ?>
+  <script type="text/javascript" src="/standalone/scripts/ncm-ws.js"></script>
   <script type="text/javascript">
     window.ese = '<?= validateHttp('s') ?>';
-    var baseUrl = '<?= $baseUrl ?>';
+    var baseUrl  = '<?= $baseUrl ?>';
     var outletID = '<?= $EOUTLET_ID ?>';
+    var WS_URL   = '<?= WS_URL ?>';
 
     <?php
     if ($_GET['update']) {
@@ -594,9 +595,7 @@ if (validateHttp('action') == 'update') {
 
           $('#kdsNamePlc').text(simpleStorage.get('kdsName'));
 
-          ncmKDS.pusher = new Pusher('24c4d438c59b81f27107', {
-            cluster: 'sa1'
-          });
+          ncmKDS.pusher = new NcmWS(WS_URL);
 
           var channel = ncmKDS.pusher.subscribe(outletID + '-KDS');
           channel.bind('order', (result) => {

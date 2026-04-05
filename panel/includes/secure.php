@@ -24,10 +24,10 @@ if(empty($_SESSION['user'])){
 	die("Redirecting empty user");
 }else{
 
-	define('SESSION_TIMEOUT', 604800);//duración de la sesión en segundos
+	define('SESSION_TIMEOUT', 604800); // 7 días en segundos
 
 	function session_timed_out() {
-	    return isset($_SESSION['last_activity']) && time() >= $_SESSION['last_activity'] + SESSION_TIMEOUT * 120;
+	    return isset($_SESSION['last_activity']) && time() >= $_SESSION['last_activity'] + SESSION_TIMEOUT;
 	}
 
 	if (session_timed_out()) {

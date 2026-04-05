@@ -5,6 +5,7 @@ define('API_URL','https://api.encom.app');
 $_isLocal = (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'localhost') !== false);
 define('APP_URL', $_isLocal ? 'http://' . $_SERVER['HTTP_HOST'] : 'https://panel.encom.app');
 define('HTTPS', $_isLocal ? 'http' : 'https'); //EN PRODUCCION DEBE SER https
+define('WS_URL',  $_isLocal ? 'ws://localhost:6001' : ($_ENV['WS_URL'] ?? 'wss://ws.encom.app'));
 unset($_isLocal);
 define('ECOMMERCE_URL','.encom.site'); //EN PRODUCCION DEBE SER .encom.site
 define('PUBLIC_URL','https://public.encom.app');

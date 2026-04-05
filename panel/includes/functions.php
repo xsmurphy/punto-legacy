@@ -8790,6 +8790,9 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			}
 			//
 
+			// Regenerar ID de sesión al autenticar — previene session fixation
+			session_regenerate_id(true);
+
 			$_SESSION['last_activity'] 					= time();
 			$_SESSION['user']['companyId']  		= enc($result['companyId']);
 			$_SESSION['user']['companyDB']  		= $company['companyDB'];

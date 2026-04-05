@@ -7,9 +7,7 @@
       var h = $(window).height();
       $('.fullHeight').css({'height':h + 'px'});
 
-      ncmCDS.pusher = new Pusher('24c4d438c59b81f27107', {
-        cluster: 'sa1'
-      });
+      ncmCDS.pusher = new NcmWS(WS_URL);
 
       var channel = ncmCDS.pusher.subscribe(outletID + '-CDS');
       channel.unbind('order').bind('order', (result) => {
@@ -95,9 +93,7 @@
 
       $('#kdsNamePlc').text(simpleStorage.get('kdsName'));
 
-      ncmKDS.pusher = new Pusher('24c4d438c59b81f27107', {
-        cluster: 'sa1'
-      });
+      ncmKDS.pusher = new NcmWS(WS_URL);
 
       var channel = ncmKDS.pusher.subscribe(outletID + '-KDS');
       channel.bind('order', (result) => {

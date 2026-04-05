@@ -2098,7 +2098,8 @@ if (validateHttp('action') == 'soldByCompanyPM') {
               ],'js');*/
   ?>
 
-  <script type="text/javascript" src="https://js.pusher.com/7.2/pusher.min.js"></script>
+  <script type="text/javascript" src="/standalone/scripts/ncm-ws.js"></script>
+  <script>var WS_URL = '<?= WS_URL ?>';</script>
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js"></script>
 
   <script src="https://panel.encom.app/scripts/initials.js?<?= date('d.H') ?>"></script>
@@ -3006,9 +3007,7 @@ if (validateHttp('action') == 'soldByCompanyPM') {
       }
       ?>
 
-      var pusher = new Pusher('24c4d438c59b81f27107', {
-        cluster: 'sa1'
-      });
+      var pusher = new NcmWS(WS_URL);
 
       var channel = pusher.subscribe('ncm-ePOS');
       channel.bind('payoutNow', function(result) {

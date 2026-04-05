@@ -499,7 +499,6 @@ if (validateHttp('action') == 'update') {
     </div>
     <div id="sound" style="display:none;"></div>
   </script>
-  <script type="text/javascript" src="https://js.pusher.com/7.2/pusher.min.js"></script>
   <?php
   loadCDNFiles([
     'https://cdn.jsdelivr.net/npm/simplestorage.js@0.2.1/simpleStorage.min.js',

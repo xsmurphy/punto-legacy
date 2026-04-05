@@ -66,7 +66,7 @@ if (!empty($_GET['update'])) {
 		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/js/iguider.locale-es.js' => $js,
 		'https://panel.encom.app/scripts/color-selector-2.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js' => $js,
-		'https://js.pusher.com/7.2/pusher.min.js' => $js,
+		'/standalone/scripts/ncm-ws.js' => $js,
 		'https://panel.encom.app/scripts/written-number.min.js' => $js,
 		'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js' => $js,
 		'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js' => $js,

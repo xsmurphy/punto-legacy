@@ -202,18 +202,16 @@ $companyLogo = companyLogo(150);
 
 <?php
 loadCDNFiles([
-  'https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.7.7/handlebars.min.js',
-  'https://js.pusher.com/7.2/pusher.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.7.7/handlebars.min.js'
 ],'js');
 ?>
+<script type="text/javascript" src="/standalone/scripts/ncm-ws.js"></script>
+<script>var WS_URL = '<?= WS_URL ?>';</script>
 
 <script>
   $(document).ready(() => {
 
-    //INICIO PUSHER
-    var ncmPusher = new Pusher('24c4d438c59b81f27107', {
-      cluster: 'sa1'
-    });
+    var ncmPusher = new NcmWS(WS_URL);
     //
 
     ncmHelpers.mustacheIt = ($template, data, $container) => {
