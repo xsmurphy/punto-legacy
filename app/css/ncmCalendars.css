@@ -1,0 +1,45 @@
+.calendarWrapper{
+  overflow-x: scroll!important;
+}
+
+.calendarResourceRow {
+  height: 60px;
+  /*border-bottom: 1px solid #ddd;*/
+  background-image:url(https://ncmaspace.nyc3.digitaloceanspaces.com/app/images/calendar_dash_hours.png);background-repeat: repeat-x;
+}
+
+.calendarResourceRowH {
+  height: 60px;
+  /*border-bottom: 1px solid #ddd;*/
+}
+
+div.calendarResourceBlock {
+  -webkit-transform: translate3d(0,0,0); 
+  /*display: inline-block;*/
+  border-top: 1px solid #fff;
+  line-height: 15px;
+  float: left;
+  overflow: hidden;
+  position:absolute;
+}
+
+.darkMode .calendarResourceRow, .darkMode .calendarResourceRowH {
+  /*border-top: 1px solid #627b8c!important;*/
+}
+
+div.calendarResourceBlock.blockedBlock{
+  background-image: url("https://app.encom.app/images/calendar_locks.png");
+}
+
+.calendarResourceColumn {
+  float: left;
+  min-width: 130px;
+  border-right: 1px solid #ddd;
+  display: inline-block;
+}
+
+.calendarResourceColumnTime {
+  float: left;
+  width: 50px;
+  border-right: 1px solid #ddd;
+}

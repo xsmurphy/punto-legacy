@@ -1,0 +1,4039 @@
+<?php
+ob_start();
+ob_implicit_flush(0);
+
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST');
+header('Access-Control-Allow-Headers: Content-Type');
+header("Expires: Tue, 03 Jul 2001 06:00:00 GMT");
+header("Last-Modified: " . gmdate("D, d M Y H:i:s") . " GMT");
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0, s-maxage=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+header("Connection: close");
+
+include_once('app_version.php');
+include_once('includes/simple.config.php');
+include_once('libraries/countries.php');
+?>
+<!DOCTYPE html>
+<html class="noscroll bg-white">
+<head>  
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>ENCOM</title>
+  
+  <link rel="apple-touch-icon" sizes="57x57" href="/apple-touch-icon-57x57.png" />
+  <link rel="apple-touch-icon" sizes="114x114" href="/apple-touch-icon-114x114.png" />
+  <link rel="apple-touch-icon" sizes="72x72" href="/apple-touch-icon-72x72.png" />
+  <link rel="apple-touch-icon" sizes="144x144" href="/apple-touch-icon-144x144.png" />
+  <link rel="apple-touch-icon" sizes="60x60" href="/apple-touch-icon-60x60.png" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120x120.png" />
+  <link rel="apple-touch-icon" sizes="76x76" href="/apple-touch-icon-76x76.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152x152.png" />
+  <link rel="icon" type="image/png" href="/favicon-196x196.png" sizes="196x196" />
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
+  <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16" />
+  <link rel="icon" type="image/png" href="/favicon-128.png" sizes="128x128" />
+
+  <link rel="canonical" href="https://app.encom.app" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#d7e5e8">
+  <meta name="application-name" content="ENCOM"/>
+  <meta name="msapplication-TileColor" content="#d7e5e8" />
+  <meta name="msapplication-TileImage" content="/mstile-144x144.png" />
+  <meta name="msapplication-square70x70logo" content="/mstile-70x70.png" />
+  <meta name="msapplication-square150x150logo" content="/mstile-150x150.png" />
+  <meta name="msapplication-wide310x150logo" content="/mstile-310x150.png" />
+  <meta name="msapplication-square310x310logo" content="/mstile-310x310.png" />
+
+  <?php
+  $extensionCss = 'css';
+  if(isset($_GET['debug'])){
+    $extensionCss = 'css';
+  }else if(isset($_GET['mobile'])){
+    $extensionCss = 'mobilecss';
+  }else if(isset($_GET['mdebug'])){
+    $extensionCss = 'mdebugcss';
+  }
+  ?>
+
+  <link rel="stylesheet" href="/vendor.<?=$extensionCss;?>?<?=isset($_GET['debug']) ? rand() . '&' : ''?><?=APP_VERSION?>" type="text/css" />
+
+  <!--<script>(function(){var w=window;var ic=w.Intercom;if(typeof ic==="function"){ic('reattach_activator');ic('update',intercomSettings);}else{var d=document;var i=function(){i.c(arguments)};i.q=[];i.c=function(args){i.q.push(args)};w.Intercom=i;function l(){var s=d.createElement('script');s.type='text/javascript';s.async=true;s.src='https://widget.intercom.io/widget/uvb2fg2w';var x=d.getElementsByTagName('script')[0];x.parentNode.insertBefore(s,x);}if(w.attachEvent){w.attachEvent('onload',l);}else{w.addEventListener('load',l,false);}}})()</script>-->
+</head>
+
+<body class="noscroll">
+
+  <!-- Paste this right before your closing </head> tag -->
+  <script type="text/javascript">
+  (function(f,b){if(!b.__SV){var e,g,i,h;window.mixpanel=b;b._i=[];b.init=function(e,f,c){function g(a,d){var b=d.split(".");2==b.length&&(a=a[b[0]],d=b[1]);a[d]=function(){a.push([d].concat(Array.prototype.slice.call(arguments,0)))}}var a=b;"undefined"!==typeof c?a=b[c]=[]:c="mixpanel";a.people=a.people||[];a.toString=function(a){var d="mixpanel";"mixpanel"!==c&&(d+="."+c);a||(d+=" (stub)");return d};a.people.toString=function(){return a.toString(1)+".people (stub)"};i="disable time_event track track_pageview track_links track_forms track_with_groups add_group set_group remove_group register register_once alias unregister identify name_tag set_config reset opt_in_tracking opt_out_tracking has_opted_in_tracking has_opted_out_tracking clear_opt_in_out_tracking start_batch_senders people.set people.set_once people.unset people.increment people.append people.union people.track_charge people.clear_charges people.delete_user people.remove".split(" ");
+  for(h=0;h<i.length;h++)g(a,i[h]);var j="set set_once union unset remove delete".split(" ");a.get_group=function(){function b(c){d[c]=function(){call2_args=arguments;call2=[c].concat(Array.prototype.slice.call(call2_args,0));a.push([e,call2])}}for(var d={},e=["get_group"].concat(Array.prototype.slice.call(arguments,0)),c=0;c<j.length;c++)b(j[c]);return d};b._i.push([e,f,c])};b.__SV=1.2;e=f.createElement("script");e.type="text/javascript";e.async=!0;e.src="undefined"!==typeof MIXPANEL_CUSTOM_LIB_URL?
+  MIXPANEL_CUSTOM_LIB_URL:"file:"===f.location.protocol&&"//cdn.mxpnl.com/libs/mixpanel-2-latest.min.js".match(/^\/\//)?"https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js":"//cdn.mxpnl.com/libs/mixpanel-2-latest.min.js";g=f.getElementsByTagName("script")[0];g.parentNode.insertBefore(e,g)}})(document,window.mixpanel||[]);
+  </script>
+  
+  <section class="container no-padder" style="width:100%!important; max-width:1396px!important; min-height: 100vh;">
+    <section class="vbox no-padder m-t-lg clear no-bg md-whiteframe-6dp r-3x">
+
+      <!--LOGIN-->
+      <div class="bg-info gradBgBlue animateBg fullheight scrollable col-xs-12 no-padder hidden-print" id="login" style="display: none;">
+        <div class="col-sm-3 col-lg-4 no-padder hidden-xs"></div>
+        <div class="col-sm-6 col-xs-12 col-lg-4 no-padder text-center" id="loginFormScreen">
+          <img src="images/incomelogo.png" width="100" class="m-b-lg" />
+          <div class="col-xs-12">
+            <section class="panel panel-default bg-white m-n r-24x no-border animated bounceInUp">
+              <div class="panel-body no-bg wrapper">
+                <span class="arrow top"></span>
+                <div class="text-center" id="welcome">
+                  <div class="h1 text-info font-thin m-t"> Bienvenido </div>
+                  <a href="#" class="btn btn-lg btn-info btn-rounded m-b-lg m-t-md text-u-c font-bold" id="signinBtn">
+                    Crea tu empresa aquí
+                  </a>
+                  <div class="font-bold">¿Ya tienes una cuenta en ENCOM? <br> <a href="#" class="text-primary text-u-c font-bold" id="toLoginBtn">Ingresa aquí</a> </div>
+                </div>
+
+                <div class="text-center" style="display: none;" id="loginQR">
+                  <div class="col-xs-12 no-padder">
+                    <iframe src="" width="300" height="300" class="QRLoginPanelIframe" style="max-width:300px; height:300px; width:100%; border:0; padding:0; margin:0;"></iframe>
+
+                    <a href="#" class="col-xs-8 col-xs-offset-2 text-center wrapper r-24x bg-light QRLoginPanelIframeClick" style="display: none; height: 300px;">
+                      <span class="material-icons md-48" style="margin-top:100px;">
+                        refresh
+                      </span>
+                      <h3 class="font-bold m-t-sm block">Volver a cargar el QR</h3>
+                    </a>
+
+                  </div>
+
+                  <div class="col-xs-12 no-padder">
+                    <div class="h2 font-bold m-t"> Ingresa con el QR </div>
+                    <p class="text-md">
+                      Utiliza la <strong>app de ENCOM</strong> para ingresar al instante.
+                    </p>
+                  </div>
+
+                  <div class="col-xs-12 text-center">
+                    <a href="#" class="btn btn-lg btn-info btn-rounded m-b-lg m-t-md text-u-c font-bold" id="manualLogin">
+                      <i class="material-icons m-r">password</i> Acceso clásico
+                    </a>
+                  </div>
+
+                </div>
+
+                <form role="form" style="display: none;" id="loginForm" method="post" class="animated bounceIn">
+                  <div class="col-xs-12 m-b text-center">
+                    <a href="#" class="font-bold text-u-c" id="QRLoginBtn"><i class="material-icons m-r">qr_code_scanner</i> Ingreso con QR</a>
+                  </div>
+
+                  <div class="col-xs-12 no-padder m-b">
+
+                    <div class="col-xs-3 no-padder animated fadeInLeft speed-5x loginEmailCountryCodes"> 
+                      <button type="button" class="btn btn-default dropdown-toggle btn-lg no-border no-bg countriesBtn" data-toggle="dropdown">
+                        +595
+                      </button>
+                      <ul class="dropdown-menu signInCountriesList" style="max-height:180px;overflow: scroll;">
+                      </ul>
+                    </div>
+                    <div class="col-xs-9 no-padder loginEmailField">
+                      <input  name="email" type="text" class="form-control input-lg no-border no-bg b-b loginEmail" placeholder="Nro de celular o e-mail" required>
+                    </div>
+                    
+                  </div>
+                  <input type="password" name="password" id="lgPassword" class="form-control m-b no-bg no-border b-b input-lg" placeholder="Contraseña" autocomplete="current-password" required>
+                  <div class="m-b-sm text-right">
+                    <a href="https://panel.encom.app/login?recover=1" class="text-primary clickeable" data-type="link" target="_blank">¿Olvidó su contraseña?</a>
+                  </div>
+                  <span class="text-u-c font-bold btn btn-info btn-rounded btn-lg m-t-sm m-b-sm" id="btn-login">Ingresar</span>
+                </form>
+
+                <form role="form" style="display: none;" id="newAccountForm" method="post" class="animated bounceIn" action="https://panel.encom.app/user-register" method="POST">
+                  <div class="col-sm-12 text-center no-padder signUpStep1">
+                    <label class="font-bold text-xs text-u-c text-center">Ingresa tu número de teléfono móvil</label>
+                    <div class="input-group m-b">
+                      <div class="input-group-btn"> 
+                        <button type="button" class="btn btn-default dropdown-toggle btn-lg no-border no-bg countriesBtn" data-toggle="dropdown">
+                          +595
+                        </button>
+                        <ul class="dropdown-menu signInCountriesList" style="max-height:180px;overflow: scroll;">
+                        </ul>
+                      </div>
+                      <input type="text" class="form-control input-lg no-border no-bg b-b" id="verifyPhoneNumber">
+                    </div>
+                    <div class="text-xs m-b">Te enviaremos un SMS con un código de verificación</div>
+                    <a href="#" class="btn btn-rounded btn-lg btn-info font-bold text-u-c" id="verifySMS">Enviar Código</a>
+                    <p class="m-t text-xs">Este sitio está protegido por reCAPTCHA de Google donde aplican las <br> <a href="https://policies.google.com/privacy"><u>Politicas de privacidad</u></a> y <a href="https://policies.google.com/terms"><u>Términos del servicio</u></a></p>
+                  </div>
+
+                  <div class="col-sm-12 text-center no-padder signUpStep2" style="display: none;">
+                    <label class="font-bold text-xs text-u-c text-center smsAlertPIN">Ingresa el código de verificación</label>
+                    <div class="col-xs-12 wrapper animated">
+                        <input type="text" maxlength="4" class="form-control animated no-bg text-center font-bold mobile-verify input-lg rounded b-2x" placeholder="####" style="letter-spacing: 4px;">
+                    </div>
+
+                    <a href="#" class="block smsValidationReSend">No recibió el código? <strong>Re enviar</strong></a>
+                  </div>
+
+                  <div class="col-sm-12 text-center no-padder signUpStep3" style="display: none;">
+                    <input type="text" class="form-control m-b no-bg no-border b-b b-light text-center input-lg font-bold" placeholder="Nombre de la empresa" name="storename" autocomplete="organization" required/>
+
+                    <select name="category" class="form-control m-b no-bg no-border b-b b-light input-lg no-padder" autocomplete="off" required>
+                      <option value="">Categoría</option>
+                      <?php
+                        foreach($companyCategories as $key => $val){
+                            echo '<optgroup label="'.$key.'">';
+                            foreach($val as $k => $v){
+                              $selected = '';
+                              if($result->fields['settingCompanyCategoryId'] == $v){$selected = 'selected';}
+                              echo '<option value="' . $v . '" ' . $selected . '>' . $k . '</option>';
+                            }
+                            echo '</optgroup">';
+                        }
+                        ?>
+                    </select>
+
+                    <input type="text" class="form-control m-b no-bg no-border b-b b-light input-lg" placeholder="Su Nombre y Apellido" name="username" autocomplete="name" required/> 
+
+                    <input type="password" class="form-control m-b no-bg no-border b-b b-light input-lg" placeholder="Contraseña"  name="password" id="signinPasswordInput" autocomplete="new-password" required/>
+
+                    <input type="hidden" name="email" class="hidden" id="verifiedPhone">
+                    <input type="hidden" name="country" class="hidden" id="verifiedCountry">
+
+                    <div class="text-center">
+                      <button class="btn btn-info btn-rounded btn-lg m-t text-u-c font-bold" type="submit" id="btn-register">Crear Empresa</button>
+                    </div>
+                    <div class="text-xs text-center m-t-md">Al presionar en <span class="text-u-c">Crear Empresa</span>, usted acepta nuestros <a href="https://assets.encom.app/terminos.pdf" class="text-primary clickeable" data-type="link" target="_blank">Términos y Condiciones</a></div>
+
+                  </div>
+                </form>
+
+              </div>
+            </section>
+            <div class="m-t animated fadeIn m-b"><img src="images/securelogos.png" width="90%" /></div>
+          </div>
+          
+        </div>
+        <div class="col-sm-3 col-lg-4 no-padder hidden-xs"></div>
+      </div>
+      <!--LOGIN END-->
+      
+      <!--LOCK-->
+      <div class="fullheight animated slideInDown speed-3x col-xs-12 no-padder hidden-print" id="lock" style="display: none;">
+        <div class="text-center " id="lockPadScreen" style="position:absolute;top:0;left:0;bottom:0;right:0;margin:auto;width:100%;max-width:330px;height:130px;">
+            <input type="tel" pattern="\d*" id="password" class="no-border no-bg form-control no-padder mousetrap" style="height:150px;position:absolute;z-index:2;" autocomplete="off" />
+            <img src="images/iconincomesm.png" class="m-b" width="60">
+
+            <div id="lockCircles" class="col-xs-12 no-padder m-b animated">
+              <div class="col-xs-3 no-padder">
+                  <i class="b b-dark b-2x block rounded o1 animated" style="width:30px;height:30px;margin:0 auto;"></i>
+              </div>
+              <div class="col-xs-3 no-padder">
+                  <i class="b b-dark b-2x block rounded o2 animated" style="width:30px;height:30px;margin:0 auto;"></i>
+              </div>
+              <div class="col-xs-3 no-padder">
+                  <i class="b b-dark b-2x block rounded o3 animated" style="width:30px;height:30px;margin:0 auto;"></i>
+              </div>
+              <div class="col-xs-3 no-padder">
+                  <i class="b b-dark b-2x block rounded o4 animated" style="width:30px;height:30px;margin:0 auto;"></i>
+              </div>
+            </div>
+
+            
+            <div class="text-xs col-xs-12" id="belowLockPadScreen">
+              <i class="material-icons md-18">fingerprint</i><br>
+              Ingrese su código de usuario
+              <div class="companyName font-bold"></div>
+            </div>
+        </div>
+      </div>
+      <!--LOCK END-->
+
+      <!--EXTERNALSRC-->
+      <div class="bg-light lt fullheight col-xs-12 no-padder momentumit" id="externalSource" style="display: none;"></div>
+      <!--EXTERNALSRC-->
+      
+      <!--NOMOBILE-->
+      <div class="bg-light lt col-xs-12 noscroll" id="nomobile" style="display: none; height: 85vh;">
+        <div class="col-sm-3"></div>
+
+        <div class="col-sm-6 wrapper text-center" style="margin-top:10%;">
+
+          <img src="https://app.encom.app/images/iconincomesm.png" class="m-b-sm" width="100">
+          <h1 class="font-bold">Descarga ENCOM</h1>
+          <div class="text-muted m-t">
+            <p class="text-lg">Descarga la app para iOS y Android (Smartphone o Tablet) o utilizalo en tu Mac/PC </p>
+          </div>
+          <div class="m-t-lg">
+              <a href="https://itunes.apple.com/us/app/income-register/id1061146997?ls=1&amp;mt=8" target="_blank">
+                <img src="https://developer.apple.com/app-store/marketing/guidelines/images/badge-example-preferred.png" height="45">
+              </a>
+              <a href="https://play.google.com/store/apps/details?id=com.incomepos.registerandroid" target="_blank">
+                <img src="https://play.google.com/intl/en_us/badges/images/badge_new.png" height="45">
+              </a>
+          </div>
+
+          
+        </div>
+
+        <div class="col-sm-3"></div>
+      </div>
+      <!--NOMOBILE END-->
+
+      <!--MULTITABS-->
+      <div class="bg-light lt col-xs-12 noscroll hidden-print" id="preventMultiTabs" style="display: none; height: 85vh;">
+        <div class="col-sm-3"></div>
+
+        <div class="col-sm-6 wrapper text-center" style="margin-top:10%;">
+
+          <img src="https://panel.encom.app/images/emptystate4.png" height="140" id="encomIsRunning">
+          <h1 class="font-bold">Lo Sentimos</h1>
+          <div class="text-muted m-t">
+            <p class="text-lg">No puede abrir su caja en más de una pestaña, puede ver más información aquí:</p>
+            <a href="https://docs.encom.app/preguntas-frecuentes/puedo-realizar-ventas-en-varias-ventanas" class="btn btn-primary font-bold btn-lg text-u-c btn-rounded m-t ">Más información</a>
+          </div>
+          
+        </div>
+
+        <div class="col-sm-3"></div>
+      </div>
+      <!--MULTITABS END-->
+      
+      <!--REGISTER-->
+      <div class="col-xs-12 no-padder noscroll fullheight animated fadeIn speed-3x r-3x hidden-print" id="register" style="display: none;">
+
+        <div id="registerWrapper" class="clear col-xs-12 no-padder">
+          <div id="menu2" class="fullheight col-xs-12 no-padder clickeable scrollable" data-type="hideMenu" style="display:none; position:absolute; left:0; z-index: 999;">
+
+            <div class="col-xs-12 no-padder">
+
+              <div class="col-lg-3 col-sm-4 col-xs-12 wrapper animated speed-5x leftBlock">
+                <div class="col-xs-12 wrapper m-l-n-lg m-b bg-black r-24x text-white text-left">
+                  
+                  <div class="col-xs-12 no-padder" id="ncmMenuListBlock">
+
+                    <div class="m-t-n row">
+                      <div class="col-xs-6 wrapper text-left clickeable" data-type="secondMenuContentBack">
+                        <a href="#" class="block wrap-l-lg secondMenuContentBack hidden">
+                           <i class="material-icons md-24">arrow_back_ios</i>
+                        </a>
+                      </div>
+
+                      <div class="col-xs-6 hidden-xs"></div>
+
+                      <div class="col-xs-6 wrapper text-right clickeable hideMenuX" data-type="hideMenu">
+                        <a href="#" class="block">
+                           <i class="material-icons md-24">close</i>
+                        </a>
+                      </div>
+                    </div>
+                  
+                    <div class="col-xs-12 wrap-l-lg wrap-r-n h3 animated font-bold fadeInLeft delay-1ms speed-4x mainMenuContent">
+                      <div class="col-xs-12 m-b no-padder"> 
+                        <div class="h1 font-bold text-white companyName"></div>
+                      </div>
+
+                      <div class="col-xs-1 m-t-md m-b-md no-padder b-b b-2x b-white noDMChange"></div>
+                      <div class="col-xs-11"></div> 
+
+                      <a href="#drawer" class="wrapper hide-basic block navigate col-xs-12 wrap-l-n" id="drawerControlBtn" style="display:none;">
+                        <span class="text-white"> Control de Caja </span>
+                      </a>
+
+                      <a href="#transactions" class="wrapper menuTransactionToggleBtn block navigate col-xs-12 wrap-l-n"> 
+                        <span class="text-white"> Transacciones </span>
+                      </a>
+
+                      <a href="#openQuotes" class="wrapper menuQuoteToggleBtn hidden block navigate col-xs-12 wrap-l-n"> 
+                        <span class="text-white"> Cotizaciones </span>
+                      </a>
+
+                      <a href="#openAgenda" class="wrapper menuAgendaToggleBtn block navigate col-xs-12 wrap-l-n"> 
+                        <span class="text-white"> Agenda </span>
+                      </a>
+
+                      <a href="#openOrders" class="wrapper menuOrdersToggleBtn block navigate col-xs-12 wrap-l-n"> 
+                        <span class="text-white"> Órdenes </span>
+                      </a>
+
+                      <a href="#settings" class="wrapper visible-high block navigate col-xs-12 wrap-l-n" id="settingsMenuBtn" > 
+                        <span class="text-white"> Ajustes </span>
+                      </a>
+
+                      <a href="#lock" class="wrapper block navigate col-xs-12 wrap-l-n salirBtn"> 
+                        <span class="text-white"> Salir <span class="text-muted text-sm font-thin hidden-xs">(ESC)</span> </span>
+                      </a>
+
+                    </div>
+
+                    <div class="col-xs-12 wrap-l-lg h3 animated font-bold fadeInLeft delay-1ms speed-4x secondMenuContent hidden">
+                      <div class="col-xs-12 m-b no-padder"> 
+                        <div class="h1 font-bold text-white userName"></div>
+                      </div>
+
+                      <div class="col-xs-1 m-t-md m-b-md no-padder b-b b-2x b-white noDMChange"></div>
+                      <div class="col-xs-11"></div> 
+
+                      <a href="#" class="col-xs-12 wrapper wrap-l-n myMenuLoadPage ncmMyMenuOrders"> 
+                        <span class="text-white"> Pedidos </span>
+                      </a>
+
+                      <a href="#" class="col-xs-12 wrapper wrap-l-n myMenuLoadPage ncmMyMenuSchedule"> 
+                        <span class="text-white"> Agenda </span>
+                      </a>
+
+                      <a href="#" class="col-xs-12 wrapper wrap-l-n clickeable" data-type="QREnableDevice"> 
+                        <span class="text-white"> Activar Dispositivo </span>
+                      </a>
+
+                      <a href="#lock" class="wrapper block navigate col-xs-12 wrap-l-n salirBtn" data-animation="bounceIn"> 
+                        <span class="text-white"> Salir <span class="text-muted text-sm font-thin hidden-xs">(ESC)</span> </span>
+                      </a>
+
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12" id="ncmMenuListBlockSpacer"></div>
+
+                  <div class="col-xs-12 wrap-l wrap-r-n text-center" id="ncmMenuListFoot">
+
+                    <div class="col-xs-12 no-padder visible-xs menuToolsBtn">
+                      <span class="btn btn-icon no-border clickeable m-b-xs m-r animated fadeInRight speed-3x delay-5ms" data-type="refreshDB" data-animation="bounceIn">
+                          <i class="material-icons text-white">refresh</i>
+                      </span>
+
+                      <span class="btn btn-icon no-border clickeable m-b-xs animated zoomIn speed-5x delay-4ms" data-type="syncList" data-animation="bounceIn">
+                        <span class="connectionStatus">
+                          <i class="material-icons text-warning md-24">signal_wifi_4_bar</i>
+                        </span>
+                      </span>
+
+                      <span class="btn btn-icon no-border clickeable m-b-xs m-l animated fadeInLeft speed-3x delay-5ms" data-type="tutorial" data-animation="bounceIn">
+                          <i class="material-icons text-white">live_help</i>
+                      </span>
+
+                      <span class="btn btn-icon no-border clickeable m-b-xs m-l animated fadeInLeft speed-3x delay-5ms" data-type="darkMode" data-animation="bounceIn">
+                          <i class="material-icons text-white">brightness_medium</i>
+                      </span>
+
+                      <div class="text-muted m-t-sm">
+                        Versión <span class="appVersionCachedInHTML"><?=APP_VERSION?></span>
+                      </div>
+                    </div>
+
+                    <a href="#menu" class="col-xs-12 wrapper-sm text-left rounded dk navigate m-t text-sm font-normal" id="ncmMenuUserInfo">
+                      <span class="pull-left thumb-sm avatar m-r" id="companyLogo"> 
+                        <img src="" id="companyImg"> 
+                      </span> 
+
+                      <span class="clear"> 
+                        <span class="userName"></span> <span class="userRole text-muted"></span> 
+                        <small class="text-muted clear text-ellipsis outletAndRegisterText"></small> 
+                      </span> 
+                    </a>
+                  </div>
+
+                </div>
+              </div>
+
+              <div class="col-lg-4 col-lg-offset-2 col-sm-4 wrapper hidden-xs animated delay-2ms speed-5x rightBlock2">
+                <div class="col-xs-12 wrapper-xs m-b bg-black r-24x scrollable hidden menuWidgetOffsetBgLogo" style="max-height:292px;" id="dropboxUserWidget"></div>
+              </div>
+              
+              <div class="col-lg-3 col-sm-4 wrapper hidden-xs animated delay-3ms speed-5x rightBlock">
+
+                <div class="col-xs-12 wrapper m-b bg-black r-24x text-white text-right menuWidgetOffsetBgLogo" id="ncmMenuTime" style="background-image:url(https://app.encom.app/images/iconincomesm.png);">
+                  <div class="m-b-n font-thin m-t-n notifyHour font-bold" style="font-size: 4.3em;">##:##</div>
+                  <div class="text-md notifyDate">####, # ###. ####</div>
+                </div>
+
+                <div class="col-xs-12 wrapper m-b bg-black r-24x text-left" id="twitternews"></div>
+
+                <div class="col-xs-12 wrapper m-b bg-black r-24x menuWidgetOffsetBgLogo" id="spotifyWidgetPlayerWrap" style="background-image:url(https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/app/images/spotify.png);"></div>
+
+                <div class="col-xs-12 no-padder text-right m-b">
+
+                  <a href="#" class="clickeable btn btn-icon btn-dark btn-lg bg-black r-24x m-l-xs" data-type="syncList" data-animation="bounceIn" title="Estado de la conexión" data-toggle="tooltip" data-placement="left">
+                    <span class="connectionStatus">
+                      <i class="material-icons md-24">signal_wifi_4_bar</i>
+                    </span>
+                  </a>
+
+                  <a href="#" class="clickeable btn btn-icon btn-dark btn-lg bg-black r-24x m-l-xs" data-type="darkMode" data-animation="bounceIn" title="Dark/Light Mode" data-toggle="tooltip" data-placement="left">
+                    <span class="material-icons md-24">brightness_medium</span>
+                  </a>
+
+                  <a href="#" class="clickeable btn btn-icon btn-dark btn-lg bg-black r-24x m-l-xs" data-type="tutorial" data-animation="bounceIn" title="Iniciar guía interactiva" data-toggle="tooltip" data-placement="left">
+                    <span class="material-icons md-24">live_help</span>
+                  </a>
+
+                  <a href="#" class="clickeable btn btn-icon btn-dark btn-lg bg-black r-24x m-l-xs" data-type="refreshDB" target="_blank" title="Actualizar base de datos interna" data-toggle="tooltip" data-placement="left">
+                      <span class="material-icons md-24">refresh</span>
+                  </a>
+
+                  <a href="#" class="clickeable btn btn-icon btn-dark btn-lg bg-black r-24x m-l-xs hidden-tablet hidden-xs" data-type="goFullScreen" title="Modo pantalla completa" data-toggle="tooltip" data-placement="left" data-animation="bounceIn">
+                    <span class="material-icons md-24">fullscreen</span>
+                  </a>
+
+                </div>
+
+                <span class="col-xs-12 text-right">
+                  <div class="text-muted badge bg-dark dker">Versión <span class="appVersionCachedInHTML"><?=APP_VERSION?></span></div>
+                </span>
+
+                
+              </div>
+
+
+              
+            </div>            
+          </div>
+          <div id="menu" class="fullheight bg-black-opacity-9 col-xs-12 no-padder clickeable scrollable" data-type="hideMenu" style="display:none; position:absolute; left:0; z-index: 999;">
+
+            <div class="col-xs-12 wrapper" data-height="71" id="topMainMenu">
+
+              <div class="col-sm-5 col-xs-12 no-padder m-b">
+                <a href="#" class="block clickeable hideMenuX" data-type="hideMenu">
+                   <i class="material-icons text-white md-24">close</i>
+                </a>
+              </div>
+
+              <div class="col-sm-2 col-xs-12 no-padder text-center m-b">
+                <div class="h3 font-bold text-white companyName"></div>
+              </div>
+
+              <div class="col-sm-5 col-xs-12 no-padder text-right" id="topMainMenuBtnOps">
+
+                <a href="#" class="clickeable m-l-md" data-type="darkMode" data-animation="bounceIn" title="Dark/Light Mode" data-toggle="tooltip" data-placement="left">
+                  <span class="material-icons text-white md-24">brightness_medium</span>
+                </a>
+
+                <a href="#" class="clickeable m-l-md" data-type="tutorial" data-animation="bounceIn" title="Iniciar guía interactiva" data-toggle="tooltip" data-placement="left">
+                  <span class="material-icons text-white md-24">live_help</span>
+                </a>
+
+                <a href="#" class="clickeable m-l-md" data-type="refreshDB" target="_blank" title="Actualizar base de datos interna" data-toggle="tooltip" data-placement="left">
+                    <span class="material-icons text-white md-24">refresh</span>
+                </a>
+
+                <a href="#" class="clickeable m-l-md hidden-tablet" data-type="goFullScreen" title="Modo pantalla completa" data-toggle="tooltip" data-placement="left" data-animation="bounceIn">
+                  <span class="material-icons text-white md-24">fullscreen</span>
+                </a>
+
+                <a href="#" class="clickeable m-l-md" data-type="syncList" data-animation="bounceIn" title="Estado de la conexión" data-toggle="tooltip" data-placement="left">
+                  <span class="connectionStatus">
+                    <i class="material-icons md-24">signal_wifi_4_bar</i>
+                  </span>
+                </a>
+
+              </div>
+            </div>
+
+            <div class="col-xs-12 scrollable" data-height="201" data-margin-top="20" id="bodyMainMenu">
+              <div class="col-lg-9 col-md-10 col-sm-10 col-xs-12 col-lg-offset-2 col-md-offset-1">
+
+                <a href="#drawer" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate hidden-resource drawerControlBtn" style="display:none;">
+                  <span class="text-white block text-sm hidden-xs">Ver</span> 
+                  <span class="text-white"> Control de Caja </span>
+                </a>
+
+                <a href="#transactions" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate hidden-resource">
+                  <span class="text-white block text-sm hidden-xs">Ver</span> 
+                  <span class="text-white"> Transacciones </span>
+                </a>
+
+                <a href="#openAgenda" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate hidden-resource"> 
+                  <span class="text-white block text-sm hidden-xs">Ver</span> 
+                  <span class="text-white"> Agenda </span>
+                </a>
+
+                <a href="#openOrders" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate hidden-resource"> 
+                  <span class="text-white block text-sm hidden-xs">Ver</span> 
+                  <span class="text-white"> Órdenes </span>
+                </a>
+
+                <a href="#settings" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate hidden-resource" id="settingsMenuBtn" > 
+                  <span class="text-white block text-sm hidden-xs">Ver</span> 
+                  <span class="text-white"> Ajustes </span>
+                </a>
+
+                <a href="#" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate visible-xs visible-resource myMenuLoadPage ncmMyMenuOrders"> 
+                  <span class="text-white block text-sm hidden-xs">Ver</span> 
+                  <span class="text-white"> Mis Pedidos </span>
+                </a>
+
+                <a href="#" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate visible-xs visible-resource clickeable ncmMyMenuSchedule" data-type="link"> 
+                  <span class="text-white block text-sm hidden-xs">Ver</span> 
+                  <span class="text-white"> Mi Agenda </span>
+                </a>
+
+                <a href="#" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate visible-xs hidden-resource clickeable" data-type="QRAttendance" id="QRAttendance"> 
+                  <span class="text-white visible-xs">Registrar Asistencia </span>
+                </a>
+
+                <a href="#" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate visible-xs hidden visible-boss hidden-resource clickeable" data-type="QREnableDevice"> 
+                  <span class="text-white block text-sm hidden-xs">QR - Activar</span> 
+                  <span class="text-white hidden-xs"> Dispositivo </span>
+                  <span class="text-white visible-xs">Activar Dispositivo </span>
+                </a>
+
+                <a href="#" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate visible-xs hidden visible-boss hidden-resource clickeable ncmMyMenuPanel" data-type="link"> 
+                  <span class="text-white">Panel de Control </span>
+                </a>
+
+                <a href="#lock" class="wrapper-md m-t-md col-lg-3 col-sm-4 col-xs-12 font-bold h3 b-l b-2x b-white navigate salirBtn" data-animation="bounceIn"> 
+                  <span class="text-white block text-sm hidden-xs">Bloquear o </span> 
+                  <span class="text-white"> Salir <span class="text-muted text-sm font-thin hidden-xs">(ESC)</span> </span>
+                </a>
+              </div>
+            </div>
+
+            <div class="col-xs-12" data-height="125" data-margin-top="28" id="footMainMenu">
+              <div class="col-md-3 col-sm-5 no-padder">
+                <a href="#menu&a=more" class="col-xs-12 wrapper-sm text-left rounded bg-dark dk navigate m-t text-sm font-normal" id="ncmMenuUserInfo">
+
+                  <span class="pull-left thumb-sm avatar m-r companyLogo"> 
+                    <img src="" class="companyImg"> 
+                  </span> 
+
+                  <span class="clear"> 
+                    <span class="userName text-white"></span> <span class="userRole text-muted"></span> 
+                    <small class="text-muted clear text-ellipsis outletAndRegisterText"></small>
+                    <small class="text-muted">Versión <span class="appVersionCachedInHTML"><?=APP_VERSION?></small>
+                  </span> 
+                </a>
+              </div>
+              <div class="col-md-3 col-sm-1 no-padder"></div>
+              <div class="col-md-3 col-sm-1 no-padder"></div>
+              
+              <div class="col-md-3 col-sm-5 no-padder text-right hidden-xs">
+                  <div class="col-xs-12 wrapper m-b bg-black r-24x menuWidgetOffsetBgLogo" id="spotifyWidgetPlayerWrap" style="background-image:url(https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/app/images/spotify.png);"></div>
+              </div>
+            </div>
+
+            <div class="col-xs-12 wrapper-lg"></div>
+                     
+          </div>
+          <div id="menuBackDrop" class="animated bg-black-opacity-3 fullheight speed-4x col-xs-12 no-padder fadeIn" style="display:none; position: absolute; left: 0px; z-index: 998;"></div>
+
+          <div id="modulesBtn" class="text-center col-xs-12 no-padder animated bounceIn">
+            <div style="display: none;" id="modulesMenu">
+              <a href="#selectCategory&i=all" class="btn btn-rounded btn-lg btn-icon bg-dark dker text-danger no-border md-whiteframe-6dp m-b hotKeysCatModulesBtn animated speed-5x delay-1ms zoomIn navigate" data-toggle="tooltip" data-original-title="HotKeys" data-placement="right"><i class="material-icons text-danger">whatshot</i></a>
+
+              <a href="#orders_module" class="btn btn-rounded btn-lg btn-icon bg-dark dker text-white no-border md-whiteframe-6dp m-b ordersModulesBtn animated speed-5x delay-1ms zoomIn navigate" data-toggle="tooltip" data-original-title="Órdenes" data-placement="right"><i class="material-icons text-white">&#xe1b2;</i></a>
+              <a href="#tables_module" class="btn btn-rounded btn-lg btn-icon bg-dark dker text-success no-border md-whiteframe-6dp m-b tablesModulesBtn animated speed-5x zoomIn navigate"  data-toggle="tooltip" data-original-title="Espacios" data-placement="right"><i class="material-icons">view_sidebar</i></a>
+              <a href="#schedule_module" class="btn btn-rounded btn-lg btn-icon bg-dark dker text-primary md-whiteframe-6dp m-b calendarModulesBtn animated speed-5x zoomIn navigate" data-toggle="tooltip" data-original-title="Agenda" data-placement="right"><i class="material-icons">&#xe916;</i></a>
+            </div>
+            <a href="#" class="btn btn-rounded btn-xl btn-icon btn-dark md-whiteframe-6dp clickeable" id="modulesBtnMain" data-type="modulesMenu" style="border-radius: 100px;" data-toggle="tooltip" data-placement="right">
+              <i class="material-icons toggleSymbol addIcon md-24">add</i> 
+              <i class="material-icons toggleSymbol closeIcon md-24" style="display: none;">close</i>
+            </a>
+          </div>
+          
+          <div class="col-sm-8 no-padder momentumit fullheight hidden-xs animateSizeChange" id="hotkeys">
+          </div>
+
+          <div class="col-sm-4 col-xs-12 no-padder b-l b-light" id="sidebar">
+
+            <div class="text-center no-padder col-xs-12" id="foot">
+              
+              <div id="footerHolder" class="col-xs-12 wrapper">
+                <div class="payBtnTools m-b-xs row hidden">
+                  <a href="#" class="btn btn-sm btn-rounded text-u-c font-bold saleCondition noReturnDisabled clickeable m-r-xs animated fadeInRight speed-3x delay-5ms" data-type="saleCondition" data-toggle="tooltip" data-original-title="Activar venta a Crédito" data-placement="top">Crédito</a>
+
+                  <a href="#" class="btn btn-sm btn-rounded text-u-c font-bold noReturnDisabled internalSale clickeable m-r-xs animated zoomIn speed-5x delay-4ms" data-toggle="tooltip" data-original-title="Activar ámbito interno" data-placement="top" data-type="internalSale">Interno</a>
+
+                  <a href="#" class="btn btn-sm btn-rounded text-u-c font-bold checkPermissionsBtn clickeable animated fadeInLeft speed-3x delay-5ms" data-toggle="tooltip" data-original-title="Añadir/Remover Impuestos" data-placement="top" data-type="rmTax">
+                    <i class="material-icons text-danger m-r-sm">close</i>
+                    <span class="pull-right" id="taxableField"></span>
+                  </a>
+                  <a href="#" class="btn btn-sm btn-rounded text-u-c font-bold checkPermissionsBtn clickeable animated fadeInLeft speed-3x delay-5ms" data-toggle="tooltip" data-original-title="Añadir/Remover Impuestos" data-placement="top" data-type="addTax" style="display: none;">
+                    <i class="material-icons text-success m-r-sm">add</i>
+                    <span class="pull-right taxName"></span>
+                  </a>
+                </div>
+
+                <a href="#schedule_module&dp=1&timer=1" class="btn btn-sm btn-rounded bg-white hidden text-u-c font-bold scheduleTimePreview m-r-sm animated zoomIn speed-5x m-b-sm navigate">
+                  <i class="material-icons m-r-sm">
+                   &#xe916;
+                  </i>
+                  Asigne una fecha y horario
+                </a>
+
+                <a href="#pay" class="clear rounded wrapper-sm theBigPayBtn gradBgBlue animateBg animated bg-info navigate" style="font-size:2.8em;">
+                  <span class="block text-xs text-muted font-bold txtCobrar hidden">Cobrar</span>
+                  <div class="col-xs-12 count totalPrice font-bold animated text-white" style="line-height:1;">0</div>
+                </a>
+              </div>
+
+            </div>
+
+
+            <div class="col-xs-12 no-padder BPBPhone">
+              <div class="text-center col-xs-12 no-padder"> 
+
+                <a href="#menu" class="col-xs-3 wrapper h4 pointer animated fadeInDown speed-3x delay-3ms navigate" data-toggle="tooltip" data-original-title="Menú Principal (TAB)" data-placement="bottom"> 
+                  <i class="material-icons md-24">sort</i>
+                </a>
+
+                <a href="#items" class="col-xs-3 wrapper h4 pointer animated fadeInDown speed-3x delay-2ms navigate" data-animation="bounceIn" data-toggle="tooltip" data-original-title="Artículos (Q)" data-placement="bottom">
+                  <i class="material-icons md-24">search</i>
+                </a>
+
+                <a href="#customers" class="col-xs-3 wrapper h4 pointer animated fadeInDown speed-3x delay-1ms navigate" data-animation="bounceIn" data-toggle="tooltip" data-original-title="Clientes (W)" data-placement="bottom">
+                  <i class="material-icons md-24">person</i>
+                </a>
+
+                <a href="#" class="col-xs-3 wrapper h4 pointer animated fadeInDown speed-3x navigate clickeable" data-type="actionSheet" data-html="#menuOpsList" data-toggle="tooltip" data-original-title="Menú de Opciones (E)" data-placement="bottom"> 
+                  <i class="material-icons toggleSymbol md-24 animated bounceIn">more_horiz</i>
+                </a>
+
+                <span class="hidden" id="menuOpsList">
+                  <a href="#" class="clickeable wrapper text-md block" data-type="resumePrint"> 
+                    <i class="material-icons text-muted m-r">print</i>Imprimir
+                  </a>
+                  <a href="#" class="clickeable wrapper text-md block noReturn hide-low no-bg" data-type="discount"> 
+                    <i class="material-icons text-muted m-r">&#xe5c6;</i>Descuento
+                  </a>
+                  <a href="#" class="clickeable wrapper text-md block" data-type="note"> 
+                    <i class="material-icons text-muted m-r">&#xe0cb;</i>Nota
+                  </a>
+                  <a href="#" class="hide-basic hideFreePlan hideNoUsers clickeable wrapper text-md block" data-type="addUser"> 
+                    <i class="material-icons text-muted m-r">&#xe851;</i>Usuario
+                  </a>
+                  <a href="#" class="clickeable wrapper text-md block" data-type="modalTags"> 
+                    <i class="material-icons text-muted m-r">&#xe893;</i>Etiquetas <span class="text-muted text-sm font-thin hidden-xs">(T)</span>
+                  </a>
+                  <a href="#" class="clickeable hide-basic noReturn wrapper text-md block" data-type="saveSale"> 
+                    <i class="material-icons text-muted m-r">save</i>Guardar
+                  </a>
+                  <a href="#" class="clickeable visible-high wrapper text-md block" data-type="toggleReturnMode"> 
+                    <i class="material-icons text-muted m-r">&#xE166;</i>Devolución
+                  </a>  
+                  <a href="#" class="clickeable wrapper text-md block" data-type="toggleQuote"> 
+                    <i class="material-icons text-muted m-r">&#xe226;</i>Cotización <span class="text-muted text-sm font-thin hidden-xs">(O)</span>
+                  </a>
+                  <a href="#" class="clickeable wrapper text-md block" data-type="toggleRemission"> 
+                    <i class="material-icons text-muted m-r">local_shipping</i>Remisión
+                  </a>
+                  <a href="#" class="clickeable wrapper text-md block" data-type="addOrder"> 
+                    <i class="material-icons text-muted m-r">assignment</i>Orden
+                  </a>
+                </span>
+
+              </div>  
+            </div>
+            <div id="mobileItemsList" class="col-xs-12 no-padder">
+              <div class="col-xs-12 no-padder" id="registerTable">
+              </div>
+            </div>
+                
+            <div id="toScrapWithJs" style="display:none;" class="animated fadeIn">    
+              <div id="cartEmpty">
+                <span class="inthelist block no-bg clearfix text-center animated fadeIn">
+                  <img src="images/incomeLogoLgGray.png" width="120" id="logoSaleList" />
+                  <a href="#" class="clickeable m-t visible-xs wrapper-md" data-type="itemCustomAmount">
+                    <span class="material-icons md-24"> dialpad </span>
+                  </a>
+                </span>
+              </div>
+
+              <div id="clearSaleBtn">
+                <span class="inthelist text-center wrapper-sm clickeable m-t col-xs-12" data-type="empty" style="margin-bottom: 150px;"> 
+                  <div class="pointer h3 text-danger"><i class="material-icons md-24" data-toggle="tooltip" data-original-title="Eliminar transacción" data-placement="bottom">&#xe92b;</i></div> 
+                </span>
+              </div>
+
+              <div id="lastItem">
+                <span class="inthelist block clearfix bg no-padder" style="height:50px;"></span>
+              </div>
+            </div>         
+          </div>
+
+          <div class="col-xs-4 bg-light bg fullheight" id="hksidebar" style="display:none;">
+
+              <div class="text-center side-lg padder-xs animated fadeInUp speed-4x" style="margin-top:30%;">
+                <h1 class="m-b-sm"><i class="material-icons text-danger md-48 m-b">whatshot</i></h1>
+                <h3 class="m-t-n font-bold">HotKeys</h3>
+                <p class="text-muted text-sm">
+                  Añada, ordene y edite sus accesos rápidos para los <br> artículos más vendidos o con mayor demanda.
+                </p>
+
+                <span class="btn btn-info btn-lg btn-rounded hotKeysEvents text-u-c font-bold" data-type="editHotkeysOff">Guardar</span>
+
+                <ul class="text-muted text-md text-left m-t">
+                  <li>
+                    Presione el simbolo "+" para añadir un producto o servicio en la casilla deseada
+                  </li>
+                  <li>
+                    Seleccione el color de cada cuadro en los círculos de colores dentro de cada cuadro.
+                  </li>
+                  <li>
+                    Para eliminar un artículo, presione <i class="material-icons text-danger">close</i> en el lado superior izquierdo del cuadro que desea eliminar.
+                  </li>
+                  <li>
+                    Puede reordenar los HotKeys arrastrando el bloque hasta el espacio en blanco deseado.
+                  </li>
+                </ul>
+
+                <span class="hotKeysEvents text-lg text-danger" data-type="hkClearAll">Eliminar todos</span>
+              </div>
+          </div>
+
+          <div id="backdropOps" class="bg-black-opacity-2 animated fadeIn" style="width: 100%; top:0; bottom:0; height:100%; position:absolute;z-index: 996; display:none;"></div>
+        </div>
+      </div>
+      <!--REGISTER END-->
+
+      <!--CONFIRMSCREEN-->
+      <div class="fullheight noscroll animateBg gradBgBlue col-xs-12 no-padder hidden-print" id="confirmScreen" style="display:none;">
+        <div class="col-sm-3 col-md-4 hidden-xs"></div>
+        <div class="col-sm-6 col-md-4 col-xs-12 wrapper-sm text-white text-center verticalAlign" data-height="323">
+          <i class="material-icons confirmIcon animated" style="font-size:15em!important; line-height:1!important;">check</i>
+          <div class="h3 m-t-n m-b font-bold confirmTools animated">
+            <span class="confirmType">Cambio </span>
+            <span class="confirmChange"></span>
+            <div class="text-sm confirmNo"></div>
+          </div>
+
+          <div class="row">
+            <a href="#" class="btn btn-default btn-s-md btn-rounded btn-lg m-t m-r no-border font-bold clickeable confirmTools animated navigate speed-5x" data-type="printOptions" data-toggle="tooltip" data-original-title="Imprima desde el listado de impresoras"><span>IMPRIMIR</span></a>
+            
+            <a href="#" class="btn btn-default btn-s-md btn-rounded btn-lg m-t no-border font-bold clickeable confirmTools animated navigate speed-5x" data-type="createNewSale" data-toggle="tooltip" data-original-title="Volver a la pantalla de ventas, también puede presionar la tecla ESC"><span>ATRÁS</span></a>
+          </div>
+
+          <div class="row text-center hidden viewCurrencyTableWrap">
+            <a href="#" class="text-white clickeable" data-type="currency">Ver cotizaciones</a>
+          </div>
+
+          <div class="row">
+            <a href="#" class="btn btn-default btn-s-md btn-rounded hidden btn-lg m-t no-border font-bold clickeable confirmTools animated navigate speed-5x" data-type="createSaleOrder" data-toggle="tooltip" data-original-title="Generar una orden de esta venta"><span>ORDENAR</span></a>
+          </div>
+
+        </div>
+        <div class="col-sm-3 col-md-4 hidden-xs"></div>
+      </div>
+      <!--CONFIRMSCREEN END-->
+
+      <!--LOCKED ACCOUNT-->
+      <div class="bg-light lter fullheight animated slideInDown speed-3x col-xs-12 no-padder hidden-print" id="lockedAccount" style="display: none;">
+        <div class="text-center" style="position:absolute;top:0;left:0;bottom:0;right:0;margin:auto;width:100%;max-width:530px;">
+          <div>
+            <img src="https://assets.encom.app/images/partialLock.png" style="max-height:280px;">
+          </div>
+          <h1 class="font-bold text-dark">Cuenta bloqueada</h1>
+          <div class="col-xs-12 no-padder m-b">
+            <p class="text-lg m-b-md">Su cuenta se encuentra <strong>temporalmente bloqueada</strong> por falta de pago, no podrá acceder al panel de control ni a la caja hasta regularizar el pago.</p>
+            <p class="text-lg">Por favor contáctenos y le asistiremos.</p>
+            <a href="?l=1" class="text-center text-danger m-t-lg block">[ Desinstalar ENCOM ]</a>
+          </div>
+        </div>
+      </div>
+      <!--LOCKED ACCOUNT-->
+    
+      <!--NEW MODALS-->
+      <div id="allModals">
+        
+        <!-- Numeric keyboard -->
+        <div class="col-xs-12 wrapper-sm bg-light dk text-center text-u-c all-shadows animated fadeInUp speed-5x" id="softNumberKeyboard" style="display:none;position:absolute;bottom:0;z-index: 1001;">
+
+          <div class="col-sm-6 col-sm-offset-3 col-md-4 col-md-offset-4 col-xs-12 no-padder">
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="1"><span class="text-dark">1</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="2"><span class="text-dark">2</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="3"><span class="text-dark">3</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="4"><span class="text-dark">4</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="5"><span class="text-dark">5</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="6"><span class="text-dark">6</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="7"><span class="text-dark">7</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="8"><span class="text-dark">8</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="9"><span class="text-dark">9</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-block btn-lg hidden wrapper" data-key="close"><i class="material-icons">&#xe313;</i></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x wrapper" data-key="0"><span class="text-dark">0</span></a>
+            </div>
+            <div class="col-xs-4 no-padder">
+              <a href="#" class="btn btn-block btn-lg wrapper" data-key="backspace"><i class="material-icons">backspace</i></a>
+            </div>
+          </div>
+          <div class="col-sm-3 col-md-4 no-padder"></div>
+        </div>
+
+        <!-- QWERTY keyboard -->
+        <div class="col-xs-12 wrapper bg-light text-center text-u-c all-shadows animated fadeInUp speed-5x" id="softQwertyKeyboard" style="display:none;position:absolute;bottom:0;z-index: 1001;">
+          <div class="col-xs-12">
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="1">1</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="2">2</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="3">3</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="4">4</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="5">5</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="6">6</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="7">7</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="8">8</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="9">9</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="0">0</a>
+            </div>
+            <div class="col-xs-2 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg" data-key="backspace"><i class="material-icons">backspace</i></a>
+            </div>
+          </div>
+          <div class="col-xs-12">
+            <div class="col-xs-1 no-padder"></div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="q">q</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="w">w</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="e">e</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="r">r</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="t">t</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="y">y</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="u">u</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="i">i</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="o">o</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="p">p</a>
+            </div>
+            <div class="col-xs-1 no-padder"></div>
+          </div>
+          <div class="col-xs-12">
+            <div class="col-xs-1 no-padder"></div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="a">a</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="s">s</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="d">d</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="f">f</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="g">g</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="h">h</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="j">j</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="k">k</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="l">l</a>
+            </div>
+            <div class="col-xs-2 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="enter">Enter</a>
+            </div>
+          </div>
+          <div class="col-xs-12">
+            <div class="col-xs-2 no-padder"></div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="z">z</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="x">x</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="c">c</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="v">v</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="b">b</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="n">n</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="m">m</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key=",">,</a>
+            </div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key=".">.</a>
+            </div>
+          </div>
+          <div class="col-xs-12">
+            <div class="col-xs-2 no-padder"></div>
+            <div class="col-xs-1 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="@">@</a>
+            </div>
+            <div class="col-xs-7 no-padder">
+              <a href="#" class="btn btn-default btn-block btn-lg font-bold r-2x" data-key="space">&nbsp;</a>
+            </div>
+            <div class="col-xs-1 no-padder"><a href="#" class="btn btn-block btn-lg hidden" data-key="close"><i class="material-icons">close</i></a></div>
+            <div class="col-xs-1 no-padder"></div>
+          </div>
+        </div>
+
+        <!--Action sheet-->
+        <div class="col-xs-12 no-padder animated fadeInUp speed-5x asClose momentumit" id="actionSheet" style="display:none;position:absolute;bottom:0;z-index: 1003;">
+          <div class="col-sm-6 col-sm-offset-3 col-md-4 col-md-offset-4 col-xs-12 md-whiteframe-12dp r-24x clear bg-white no-padder" id="actionSheetBody">
+            <div class="col-xs-12 wrapper text-right" id="actionSheetHead">
+            </div>
+            <div class="actionSheetContent col-xs-12 wrapper">
+              
+            </div>
+          </div>
+        </div>
+        <!--action sheet end-->
+
+        <!-- Modal narrow -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalNarrow">
+          <div class="col-sm-3 col-lg-4 hidden-xs"></div>
+            <div class="col-sm-6 col-lg-4 col-xs-12 text-center r-24x clear bg-white imodal-content md-whiteframe-12dp no-padder">
+              <div class="col-xs-12 imodal-header no-padder visible-xs">
+              </div>
+              <div class="imodal-body col-xs-12 no-padder" style="min-height: 200px;">
+              </div>
+            </div>
+          <div class="col-sm-3 col-lg-4 hidden-xs"></div>
+        </div>
+
+        <!-- Modal empty -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalEmpty">
+          <div class="col-sm-3 hidden-xs"></div>
+          <div class="col-sm-6 col-xs-12 text-center r-24x clear bg-white imodal-content md-whiteframe-12dp no-padder">
+            <div class="col-xs-12 imodal-header no-padder visible-xs">
+            </div>
+            <div class="imodal-body col-xs-12 wrapper" style="min-height: 400px;">
+              <div></div>
+            </div>
+          </div>
+          <div class="col-sm-3 hidden-xs"></div>
+        </div>
+
+        <!-- Modal FULL -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalFull">
+          <div class="col-sm-1 col-lg-2 hidden-xs"></div>
+            <div class="col-sm-10 col-lg-8 col-xs-12 text-center r-24x clear bg-white noPopup imodal-content md-whiteframe-12dp no-padder">
+              <div class="col-xs-12 imodal-header no-padder visible-xs">
+              </div>
+              <div class="imodal-body col-xs-12 wrapper" style="min-height: 200px;">
+
+              </div>
+            </div>
+          <div class="col-sm-1 col-lg-2 hidden-xs"></div>
+        </div>
+
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalHotkeys">
+            <div class="col-sm-3 hidden-xs"></div>
+            <div class="col-sm-6 text-center col-xs-12 clear r-24x bg-light lt noPopup imodal-content md-whiteframe-12dp no-padder">
+                <div class="col-xs-12 imodal-header no-padder visible-xs">
+                </div>
+                <div class="imodal-body col-xs-12 no-padder">
+                  <div id="modalHotkeysBody"></div>
+                </div>
+            </div>
+            <div class="col-sm-3 hidden-xs"></div>
+        </div>
+
+        <!-- Modal scanner -->
+        <div class="imodal animated speed-5x momentumit" data-backdrop="1" style="display:none;" id="modalScanner">
+          <div class="col-sm-3 hidden-xs"></div>
+            <div class="col-sm-6 col-xs-12 text-center r-24x imodal-content noPopup no-padder">
+              <div class="col-xs-12 imodal-header no-padder visible-xs">
+              </div>
+              <div class="imodal-body r-24x col-xs-12 wrapper text-center">
+                <div class="col-xs-12 m-b">
+                  <img src="/images/baricon.png" width="150">
+                </div>
+                <span class="label bg-dark rounded text-u-c">Escanee el código</span>
+              </div>
+            </div>
+          <div class="col-sm-3 hidden-xs"></div>
+        </div>        
+
+        <!-- Modal codeInput -->
+        <div class="imodal animated speed-5x momentumit" data-backdrop="1" style="display:none;" id="modalSpotlight">
+          <div class="col-md-6 col-md-offset-3 col-sm-8 col-sm-offset-2 col-xs-12 text-center r-24x imodal-content noPopup no-padder">
+            <div class="col-xs-12 imodal-header no-padder visible-xs">
+            </div>
+            <div class="imodal-body r-24x col-xs-12 wrapper">
+              <form class="form" data-type="item" role="form">
+                <div class="text-center m-b m-t-n clickeable" id="cameraScanner" style="display: none;" data-type="cameraScanner"><i class="material-icons text-white md-36">camera</i></div>
+                <input type="search" class="form-control input-lg bg-white rounded no-border text-center font-bold block" placeholder="Buscar productos o servicios" id="itemInputBarcode" autocomplete="off"  style="font-size:25px; height:55px;">
+
+                <div class="text-white col-xs-12 wrapper text-center font-normal hidden" id="encAutoCompleteMsg">Administra tus productos y servicios en <br> <a href="https://panel.encom.app/@#items" class="h3 text-white clickeable" data-type="link">panel.encom.app/@#items</a></div>
+                
+                <div  class="no-padder md-whiteframe-12dp r-24x m-t col-xs-12 m-b-lg bg-white hidden animated fadeIn speed-3x" id="encAutoComplete">
+                  <div class="arrow top"></div>
+                  <div id="encAutoCompleteHolder" class="col-xs-12 no-padder m-b-sm">
+                    
+                  </div>
+                </div>
+
+              </form>
+            </div>
+          </div>
+        </div>        
+
+        <!-- Modal customerInput -->
+        <div class="imodal animated speed-5x momentumit" data-backdrop="1" style="display:none;" id="modalSpotlightCustomer">
+          <div class="col-sm-3 hidden-xs"></div>
+            <div class="col-sm-6 col-xs-12 noPopup text-center r-24x imodal-content no-padder">
+
+              <div class="col-xs-12 imodal-header no-padder visible-xs">
+              </div>
+
+              <div class="imodal-body r-24x col-xs-12 wrapper">
+                <form class="form" data-type="customerSearchBar" role="form">
+                  <input type="search" class="form-control input-lg bg-white rounded no-border text-center font-bold block" placeholder="Buscar clientes" id="customerInputSearch" autocomplete="off" style="font-size:25px; height:55px;">
+                </form>
+                  
+                <div  class="no-padder md-whiteframe-6dp r-24x m-t col-xs-12 m-b-lg bg-white hidden animated fadeIn speed-4x" id="encAutoCompleteCustomer">
+                  <div class="arrow top"></div>
+                  <div id="encAutoCompleteHolderCustomer" class="col-xs-12 no-padder m-b-sm hidden"></div>
+
+                  <div id="encAutoCompleteHolderAddCustomer" class="col-xs-12 no-padder r-24x clear">
+                    <form class="form" data-type="customer" role="form" id="addCustomerForm">
+
+                      <div class="bg-light bg col-xs-12 wrapper text-left" id="addCustomerFormHead"> 
+
+                        <div class="text-center text-u-c font-bold">Crear Cliente</div>
+
+                        <div class="col-sm-7 b-l b-5x b-light wrapper-sm m-t">
+                          <input type="text" class="form-control input-lg no-border no-padder b-b b-light no-bg text-dark font-bold" placeholder="Razón Social" id="crname" name="name" value="" style="font-size:28px; height:35px;" tabindex="2" autocomplete="off">
+                          <input type="text" class="form-control no-border no-bg b-b b-light m-t-xs font-bold" placeholder="Nombre y Apellido" id="crfullname" name="fullname" value="" tabindex="4" autocomplete="off">
+                          <input type="text" class="form-control no-border no-bg b-b b-light m-t-xs m-b" placeholder="Doc. de Identidad" id="crci" name="crci" value="" tabindex="5" autocomplete="off">
+                        </div>
+
+                        <div class="col-sm-5 no-padder text-right m-t-sm">  
+                          <div class="input-group"> 
+                            <input type="text" class="form-control input-lg no-border no-bg b-b b-light text-right m-t-xs" placeholder="RUC" id="crruc" name="ruc" value="" tabindex="3" autocomplete="off"> 
+                            <span class="input-group-btn hidden" id="searchForTINHolder"> 
+                              <a href="#" class="btn no-bg" type="button" id="searchForTIN" data-toggle="tooltip" data-original-title="Presione para buscar" data-placement="bottom">
+                              <i class="material-icons text-info">search</i></a> 
+                            </span> 
+                          </div>
+                          <input class="btn bg-info text-white btn-rounded btn-lg clienteSubmit font-bold text-u-c m-t m-b" type="submit" value="Crear Cliente">
+                          <a href="#" class="block m-t clickeable wrap-l-sm" data-type="cleanAddCustomerForm">[ Borrar Formulario ]</a>
+                        </div>
+                      </div>
+
+                      <div class="col-xs-12 wrapper bg-light lter">
+                        <div class="col-xs-12 momentumit panel r-24x no-padder">
+                          
+                          <div class="col-xs-12 no-padder addCustomerMapPreview"></div>
+
+                          <div class="col-sm-6 col-xs-12">
+                            <input type="email" class="form-control input-lg no-border no-bg b-b b-light m-t-sm" placeholder="E-mail" id="cremail" name="email" value="" tabindex="6" autocomplete="off" /> 
+                          </div>
+
+                          <div class="col-sm-6 col-xs-12">
+                            <input type="tel" class="form-control input-lg phone no-border no-bg b-b b-light m-t-sm" placeholder="Teléfono" id="crphone" name="phone" value="" tabindex="7" autocomplete="off"/>
+                          </div>
+
+                          <div class="col-sm-6 col-xs-12">
+                            <input type="text" class="form-control craddressSuggestionStreet input-lg no-border no-bg b-b b-light m-t-sm" placeholder="Dirección" id="craddress" name="address" value="" tabindex="8" autocomplete="off" /> 
+
+                            <div class="col-xs-12 no-padder hidden craddressSuggestions">
+                              <table class="table text-left table-hover">
+                                <tbody>
+                                  
+
+                                </tbody>
+                              </table>
+                            </div>
+
+                          </div>
+
+                          <div class="col-sm-6 col-xs-12">
+                            <div class="no-bg">
+                              <input type="date" class="form-control input-lg no-border no-bg b-b b-light datePicker pointer m-t-sm" placeholder="Fecha de Nacimiento" id="crbirthday" name="birthday" value="" readonly="true" tabindex="9" autocomplete="off"/>
+                            </div>
+                          </div>
+
+                          <div id="ncmViewMoreCustomerFormBtn" class="col-xs-12 wrapper">
+                            <div class="btn btn-default btn-rounded btn-icon clickeable font-bold" data-type="toggleView" data-target="#ncmViewMoreCustomerForm,#ncmViewMoreCustomerFormBtn">
+                              <span class="material-icons">
+                                expand_more
+                              </span>
+                            </div>
+                          </div>
+
+                          <div class="col-xs-12 no-padder" style="display: none;" id="ncmViewMoreCustomerForm"> 
+
+                            <div class="col-sm-6 col-xs-12">
+                              <input type="tel" class="form-control input-lg phone no-border no-bg b-b b-light m-t-sm" placeholder="Teléfono 2" id="crphone2" name="phone" value="" tabindex="10" autocomplete="off"/>
+                            </div>
+
+                            <div class="col-sm-6 col-xs-12">
+                              <input type="text" class="form-control input-lg no-border no-bg b-b b-light m-t-sm" placeholder="Link de Google Maps o coordenadas" id="craddress2" name="address" value="" tabindex="11" autocomplete="off"/>
+                            </div>
+
+                            <div class="col-sm-6 col-xs-12">
+                              <input type="text" class="form-control input-lg no-border no-bg b-b b-light m-t-sm" placeholder="Localidad" id="crlocation" name="location" value="" tabindex="12" autocomplete="off"/>
+                            </div>
+
+                            <div class="col-sm-6 col-xs-12">
+                              <input type="text" class="form-control input-lg no-border no-bg b-b b-light m-t-sm" placeholder="Ciudad" id="crcity" name="city" value="" tabindex="13" autocomplete="off"/>
+                            </div>
+
+                            <div class="col-xs-12 m-t-sm">
+                                <textarea class="form-control no-border no-bg b-b b-light" style="height:80px;" placeholder="Nota" id="crdescription" name="message" tabindex="14" autocomplete="off"></textarea>
+                            </div>
+
+                            <div class="col-xs-12 no-padder"> 
+                                <span id="addClientPYTextHelp" class="col-xs-12 text-center text-xs text-muted noPY m-t-md m-b-lg">
+                                    *Para buscar por RUC, ingrese el número en el campo correspondiente y presione el ícono de la lupa
+                                </span>
+                            </div>
+
+                          </div>
+
+
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          <div class="col-sm-3 hidden-xs"></div>
+        </div>        
+
+        <!-- Modal Datepicker -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalDatePicker">
+          <div class="col-sm-4 hidden-xs"></div>
+            <div class="col-sm-4 col-xs-12 text-center bg-white clear r-24x imodal-content md-whiteframe-8dp no-padder">
+              <div class="imodal-body col-xs-12 no-padder">
+
+                <div class="col-xs-12 wrapper text-right visible-xs">
+                  <a href="#" class="block imodalclose" style="background: url(https://assets.encom.app/images/modal_handle_dk.png) no-repeat center top">
+                    <i class="material-icons md-24 imodalclose">close</i>
+                  </a>
+                </div>
+                
+                <div class="bg-info gradBgBlue animateBg text-center wrapper calendarCover">
+                  <i class="material-icons block" style="font-size:5em!important;">event</i>
+                  <div>
+                    Por favor indique una fecha de vencimiento
+                  </div>
+                </div>
+
+                <div class="bg-info gradBgPurple animateBg text-center wrapper calendarCoverSchedule" style="display: none;">
+                  <i class="material-icons block" style="font-size:5em!important;">&#xe916;</i>
+                  <div>
+                    Seleccione una fecha
+                  </div>
+                </div>
+
+                <div class="text-center col-xs-12 bg-light lter wrapper calendarHours" style="display:none;">
+                  <div class="col-xs-5 no-padder text-center">
+                    <div class="h5 font-bold">Desde</div>
+                    <input type="time" value="" class="col-xs-12 wrapper-xs bg-light dk rounded font-bold no-border text-center h3 pointer" id="dateFrom" autocomplete="off">
+                  </div>
+                  <div class="col-xs-5 col-xs-offset-2 no-padder text-center">
+                    <div class="h5 font-bold">Hasta</div>
+                    <input type="time" value="" class="col-xs-12 wrapper-xs bg-light dk rounded font-bold no-border text-center h3 pointer" id="dateTo"  autocomplete="off">
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="datePicker"></div>
+                </div>
+
+                <div class="col-xs-12 wrapper text-left" id="repeatWrap" style="display: none;">
+                  <div class="col-xs-12 wrapper-sm bg-light lter rounded">
+                    <div class="h4 pull-left font-bold m-t-sm m-l">Repetir</div>
+                    <div class="switch-select switch pull-right" id="repeatTransaction"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="repeatTransaction" class="" value=""> 
+                      </div> 
+                    </div>
+                  </div>
+                  <div class="col-xs-12 no-padder hidden animated fadeIn" id="repeatOps">
+                    <div class="col-xs-6 wrapper">
+                      <span class="text-xs font-bold text-u-c">Frecuencia</span>
+                      <select class="form-control m-b no-border b-b no-bg" id="repeatTransactionFrecuency">
+                          <option value="daily">Diaria</option>
+                          <option value="weekly">Semanal</option>
+                          <option value="monthly" selected="selected">Mensual</option>
+                          <!--<option value="quarterly">Trimestral</option>-->
+                          <option value="yearly">Anual</option>
+                      </select>
+                    </div>
+                    <div class="col-xs-6 wrapper">
+                      <span class="text-xs font-bold text-u-c">Cantidad</span>
+                      <select class="form-control m-b no-border b-b no-bg" id="repeatTransactionTimes">
+                          <option value="2">2 veces</option>
+                          <option value="3">3 veces</option>
+                          <option value="4">4 veces</option>
+                          <option value="5" selected="selected">5 veces</option>
+                          <option value="6">6 veces</option>
+                          <option value="7">7 veces</option>
+                          <option value="8">8 veces</option>
+                          <option value="9">9 veces</option>
+                          <option value="10">10 veces</option>
+                          <option value="11">11 veces</option>
+                          <option value="12">12 veces</option>
+                          <option value="13">13 veces</option>
+                          <option value="14">14 veces</option>
+                          <option value="15">15 veces</option>
+                          <option value="16">16 veces</option>
+                          <option value="17">17 veces</option>
+                          <option value="18">18 veces</option>
+                          <option value="19">19 veces</option>
+                          <option value="20">20 veces</option>
+                          <option value="21">21 veces</option>
+                          <option value="22">22 veces</option>
+                          <option value="23">23 veces</option>
+                          <option value="24">24 veces</option>
+                          <option value="25">25 veces</option>
+                          <option value="26">26 veces</option>
+                          <option value="27">27 veces</option>
+                          <option value="28">28 veces</option>
+                          <option value="29">29 veces</option>
+                          <option value="30">30 veces</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper text-left" id="calendarBlockWrap" style="display: none;">
+                  <div class="col-xs-12 wrapper-sm bg-light lter rounded">
+                    <div class="h4 pull-left font-bold m-t-sm m-l">Bloquear</div>
+                    <div class="switch-select switch pull-right" id="calendarBlockSwitch"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="calendarBlockSwitch" class="" value=""> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <input type="hidden" name="" id="alternateDP" value="">
+                  <a href="#" class="btn btn-info btn-lg btn-rounded font-bold text-u-c" id="datePickerOkBtn">ACEPTAR</a>
+                </div>
+                
+              </div>
+            </div>
+          <div class="col-sm-4 hidden-xs"></div>
+        </div>
+
+        <!-- Modal BankPicker -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalBankPicker">
+          <div class="col-sm-4 hidden-xs"></div>
+            <div class="col-sm-4 col-xs-12 bg-white clear r-24x imodal-content md-whiteframe-8dp no-padder">
+              <div class="imodal-body col-xs-12 no-padder">
+              
+                <div class="col-xs-12 wrapper-lg">
+                  <label class="text-sm font-bold text-u-c">Vencimiento</label>
+                  <div class="bg-white no-bg">
+                    <input type="date" id="checkBankPaymentExpiration" class="form-control no-border rounded text-center datePicker pointer m-b" readonly="true" autocomplete="off">
+                  </div>
+
+                  <label class="text-sm font-bold text-u-c">Emisor</label>
+                  <select class="template form-control m-b no-border no-bg b-b" id="checkBankPayment">
+                  </select>
+
+                  <label class="text-sm font-bold text-u-c">Nro.</label>
+                  <input type="text" id="checkBankPaymentNumber" class="form-control m-b-lg no-border b-b" autocomplete="off"> 
+
+                  <div class="text-center">
+                    <a href="#" class="btn btn-info btn-lg btn-rounded imodalclose font-bold text-u-c m-b-md" id="bankPickerOkBtn">Aceptar</a>
+                  </div>
+                  
+                </div>
+                
+              </div>
+            </div>
+          <div class="col-sm-4 hidden-xs"></div>
+        </div>
+
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalUsers">
+          <div class="col-sm-4 hidden-xs"></div>
+            <div class="col-sm-4 col-xs-12 text-center bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder">
+              <div class="col-xs-12 imodal-header no-padder visible-xs">
+              </div>
+              <div class="imodal-body col-xs-12 wrapper">
+                <div class="h2 font-bold text-center m-b">Usuarios</div>
+                <div id="usersDatatable"></div>
+              </div>
+            </div>
+          <div class="col-sm-4 hidden-xs"></div>
+        </div>
+
+        <!-- Modal Customer -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalCustomer">
+          <div class="col-sm-4 hidden-xs"></div>
+            <div class="col-sm-4 col-xs-12 text-center bg-light lt clear r-24x imodal-content md-whiteframe-12dp no-padder">
+              <div class="imodal-body col-xs-12 no-padder">
+
+                <div class="col-xs-12 no-padder momentumit hEightyP" id="modalCustomerStatsHolder"></div>
+
+              </div>
+            </div>
+          <div class="col-sm-4 hidden-xs"></div>
+        </div>
+
+        <!-- Modal EDIT Customer -->
+        <div class="imodal  animated speed-5x momentumit" style="display:none;" id="modalEditCustomer">
+          <div class="col-sm-3 hidden-xs"></div>
+            <div class="col-sm-6 col-xs-12 text-left bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder">
+              <div class="col-xs-12 imodal-header no-padder visible-xs">
+              </div>
+              <div class="imodal-body col-xs-12 no-padder">
+                <form class="form" data-type="editCustomer" role="form" id="editCustomerForm">
+                  <div class="col-xs-12 no-padder addCustomerMapPreview"></div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Razón Social</label>
+                    <input type="text" class="form-control input-lg b-b b-default no-bg no-border m-b" id="ecrname" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm tinName">ID</label>
+                    <input type="text" class="form-control input-lg b-b b-default no-bg no-border m-b" id="ecrruc" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-xs-12 m-b-md"></div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Nombre y Apellido</label>
+                    <input type="text" class="form-control input-lg b-b b-default no-bg no-border" id="ecrfullName" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Doc. de identidad</label>
+                    <input type="text" class="form-control input-lg b-b b-default no-bg no-border" id="ecrci" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Móvil o Celular</label>
+                    <input type="tel" class="form-control input-lg phone b-b b-default no-border no-bg" id="ecrphone" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">e-Mail</label>
+                    <input type="email" class="form-control input-lg b-b b-default no-bg no-border" id="ecremail" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Fecha de Nacimiento</label>
+                    <div class="no-bg">
+                      <input type="date" class="form-control input-lg b-b b-default no-border datePicker pointer no-bg" id="ecrbirthday" readonly="true" autocomplete="off"/>
+                    </div>
+                  </div>
+                  
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Dirección</label>
+                    <input type="text" class="form-control craddressSuggestionStreet input-lg b-b b-default no-border no-bg" id="ecraddress" autocomplete="off"/>
+                    <div class="col-xs-12 no-padder hidden craddressSuggestions">
+                      <table class="table text-left table-hover">
+                        <tbody>
+                          
+
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Móvil o Celular 2</label>
+                    <input type="tel" class="form-control input-lg phone b-b b-default no-border no-bg" id="ecrphone2" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Link de Google Maps o coordenadas</label>
+                    <input type="text" class="form-control input-lg no-bg b-b b-default no-border" id="ecraddress2" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Ciudad</label>
+                    <input type="text" class="form-control input-lg no-bg b-b b-default no-border" id="ecrcity" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Localidad</label>
+                    <input type="text" class="form-control input-lg no-bg b-b b-default no-border" id="ecrlocation" autocomplete="off"/>
+                  </div>
+
+                  <div class="col-md-6">
+                    <label class="font-bold text-xs text-u-c m-b-n m-t-sm">Nota</label>
+                    <textarea class="form-control no-border no-bg b-b b-light m-b" style="height:80px;" id="ecrdescription" name="message" autocomplete="off"></textarea>
+                  </div>
+
+                  <div class="col-md-6 text-center">
+                    <input type="hidden" id="ecrid" name="cid" value="" />
+                    <input type="hidden" id="ecrindex" name="cindex" value="" />
+                    <input class="btn btn-info btn-rounded btn-lg editClienteSubmit font-bold text-u-c m-t-lg" type="submit" value="Guardar">
+                  </div>
+
+                </form>
+                        
+              </div>
+            </div>
+          <div class="col-sm-3 hidden-xs"></div>
+        </div> 
+
+        <!-- Modal Select Item -->
+        <div class="imodal animated speed-5x momentumit" style="display:none; -webkit-transform: translate3d(0,0,0);" id="modalSelectItem">
+          <div class="col-md-1 hidden-xs"></div>
+            <div class="col-md-10 col-xs-12 text-center clear r-24x bg-light lt imodal-content md-whiteframe-12dp no-padder">
+              <div class="imodal-body col-xs-12 no-padder">
+
+                <div class="col-sm-6 no-padder bg-white hEightyP" id="productsDatatableHolder">
+                  <div class="momentumit">
+                    <div class="col-xs-12 no-padder visible-xs">
+                      <span class="pull-right h3 imodalclose wrapper"><i class="material-icons imodalclose">close</i></span>
+                    </div>
+                    <div id="" class="col-xs-12 no-padder productsDatatable panel m-n no-bg"></div>
+                  </div>
+                </div>
+
+                <div class="col-sm-6 no-padder hEightyP momentumit" id="modalItemInfo" style="height: 809.1px;">
+                  <span class="text-left col-xs-12 h3 clickeable no-padder visible-xs" data-type="toggleView" data-target="#productsDatatableHolder,#modalItemInfo"><i class="material-icons">&#xe5c4;</i></span>
+                  <div id="itemDefaultView" class="block itemSideScreen modalInfoBlock" style="width:80%; margin:5em auto 0 auto;" data-height="324" data-parent="#modalItemInfo">
+
+                    <img src="images/circleItemsView.png" class="" width="140">
+                    <span class="block text-lg">Maneje sus Artículos y Servicios</span>
+                    <p class="text-muted"> Acceda, explore y encuentre todos sus productos y/o servicios de forma rápida y sencilla. </p>
+                    <ul class="text-muted text-sm text-left m-t">
+                        <li> Selecciona un artículo de la lista para añadirlo a la venta </li>
+                        <li> Presiona la imagen del artículo para ampliarla </li>
+                        <li> En el campo de busqueda, puede utilizar palabras combinadas ej: "Categoría" "Precio" (sin comillas)</li>
+                    </ul> 
+                    <span class="wrapper pointer imodalclose text-danger" style="font-size:3em;">×</span>
+                  </div>
+
+                  <div id="ItemChildrenList" class="itemSideScreen" style="display:none;">
+                      <div class="h2 text-center font-bold m-b m-t itemSelectedName"> Opciones </div>
+                      <div class="modifierDatatable">
+                          
+                      </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          <div class="col-md-1 hidden-xs"></div>
+        </div>
+
+        <!-- Modal Parent -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalParent">
+          <div class="col-md-4 col-sm-6 col-md-offset-4 col-sm-offset-3 col-xs-12 text-center bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder">
+            <div class="imodal-body col-xs-12 wrapper">
+              <div class="h3 block font-bold m-b modalParentTitle">Opciones</div>
+              <div class="modifierDatatable">
+                  
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Combo -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalCombo">
+          <div class="col-sm-4 hidden-xs"></div>
+          <div class="col-sm-4 col-xs-12 text-center bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder">
+            <div class="col-xs-12 imodal-header no-padder visible-xs">
+            </div>
+            <div class="imodal-body col-xs-12 wrapper">
+              <div class="h3 block font-bold m-b">
+                <span id="comboModalTitle"></span>
+                <span id="comboModalTitleLeft" class="block text-md text-muted"></span>
+                <div class="m-t-sm">
+                  <input type="text" class="form-control no-border no-bg text-center b-b font-bold text-lg text-u-c" placeholder="Identificador" id="comboModalComment">
+                </div>
+              </div>
+              <div class="modifierDatatable">
+                  
+              </div>
+            </div>
+          </div>
+          <div class="col-sm-4 hidden-xs"></div>
+        </div>
+
+        <!-- Modal pay -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalPay" tabindex="1">
+
+          <div class="col-lg-6 col-lg-offset-3 col-md-8 col-md-offset-2 col-sm-10 col-xs-12 col-sm-offset-1 col-xs-12 text-center bg-white r-24x clear imodal-content md-whiteframe-12dp no-padder">
+
+            <div class="imodal-header b-b b-light clear">
+              <span class="pull-right wrapper h3 imodalclose visible-xs"><i class="material-icons imodalclose">close</i></span>
+              <div class="text-center h4 m-t-md m-b-md font-bold" id="modalPayTitle">Realizar Pago</div>
+            </div>
+
+            
+            <div class="imodal-body bg-white col-xs-12 no-padder clear">
+              <table class="table bg-light lter m-n" id="paymentTable">
+                <tbody></tbody>
+              </table>
+              
+              <input class="tenderHide no-border no-bg form-control no-padder mousetrap" type="tel" pattern="\d*" id="tendered" style="height:100px;position:absolute;" autocomplete="off"/>
+              <div class="wrapper-lg bg-white text-center font-bold" style="font-size:3.8em;" id="payText">0.00</div>
+
+              <div class="wrapper-xs text-center col-xs-12 text-sm">*Utilice los números de su teclado y seleccione el método de pago</div>
+              <div class="col-xs-12 no-padder text-center m-t m-b doc-buttons">
+
+                <div class="btn btn-lg bg-info text-white rounded clickeable font-bold toggleQRBtns hidden m-r-xs" data-coin="QRPayment" data-type="paymentMethod" data-name="ePOS">
+                  QR <span class="material-icons">qr_code</span>
+                </div>
+
+                <div class="btn btn-lg bg-info text-white rounded clickeable font-bold toggleePOSCardBtns hidden m-r-xs" data-coin="ePOSCard" data-type="paymentMethod" data-name="ePOS Card">
+                  Tarjetas <span class="material-icons">credit_card</span>
+                </div>
+
+                <div class="btn btn-lg btn-default rounded btn-s-md clickeable text-u-c font-bold m-r-xs" data-coin="cash" data-type="paymentMethod" data-name="Efectivo">
+                  Efectivo <small class="hidden-sm hidden-xs font-normal">(A)</small>
+                </div>
+
+                <div class="btn btn-lg btn-default rounded btn-s-md clickeable text-u-c font-bold m-r-xs" data-coin="creditcard" data-type="paymentMethod" data-name="T. Crédito">
+                  T. Crédito <small class="hidden-sm hidden-xs font-normal">(S)</small>
+                </div>
+
+                <div class="btn btn-lg btn-default rounded btn-s-md clickeable text-u-c font-bold m-r-xs" data-coin="debitcard" data-type="paymentMethod" data-name="T. Débito">
+                  T. Débito <small class="hidden-sm hidden-xs font-normal">(D)</small>
+                </div>
+
+                <div>
+                  <div class="btn btn-default btn-rounded btn-icon clickeable closeBtn font-bold" data-type="paymentMethodsBtn">
+                    <span class="material-icons">
+                      expand_more
+                    </span>
+                  </div>
+                </div>
+                          
+              </div>
+              <div class="col-xs-12 no-padder m-b doc-buttons" id="customPaymentList" style="display:none;">
+                
+              </div>
+              <div class="col-xs-12 no-padder" id="specialPayments" style="display:none;">
+                  <div class="col-sm-6 text-center specialCredit wrapper bg-light lter clickeable" data-coin="storeCredit" data-type="paymentMethod" data-name="Crédito Interno">
+                      <div class="font-bold h1">0</div>
+                      Crédito Interno
+                  </div>
+                  <div class="col-sm-6 text-center specialLoyalty wrapper bg-light clickeable" data-coin="points" data-type="paymentMethod" data-name="Loyalty">
+                      <div class="font-bold h1">0</div>
+                      Loyalty <span></span>
+                  </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Modal numpad -->
+        <div class="imodal animated speed-5x noscroll wrapper-sm" data-backdrop="1" style="display:none;" id="modalNumpad" tabindex="1">
+            <div class="col-sm-6 col-sm-offset-3 col-md-4 col-md-offset-4 col-xs-12 text-center r-24x noPopup imodal-content md-whiteframe-12dp no-padder clear">
+              <div class="imodal-header bg-white clear">
+                <span class="pull-right wrapper h3 imodalclose visible-xs"><i class="material-icons imodalclose">close</i></span>
+                <span class="pull-right wrapper text-lg font-bold hidden m-r" id="numpadPercent">%</span>
+                <span class="pull-right wrapper text-lg font-bold hidden m-r" id="numpadDecimals">.00</span>
+                
+                <div class="text-left padder m-t-md m-b-md h4 font-bold" id="numpadTitle"></div>
+              </div>
+              
+              <div class="imodal-body bg-white col-xs-12 no-padder">
+                  <input type="tel" pattern="\d*" id="numpadInput" class="mousetrap no-bg no-border no-padder form-control" style="height:100px;position:absolute;" autocomplete="off">
+                  <div class="wrapper-lg bg-white b-t b-light text-center font-bold" style="font-size:3.8em;" id="numpadText">0.00</div>
+
+                  <div class="wrapper-xs bg-white text-center col-xs-12 text-sm">*Utilice directamente las teclas de su teclado</div>
+                  <div class="btn btn-lg btn-rounded btn-info m-b pointer text-u-c font-bold" id="numpadOk">Aceptar</div>
+              </div>
+            </div>
+        </div>
+
+        <!-- Modal prompt -->
+        <div class="imodal animated speed-5x noscroll wrapper"  data-backdrop="1" style="display:none;" id="modalPrompt" tabindex="1">
+            <div class="col-sm-6 col-sm-offset-3 col-md-4 col-md-offset-4 col-xs-12 text-center bg-white r-24x noPopup imodal-content md-whiteframe-12dp no-padder clear">
+              <div class="imodal-header b-b b-light clear">
+                <span class="pull-right wrapper h3 imodalclose visible-xs"><i class="material-icons imodalclose">close</i></span>
+                <div class="text-center m-t-md m-b-md h4 font-bold" id="promptTitle"></div>
+              </div>
+              
+              <div class="imodal-body bg-white col-xs-12 no-padder">
+                  <div id="promptInputText" class="col-xs-12 b-b b-light text-left needsclick" style="font-size:20px; min-height:120px; -webkit-user-select: text;user-select: text;" contenteditable="true"></div>
+
+                  <div class="col-xs-12 wysiwyg hidden">
+                    <div class="btn-group">
+                      <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="heading" data-tag="h4"><i class="material-icons">title</i></a>
+                      <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="insertUnorderedList"><i class="material-icons">list</i></a>
+                      <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="bold"><i class="material-icons">format_bold</i></a>
+                      <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="italic"><i class="material-icons">format_italic</i></a>
+                      <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="underline"><i class="material-icons">format_underlined</i></a>
+                    </div>
+                  </div>
+
+                  <div class="wrapper-xs text-center col-xs-12 text-sm">*Utilice directamente las teclas de su teclado</div>
+                  <div class="btn btn-lg btn-rounded btn-info m-b pointer text-u-c font-bold" id="promptOk">Aceptar</div>
+              </div>
+            </div>
+        </div>
+
+        <!-- Modal mensaje -->
+        <div class="imodal animated speed-5x noscroll wrapper" data-backdrop="1" style="display:none;" id="modalMensaje">
+
+            <div class="col-sm-4 col-sm-offset-4 col-xs-12 text-center text-white imodal-content no-padder m-b-lg">
+              <div class="imodal-header wrapper text-center">
+                <div class="m-b-n-sm" id="wrnIcon"></div>
+                <div class="h3 wrapper-md font-bold" id="mensajeTitle"></div>
+                <div class="font-bold text-md" id="mensajeBody"></div>
+              </div>
+              <div class="imodal-body col-xs-12 no-padder">
+                <span class="btn btn-lg b b-white btn-rounded m-r-lg imodalclose">Cancelar</span>
+                <span class="btn btn-info btn-lg pointer text-u-c font-bold btn-rounded" id="mensajeOk">Aceptar</span>
+              </div>
+            </div>
+
+        </div>
+
+        <!-- Modal tutorial end -->
+        <div class="imodal animated speed-5x noscroll wrapper" data-backdrop="1" style="display:none;" id="modalTutorial">
+            <div class="col-sm-8 col-sm-offset-2 col-xs-12 text-center r-24x clear text-white noPopup imodal-content no-padder">
+              <div class="imodal-header wrapper text-center"></div>
+              <div class="imodal-body col-xs-12 no-padder text-center">
+                <a href="https://panel.encom.app" class="col-xs-12 no-padder clickeable" data-type="link">
+                  <img src="https://assets.encom.app/images/onboard_desktop.jpg" width="100%" class="hidden-xs r-24x">
+                  <img src="https://assets.encom.app/images/onboard_mobile.jpg" width="100%" class="visible-xs r-24x">
+                </a>
+              </div>
+            </div>
+        </div>
+
+        <!-- Modal orders -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalOrders">
+
+            <div class="col-md-6 col-md-offset-3 col-sm-6 col-sm-offset-3 col-xs-12 text-center bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder">
+              <div class="col-xs-12 imodal-header no-padder visible-xs">
+              </div>
+              <div class="imodal-body col-xs-12 wrapper">
+
+              </div>
+            </div>
+
+        </div>
+
+        
+        <!-- Modal img preview -->
+        <div class="imodal animated speed-5x wrapper momentumit" style="display:none;" id="modalImgPreview">
+          <div class="col-sm-4 col-sm-offset-4 col-xs-12 text-center no-bg r-24x noPopup imodal-content no-padder">
+            <div class="imodal-body r-24x clear no-bg col-xs-12 no-padder">
+              
+            </div>
+          </div>
+          <div class="col-xs-12 text-center">
+            <span class="wrapper pointer imodalclose text-danger" style="font-size:4em;">×</span>
+          </div>
+        </div>
+
+        <!-- Modal sales -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalSales">
+          <div class="col-md-10 col-md-offset-1 col-xs-12 clear r-24x bg-white imodal-content md-whiteframe-12dp no-padder">
+            <div class="col-xs-12 imodal-header no-padder visible-xs">
+            </div>
+            <div class="imodal-body col-xs-12 no-padder">
+
+              <div class="col-sm-6 no-padder hEightyP" id="getSalesListHolder">
+                <div class="momentumit">
+                  <div id="loadSalesTable" class="panel col-xs-12 no-padder m-n no-bg"></div>
+                </div>
+              </div>
+
+              <div class="col-sm-6 no-padder hEightyP bg-light dk momentumit" id="getSalesDataHolder">
+                  <span class="text-left bg-light dk row h5 visible-xs clickeable wrapper" data-type="toggleView" data-target="#getSalesListHolder,#getSalesDataHolder"><i class="material-icons">&#xe5c4;</i></span>
+                  <div class="saleDataToggle transactionDataView" style="display:none;">
+                  </div>
+
+                  <div class="modalInfoBlock text-center wrapper-lg" id="saleTableDataMsg" style="margin-top: 18%;">
+                    <a href="https://docs.encom.app/otros-modulos/app-para-android-y-ios" class="clickeable" data-type="url"> 
+                      <img src="https://assets.encom.app/images/encom_app.png" class="img-circle" width="280"> 
+                    </a>
+                    
+                    <div class="m-t-lg m-b font-bold h2">Descarga la App</div>
+                    <div class="text-md m-b-md wrapper">Descarga la app de ENCOM para Android y iOS y lleva tu negocio y reportes contigo</div> 
+                    <div class="b-b m-b-md"></div>
+                    <div class="text-center">
+                      <a href="https://itunes.apple.com/us/app/income-register/id1061146997?ls=1&amp;mt=8" class="btn m-r text-u-c font-bold clickeable" data-type="link">iOS</a>
+                      <a href="https://play.google.com/store/apps/details?id=com.incomepos.registerandroid" class="btn text-u-c font-bold clickeable" data-type="link">Android</a>
+                    </div>
+                  </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      
+        <!-- Modal Printer Form -->
+        <div class="imodal animated speed-5x momentumit" data-backdrop="1" style="display:none;" id="modalPrintersForm">
+          <div class="col-md-3 col-lg-4 hidden-xs"></div>
+          <div class="col-md-6 col-lg-4 col-xs-12 bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder">
+            <div class="col-xs-12 imodal-header no-padder visible-xs">
+            </div>
+            <div class="imodal-body col-xs-12 no-padder">
+              <div class="row wrapper">
+                <div class="col-xs-12 wrapper text-center m-b">
+                  <img src="" width="100" id="ticketLogoPreview" />
+                </div>
+                
+                <div class="col-xs-12 no-padder">
+                  
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-xs">Nombre</div>
+                    </div>
+                    <div class="col-xs-6 no-padder">
+                      <input type="text" class="form-control no-border no-bg b-b pull-right" id="printName" placeholder="">
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <span class="font-bold text-u-c m-t-xs">Plantilla de Impresión</span>
+                    </div>
+                    <div class="col-xs-6 no-padder">
+                      <select class="template form-control no-bg no-border b-b" id="printTemplateSelect">
+                        
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 showQZ wrapper" style="display:none;">
+                    <div class="col-xs-6 no-padder">
+                      <span class="font-bold text-u-c m-t-xs">Impresora Física</span>
+                    </div>
+                    <div class="col-xs-6 no-padder">
+                      <select class="printerPicker form-control no-bg no-border b-b" id="printPrinterSelect"><option>Seleccionar</option></select>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 showMobilePrinters wrapper" style="display:none;">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-xs">Impresora Bluetooth</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <a href="#" class="btn btn-default btn-block font-bold text-u-c btn-rounded" id="selectBLEPrinter">Seleccionar</a>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 showMobilePrinters wrapper" style="display:none;">
+                    <div class="col-xs-6 no-padder">
+                      <span class="font-bold text-u-c m-t-xs">Impresora WIFI</span>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <a href="#" class="btn btn-default btn-block font-bold text-u-c btn-rounded" id="selectWIFIPrinter">Seleccionar</a>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 showQZ wrapper" style="display:none;">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-xs">No. de Copias</div>
+                    </div>
+                    <div class="col-xs-6 no-padder">
+                      <input type="number" min="1" max="10" class="copies form-control no-bg no-border b-b font-bold text-right" name="" id="printCopiesCount" value="1">
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c">Color</div>
+                    </div>
+                    <div class="col-xs-6 no-padder">
+                      <select id="printColor">
+                        <option value="e57373" data-color="#e57373">e57373</option>
+                        <option value="F06292" data-color="#F06292">F06292</option>
+                        <option value="BA68C8" data-color="#BA68C8">BA68C8</option>
+                        <option value="9575CD" data-color="#9575CD">9575CD</option>
+                        <option value="7986CB" data-color="#7986CB">7986CB</option>
+                        <option value="64B5F6" data-color="#64B5F6">64B5F6</option>
+                        <option value="4FC3F7" data-color="#4FC3F7">4FC3F7</option>
+                        <option value="4DD0E1" data-color="#4DD0E1" selected="selected">4DD0E1</option>
+                        <option value="4DB6AC" data-color="#4DB6AC">4DB6AC</option>
+                        <option value="81C784" data-color="#81C784">81C784</option>
+                        <option value="AED581" data-color="#AED581">AED581</option>
+                        <option value="DCE775" data-color="#DCE775">DCE775</option>
+                        <option value="FFF176" data-color="#FFF176">FFF176</option>
+                        <option value="FFD54F" data-color="#FFD54F">FFD54F</option>
+                        <option value="FFB74D" data-color="#FFB74D">FFB74D</option>
+                        <option value="FF8A65" data-color="#FF8A65">FF8A65</option>
+                        <option value="A1887F" data-color="#A1887F">A1887F</option>
+                        <option value="E0E0E0" data-color="#E0E0E0">E0E0E0</option>
+                        <option value="90A4AE" data-color="#90A4AE">90A4AE</option>
+                        <option value="ef5350" data-color="#ef5350">ef5350</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Autoimprimir</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printAutoPrint"> <div class="swinner"> <input type="checkbox" name="printAutoPrint"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Resumen</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printResumen"> <div class="swinner"> <input type="checkbox" name="printResumen"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Cierre de Caja</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printCloseReg"> <div class="swinner"> <input type="checkbox" name="printCloseReg"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 showQZ wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c">Abrir cajón de dinero</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printOpenCashDrawer"> <div class="swinner"> <input type="checkbox" name="printOpenCashDrawer"/> </div> </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Recibos</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printReceipt"> <div class="swinner"> <input type="checkbox" name="printReceipt"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Orden</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printOrder"> <div class="swinner"> <input type="checkbox" name="printOrder"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Cotización</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printQuote"> <div class="swinner"> <input type="checkbox" name="printQuote"/> </div> </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Remisión</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printDelivery"> <div class="swinner"> <input type="checkbox" name="printDelivery"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Extracciones</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printWithdraw"> <div class="swinner"> <input type="checkbox" name="printWithdraw" /> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper hidden">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Código de Barras</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="printCode"> <div class="swinner"> <input type="checkbox" name="printCode"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper hidden quickPrinter">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Quick Printer</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="quickPrinter"> <div class="swinner"> <input type="checkbox" name="quickPrinter"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper hidden quickPrinter">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">QP Alias</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <input type="text" class="form-control no-bg no-border b-b font-bold text-right" name="" id="quickPrinterAlias">
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper hidden RawBT">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">RawBT</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <div class="switch-select switch" id="RawBT"> <div class="swinner"> <input type="checkbox" name="RawBT"/> </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper hidden quickPrinter">
+                    <div class="col-xs-6 no-padder">
+                      <div class="font-bold text-u-c m-t-sm">Print Delay (ms)</div>
+                    </div>
+                    <div class="col-xs-6 no-padder text-right">
+                      <input type="text" class="form-control no-bg no-border b-b font-bold text-right" name="" id="printDelay">
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="font-bold text-u-c m-b-xs">Categorías</div>
+                    <select multiple class="chosen-select form-control no-bg no-border b-b" id="printCategories" data-placeholder="Seleccione las categorías">
+                    </select>
+                  </div>
+                  <div class="col-xs-12 wrapper-lg"></div>
+
+                </div>
+
+                <div class="col-xs-12 wrapper-lg"></div>
+
+                <div class="col-xs-12 text-center m-t-lg">
+                  <a href="#" class="btn btn-info btn-rounded btn-lg font-bold text-u-c pull-right pull-right printerClickEvent" data-type="printSavePrint" data-index="false" id="printSavePrint">Guardar Cambios</a>
+
+                  <a href="#" class="printerClickEvent pull-left font-bold text-u-c m-t m-l" data-type="printRemovePrinter" data-index="false" id="printRemove"><span class="text-danger">Eliminar</span></a>
+                </div>
+
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3 col-lg-4 hidden-xs"></div>
+        </div>
+
+        <!-- Modal Settings -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalSettings">
+          <div class="col-md-2 hidden-xs"></div>
+          <div class="col-md-8 bg-white col-xs-12 clear r-24x imodal-content md-whiteframe-12dp no-padder">
+            <div class="col-xs-12 imodal-header no-padder visible-xs">
+            </div>
+            <div class="imodal-body col-xs-12 no-padder">
+              
+              <div class="col-sm-6 col-xs-12 no-padder">
+                  <div class="h2 font-bold m-l wrapper-md">
+                    Ajustes
+                    <span class="pull-right">
+                      <a href="#hotkeys" class="btn btn-icon btn-rounded btn-default navigate m-r-sm m-b-sm" data-toggle="tooltip" data-original-title="Editar Hotkeys" data-placement="left">
+                        <i class="material-icons text-danger">whatshot</i>
+                      </a>
+
+                      <span class="btn btn-icon btn-rounded btn-default m-r-sm m-b-sm clickeable hidden-mobile" data-type="notificationsBtn" onclick="OneSignal.registerForPushNotifications();" data-toggle="tooltip" data-original-title="Activar Notificaciones" data-placement="left">
+                        <i class="material-icons">notifications_active</i>
+                      </span>
+                    </span>
+                  </div>
+
+                  <div class="col-xs-12 hideFreePlan wrapper">
+                    <div class="col-xs-6 no-padder m-t-sm">
+                      <span class="font-bold text-u-c">Sucursal</span>
+                    </div>
+
+                    <div class="col-xs-6 no-padder">
+                      <select name="outlet" id="settingsOutletSelect" class="form-control no-bg no-border b-b">
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 hideFreePlan wrapper">
+                    <div class="col-xs-6 no-padder m-t-sm">
+                      <span class="font-bold text-u-c">Caja</span>
+                    </div>
+
+                    <div class="col-xs-6 no-padder">
+                      <select name="outlet" id="settingsRegisterSelect" class="form-control no-bg no-border b-b">
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder m-t-sm">
+                      <div class="font-bold text-u-c">
+                        Próxima Numeración
+                      </div>
+                    </div>
+
+                    <div class="col-xs-6 no-padder">
+                      <input type="text" id="nextDocNumberInput" class="form-control no-border no-bg text-right b-b font-bold text-lg">
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder m-t-sm">
+                      <span class="font-bold text-u-c">
+                        Fecha
+                      </span>
+                    </div>
+
+                    <div class="col-xs-6 no-padder">
+                      <div class="bg-white no-bg">
+                        <input type="datetime-local" id="transactionDateInput" class="form-control no-border no-bg b-b text-center datePicker pointer" readonly="true">
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper">
+                    <div class="col-xs-6 no-padder m-t-sm">
+                      <div class="font-bold text-u-c">
+                        Bloquear sesión luego de (seg.)
+                      </div>
+                    </div>
+
+                    <div class="col-xs-6 no-padder">
+                      <input type="tel" class="form-control no-border no-bg text-right b-b font-bold text-lg" name="" id="sessionAutoLock" placeholder="0">
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 wrapper text-center">
+                    
+                  </div>
+
+                  <div class="col-xs-12 m-t">
+                    <div class="font-bold text-u-c m-b text-muted m-l-sm">Impresoras configuradas</div>
+                    <ul id="printListShow" class="list-group text-left no-bg no-border">
+                      
+                    </ul>
+                    <div class="text-center m-t col-xs-12">
+                      <a class="printerClickEvent font-bold text-u-c m-b" data-type="printAddPrinterBtn" href="#" id="printAddPrinterBtn">
+                        <span class="text-info">Agregar Impresora</span>
+                      </a>
+                    </div>
+                  </div>
+
+              </div>
+
+              <div class="col-sm-6 col-xs-12 no-padder">
+
+                <div class="col-xs-12 font-bold text-u-c m-l-sm m-t text-muted">
+                  Opciones
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Control de Caja
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="drawerControl"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="drawerControl"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper hidden-mobile">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Teclado Virtual
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="virtualKeyboard"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="virtualKeyboard"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Orden en venta
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="makeOrder"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="makeOrder"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper visible-mobile">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Orden a impresión
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="autoPrintOrders"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="autoPrintOrders"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper hidden-mobile">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Servidor de impresión
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="printServer"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="printServer"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Sonidos en alertas
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="alertSounds"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="alertSounds"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Inhabilitar animaciones
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="noAnimate"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="noAnimate"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Permitir guardar ventas
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="allowSaveSales"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="allowSaveSales"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Ocultar detalle de combos en impresión
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="hideComboItems"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="hideComboItems"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Modo: Solo órdenes
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="ordersOnlyMode"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="ordersOnlyMode"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 m-t-md font-bold text-u-c m-l-sm text-muted">
+                  Panel de módulos
+                </div>
+
+                <div class="col-xs-12 wrapper defaultViewSwitchCalendar">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Calendario
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="defaultViewSwitchCalendarSw"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="defaultViewSwitchCalendarSw"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper alertAppointmentOverlap">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Alertar superposición de citas
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="alertAppointmentOverlapSw"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="alertAppointmentOverlapSw"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper defaultViewSwitchTables">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Mesas y Espacios
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="defaultViewSwitchTablesSw"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="defaultViewSwitchTablesSw"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper defaultViewSwitchOrders">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Órdenes
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="defaultViewSwitchOrdersSw"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="defaultViewSwitchOrdersSw"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-xs-12 wrapper defaultViewSwitchExtApps hidden">
+                  <div class="col-xs-6 no-padder m-t-sm">
+                    <div class="font-bold text-u-c">
+                      Apps Externas
+                    </div>
+                  </div>
+
+                  <div class="col-xs-6 no-padder text-right">
+                    <div class="switch-select switch" id="defaultViewSwitchExtAppsSw"> 
+                      <div class="swinner"> 
+                        <input type="checkbox" name="defaultViewSwitchExtAppsSw"/> 
+                      </div> 
+                    </div>
+                  </div>
+                </div> 
+
+                <a href="#reset" class="wrapper col-xs-12 text-lg text-center m-t m-b-md navigate">
+                  <span class="text-danger">[ Eliminar ENCOM de este dispositivo ]</span>
+                </a>
+
+              </div>
+
+            </div>
+          </div>
+          <div class="col-md-2 hidden-xs"></div>
+        </div>
+
+        <!-- Modal leftPanelOps -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="leftPanelOps">
+          <div class="col-lg-4 col-sm-4 hidden-xs"></div>
+          <div class="col-lg-4 col-sm-4 col-xs-12 text-center bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder">
+            <div class="col-xs-12 imodal-header no-padder visible-xs">
+            </div>
+            <div class="imodal-body col-xs-12 wrapper text-left">
+              
+              <div class="h3 text-center font-bold m-b-sm"><i class="material-icons md-24 m-r text-muted ">whatshot</i>Categorías</div>
+              <div class="list-group text-lg no-bg" id="hKCategories">
+                
+              </div>
+
+            </div>
+          </div>
+          <div class="col-lg-4 col-sm-4 hidden-xs"></div>
+        </div>
+
+
+        <!--NEW MODALS END-->
+     
+        <div class="animated speed-5x wrapper bg-black-opacity-9 b b-black text-md text-white text-ellipsis text-u-c font-bold rounded" id="msgWrap" style="display: none;">
+        </div>
+      </div>
+    </section>
+    <div class="wrapper"></div><!--espaciador-->
+  </section>
+
+  <div id="incomeSpinner" class="rounded animated bounceIn text-center" style="display: none; width: 75px; height: 75px; top:50%; left:50%; margin:-37px 0 0 -37px; position: absolute; z-index:1000; overflow:hidden;">
+    <img src="https://app.encom.app/images/svg-loaders/puff.svg" width="60">
+  </div>
+
+  <div id="splash" class="rounded animated fadeIn text-xs text-center text-muted" style="width: 70px; height: 70px; top:50%; left:50%; margin:-35px 0 0 -35px; position: absolute; z-index:10000; overflow:hidden;">
+    <img src="images/iconincomesm.png" class="m-b" width="70">
+    <div><i class="material-icons">&#xe2c0;</i> Cargando</div>
+  </div>
+  <div id="sound" style="display:none;">&nbsp;</div>
+
+  <script async src="https://www.googletagmanager.com/gtag/js?id=UA-73323449-2"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'UA-73323449-2');
+
+    if (typeof ga == 'function') {}else{
+      var ga = function(){return false;};
+    }
+  </script>
+  
+  <?php
+  $extension = 'js';
+  if(isset($_GET['debug'])){
+    $extension = 'debug';
+  }else if(isset($_GET['mobile'])){
+    $extension = 'mobile';
+  }else if(isset($_GET['mdebug'])){
+    $extension = 'mdebug';
+  }
+  ?>
+
+  <script type="text/javascript" src="https://js.pusher.com/7.2/pusher.min.js"></script> 
+  <script type="text/javascript" src="/vendor.<?=$extension;?>?<?=APP_VERSION?>" async></script> 
+
+  <?php
+    $get = $_GET;
+
+    if($get['i']){
+
+      $decoded    = base64_decode($get['i'],true);
+      $json       = explode(',', $decoded);
+      $companyId  = $json[0];
+      $outletId   = $json[1];
+
+      if($companyId && $outletId){
+        ?>
+        <script type="text/javascript" src="https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js"></script>
+        <script type="text/javascript">
+
+          var newCompanyId  = '<?=$companyId;?>';
+          var newOutletId   = '<?=$outletId;?>';
+
+          var oldCompanyId  = simpleStorage.get("companyId");
+
+          if(oldCompanyId == newCompanyId){
+            window.location.href = "https://app.encom.app";
+          }else{
+            simpleStorage.flush();
+            simpleStorage.set("companyId",newCompanyId);
+            simpleStorage.set("outletId",newOutletId);
+            simpleStorage.set("installation",true);
+            window.location.href = "https://app.encom.app";
+          }
+
+        </script>
+        <?php
+      }
+
+    }else if($get['l']){
+      ?>
+
+      <script type="text/javascript" src="https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js"></script> 
+      <script type="text/javascript">
+      simpleStorage.flush();
+      window.location.href = "https://app.encom.app";
+      </script>
+
+    <?php
+    }else if($get['signup']){
+    ?>
+      <script type="text/javascript" src="https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js"></script> 
+      <script type="text/javascript">
+
+      var installed = simpleStorage.get('installation');
+      if(installed){
+        
+        var result = confirm("Ya tiene una cuenta instalada en este explorador, ¿Desea eliminarla?");
+
+        if(result){
+          simpleStorage.flush();
+        }
+        
+        window.location.href = "https://app.encom.app";
+      }
+        
+      </script>
+
+    <?php
+    }
+    ?>
+  
+  <script id="menuOpsListTpl" type="text/html">
+    <a href="#" class="clickeable wrapper text-md block {{print}}" data-type="resumePrint"> 
+      <i class="material-icons text-muted m-r">print</i>Imprimir
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{discount}}" data-type="discount"> 
+      <i class="material-icons {{#discount}} {{discount}} {{/discount}} {{^discount}} text-muted {{/discount}} m-r">&#xe5c6;</i>Descuento
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{note}}" data-type="note"> 
+      <i class="material-icons {{#note}} {{note}} {{/note}} {{^note}} text-muted {{/note}} m-r">&#xe0cb;</i>Nota
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{user}}" data-type="addUser"> 
+      <i class="material-icons {{#user}} {{user}} {{/user}} {{^user}} text-muted {{/user}} m-r">&#xe851;</i>Usuario
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{tags}}" data-type="modalTags"> 
+      <i class="material-icons {{#tags}} {{tags}} {{/tags}} {{^tags}} text-muted {{/tags}} m-r">&#xe893;</i>Etiquetas
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{save}}" data-type="saveSale"> 
+      <i class="material-icons text-muted m-r">save</i>Guardar
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{currency}}" data-type="currency"> 
+      <i class="material-icons text-muted m-r">money_off</i>Moneda
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{return}}" data-type="toggleReturnMode"> 
+      <i class="material-icons {{#return}} {{return}} {{/return}} {{^return}} text-muted {{/return}} m-r">&#xE166;</i>Devolución
+    </a>  
+    <a href="#" class="clickeable wrapper text-md block {{quote}}" data-type="toggleQuote"> 
+      <i class="material-icons {{#quote}} {{quote}} {{/quote}} {{^quote}} text-muted {{/quote}} m-r">&#xe226;</i>Cotización
+    </a>
+    <!-- <a href="#" class="clickeable wrapper text-md block {{remission}}" data-type="toggleRemission"> 
+      <i class="material-icons {{#remission}} {{remission}} {{/remission}} {{^remission}} text-muted {{/remission}} m-r">local_shipping</i>Remisión
+    </a> -->
+    <a href="#" class="clickeable wrapper text-md block {{schedule}}" data-type="addSchedule"> 
+      <i class="material-icons {{#schedule}} {{schedule}} {{/schedule}} {{^schedule}} text-muted {{/schedule}} m-r">event</i>Cita
+    </a>
+    <a href="#" class="clickeable wrapper text-md block {{order}}" data-type="addOrder"> 
+      <i class="material-icons {{#order}} {{order}} {{/order}} {{^order}} text-muted {{/order}} m-r">assignment</i>Orden
+    </a>
+  </script>
+  
+  <script id="modalHandlerTpl" type="text/html">
+    <div class="col-xs-12 no-padder imodalclose text-center">
+        <span class="bg-black-opacity-8 rounded m-t-sm" style="width:40px;padding:3px;"></span>
+        <a href="#" class="pull-right h3 wrapper imodalclose">
+          <i class="material-icons md-24">close</i>
+        </a>
+      </div>
+    </div>
+  </script>
+
+  <script id="drawerTpl" type="text/html">
+    
+    <div class="text-center col-xs-12">
+      <img id="openClosedSign" src="https://app.encom.app/images/transparent.png" height="70" class="m-b-md m-t-md"> 
+    </div>
+
+    <div id="loadExternalDrawerList" class="hide-low blindDrawer wrapper-sm col-xs-12">
+      
+    </div>
+
+    <div class="closeRegister col-xs-12 no-padder"> 
+      <div class="col-xs-12 no-padder">
+        <a href="#" data-type="closeRegister" class="btn btn-lg btn-danger btn-rounded m-t clickeable text-u-c font-bold">Cerrar Caja</a> 
+      </div>
+      <div class="col-xs-6 no-padder">
+        <a href="#" class="btn m-t clickeable font-bold hide-low text-u-c" data-toggle="tooltip" data-original-title="Extraer efectivo de la caja, lo extraído aparecerá en los reportes de Movimientos de Caja" data-type="extractMoney"><span class="material-icons">arrow_downward</span> Extraer</a>
+      </div>
+      <div class="col-xs-6 no-padder">
+        <a href="#" class="btn m-t clickeable font-bold hide-low text-u-c" data-toggle="tooltip" data-original-title="Ingresar efectivo en la caja, lo ingresado aparecerá en los reportes de Movimientos de Caja" data-type="insertMoney"><span class="material-icons">arrow_upward</span> Ingresar</a>
+      </div>
+    </div>
+
+    <a href="#" style="display:none" data-type="openRegister" class="btn btn-lg btn-info btn-rounded m-t m-b-lg clickeable openRegister text-u-c font-bold animated fadeIn">Abrir Caja</a>
+
+    <div class="col-xs-12 wrapper text-center hide-low blindDrawer"> 
+      <a href="#" class="btn m-b font-bold text-u-c" id="printClosure"><span class="material-icons">print</span> Imprimir</a>
+    </div> 
+
+  </script>
+
+  <script id="drawerInTpl" type="text/html">
+    <div class="hide-low panel wrapper-sm r-3x">
+      <h4 class="block text-center blindDrawer font-bold">{{fdate}}</h4>
+
+      <table class="table text-left">
+        <tbody>
+          {{#list}}
+          <tr>
+            <td class="name">
+              {{name}}
+            </td>
+            <td class="text-right total">
+              {{famount}}
+            </td>
+          </tr>
+          {{/list}}
+        </tbody>
+        <tfoot>
+          <tr class="font-bold">
+            <td class="text-u-c">
+              Total de efectivo
+            </td>
+            <td class="text-right">
+              {{fsubtotal}}
+            </td>
+          </tr>
+          <tr class="font-bold">
+            <td class="text-u-c">
+              Propinas
+            </td>
+            <td class="text-right">
+              {{ftips}}
+            </td>
+          </tr>
+          <tr class="font-bold h3">
+            <td class="text-u-c">
+              Total
+            </td>
+            <td class="text-right drawerExpected" data-raw="{{total}}">
+              {{ftotal}}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+    </div>
+  </script>
+
+  <script id="customerInfoTpl" type="text/html">
+      <div class="bg-light dk col-xs-12 wrapper text-left">
+        {{#latLng}}
+        <div class="row pull-out m-t-n m-b-xs hidden customerInfoMap" id="ncmGMap">
+          {{{latLng}}}
+        </div>
+        {{/latLng}}
+        <div class="col-sm-7 b-l b-4x b-light wrapper-sm">
+          <div class="h2 font-bold text-dark copyToClipBoard pointer">
+            {{#customerFullName}} {{customerFullName}} {{/customerFullName}}
+            {{^customerFullName}} {{customerName}} {{/customerFullName}}
+          </div>
+          <div class="m-t-sm">
+            {{#customerTIN}}
+            <span class="copyToClipBoard pointer">{{customerTIN}}</span> 
+            {{/customerTIN}}
+            {{#customerCI}}
+            /
+            <span class="copyToClipBoard pointer">{{customerCI}}</span>
+            {{/customerCI}}
+          </div>
+          <div class="visible-xs">
+            {{#customerEmail}}
+            <div class="m-t-sm">
+              <i class="material-icons md-16 text-dark m-r-xs">email</i> 
+              <span class="copyToClipBoard pointer">{{customerEmail}}</span>
+            </div>
+            {{/customerEmail}}
+
+            <div class="m-t-sm">
+              {{#customerPhone1}}
+              <i class="material-icons md-16 text-dark m-r-xs">phone</i> 
+              <span class="copyToClipBoard pointer">{{customerPhone1}}</span> 
+              {{/customerPhone1}}
+
+              {{#customerPhone2}}
+              /
+              <span class="copyToClipBoard pointer">{{customerPhone2}}</span>
+              {{/customerPhone2}}
+            </div>
+
+            {{#customerAddress1}}
+            <div class="m-t-sm">
+              <i class="material-icons md-16 text-dark m-r-xs"></i> 
+              <span class="copyToClipBoard pointer">{{customerAddress1}}</span> 
+            </div>
+            {{/customerAddress1}}
+
+            {{#customerAddress2}}
+            <div class="m-t-sm">
+              <i class="material-icons md-16 text-dark m-r-xs"></i> 
+              <span class="copyToClipBoard pointer">{{customerAddress2}}</span>
+            </div>
+            {{/customerAddress2}}
+
+            <div class="m-t-sm visible-xs">
+              <i class="material-icons md-16 m-r-xs">timelapse</i> 
+              {{customerMemberSince}}
+            </div>
+
+            {{#customerBDay}}
+            <div class="m-t-sm visible-xs">
+              <i class="material-icons md-16 m-r-xs">cake</i> 
+              {{customerBDay}}
+            </div>
+            {{/customerBDay}}
+            
+          </div>
+        </div>
+
+        <div class="col-sm-5 text-right no-padder">
+          <em class="m-t block hidden-xs">
+            <i class="material-icons md-16 m-r-xs">timelapse</i> 
+            {{customerMemberSince}}
+            <br>
+            <i class="material-icons md-16 m-r-xs">cake</i> 
+            {{customerBDay}}
+          </em>
+          <div class="btn-group m-t">
+            <a href="#customerEdit&c={{customerId}}" class="btn btn-info btn-lg text-u-c font-bold rounded navigate">Editar</a>
+            <a href="#" class="btn btn-info btn-lg rounded clickeable" data-type="actionSheet" data-html="#customerOpsListMin">
+              <i class="material-icons">more_horiz</i>
+            </a>
+          </div>
+          <span class="hidden" id="customerOpsListMin">
+            <a href="#transactions&c={{customerId}}&n={{customerName}}" class="wrapper block text-md navigate"><i class="material-icons text-muted m-r">receipt_long</i> Transacciones</a>
+            <a href="#customerAddresses&c={{customerId}}" class="wrapper block text-md navigate"><i class="material-icons text-muted m-r">add_location_alt</i> Direcciones</a>
+            <a href="#customerRecord&c={{customerId}}&n={{customerName}}" class="wrapper block text-md navigate"><i class="material-icons text-muted m-r">subject</i> Fichas</a>
+            <a href="#customerProgress&c={{customerId}}&n={{customerName}}" class="wrapper block text-md navigate"><i class="material-icons text-muted m-r">insights</i> Progresos</a>
+            <a href="#customerNotes&c={{customerId}}&n={{customerName}}" class="wrapper block text-md navigate"><i class="material-icons text-muted m-r">speaker_notes</i> Notas</a>
+            <a href="#customerOrders&c={{customerId}}&n={{customerName}}" class="wrapper block text-md navigate"><i class="material-icons text-muted m-r">dvr</i> Órdenes</a>
+          </span>
+        </div>
+
+        <div class="col-xs-12 wrapper-sm lt r-24x hidden-xs m-t">
+          {{#customerEmail}}
+          <div class="m-t-xs">
+            <i class="material-icons md-16 text-dark m-r-xs">email</i> 
+            <span class="copyToClipBoard pointer">{{customerEmail}}</span>
+          </div>
+          {{/customerEmail}}
+
+          <div class="m-t-xs">
+            {{#customerPhone1}}
+            <i class="material-icons md-16 text-dark m-r-xs">phone</i> 
+            <span class="copyToClipBoard pointer">{{customerPhone1}}</span> 
+            {{/customerPhone1}}
+
+            {{#customerPhone2}}
+            /
+            <span class="copyToClipBoard pointer">{{customerPhone2}}</span>
+            {{/customerPhone2}}
+          </div>
+
+          {{#customerAddress1}}
+          <div class="m-t-xs">
+            <i class="material-icons md-16 text-dark m-r-xs"></i> 
+            <span class="copyToClipBoard pointer">{{customerAddress1}}</span> 
+          </div>
+          {{/customerAddress1}}
+
+          {{#customerAddress2}}
+          <div class="m-t-xs">
+            <i class="material-icons md-16 text-dark m-r-xs"></i> 
+            <span class="copyToClipBoard pointer">{{customerAddress2}}</span>
+          </div>
+          {{/customerAddress2}}
+
+          <div class="m-t-xs visible-xs">
+            <i class="material-icons md-16 m-r-xs">timelapse</i> 
+            {{customerMemberSince}}
+          </div>
+
+          {{#customerBDay}}
+          <div class="m-t-xs visible-xs">
+            <i class="material-icons md-16 m-r-xs">cake</i> 
+            {{customerBDay}}
+          </div>
+          {{/customerBDay}}
+        </div>
+
+        {{#customerNote}}
+        <div class="text-center col-xs-12 text-dark m-t">{{{customerNote}}}</div>
+        {{/customerNote}}
+      </div>
+
+      <div class="col-xs-12 text-left bg-light lter">
+
+        <div class="row pull-out text-center h3 no-padder m-t m-b-sm">
+          <div class="col-xs-6 m-t-sm clickeable" data-customer="{{customerId}}" data-debt="{{totalDebtRaw}}" data-type="payCreditBulk">
+              <div class="bg-white r-24x wrapper font-bold pointer"> <span class="block text-sm font-normal">Deuda Total</span>{{totalDebt}}
+                  <div class="hidden fullDebtJson">{{totalDebtData}}</div>
+              </div>
+          </div>
+          <div class="col-xs-6 m-t-sm clickeable" data-customer="{{customerId}}" data-debt="{{expiredDebtRaw}}" data-type="payCreditBulk">
+              <div class="bg-white r-24x wrapper font-bold pointer"> <span class="block text-sm font-normal">Deuda Vencida</span>{{expiredDebt}}
+                  <div class="hidden fullDebtJson">{{expiredDebtData}}</div>
+              </div>
+          </div>
+          <div class="col-xs-6 m-t-sm">
+              <div class="bg-white r-24x wrapper font-bold"><span class="block text-sm font-normal">Loyalty</span>{{loyalty}}</div>
+          </div>
+          <div class="col-xs-6 m-t-sm">
+              <div class="bg-white r-24x wrapper font-bold"><span class="block text-sm font-normal">Crédito a favor</span>{{inCredit}}</div>
+          </div>
+          <div class="col-xs-6 m-t-sm">
+              <div class="bg-white r-24x wrapper font-bold"><span class="block text-sm font-normal">Línea de Crédito</span>{{creditLine}}</div>
+          </div>
+          <div class="col-xs-6 m-t-sm">
+              <div class="bg r-24x wrapper font-bold"><span class="block text-sm font-normal">&nbsp;</span>&nbsp;</div>
+          </div>
+          <div class="col-xs-12 text-center text-sm m-t m-b text-muted">Su última compra fue el {{lastPurchase}}</div>
+        </div>
+
+        <div class="col-xs-12 panel wrapper r-3x m-b-sm">
+            <div class="text-u-c font-bold clickeable" data-type="toggleView" data-target="#customerInfoLastPurchasedList">5 últimos artículos adquiridos <span class="pull-right">+</span></div>
+            <table class="table no-border no-padder m-t" style="display:none;" id="customerInfoLastPurchasedList">
+                <tbody>
+                    {{#latestPurchasedItems}}
+                    <tr>
+                        <td>{{itemName}}</td>
+                        <td>{{userName}}</td>
+                        <td class="text-right"><span class="label bg-light dker">{{itemQty}}</span></td>
+                    </tr>
+                    {{/latestPurchasedItems}}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="col-xs-12 panel wrapper r-3x m-b-sm">
+          <div class="text-u-c font-bold clickeable" data-type="toggleView" data-target="#customerInfoGiftCardsList">
+            Gift Cards 
+            <span class="pull-right">+</span>
+          </div>
+          <div class="list-group no-border no-bg m-t" style="display:none;" id="customerInfoGiftCardsList">              
+            {{#giftCards}}
+            <a href="#loadGiftcard&c={{giftCardUID}}" class="list-group-item b-light wrapper navigate">
+              <span class="label bg-light">{{giftCardCode}}</span>
+              <span class="pull-right">{{giftCardTotal}}</span>
+            </a>
+            {{/giftCards}}
+          </div>
+        </div>
+
+        <div class="col-xs-12 panel no-padder r-3x m-b-sm" id="ncmDBCustomerFiles"></div>
+
+        
+
+      </div>
+  </script>
+
+  <script id="ordersMapTooltipTpl" type="text/html">
+    <div class="text-dark text-left text-sm" style="min-width:200px;max-width:300px;font-family:'Source Sans Pro';">
+     <div class="h3 font-bold m-b-sm m-n"> 
+         <a href="#customerInfo&c={{customerId}}" class="navigate">
+         <span class="text-dark">{{customerName}}</span>
+         </a>
+     </div>
+       <div class="m-b-sm"> {{customerPhone}} <span class="pull-right badge bg-{{statusColor}}"> {{statusName}} </span></div>
+
+     <div class="m-b">
+         <div class="m-b-xs b-b wrapper-xs">Orden # <span class="pull-right"> {{orderNo}} </span></div>
+         <div class="m-b-xs b-b wrapper-xs">Hace <span class="pull-right"> {{orderSince}} </span></div>
+         {{#distance}}
+         <div class="m-b-xs b-b wrapper-xs">Distancia (de aquí) <span class="pull-right"> {{distance}} Km</span></div>
+         {{/distance}}
+         
+         {{#asignedName}}
+         <div class="m-b-xs b-b wrapper-xs">Asignado a <span class="pull-right"> {{asignedName}}</span></div>
+         {{/asignedName}}
+         <div class="m-b-xs b-b wrapper-xs"> {{customerAddress}} </div>
+     </div>
+
+       <div class="m-b-sm text-center"> 
+          <a href="#getSale&w=modal&t=12&i={{id}}" class="btn bg-light rounded text-u-c font-bold navigate" title="Ver orden">Ver orden</a>
+          <a href="#" class="btn bg-light rounded text-u-c font-bold clickeable" data-type="setUserToOrder" data-transaction="{{id}}" title="Asignar">Asignar</a>
+       </div>
+    </div>
+  </script>
+
+  <script id="ordersMapTooltipDriverTpl" type="text/html">
+    <div class="text-dark text-left text-sm" style="min-width:200px;max-width:300px;font-family:'Source Sans Pro';">
+      <div class="h3 font-bold m-b-sm m-n"> 
+        <span class="text-dark">{{asignedName}}</span>
+      </div>
+      <div class="m-b-sm"> {{phone}} </div>
+
+     <div class="m-b">
+         <div class="m-b-xs b-b wrapper-xs">Distancia (de aquí) <span class="pull-right"> {{oDistance}} Km</span></div>
+         {{#goingTo}}
+         <div class="m-b-xs b-b wrapper-xs">Próx. Destino <a href="#getSale&w=modal&t=12&i={{id}}" class="navigate pull-right"> {{goingTo}}</a></div>
+         {{/goingTo}}
+         {{#nDistance}}
+         <div class="m-b-xs b-b wrapper-xs">Distancia (destino) <span class="pull-right"> {{nDistance}} Km</span></div>
+         {{/nDistance}}
+         {{#eta}}
+         <div class="m-b-xs b-b wrapper-xs">Llega en <span class="pull-right"> {{eta}} (aprox.)</span></div>
+         {{/eta}}
+         {{#address}}
+         <div class="m-b-xs b-b wrapper-xs"> {{address}} </div>
+         {{/address}}
+     </div>
+    {{#waLink}}
+     <div class="m-b-sm text-center"> 
+        <a href="{{{waLink}}}" class="btn bg-light btn-block rounded whatsapp text-dark text-u-c font-bold" title="Contactar">
+          <img src="https://cdnjs.cloudflare.com/ajax/libs/simple-icons/3.0.1/whatsapp.svg" class="m-r-sm" style="filter: invert(66%) sepia(81%) saturate(408%) hue-rotate(72deg) brightness(95%) contrast(78%);" width="20"> 
+          Contactar
+        </a>
+     </div>
+    {{/waLink}}
+    </div>
+  </script>
+
+  <script type="text/html" id="ordersPanelTableTpl">
+      <div class="col-xs-12 wrapper">
+        <input type="search" class="form-control bg-light lt no-border rounded input-lg datatableFilter" placeholder="Buscar órdenes activas" value="" autocomplete="off">
+      </div>
+      <table class="table table-hover" id="tableOrdersManager" style="min-width:100%;">
+        <thead class="text-u-c hidden">
+          <tr>
+            <th>Fuente</th>            
+            <th style="min-width:150px;">Cliente</th>
+            <th>Hace</th>
+            <th class="hideSmallModule {{expanded}}">Etiquetas</th>
+            <th class="hideSmallModule {{expanded}}">Responsable/Estado</th>
+            <th style="max-width:70px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#row}}
+          <tr class="clickeable text-left {{trClass}} {{statColor}}" data-type="ordersList" data-id="{{id}}" id="tr{{id}}" data-kind="any">
+            <td data-filter="{{srcText}}">{{{src}}}</td>            
+            <td>{{{customer}}}</td>
+            <td>{{{since}}}</td>
+            <td class="hideSmallModule {{expanded}}">{{{tags}}}</td>
+            <td class="hideSmallModule {{expanded}}"><div class="font-bold">{{{asignedName}}}</div> {{{status}}}</td>
+            <td>{{{btn}}}</td>
+          </tr>
+          {{/row}}
+        </tbody>
+      </table>
+      <div class="wrapper-md"></div>
+
+  </script>
+
+  <script type="text/html" id="ordersPanelHolderTpl">
+    {{{panelHolder}}}
+    <div class="col-xs-12 no-padder panel momentumit" id="ordersPanelList" style="min-height:{{minHeight}};"></div>
+    <div id="map" style="width:100%;display:none;"></div>
+    <div class="wrapper-xs col-xs-12 floatingModuleOpsWrap animated fadeInUp speed-5x" style="top:{{top}}; display:none;">
+      <div class="col-sm-2 hidden-xs"></div>
+      <div class="col-sm-10 col-xs-12 rounded bg-dark md-whiteframe-4dp no-border wrapper-xs clear momentumit" style="white-space:nowrap;">
+        <div style="white-space: nowrap; min-width: 690px; max-height: 50px;">
+          <a href="#" class="btn btn-dark btn-rounded font-bold ncmOrdersPanelFilter" data-status="all">Todos <span class="badge dk m-l-xs oPFBtnAll">0</span></a>
+          <a href="#" class="btn btn-dark btn-rounded font-bold ncmOrdersPanelFilter" data-status="pending">Pendientes <span class="badge dk m-l-xs oPFBtnNew">0</span></a>
+          <a href="#" class="btn btn-dark btn-rounded font-bold ncmOrdersPanelFilter" data-status="waiting">En Espera <span class="badge dk m-l-xs oPFBtnWait">0</span></a>
+          <a href="#" class="btn btn-dark btn-rounded font-bold ncmOrdersPanelFilter" data-status="processing">En Proceso <span class="badge dk m-l-xs oPFBtnGoing">0</span></a>
+          <a href="#" class="btn btn-dark btn-rounded hidden font-bold ncmOrdersPanelFilter" data-status="finished">Finalizados <span class="badge dk m-l-xs oPFBtnEnd">0</span></a>
+          <a href="#" class="btn btn-dark btn-rounded font-bold ncmOrdersPanelFilter" data-status="delivered">Enviado <span class="badge dk m-l-xs oPFBtnSent">0</span></a>
+          {{{expand}}}
+          <a href="#" class="btn btn-dark btn-rounded font-bold ncmOrdersPanelFilter pull-right" data-status="map"><i class="material-icons">pin_drop</i></a>
+        </div>
+      </div>
+  </script>
+
+  <script type="text/html" id="waTextsTpl">{{#sheduleReminder}}*{{{company}}}.* Hola {{name}}, le recordamos su asistencia, acceda al detalle en {{{url}}} {{/sheduleReminder}}{{#orderShare}}Nueva Orden de *{{{company}}}* _Nro. {{nro}}_: {{{url}}}{{/orderShare}}{{#orderShareCustomer}}*{{{company}}}*. Hola {{name}}, puede ver el detalle de su orden en: {{{url}}} {{/orderShareCustomer}} {{#receipt}}*{{{company}}}.* Hola {{name}}, puede ver el detalle y calificar su experiencia en {{{url}}} {{/receipt}}{{#dunning}}*{{{company}}}.* Hola {{name}}, le recordamos que tiene facturas pendientes de pago, puede ver el detalle en {{{url}}} {{/dunning}}{{#quote}}*{{{company}}}.* Hola {{name}}, puede ver su cotización en {{{url}}} {{/quote}}</script>
+
+  <script id="customerAddressTpl" type="text/html">
+    <div class="col-xs-12 wrapper">
+      <div class="col-xs-12 text-left h1 font-bold text-dark m-b m-t">
+        <div class="text-sm text-muted">Direcciones de</div>
+        <a href="#customerInfo&c={{customerId}}" class="navigate">{{customerName}}</a>
+      </div>
+
+      <div class="col-xs-12 wrapper r-3x b m-b bg-white" id="customerAddressLineAdd">
+
+        <div class="col-xs-8 no-padder m-b">
+          <input type="text" class="form-control no-border no-bg text-u-c b-b font-bold customerAddressNameAdd" tabindex="0" placeholder="Nombre, ej. Casa, Trabajo" value="">
+        </div>
+        <div class="col-xs-4 no-padder m-b text-right">
+          <a href="#" class="btn btn-rounded btn-info customerAddressSave" tabindex="-1" data-id="Add" data-customer-id="{{customerId}}"><i class="material-icons" title="Crear nueva dirección" data-toggle="tooltip">check</i></a>
+        </div>
+
+        <div class="col-xs-12 no-padder m-b">
+          <textarea class="form-control craddressSuggestionStreet no-border no-bg b-b customerAddressAddressAdd" tabindex="1" placeholder="Dirección completa con referencias"></textarea>
+
+          <div class="col-xs-12 no-padder hidden craddressSuggestions">
+            <table class="table text-left table-hover">
+              <tbody>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="col-xs-12 no-padder m-b">
+          <input type="text" class="form-control no-bg no-border b-b customerAddressLatLng customerAddressLatLngAdd" tabindex="3" data-id="Add" placeholder="Link de Google Maps o coordenadas" title="Añada aquí el link de Google Maps" data-toggle="tooltip">
+        </div>
+
+        <div class="col-xs-6 no-padder">
+          <input type="text" class="form-control no-bg no-border b-b customerAddressLocationAdd" tabindex="2" placeholder="Localidad">
+        </div>
+        
+        <div class="col-xs-6 no-padder">
+          <input type="text" class="form-control no-bg no-border b-b customerAddressCityAdd" tabindex="4" placeholder="Ciudad">
+        </div>
+
+        <div class="col-xs-12 no-padder m-t customerAddressMapViewAdd"></div>
+
+      </div>
+
+      {{#addresses}}
+      <div class="col-xs-12 no-padder text-left">
+        <div class="col-xs-12 no-padder pointer r-3x clear {{#default}}b-l b-5x b-info{{/default}} m-b bg-white customerAddressSetDefault" data-id="{{id}}" data-customer-id="{{customerId}}" id="customerAddressLine{{id}}">
+
+          {{#default}}{{#latlng}}
+          <iframe class="m-b-n-sm" width="100%" height="120" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://public.encom.app/mapIframe?height=120&lat={{lat}}&lng={{lng}}&theme={{theme}}&zoom=17&key={{key}}"></iframe>
+          {{/latlng}}{{/default}}
+          <div class="col-xs-12 wrapper">
+            <div class="col-xs-12 no-padder">
+
+              <span class="pull-left text-u-c font-bold m-t-sm">{{#name}}{{name}}{{/name}}{{^name}}Sin nombre{{/name}}</span>
+
+              <span class="pull-right">
+                <a href="#" class="btn customerAddressEdit" data-id="{{id}}" data-customer-id="{{customerId}}"><i class="material-icons">edit</i></a>
+                {{#latlng}}
+                <a href="https://www.google.com/maps/dir/?api=1&travelmode=driving&layer=traffic&destination={{latlng}}" class="btn clickeable" data-type="url"><i class="material-icons">map</i></a>
+                {{/latlng}}
+              </span>
+            </div>
+            <div class="col-xs-12 m-t-sm text-md no-padder">
+              {{address}}
+            </div>
+            <div class="col-xs-12 m-t no-padder text-left">
+              <span class="m-r text-u-c font-bold">{{location}}</span>
+              <span class="m-r text-u-c font-bold">{{city}}</span>
+              <span class="m-r text-u-c font-bold">{{kms}} km</span>
+              
+            </div>
+          </div>
+        </div>
+        <div class="col-xs-12 wrapper r-3x b m-b bg-white hidden customerAddressLineEdit" id="customerAddressLineEdit{{id}}">
+
+          <div class="col-xs-8 no-padder">
+            <input type="text" class="form-control no-border no-bg text-u-c b-b font-bold customerAddressName{{id}}" tabindex="0" placeholder="Nombre, ej. Casa, Trabajo" value="{{name}}">
+          </div>
+          <div class="col-xs-4 no-padder text-right">
+            <a href="#" class="btn btn-rounded btn-info customerAddressSave" data-id="{{id}}" tabindex="-1" data-customer-id="{{customerId}}"><i class="material-icons">check</i></a>
+          </div>
+
+          <div class="col-xs-12 no-padder m-b">
+            <textarea class="form-control no-border no-bg b-b craddressSuggestionStreet customerAddressAddress{{id}}" tabindex="1">{{address}}</textarea>
+            
+            <div class="col-xs-12 no-padder hidden craddressSuggestions">
+              <table class="table text-left table-hover">
+                <tbody>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="col-xs-12 no-padder m-b">
+            <input type="text" class="form-control no-border no-bg b-b customerAddressLatLng customerAddressLatLng{{id}}" tabindex="3" data-id="{{id}}" value="{{latlng}}" placeholder="Link de Google Maps">
+          </div>
+
+          <div class="col-xs-6 no-padder">
+            <input type="text" class="form-control no-border no-bg b-b customerAddressLocation{{id}}" tabindex="2" value="{{location}}" placeholder="Localidad">
+          </div>
+          
+          <div class="col-xs-6 no-padder">
+            <input type="text" class="form-control no-border no-bg b-b customerAddressCity{{id}}" tabindex="4" value="{{city}}" placeholder="Ciudad">
+          </div>
+
+          <div class="col-xs-12 no-padder m-t customerAddressMapView{{id}}">
+            {{#latlng}}
+
+            <iframe width="100%" height="200" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://public.encom.app/mapIframe?height=200&lat={{lat}}&lng={{lng}}&theme={{theme}}&zoom=15&key={{key}}"></iframe>
+            
+            {{/latlng}}
+          </div>
+
+          <div class="col-xs-12 no-padder text-right m-t">
+            <a href="#" class="btn customerAddressDelete" data-id="{{id}}" data-customer-id="{{customerId}}"><span class="text-danger">Eliminar</span></a>
+          </div>
+
+        </div>
+      </div>
+      {{/addresses}}
+      {{^addresses}}
+      <div class="col-xs-12 wrapper">
+        <img src="https://assets.encom.app/images/emptystate7.png" height="130" class="m-b-sm">
+        <h2 class="font-bold m-t-n m-b">No posee direcciones</h2>
+      </div>
+      {{/addresses}}
+    </div>
+  </script>
+
+  <script id="itemInfoTpl" type="text/html">
+    {{#name}}
+    <div class="col-xs-12 no-padder gradBgBlue animateBg">
+      <div class="col-sm-4 wrapper text-white text-center m-t-lg clear hidden-xs" style="max-height:400px;">
+        <a href="#itemImage&i={{id}}" class="navigate">
+          <img src="{{img}}" width="90%" class="rounded m-t-lg">
+        </a>
+        
+        <div class="col-xs-12 no-padder text-right m-t">
+          <div class="font-bold">
+            {{name}} 
+          </div>
+
+          <div class="font-bold h1">
+            {{price}}
+          </div>
+          <em class="">
+            SKU {{sku}} 
+          </em>
+          <div class="text-sm">
+          </div>
+          <div class="text-sm">
+            <span class="badge bg-white text-info">{{type}}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-sm-8 no-padder bg-white text-left">
+        <div class="col-xs-12 bg-white no-padder">
+          <div class="col-xs-12 wrapper-md" style="min-height: 380px;">
+
+            <div class="col-xs-12 no-padder text-center visible-xs m-b">
+              <a href="#itemImage&i={{id}}" class="navigate">
+                <img src="{{img}}" width="70%" class="rounded">
+              </a>
+            </div>
+
+            <div class="col-xs-12 no-padder font-bold text-dark h1">
+              {{name}}
+              <div class="visible-xs text-sm">{{sku}}</div>
+            </div>
+
+            {{#description}}
+            <div class="col-xs-12 no-padder">
+              <div class="wrapper-xs">
+                {{description}}
+              </div>
+            </div>
+            {{/description}}
+
+            <div class="col-xs-12 no-padder m-t">
+
+              <div class="col-sm-6 m-b no-padder">
+                <span class="font-bold block text-u-c text-xs">Sucursal</span>
+                <div class="text-md">
+                  {{outlet}}
+                </div>
+              </div>
+
+              <div class="col-sm-6 m-b no-padder">
+                <span class="font-bold block text-u-c text-xs">Impuesto</span>
+                <div class="text-md">
+                  {{tax}}%
+                </div>
+              </div>
+
+              <div class="col-sm-6 m-b no-padder">
+                <span class="font-bold block text-u-c text-xs">Categoría</span>
+                <div class="text-md">
+                  {{category}}
+                </div>
+              </div>
+
+              <div class="col-sm-6 m-b no-padder">
+                <span class="font-bold block text-u-c text-xs">Marca</span>
+                <div class="text-md">
+                  {{brand}}
+                </div>
+              </div>
+
+              {{#duration}}
+              <div class="col-sm-6 m-b no-padder">
+                <span class="font-bold block text-u-c text-xs">Duración en Min.</span>
+                <div class="text-md">
+                  {{duration}}
+                </div>
+              </div>
+              {{/duration}}
+
+              {{#sessions}}
+              <div class="col-sm-6 m-b no-padder">
+                <span class="font-bold block text-u-c text-xs">Sesiones</span>
+                <div class="text-md">
+                  {{sessions}}
+                </div>
+              </div>
+              {{/sessions}}
+
+            </div>
+
+            
+            <div class="col-xs-12 wrapper panel r-3x m-t" style="min-height: 135px;">
+            {{#inventory}}  
+              <div class="h4 m-b font-bold text-u-c">Inventario</div>
+              <div class="list-group no-bg no-border">
+                {{#outlets}}
+
+                <div class="list-group-item font-bold b-light">
+                  {{outletName}}
+                  <span class="pull-right badge">{{total}}</span>
+                </div>
+
+                  {{#deposits}}
+                  <div class="list-group-item b-light">
+                    {{depositName}}
+                    <span class="pull-right">{{qty}}</span>
+                  </div>
+                  {{/deposits}}
+
+                {{/outlets}}
+              </div>
+            {{/inventory}}
+
+              <div id="ncmDBItemFiles"></div>
+            </div>
+            
+
+            <a href="#" class="btn btn-info btn-lg btn-rounded text-u-c font-bold pull-right clickeable hidden-print m-t" data-type="itemFromList" data-id="{{id}}" data-close="true">
+              Añadir
+            </a>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    {{/name}}
+    {{^name}}
+      <div class="col-xs-12 text-center">
+        <h2 class="font-bold m-t-lg">Sin información</h2>
+      </div>
+    {{/name}} 
+    
+  </script>
+
+  <script id="giftCardTpl" type="text/html">
+    <div class="gradBgOrange col-xs-12 wrapper text-left">
+      <div class="col-sm-6 b-l b-3x b-white wrapper-sm m-b">
+          <div class="text-sm">
+            Beneficiario:
+          </div>
+          <div class="h3 font-bold">
+            {{beneficiaryName}}
+          </div>
+          <div class="text-sm">
+            <div class="m-b-sm">De {{customerName}}</div>
+            <div>
+              {{date}}
+              <br>
+              <strong>Sucursal:</strong> {{outletName}}
+              <br>
+              <strong>Usuario:</strong> {{userName}}
+              <br>
+              <strong>Nota:</strong>
+              <br> 
+              {{{giftCardNote}}}
+            </div>
+          </div>
+      </div>
+      <div class="col-sm-6 text-right no-padder">
+        <div class="hidden-xs m-t-lg">
+          
+        </div>
+        Saldo:
+        <div class="h1 font-bold">
+          {{amount}}
+        </div>
+        <span class="m-t badge bg-light">
+          Vence el {{expires}}
+        </span>
+        <div class="font-bold text-md">
+          Cod. {{code}}
+        </div>
+        <div>
+          <a href="{{link}}" class="clickeable" data-type="linkOut"><span class="text-white">Ver Gift Card del Cliente</span></a>
+        </div>
+        <div>
+        </div>
+      </div>
+    </div>
+  </script>
+
+  <script id="qrPaymentTpl" type="text/html">
+    <div class="col-xs-12 no-padder text-center">
+      <div class="col-xs-12 text-right m-t-md"> <a href="#" class="imodalclose"><span class="material-icons text-danger">close</span></a> </div>
+      {{#img}}
+      <img src="{{img}}" class="m-b" width="80%">
+      {{/img}}
+      {{^img}}
+      <iframe src="{{qr}}&width=300" width="100%" height="350px" class="" style="width:100%; height: 350px; border:0; padding:0; margin:0;"></iframe>
+      {{/img}}
+
+      <div class="col-xs-12 text-sm">
+        {{#wa}}
+        <div>
+          <a href="{{wa}}" class="whatsapp btn font-bold">{{{waIco}}}Enviar link de pago</a>
+        </div>
+        {{/wa}}
+        {{#isBancard}}
+        <p>*El cliente debe escanear el QR con la app de su banco o billetera</p>
+        <div class="h3 font-bold text-center m-t m-b">Esperando...</div>
+        
+        {{/isBancard}}
+        {{^isBancard}}
+        <p>*El cliente debe escanear el QR con la cámara de su celular, ingresar los datos de su tarjeta y proveerle el código de confirmación.</p>
+        <div>
+          <a href="#" class="btn btn-info btn-rounded font-bold text-u-c btn-md m-b-md" id="QRPaymentSwitchBancard">QR Dinelco</a>
+        </div>
+        {{/isBancard}}
+      </div>
+      {{#isDinelco}}
+      <div class="col-sm-10 col-xs-12 col-sm-offset-1 wrapper">
+        <div class="font-bold text-xs">Código de confirmación</div>
+        <div class="input-group">
+          <input type="text" class="form-control rounded text-lg text-center font-bold" placeholder="######" id="QRPaymentInputSubmit">
+          <a href="#" class="btn btn-info btn-rounded font-bold text-u-c input-group-addon" id="QRPaymentBtnSubmit">Enviar</a>
+        </div>
+      </div>
+      {{/isDinelco}}
+
+    </div>
+  </script>
+
+  <script id="transactionTpl" type="text/html">
+
+    <div class="bg-light col-xs-12 wrapper text-left">
+      {{#latLng}}
+      <div class="row pull-out m-t-n m-b-xs" id="ncmGMap">
+        {{{mapIframe}}}
+      </div>
+      {{/latLng}}
+
+      <div class="col-sm-6 h2 b-l b-4x {{bcolor}} wrapper-sm m-b font-bold">
+        <div class="text-sm text-u-c">
+          {{{type}}}
+          {{#expirationDate}}
+          <span class="font-normal m-l-sm">Vence {{expirationDate}}</span>
+          {{/expirationDate}}
+        </div>
+        <div class="text-dark">
+          <a href="#customerInfo&c={{customerId}}" class="navigate">
+            {{customerName}}
+          </a>
+        </div>
+        <div class="text-sm font-normal">{{customerTIN}}</div>
+        <div class="text-sm m-t-xs">{{{tags}}}</div>
+      </div>
+
+      <div class="col-sm-6 text-right no-padder">
+        <div class="h3 font-bold">{{number}}</div>
+        <div>{{{date}}}</div>
+        {{{actionsButton}}}
+      </div>
+
+      <div class="col-xs-12 no-padder" id="getSaleNote">
+        {{{note}}}
+      </div>
+    </div></div>
+                    
+    <div class="col-xs-12 wrapper text-left">
+      
+      {{#isCredit}}
+      <div class="col-xs-12 text-center h3 m-b no-padder">
+        <div class="col-xs-6 gscp">
+          <div class="bg-white r-3x wrapper panel m-n font-bold">
+            {{payed}}
+            <span class="block text-sm font-normal">Pagado</span> 
+          </div>
+        </div>
+        <div class="col-xs-6 gscd">
+          <div class="bg-white r-3x wrapper panel m-n font-bold">
+            {{debt}}
+            <span class="block text-sm font-normal">Deuda</span> 
+          </div>
+        </div>
+      </div>
+      {{/isCredit}}
+
+      <div class="col-xs-12 wrapper-sm panel momentumit panel r-3x m-b-xl table-responsive no-border {{#items}}{{/items}}{{^items}}hidden{{/items}}" id="saleViewTable">
+        <table class="table text-left font-bold">
+          <tbody>
+            {{#items}}
+            <tr class="text-muted {{#itemStatus}}{{/itemStatus}}{{^itemStatus}}text-l-t{{/itemStatus}}">
+              <td class="text-right">{{{itemQty}}}</td>
+              <td>{{{itemName}}}</td>
+              <td>{{{userName}}}</td>
+              <td class="text-right text-dark">{{{itemTotal}}}</td>
+            </tr>
+            {{#itemNote}}
+            <tr>
+              <td colspan="4" class="font-normal">{{{itemNote}}}</td>
+            </tr>
+            {{/itemNote}}
+            {{/items}}
+          </tbody>
+          <tfoot>
+            {{#totalDiscount}}
+            <tr class="text-muted">
+              <td></td>
+              <td>Descuento</td>
+              <td></td>
+              <td class="text-right text-dark">{{totalDiscount}}</td>
+            </tr>
+            {{/totalDiscount}}
+            {{#totalAmount}}
+            <tr class="h3 text-dark text-u-c font-bold">
+              <td></td>
+              <td></td>
+              <td>Total</td>
+              <td class="text-right">{{totalAmount}}</td>
+            </tr>
+            {{/totalAmount}}
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="col-xs-12 no-padder m-b {{#isPayments}}{{/isPayments}}{{^isPayments}}hidden{{/isPayments}}">
+        <div class="col-sm-1"></div>
+        <div class="col-sm-1"></div>
+        <div class="col-sm-10 panel no-bg">
+          {{#isPayments}}
+          <table class="table table-hover" id="payedTransactionsList">
+            <thead>
+              <tr>
+                  {{#isCredit}}
+                  <th># Doc.</th>
+                  <th>Fecha de pago</th>
+                  <th class="text-right">Monto</th>
+                  {{/isCredit}}
+                  {{^isCredit}}
+                  <th>Método</th>
+                  <th>Identificador</th>
+                  <th class="text-right">Monto</th>
+                  {{/isCredit}}
+              </tr>
+            </thead>
+            <tbody>
+              {{#payments}}
+              <tr {{#isCredit}}class="clickeable" data-type="reprintReceipt" data-paid="{{paidRaw}}" data-total="{{totalRaw}}" data-invoice-no="{{oDocNumber}}" data-no="{{docNumber}}"{{/isCredit}}>
+                <td>{{docNumber}}</td>
+                <td>{{date}}</td>
+                <td class="text-right font-bold">{{paid}}</td>
+              </tr>
+              {{/payments}}
+            </tbody>
+          </table>
+          {{/isPayments}}
+        </div>
+      </div>
+
+      <div class="col-xs-12 no-padder m-b" id="ncmDBTransactionsFiles"></div>
+
+    </div>
+  </script>
+
+  <script id="transactionsListTpl" type="text/html">
+
+    <div class="col-sm-8 wrapper">
+      <div class="h1 font-bold text-left text-dark">{{listName}}</div>
+    </div>
+    <div class="col-sm-4 wrapper" id="saleDatePickerParent">
+      <div class="bg-white no-bg">
+        <input type="date" value="{{date}}" class="form-control datePicker pointer no-border no-bg b-b text-center" readonly> 
+      </div>
+    </div>
+    <div class="col-xs-12 m-b-n-lg hidden" id="transactionListInput">
+      <input type="search" class="form-control bg-light lter no-border rounded input-lg datatableFilter" placeholder="Buscar..." value="" autocomplete="off"> 
+    </div>
+    <table class="table table-hover" id="salesPrimaryTable">
+      <thead>
+        <tr>
+          <td>&nbsp;</td>
+          <td>&nbsp;</td>
+        </tr>
+      </thead>
+      <tbody>
+        {{#transactionsList}}
+        <tr class="clickeable text-left" data-type="getSale" data-thetype="{{type}}" data-id="{{id}}">
+          <td class="b-5x b-l {{borderColor}}"> 
+            <span class="block text-ellipsis font-bold text-md">
+              {{{title}}}
+            </span> 
+            <small class="text-muted text-xs">
+              {{date}} {{docNumber}} {{#txtDetails}} | {{txtDetails}} {{/txtDetails}} {{^txtDetails}} {{/txtDetails}}
+              <span class="font-thin text-success count"></span>  
+            </small> 
+          </td>
+          <td class="text-right text-dark text-md">
+            {{{amount}}}
+            <br>
+            {{{label}}}
+            <div class="hidden session{{id}}">
+             {{dataList}} 
+            </div>
+          </td>
+        </tr>
+        {{/transactionsList}}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2" class="text-center wrapper">
+            {{{footBtn}}}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </script>
+
+  <script id="itemLineTpl" type="text/html">
+    {{#isItem}}
+    <div class="col-xs-12 no-padder inthelist hoverable" data-type="toggle" data-position="{{index}}">
+
+      <div class="col-xs-12 pointer main wrapper-md bg {{discountBorder}}">
+
+        <div class="pull-right m-t-sm m-l-xs text-md font-bold itemInListFinalPrice{{index}}">
+            {{amount}}
+        </div>
+
+        <div class="clear {{#parent}}m-l-lg{{/parent}}">
+          <div class="text-ellipsis">
+            <span class="badge {{discountBg}} dker text-xs itemInListFinalCount{{index}}">{{{qty}}}</span>
+            <span class="font-bold">{{name}} {{{duration}}}</span>
+          </div> 
+          <small class="text-ellipsis text-muted text-xs"> 
+            {{{data}}}
+          </small> 
+        </div>
+      </div>
+
+      <div class="second col-xs-12 no-padder text-center dker speed-5x animated zoomIn" style="display:none;">
+
+        <div class="col-xs-12 no-padder">
+          <div class="h4 text-center wrapper-sm bg">{{name}}</div>
+
+          
+          <span class="pointer col-xs-3 change wrapper-lg h4 itemInList{{index}}" data-type="count" data-subtype="add" data-position="{{index}}" data-number="{{qtyRaw}}" data-toggle="tooltip" data-original-title="Aumentar Cantidad" data-placement="bottom">
+            <i class="material-icons">add</i>
+          </span>
+          <span class="pointer col-xs-3 change h4 wrapper-lg animated itemInListDisplayBtn itemInList{{index}}" data-type="count" data-position="{{index}}" data-number="{{qtyRaw}}" data-toggle="tooltip" data-placement="bottom" data-animation="bounceIn" data-original-title="Modificar Cantidad">
+            x{{qty}}
+          </span>
+          <span class="pointer col-xs-3 change wrapper-lg h4 itemInList0" data-type="count" data-subtype="remove" data-position="{{index}}" data-number="{{qtyRaw}}" data-toggle="tooltip" data-original-title="Disminuir Cantidad" data-placement="bottom">
+            <i class="material-icons">remove</i>
+          </span>
+          
+
+          <span class="pointer col-xs-3 clickeable bg-danger lt wrapper-lg h4" data-type="rmItemFromList" data-position="{{index}}" data-toggle="tooltip" data-original-title="Eliminar" data-placement="bottom"  data-id="{{id}}">
+            <i class="material-icons">close</i>
+          </span>
+        </div>
+
+        <div class="col-xs-12 no-padder bg">
+          {{#discount}}
+            <span class="col-xs-6 b-b b-light wrapper-md change" data-type="rmDiscount" data-position="{{index}}" data-toggle="tooltip" data-original-title="Remover Descuento" data-placement="top" data-animation="bounceIn">
+              <span class="material-icons text-danger md-18 m-r">close</span>
+              -{{discount}}%
+            </span>
+          {{/discount}}
+          {{^discount}}
+            <span class="pointer col-xs-4 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled disabled-low disabled-basic" data-type="discount" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Descuento" data-placement="top" data-animation="bounceIn">
+              <i class="material-icons"></i>
+            </span>
+            <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled" data-type="price" data-position="{{index}}" data-number="{{priceRaw}}" data-toggle="tooltip" data-placement="top" data-animation="bounceIn" data-original-title="Modificar Precio">
+              <i class="material-icons"></i>
+            </span> 
+          {{/discount}}
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="addUser" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Usuario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemTags" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Etiquetas" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemNote" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Comentario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+        </div>
+      </div>
+
+    </div>
+    {{/isItem}}
+
+    {{#isCombo}}
+    <div class="col-xs-12 no-padder inthelist hoverable" data-type="toggle" data-position="{{index}}">
+      <div class="col-xs-12 pointer main wrapper-md bg">
+        <div class="pull-right m-t-sm m-l-xs text-md font-bold itemInListFinalPrice{{index}}">{{amount}}</div>
+        <div class="clear"> 
+          <div class="block text-ellipsis"> 
+            <span class="font-bold">{{name}}</span>
+          </div> 
+          <small class="text-ellipsis text-muted text-xs"> 
+            {{{data}}}
+          </small> 
+        </div>
+      </div>
+      <div class="second col-xs-12 no-padder text-center dker speed-5x animated zoomIn" style="display: none;">
+
+        <div class="col-xs-12 no-padder">
+          <span class="pointer col-xs-3 change wrapper-lg h4 itemInList{{index}}" data-type="count" data-subtype="add" data-position="{{index}}" data-number="{{qtyRaw}}" data-toggle="tooltip" data-original-title="Aumentar Cantidad" data-placement="bottom">
+            <i class="material-icons">add</i>
+          </span>
+
+          <span class="pointer col-xs-3 change h4 wrapper-lg animated itemInListDisplayBtn itemInList{{index}}" data-type="count" data-position="{{index}}" data-number="{{qtyRaw}}" data-toggle="tooltip" data-placement="bottom" data-animation="bounceIn" data-original-title="Modificar Cantidad">
+            x{{qty}}
+          </span>
+
+          <span class="pointer col-xs-3 change wrapper-lg h4 itemInList0" data-type="count" data-subtype="remove" data-position="{{index}}" data-number="{{qtyRaw}}" data-toggle="tooltip" data-original-title="Disminuir Cantidad" data-placement="bottom">
+            <i class="material-icons">remove</i>
+          </span>
+
+          <span class="pointer col-xs-3 clickeable bg-danger lt wrapper-lg h4" data-type="rmItemFromList" data-position="{{index}}" data-toggle="tooltip" data-original-title="Eliminar" data-placement="bottom" data-id="{{id}}">
+            <i class="material-icons">close</i>
+          </span>
+        </div> 
+
+        <div class="col-xs-12 no-padder bg">
+          {{#discount}}
+            <span class="col-xs-6 b-b b-light wrapper-md change" data-type="rmDiscount" data-position="{{index}}" data-toggle="tooltip" data-original-title="Remover Descuento" data-placement="top" data-animation="bounceIn">
+              <span class="material-icons text-danger md-18 m-r">close</span>
+              -{{discount}}%
+            </span>
+          {{/discount}}
+          {{^discount}}
+            <span class="pointer col-xs-4 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled disabled-low disabled-basic" data-type="discount" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Descuento" data-placement="top" data-animation="bounceIn">
+              <i class="material-icons"></i>
+            </span>
+            <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled" data-type="price" data-position="{{index}}" data-number="{{priceRaw}}" data-toggle="tooltip" data-placement="top" data-animation="bounceIn" data-original-title="Modificar Precio">
+              <i class="material-icons"></i>
+            </span> 
+          {{/discount}}
+
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="addUser" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Usuario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+
+          <span class="pointer col-xs-2 col-xs-offset-8 change h4 wrapper-md b-b b-light" data-type="itemTags" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Etiquetas" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemNote" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Comentario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+
+          
+        </div>
+        
+      </div>
+    </div>
+    {{/isCombo}}
+
+    {{#inCombo}}
+    <div class="col-xs-12 no-padder inthelist hoverable" data-type="toggle" data-position="{{index}}">
+      <div class="col-xs-12 pointer main wrapper-sm bg">
+
+        <div class="pull-right m-t-sm m-l-xs text-md font-bold itemInListFinalPrice{{index}}">
+          {{amount}}
+        </div>
+
+        <div class="clear m-l-lg"> 
+          <div class="block text-ellipsis"> 
+            {{name}} <span class="badge bg-light dker text-xs itemInListFinalCount{{index}}">x{{qty}}</span>
+          </div> 
+          <small class="text-ellipsis text-muted text-xs"> 
+            {{{data}}}
+          </small> 
+        </div>
+      </div>
+      <div class="second col-xs-12 no-padder text-center dker speed-5x animated zoomIn" style="display: none;">
+        <div class="col-xs-12 no-padder bg">
+          <span class="col-xs-6 b-b b-light wrapper-md h4 text-left">
+            <i class="material-icons">remove</i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="addUser" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Usuario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemNote" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Comentario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled" data-type="price" data-position="{{index}}" data-number="{{priceRaw}}" data-toggle="tooltip" data-placement="top" data-animation="bounceIn" data-original-title="Modificar Precio">
+            <i class="material-icons"></i>
+          </span>
+        </div>
+      </div>
+    </div>
+    {{/inCombo}}
+
+    {{#isDiscount}}
+    <div class="col-xs-12 no-padder inthelist clickeable" data-type="rmItemFromList" data-position="{{index}}" id="{{id}}">
+      <div class="main wrapper-md bg col-xs-12">
+        <div class="pull-right m-t-sm m-l-xs text-md"><i class="material-icons text-danger">close</i></div>
+        <div class="pull-left thumb-sm rounded gradBgYellow m-r-sm text-center" style="height:40px;">
+          <div class="h4 m-t-sm text-white"><span class="font-bold" style="margin-bottom:1px;">%</span></div>
+        </div>
+        <div class="clear"> 
+          <span class="block text-ellipsis font-bold">Descuento del {{percent}}</span>
+          <small class="text-muted text-u-c text-xs">{{amount}}</small> 
+        </div>
+      </div>
+    </div>
+    {{/isDiscount}}
+
+    {{#isGiftCard}}
+    <div class="col-xs-12 no-padder inthelist hoverable" data-type="toggle" data-position="{{index}}">
+      <div class="col-xs-12 pointer main wrapper-md bg">
+        <div class="pull-right m-t-sm m-l-xs text-md font-bold itemInListFinalPrice{{index}}">{{amount}}</div>
+        <div class="pull-left thumb-sm rounded {{color}} m-r-sm text-center" style="height:40px;{{colorCss}}">
+          <div class="h4 m-t-sm text-white"><i class="material-icons">&#xe8f6;</i></div>
+        </div>
+        <div class="clear"> 
+          <span class="block text-ellipsis m-t-sm">{{name}}</span>
+        </div>
+      </div>
+      <div class="second col-xs-12 no-padder text-center dker speed-5x animated zoomIn" style="display:none;">
+        <div class="col-xs-12 no-padder">
+          <span class="col-xs-9"></span>
+          <span class="pointer col-xs-3 clickeable bg-danger lt wrapper-lg h4" data-type="rmItemFromList" data-position="{{index}}" data-toggle="tooltip" data-original-title="Eliminar" data-placement="bottom" data-id="{{id}}"><i class="material-icons">close</i></span> 
+        </div>
+        <div class="col-xs-12 no-padder bg">
+          
+
+          {{#discount}}
+            <span class="col-xs-6 b-b b-light wrapper-md change" data-type="rmDiscount" data-position="{{index}}" data-toggle="tooltip" data-original-title="Remover Descuento" data-placement="top" data-animation="bounceIn">
+              <span class="material-icons text-danger md-18 m-r">close</span>
+              -{{discount}}%
+            </span>
+          {{/discount}}
+          {{^discount}}
+            <span class="pointer col-xs-4 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled disabled-low disabled-basic" data-type="discount" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Descuento" data-placement="top" data-animation="bounceIn">
+              <i class="material-icons"></i>
+            </span>
+            <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled" data-type="price" data-position="{{index}}" data-number="{{amountRaw}}" data-toggle="tooltip" data-placement="top" data-animation="bounceIn" data-original-title="Modificar Precio">
+              <i class="material-icons"></i>
+            </span> 
+          {{/discount}}
+
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="addUser" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Usuario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemTags" data-position="{{index}}" data-toggle="tooltip"  data-original-title="Añadir Etiquetas" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemNote" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Comentario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+        </div>
+      </div>
+    </div>
+    {{/isGiftCard}}
+
+    {{#isCredit}}
+    <div class="col-xs-12 no-padder inthelist hoverable" data-type="toggle" data-position="{{index}}">
+      <div class="col-xs-12 pointer main wrapper-md bg">
+        <div class="pull-right m-t-sm m-l-xs text-md font-bold itemInListFinalPrice{{index}}">{{amount}}</div>
+        <div class="pull-left thumb-sm rounded gradBgGray m-r-sm text-center" style="height:40px;">
+          <div class="h4 m-t-sm text-white"><i class="material-icons">input</i></div>
+        </div>
+        <div class="clear"> <span class="block text-ellipsis m-t-sm">{{name}}</span></div>
+      </div>
+      <div class="second col-xs-12 no-padder text-center dker speed-5x animated zoomIn" style="display: none;">
+        <div class="col-xs-12 no-padder">
+          <span class="col-xs-9"></span>
+          <span class="pointer col-xs-3 clickeable bg-danger lt wrapper-lg h4" data-type="rmItemFromList" data-position="{{index}}" data-toggle="tooltip" data-original-title="Eliminar" data-placement="bottom">
+            <i class="material-icons">close</i>
+          </span>
+        </div>
+        <div class="col-xs-12 no-padder bg">
+          
+          {{#discount}}
+            <span class="col-xs-6 b-b b-light wrapper-md change" data-type="rmDiscount" data-position="{{index}}" data-toggle="tooltip" data-original-title="Remover Descuento" data-placement="top" data-animation="bounceIn">
+              <span class="material-icons text-danger md-18 m-r">close</span>
+              -{{discount}}%
+            </span>
+          {{/discount}}
+          {{^discount}}
+            <span class="col-xs-4 b-b b-light wrapper-md">&nbsp;</span>
+            <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light noReturnDisabled scheduleDisabled" data-type="price" data-position="{{index}}" data-number="{{amountRaw}}" data-toggle="tooltip" data-placement="top" data-animation="bounceIn" data-original-title="Modificar Precio">
+              <i class="material-icons"></i>
+            </span>
+          {{/discount}}
+          
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="addUser" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Usuario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemTags" data-position="{{index}}" data-toggle="tooltip"  data-original-title="Añadir Etiquetas" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+          <span class="pointer col-xs-2 change h4 wrapper-md b-b b-light" data-type="itemNote" data-position="{{index}}" data-toggle="tooltip" data-original-title="Añadir Comentario" data-placement="top" data-animation="bounceIn">
+            <i class="material-icons"></i>
+          </span>
+        </div>
+      </div>
+    </div>
+    {{/isCredit}}
+  </script>
+
+  <script id="tagsModalTpl" type="text/html">
+      <div class="h2 m-b-lg m-t font-bold">Etiquetas</div>
+      <div id="tagsList">
+        {{#tags}}
+          {{#isSys}}{{/isSys}}
+          {{^isSys}}
+            <span class="wrapper-sm {{bg}} b b-2x font-bold text-u-c r-3x clickeable m-r-sm m-b inline" data-type="tag" data-id="{{id}}" data-tagitemindex="{{index}}">
+              {{name}}
+            </span>
+          {{/isSys}}
+        {{/tags}}
+        {{^tags}}
+          <div class="h2 m-b-lg">No tiene Etiquetas personalizadas</div> 
+          <div id="tagsList">
+            <div class="text-md wrapper">Puede añadir etiquetas personalizadas en el Panel de Control > Configuración > Visualización y parámetros</div>
+          </div>
+        {{/tags}}
+
+        <div id="sysTagsList" class="m-t">
+        {{#tags}}
+          {{#isSys}}
+            <span class="wrapper-lg {{bg}} b b-2x font-bold text-u-c r-3x clickeable m-r-sm m-b inline" data-type="tag" data-id="{{id}}" data-tagitemindex="{{index}}">
+              {{name}}
+            </span>
+          {{/isSys}}
+        {{/tags}}
+       </div>
+      </div>
+
+       
+      <div class="m-t-lg m-b-md text-center">Marque o desmarque las etiquetas que quiera añadir</div>
+  </script>
+
+  <script id="userAvailabilityTpl" type="text/html">
+    <div class="h4">{{name}}</div>
+    <div class="table-responsive no-border">
+      <table class="table table-bordered">
+        <tbody>
+          {{#hours}}
+
+          <tr data-date="{{date}}" data-type="{{type}}" class="{{class}}">
+            {{#dates}}
+            <td class="{{class}}">{{data}}</td>
+            {{/dates}}
+          </tr>
+
+          {{/hours}}
+        </tbody>
+      </table>
+    </div>
+  </script>
+
+  <script id="calendarAgendaTpl" type="text/html">
+    <table class="table m-b-lg">
+      <tbody>
+
+        {{#data}}
+
+        <tr>
+          <td colspan="2" class="font-bold h3 b-b b-light">{{date}}</td>
+        </tr>
+
+        {{#schedules}}
+
+        <tr class="pointer calendarResourceBlock" data-id="{{id}}">
+          <td class="text-lg text-primary text-right b-b b-light">{{hour}}</td>
+          <td class="font-bold b-b b-light">{{name}}</td>
+        </tr>
+
+        {{/schedules}}
+
+        {{/data}}
+        
+      </tbody>
+    </table>
+  </script> 
+
+  <script id="allOrdersTpl" type="text/html">
+    {{#hasData}}
+    <div class="col-xs-12 col-sm-6 text-left">
+      <div class="h2 font-bold">{{title}}</div>
+      <div class="col-xs-12 text-sm m-b">{{subtitle}}</div>
+    </div>
+    <div class="col-xs-12 col-sm-6 text-right no-padder">
+      
+      <div class="btn-group m-b" id="singleTransactionMenuOps">
+        <a href="#" class="btn btn-info btn-lg text-u-c font-bold rounded clickeable" data-type="closeTable" data-kind="{{type}}" data-position="{{orderId}}" data-customer="{{customerId}}">Procesar</a>   
+        <a href="#" class="btn btn-info btn-lg text-u-c font-bold rounded clickeable" data-type="actionSheet" data-html="#orderActionSheetList{{orderId}}">       
+          <span class="material-icons">more_horiz</span>   
+        </a>
+      </div>
+      <span id="orderActionSheetList{{orderId}}" class="hidden">
+        <a href="#" class="wrapper text-md block clickeable" data-type="printTable" data-kind="{{type}}" data-position="{{orderId}}">
+          <i class="material-icons text-muted m-r">print</i>Imprimir resumen
+        </a>
+        <a href="#" class="wrapper text-md block clickeable" data-type="addOrder" data-kind="{{type}}" data-position="{{orderId}}">
+          <i class="material-icons text-muted m-r">add_box</i>Agregar orden
+        </a>
+        <a href="#" class="wrapper text-md block clickeable hidden" data-type="moveOrderItems" data-kind="{{type}}" data-position="{{orderId}}">
+          <i class="material-icons text-muted m-r">input</i>Mover seleccionados
+        </a>
+        <a href="#" class="wrapper text-md block clickeable" data-type="processOrderItems" data-kind="{{type}}" data-position="{{orderId}}">
+          <i class="material-icons text-muted m-r">check_box</i>Procesar seleccionados
+        </a>
+      </span>
+
+    </div>
+    <div class="col-xs-12 no-padder b-t panel no-bg">
+      
+      <table class="table">
+        <tbody>
+          {{#data}}
+          <tr class="text-right text-md {{strike}} {{itemId}}-{{index}}">
+            <td width="7%">
+              <a href="#" class="clickeable {{hideX}} m-r" data-qty="{{count}}" data-type="selectItemFromOrder" data-id="{{itemId}}" data-position="{{index}}" data-oposition="{{oindex}}" data-oid="{{transactionId}}" data-table="{{table}}">
+                <i class="material-icons text-muted">check_circle</i>
+              </a>
+            </td>
+            <td width="10%" class="font-bold">{{count}}</td>
+            <td width="51%" class="text-left font-bold">
+              {{name}} {{{tagsList}}}
+              <div class="text-xs font-normal">{{userName}} hace {{date}}</div>
+            </td>
+            <td width="25%">
+              {{price}}
+            </td>
+            <td width="7%">
+              <a href="#" class="clickeable {{hideX}}" data-type="removeItemFromOrder" data-id="{{itemId}}" data-position="{{index}}" data-oposition="{{oindex}}" data-oid="{{transactionId}}" data-table="{{table}}">
+                <i class="material-icons text-danger">close</i>
+              </a>
+            </td>
+          </tr>
+          {{/data}}
+          <tr class="h3 text-dark text-u-c font-bold">
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>Total</td>
+            <td class="text-right">{{total}}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    
+    {{/hasData}}
+    {{^hasData}}
+      <div class="wrapper h2 font-bold m-t m-b">No posee órdenes</div> 
+      <a href="#" class="btn btn-success gradBgGreen btn-lg btn-rounded m-t clickeable font-bold text-u-c" data-type="addOrder" data-kind="{{type}}" data-position="{{orderId}}">Agregar orden</a>
+    {{/hasData}}
+
+  </script>
+
+  <div style="font-family: 'dotmatrix'; height:1px!important; overflow: hidden;">ENCOM</div>
+  <div style="font-family: 'fakereceipt'; height:1px!important; overflow: hidden;">www.encom.app</div>
+  <div style="height:1px!important; overflow: hidden;">All rights reserved <i class="material-icons">close</i></div>
+  <iframe style="border:0!important;height:1px!important;width:1px!important;" id="printframe"></iframe>
+
+</body>
+</html>
+<?php 
+//GZIPPING END
+if( headers_sent() ){
+    $encoding = false;
+}elseif( strpos($HTTP_ACCEPT_ENCODING, 'x-gzip') !== false ){
+    $encoding = 'x-gzip';
+}elseif( strpos($HTTP_ACCEPT_ENCODING,'gzip') !== false ){
+    $encoding = 'gzip';
+}else{
+    $encoding = false;
+}
+
+if( $encoding ){
+    $contents = ob_get_clean();
+    header('Content-Encoding: '.$encoding);
+    //$contents = preg_replace('/\v(?:[\v\h]+)/', '', $contents);
+    $size     = strlen($contents);
+    $contents = gzcompress($contents, 9);
+    $contents = substr($contents, 0, $size);
+    echo $contents;
+    exit();
+}else{
+    ob_end_flush();
+    exit();
+}
+?>

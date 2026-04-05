@@ -1,0 +1,6 @@
+[08-Sep-2022 19:21:26 UTC] PHP Warning:  file_get_contents(../../secret/private-key.pem): failed to open stream: No such file or directory in /home/encom/public_html/app/libraries/qztray/sign-message.php on line 30
+[08-Sep-2022 19:21:26 UTC] PHP Warning:  openssl_sign(): supplied key param cannot be coerced into a private key in /home/encom/public_html/app/libraries/qztray/sign-message.php on line 33
+[08-Sep-2022 19:21:39 UTC] PHP Warning:  file_get_contents(../../secret/private-key.pem): failed to open stream: No such file or directory in /home/encom/public_html/app/libraries/qztray/sign-message.php on line 30
+[08-Sep-2022 19:21:39 UTC] PHP Warning:  openssl_sign(): supplied key param cannot be coerced into a private key in /home/encom/public_html/app/libraries/qztray/sign-message.php on line 33
+[08-Sep-2022 19:21:43 UTC] PHP Warning:  file_get_contents(../../secret/private-key.pem): failed to open stream: No such file or directory in /home/encom/public_html/app/libraries/qztray/sign-message.php on line 30
+[08-Sep-2022 19:21:43 UTC] PHP Warning:  openssl_sign(): supplied key param cannot be coerced into a private key in /home/encom/public_html/app/libraries/qztray/sign-message.php on line 33

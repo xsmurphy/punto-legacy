@@ -1,0 +1,19 @@
+{
+    "require": {
+        "giggsey/libphonenumber-for-php": "8.12.6",
+        "pusher/pusher-php-server": "7.2.1",
+        "mailgun/mailgun-php": "^4.2",
+        "symfony/http-client": "^5.4",
+        "nyholm/psr7": "^1.8",
+        "doctrine/dbal": "^3.3"
+    },
+    "platform-check": false,
+    "config": {
+        "platform": {
+            "php": "7.3.33"
+        },
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}

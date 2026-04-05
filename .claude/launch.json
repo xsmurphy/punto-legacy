@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Punto APP (POS)",
+      "runtimeExecutable": "/opt/homebrew/bin/php",
+      "runtimeArgs": ["-S", "localhost:8000", "router.php"],
+      "cwd": "/Users/xstian/Dropbox/Punto/system/app",
+      "port": 8000
+    },
+    {
+      "name": "Punto Panel (Admin)",
+      "runtimeExecutable": "/opt/homebrew/bin/php",
+      "runtimeArgs": ["-S", "localhost:8001", "router.php"],
+      "cwd": "/Users/xstian/Dropbox/Punto/system/panel",
+      "port": 8001
+    }
+  ]
+}

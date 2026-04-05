@@ -1,0 +1,127 @@
+{
+  "name": "ENCOM",
+  "lang": "es",
+  "dir": "ltr",
+  "short_name": "ENCOM",
+  "theme_color": "#d7e5e8",
+  "background_color": "#d7e5e8",
+  "start_url": "https://app.encom.app",
+  "scope": "https://app.encom.app/",
+  "display": "standalone",
+  "orientation": "natural",
+  "categories": ["business", "financial"],
+  "icons": [
+    {
+     "src": "\/android-icon-36x36.png",
+     "sizes": "36x36",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/android-icon-48x48.png",
+     "sizes": "48x48",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/android-icon-72x72.png",
+     "sizes": "72x72",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/android-icon-96x96.png",
+     "sizes": "96x96",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/android-icon-144x144.png",
+     "sizes": "144x144",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/android-icon-192x192.png",
+     "sizes": "192x192",
+     "type": "image\/png"
+    },
+
+    {
+        "src": "\/splash-icon.png",
+        "sizes": "512x512",
+        "type": "image/png"
+    },
+
+    {
+     "src": "\/apple-icon-120x120.png",
+     "sizes": "120x120",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/apple-icon-114x114.png",
+     "sizes": "114x114",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/apple-icon-152x152.png",
+     "sizes": "152x152",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/apple-icon-144x144.png",
+     "sizes": "144x144",
+     "type": "image\/png",
+     "purpose": "any maskable"
+    },
+    {
+     "src": "\/apple-icon-57x57.png",
+     "sizes": "57x57",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/apple-icon-180x180.png",
+     "sizes": "180x180",
+     "type": "image\/png",
+     "purpose": "any maskable"
+    },
+    {
+     "src": "\/apple-icon-72x72.png",
+     "sizes": "72x72",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/apple-icon-60x60.png",
+     "sizes": "60x60",
+     "type": "image\/png"
+    },
+    {
+     "src": "\/apple-icon-76x76.png",
+     "sizes": "76x76",
+     "type": "image\/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Menú principal",
+      "short_name": "Menú",
+      "description": "Abrir el menú principal",
+      "url": "/index#menu",
+      "icons": [{ "src": "/images/icons/sort.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Buscar artículos",
+      "short_name": "Artículos",
+      "description": "Abrir el buscador de productos y servicios",
+      "url": "/index#items",
+      "icons": [{ "src": "/images/icons/search.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Buscar clientes",
+      "short_name": "Clientes",
+      "description": "Abrir el buscador de clientes",
+      "url": "/index#customers",
+      "icons": [{ "src": "/images/icons/person.png", "sizes": "192x192" }]
+    }
+  ],
+  "related_applications": [{
+    "platform": "webapp",
+    "url": "https://app.encom.app/manifest.json"
+  }]
+
+}

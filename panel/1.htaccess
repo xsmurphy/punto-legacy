@@ -1,0 +1,6 @@
+RewriteEngine On
+ErrorDocument 404 https://panel.encom.app/includes/404.inc.php
+ErrorDocument 500 https://panel.encom.app/includes/errorPage.inc.php
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^([^\.]+)$ $1.php [NC,L]

@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # Base de datos MySQL (sistema actual)
+  mysql:
+    image: mysql:8.0
+    container_name: punto_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: encomdb
+      MYSQL_USER: encom
+      MYSQL_PASSWORD: encom123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    command: --sql-mode="" --default-authentication-plugin=mysql_native_password
+    networks:
+      - punto_network
+
+  # Base de datos PostgreSQL (nuevo sistema)
+  postgres:
+    image: postgres:16-alpine
+    container_name: punto_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: encomdb
+      POSTGRES_USER: encom
+      POSTGRES_PASSWORD: encom123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - punto_network
+
+  # PHPMyAdmin para gestión de MySQL
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    platform: linux/amd64
+    container_name: punto_phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: root123
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - punto_network
+
+  # pgAdmin para gestión de PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: punto_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@punto.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - punto_network
+
+  # Redis para cache
+  redis:
+    image: redis:7-alpine
+    container_name: punto_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - punto_network
+
+volumes:
+  mysql_data:
+    driver: local
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  punto_network:
+    driver: bridge

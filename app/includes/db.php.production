@@ -1,0 +1,35 @@
+<?php
+include_once("libraries/adodb/adodb.inc.php");
+
+$servername = "db-mysql-nyc3-99993-do-user-6390714-0.a.db.ondigitalocean.com";
+$username 	= "doadmin";
+$password 	= "ekmb1j5hh04xdu6s";
+
+$db 		= ADONewConnection('mysqli');
+$db->port 	= 25060;
+$db->NConnect($servername, $username, $password);
+$db->selectDb('ncm');
+//$db->debug = true;
+$db->Execute("SET SESSION sql_mode = ''"); //sirve para desbloquear queries con grupos de MYSQL8 - only_full_group_by es lo que saque REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ANSI,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+
+$db->cacheSecs 		= 3600 * 24;//cache 24 hs
+$ADODB_CACHE_DIR 	= '../../cache/adodb';//desde root panel hasta el cache
+$ADODB_COUNTRECS 	= true;
+
+function db_prepare($var){
+	global $db;
+
+	$return = $var;
+	//error_log(print_r($return,true));
+
+	if(defined('COMPANY_ID')){
+		if(COMPANY_ID == 10){
+			if(is_string($var)){
+				$return = mysqli_real_escape_string($db->_connectionID, $var);
+			}
+		}
+	}
+
+	return $db->Prepare($return);
+}
+?>

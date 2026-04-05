@@ -1,0 +1,9 @@
+RewriteEngine On
+ErrorDocument 404 https://panel.encom.app/includes/404.inc.php
+ErrorDocument 500 https://panel.encom.app/includes/errorPage.inc.php
+
+## RewriteCond %{HTTP_HOST} !^panel\.encom\.app$ [NC]
+## RewriteRule ^(.*)$ https://panel.encom.app/$1 [L,R=301]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^([^\.]+)$ $1.php [NC,L]

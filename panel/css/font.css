@@ -1,0 +1,29 @@
+@font-face {
+    font-family: 'dotmatrix';
+    src: url(https://panel.encom.app/fonts/dotmatrix.ttf);
+}
+
+@font-face {
+    font-family: 'FontA11';
+    src: url(https://panel.encom.app/fonts/FontA11.ttf);
+}
+
+@font-face {
+    font-family: 'fakereceipt';
+    src: local('FakeReceipt-Regular'),local('fakereceipt'), url(https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/app/fonts/fakereceipt.woff) format('woff'), url(https://panel.encom.app/fonts/fakereceipt.ttf) format('truetype');
+}
+
+/*@font-face {
+    font-family: 'dotmatrix';
+    src: url('../fonts/dotmatrix.ttf');
+}
+
+@font-face {
+    font-family: 'FontA11';
+    src: url('../fonts/FontA11.ttf');
+}
+
+@font-face {
+    font-family: 'fakereceipt', 'dotmatrix', 'Courier New', 'Courier';
+    src: local('FakeReceipt-Regular'), url('../fonts/fakereceipt.ttf') format('truetype'), url('../fonts/fakereceipt.woff') format('woff');
+}*/

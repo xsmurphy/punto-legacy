@@ -1,0 +1,37 @@
+<?php
+include_once('api_head.php');
+
+$result 		= ncmExecute('SELECT *
+						FROM contact
+						WHERE type = 1
+						AND companyId = ' . COMPANY_ID . ' ORDER BY contactId DESC LIMIT 1000',[],false,true);
+
+$arrays 		= [];
+if($result){
+	while (!$result->EOF) {
+		$array 						= [];
+		$id 						= enc($result->fields['contactId']);
+
+		$address 					= getDefaultCustomerAddress($id);
+
+		$array["id"] 				= $id;
+		$array["UID"] 				= enc($result->fields['contactUID']);
+		$array["name"] 				= toUTF8($result->fields['contactName']);
+		$array["tin"] 				= $result->fields['contactTIN'];
+		$array["CI"] 				= $result->fields['contactCI'];
+		$array["phone"] 			= $result->fields['contactPhone'];
+		$array["address"] 			= $address['address'];
+		$array["email"] 			= $result->fields['contactEmail'];
+		$array["note"] 				= $result->fields['contactNote'];
+		$array["status"] 			= $result->fields['contactStatus'];
+
+		array_push($arrays, $array);
+
+		$result->MoveNext();
+	}
+}else{
+	$arrays = array('error'=>'No se encontraron registros');
+}
+
+jsonDieResult($arrays,200);
+?>

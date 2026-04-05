@@ -1,0 +1,23 @@
+# Environment
+.env
+
+# Cache
+app/cach/*.js
+app/cach/*.css
+app/cach/*.mobile
+cache/adodb/
+
+# Logs
+/tmp/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (not tracked)
+mysql_data/
+postgres_data/
+
+# Claude local settings (permissions history)
+.claude/settings.local.json

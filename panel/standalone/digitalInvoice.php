@@ -1,0 +1,252 @@
+<?php
+include_once('sa_head.php');
+include_once('../libraries/enLetras.class.php');
+
+$data 		= explodes(',', base64_decode($_GET['s']));
+$baseUrl 	= PUBLIC_URL . '/digitalInvoice?s=' . validateHttp('s');
+
+define('TRANS_ID', dec($data[0]));
+define('COMPANY_ID', dec($data[1]));
+
+//verifico si existe la factura
+$exists = ncmExecute('SELECT transactionId FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1', [TRANS_ID, COMPANY_ID]);
+
+if (!$exists) {
+	include_once('../includes/404.inc.php');
+	die();
+}
+
+$setting = ncmExecute("SELECT * FROM setting WHERE companyId = ? LIMIT 1", [COMPANY_ID]);
+
+define('THOUSAND_SEPARATOR', $setting['settingThousandSeparator']);
+define('DECIMAL', $setting['settingDecimal']);
+define('CURRENCY', $setting['settingCurrency']);
+define('TIMEZONE', $setting['settingTimeZone']);
+define('TAX_NAME', $setting['settingTaxName']);
+define('TIN_NAME', $setting['settingTIN']);
+define('COMPANY_NAME', $setting['settingName']);
+define('TODAY', date('Y-m-d'));
+define('LANGUAGE', $setting['settingLanguage']);
+
+loadLanguage(LANGUAGE);
+date_default_timezone_set(TIMEZONE);
+
+$_modules 	= ncmExecute('SELECT digitalInvoice, digitalInvoiceData FROM module WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
+
+$modData 		= json_decode($_modules['digitalInvoiceData'], true);
+$_template 	= ncmExecute('SELECT taxonomyExtra as template FROM taxonomy WHERE taxonomyType = ? AND taxonomyId = ? AND companyId = ? LIMIT 1', ['printTemplate', dec($modData['template']), COMPANY_ID]);
+if (!$_modules['digitalInvoice'] || !$_template) {
+	include_once('../includes/404.inc.php');
+	die();
+}
+
+if (validateHttp('secret') != 'iwfyita' && validateHttp('pdf') != '1') {
+	include_once('../includes/404.inc.php');
+	die();
+}
+
+$result 			= ncmExecute('SELECT * FROM transaction WHERE transactionType IN(0,3,5) AND transactionId = ? AND companyId = ? LIMIT 1', [TRANS_ID, COMPANY_ID]);
+$resultItems 		= ncmExecute('SELECT * FROM itemSold WHERE transactionId  = ?', [TRANS_ID]);
+
+
+if (!$result) {
+	header('location: https://encom.app');
+	dai();
+}
+
+
+$contact 			= ncmExecute('SELECT * FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1', [$result['customerId'], COMPANY_ID]);
+
+$customerName 		= iftn($contact['contactName'], 'Sin cliente');
+$customerRuc 		= iftn($contact['contactTIN'], '');
+
+$arrayTax =  [];
+
+//Agrega el iva al registro de transactions 
+$transacionDetail = json_decode(stripslashes($result['transactionDetails']), true);
+$itemsFinal = [];
+
+// Aplica el iva y el formato de números en un solo foreach
+foreach ($transacionDetail as &$detail) {
+	foreach ($resultItems as $item) {
+		if (dec($detail['itemId']) == $item['itemId']) {
+			$arrayTax[$detail['tax']] += formatCurrentNumber($item['itemSoldTax']);
+			$detail['taxAmount'] = formatCurrentNumber($item['itemSoldTax']);
+
+			// Aplica el formato de números
+			$detail['uniPrice'] = formatCurrentNumber($detail['uniPrice']);
+			$detail['price'] = formatCurrentNumber($detail['price']);
+			$detail['total'] = formatCurrentNumber($detail['total']);
+
+			$itemsFinal[] = $detail;
+			break;
+		}
+	}
+}
+
+//Si esta vacío inserto lo que hay en el detalle de la transacción
+if (empty($itemsFinal)) {
+	$itemsFinal = $transacionDetail;
+}
+
+$array = [
+	'total' 				=> formatCurrentNumber($result['transactionTotal'] - $result['transactionDiscount']),
+	'totalRaw' 				=> ($result['transactionTotal'] - $result['transactionDiscount']),
+	'subtotal' 				=> formatCurrentNumber($result['transactionTotal']),
+	'taxArray' 				=> $arrayTax,
+	'discount' 				=> formatCurrentNumber($result['transactionDiscount']),
+	'tax' 					=> formatCurrentNumber($result['transactionTax']),
+	'companyId' 			=> enc($result['companyId']),
+	'outletId' 				=> enc($result['outletId']),
+	'transactionId'			=> enc($result['transactionId']),
+	'date' 					=> $result['transactionDate'],
+	'payment' 				=> $result['transactionPaymentType'],
+	'expires' 				=> ($result['transactionDueDate']) ? $result['transactionDueDate'] : $result['transactionDate'],
+	'taxName' 				=> TAX_NAME,
+	'companyName' 			=> COMPANY_NAME,
+	'sale' 					=> $itemsFinal
+];
+
+$register 		= ncmExecute('SELECT * FROM register WHERE registerId = ? AND companyId = ?', [$result['registerId'], COMPANY_ID]);
+$outlet 		= ncmExecute('SELECT * FROM outlet WHERE outletId = ? AND companyId = ?', [$result['outletId'], COMPANY_ID]);
+
+$docName = '';
+if (in_array($result['transactionType'], [0, 3])) {
+	$docName = L_INVOICE;
+} else if ($result['transactionType'] == 5) {
+	$docName = L_RECEIPT;
+}
+
+$jsonSale = [
+	"outletName" 						=> $outlet['outletName'],
+	"outletAddress"						=> $outlet['outletAddress'],
+	"outletPhone"						=> $outlet['outletPhone'],
+	"companyName" 						=> $array['companyName'],
+	"company_billing_name" 				=> $setting['settingBillingName'],
+	"companyTIN" 						=> $setting['settingRUC'],
+	"companyAddress" 					=> $setting['settingAddress'],
+	"companyEmail" 						=> $setting['settingEmail'],
+	"companyPhone" 						=> $setting['settingPhone'],
+	"total" 							=> $array['total'],
+	"rawtotal" 							=> $array['totalRaw'],
+	"subtotal" 							=> $array['subtotal'],
+	"discount" 							=> $array['discount'],
+	"tax" 								=> $array['tax'],
+	"taxArray"							=> $array['taxArray'],
+	"customerName" 						=> $contact['contactName'],
+	"customerFullName" 					=> $contact['contactSecondName'],
+	"customerTIN" 						=> $contact['contactTIN'],
+	"customerCI" 						=> $contact['contactCI'],
+	"customerAddress" 					=> $contact['contactAddress'],
+	"customerEmail" 					=> $contact['contactEmail'],
+	"customerPhone" 					=> $contact['contactPhone'],
+	"customerCity" 						=> $contact['contactCity'],
+	"customerLocation" 					=> $contact['contactLocation'],
+	"note" 								=> $result['transactionNote'],
+	"date" 								=> date(L_DATETIME_FORMAT, strtotime($array['date'])),
+	"dueDate" 							=> date(L_DATE_FORMAT, strtotime($array['expires'])),
+	"type" 								=> $result['transactionType'],
+	"typeDocument" 						=> $docName,
+	"authExpiration" 					=> date(L_DATE_FORMAT, strtotime($register['registerInvoiceAuthExpiration'])),
+	"invoiceAuthNo" 					=> $register['registerInvoiceAuth'],
+	"invoicePrefix" 					=> $register['registerInvoicePrefix'],
+	"invoiceSufix" 						=> $result['invoiceSufix'],
+	"invoiceNo" 						=> leadingZeros($result['invoiceNo'], $register['registerDocsLeadingZeros']),
+	"sale" 								=> $array['sale']
+];
+
+?>
+<!DOCTYPE html>
+<html>
+
+<head>
+	<!-- meta -->
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=1, initial-scale=1, maximum-scale=1">
+	<title>Factura <?= COMPANY_NAME; ?></title>
+	<meta property="og:title" content="Comprobante de <?= COMPANY_NAME; ?>" />
+	<meta property="og:image" content="https://assets.encom.app/150-150/0/<?= enc(COMPANY_ID) ?>.jpg" />
+</head>
+
+<body>
+	<p id="content"></p>
+
+	<script type="text/javascript">
+		var noSessionCheck, isMobile = {
+			phone: false
+		};
+	</script>
+
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.3.2/html2canvas.min.js"></script>
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+	<script type="text/javascript" src="<?= APP_URL ?>/scripts/num2word.js"></script>
+	<!-- <script src="http://panel.encom.test/scripts/documentPrintBuilder.source.js?<?= rand() ?>"></script> -->
+	<script type="text/javascript" src="<?= APP_URL ?>/scripts/dpb.min.js?<?= rand() ?>"></script>
+	<script type="text/javascript" src="<?= APP_URL ?>/scripts/rb.min.js"></script>
+	<script type="text/javascript" src="<?= APP_URL ?>/scripts/written-number.min.js"></script>
+	<script type="text/javascript" src="<?= APP_URL ?>/scripts/common.js"></script>
+
+	<script type="text/javascript">
+		var saleArray = <?= json_encode($jsonSale); ?>,
+			template = <?= $_template['template'] ?>,
+			resultAction = "<?php echo (validateHttp('secret') == 'iwfyita') ? 'print' : 'send'; ?>",
+			resultSaved = "<?php echo (validateHttp('pdf') == '1') ? 'saved' : 'view'; ?>",
+			fileName = "<?= COMPANY_NAME . ' ' . TODAY ?>";
+		window.jsPDF = window.jspdf.jsPDF;
+	</script>
+
+	<script type="text/javascript">
+		(function() {
+
+			var receiptConf = {};
+
+			receiptConf.isTicket = false;
+			receiptConf.isHTML = false;
+			receiptConf.chars = 0;
+			receiptConf.space = ' ';
+			receiptConf.EOL = '<br>';
+			var result = '<div style="font-family:' + template.page_font_family + '!important;font-size:' + template.page_font_size + '!important;letter-spacing:.3px;">' +
+				ducumentPrintBuilder.build(template.data, saleArray, receiptConf) +
+				'</div>';
+
+			var html = '<html><head><meta charset="utf-8"> <style type="text/css" media="print"> @page{size:auto;margin:0;padding:0;border:0;}*{padding: 0; margin: 0;border:0;font-family:' + template.page_font_family + '!important;font-size:' + template.page_font_size + '!important; color: black;}</style></head><body>' + result + '</body></html>';
+			var head = '<meta charset="utf-8"> <style type="text/css" media="print"> @page{size:auto;margin:0;padding:0;border:0;}*{padding: 0; margin: 0;border:0;font-family:' + template.page_font_family + '!important;font-size:' + template.page_font_size + '!important; color: black;}</style>';
+
+			$('body #content').html(result);
+
+			// ver en la misma url lo que va a imprimir el pdf
+			if (resultAction != 'print') {
+				$('#content').hide();
+
+			}
+
+			//Descargar el pdf
+			if (resultSaved == 'saved') {
+				$('#content').show();
+				$('head').html(head);
+
+				html2canvas($('body')[0]).then(canvas => {
+					var doc = new jsPDF("p", "mm", "a4"),
+						imgData = canvas.toDataURL('image/png', wid = canvas.width, hgt = canvas.height);
+					var hratio = hgt / wid;
+
+					var width = doc.internal.pageSize.width;
+					var height = width * hratio;
+
+					doc.addImage(imgData, 'PNG', -3, -3, width, height);
+					doc.save(fileName + '.pdf');
+				});
+
+				// Ocultar en la web la factura
+				$('#content').hide();
+
+			}
+
+		})();
+	</script>
+
+</body>
+
+</html>

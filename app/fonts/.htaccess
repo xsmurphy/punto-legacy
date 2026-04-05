@@ -1,0 +1,4 @@
+# allow access from everywhere
+<FilesMatch "\.(ttf|woff|woff2|otf|eot)$">
+	Header set Access-Control-Allow-Origin "*"
+</FilesMatch>
