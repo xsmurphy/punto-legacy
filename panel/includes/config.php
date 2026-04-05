@@ -2,32 +2,7 @@
 //error_reporting(-1);
 //ini_set('display_errors', 'Off');
 
-$origin 			= isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
-$allowed_domains 	= [
-    'https://encom.app',
-    'https://panel.encom.app',
-    'https://app.encom.app',
-    'https://assets.encom.app',
-    'https://api.encom.app',
-    'https://ecom.encom.app',
-    'https://encom.site',
-    'https://encom.com.py',
-    'https://panel.encom.com.py',
-    'https://app.encom.com.py',
-    'https://assets.encom.com.py',
-    'https://api.encom.com.py',
-    'http://localhost:8000',
-    'http://localhost:8001',
-    'http://localhost:8002'
-];
-
-if (in_array($origin, $allowed_domains)) {
-    header('Access-Control-Allow-Origin: ' . $origin);
-    header('Access-Control-Allow-Methods: GET, POST');
-		header('Access-Control-Allow-Headers: Content-Type');
-}else{
-	
-}
+require_once(__DIR__ . '/cors.php');
 
 date_default_timezone_set('America/Asuncion');//si no esta definido el timezone
 header('Content-Type: text/html; charset=utf-8');
@@ -36,7 +11,7 @@ define('LANGUAGE', 'es'); // pongo fuera del check de session porque si no hay s
 function theErrorHandler($type=false){
   $whoops = new \Whoops\Run;
 
-  if($_GET['debug']){
+  if(($_ENV['APP_DEBUG'] ?? 'false') === 'true' && !empty($_GET['debug'])){
     if($type == 'plain'){
       $whoops->pushHandler(new \Whoops\Handler\PlainTextHandler);
       $whoops->register();

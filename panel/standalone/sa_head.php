@@ -1,8 +1,6 @@
 <?php
 
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT');
-header('Access-Control-Allow-Headers: Content-Type');
+require_once(__DIR__ . '/../includes/cors.php');
 
 //error_log('/n' . json_encode([$_POST, $_GET]) . '/n', 3, 'error_log');
 

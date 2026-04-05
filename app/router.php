@@ -11,6 +11,11 @@
 ini_set('display_errors', 0);
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_WARNING);
 
+// Security headers — aplican a todas las respuestas del módulo /app
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+
 $uri = $_SERVER['REQUEST_URI'];
 $path = parse_url($uri, PHP_URL_PATH);
 

@@ -1,5 +1,4 @@
 <?php
-define('SALT',2147483647);
 define('HASH_TIMES',65646);
 define('API_URL','https://api.encom.app');
 // Detección automática de entorno local
@@ -21,6 +20,7 @@ define('PUBLIC_URL','https://public.encom.app');
         }
     }
 })();
+define('SALT', $_ENV['HASHIDS_SALT'] ?? '5b3e72e014a7892e9c0579adc4ac1ca99c27fa6deab3ed1404af9289c12070a0');
 define('INTERCOM_IDENTITY_SECRET',          $_ENV['INTERCOM_IDENTITY_SECRET']          ?? '');
 define('INTERCOM_IDENTITY_SECRET_IOS',      $_ENV['INTERCOM_IDENTITY_SECRET_IOS']      ?? '');
 define('INTERCOM_IDENTITY_SECRET_ANDROID',  $_ENV['INTERCOM_IDENTITY_SECRET_ANDROID']  ?? '');

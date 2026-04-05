@@ -1,5 +1,5 @@
 <?php
-header("Access-Control-Allow-Origin: *");
+require_once(__DIR__ . "/../includes/cors.php");
 if(isset($_GET['p'])){
     function getFileContent($url){//usar solo con urls propias y controladas por encom
         $ops =  [

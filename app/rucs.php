@@ -1,7 +1,5 @@
 <?php
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT');
-header('Access-Control-Allow-Headers: Content-Type');
+require_once(__DIR__ . '/includes/cors.php');
 include_once("includes/simple.config.php");
 include_once("libraries/hashid.php");
 include_once("libraries/countries.php");

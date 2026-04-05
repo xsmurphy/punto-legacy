@@ -1,5 +1,4 @@
 <?php
-define('SALT',2147483647);
 define('HASH_TIMES',65646);
 // Cargar secretos desde .env
 (function() {
@@ -13,6 +12,7 @@ define('HASH_TIMES',65646);
         }
     }
 })();
+define('SALT', $_ENV['HASHIDS_SALT'] ?? '5b3e72e014a7892e9c0579adc4ac1ca99c27fa6deab3ed1404af9289c12070a0');
 define('INTERCOM_IDENTITY_SECRET',         $_ENV['INTERCOM_IDENTITY_SECRET']         ?? '');
 define('INTERCOM_IDENTITY_SECRET_IOS',     $_ENV['INTERCOM_IDENTITY_SECRET_IOS']     ?? '');
 define('INTERCOM_IDENTITY_SECRET_ANDROID', $_ENV['INTERCOM_IDENTITY_SECRET_ANDROID'] ?? '');
@@ -132,7 +132,7 @@ $companyCategories  = [
 function theErrorHandler($type=false){
   $whoops = new \Whoops\Run;
 
-  if(isset($_GET['debug'])){
+  if(isset($_GET['debug']) && ($_ENV['APP_DEBUG'] ?? 'false') === 'true'){
     if($type == 'plain'){
       $whoops->pushHandler(new \Whoops\Handler\PlainTextHandler);
       $whoops->register();

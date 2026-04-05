@@ -1,7 +1,5 @@
 <?php
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT');
-header('Access-Control-Allow-Headers: Content-Type');
+require_once(__DIR__ . '/../includes/cors.php');
 
 include_once('/home/encom/public_html/panel/libraries/whoops/autoload.php');
 include_once('/home/encom/public_html/panel/includes/db.php');
