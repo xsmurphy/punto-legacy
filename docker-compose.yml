@@ -73,7 +73,7 @@ services:
     networks:
       - punto_network
 
-  # Redis para cache
+  # Redis para cache y Pub/Sub (WebSocket bridge)
   redis:
     image: redis:7-alpine
     container_name: punto_redis
@@ -82,6 +82,23 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - punto_network
+
+  # WebSocket server — reemplaza Pusher
+  ws:
+    build:
+      context: ./ws-server
+      dockerfile: Dockerfile
+    container_name: punto_ws
+    restart: unless-stopped
+    environment:
+      WS_PORT: 6001
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "6001:6001"
+    depends_on:
+      - redis
     networks:
       - punto_network
 
