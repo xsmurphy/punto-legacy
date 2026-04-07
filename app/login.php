@@ -2,7 +2,6 @@
 session_start();
 require_once(__DIR__ . '/includes/cors.php');
 
-require_once('libraries/whoops/autoload.php');
 require_once('includes/jwt.php');
 require_once('includes/jwt_middleware.php');
 
@@ -114,33 +113,44 @@ if($email && $pass){
     $phone  = $phone['phone'];
 
     if($get['phoneaction'] == 'send'){
-      
-      $new  = ($get['new']) ? '&new=1' : '';
-      $newpin = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?phone=' . $phone . $new),true);
 
-      if((isset($newpin['error']) && $newpin['error'])){//verifico si se esta jodiendo
+      $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+      $new     = ($get['new']) ? '&new=1' : '';
+      $newpin  = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?phone=' . $phone . $new),true);
+
+      if((isset($newpin['error']) && $newpin['error'])){
         jsonDieResult($newpin,500);
       }
 
       $newpin = $newpin['code'];
 
-      $msg  = '[ENCOM] ' . $newpin . ' Es su código de validación.';
+      $msg = '[' . APP_NAME . '] ' . $newpin . ' es su código de verificación.';
 
-          if(!isset($get['debug'])){
-            $sentSMS = sendNCMSMS($phone,$msg,$get['country'],isset($get['id']) ?? '');
-          }
+      if(!$isDebug){
+        $sentSMS = sendNCMSMS($phone,$msg,$get['country'],isset($get['id']) ?? '');
+      }else{
+        $sentSMS = true;
+      }
 
       jsonDieResult([
-                      'success'   => $sentSMS,
-                      'code'      => (isset($get['debug']) ? $get['debug'] : false) ? $newpin : ''
+                      'success' => $sentSMS,
+                      'code'    => $isDebug ? $newpin : '',  // en debug retorna el código al cliente para autocomplete
             ]);
       
     }else if($get['phoneaction'] == 'check'){
-      $pin    = $get['code'];
-      $oldpin = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?phone=' . $phone),true);
+      $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+      $pin     = $get['code'];
 
-      if($pin == $oldpin['code']){
-        jsonDieResult(['success' => 'valid', 'phone' => $phone]);//devuelvo telefono formateado valido para el login
+      if($isDebug){
+        // En debug mode el código siempre es 0000
+        $valid = ($pin === '0000');
+      }else{
+        $oldpin = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?phone=' . $phone),true);
+        $valid  = ($pin == $oldpin['code']);
+      }
+
+      if($valid){
+        jsonDieResult(['success' => 'valid', 'phone' => $phone]);
       }else{
         jsonDieResult(['error' => 'invalid'], 500);
       }

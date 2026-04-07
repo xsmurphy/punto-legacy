@@ -41,7 +41,8 @@ if(validateHttp('signup')){
 	dai();
 }
 
-header('location: /');
+// GET requests → redirigir a la nueva página de registro en el panel
+header('Location: /signup');
 dai();
 ?>
 

@@ -1,104 +1,101 @@
 <?php
-//2FA AUTH PARA REGISTRO Y VALIDACION DE NUMEROS DE CELULAR POR SMS
+// 2FA AUTH — generación y verificación de PIN por SMS/WhatsApp
 
-include_once('/home/encom/public_html/panel/includes/db.php');
-include_once('/home/encom/public_html/panel/includes/simple.config.php');
-include_once("/home/encom/public_html/panel/libraries/hashid.php");
+$_panelRoot = dirname(__DIR__, 2); // panel/
+include_once($_panelRoot . '/includes/db.php');
+include_once($_panelRoot . '/includes/simple.config.php');
 
-$db->selectDb('phone');
+$debugMode = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+$debugCode = '0000';
 
-$timeout 	= 240;
-$get 		= $db->Prepare($_GET);
-$QRMODE 	= ($get['qr'] == 1) ? true : false;
-$randNo 	= $QRMODE ? mt_rand(100000000000,999999999999) : mt_rand(1000,9999);
+$timeout = 240;
+$get     = $db->Prepare($_GET);
+$QRMODE  = ($get['qr'] == 1);
+$randNo  = $QRMODE ? mt_rand(100000000000, 999999999999) : mt_rand(1000, 9999);
 
-define('CODE', $randNo); //4 or 9 digits code
-define('TIME', time()); //actual time in seconds
+define('CODE', $debugMode ? $debugCode : $randNo);
+define('TIME', time());
 
-function jsonDieResult($array,$code=200){
-	http_response_code($code);
-	header('Content-Type: application/json');
+function jsonDieResult($array, $code = 200)
+{
+    http_response_code($code);
+    header('Content-Type: application/json');
     die(json_encode($array));
 }
 
-function createSession(){
-	global $db;
-	$db->Execute('DELETE FROM codes WHERE phone = ? LIMIT 1',[PHONE]);
-	$insert = $db->AutoExecute('codes', ['phone' => PHONE, 'code' => CODE, 'time' => TIME], 'INSERT');
-	return $insert;
+function enc($str): string { return (string)$str; }
+function dec($str): string { return (string)$str; }
+
+function createSession()
+{
+    global $db;
+    $db->Execute('DELETE FROM codes WHERE phone = ? LIMIT 1', [PHONE]);
+    return $db->AutoExecute('codes', ['phone' => PHONE, 'code' => CODE, 'time' => TIME], 'INSERT');
 }
 
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode($str);
-}
-
-//decode ID
-function dec($str){
-	$str 		= $str . '';
-	$hashids 	= new Hashids\Hashids(SALT);
-	$decoded 	= $hashids->decode($str)[0];
-	return (int)$decoded;
-}
-
-if(!$get['phone'] && !$get['qr']){
-	jsonDieResult(['error'=>'Not found'],404);
+if (!$get['phone'] && !$get['qr']) {
+    jsonDieResult(['error' => 'Not found'], 404);
 }
 
 define('PHONE', $get['phone']);
 
-$db->Execute('DELETE FROM codes WHERE time < ?',[(TIME - $timeout)]);
+if ($debugMode) {
+    // En debug mode: no tocar la DB, solo devolver el código fijo
+    if ($get['new']) {
+        jsonDieResult(['code' => CODE]);
+    } else {
+        jsonDieResult(['code' => CODE]);
+    }
+    // checkCompany y scan no aplican en debug, siguen el flujo normal abajo
+}
 
-if($get['new']){//si solicito un nuevo codigo lo genero
-	
-	if(PHONE){
-		createSession();
-		jsonDieResult( [ 'code' => CODE ] );
-	}else{
-		jsonDieResult(['error'=>'No phone'],404);
-	}
+// Limpiar códigos expirados
+$db->selectDb('phone');
+$db->Execute('DELETE FROM codes WHERE time < ?', [(TIME - $timeout)]);
 
-}else if($get['checkCompany']){
+if ($get['new']) {
 
-	$code 			= $db->Prepare($get['code']);
-	$result 		= $db->Execute('SELECT company, outlet FROM codes WHERE code = ? AND company IS NOT NULL LIMIT 1',[$code]);
+    if (PHONE) {
+        createSession();
+        jsonDieResult(['code' => CODE]);
+    } else {
+        jsonDieResult(['error' => 'No phone'], 404);
+    }
 
-	if($result && $result->RecordCount() > 0){
-		$company 	= $result->fields['company'];
-		$outlet 	= $result->fields['outlet'];
-	}else{
-		$company 	= false;
-		$outlet 	= false;
-	}
+} elseif ($get['checkCompany']) {
 
-	jsonDieResult(['company' => $company, 'outlet' => $outlet]);
+    $code   = $db->Prepare($get['code']);
+    $result = $db->Execute('SELECT company, outlet FROM codes WHERE code = ? AND company IS NOT NULL LIMIT 1', [$code]);
 
-}else if($get['scan']){
-//'https://api.encom.app/2fapin.php?scan=1&company=' . $company . '&outlet=' . $outlet . '&code=' . $code . '&qr=1'
+    $company = ($result && $result->RecordCount() > 0) ? $result->fields['company'] : false;
+    $outlet  = ($result && $result->RecordCount() > 0) ? $result->fields['outlet']  : false;
 
-	$code 		= $db->Prepare($get['code']);
-	$company 	= $db->Prepare($get['company']);
-	$outlet 	= $db->Prepare($get['outlet']);
+    jsonDieResult(['company' => $company, 'outlet' => $outlet]);
 
-	if(!$company || !$outlet){
-		jsonDieResult(['success' => false]);
-	}
+} elseif ($get['scan']) {
 
-	$update 	= $db->AutoExecute('codes', ['company' => $company, 'outlet' => $outlet], 'UPDATE', 'code = ' . $code . ' LIMIT 1');
-	$updateId 	= $db->Insert_ID();
+    $code    = $db->Prepare($get['code']);
+    $company = $db->Prepare($get['company']);
+    $outlet  = $db->Prepare($get['outlet']);
 
-	jsonDieResult(['success' => $update, 'data' => 'code:' . $code . ' comp:' . $company . ' ou:' . $outlet ]);
+    if (!$company || !$outlet) {
+        jsonDieResult(['success' => false]);
+    }
 
-}else{//si no solicito nuevo verifico el que existe
-	//chequeo si la session sigue activa
-	$result = $db->Execute('SELECT code FROM codes WHERE phone = ? LIMIT 1',[PHONE]);
+    $update = $db->AutoExecute('codes', ['company' => $company, 'outlet' => $outlet], 'UPDATE', 'code = ' . $code . ' LIMIT 1');
+    jsonDieResult(['success' => $update, 'data' => 'code:' . $code . ' comp:' . $company . ' ou:' . $outlet]);
 
-	if($result && $result->RecordCount() > 0){
-		$code = (int)$result->fields['code'];
-	}else{
-		createSession();
-		$code = CODE;
-	}
-	jsonDieResult(['code'=>$code]);
+} else {
+
+    $result = $db->Execute('SELECT code FROM codes WHERE phone = ? LIMIT 1', [PHONE]);
+
+    if ($result && $result->RecordCount() > 0) {
+        $code = (int)$result->fields['code'];
+    } else {
+        createSession();
+        $code = CODE;
+    }
+
+    jsonDieResult(['code' => $code]);
 }
 ?>

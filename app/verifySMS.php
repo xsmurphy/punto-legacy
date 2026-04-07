@@ -1,18 +1,18 @@
 <?php
 require_once(__DIR__ . '/includes/cors.php');
 
-define(COMPANY_ID, '15');
-define(SMS_CREDIT, '10');
-
-include_once('libraries/whoops/autoload.php');
 include_once('head.php');
 
-list($number,$code)  = explode(',', base64_decode($_GET['p']));
+$debugMode = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 
+// En debug mode no enviar SMS
+if ($debugMode) {
+    http_response_code(200);
+    die();
+}
+
+list($number, $code) = explode(',', base64_decode($_GET['p']));
 $number = str_replace('+', '', $number);
-
-$msg     = '[ENCOM] Su codigo de verificacion: ' . $code;
-sendSMS($number,$msg,false);
-
-
+$msg    = '[' . (defined('APP_NAME') ? APP_NAME : 'Punto') . '] Su código de verificación: ' . $code;
+sendSMS($number, $msg, false);
 ?>
