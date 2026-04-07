@@ -8,6 +8,11 @@
 
 session_start();
 
+// Limpiar sesiones con objetos no serializables (e.g. CaseInsensitiveArray de versión anterior)
+if (isset($_SESSION['user']['companySettings']) && !is_array($_SESSION['user']['companySettings'])) {
+	session_unset();
+}
+
 // At the top of the page we check to see whether the user is logged in or not
 if(empty($_SESSION['user'])){
 	if(isset($_GET['js']) && $_GET['js']){

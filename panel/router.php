@@ -20,8 +20,17 @@ $uri = $_SERVER['REQUEST_URI'];
 $path = parse_url($uri, PHP_URL_PATH);
 
 // Servir archivos estaticos que existen (css, js, images, fonts)
+// Incluye /assets/ que es un symlink a ../assets/
 if ($path !== '/' && file_exists(__DIR__ . $path)) {
     return false; // PHP built-in server sirve el archivo directamente
+}
+
+// Fallback para URLs de resize del CDN: /assets/{w}-{h}/... → imagenotfound.jpg
+if (preg_match('|^/assets/\d+-\d+/|', $path)) {
+    $fallback = __DIR__ . '/../assets/images/imagenotfound.jpg';
+    header('Content-Type: image/jpeg');
+    readfile($fallback);
+    return true;
 }
 
 // Regla: URLs sin extension -> .php (incluye API/)

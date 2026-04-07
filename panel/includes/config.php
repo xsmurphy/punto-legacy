@@ -62,27 +62,10 @@ function printSessionData($data){ //anhade seguridad al utilizar las variables d
 	}
 }
 
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode($str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-	if(is_array($str)){ $str = '';};
-	$str 			= $str . '';
-	$hashids 	= new Hashids\Hashids(SALT);
-	$decoded 	= $hashids->decode($str);
-	//$decoded 	= $decoded[0];
+function dec($str): string { return (string)$str; }
 
-	if(array_key_exists(0, $decoded)){
-		$decoded = $decoded[0];
-	}else{
-		$decoded = 0;
-	}
-
-	return (int)$decoded;
-}
 
 function ncmEncode($str){
 	$based 		= base64_encode($str);
@@ -104,8 +87,8 @@ function getCompanyLoginSession($companyId,$encomADM = false){
 	$outlet 			= $db->Execute("SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1",[$companyId]);
 	$company 			= $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[$companyId]);
 	$outletCount 	= $db->Execute("SELECT COUNT(outletId) as count FROM outlet WHERE outletStatus = 1 AND companyId = ?",[$companyId]);
-	$setting 			= $db->Execute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[$companyId]);
-	$modules 			= $db->Execute("SELECT * FROM module WHERE companyId = ? LIMIT 1",[$companyId]);
+	$setting 			= $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[$companyId]);
+	$modules 			= $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[$companyId]);
 
 	if($contact && $contact->RecordCount() > 0){
 		unset($contact->fields['salt'],$contact->fields['contactPassword'],$contact->fields['role']);
@@ -114,18 +97,18 @@ function getCompanyLoginSession($companyId,$encomADM = false){
 		$_SESSION['user']['companyId']  	= enc($contact->fields['companyId']);
 		$_SESSION['user']['companyDB']  	= $contact->fields['companyDB'];
 
-		$_SESSION['user']['companySettings']= $setting->fields;	
-		$_SESSION['user']['companyModules'] = $modules->fields;
+		$_SESSION['user']['companySettings']= $setting->GetRowAssoc();
+		$_SESSION['user']['companyModules'] = $modules->GetRowAssoc();
 
-		$_SESSION['user']['companyStatus']  = $company->fields['companyStatus'];
+		$_SESSION['user']['companyStatus']  = $company->fields['status'];
 		$_SESSION['user']['companyParent']  = 0;
 		//$_SESSION['user']['userName']     = $contact->fields['contactName'];
 		//$_SESSION['user']['userEmail']    = $contact->fields['contactEmail'];
 		//$_SESSION['user']['role']         = enc($contact->fields['role']);
 		$_SESSION['user']['outletId']     = enc($outlet->fields['outletId']);
 		$_SESSION['user']['registerId']   = 0;
-		$_SESSION['user']['plan']         = enc($company->fields['companyPlan']);
-		$_SESSION['user']['planExpires']  = $company->fields['companyExpiringDate'];
+		$_SESSION['user']['plan']         = enc($company->fields['plan']);
+		$_SESSION['user']['planExpires']  = $company->fields['expiresAt'];
 		$_SESSION['user']['outletsCount'] = $outletCount->fields['count'];
 		$_SESSION['user']['startDate']    = false;
 		$_SESSION['user']['endDate']      = false;
@@ -173,19 +156,19 @@ if(isset($_SESSION['user'])){
 	if(isset($sU['companySettings'])){
 		$_cmpSettings 	= $sU['companySettings'];
 	}else{
-		$setting 		= $db->Execute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-		$_cmpSettings 	= $setting->fields;
-		//$setting->Close();
+		$_coR 			= $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+		// Aplanar JSONB 'config' al nivel raíz (settingTimeZone, settingName, etc.)
+		$_coRow 		= $_coR->GetRowAssoc();
+		$_coJson 		= isset($_coRow['config']) ? (json_decode($_coRow['config'], true) ?? []) : [];
+		$_cmpSettings 	= array_merge($_coJson, $_coRow);
 	}
 
-	$_fullSettings  = json_decode($_cmpSettings['settingObj'],true);
+	$_fullSettings  = json_decode($_cmpSettings['settingObj'] ?? '{}', true) ?? [];
 
 	if(isset($sU['companyModules'])){
 		$_modules 		= $sU['companyModules'];
 	}else{
-		$modules 		= $db->Execute("SELECT * FROM module WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-		$_modules 		= $modules->fields;
-		//$modules->Close();
+		$_modules 		= $_cmpSettings; // misma fuente: company.config ya tiene módulos (loyalty, extraUsers, etc.)
 	}	
 									
 	define('COMPANY_NAME', $_cmpSettings['settingName']);
@@ -203,7 +186,7 @@ if(isset($_SESSION['user'])){
 	setcookie('category_id', $_cmpSettings['settingCompanyCategoryId'], time() + (86400 * 300), "/");
 	define('REGISTER_CONTROL', 'yes');
 	define('ACCEPTED_TERMS', $_cmpSettings['settingAcceptedTerms']);
-	define('EXPIRED', $_cmpSettings['settingPlanExpired']);
+	define('EXPIRED', $_cmpSettings['planExpired']);
 	define('LOYALTY', $_modules['loyalty']);
 	define('STORE_CREDIT', $_cmpSettings['settingStoreCredit']);
 	define('LINE_CREDIT', $_cmpSettings['settingForceCreditLine']);
@@ -213,21 +196,21 @@ if(isset($_SESSION['user'])){
 	define('ENCOM_UID', $_cmpSettings['settingEncomID']);
 
 	$companyData = $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-	define('BALANCE', $companyData->fields['companyBalance']);
-	define('SMS_CREDIT', $companyData->fields['companySMSCredit']);
-	define('COMPANY_DATE', $companyData->fields['companyDate']);
+	define('BALANCE', $companyData->fields['balance']);
+	define('SMS_CREDIT', $companyData->fields['smsCredit']);
+	define('COMPANY_DATE', $companyData->fields['createdAt']);
 	define('LAST_TIME_EDIT', $companyData->fields['companyLastUpdate']);
-	define('COMPANY_DISCOUNT', $companyData->fields['companyDiscount']);
+	define('COMPANY_DISCOUNT', $companyData->fields['discount']);
 	define('API_KEY', sha1($companyData->fields['accountId']));
 
 	//$companyData->Close();
 
-	$SQLcompanyIdANDoutletId 	= 'companyId = '.COMPANY_ID.' AND outletId = '.OUTLET_ID;
-	$SQLcompanyId 						= 'companyId = '.COMPANY_ID;
-	$SQLregisterId 						= 'registerId = '.REGISTER_ID;
-	$SQLcompanyIdJoin 				= 'a.companyId = '.COMPANY_ID;
+	$SQLcompanyIdANDoutletId 	= "companyId = '" . COMPANY_ID . "' AND outletId = '" . OUTLET_ID . "'";
+	$SQLcompanyId 						= "companyId = '" . COMPANY_ID . "'";
+	$SQLregisterId 						= "registerId = '" . REGISTER_ID . "'";
+	$SQLcompanyIdJoin 				= "a.companyId = '" . COMPANY_ID . "'";
 
-	date_default_timezone_set(TIMEZONE);	
+	if (TIMEZONE) date_default_timezone_set(TIMEZONE);
 
 	//GET ALL OUTLETS ARRAY
 	$allOutletsArray 	= [];
@@ -254,14 +237,14 @@ if(isset($_SESSION['user'])){
 
 }
 
-define('INCOME_COMPANY_ID', 15);
-define('ENCOM_COMPANY_ID', 15);
+define('INCOME_COMPANY_ID', MASTER_COMPANY_ID);
+define('ENCOM_COMPANY_ID',  MASTER_COMPANY_ID);
 define('INCOME_USER_ID', 32);
 define('INCOME_OUTLET_ID', 254);
 define('INCOME_REGISTER_ID', 2244);
 
 define('INTERCOM_IDENTITY_SECRET', $_ENV['INTERCOM_IDENTITY_SECRET'] ?? '');
-define('POS_URL','https://app.encom.app');
+if (!defined('POS_URL')) define('POS_URL', ''); // override in simple.config.php
 //ids de los productos de income
 define('PLAN_COMPANY_ID', 27558);
 define('PLAN_FULL_ID', 32491);
@@ -269,7 +252,7 @@ define('PLAN_STARTER_ID', 27559);
 define('PLAN_MICRO_ID', 27560);
 define('PLAN_FULL_ID', 32491);
 
-define('ASSETS_URL', 'https://assets.encom.app');
+define('ASSETS_URL', '/assets');
 define('SYSIMGS_FOLDER', '../assets/sysimages');
 
 define('TODAY', date('Y-m-d H:i:s'));

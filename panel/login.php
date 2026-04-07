@@ -1,7 +1,6 @@
 <?php
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("includes/functions.php");
 include_once("libraries/countries.php");
@@ -13,6 +12,12 @@ include_once("libraries/countries.php");
 }*/
 
 session_start();
+
+// Limpiar sesiones con objetos no serializables (e.g. CaseInsensitiveArray de versión anterior)
+if (isset($_SESSION['user']['companySettings']) && !is_array($_SESSION['user']['companySettings'])) {
+	session_unset();
+}
+
 define('OUTLETS_COUNT', 0);
 
 $redirect 		= $_GET['ref'];
@@ -65,9 +70,6 @@ if(validateHttp('token')){
 }
 
 if(validateHttp('recovery')){
-	$gtoken = validateHttp('gtoken');
-	gCaptcha($gtoken);
-
 	$result = findEmailOrPhoneLogin( validateHttp('email','post') );
 
 	if($result){
@@ -85,17 +87,17 @@ if(validateHttp('recovery')){
 			if(validity($result['contactEmail'],'email')){
 				$meta['subject'] = '[ENCOM] Su nueva contraseña';
 				$meta['to']      = $result['contactEmail'];
-				$meta['fromName']= 'ENCOM';
+				$meta['fromName']= APP_NAME;
 				$meta['data']    = [
 				                    "message"     => 'Su nueva contraseña es <strong>' . $newPass . '</strong>, una vez que haya ingresado a su cuenta vuelva a cambiarla ingresando a Contactos > Usuarios',
-				                    "companyname" => 'ENCOM',
-				                    "companylogo" => 'https://assets.encom.app/150-150/0/' . enc(ENCOM_COMPANY_ID) . '.jpg'
+				                    "companyname" => APP_NAME,
+				                    "companylogo" => '/assets/150-150/0/' . enc(ENCOM_COMPANY_ID) . '.jpg'
 				                	];
 
 				$sent = sendEmails($meta);
 			}else if( validity($result['contactPhone']) ){
 
-				$companyData = ncmExecute( 'SELECT settingCountry FROM setting WHERE companyId = ? LIMIT 1',[$result['contactPhone']] );
+				$companyData = ncmExecute( 'SELECT settingCountry FROM company WHERE companyId = ? LIMIT 1',[$result['contactPhone']] );
 				$sent = sendSMS($result['contactPhone'],'[ENCOM] Su nueva contraseña es ' . $newPass,$companyData['settingCountry'],100,16);
 			}
 
@@ -114,11 +116,6 @@ if(validateHttp('recovery')){
 // This if statement checks to determine whether the login form has been submitted
 // If it has, then the login code is run, otherwise the form is displayed
 if(validateHttp('login')){
-	// This query retreives the user's information from the database using
-	// their username.
-	$gtoken = validateHttp('gtoken');
-	gCaptcha($gtoken);
-
 	$email 	= validateHttp('email','post');
 	$pass 	= validateHttp('password','post');
  
@@ -134,8 +131,8 @@ if(validateHttp('login')){
 	
 	if($result){
 
-		//eliminar al habilitar contact
-		if(checkForPassword($pass,$result['salt']) === $result['contactPassword']){
+		// rtrim contactPassword: PostgreSQL CHAR(68) pads with spaces, SHA-256 hashes never end in spaces
+		if(checkForPassword($pass, $result['salt']) === rtrim($result['contactPassword'])){
 			$login_ok = true;
 		}
 
@@ -240,7 +237,7 @@ $tips = [
 						?>
 						<div class="m-t text-md">
 							¿No tiene una cuenta en ENCOM?
-							<a href="https://app.encom.app" class="text-u-l m-t">Regístrate</a>
+							<a href="" class="text-u-l m-t">Regístrate</a>
 						</div>
 						<?php
 						}
@@ -286,7 +283,7 @@ $tips = [
 
 			<div class="col-xs-12 no-padder visible-xs">
 				<div class="wrapper bg-light dk text-center m-t-lg">
-					Al ingresar usted acepta nuestros <a href="https://assets.encom.app/terminos.pdf" target="_blank"><span class="text-info">Términos y Condiciones</span></a>
+					Al ingresar usted acepta nuestros <a href="/assets/terminos.pdf" target="_blank"><span class="text-info">Términos y Condiciones</span></a>
 				</div>
 			</div>
 
@@ -298,15 +295,10 @@ $tips = [
 
 	<div class="col-md-5 col-sm-7 col-md-offset-7 col-sm-offset-5 col-xs-12 hidden-xs">
 		<div class="wrapper bg-light dk text-center" id="msg">
-			Al ingresar usted acepta nuestros <a href="https://assets.encom.app/terminos.pdf" target="_blank"><span class="text-info">Términos y Condiciones</span></a>
+			Al ingresar usted acepta nuestros <a href="/assets/terminos.pdf" target="_blank"><span class="text-info">Términos y Condiciones</span></a>
 		</div>
 	</div>
 
-	<?php if(strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') === false): ?>
-	<script src="https://www.google.com/recaptcha/api.js?render=6Lec_9MZAAAAAMhsHtdq5X0gzRDP-7_-ttH4XxN3"></script>
-	<?php else: ?>
-	<script>var grecaptcha = { execute: function(k, opts) { return Promise.resolve('local-dev-bypass'); } };</script>
-	<?php endif; ?>
 	<script type="text/javascript">
 	  var noSessionCheck  = true;
 	  window.standAlone   = true;
@@ -320,7 +312,7 @@ $tips = [
   	</script>
 	<script>
 		 if(document.location.href.indexOf('/login') < 0 && document.location.hostname !== 'localhost') {
-	        document.location.href = 'https://panel.encom.app/login';
+	        document.location.href = '/login';
 	    }
 
 		$(document).ready(function(){
@@ -375,39 +367,35 @@ $tips = [
 										disabledText 	: 'Verificando'
 									});
 
-				grecaptcha.execute('6Lec_9MZAAAAAMhsHtdq5X0gzRDP-7_-ttH4XxN3', {action: 'login'}).then(function(gtoken) {
-
-					helpers.load({
-									url 	: loginUrl + '&gtoken=' + gtoken,
-									data 	: {'email' : email, 'password' : pass},
-									success : function(response) {
-												if(response == 'true'){
-													helpers.btnIndicator({
-																				btn 			: $('#btn-login'),
-																				status 			: 'disable',
-																				disabledText 	: 'Redireccionando'
-																			});
-													window.location = (ref)?ref:'/@#dashboard';
-													return false;
-												}else if(response == 'false'){
-													message('Error al intentar procesar su petición','error');
-												}else if(response.length > 250){
-													window.location = (ref) ? ref : '/@#dashboard';
-												}else{
-													ncmDialogs.alert(response,'danger');
-												}
-
-												helpers.loadIndicator();
+				helpers.load({
+								url 	: loginUrl,
+								data 	: {'email' : email, 'password' : pass},
+								success : function(response) {
+											if(response == 'true'){
 												helpers.btnIndicator({
-													btn : $('#btn-login'),
-													enabledText : 'Ingresar'
-												});
-											},
-									fail 	: function(){
+																			btn 			: $('#btn-login'),
+																			status 			: 'disable',
+																			disabledText 	: 'Redireccionando'
+																		});
+												window.location = (ref)?ref:'/@#dashboard';
+												return false;
+											}else if(response == 'false'){
 												message('Error al intentar procesar su petición','error');
+											}else if(response.length > 250){
+												window.location = (ref) ? ref : '/@#dashboard';
+											}else{
+												ncmDialogs.alert(response,'danger');
 											}
-					});
 
+											helpers.loadIndicator();
+											helpers.btnIndicator({
+												btn : $('#btn-login'),
+												enabledText : 'Ingresar'
+											});
+										},
+								fail 	: function(){
+											message('Error al intentar procesar su petición','error');
+										}
 				});
 
 				return false; // cancel original event to prevent form submitting
@@ -433,31 +421,27 @@ $tips = [
 										disabledText 	: 'Verificando'
 									});
 
-				grecaptcha.execute('6Lec_9MZAAAAAMhsHtdq5X0gzRDP-7_-ttH4XxN3', {action: 'recover'}).then(function(gtoken) {
-
-					helpers.load({
-									url 	: tis.attr('action') + '&gtoken=' + gtoken,
-									data 	: {'email' : email},
-									success : function(response) {
-												if(response == 'true'){
-													$('#loginBlock, #recover').toggle();
-													ncmDialogs.alert('Hemos enviado una nueva contraseña a su celular/email');
-												}else if(response == 'false'){
-													ncmDialogs.alert('Error al intentar procesar su petición');
-												}else{
-													ncmDialogs.alert(response);
-												}
-												helpers.loadIndicator();
-												helpers.btnIndicator({
-													btn : $('#btn-recover'),
-													enabledText : 'Ingresar'
-												});
-											},
-									fail 	: function(){
+				helpers.load({
+								url 	: tis.attr('action'),
+								data 	: {'email' : email},
+								success : function(response) {
+											if(response == 'true'){
+												$('#loginBlock, #recover').toggle();
+												ncmDialogs.alert('Hemos enviado una nueva contraseña a su celular/email');
+											}else if(response == 'false'){
 												ncmDialogs.alert('Error al intentar procesar su petición');
+											}else{
+												ncmDialogs.alert(response);
 											}
-					});
-
+											helpers.loadIndicator();
+											helpers.btnIndicator({
+												btn : $('#btn-recover'),
+												enabledText : 'Ingresar'
+											});
+										},
+								fail 	: function(){
+											ncmDialogs.alert('Error al intentar procesar su petición');
+										}
 				});
 
 				return false; // cancel original event to prevent form submitting

@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/" . LANGUAGE . ".php");
 include_once("includes/functions.php");
@@ -12,7 +10,7 @@ include_once("libraries/countries.php");
 theErrorHandler(); //error handler
 
 if (COMPANY_ID != ENCOM_COMPANY_ID) {
-  header('location:https://panel.encom.app/login');
+  header('location:/login');
   dai();
 }
 
@@ -47,23 +45,23 @@ if (validateHttp('action') == 'update' && validateHttp('cid', 'post')) {
   $modulesRecord  = [];
   //
   $companyRecord['companyName']           = validateHttp('storename', 'post');
-  $companyRecord['companyStatus']         = validateHttp('status', 'post');
-  $companyRecord['companyPlan']           = validateHttp('plan', 'post');
-  //$companyRecord['companyBalance']        = validateHttp('balance','post');
-  $companyRecord['companyDiscount']       = validateHttp('discount', 'post');
-  $companyRecord['companySMSCredit']      = validateHttp('smscredit', 'post');
-  //$companyRecord['companyExpiringDate']   = validateHttp('expires','post');
+  $companyRecord['status']         = validateHttp('status', 'post');
+  $companyRecord['plan']           = validateHttp('plan', 'post');
+  //$companyRecord['balance']        = validateHttp('balance','post');
+  $companyRecord['discount']       = validateHttp('discount', 'post');
+  $companyRecord['smsCredit']      = validateHttp('smscredit', 'post');
+  //$companyRecord['expiresAt']      = validateHttp('expires','post');
 
   $companyRecord['encomUsers']            = $users;
   $settingInsert                          = $db->AutoExecute('company', $companyRecord, 'UPDATE', 'companyId = ' . $pCompId);
 
   //
   $settingRecord['settingName']           = validateHttp('storename', 'post');
-  $settingRecord['settingSlug']           = validateHttp('storeslug', 'post');
+  $settingRecord['slug']           = validateHttp('storeslug', 'post');
   $settingRecord['settingCountry']        = validateHttp('country', 'post');
-  $settingRecord['settingPlanExpired']    = iftn(validateHttp('expired', 'post'), NULL);
+  $settingRecord['planExpired']    = iftn(validateHttp('expired', 'post'), NULL);
   $settingRecord['settingPartialBlock']   = iftn(validateHttp('lockPanel', 'post'), NULL);
-  $settingRecord['settingBlocked']        = iftn(validateHttp('lockAccount', 'post'), NULL);
+  $settingRecord['blocked']        = iftn(validateHttp('lockAccount', 'post'), NULL);
   $settingRecord['settingEncomID']        = dec(validateHttp('encomCustomerId', 'post'));
   $settingRecord['settingAutoSMSCredit']  = iftn(validateHttp('autoSMSCredit', 'post'), NULL);
 
@@ -71,7 +69,7 @@ if (validateHttp('action') == 'update' && validateHttp('cid', 'post')) {
   $modulesRecord['extraRegisters']        = validateHttp('extraRegisters', 'post');
   $modulesRecord['epos']                  = validateHttp('epos', 'post');
 
-  $exists = ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+  $exists = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
   $__modules 				= json_decode($exists['moduleData'],true);
   $__modules 				= is_array($__modules) ? $__modules : [];
   
@@ -147,9 +145,9 @@ if (validateHttp('action') == 'editForm') {
   $pId        = validateHttp('id');
   $DpId       = dec($pId);
   $result     = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$DpId]);
-  $settings   = ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1', [$DpId]);
-  $modules    = ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1', [$DpId]);
-  $user       = ncmExecute('SELECT contactId, contactEmail, contactPhone, contactName FROM contact WHERE role = 1 AND main = "true" AND type = 0 AND companyId = ? LIMIT 1', [$DpId]);
+  $settings   = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$DpId]);
+  $modules    = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$DpId]);
+  $user       = ncmExecute('SELECT contactId, contactEmail, contactPhone, contactName FROM contact WHERE role = 1 AND main = \'true\' AND type = 0 AND companyId = ? LIMIT 1', [$DpId]);
 
   $outlets    = ncmExecute('SELECT COUNT(*) as count FROM outlet WHERE companyId = ?', [$DpId]);
   $registers  = ncmExecute('SELECT COUNT(*) as count FROM register WHERE companyId = ?', [$DpId]);
@@ -157,7 +155,7 @@ if (validateHttp('action') == 'editForm') {
   $users      = ncmExecute('SELECT COUNT(*) as count FROM contact WHERE type = 0 AND companyId = ?', [$DpId]);
   $customers  = ncmExecute('SELECT COUNT(*) as count FROM contact WHERE type = 1 AND companyId = ?', [$DpId]);
 
-  $plan       = $plansValues[$result['companyPlan']];
+  $plan       = $plansValues[$result['plan']];
 
   if (!$result) {
     echo '<h1 class="block text-center">Esta empresa ya no existe</h1>';
@@ -215,7 +213,7 @@ if (validateHttp('action') == 'editForm') {
               <br>
               <strong>Valor: </strong> <span class="pull-right"><?= formatCurrentNumber($plan['price']); ?></span>
               <br>
-              <strong>Descuento: </strong> <span class="pull-right"><?= formatCurrentNumber($result['companyDiscount']); ?></span>
+              <strong>Descuento: </strong> <span class="pull-right"><?= formatCurrentNumber($result['discount']); ?></span>
               <br>
               <strong>Usuarios Extra: </strong> <span class="pull-right"><?= formatQty($modules['extraUsers']); ?> / <?= formatCurrentNumber($modules['extraUsers'] * 5.00); ?></span>
               <br>
@@ -227,11 +225,11 @@ if (validateHttp('action') == 'editForm') {
             </div>
           </div>
 
-          <small class="block text-center hidden bg-light">https://www.encom.app/activate?i=<?= base64_encode(enc($result['companyId'])) ?>&a=<?= base64_encode($result['accountId']) ?></small>
+          <small class="block text-center hidden bg-light">//activate?i=<?= base64_encode(enc($result['companyId'])) ?>&a=<?= base64_encode($result['accountId']) ?></small>
 
-          <a class="btn btn-rounded btn-default hidden" target="_blank" href="http://panel.encom.app/standalone/storyMaker?name=<?= $settings['settingName'] ?>&country=<?= $countries[$settings['settingCountry']]['name'] ?>&color=<?= $bg ?>&cat=<?= $mainCat ?>&catname=<?= $catName ?>&type=story">Historia</a>
+          <a class="btn btn-rounded btn-default hidden" target="_blank" href="/screens/storyMaker?name=<?= $settings['settingName'] ?>&country=<?= $countries[$settings['settingCountry']]['name'] ?>&color=<?= $bg ?>&cat=<?= $mainCat ?>&catname=<?= $catName ?>&type=story">Historia</a>
 
-          <a class="btn btn-rounded btn-default hidden" target="_blank" href="http://panel.encom.app/standalone/storyMaker?name=<?= $settings['settingName'] ?>&country=<?= $countries[$settings['settingCountry']]['name'] ?>&color=<?= $bg ?>&cat=<?= $mainCat ?>&catname=<?= $catName ?>&type=post">Post</a>
+          <a class="btn btn-rounded btn-default hidden" target="_blank" href="/screens/storyMaker?name=<?= $settings['settingName'] ?>&country=<?= $countries[$settings['settingCountry']]['name'] ?>&color=<?= $bg ?>&cat=<?= $mainCat ?>&catname=<?= $catName ?>&type=post">Post</a>
         </div>
         <input type="email" name="email" value="fake.field.to.prevent.safari@from-filling.com" tabindex="-1" style="top:-100px; position:absolute;">
         <div class="col-sm-6 col-xs-12">
@@ -240,7 +238,7 @@ if (validateHttp('action') == 'editForm') {
           <input type="text" class="form-control m-b" placeholder="Empresa" value="<?= unXss($settings['settingName']) ?>" name="storename" autocomplete="off" />
 
           <label class="font-bold text-u-c">Slug</label>
-          <input type="text" class="form-control m-b" placeholder="Slug" value="<?= unXss($settings['settingSlug']) ?>" name="storeslug" autocomplete="off" />
+          <input type="text" class="form-control m-b" placeholder="Slug" value="<?= unXss($settings['slug']) ?>" name="storeslug" autocomplete="off" />
 
           <label class="font-bold text-u-c">Propietario</label>
           <input type="text" class="form-control m-b" placeholder="Propietario" value="<?= unXss($user['contactName']) ?>" name="username" autocomplete="off" />
@@ -249,7 +247,7 @@ if (validateHttp('action') == 'editForm') {
           <select name="plan" class="form-control m-b" autocomplete="off">
             <?php
             foreach ($plansValues as $index => $obj) {
-              if ($obj['id'] == $result['companyPlan']) {
+              if ($obj['id'] == $result['plan']) {
                 $selected = 'selected';
               } else {
                 $selected = '';
@@ -269,7 +267,7 @@ if (validateHttp('action') == 'editForm') {
 
           <div class="form-group">
             <label class="font-bold text-u-c">Alerta vencimiento</label>
-            <input type="checkbox" name="expired" class="m-l m-b pull-right" value="1" <?= ($settings['settingPlanExpired']) ? 'checked' : '' ?>>
+            <input type="checkbox" name="expired" class="m-l m-b pull-right" value="1" <?= ($settings['planExpired']) ? 'checked' : '' ?>>
           </div>
 
           <div class="form-group">
@@ -279,7 +277,7 @@ if (validateHttp('action') == 'editForm') {
 
           <div class="form-group">
             <label class="font-bold text-u-c">Bloquear toda la cuenta</label>
-            <input type="checkbox" name="lockAccount" class="m-l m-b pull-right" value="1" <?= ($settings['settingBlocked']) ? 'checked' : '' ?>>
+            <input type="checkbox" name="lockAccount" class="m-l m-b pull-right" value="1" <?= ($settings['blocked']) ? 'checked' : '' ?>>
           </div>
 
           <div class="form-group">
@@ -288,7 +286,7 @@ if (validateHttp('action') == 'editForm') {
           </div>
 
           <label class="font-bold text-u-c">Crédito SMS</label>
-          <input type="text" class="form-control m-b" name="smscredit" value="<?= $result['companySMSCredit'] ?>" autocomplete="off" />
+          <input type="text" class="form-control m-b" name="smscredit" value="<?= $result['smsCredit'] ?>" autocomplete="off" />
 
           <h3 class="font-bold block">ePOS</h3>
 
@@ -377,7 +375,7 @@ if (validateHttp('action') == 'editForm') {
             <select name="status" class="form-control m-b" autocomplete="off">
               <?php
               foreach ($statuses as $key) {
-                if ($key == $result['companyStatus']) {
+                if ($key == $result['status']) {
                   $selected = 'selected';
                 } else {
                   $selected = '';
@@ -399,16 +397,16 @@ if (validateHttp('action') == 'editForm') {
             <select name="encomCustomerId" class="form-control m-b chosen-select" autocomplete="off">
               <option value="">Sin Seleccionar</option>
               <?php
-              // $ncmCusId     = ncmExecute('SELECT contactName, contactSecondName,contactUID FROM contact WHERE companyId IN(15,4456,4457) AND type = 1');
+              // $ncmCusId     = ncmExecute('SELECT contactName, contactSecondName,contactId FROM contact WHERE companyId IN(15,4456,4457) AND type = 1');
 
               // ncmWhile($ncmCusId, function ($result, $vars) {
               //   $settings           = $vars[0];
               //   $selected           = '';
-              //   if ($settings['settingEncomID'] == $result['contactUID']) {
+              //   if ($settings['settingEncomID'] == $result['contactId']) {
               //     $selected = 'selected';
               //   }
 
-              //   echo '<option value="' . enc($result['contactUID']) . '" ' . $selected . '>' . $result['contactName'] . ' (' . $result['contactSecondName'] . ')' . '</option>';
+              //   echo '<option value="' . enc($result['contactId']) . '" ' . $selected . '>' . $result['contactName'] . ' (' . $result['contactSecondName'] . ')' . '</option>';
               // }, [$settings]);
               ?>
             </select>
@@ -505,7 +503,7 @@ if (validateHttp('action') == 'delete' && validateHttp('id')) {
 
   //dai('Decoded Id: ' . $id . ' Coded: ' . validateHttp('id'));
 
-  $outlets    = ncmExecute('SELECT GROUP_CONCAT(outletId) as oids FROM outlet WHERE companyId = ?', [$id]);
+  $outlets    = ncmExecute('SELECT STRING_AGG(outletId::text, \',\') as oids FROM outlet WHERE companyId = ?', [$id]);
   $errors .= '1. ' . $db->ErrorMsg() . '\n';
 
   $db->Execute('DELETE FROM accountCategory WHERE companyId = ?', [$id]);
@@ -560,7 +558,7 @@ if (validateHttp('action') == 'delete' && validateHttp('id')) {
   $db->Execute('DELETE FROM contact WHERE companyId = ? AND type = 1 AND contactEmail = ""', array($_GET['id']));
   $errors .= '21. ' . $db->ErrorMsg() . '\n'; //elimino los clientes que no tienen email
 
-  $result = ncmExecute('SELECT GROUP_CONCAT(transactionId) as ids FROM transaction WHERE companyId = ?', [$id]);
+  $result = ncmExecute('SELECT STRING_AGG(transactionId::text, \',\') as ids FROM transaction WHERE companyId = ?', [$id]);
   $errors .= '22. ' . $db->ErrorMsg() . '\n';
 
   if ($result && counts($result['ids']) > 0) {
@@ -601,7 +599,7 @@ if (validateHttp('action') == 'delete' && validateHttp('id')) {
 
   $db->Execute('DELETE FROM contact WHERE companyId = ?', [$id]);
   $errors .= '29. ' . $db->ErrorMsg() . '\n';
-  $db->Execute('DELETE FROM setting WHERE companyId = ?', [$id]);
+  $db->Execute('DELETE FROM company WHERE companyId = ?', [$id]);
   $errors .= '30. ' . $db->ErrorMsg() . '\n';
   $db->Execute('DELETE FROM company WHERE companyId = ?', [$id]);
   $errors .= '31. ' . $db->ErrorMsg() . '\n';
@@ -637,7 +635,7 @@ if (validateHttp('action') == 'showTable') {
   $table      = '';
   $limits     = getTableLimits($limitDetail, $offsetDetail);
 
-  $result     = ncmExecute('SELECT * FROM company ORDER BY companyDate DESC ' . $limits, [], false, true);
+  $result     = ncmExecute('SELECT * FROM company ORDER BY createdAt DESC ' . $limits, [], false, true);
 
   $head = '<thead class="text-u-c">
             <tr>
@@ -675,7 +673,7 @@ if (validateHttp('action') == 'showTable') {
 
       $proceed    = false;
       $eUsers     = ($fields['encomUsers']) ? json_decode($fields['encomUsers']) : [];
-      $plan       = $plansValues[$fields['companyPlan']];
+      $plan       = $plansValues[$fields['plan']];
       $isActive   = 'inactivo';
 
       $compStats  = 'b-l b-light b-4x';
@@ -689,9 +687,9 @@ if (validateHttp('action') == 'showTable') {
         $compStats = 'b-l b-warning b-4x';
       }
 
-      if ($fields['companyStatus'] == 'Active') {
+      if ($fields['status'] == 'Active') {
         $status = 'bg-success';
-      } else if ($fields['companyStatus'] == 'Pending') {
+      } else if ($fields['status'] == 'Pending') {
         $status = 'bg-warning';
       } else {
         $status = 'bg-danger';
@@ -714,14 +712,14 @@ if (validateHttp('action') == 'showTable') {
       $hasEcommerce    = '<span class="badge bg-danger lter">Inhabilitado</span>';
 
       if ($proceed) {
-        $user     = ncmExecute('SELECT * FROM contact WHERE companyId = ? AND main = "true" AND type = 0 LIMIT 1', [$companyId]);
-        $setting  = ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1', [$companyId]);
-        $_modules = ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1', [$companyId]);
+        $user     = ncmExecute('SELECT * FROM contact WHERE companyId = ? AND main = \'true\' AND type = 0 LIMIT 1', [$companyId]);
+        $setting  = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+        $_modules = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
         $_outlets = ncmExecute('SELECT COUNT(*) as count FROM outlet WHERE companyId = ? LIMIT 1000', [$companyId]);
 
         $accountBlocked = '<span class="badge bg-success lter">Activado</span>';
 
-        if ($setting['settingBlocked'] == 1) {
+        if ($setting['blocked'] == 1) {
           $accountBlocked =  '<span class="badge bg-danger lter">Bloqueado</span>';
         } 
 
@@ -735,10 +733,10 @@ if (validateHttp('action') == 'showTable') {
         //obener fecha de primera factura
 
         $companyEdit    = '?action=editForm&id=' . $encCompId;
-        $companyAccess  = '   <a class="loadDash font-bold text-' . (($setting['settingPlanExpired']) ? 'danger' : 'default') . '" href="?url=true&companyId=' . $encCompId . '">' . $setting['settingName'] . '</a>';
+        $companyAccess  = '   <a class="loadDash font-bold text-' . (($setting['planExpired']) ? 'danger' : 'default') . '" href="?url=true&companyId=' . $encCompId . '">' . $setting['settingName'] . '</a>';
 
         if (!$userPermission['companyListAccess']) {
-          $companyAccess = '<span class="font-bold text-' . (($setting['settingPlanExpired']) ? 'danger' : 'default') . '">' . $setting['settingName'] . '</span>';
+          $companyAccess = '<span class="font-bold text-' . (($setting['planExpired']) ? 'danger' : 'default') . '">' . $setting['settingName'] . '</span>';
         }
 
         if (!$userPermission['companyEdit']) {
@@ -759,7 +757,7 @@ if (validateHttp('action') == 'showTable') {
           ' <td> ' . $user['contactName'] . ' </td>' .
           ' <td> ' . $user['contactPhone'] . ' </td>' .
           ' <td> ' . $user['contactEmail'] . ' </td>' .
-          ' <td data-order="' . $fields['companyDate'] . '"> ' . $fields['companyDate'] . ' </td>' .
+          ' <td data-order="' . $fields['createdAt'] . '"> ' . $fields['createdAt'] . ' </td>' .
           ' <td data-order="' . $compLast . '"> ' . $compLast . ' </td>' .
           ' <td> ' . $countries[$setting['settingCountry']]['name'] . ' </td>' .
           ' <td> ' . getCompanyCategoryName($companyCategories, $setting['settingCompanyCategoryId']) . ' </td>' .
@@ -813,7 +811,7 @@ if (validateHttp('action') == 'depositStateePOS') {
         if (in_array($status['status'], ['APPROVED'])) { //si esta pendiente paso a banco
           $update = ncmUpdate(['records' => ['status' => 'RECEIVED'], 'table' => 'vPayments', 'where' => 'ID = ' . $id]);
         } else if ($status['status'] == 'RECEIVED') {
-          $update = ncmUpdate(['records' => ['deposited' => 1], 'table' => 'vPayments', 'where' => 'ID = ' . $id . ' AND status = "RECEIVED" ']);
+          $update = ncmUpdate(['records' => ['deposited' => 1], 'table' => 'vPayments', 'where' => 'ID = ' . $id . " AND status = 'RECEIVED'"]);
         }
       }
     }
@@ -897,7 +895,7 @@ if (validateHttp('action') == 'changeStateePOS') {
 
             if ($resultPayment) {
               $companyId = $resultPayment['companyId'];
-              $_modules   = ncmExecute('SELECT eposData FROM module WHERE companyId = ? LIMIT 1', [$companyId]);
+              $_modules   = ncmExecute('SELECT eposData FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
               $ePOSData   = json_decode($_modules['eposData'], true);
 
               if (!empty($resultPayment['source']) && in_array($resultPayment['source'], ['bancardQROnline', 'dinelcoVPOS', 'bancardAutoDebit', 'bancardVPOS'])) { //si es pago online
@@ -1102,9 +1100,9 @@ if (validateHttp('action') == 'listePOS') {
         $companyId  = $fields['companyId'];
         $encCompId  = enc($companyId);
 
-        $_settings  = ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1', [$companyId]);
+        $_settings  = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
         $_outlets   = ncmExecute('SELECT * FROM outlet WHERE outletId = ? LIMIT 1', [$fields['outletId']]);
-        $_modules   = ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1', [$companyId]);
+        $_modules   = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
         $ePOSData   = json_decode($_modules['eposData'], true);
         if (empty($fields['data'])) {
           $fields['data'] = "";
@@ -1267,11 +1265,11 @@ if (validateHttp('action') == 'listePOSTable') {
     $table      = '';
     $limits     = getTableLimits($limitDetail, $offsetDetail);
 
-    $result     = ncmExecute('SELECT c.*, m.epos, m.eposData, s.settingPlanExpired, s.settingName, s.settingEncomID, s.settingCountry, s.settingCompanyCategoryId
+    $result     = ncmExecute('SELECT c.*, m.epos, m.eposData, s.planExpired, s.settingName, s.settingEncomID, s.settingCountry, s.settingCompanyCategoryId
                               FROM company c JOIN module m ON c.companyId = m.companyId
                               LEFT JOIN setting s ON c.companyId = s.companyId 
                               WHERE m.epos = true OR JSON_EXTRACT(m.eposData,"$.eposCard") = "1" 
-                              ORDER BY c.companyDate DESC ' . $limits, [], false, true);
+                              ORDER BY c.createdAt DESC ' . $limits, [], false, true);
 
     $head = '<thead class="text-u-c">
             <tr>
@@ -1317,7 +1315,7 @@ if (validateHttp('action') == 'listePOSTable') {
 
         $proceed    = false;
         $eUsers     = ($fields['encomUsers']) ? json_decode($fields['encomUsers']) : [];
-        $plan       = $plansValues[$fields['companyPlan']];
+        $plan       = $plansValues[$fields['plan']];
         $isActive   = 'inactivo';
 
         $compStats  = 'b-l b-light b-4x';
@@ -1331,9 +1329,9 @@ if (validateHttp('action') == 'listePOSTable') {
           $compStats = 'b-l b-warning b-4x';
         }
 
-        if ($fields['companyStatus'] == 'Active') {
+        if ($fields['status'] == 'Active') {
           $status = 'bg-success';
-        } else if ($fields['companyStatus'] == 'Pending') {
+        } else if ($fields['status'] == 'Pending') {
           $status = 'bg-warning';
         } else {
           $status = 'bg-danger';
@@ -1356,9 +1354,9 @@ if (validateHttp('action') == 'listePOSTable') {
         $hasEposCard    = '<span class="badge bg-danger lter">Inhabilitado</span>';
 
         if ($proceed) {
-          $user     = ncmExecute('SELECT * FROM contact WHERE companyId = ? AND main = "true" AND type = 0 LIMIT 1', [$companyId]);
-          //$setting  = ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1', [$companyId]);
-          //$_modules = ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1', [$companyId]);
+          $user     = ncmExecute('SELECT * FROM contact WHERE companyId = ? AND main = \'true\' AND type = 0 LIMIT 1', [$companyId]);
+          //$setting  = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+          //$_modules = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
           $_outlets = ncmExecute('SELECT COUNT(*) as count FROM outlet WHERE companyId = ? LIMIT 1000', [$companyId]);
           $ePOSData   = json_decode($fields['eposData'], true);
           $lastDate = ncmExecute('SELECT date FROM vPayments WHERE companyId = ? order by date desc LIMIT 1', [$companyId]);
@@ -1385,10 +1383,10 @@ if (validateHttp('action') == 'listePOSTable') {
           //obener fecha de primera factura
 
           $companyEdit    = '?action=editForm&id=' . $encCompId;
-          $companyAccess  = '   <a class="loadDash font-bold text-' . (($fields['settingPlanExpired']) ? 'danger' : 'default') . '" href="?url=true&companyId=' . $encCompId . '">' . $fields['settingName'] . '</a>';
+          $companyAccess  = '   <a class="loadDash font-bold text-' . (($fields['planExpired']) ? 'danger' : 'default') . '" href="?url=true&companyId=' . $encCompId . '">' . $fields['settingName'] . '</a>';
 
           if (!$userPermission['companyListAccess']) {
-            $companyAccess = '<span class="font-bold text-' . (($fields['settingPlanExpired']) ? 'danger' : 'default') . '">' . $fields['settingName'] . '</span>';
+            $companyAccess = '<span class="font-bold text-' . (($fields['planExpired']) ? 'danger' : 'default') . '">' . $fields['settingName'] . '</span>';
           }
 
           if (!$userPermission['companyEdit']) {
@@ -1407,7 +1405,7 @@ if (validateHttp('action') == 'listePOSTable') {
             ' <td> ' . $user['contactName'] . ' </td>' .
             ' <td> ' . $user['contactPhone'] . ' </td>' .
             ' <td> ' . $user['contactEmail'] . ' </td>' .
-            ' <td data-order="' . $fields['companyDate'] . '"> ' . $fields['companyDate'] . ' </td>' .
+            ' <td data-order="' . $fields['createdAt'] . '"> ' . $fields['createdAt'] . ' </td>' .
             ' <td data-order="' . $compLast . '"> ' . $compLast . ' </td>' .
             ' <td> ' . $countries[$fields['settingCountry']]['name'] . ' </td>' .
             ' <td> ' . getCompanyCategoryName($companyCategories, $fields['settingCompanyCategoryId']) . ' </td>' .
@@ -1470,7 +1468,7 @@ if (validateHttp('action') == 'listeTransactionMonthPOSTable') {
 
     $resultVPay     = ncmExecute('SELECT companyId, MONTH(date) AS month, YEAR(date) AS year, SUM(amount) AS totalAmount
                               FROM vPayments
-                              WHERE date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+                              WHERE date >= CURRENT_DATE - INTERVAL \'12 months\'
                               GROUP BY companyId, YEAR(date), MONTH(date)
                               ORDER BY companyId DESC, year DESC, month DESC' . $limits, [], false, true);
 
@@ -1519,7 +1517,7 @@ if (validateHttp('action') == 'listeTransactionMonthPOSTable') {
       $inClause = implode(',', $uniqueCompanyIds);
 
       $missingResults     = ncmExecute('SELECT companyId 
-                                  FROM module 
+                                  FROM company 
                                   WHERE (epos = true OR JSON_EXTRACT(eposData,"$.eposCard") = "1") 
                                   AND companyId NOT IN (' . $inClause . ')' . $limits, [], false, true);
 
@@ -1556,7 +1554,7 @@ if (validateHttp('action') == 'listeTransactionMonthPOSTable') {
 
         $proceed    = false;
         $eUsers     = ($company['encomUsers']) ? json_decode($company['encomUsers']) : [];
-        $plan       = $plansValues[$company['companyPlan']];
+        $plan       = $plansValues[$company['plan']];
         $isActive   = 'inactivo';
 
         $compStats  = 'b-l b-light b-4x';
@@ -1570,9 +1568,9 @@ if (validateHttp('action') == 'listeTransactionMonthPOSTable') {
           $compStats = 'b-l b-warning b-4x';
         }
 
-        if ($company['companyStatus'] == 'Active') {
+        if ($company['status'] == 'Active') {
           $status = 'bg-success';
-        } else if ($company['companyStatus'] == 'Pending') {
+        } else if ($company['status'] == 'Pending') {
           $status = 'bg-warning';
         } else {
           $status = 'bg-danger';
@@ -1594,16 +1592,16 @@ if (validateHttp('action') == 'listeTransactionMonthPOSTable') {
         $hasEposCard    = '<span class="badge bg-danger lter">Inhabilitado</span>';
 
         if ($proceed) {
-          $user     = ncmExecute('SELECT * FROM contact WHERE companyId = ? AND main = "true" AND type = 0 LIMIT 1', [$companyId]);
-          $setting  = ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1', [$companyId]);
-          $_modules = ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1', [$companyId]);
+          $user     = ncmExecute('SELECT * FROM contact WHERE companyId = ? AND main = \'true\' AND type = 0 LIMIT 1', [$companyId]);
+          $setting  = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+          $_modules = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
           $_outlets = ncmExecute('SELECT COUNT(*) as count FROM outlet WHERE companyId = ? LIMIT 1000', [$companyId]);
           $ePOSData   = json_decode($_modules['eposData'], true);
           $eposCard = $ePOSData['eposCard'];
 
           $accountBlocked = '<span class="badge bg-success lter">Activado</span>';
 
-          if ($setting['settingBlocked'] == 1) {
+          if ($setting['blocked'] == 1) {
             $accountBlocked =  '<span class="badge bg-danger lter">Bloqueado</span>';
           } 
 
@@ -1615,10 +1613,10 @@ if (validateHttp('action') == 'listeTransactionMonthPOSTable') {
           }
 
           $companyEdit    = '?action=editForm&id=' . $encCompId;
-          $companyAccess  = '   <a class="loadDash font-bold text-' . (($setting['settingPlanExpired']) ? 'danger' : 'default') . '" href="?url=true&companyId=' . $encCompId . '">' . $setting['settingName'] . '</a>';
+          $companyAccess  = '   <a class="loadDash font-bold text-' . (($setting['planExpired']) ? 'danger' : 'default') . '" href="?url=true&companyId=' . $encCompId . '">' . $setting['settingName'] . '</a>';
 
           if (!$userPermission['companyListAccess']) {
-            $companyAccess = '<span class="font-bold text-' . (($setting['settingPlanExpired']) ? 'danger' : 'default') . '">' . $setting['settingName'] . '</span>';
+            $companyAccess = '<span class="font-bold text-' . (($setting['planExpired']) ? 'danger' : 'default') . '">' . $setting['settingName'] . '</span>';
           }
 
           if (!$userPermission['companyEdit']) {
@@ -1638,7 +1636,7 @@ if (validateHttp('action') == 'listeTransactionMonthPOSTable') {
             ' <td> ' . $user['contactName'] . ' </td>' .
             ' <td> ' . $user['contactPhone'] . ' </td>' .
             ' <td> ' . $user['contactEmail'] . ' </td>' .
-            ' <td data-order="' . $company['companyDate'] . '"> ' . $company['companyDate'] . ' </td>' .
+            ' <td data-order="' . $company['createdAt'] . '"> ' . $company['createdAt'] . ' </td>' .
             ' <td> ' . $countries[$setting['settingCountry']]['name'] . ' </td>' .
             ' <td> ' . $setting['settingCity'] . ' </td>' .
             ' <td> ' . getCompanyCategoryName($companyCategories, $setting['settingCompanyCategoryId']) . ' </td>' .
@@ -1687,7 +1685,7 @@ if (validateHttp('action') == 'getOnRisk') {
   $risk       = 0;
   $active     = 0;
 
-  $result     = ncmExecute('SELECT * FROM company ORDER BY companyDate DESC', [], false, true);
+  $result     = ncmExecute('SELECT * FROM company ORDER BY createdAt DESC', [], false, true);
 
   while (!$result->EOF) {
     $fields     = $result->fields;
@@ -1712,7 +1710,7 @@ if (validateHttp('action') == 'getOnRisk') {
 
 if (validateHttp('action') == 'countries') {
 
-  $result     = ncmExecute('SELECT * FROM setting', [], false, true);
+  $result     = ncmExecute('SELECT * FROM company', [], false, true);
   $list       = [];
 
   while (!$result->EOF) {
@@ -1851,6 +1849,7 @@ if (validateHttp('action') == 'soldByCompanyPM') {
 
   function modBlock($ops)
   {
+    $ops += ['color' => 'info', 'id' => ''];
     $out =  '<div class="col-md-4 col-sm-6 col-xs-12 wrapper">' .
       ' <div class="col-xs-12 no-padder r-24x clear bg-white" style="min-height:180px;">' .
       '   <div class="text-left wrapper col-xs-12 b-b">' .
@@ -1877,7 +1876,7 @@ if (validateHttp('action') == 'soldByCompanyPM') {
   <section class="col-xs-12 wrapper">
     <div class="col-xs-12 m-b">
 
-      <img src="https://app.encom.app/images/iconincomesm.png" class="m-r-xs m-t-n" width="40">
+      <img src="/images/iconincomesm.png" class="m-r-xs m-t-n" width="40">
       <span class="h1 text-dark font-bold">
         <?= USER_NAME ?> - Panel Corporativo
       </span>
@@ -1910,20 +1909,20 @@ if (validateHttp('action') == 'soldByCompanyPM') {
 
     <div class="col-xs-12 wrapper" id="sections">
 
-      <?= modBlock(['title' => 'eMail', 'description'        => 'Ingresa a tu email corporativo', 'url'   => 'https://encom.app:2096']); ?>
+      <?= modBlock(['title' => 'eMail', 'description'        => 'Ingresa a tu email corporativo', 'url'   => '/:2096']); ?>
       <?= modBlock(['title' => 'Bitrix24 CRM', 'description' => 'Ingresa a tu cuenta del CRM', 'url'      => 'https://encom.bitrix24.com/']); ?>
       <?= modBlock(['title' => 'Intercom', 'description'     => 'Ingresa al chat de soporte', 'url'       => 'https://app.intercom.com/']); ?>
       <?= modBlock(['title' => 'Tutoriales', 'description'   => 'Editar y añadir tutoriales', 'url'       => 'https://www.gitbook.com/']); ?>
       <?= modBlock(['title' => 'Novedades', 'description'    => 'Añade novedades de la plataforma', 'url' => 'https://headwayapp.co/encom-changelog']); ?>
       <?= modBlock(['title' => 'Marangatu', 'description'    => 'Ingresa a tu email corporativo', 'url' => 'https://marangatu.set.gov.py/eset/login']); ?>
-      <?= modBlock(['title' => 'CPanel', 'description'       => 'Ingresa a tu email corporativo', 'url' => 'https://encom.app:2083']); ?>
-      <?= modBlock(['title' => 'WHM', 'description'          => 'Ingresa a tu email corporativo', 'url' => 'https://encom.app:2087']); ?>
+      <?= modBlock(['title' => 'CPanel', 'description'       => 'Ingresa a tu email corporativo', 'url' => '/:2083']); ?>
+      <?= modBlock(['title' => 'WHM', 'description'          => 'Ingresa a tu email corporativo', 'url' => '/:2087']); ?>
 
       <?php
       if (ROLE_ID <= 1) {
       ?>
 
-        <?= modBlock(['title' => 'Panel de ENCOM', 'description' => 'Ir al panel de control de ENCOM', 'url' => 'https://panel.encom.app/@#dashboard']); ?>
+        <?= modBlock(['title' => 'Panel de ENCOM', 'description' => 'Ir al panel de control de ENCOM', 'url' => '/@#dashboard']); ?>
         <?= modBlock(['title' => 'Nuke', 'description' => 'Eliminar seleccionados', 'url' => '#', 'id' => 'nuke', 'color' => 'danger']); ?>
 
       <?php
@@ -2057,7 +2056,7 @@ if (validateHttp('action') == 'soldByCompanyPM') {
       <table class="table">
         <?php
 
-        /*$pais = $db->Execute('SELECT settingCountry,COUNT(settingId) as count FROM setting GROUP BY settingCountry ORDER BY count DESC');
+        /*$pais = $db->Execute('SELECT settingCountry,COUNT(settingId) as count FROM company GROUP BY settingCountry ORDER BY count DESC');
         while (!$pais->EOF) {
           echo '<tr>';
           $cn = $countries[$pais->fields['settingCountry']]['name'];
@@ -2098,13 +2097,13 @@ if (validateHttp('action') == 'soldByCompanyPM') {
               ],'js');*/
   ?>
 
-  <script type="text/javascript" src="/standalone/scripts/ncm-ws.js"></script>
+  <script type="text/javascript" src="/screens/scripts/ncm-ws.js"></script>
   <script>var WS_URL = '<?= WS_URL ?>';</script>
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js"></script>
 
-  <script src="https://panel.encom.app/scripts/initials.js?<?= date('d.H') ?>"></script>
-  <script src="https://panel.encom.app/scripts/tdp.js?<?= date('d.H') ?>"></script>
-  <script src="https://panel.encom.app/scripts/ncm.js?<?= date('d.h.s') ?>"></script>
+  <script src="/scripts/initials.js?<?= date('d.H') ?>"></script>
+  <script src="/scripts/tdp.js?<?= date('d.H') ?>"></script>
+  <script src="/scripts/ncm.js?<?= date('d.h.s') ?>"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/3.1.4/js/bootstrap-datetimepicker.min.js"></script>
 
 
@@ -3014,10 +3013,10 @@ if (validateHttp('action') == 'soldByCompanyPM') {
         var data = JSON.parse(result.message);
         Push.create(data.title, {
           body: data.msg,
-          icon: 'https://app.encom.app/images/iconincomesm.png',
+          icon: '/images/iconincomesm.png',
           timeout: 30 * 60000,
           onClick: () => {
-            window.location = 'https://panel.encom.app/main';
+            window.location = '/main';
           }
         });
       });

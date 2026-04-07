@@ -1,7 +1,7 @@
 <?php
 //user var
 $plansValues = getAllPlans();
-require_once __DIR__ . '/../composer/vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 use Mailgun\Mailgun as MailgunClient;
 
@@ -408,8 +408,8 @@ if (!function_exists("curPageURL")) {
 	function curPageURL()
 	{
 		$pageURL = 'http';
-		if ($_SERVER["HTTPS"] == "on") {
-			$pageURL .= "s";
+		if ($_SERVER["HTTPS"] == 'on') {
+			$pageURL .= 's';
 		}
 		$pageURL .= "://";
 		if ($_SERVER["SERVER_PORT"] != "80") {
@@ -910,15 +910,18 @@ function getTagsDefaults($company)
 {
 	global $db, $SQLcompanyId;
 
-	$company 	= ($company) ? $company : COMPANY_ID;
+	// $company puede llegar como `true` (llamada legacy que usaba ID 1 en MySQL).
+	// En PostgreSQL con UUIDs no existe un ID numérico; usar COMPANY_ID como fallback.
+	$company = ($company && $company !== true) ? $company : COMPANY_ID;
 
-	$result 	= ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = 'tag' AND companyId = ? AND taxonomyExtra != 'internal' LIMIT 20", [$company], true, true);
+	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = \'tag\' AND companyId = ? AND taxonomyExtra != 'internal' LIMIT 20", [$company], true, true);
 
 	$out = [];
 
+	if (!$result) return $out;
+
 	while (!$result->EOF) {
 		$out[] = ["tagid" => $result->fields['taxonomyId'], "tagname" => $result->fields['taxonomyName']];
-
 		$result->MoveNext();
 	}
 
@@ -1190,16 +1193,16 @@ function getAllPayingCompaniesData()
 {
 	global $db, $SQLcompanyId;
 	$a 		= [];
-	$result = $db->Execute("SELECT * FROM company WHERE companyPlan IN (1,2,5,7) AND companyStatus = 'Active'");
+	$result = $db->Execute("SELECT * FROM company WHERE plan IN (1,2,5,7) AND status = 'Active'");
 
 	while (!$result->EOF) {
 		$a[$result->fields['companyId']] = array(
-			'balance'		=> $result->fields['companyBalance'],
-			'date'			=> $result->fields['companyDate'],
-			'plan'			=> $result->fields['companyPlan'],
+			'balance'		=> $result->fields['balance'],
+			'date'			=> $result->fields['createdAt'],
+			'plan'			=> $result->fields['plan'],
 			'lastUpdate'	=> $result->fields['companyLastUpdate'],
-			'expires'		=> $result->fields['companyExpiringDate'],
-			'discount'		=> $result->fields['companyDiscount'],
+			'expires'		=> $result->fields['expiresAt'],
+			'discount'		=> $result->fields['discount'],
 		);
 		$result->MoveNext();
 	}
@@ -1428,7 +1431,7 @@ function getAllContactsRaw($type = false, $index = false, $cache = false, $field
 	$typeand 	= '';
 	$fieldsAre = 'contactId,
 					contactRealId,
-					contactUID,
+					contactId,
 					contactName,
 					contactSecondName,
 					contactEmail,
@@ -1445,9 +1448,9 @@ function getAllContactsRaw($type = false, $index = false, $cache = false, $field
 					updated_at';
 
 	/*if((COMPANY_ID == INCOME_COMPANY_ID) && $type > 0){
-		$result = $db->Execute("SELECT * FROM setting");
+		$result = $db->Execute("SELECT * FROM company");
 
-		$sql = "SELECT companyId as contactUID, settingName as contactName, settingRUC as contactTIN FROM setting";
+		$sql = "SELECT companyId as contactId, settingName as contactName, settingRUC as contactTIN FROM company";
 
 		return $db->GetAssoc($sql);
 	}else{*/
@@ -1457,7 +1460,7 @@ function getAllContactsRaw($type = false, $index = false, $cache = false, $field
 	$indexs = 'contactId';
 
 	if ($index === 0) {
-		$indexs = 'contactUID';
+		$indexs = 'contactId';
 	} else if ($index === 1) {
 		$indexs = 'contactRealId';
 	}
@@ -1531,7 +1534,7 @@ function getAllGiftcardSoldTotal($startDate, $endDate)
 {
 	global $db;
 
-	$items 	= ncmExecute('SELECT GROUP_CONCAT(itemId) as ids FROM item WHERE itemType = "giftcard" AND companyId = ' . COMPANY_ID);
+	$items 	= ncmExecute('SELECT STRING_AGG(itemId::text, \',\') as ids FROM item WHERE itemType = \'giftcard\' AND companyId = ' . COMPANY_ID);
 	$total 	= 0;
 
 	if ($items) {
@@ -1647,23 +1650,24 @@ function getTotalScheduleByStatus($status, $startDate, $endDate, $roc, $id, $typ
 
 function getROC($register = false, $outlet = false, $company = false)
 {
-	//Register o Outlet o Company
+	// Register o Outlet o Company — devuelve un fragmento SQL WHERE.
+	// getROC(1) es un flag legacy que significa "sin filtro de caja, solo sucursal/empresa".
+	// Solo se filtra por register/outlet si el valor es un UUID real (36 chars).
 
-	if ($outlet) {
-		//	list($outlet,$location) = outletOrLocation($outlet);
+	$register = iftn($register, REGISTER_ID);
+	$outlet   = iftn($outlet,   OUTLET_ID);
+	$company  = iftn($company,  COMPANY_ID);
+
+	$roc = " AND companyId = '$company'";
+
+	$isUUID = fn($v) => is_string($v) && strlen($v) === 36;
+
+	if ($isUUID($register)) {
+		$roc = " AND registerId = '$register'";
+	} elseif ($isUUID($outlet)) {
+		$roc = " AND outletId = '$outlet'";
 	}
 
-	$register 	= iftn($register, REGISTER_ID);
-	$outlet 		= iftn($outlet, OUTLET_ID);
-	$company 		= iftn($company, COMPANY_ID);
-	$roc 				= ' AND companyId = ' . $company;
-	if ($register > 1) { //si tengo el registerId no necesito uotle ni company
-		$roc = ' AND registerId = ' . $register;
-	} else { //si no tengo register
-		if ($outlet > 1) { //si tengo outlet no necesito company
-			$roc = ' AND outletId = ' . $outlet;
-		}
-	}
 	return $roc;
 }
 
@@ -1793,7 +1797,7 @@ function getAllCompanies()
 	$result->Close();
 	//
 	$b = array();
-	$result = $db->Execute("SELECT * FROM setting");
+	$result = $db->Execute("SELECT * FROM company");
 	$c = 0;
 	while (!$result->EOF) {
 		$b[$a[$c]] = array(
@@ -1850,7 +1854,7 @@ function getAllRoles()
 	global $db;
 	//GET ALL REGISTERS ARRAY
 	$a = [];
-	$result = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'role'", [], true, true);
+	$result = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'role\'", [], true, true);
 
 	if ($result) {
 		while (!$result->EOF) {
@@ -1958,7 +1962,7 @@ function getAllTax()
 		return $_SESSION['NCM_ALLS']['ALL_TAX'];
 	}
 
-	$result = ncmExecute("SELECT taxonomyName, taxonomyId FROM taxonomy WHERE taxonomyType = 'tax' AND companyId = ? ORDER BY taxonomyName ASC LIMIT 100", [COMPANY_ID], false, true);
+	$result = ncmExecute("SELECT taxonomyName, taxonomyId FROM taxonomy WHERE taxonomyType = \'tax\' AND companyId = ? ORDER BY taxonomyName ASC LIMIT 100", [COMPANY_ID], false, true);
 
 	$tax 		= [];
 	$added 	= [];
@@ -2049,7 +2053,7 @@ function getPricesOfParents($items, $parentId)
 
 function getAllTags($encoded = false, $cache = false)
 {
-	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = 'tag' AND (companyId = ? OR companyId = 0)", [COMPANY_ID], $cache, true);
+	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = \'tag\' AND (companyId = ? OR companyId = 0)", [COMPANY_ID], $cache, true);
 	$tax = [];
 
 	if ($encoded) {
@@ -2950,9 +2954,9 @@ function voidSale($trId, $motive = '')
 
 				if (validity($customer['customerId'])) {
 					if ($dat['type'] == 'points') { //devuelvo loyalties
-						ncmExecute('UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ' . $dat['price'] . ' WHERE contactUID = ?', [$customer['customerId']]);
+						ncmExecute('UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ' . $dat['price'] . ' WHERE contactId = ?', [$customer['customerId']]);
 					} else if ($dat['type'] == 'storeCredit') { //devuelvo credito interno
-						ncmExecute('UPDATE contact SET contactStoreCredit = contactStoreCredit + ' . $dat['price'] . ' WHERE contactUID = ?', [$customer['customerId']]);
+						ncmExecute('UPDATE contact SET contactStoreCredit = contactStoreCredit + ' . $dat['price'] . ' WHERE contactId = ?', [$customer['customerId']]);
 					}
 				}
 
@@ -3060,7 +3064,7 @@ function deleteOutlet($id, $fulldelete = false)
 			$db->Execute('UPDATE contact SET outletId = NULL WHERE outletId = ?', [$id]);
 		}
 
-		$result = ncmExecute('SELECT GROUP_CONCAT(transactionId) as ids FROM transaction WHERE outletId = ? AND companyId = ?', [$id, COMPANY_ID]);
+		$result = ncmExecute('SELECT STRING_AGG(transactionId::text, \',\') as ids FROM transaction WHERE outletId = ? AND companyId = ?', [$id, COMPANY_ID]);
 
 		if ($result) {
 			$db->Execute('DELETE FROM itemSold WHERE transactionId IN(' . $result['ids'] . ')');
@@ -3236,7 +3240,7 @@ function getAllItemCategories()
 {
 	//GET ALL CATEGORIES ARRAY
 	$a 		= [];
-	$result = ncmExecute("SELECT taxonomyId,taxonomyName, CAST(taxonomyExtra as UNSIGNED) as sort FROM taxonomy WHERE taxonomyType = 'category' AND companyId = ? ORDER BY sort ASC LIMIT 2000", [COMPANY_ID], false, true);
+	$result = ncmExecute("SELECT taxonomyId,taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = \'category\' AND companyId = ? ORDER BY sort ASC LIMIT 2000", [COMPANY_ID], false, true);
 	if ($result) {
 		while (!$result->EOF) {
 			$a[$result->fields['taxonomyId']] = [
@@ -3255,7 +3259,7 @@ function getAllItemBrands()
 {
 	//GET ALL BRANDS ARRAY
 	$a 		= [];
-	$result = ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = 'brand' AND companyId = ? LIMIT 500", [COMPANY_ID], false, true);
+	$result = ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'brand\' AND companyId = ? LIMIT 500", [COMPANY_ID], false, true);
 
 	if ($result) {
 		while (!$result->EOF) {
@@ -3436,8 +3440,8 @@ function getCustomerData($id, $type = false, $cache = false)
 	$isCustomer = false;
 	$where 			= 'contactId = ' . $db->Prepare($id);
 
-	if ($type == 'uid' || $type == 'contactUID') {
-		$where 			= 'contactUID = ' . $id;
+	if ($type == 'uid' || $type == 'contactId') {
+		$where 			= 'contactId = ' . $id;
 		$isCustomer = true;
 	}
 
@@ -3454,7 +3458,7 @@ function getCustomerData($id, $type = false, $cache = false)
 	if ($obj) {
 		if ($isCustomer) {
 
-			$tAddress 		= getDefaultCustomerAddress($obj['contactUID'], true);
+			$tAddress 		= getDefaultCustomerAddress($obj['contactId'], true);
 			if ($tAddress) {
 				$address 		= $tAddress['address'];
 				$location 	= $tAddress['location'];
@@ -3471,7 +3475,7 @@ function getCustomerData($id, $type = false, $cache = false)
 		if (validity($obj['contactName']) || validity($obj['contactSecondName'])) {
 			return [
 				'id'				=> $obj['contactId'],
-				'uid'				=> $obj['contactUID'],
+				'uid'				=> $obj['contactId'],
 				'name'			=> $name,
 				'secondName' => $sname,
 				'ruc'				=> $obj['contactTIN'],
@@ -3491,7 +3495,7 @@ function getCustomerData($id, $type = false, $cache = false)
 		} else {
 			return [
 				'id'				=> $obj['contactId'],
-				'uid'				=> $obj['contactUID'],
+				'uid'				=> $obj['contactId'],
 				'name'			=> 'Sin Nombre',
 				'secondName' => '',
 				'ruc'				=> '',
@@ -3572,7 +3576,7 @@ function toUTF8($text)
 		}
 	}
 
-	if (defined('COMPANY_ID') && COMPANY_ID == 10) {
+	if (defined('COMPANY_ID') && COMPANY_ID == 10) { // TODO: replace integer 10 with company UUID
 		return unXss($return);
 	} else {
 		return $return;
@@ -3643,12 +3647,12 @@ function coorsToKms($latitude1, $longitude1, $latitude2, $longitude2, $unit = 'k
 
 function getShortURL($url)
 {
-	$creator 	= 'https://public.encom.app/shorturl.php?c=';
+	$creator 	= '/screens/shorturl.php?c=';
 	$short 		= file_get_contents($creator . $url); //@file_get_contents($creator . $url);
 	if ($short && $short != 'false') {
 		return $short;
 	} else {
-		return 'https://encom.app';
+		return '/';
 	}
 }
 
@@ -3700,7 +3704,7 @@ function getAllContacts($type = false, $cache = true, $fieldId = 'contactId', $i
 				];
 			}
 
-			$a1[$result->fields['contactUID']] 		= $values;
+			$a1[$result->fields['contactId']] 		= $values;
 			$a2[$result->fields['contactId']] 		= $values;
 			$a3[$result->fields['contactRealId']] 	= $values;
 
@@ -3919,7 +3923,7 @@ function selectInputTaxonomy($type, $match = '', $multi = false, $clas = '', $or
 
 function selectInputPaymentMethods($options = [])
 {
-	$pM 		= ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = 'paymentMethod' AND companyId = ? ORDER BY taxonomyName ASC", [COMPANY_ID], false, true);
+	$pM 		= ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND companyId = ? ORDER BY taxonomyName ASC", [COMPANY_ID], false, true);
 	$fixed 	= ['cash' => 'Efectivo', 'creditcard' => 'T. Crédito', 'debitcard' => 'T. Débito', 'check' => 'Cheque'];
 	$custom = [];
 
@@ -3954,7 +3958,7 @@ function selectInputTax($match, $multi = false, $clas = '', $allowNone = false, 
 	global $db, $SQLcompanyId;
 	$type 		= 'tax';
 	$options 	= '';
-	$result 	= $db->Execute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = ? AND " . $SQLcompanyId . " ORDER BY CAST(taxonomyName AS unsigned) DESC", array($type));
+	$result 	= $db->Execute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = ? AND " . $SQLcompanyId . " ORDER BY taxonomyName::INTEGER DESC", array($type));
 	if ($multi) {
 		$type = $type . '[]';
 	}
@@ -3963,7 +3967,7 @@ function selectInputTax($match, $multi = false, $clas = '', $allowNone = false, 
 		$options .= '<option value="" selected>Seleccionar</option>';
 	}
 
-	while (!$result->EOF) {
+	while ($result && !$result->EOF) {
 		$selected 		= '';
 		$fields 		= $result->fields;
 		$taxName 		= (!$fields['taxonomyName']) ? '' : unXss($fields['taxonomyName']);
@@ -4115,7 +4119,7 @@ function selectInputOutlet($match = '', $multi = false, $class = '', $name = 'ou
 			}
 
 			if ($locations) {
-				$location = ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = "location" AND outletId = ?', [$fields['outletId']], false, true);
+				$location = ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ?', [$fields['outletId']], false, true);
 				$out .= '<optgroup label="' . toUTF8($fields['outletName']) . '">' .
 					'	<option value="' . enc($fields['outletId']) . '" ' . $selected . '>&nbsp;Principal (' . toUTF8($fields['outletName']) . ')</option>';
 
@@ -4212,9 +4216,9 @@ function selectInputCustomer($match = '', $multi = false, $class = '', $name = '
 	global $db, $SQLcompanyId, $ADODB_CACHE_DIR, $plansValues;
 
 	if (COMPANY_ID == INCOME_COMPANY_ID) {
-		$sql = 'SELECT companyId as contactId, companyId as contactUID, settingName as contactName, settingEmail as contactEmail FROM setting';
+		$sql = "SELECT companyId as contactId, companyId as contactId, config->>'settingName' as contactName, config->>'settingEmail' as contactEmail FROM company";
 	} else {
-		$sql = 'SELECT contactUID, contactName, contactEmail FROM contact WHERE type = 1 AND ' . $SQLcompanyId . ' LIMIT ' . $plansValues[PLAN]['max_customers'];
+		$sql = 'SELECT contactId, contactName, contactEmail FROM contact WHERE type = 1 AND ' . $SQLcompanyId . ' LIMIT ' . $plansValues[PLAN]['max_customers'];
 	}
 
 	$result = ncmExecute($sql, [], $cache, true);
@@ -4229,11 +4233,11 @@ function selectInputCustomer($match = '', $multi = false, $class = '', $name = '
 	if ($result) {
 		while (!$result->EOF) {
 			$selected = '';
-			if ($result->fields['contactUID'] == $match) {
+			if ($result->fields['contactId'] == $match) {
 				$selected = 'selected';
 			}
 
-			$out .= '<option value="' . enc($result->fields['contactUID']) . '" data-email="' . $result->fields['contactEmail'] . '" ' . $selected . '>' .
+			$out .= '<option value="' . enc($result->fields['contactId']) . '" data-email="' . $result->fields['contactEmail'] . '" ' . $selected . '>' .
 				toUTF8($result->fields['contactName']) .
 				'</option>';
 
@@ -4284,7 +4288,7 @@ function selectInputCategory($match = '', $multi = false, $class = '', $name = '
 {
 	global $db, $SQLcompanyId, $plansValues;
 
-	$result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra as UNSIGNED) as sort FROM taxonomy WHERE taxonomyType = 'category' AND " . $SQLcompanyId . " ORDER BY sort ASC LIMIT 500", [], false, true);
+	$result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = \'category\' AND " . $SQLcompanyId . " ORDER BY sort ASC LIMIT 500", [], false, true);
 
 	if ($multi) {
 		$name = $name . '[]';
@@ -4542,6 +4546,243 @@ function comparePeriodsArrowsPercent($now, $past, $pastF, $inverted = false, $ic
 	return '<span class="' . $color . ' pointer" data-toggle="tooltip" title="Periodo anterior: ' . $pastF . '">' . $sign . ' ' . $difference . '%</span>';
 }
 
+function generateUuidV7(): string
+{
+    $timestamp = (int)(microtime(true) * 1000);
+    $timeHex   = str_pad(dechex($timestamp), 12, '0', STR_PAD_LEFT);
+
+    $rand = random_bytes(10);
+    $rand[0] = chr((ord($rand[0]) & 0x0f) | 0x70); // version 7
+    $rand[2] = chr((ord($rand[2]) & 0x3f) | 0x80); // variant
+
+    $randHex = bin2hex($rand);
+
+    return sprintf(
+        '%s-%s-%s-%s-%s',
+        substr($timeHex, 0, 8),
+        substr($timeHex, 8, 4),
+        substr($randHex, 0, 4),
+        substr($randHex, 4, 4),
+        substr($randHex, 8, 12)
+    );
+}
+
+/**
+ * Registro de esquemas de tablas con columnas JSONB.
+ * Devuelve un array indexado por nombre de tabla con:
+ *   'jsonbCol' => nombre de la columna JSONB de la tabla
+ *   'columns'  => array de columnas reales (no JSONB)
+ *
+ * Uso: cualquier campo en $record que NO aparezca en 'columns'
+ * será redirigido automáticamente al 'jsonbCol' por _routeToJsonb().
+ */
+function _getTableSchema(): array
+{
+    static $schema = null;
+    if ($schema !== null) {
+        return $schema;
+    }
+
+    // 'pk'      => columna PK de la tabla (para auto-generar UUID en ncmInsert)
+    // 'jsonbCol'=> columna JSONB donde van los campos no reconocidos
+    // 'columns' => todas las columnas reales de la tabla (incluyendo pk y jsonbCol)
+    $schema = [
+        'company' => [
+            'pk'       => 'companyId',
+            'jsonbCol' => 'config',
+            'columns'  => ['companyId', 'status', 'plan', 'balance', 'slug', 'blocked',
+                           'planExpired', 'isTrial', 'smsCredit', 'parentId', 'isParent',
+                           'createdAt', 'updatedAt', 'expiresAt', 'config'],
+        ],
+        'item' => [
+            'pk'       => 'itemId',
+            'jsonbCol' => 'data',
+            'columns'  => ['itemId', 'itemName', 'itemDate', 'itemSKU', 'itemCost', 'itemPrice',
+                           'itemIsParent', 'itemParentId', 'itemType', 'itemImage', 'itemStatus',
+                           'itemTrackInventory', 'itemCanSale', 'itemTaxExcluded', 'itemDiscount',
+                           'itemUOM', 'itemSort', 'itemProduction', 'taxId', 'brandId',
+                           'categoryId', 'supplierId', 'locationId', 'outletId', 'companyId',
+                           'updated_at', 'data'],
+        ],
+        'contact' => [
+            'pk'       => 'contactId',
+            'jsonbCol' => 'data',
+            'columns'  => ['contactId', 'contactName', 'contactSecondName', 'contactEmail',
+                           'contactAddress', 'contactAddress2', 'contactPhone', 'contactPhone2',
+                           'contactNote', 'contactCity', 'contactLocation', 'contactCountry',
+                           'contactTIN', 'contactCI', 'contactDate', 'contactBirthDay',
+                           'contactPassword', 'contactLoyalty', 'contactLoyaltyAmount',
+                           'contactStoreCredit', 'contactCreditable', 'contactCreditLine',
+                           'contactStatus', 'contactLastNotificationSeen', 'debtLastNotify',
+                           'type', 'main', 'role', 'lockPass', 'salt', 'parentId', 'categoryId',
+                           'userId', 'outletId', 'companyId', 'updated_at', 'data'],
+        ],
+        'transaction' => [
+            'pk'       => 'transactionId',
+            'jsonbCol' => 'meta',
+            'columns'  => ['transactionId', 'transactionDate', 'transactionDiscount',
+                           'transactionTax', 'transactionTotal', 'transactionUnitsSold',
+                           'transactionPaymentType', 'transactionType', 'transactionName',
+                           'transactionNote', 'transactionParentId', 'transactionComplete',
+                           'transactionDueDate', 'transactionStatus', 'transactionUID',
+                           'transactionCurrency', 'fromDate', 'toDate', 'invoiceNo',
+                           'invoicePrefix', 'tableno', 'timestamp', 'packageId',
+                           'categoryTransId', 'customerId', 'registerId', 'userId',
+                           'responsibleId', 'supplierId', 'outletId', 'companyId',
+                           'updated_at', 'meta'],
+        ],
+        'itemSold' => [
+            'pk'       => 'itemSoldId',
+            'jsonbCol' => 'meta',
+            'columns'  => ['itemSoldId', 'itemSoldTotal', 'itemSoldTax', 'itemSoldDate',
+                           'itemSoldUnits', 'itemSoldDiscount', 'itemSoldCOGS',
+                           'itemSoldComission', 'itemSoldDescription', 'itemSoldParent',
+                           'itemSoldCategory', 'itemId', 'userId', 'transactionId', 'meta'],
+        ],
+        'outlet' => [
+            'pk'       => 'outletId',
+            'jsonbCol' => 'data',
+            'columns'  => ['outletId', 'outletName', 'outletStatus', 'outletAddress',
+                           'outletPhone', 'outletWhatsApp', 'outletEmail', 'outletBillingName',
+                           'outletRUC', 'outletLatLng', 'outletDescription', 'outletCreationDate',
+                           'outletNextExpirationDate', 'outletPurchaseOrderNo',
+                           'outletOrderTransferNo', 'taxId', 'companyId', 'data'],
+        ],
+        'register' => [
+            'pk'       => 'registerId',
+            'jsonbCol' => 'data',
+            'columns'  => ['registerId', 'registerName', 'registerStatus', 'registerCreationDate',
+                           'registerInvoiceAuth', 'registerInvoiceAuthExpiration',
+                           'registerInvoicePrefix', 'registerInvoiceSufix', 'registerInvoiceNumber',
+                           'registerRemitoNumber', 'registerQuoteNumber', 'registerReturnNumber',
+                           'registerTicketNumber', 'registerOrderNumber', 'registerPedidoNumber',
+                           'registerBoletaNumber', 'registerScheduleNumber',
+                           'registerDocsLeadingZeros', 'lastupdated', 'sessionId',
+                           'outletId', 'companyId', 'data'],
+        ],
+        'plans' => [
+            'pk'       => 'id',
+            'jsonbCol' => 'features',
+            'columns'  => ['id', 'name', 'type', 'price', 'duration_days', 'max_items',
+                           'max_users', 'max_customers', 'max_outlets', 'max_registers',
+                           'max_suppliers', 'max_categories', 'max_brands', 'features'],
+        ],
+        'recurring' => [
+            'pk'       => 'recurringId',
+            'jsonbCol' => 'data',
+            'columns'  => ['recurringId', 'recurringNextDate', 'recurringEndDate',
+                           'recurringFrecuency', 'recurringStatus', 'recurringTransactionData',
+                           'companyId', 'data'],
+        ],
+        'tasks' => [
+            'pk'       => 'ID',
+            'jsonbCol' => 'data',
+            'columns'  => ['ID', 'date', 'dueDate', 'type', 'sourceId', 'status',
+                           'outletId', 'companyId', 'data'],
+        ],
+        'customerRecord' => [
+            'pk'       => 'customerRecordId',
+            'jsonbCol' => 'data',
+            'columns'  => ['customerRecordId', 'customerRecordSort', 'customerRecordName',
+                           'companyId', 'data'],
+        ],
+        'inventoryCount' => [
+            'pk'       => 'inventoryCountId',
+            'jsonbCol' => 'data',
+            'columns'  => ['inventoryCountId', 'inventoryCountDate', 'inventoryCountUpdated',
+                           'inventoryCountName', 'inventoryCountStatus', 'inventoryCountCounted',
+                           'inventoryCountNote', 'inventoryCountBlind',
+                           'userId', 'outletId', 'companyId', 'data'],
+        ],
+        'priceList' => [
+            'pk'       => 'ID',
+            'jsonbCol' => 'data',
+            'columns'  => ['ID', 'data', 'companyId'],
+        ],
+        'vPayments' => [
+            'pk'       => 'ID',
+            'jsonbCol' => 'data',
+            'columns'  => ['ID', 'date', 'payoutDate', 'depositedDate', 'amount', 'payoutAmount',
+                           'comission', 'tax', 'deposited', 'orderNo', 'authCode', 'operationNo',
+                           'inBank', 'status', 'UID', 'source', 'transactionId', 'customerId',
+                           'userId', 'outletId', 'companyId', 'updated_at', 'data'],
+        ],
+    ];
+
+    return $schema;
+}
+
+/**
+ * Separa $record en columnas reales vs campos que van al JSONB.
+ *
+ * Para tablas registradas en _getTableSchema():
+ *   - Campos que coinciden con columnas reales → se quedan en $record
+ *   - Campos desconocidos → se fusionan en la columna JSONB de la tabla
+ *
+ * Para tablas no registradas: devuelve $record sin cambios.
+ *
+ * @param  string $table  Nombre de la tabla
+ * @param  array  $record Array campo → valor a insertar/actualizar
+ * @return array  [$cleanRecord, $jsonbExtra, $jsonbCol]
+ *                $cleanRecord  : campos para columnas reales (incluye jsonbCol si tiene valor)
+ *                $jsonbExtra   : solo los campos que van al JSONB (vacío si ninguno)
+ *                $jsonbCol     : nombre de la columna JSONB ('data', 'meta', 'config', …)
+ */
+function _routeToJsonb(string $table, array $record): array
+{
+    $schema = _getTableSchema();
+
+    if (!isset($schema[$table])) {
+        return [$record, [], ''];
+    }
+
+    $jsonbCol   = $schema[$table]['jsonbCol'];
+    $knownCols  = array_flip($schema[$table]['columns']);
+
+    $cleanRecord = [];
+    $jsonbExtra  = [];
+
+    foreach ($record as $key => $value) {
+        if (isset($knownCols[$key])) {
+            $cleanRecord[$key] = $value;
+        } else {
+            $jsonbExtra[$key] = $value;
+        }
+    }
+
+    return [$cleanRecord, $jsonbExtra, $jsonbCol];
+}
+
+/**
+ * Aplana columnas JSONB al root del array de resultado.
+ * Las columnas regulares tienen prioridad sobre claves del JSONB.
+ * La columna JSONB en sí se elimina del resultado final.
+ *
+ * Acepta tanto arrays PHP como CaseInsensitiveArray (PDO wrapper).
+ * Siempre devuelve un CaseInsensitiveArray para mantener acceso case-insensitive.
+ */
+function _flattenJsonb($row): CaseInsensitiveArray
+{
+    // Normalizar a array plano para poder usar array_merge
+    $arr = ($row instanceof CaseInsensitiveArray) ? $row->toArray() : (array) $row;
+
+    static $jsonbCols = ['data', 'meta', 'config'];
+    foreach ($jsonbCols as $col) {
+        $val = $arr[$col] ?? $arr[strtolower($col)] ?? null;
+        if (isset($val) && is_string($val) && $val !== '') {
+            $decoded = json_decode($val, true);
+            // Solo aplanar JSON objects (arrays asociativos), no JSON arrays ([...])
+            // Los JSON arrays se dejan intactos para que el código que los usa pueda leerlos directamente
+            if (is_array($decoded) && !array_is_list($decoded)) {
+                $arr = array_merge($decoded, $arr); // columna gana sobre JSONB
+                unset($arr[$col]);
+            }
+        }
+    }
+
+    return new CaseInsensitiveArray($arr);
+}
+
 function ncmExecute($sql, $array = false, $cache = false, $forceObj = false, $getAssoc = false)
 {
 	global $db, $ADODB_CACHE_DIR;
@@ -4593,12 +4834,13 @@ function ncmExecute($sql, $array = false, $cache = false, $forceObj = false, $ge
 
 	if ($go) {
 		if ($getAssoc) {
-			$returns = $result;
+			// Aplanar JSONB en cada fila del array asociativo
+			$returns = array_map('_flattenJsonb', $result);
 		} else {
 			if ($count > 1 || $forceObj) {
-				$returns = $result;
+				$returns = $result; // objeto ADOdb — se aplana en ncmWhile
 			} else if ($count > 0) {
-				$returns = $result->fields;
+				$returns = _flattenJsonb($result->fields);
 			} else {
 				$returns = 0;
 			}
@@ -4607,7 +4849,7 @@ function ncmExecute($sql, $array = false, $cache = false, $forceObj = false, $ge
 		$returns = false;
 	}
 
-	if (strtoupper(explode(" ", trim($sql))[0]) == "INSERT" && $db->ErrorNo() == 0) {
+	if (strtoupper(explode(" ", trim($sql))[0]) == 'INSERT' && $db->ErrorNo() == 0) {
 		$returns = true;
 	}
 	// if($result->Affected_Rows() > 0){
@@ -4626,14 +4868,32 @@ function ncmInsert($options)
 		return false;
 	}
 
-	$table 		= $options['table'];
-	$record 	= $options['records'];
+	$table  = $options['table'];
+	$record = $options['records'];
 
-	$insert 	= $db->AutoExecute($table, $record, 'INSERT');
-	$insertedId = $db->Insert_ID();
+	// Determinar la columna PK de esta tabla (fallback 'id' para tablas no registradas)
+	$tableSchema = _getTableSchema();
+	$pkCol       = isset($tableSchema[$table]['pk']) ? $tableSchema[$table]['pk'] : 'id';
+
+	// Generar UUID v7 si el registro no trae el PK
+	if (empty($record[$pkCol])) {
+		$record[$pkCol] = generateUuidV7();
+	}
+
+	// Enrutar campos desconocidos al JSONB de la tabla
+	[$record, $jsonbExtra, $jsonbCol] = _routeToJsonb($table, $record);
+	if (!empty($jsonbExtra)) {
+		$existing = [];
+		if (isset($record[$jsonbCol]) && is_string($record[$jsonbCol])) {
+			$existing = json_decode($record[$jsonbCol], true) ?? [];
+		}
+		$record[$jsonbCol] = json_encode(array_merge($existing, $jsonbExtra));
+	}
+
+	$insert = $db->AutoExecute($table, $record, 'INSERT');
 
 	if ($insert !== false) {
-		return $insertedId;
+		return $record[$pkCol];
 	} else {
 		return false;
 	}
@@ -4655,12 +4915,27 @@ function ncmUpdate($options)
 		return false;
 	}
 
-	$table 		= $options['table'];
-	$record 	= $options['records'];
-	$where 		= $options['where'];
+	$table  = $options['table'];
+	$record = $options['records'];
+	$where  = $options['where'];
 
-	$update 	= $db->AutoExecute($table, $record, 'UPDATE', $where);
-	$updateId 	= $db->Insert_ID();
+	// Enrutar campos desconocidos al JSONB de la tabla
+	[$cleanRecord, $jsonbExtra, $jsonbCol] = _routeToJsonb($table, $record);
+
+	// Actualizar columnas reales via AutoExecute (solo si hay campos reales)
+	$update   = true;
+	$updateId = null;
+	if (!empty($cleanRecord)) {
+		$update   = $db->AutoExecute($table, $cleanRecord, 'UPDATE', $where);
+		$updateId = $db->Insert_ID();
+	}
+
+	// Fusionar campos JSONB usando el operador || de PostgreSQL (non-destructive merge).
+	// COALESCE maneja el caso en que la columna sea NULL en la fila existente.
+	if ($update !== false && !empty($jsonbExtra)) {
+		$jsonSql = "UPDATE $table SET $jsonbCol = COALESCE($jsonbCol, '{}') || ?::jsonb WHERE $where";
+		$db->Execute($jsonSql, [json_encode($jsonbExtra)]);
+	}
 
 	if ($update !== false) {
 		return ['error' => false, 'id' => $updateId];
@@ -4673,7 +4948,7 @@ function ncmWhile($result, $callback, $vars)
 {
 	if ($result) {
 		while (!$result->EOF) {
-			$field = $result->fields;
+			$field = _flattenJsonb($result->fields);
 			if (is_callable($callback)) {
 				call_user_func($callback, $field, $vars);
 			}
@@ -4752,7 +5027,7 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 	    <link rel="icon" type="image/png" href="' . $_faviconBase . '/favicon-32x32.png" sizes="32x32" />
 	    <link rel="icon" type="image/png" href="' . $_faviconBase . '/favicon-16x16.png" sizes="16x16" />
 	    <link rel="icon" type="image/png" href="' . $_faviconBase . '/favicon-128.png" sizes="128x128" />
-	    <meta name="application-name" content="ENCOM"/>
+	    <meta name="application-name" content=APP_NAME/>
 	    <meta name="msapplication-TileColor" content="#FFFFFF" />
 	    <meta name="msapplication-TileImage" content="' . $_faviconBase . '/mstile-144x144.png" />
 	    <meta name="msapplication-square70x70logo" content="' . $_faviconBase . '/mstile-70x70.png" />
@@ -4831,7 +5106,7 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 				(function() {
 					var w = window;
 					var ic = w.Intercom;
-					if (typeof ic === "function") {
+					if (typeof ic === 'function') {
 						ic('reattach_activator');
 						ic('update', intercomSettings);
 					} else {
@@ -5146,7 +5421,7 @@ function plansTables()
 	</div>
 
 	<div class="col-xs-12 no-padder m-b text-muted text-center text-sm">
-		<a href="http://encom.app/precios" class="btn btn-info btn-lg text-u-c font-bold btn-rounded">Comparar Planes</a>
+		<a href="//precios" class="btn btn-info btn-lg text-u-c font-bold btn-rounded">Comparar Planes</a>
 	</div>
 
 <?php
@@ -5208,10 +5483,10 @@ function getRolePermissions($roleId, $companyId)
 {
 	global $_ROLES_DATA;
 
-	$index 		= ncmExecute("SELECT sourceId FROM taxonomy WHERE taxonomyType = 'role' AND taxonomyExtra = ? LIMIT 1", [$roleId], true);
+	$index 		= ncmExecute("SELECT sourceId FROM taxonomy WHERE taxonomyType = \'role\' AND taxonomyExtra = ? LIMIT 1", [$roleId], true);
 
 	if ($index) {
-		$saved 		= ncmExecute("SELECT taxonomyExtra FROM taxonomy WHERE taxonomyType = 'roleData' AND sourceId = ? AND companyId = ? LIMIT 1", [$index['sourceId'], $companyId]);
+		$saved 		= ncmExecute("SELECT taxonomyExtra FROM taxonomy WHERE taxonomyType = \'roleData\' AND sourceId = ? AND companyId = ? LIMIT 1", [$index['sourceId'], $companyId]);
 
 		if ($saved) {
 			return json_decode($saved['taxonomyExtra'], true);
@@ -5339,7 +5614,7 @@ function insertNotifications($ops)
 		$tags 			= $ops['push']['tags'];
 		$where 			= $ops['push']['where'] ? $ops['push']['where'] : 'panel';
 
-		$link 			= iftn($link, ($where == 'panel') ? APP_URL : 'https://app.encom.app');
+		$link 			= iftn($link, ($where == 'panel') ? APP_URL : '');
 
 		sendPush([
 			"ids" 		=> enc($company),
@@ -5360,7 +5635,7 @@ function insertNotifications($ops)
 							FROM contact
 							WHERE companyId = ?
 							AND type = 0 
-							AND main = 'true' 
+							AND main = \'true\' 
 							ORDER BY companyId ASC", [$company], false, true);
 		if ($email) {
 			while (!$email->EOF) {
@@ -5374,11 +5649,11 @@ function insertNotifications($ops)
 
 				$meta['subject'] = '[ENCOM] ' . $title;
 				$meta['to']      = $fields['contactEmail'];
-				$meta['fromName'] = 'ENCOM';
+				$meta['fromName'] = APP_NAME;
 				$meta['data']    = [
 					"message"     => $body,
-					"companyname" => 'ENCOM',
-					"companylogo" => 'https://assets.encom.app/150-150/0/' . enc($fields['companyId']) . '.jpg?' . date('h')
+					"companyname" => APP_NAME,
+					"companylogo" => '/assets/150-150/0/' . enc($fields['companyId']) . '.jpg?' . date('h')
 				];
 
 				sendEmails($meta);
@@ -5399,7 +5674,7 @@ function leftMenu($isoutlet = false, $register = false, $submenu = false)
 		<section class="vbox bg-black lter rounded animated fadeInLeft speed-3x hidden">
 			<section class="w-f-md">
 				<nav class="nav-primary">
-					<a href="/@#dashboard" class="wrapper block"> <img src="/images/iconincomesmwhite.png" alt="ENCOM" width="35" id="toastnlogo"> </a>
+					<a href="/@#dashboard" class="wrapper block"> <img src="/images/iconincomesmwhite.png" alt=APP_NAME width="35" id="toastnlogo"> </a>
 					<ul class="nav" data-ride="collapse">
 
 						<?php
@@ -5566,7 +5841,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		<div class="text-white scrollable no-padder bg-black lter col-xs-12 no-padder hidden-print visible-xs" style="width:270px; height: 100vh; position:absolute; top:0; left:0; z-index:0;">
 
 			<div class="wrapper-sm text-center clickeable m-b" data-type="hideMenu" style="width: 270px;">
-				<a href="#" class="thumb-lg m-t rounded" id="companyLogo" style="background-image: url('https://assets.encom.app/150-150/0/<?= enc(COMPANY_ID) ?>.jpg?<?= date('d') ?>'); transition: background-image 5s ease 0s; background-size: 128px 128px; height: 128px; width: 128px;">
+				<a href="#" class="thumb-lg m-t rounded" id="companyLogo" style="background-image: url('/assets/150-150/0/<?= enc(COMPANY_ID) ?>.jpg?<?= date('d') ?>'); transition: background-image 5s ease 0s; background-size: 128px 128px; height: 128px; width: 128px;">
 					<img src="" class="img-circle" id="companyImg" style="display: none;">
 				</a>
 				<div class="text-sm">
@@ -5603,7 +5878,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 					<i class="material-icons text-muted m-r-sm m-l">bar_chart</i> <span class="text-white">Reportes</span>
 				</a>
 
-				<a href="https://app.encom.app" class="block wrapper-md hoverMenu text-md mmnPOSBtn hidden-xs">
+				<a href="" class="block wrapper-md hoverMenu text-md mmnPOSBtn hidden-xs">
 					<i class="material-icons text-muted m-r-sm m-l">chrome_reader_mode</i> <span class="text-white">Caja</span>
 				</a>
 
@@ -5750,7 +6025,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			?>
 		</div>
 		<div class="col-xs-12 text-sm m-t-lg text-center">
-			Usamos ENCOM - www.encom.app
+			Usamos ENCOM - <?= APP_URL ?>
 		</div>
 	</div>
 <?php
@@ -5892,7 +6167,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function setTimeZone($companyId, $setting = false)
 		{
-			$setting = ($setting) ? $setting : ncmExecute("SELECT settingTimeZone FROM setting WHERE companyId = ? LIMIT 1", [$companyId]);
+			$setting = ($setting) ? $setting : ncmExecute("SELECT settingTimeZone FROM company WHERE companyId = ? LIMIT 1", [$companyId]);
 			date_default_timezone_set($setting['settingTimeZone']);
 		}
 
@@ -6077,11 +6352,11 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			global $db;
 
 			$slug   = db_prepare(($slug) ? $slug : slugify($name));
-			$isSlug = ncmExecute('SELECT settingId FROM setting WHERE settingSlug = ? AND companyId != ? LIMIT 1', [$slug, $companyId]);
+			$isSlug = ncmExecute('SELECT companyId FROM company WHERE slug = ? AND companyId != ? LIMIT 1', [$slug, $companyId]);
 			if ($isSlug) { // si ya existe una emrpesa con este slug
 				createSlug('', $slug . '-' . mt_rand(5, 90), $companyId);
 			} else {
-				$db->Execute("UPDATE setting SET settingSlug = '" . $slug . "' WHERE companyId = " . $companyId);
+				$db->Execute("UPDATE company SET slug = '" . $slug . "' WHERE companyId = " . $companyId);
 			}
 		}
 
@@ -6168,6 +6443,9 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function checkPlanMaxReached($table, $max, $extra = '')
 		{
+			if (!$max) {
+				return false; // null/0 = sin límite configurado
+			}
 			if (checkAmount($table, $extra) >= $max) {
 				return true;
 			} else {
@@ -6606,12 +6884,11 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			$result = validateBool($value, true, $type);
 
-			if ($db) {
+			if ($db && $result !== false && $result !== null) {
 				$result = db_prepare($result);
 			}
 
 			unset($value, $type);
-
 			return $result;
 		}
 
@@ -6661,7 +6938,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function validity2($value, $force = false)
 		{
-			if (defined($value) && COMPANY_ID == 10) {
+			if (defined($value) && COMPANY_ID == 10) { // TODO: replace integer 10 with company UUID
 
 				$cons = constant($value);
 				return validity($cons, $force);
@@ -7744,7 +8021,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function getAllPaymentMethodsArray($decoded = false)
 		{
-			$pTypes = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'paymentMethod' AND (companyId = ? OR companyId IS NULL) LIMIT 100", [COMPANY_ID], false, true, true);
+			$pTypes = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND (companyId = ? OR companyId IS NULL) LIMIT 100", [COMPANY_ID], false, true, true);
 			$tPtypes = [];
 
 			if ($pTypes) {
@@ -7830,7 +8107,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			$inventory 	= getItemStock($itemId, $outletId);
 			$count 			= $inventory['stockOnHand'];
-			$depo 			= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
+			$depo 			= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
 
 			if ($depo) {
 				$dTotal = 0;
@@ -7855,7 +8132,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function getItemLocationsStock($itemId, $outletId)
 		{
-			$depo 		= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
+			$depo 		= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
 			$depoA 		= [];
 
 			if ($depo) {
@@ -8393,7 +8670,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 						FROM transaction t 
 						WHERE t.transactionDate BETWEEN ? AND ?
 						AND t.transactionType IN(0,3)
-						AND t.customerId = c.contactUID
+						AND t.customerId = c.contactId
 					)';
 
 			$resultPast = ncmExecute($sqlPast, [$backStart, $backStart, $backEnd], true);
@@ -8411,7 +8688,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 						FROM transaction t 
 						WHERE t.transactionDate BETWEEN ? AND ?
 						AND t.transactionType IN(0,3)
-						AND t.customerId = c.contactUID
+						AND t.customerId = c.contactId
 					)';
 
 			$resultNow = ncmExecute($sqlPast, [$startDate, $startDate, $endDate], true);
@@ -8728,22 +9005,12 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		{
 			global $db;
 			$company = ncmExecute(
-				"SELECT
-									companyStatus,
-									companyPlan,
-									companyDB,
-									companyExpiringDate,
-									isParent,
-									parentId
-								FROM company
-								WHERE
-									companyId = ? 
-								LIMIT 1",
+				"SELECT * FROM company WHERE companyId = ? LIMIT 1",
 				[$result['companyId']]
 			);
 
-			if ($company['companyStatus'] != 'Active') { //
-				dai('Cuenta inhabilitada, por favor contactenos al correo info@encom.app');
+			if ($company['status'] != 'Active') { //
+				dai('Cuenta inhabilitada, por favor contactenos al correo <?= EMAIL_FROM ?>');
 			}
 
 			//dona chipa
@@ -8777,8 +9044,6 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			// sensitive values first.
 			unset($result['salt'], $result['userPassword']);
 
-			$allInfo = $result->fields;
-
 			//
 			//si el rol tiene una sucursal predefinida, le asigno esa, si no, tiene acceso a todas
 			$assignedOutlet = enc($outlet['outletId']);
@@ -8796,7 +9061,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			$_SESSION['last_activity'] 					= time();
 			$_SESSION['user']['companyId']  		= enc($result['companyId']);
 			$_SESSION['user']['companyDB']  		= $company['companyDB'];
-			$_SESSION['user']['companyStatus']  = $company['companyStatus'];
+			$_SESSION['user']['companyStatus']  = $company['status'];
 			$_SESSION['user']['companyParent']  = ($company['isParent']) ? $company['isParent'] : 0;
 			$_SESSION['user']['userId']  				= enc($result['contactId']);
 			$_SESSION['user']['userName']  			= $result['contactName'];
@@ -8806,8 +9071,8 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			$_SESSION['user']['rolePermisions']	= getRolePermissions($result['role'], $result['companyId']);
 
 			if ($result['companyId'] == 10 && 1 == 2) {
-				$setting 	= ncmExecute("SELECT * FROM setting WHERE companyId = ? LIMIT 1", [$result['companyId']]);
-				$modules 	= ncmExecute("SELECT * FROM module WHERE companyId = ? LIMIT 1", [$result['companyId']]);
+				$setting 	= ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1", [$result['companyId']]);
+				$modules 	= ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1", [$result['companyId']]);
 
 				foreach ($setting as $key => $value) {
 					$setting[$key] = unXss($value);
@@ -8823,8 +9088,8 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			$_SESSION['user']['outletId'] 		= $assignedOutlet;
 			$_SESSION['user']['toFixedOutlet']	= dec($assignedOutlet);
-			$_SESSION['user']['plan'] 			= enc($company['companyPlan']);
-			$_SESSION['user']['planExpires'] 	= $company['companyExpiringDate'];
+			$_SESSION['user']['plan'] 			= enc($company['plan']);
+			$_SESSION['user']['planExpires'] 	= $company['expiresAt'];
 			$_SESSION['user']['outletsCount'] 	= $oCount;
 			$_SESSION['user']['startDate'] 		= false;
 			$_SESSION['user']['endDate'] 		= false;
@@ -8894,7 +9159,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			}
 		}
 
-		function sendEmail($to, $subject, $body, $altbody, $from = 'info@encom.app', $smtp = true)
+		function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = true)
 		{
 			// //Create a new PHPMailer instance
 			// $mail = new PHPMailer;
@@ -8935,7 +9200,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			// Envio de correo con Mailgun
 			$mgClient = MailgunClient::create(MAILGUN_TOKEN);
-			$domain = "encom.com.py";
+			$domain = MAILGUN_DOMAIN;
 
 			# Make the call to the client.			
 			try {
@@ -8969,7 +9234,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			return @round($size / pow(1024, ($i = floor(log($size, 1024)))), 2) . ' ' . $unit[$i];
 		}
 
-		function sendSMTPEmail($options, $to, $subject, $body, $altbody, $from = 'info@encom.com.py', $fromName = 'Encom')
+		function sendSMTPEmail($options, $to, $subject, $body, $altbody, $from = EMAIL_FROM, $fromName = APP_NAME)
 		{
 			// //Create a new PHPMailer instance
 			// $mail = new PHPMailer;
@@ -9010,7 +9275,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			// Envio de correo con Mailgun
 			$mgClient = MailgunClient::create(MAILGUN_TOKEN);
-			$domain = "encom.com.py";
+			$domain = MAILGUN_DOMAIN;
 
 			# Make the call to the client.			
 			try {
@@ -9052,7 +9317,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				'secret' 		=> NCM_SECRET
 			];
 
-			$out = curlContents('https://api.encom.app/send_sms', 'POST', $data);
+			$out = curlContents(API_URL . '/send_sms', 'POST', $data);
 
 			return [$out, $number];
 		}
@@ -9062,8 +9327,8 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			// $templateCustomerID = "d-02e7f867251d4383af26d8c9cc2b4318"; //msgs al cliente
 			// $templateCompanyID = "d-b6020e19798c498d9750b121851aeb6f"; //msgs internos
 
-			$from     = iftn($options['from'], "info@encom.com.py");
-			$fromName = iftn($options['fromName'], "ENCOM");
+			$from     = iftn($options['from'], EMAIL_FROM);
+			$fromName = iftn($options['fromName'], APP_NAME);
 			$to       = $options['to'];
 			$subject  = $options['subject'];
 			// $type 	= $options['type'];
@@ -9096,7 +9361,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			// Envio de correo con Mailgun
 			$mgClient = MailgunClient::create(MAILGUN_TOKEN);
-			$domain = "encom.com.py";
+			$domain = MAILGUN_DOMAIN;
 
 			# Make the call to the client.			
 			try {
@@ -9142,7 +9407,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				"edata"   		=> json_encode($options['edata'])
 			];
 
-			return json_decode(curlContents('http://api.encom.test/send_push', 'POST', $data));
+			return json_decode(curlContents('http://localhost:8002/API/send_push', 'POST', $data));
 		}
 
 		function getAllContactPusheableIds($companyId = COMPANY_ID)
@@ -9180,7 +9445,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		{
 			$phone      = preg_replace("/[^0-9]/", "", $phone);
 			$format     = ($format) ? $format : 'international';
-			$valid      = json_decode(getFileContent('https://api.encom.app/phonevalidator.php?phone=' . $phone . '&format=national&country=' . $country . '&format=' . $format), true);
+			$valid      = json_decode(getFileContent(API_URL . '/phonevalidator.php?phone=' . $phone . '&format=national&country=' . $country . '&format=' . $format), true);
 
 			return $valid;
 		}
@@ -9237,7 +9502,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function random_password($length = 5)
 		{
-			$chars 		= "abcdefghijklmnopqrstuvwxyz0123456789";
+			$chars 		= 'abcdefghijklmnopqrstuvwxyz0123456789';
 			$password 	= substr(str_shuffle($chars), 0, $length);
 			return $password;
 		}
@@ -9302,7 +9567,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		{
 			global $db;
 
-			$result = $db->Execute("SELECT companyId FROM company WHERE companyDate < DATE(NOW()) - INTERVAL 2 WEEK AND companyPlan = 3");
+			$result = $db->Execute("SELECT companyId FROM company WHERE createdAt < NOW() - INTERVAL '2 weeks' AND plan = 3");
 			while (!$result->EOF) {
 				$id = $result->fields['companyId'];
 				$where .= 'companyId = ' . $id . ' AND ';
@@ -9310,7 +9575,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			}
 
 			if (validateResultFromDB($result)) {
-				$update = $db->Execute("UPDATE company SET companyPlan = '0' WHERE " . rtrim($where, ' AND '));
+				$update = $db->Execute("UPDATE company SET plan = 0 WHERE " . rtrim($where, ' AND '));
 
 				$user = $db->Execute('SELECT userEmail FROM user WHERE role = 1 AND ' . rtrim($where, ' AND '));
 				while (!$user->EOF) {
@@ -9337,7 +9602,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		{
 			global $db;
 
-			$result = $db->Execute("SELECT * FROM company WHERE companyPlan = 1");
+			$result = $db->Execute("SELECT * FROM company WHERE plan = 1");
 			while (!$result->EOF) {
 				$id = $result->fields['companyId'];
 				// $where .= $id.',';
@@ -9477,9 +9742,9 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				$itemRecord 	= [];
 				//
 				$companyRecord['companyName'] 			= $storeName;
-				$companyRecord['companyPlan'] 			= 3;
-				$companyRecord['companyStatus'] 		= 'Active';
-				$companyRecord['companyExpiringDate'] 	= date('Y-m-d 00:00:00', strtotime("+14 days"));
+				$companyRecord['plan'] 			= 3;
+				$companyRecord['status'] 		= 'Active';
+				$companyRecord['expiresAt'] 	= date('Y-m-d 00:00:00', strtotime("+14 days"));
 				$companyRecord['accountId'] 			= $accountId;
 
 				if ($post['parent']) {
@@ -9531,7 +9796,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 				$settingRecord['companyId']             	= $company;
 
-				$settingInsert 	= ncmInsert(['records' => $settingRecord, 'table' => 'setting']);
+				$settingInsert 	= ncmInsert(['records' => $settingRecord, 'table' => 'company']);
 
 				createSlug($storeName, false, $company);
 
@@ -9578,9 +9843,8 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 					}
 				}
 
-				$moduleRecord['companyId']             		= $company;
-
-				$moduleInsert 	= ncmInsert(['records' => $moduleRecord, 'table' => 'module']);
+				// Los campos de módulo van al config JSONB de la fila company ya existente
+				$moduleUpdate 	= ncmUpdate(['records' => $moduleRecord, 'table' => 'company', 'where' => 'companyId = ' . $db->qstr($company)]);
 				//		
 
 				//productos y servicios
@@ -9681,12 +9945,12 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		{ //company ID seria el ID del cliente de Income
 			global $db, $meses;
 
-			$update 	= $db->Execute('UPDATE company SET companyBalance = companyBalance+' . $amount . ' WHERE companyId = ?', array($companyId));
+			$update 	= $db->Execute('UPDATE company SET balance = balance+' . $amount . ' WHERE companyId = ?', array($companyId));
 			if ($update) {
 				$m 		 = date('m');
 				$month	 = $meses[$m - 1];
 
-				$email 	 = getValue('user', 'userEmail', 'WHERE main = "true" AND companyId = ' . $companyId);
+				$email 	 = getValue('user', 'userEmail', 'WHERE main = \'true\' AND companyId = ' . $companyId);
 				$options = json_encode(array(
 					"to" => array($email),
 					"sub" => array(
@@ -9804,7 +10068,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				$result = ncmExecute("SELECT accountId
 								FROM company
 								WHERE companyId = ?
-								AND companyStatus = 'Active'
+								AND status = 'Active'
 								LIMIT 1", [dec($id)], true);
 
 				if (sha1($result['accountId']) == $secret) {
@@ -9821,7 +10085,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				$result = ncmExecute("	SELECT accountId
 								FROM company
 								WHERE companyId = ?
-								AND companyStatus = 'Active'
+								AND status = 'Active'
 								LIMIT 1", [$id]);
 				if ($result) {
 					return sha1($result['accountId']);

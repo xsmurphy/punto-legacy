@@ -1,14 +1,17 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/db.php");
 include_once("includes/config.php");
 include_once("languages/" . LANGUAGE . ".php");
 include_once("includes/functions.php");
 theErrorHandler(); //error handler
+
+if (ENCOM_ADM && COMPANY_ID == ENCOM_COMPANY_ID) {
+	echo '<script>window.location.replace("/main")</script>';
+	dai();
+}
 
 if (COMPANY_IS_PARENT == 1) {
 	header('location:franchiser');
@@ -43,7 +46,7 @@ if (!empty($_GET['update'])) {
 	$js = 'scripts/tdp.js';
 	minifyJS([
 		'https://cdnjs.cloudflare.com/ajax/libs/snap.js/1.9.3/snap.min.js' => $js,
-		'https://ncmaspace.nyc3.digitaloceanspaces.com/panel/js/fileReader.min.js' => $js,
+		'/assets/panel/js/fileReader.min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.2/xlsx.full.min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/jquery.matchHeight/0.7.2/jquery.matchHeight-min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.js' => $js,
@@ -52,7 +55,7 @@ if (!empty($_GET['update'])) {
 		'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/0.5.7/chartjs-plugin-annotation.min.js' => $js,
 		'https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@0.2.3/dist/chartjs-chart-treemap.min.js' => $js,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/Chart.roundedBarCharts.min.js' => $js,
+		'/assets/scripts/Chart.roundedBarCharts.min.js' => $js,
 		'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0-beta.1/js/select2.full.min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0-beta.1/js/i18n/es.min.js' => $js,
@@ -61,34 +64,34 @@ if (!empty($_GET['update'])) {
 		'https://cdnjs.cloudflare.com/ajax/libs/jquery.businessHours/1.0.1/jquery.businessHours.min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/offline.min.js' => $js,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/js/iguider.theme-material.js' => $js,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/js/iguider.js' => $js,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/js/iguider.locale-es.js' => $js,
-		'https://panel.encom.app/scripts/color-selector-2.js' => $js,
+		'/assets/panel/js/iguider.theme-material.js' => $js,
+		'/assets/panel/js/iguider.js' => $js,
+		'/assets/panel/js/iguider.locale-es.js' => $js,
+		'/scripts/color-selector-2.js' => $js,
 		'https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js' => $js,
-		'/standalone/scripts/ncm-ws.js' => $js,
-		'https://panel.encom.app/scripts/written-number.min.js' => $js,
+		'/screens/scripts/ncm-ws.js' => $js,
+		'/scripts/written-number.min.js' => $js,
 		'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js' => $js,
 		'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js' => $js,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/hereRouting.min.js' => $js,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/leaflet-heat.min.js' => $js,
+		'/assets/scripts/hereRouting.min.js' => $js,
+		'/assets/scripts/leaflet-heat.min.js' => $js,
 		'https://browser.sentry-cdn.com/5.15.4/bundle.min.js' => $js
 	], $js);
 
 	$js = 'scripts/ncm.js';
 	minifyJS([
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/ncmMaps.min.js' => $js,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/ncmDropbox.min.js' => $js,
-		'https://panel.encom.app/scripts/documentPrintBuilder.source.js?' . rand() => $js,
-		//'https://panel.encom.app/scripts/dpb.min.js?' . rand() => $js,
-		'https://panel.encom.app/scripts/rb.min.js?' . rand() => $js,
-		'https://panel.encom.app/scripts/common.js?' . rand() => $js
+		'/assets/scripts/ncmMaps.min.js' => $js,
+		'/assets/scripts/ncmDropbox.min.js' => $js,
+		'/scripts/documentPrintBuilder.source.js?' . rand() => $js,
+		//'/scripts/dpb.min.js?' . rand() => $js,
+		'/scripts/rb.min.js?' . rand() => $js,
+		'/scripts/common.js?' . rand() => $js
 	], $js);
 
 	$cs = 'css/ncm.css';
 	minifyCSS([
 		'https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;900&display=swap' => $cs,
-		'https://panel.encom.app/css/font.css' => $cs,
+		'/css/font.css' => $cs,
 		'https://fonts.googleapis.com/icon?family=Material+Icons' => $cs,
 		'https://fonts.googleapis.com/css?family=VT323' => $cs,
 		'https://code.jquery.com/ui/jquery-ui-git.css' => $cs,
@@ -99,14 +102,14 @@ if (!empty($_GET['update'])) {
 		'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.45/css/bootstrap-datetimepicker.min.css' => $cs,
 		'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/css/select2.min.css' => $cs,
 		'https://cdnjs.cloudflare.com/ajax/libs/select2-bootstrap-theme/0.1.0-beta.10/select2-bootstrap.min.css' => $cs,
-		'https://panel.encom.app/css/color-selector-2.css' => $cs,
+		'/css/color-selector-2.css' => $cs,
 		'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.css' => $cs,
 		'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/themes/offline-language-spanish.min.css' => $cs,
 		'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/themes/offline-theme-dark.min.css' => $cs,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/css/iguider.css' => $cs,
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/css/iguider.theme-material.css' => $cs,
-		'https://panel.encom.app/css/app.css?' . rand() => $cs,
-		'https://panel.encom.app/css/style.css?' . rand() => $cs,
+		'/assets/panel/css/iguider.css' => $cs,
+		'/assets/panel/css/iguider.theme-material.css' => $cs,
+		'/css/app.css?' . rand() => $cs,
+		'/css/style.css?' . rand() => $cs,
 		'https://unpkg.com/leaflet@1.7.1/dist/leaflet.css' => $cs
 	], $cs);
 }
@@ -134,7 +137,7 @@ if (!empty($_GET['update'])) {
 	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-32x32.png" sizes="32x32" />
 	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-16x16.png" sizes="16x16" />
 	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-128.png" sizes="128x128" />
-	<meta name="application-name" content="ENCOM" />
+	<meta name="application-name" content=APP_NAME />
 	<meta name="msapplication-TileColor" content="#FFFFFF" />
 	<meta name="msapplication-TileImage" content="<?= APP_URL ?>/mstile-144x144.png" />
 	<meta name="msapplication-square70x70logo" content="<?= APP_URL ?>/mstile-70x70.png" />
@@ -211,7 +214,7 @@ if (!empty($_GET['update'])) {
 				<div class="modal-body col-xs-12 no-padder bg-white text-center">
 					<div class="col-xs-12 wrapper">
 						<div class="m-t m-b">
-							<img src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/images/upgrade.jpg" height="180" class="m-b">
+							<img src="/assets/images/upgrade.jpg" height="180" class="m-b">
 							<div class="h1 font-bold m-b text-dark">¡Es tiempo de crecer!</div>
 							<div class="m-b-md text-md block">
 								Há alcanzado el límite permitido para su plan. <br>
@@ -232,21 +235,21 @@ if (!empty($_GET['update'])) {
 	<script type="text/html" id="lockedOut">
 		<div class="col-xs-12 wrapper-lg bg-white">
 			<div class="col-md-6 no-padder">
-				<img src="https://assets.encom.app/images/partialLock.png" width="100%">
+				<img src="/assets/images/partialLock.png" width="100%">
 			</div>
 			<div class="col-md-6 no-padder">
 				<div class="font-bold h1 text-dark m-b-lg m-t-md">
 					Acceso bloqueado
 				</div>
 				<?php
-				if ($_cmpSettings['settingBlocked']) {
+				if ($_cmpSettings['blocked']) {
 				?>
 					<p class="text-lg m-b-md">Su cuenta se encuentra <strong>temporalmente bloqueada</strong> por falta de pago, no podrá acceder al panel de control ni a la caja hasta regularizar el pago.</p>
 					<p class="text-lg">Por favor contáctenos y le asistiremos.</p>
 				<?php
 				} else {
 				?>
-					<p class="text-lg m-b-md">El acceso al panel se encuentra <strong>temporalmente bloqueado</strong> por falta de pago, podrá seguir utilizando <a href="https://app.encom.app" target="_blank">la caja</a> con normalidad y sus ventas no se verán afectadas.</p>
+					<p class="text-lg m-b-md">El acceso al panel se encuentra <strong>temporalmente bloqueado</strong> por falta de pago, podrá seguir utilizando <a href="" target="_blank">la caja</a> con normalidad y sus ventas no se verán afectadas.</p>
 					<p class="text-lg">Por favor pongase al día o contáctenos para evitar el bloqueo total de la cuenta.</p>
 				<?php
 				}
@@ -286,7 +289,7 @@ if (!empty($_GET['update'])) {
 				"Extra Users": "<?= $_modules['extraUsers'] ?>",
 				"Mod Calendar": "<?= $_modules['calendar'] ?>",
 				"Mod Ecommerce": "<?= $_modules['ecom'] ?>",
-				"Mod Ecom URL": "https://<?= $_cmpSettings['settingSlug'] ?>.encom.site",
+				"Mod Ecom URL": "https://<?= $_cmpSettings['slug'] ?><?= ECOMMERCE_URL ?>",
 				"Mod Spotify": "<?= $_modules['spotify'] ?>",
 				"Mod Loyalty": "<?= $_modules['loyalty'] ?>",
 				"Mod Feedback": "<?= $_modules['feedback'] ?>",
@@ -436,11 +439,11 @@ if (!empty($_GET['update'])) {
 	?>
 	<script>
 		var mainAlerts = '<?= mainAlerts() ?>';
-		var isLockedOut = <?= ($_cmpSettings['settingPartialBlock'] || $_cmpSettings['settingBlocked']) ? 'true' : 'false' ?>;
+		var isLockedOut = <?= ($_cmpSettings['settingPartialBlock'] || $_cmpSettings['blocked']) ? 'true' : 'false' ?>;
 
 
 		<?php
-		if ($_cmpSettings['settingPartialBlock'] || $_cmpSettings['settingBlocked']) {
+		if ($_cmpSettings['settingPartialBlock'] || $_cmpSettings['blocked']) {
 		?>
 			var carryOn = function() {
 				$(window).off('hashchange hashcheck').on('hashchange hashcheck', function() {
