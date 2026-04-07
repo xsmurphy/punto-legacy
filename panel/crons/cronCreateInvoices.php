@@ -12,24 +12,22 @@ $db = ADONewConnection('mysqli');
 $db->NConnect('localhost', 'incomepo_905user', 'a0Hr(Rl~H6]r', 'incomepo_905');
 
 include_once('../includes/simple.config.php');
-include_once("../libraries/hashid.php");
 include_once("../includes/config.php");
 include_once("../languages/".LANGUAGE.".php");
 include_once("../includes/functions.php");
-require_once('../libraries/phpmailer/PHPMailerAutoload.php');
 
 //selecciono todas las empresas en que su fecha de expiración es dentro de 5 días
 
-$result = $db->Execute("SELECT * FROM company WHERE companyExpiringDate = '".date('Y-m-d 00:00:00', strtotime('+5 day'))."' AND companyPlan IN (1,2,5,7)");
+$result = $db->Execute("SELECT * FROM company WHERE expiresAt = '".date('Y-m-d 00:00:00', strtotime('+5 day'))."' AND plan IN (1,2,5,7)");
 
 $expires = array();
 $c = 0;
 $e = 0;
 while (!$result->EOF) {
 	$id 			= $result->fields['companyId'];
-	$cdiscount		= $result->fields['companyDiscount'];
-	$cexpires		= $result->fields['companyExpiringDate'];
-	$planId 		= $result->fields['companyPlan'];
+	$cdiscount		= $result->fields['discount'];
+	$cexpires		= $result->fields['expiresAt'];
+	$planId 		= $result->fields['plan'];
 	$where 			.= $id.',';
 	$expires[$id] 	= $cexpires;
 

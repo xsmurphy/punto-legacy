@@ -393,7 +393,7 @@ if (validateHttp('action') == 'editForm') {
           ?> -->
 
           <!-- <div class="form-group m-t">
-            <label class="font-bold text-u-c">Asociar cliente en ENCOM</label>
+            <label class="font-bold text-u-c">Asociar cliente en <?= APP_NAME ?></label>
             <select name="encomCustomerId" class="form-control m-b chosen-select" autocomplete="off">
               <option value="">Sin Seleccionar</option>
               <?php
@@ -1835,7 +1835,7 @@ if (validateHttp('action') == 'soldByCompanyPM') {
   <!-- meta -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, user-scalable=1, initial-scale=1, maximum-scale=1">
-  <title>Listado de Clientes | ENCOM</title>
+  <title>Listado de Clientes | <?= APP_NAME ?></title>
   <script>
     var noSessionCheck = false;
   </script>
@@ -1910,10 +1910,8 @@ if (validateHttp('action') == 'soldByCompanyPM') {
     <div class="col-xs-12 wrapper" id="sections">
 
       <?= modBlock(['title' => 'eMail', 'description'        => 'Ingresa a tu email corporativo', 'url'   => '/:2096']); ?>
-      <?= modBlock(['title' => 'Bitrix24 CRM', 'description' => 'Ingresa a tu cuenta del CRM', 'url'      => 'https://encom.bitrix24.com/']); ?>
-      <?= modBlock(['title' => 'Intercom', 'description'     => 'Ingresa al chat de soporte', 'url'       => 'https://app.intercom.com/']); ?>
       <?= modBlock(['title' => 'Tutoriales', 'description'   => 'Editar y añadir tutoriales', 'url'       => 'https://www.gitbook.com/']); ?>
-      <?= modBlock(['title' => 'Novedades', 'description'    => 'Añade novedades de la plataforma', 'url' => 'https://headwayapp.co/encom-changelog']); ?>
+      <?= modBlock(['title' => 'Novedades', 'description' => 'Añade novedades de la plataforma', 'url' => 'https://headwayapp.co/']); ?>
       <?= modBlock(['title' => 'Marangatu', 'description'    => 'Ingresa a tu email corporativo', 'url' => 'https://marangatu.set.gov.py/eset/login']); ?>
       <?= modBlock(['title' => 'CPanel', 'description'       => 'Ingresa a tu email corporativo', 'url' => '/:2083']); ?>
       <?= modBlock(['title' => 'WHM', 'description'          => 'Ingresa a tu email corporativo', 'url' => '/:2087']); ?>
@@ -1922,7 +1920,7 @@ if (validateHttp('action') == 'soldByCompanyPM') {
       if (ROLE_ID <= 1) {
       ?>
 
-        <?= modBlock(['title' => 'Panel de ENCOM', 'description' => 'Ir al panel de control de ENCOM', 'url' => '/@#dashboard']); ?>
+        <?= modBlock(['title' => 'Panel de ' . APP_NAME, 'description' => 'Ir al panel de control de ' . APP_NAME, 'url' => '/@#dashboard']); ?>
         <?= modBlock(['title' => 'Nuke', 'description' => 'Eliminar seleccionados', 'url' => '#', 'id' => 'nuke', 'color' => 'danger']); ?>
 
       <?php

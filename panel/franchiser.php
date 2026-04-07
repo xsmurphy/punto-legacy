@@ -1,9 +1,7 @@
 <?php
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -40,7 +38,7 @@ if(validateHttp('u')){
                           AND companyId = ? LIMIT 1",[dec( $p ),dec( $c )]);
 
   if(!$company){
-    header('location:https://encom.app');
+    header('location:/');
   }
 
   $outletCount = ncmExecute("SELECT
@@ -57,7 +55,7 @@ if(validateHttp('u')){
   $_SESSION['last_activity']          = time();
   $_SESSION['user']['companyId']      = enc($result['companyId']);
 
-  $_SESSION['user']['companyStatus']  = $company['companyStatus'];
+  $_SESSION['user']['companyStatus']  = $company['status'];
   $_SESSION['user']['companyParent']  = 0;
   //$_SESSION['user']['userId']         = enc($result['contactId']);
   $_SESSION['user']['userName']     = $result['contactName'];
@@ -65,8 +63,8 @@ if(validateHttp('u')){
   $_SESSION['user']['role']         = enc($result['role']);
   $_SESSION['user']['outletId']     = enc($outlet['outletId']);
   $_SESSION['user']['registerId']   = 0;
-  $_SESSION['user']['plan']         = enc($company['companyPlan']);
-  $_SESSION['user']['planExpires']  = $company['companyExpiringDate'];
+  $_SESSION['user']['plan']         = enc($company['plan']);
+  $_SESSION['user']['planExpires']  = $company['expiresAt'];
   $_SESSION['user']['outletsCount'] = $outletCount['count'];
   $_SESSION['user']['startDate']    = false;
   $_SESSION['user']['endDate']      = false;
@@ -98,7 +96,7 @@ if(validateHttp('action') == 'delete' && validateHttp('id')){
   $delete = $db->Execute('DELETE FROM register WHERE companyId = ?',array($_GET['id']));
   $delete = $db->Execute('DELETE FROM registerLog WHERE companyId = ?',array($_GET['id']));
   $delete = $db->Execute('DELETE FROM satisfaction WHERE companyId = ?',array($_GET['id']));
-  //$delete = $db->Execute('DELETE FROM setting WHERE companyId = ?',array($_GET['id'])); //tampoco borro este para tener registro de la empresa
+  //$delete = $db->Execute('DELETE FROM company WHERE companyId = ?',array($_GET['id'])); //tampoco borro este para tener registro de la empresa
   $delete = $db->Execute('DELETE FROM taxonomy WHERE companyId = ?',array($_GET['id']));
   $delete = $db->Execute('DELETE FROM transaction WHERE companyId = ?',array($_GET['id']));
   $delete = $db->Execute('DELETE FROM company WHERE companyId = ?',array($_GET['id']));
@@ -178,15 +176,15 @@ if(validateHttp('action') == 'generalTable'){
         $compStats = '<span class="label bg-warning lter">Stand By</span>';
       }
 
-      if($result->fields['companyStatus'] == 'Active'){
+      if($result->fields['status'] == 'Active'){
         $status = 'bg-success';
-      }else if($result->fields['companyStatus'] == 'Pending'){
+      }else if($result->fields['status'] == 'Pending'){
         $status = 'bg-warning';
       }else{
         $status = 'bg-danger';
       }
 
-      $plan = $plansValues[$result->fields['companyPlan']]['name'];
+      $plan = $plansValues[$result->fields['plan']]['name'];
 
       $tSold = ncmExecute(
                             "SELECT SUM(transactionTotal) as total, 
@@ -260,7 +258,7 @@ if(validateHttp('action') == 'generalTable'){
                 ' <td data-order="' . $totalPercent . '">' . $arrow . '</td>' .
                 ' <td class="font-bold">' . $setting[$companyId]['name'] . '</td>' .
                 ' <td> '.$userEmail[$companyId]['email'].' </td>' .
-                ' <td data-order="' . $result->fields['companyDate'] . '"> ' . niceDate($result->fields['companyDate']) . ' </td>' .
+                ' <td data-order="' . $result->fields['createdAt'] . '"> ' . niceDate($result->fields['createdAt']) . ' </td>' .
                 ' <td data-order="' . $tCustomers['total'] . '" class="text-right bg-light lter"> ' . formatQty($tCustomers['total']) . ' </td>' .
                 ' <td data-order="' . round($tExp['total']) . '" class="text-right bg-light lter" data-format="money"> ' . formatCurrentNumber($tExp['total']) . ' </td>' .
                 ' <td data-order="' . $tTotal . '" class="text-right bg-light lter" data-format="money"> ' . formatCurrentNumber($tTotal) . '</td>' .
@@ -323,7 +321,7 @@ if(validateHttp('action') == 'generalTable'){
 <!-- meta -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, user-scalable=1, initial-scale=1, maximum-scale=1">
-<title>Franchiser - ENCOM</title>
+<title>Franchiser - <?= APP_NAME ?></title>
 
 <?php
 loadCDNFiles([],'css');
@@ -333,7 +331,7 @@ loadCDNFiles([],'css');
   <section class="col-xs-12 wrapper">
     <div class="col-xs-12">
       <div class="col-sm-6 no-padder">
-        <a href="https://panel.encom.app/user-register?p=<?=enc(COMPANY_ID)?>" class="btn btn-info btn-rounded text-u-c font-bold m-r" target="_blank">Crear Empresa</a>
+        <a href="/user-register?p=<?=enc(COMPANY_ID)?>" class="btn btn-info btn-rounded text-u-c font-bold m-r" target="_blank">Crear Empresa</a>
         <a href="logout" class="btn btn-default btn-rounded m-r">Cerrar Sesión</a>
       </div>
 
@@ -398,12 +396,13 @@ loadCDNFiles([],'css');
     </div>
   </div>
 
+  <?php if (defined('HEADWAY_ACCOUNT_ID') && HEADWAY_ACCOUNT_ID): ?>
   <script>
-        var HW_config = { 
-                      selector  : ".yowhatsnew", 
-                      account   :  "7vdo0y", 
+        var HW_config = {
+                      selector  : ".yowhatsnew",
+                      account   :  "<?= HEADWAY_ACCOUNT_ID ?>",
                       trigger   : ".changloglink",
-                      position  : {x : "left"}, 
+                      position  : {x : "left"},
                       translations: {
                                       title     : "Novedades",
                                       readMore  : "Leer más",
@@ -417,6 +416,7 @@ loadCDNFiles([],'css');
                     };
   </script>
   <script async src="https://cdn.headwayapp.co/widget.js"></script>
+  <?php endif; ?>
 
  <?php
   footerInjector();

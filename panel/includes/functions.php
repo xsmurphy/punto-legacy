@@ -145,8 +145,8 @@ function companySocialSites($socialArr, $wa)
 {
 	$social 	= json_decode($socialArr, true);
 
-	$utm 		= '?utm_source=ENCOM_online_receipt&utm_medium=ENCOM_footer_icons&
-utm_campaign=ENCOM_social_media_marketing';
+	$utm 		= '?utm_source=saas_online_receipt&utm_medium=saas_footer_icons&
+utm_campaign=saas_social_media_marketing';
 
 	$facebook 	= 'https://facebook.com/' . str_replace('@', '', $social['facebook']) . $utm;
 	$instagram 	= 'https://instagram.com/' . str_replace('@', '', $social['instagram']) . $utm;
@@ -914,7 +914,7 @@ function getTagsDefaults($company)
 	// En PostgreSQL con UUIDs no existe un ID numérico; usar COMPANY_ID como fallback.
 	$company = ($company && $company !== true) ? $company : COMPANY_ID;
 
-	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = \'tag\' AND companyId = ? AND taxonomyExtra != 'internal' LIMIT 20", [$company], true, true);
+	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = 'tag' AND companyId = ? AND taxonomyExtra != 'internal' LIMIT 20", [$company], true, true);
 
 	$out = [];
 
@@ -1854,7 +1854,7 @@ function getAllRoles()
 	global $db;
 	//GET ALL REGISTERS ARRAY
 	$a = [];
-	$result = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'role\'", [], true, true);
+	$result = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'role'", [], true, true);
 
 	if ($result) {
 		while (!$result->EOF) {
@@ -1962,7 +1962,7 @@ function getAllTax()
 		return $_SESSION['NCM_ALLS']['ALL_TAX'];
 	}
 
-	$result = ncmExecute("SELECT taxonomyName, taxonomyId FROM taxonomy WHERE taxonomyType = \'tax\' AND companyId = ? ORDER BY taxonomyName ASC LIMIT 100", [COMPANY_ID], false, true);
+	$result = ncmExecute("SELECT taxonomyName, taxonomyId FROM taxonomy WHERE taxonomyType = 'tax' AND companyId = ? ORDER BY taxonomyName ASC LIMIT 100", [COMPANY_ID], false, true);
 
 	$tax 		= [];
 	$added 	= [];
@@ -2053,7 +2053,7 @@ function getPricesOfParents($items, $parentId)
 
 function getAllTags($encoded = false, $cache = false)
 {
-	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = \'tag\' AND (companyId = ? OR companyId = 0)", [COMPANY_ID], $cache, true);
+	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = 'tag' AND (companyId = ? OR companyId = 0)", [COMPANY_ID], $cache, true);
 	$tax = [];
 
 	if ($encoded) {
@@ -3240,7 +3240,7 @@ function getAllItemCategories()
 {
 	//GET ALL CATEGORIES ARRAY
 	$a 		= [];
-	$result = ncmExecute("SELECT taxonomyId,taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = \'category\' AND companyId = ? ORDER BY sort ASC LIMIT 2000", [COMPANY_ID], false, true);
+	$result = ncmExecute("SELECT taxonomyId,taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = 'category' AND companyId = ? ORDER BY sort ASC LIMIT 2000", [COMPANY_ID], false, true);
 	if ($result) {
 		while (!$result->EOF) {
 			$a[$result->fields['taxonomyId']] = [
@@ -3259,7 +3259,7 @@ function getAllItemBrands()
 {
 	//GET ALL BRANDS ARRAY
 	$a 		= [];
-	$result = ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'brand\' AND companyId = ? LIMIT 500", [COMPANY_ID], false, true);
+	$result = ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = 'brand' AND companyId = ? LIMIT 500", [COMPANY_ID], false, true);
 
 	if ($result) {
 		while (!$result->EOF) {
@@ -3923,7 +3923,7 @@ function selectInputTaxonomy($type, $match = '', $multi = false, $clas = '', $or
 
 function selectInputPaymentMethods($options = [])
 {
-	$pM 		= ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND companyId = ? ORDER BY taxonomyName ASC", [COMPANY_ID], false, true);
+	$pM 		= ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = 'paymentMethod' AND companyId = ? ORDER BY taxonomyName ASC", [COMPANY_ID], false, true);
 	$fixed 	= ['cash' => 'Efectivo', 'creditcard' => 'T. Crédito', 'debitcard' => 'T. Débito', 'check' => 'Cheque'];
 	$custom = [];
 
@@ -4288,7 +4288,7 @@ function selectInputCategory($match = '', $multi = false, $class = '', $name = '
 {
 	global $db, $SQLcompanyId, $plansValues;
 
-	$result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = \'category\' AND " . $SQLcompanyId . " ORDER BY sort ASC LIMIT 500", [], false, true);
+	$result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = 'category' AND " . $SQLcompanyId . " ORDER BY sort ASC LIMIT 500", [], false, true);
 
 	if ($multi) {
 		$name = $name . '[]';
@@ -5047,117 +5047,7 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 		}
 	}
 
-	if ($type == 'js' && defined('USER_ID') && !defined('ENCOM_ADM')) {
-	?>
-		<script>
-			//Sentry.init({ dsn: 'https://0f6266003a674548806e65e9c25d2908@sentry.io/5186241' });
-			window.intercomSettings = {
-				"app_id": "uvb2fg2w",
-				"name": "<?php echo USER_NAME ?>",
-				"email": "<?php echo USER_EMAIL ?>",
-				"user_id": "<?php echo enc(USER_ID) ?>",
-				"phone": "<?php echo USER_PHONE ?>",
-				"user_hash": "<?php echo hash_hmac('sha256', enc(USER_ID), INTERCOM_IDENTITY_SECRET); ?>",
-				"custom_attributes": {
-					"source": "Panel"
-				},
-				"company": {
-					"id": "<?php echo enc(COMPANY_ID) ?>",
-					"name": "<?php echo COMPANY_NAME ?>",
-					"created_at": "<?php echo strtotime(COMPANY_DATE) ?>",
-					"plan": "<?= $plansValues[PLAN]['name'] ?>",
-					"monthly_spend": <?= ($plansValues[PLAN]['price'] * OUTLETS_COUNT) ?>,
-					"upgraded_at": null,
-					"outlets_count": <?= OUTLETS_COUNT ?>
-				}
-			};
-		</script>
-
-		<?php if (strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') === false): ?>
-		<script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
-		<?php endif; ?>
-		<script>
-			var OSuserId = "<?= (USER_ID) ? enc(USER_ID) : '' ?>";
-			var OneSignal = window.OneSignal || [];
-			<?php if (strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') === false): ?>
-			OneSignal.push(function() {
-				OneSignal.init({
-					appId: "cd135ef0-2abc-4a20-a7e4-9783824e33b0"
-				});
-			});
-			<?php endif; ?>
-
-			if (OSuserId && OSuserId != 'vy') {
-				/*OneSignal.push(function() { 
-					OneSignal.sendTags(window.intercomSettings).then(function(tagsSent) {
-					});
-				});*/
-
-				OneSignal.push(function() {
-					OneSignal.setExternalUserId(OSuserId);
-				});
-			}
-		</script>
-
-		<?php
-		if (USER_ID > 0 && COMPANY_ID && COMPANY_ID != ENCOM_COMPANY_ID) {
-		?>
-			<script>
-				(function() {
-					var w = window;
-					var ic = w.Intercom;
-					if (typeof ic === 'function') {
-						ic('reattach_activator');
-						ic('update', intercomSettings);
-					} else {
-						var d = document;
-						var i = function() {
-							i.c(arguments)
-						};
-						i.q = [];
-						i.c = function(args) {
-							i.q.push(args)
-						};
-						w.Intercom = i;
-
-						function l() {
-							var s = d.createElement('script');
-							s.type = 'text/javascript';
-							s.async = true;
-							s.src = 'https://widget.intercom.io/widget/uvb2fg2w';
-							var x = d.getElementsByTagName('script')[0];
-							x.parentNode.insertBefore(s, x);
-						}
-						if (w.attachEvent) {
-							w.attachEvent('onload', l);
-						} else {
-							w.addEventListener('load', l, false);
-						}
-					}
-				})()
-			</script>
-
-			<script>
-				/*window['_fs_debug'] = false;
-			window['_fs_host'] = 'fullstory.com';
-			window['_fs_org'] = 'M364D';
-			window['_fs_namespace'] = 'FS';
-			(function(m,n,e,t,l,o,g,y){
-			    if (e in m) {if(m.console && m.console.log) { m.console.log('FullStory namespace conflict. Please set window["_fs_namespace"].');} return;}
-			    g=m[e]=function(a,b,s){g.q?g.q.push([a,b,s]):g._api(a,b,s);};g.q=[];
-			    o=n.createElement(t);o.async=1;o.crossOrigin='anonymous';o.src='https://'+_fs_host+'/s/fs.js';
-			    y=n.getElementsByTagName(t)[0];y.parentNode.insertBefore(o,y);
-			    g.identify=function(i,v,s){g(l,{uid:i},s);if(v)g(l,v,s)};g.setUserVars=function(v,s){g(l,v,s)};g.event=function(i,v,s){g('event',{n:i,p:v},s)};
-			    g.shutdown=function(){g("rec",!1)};g.restart=function(){g("rec",!0)};
-			    g.log = function(a,b) { g("log", [a,b]) };
-			    g.consent=function(a){g("consent",!arguments.length||a)};
-			    g.identifyAccount=function(i,v){o='account';v=v||{};v.acctId=i;g(o,v)};
-			    g.clearUserCookie=function(){};
-			})(window,document,window['_fs_namespace'],'script','user');*/
-			</script>
-		<?php
-		}
-	} else if ($type == 'css') { ?>
+	if ($type == 'css') { ?>
 		<link rel="manifest" href="<?= $manifest ?>" />
 	<?php
 	}
@@ -5483,10 +5373,10 @@ function getRolePermissions($roleId, $companyId)
 {
 	global $_ROLES_DATA;
 
-	$index 		= ncmExecute("SELECT sourceId FROM taxonomy WHERE taxonomyType = \'role\' AND taxonomyExtra = ? LIMIT 1", [$roleId], true);
+	$index 		= ncmExecute("SELECT sourceId FROM taxonomy WHERE taxonomyType = 'role' AND taxonomyExtra = ? LIMIT 1", [$roleId], true);
 
 	if ($index) {
-		$saved 		= ncmExecute("SELECT taxonomyExtra FROM taxonomy WHERE taxonomyType = \'roleData\' AND sourceId = ? AND companyId = ? LIMIT 1", [$index['sourceId'], $companyId]);
+		$saved 		= ncmExecute("SELECT taxonomyExtra FROM taxonomy WHERE taxonomyType = 'roleData' AND sourceId = ? AND companyId = ? LIMIT 1", [$index['sourceId'], $companyId]);
 
 		if ($saved) {
 			return json_decode($saved['taxonomyExtra'], true);
@@ -5507,7 +5397,7 @@ function allowUser($section, $action, $boolean = false)
 	if ($section && $action && !validateHttp('widget')) {
 		$company = COMPANY_ID;
 
-		if (ENCOM_ADM) {
+		if (SAAS_ADM) {
 			$company = 15;
 		}
 
@@ -5571,7 +5461,7 @@ function mainAlerts()
 
 	if (EXPIRED == 1) {
 		echo 	'<div class="bg-danger gradBgRed animateBg col-xs-12 wrapper r-24x text-left">' .
-			'	<div class="col-sm-9">Le recordamos que posee <strong>facturas vencidas</strong> en su cuenta ENCOM. <br>' .
+			'	<div class="col-sm-9">Le recordamos que posee <strong>facturas vencidas</strong> en su cuenta ' . APP_NAME . '. <br>' .
 			'		<i class="hidden-xs">Le recomendamos que pueda ponerse al día o bien pongase en contacto con nosotros y le asistiremos.</i>' .
 			'	</div>' .
 			'	<div class="col-sm-3 text-right">' .
@@ -5647,7 +5537,7 @@ function insertNotifications($ops)
 					$body .= '<br><a href="' . $link . '">Ver más</a>';
 				}
 
-				$meta['subject'] = '[ENCOM] ' . $title;
+				$meta['subject'] = '[' . APP_NAME . '] ' . $title;
 				$meta['to']      = $fields['contactEmail'];
 				$meta['fromName'] = APP_NAME;
 				$meta['data']    = [
@@ -5679,11 +5569,11 @@ function leftMenu($isoutlet = false, $register = false, $submenu = false)
 
 						<?php
 
-						if (ENCOM_ADM) {
+						if (SAAS_ADM) {
 							$main = 'main';
 						?>
 							<li>
-								<a href="/main?backToENCOM=true"> <i class="material-icons">store</i> <span class="font-bold text-u-c">Empresas</span> </a>
+								<a href="/main?backToSaaS=true"> <i class="material-icons">store</i> <span class="font-bold text-u-c">Empresas</span> </a>
 							</li>
 						<?php
 						}
@@ -5856,10 +5746,10 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			<div class="col-xs-12 no-padder">
 
 				<?php
-				if (ENCOM_ADM) {
+				if (SAAS_ADM) {
 					$main = 'main';
 				?>
-					<a href="/main?backToENCOM=true" class="block wrapper-md hoverMenu text-md">
+					<a href="/main?backToSaaS=true" class="block wrapper-md hoverMenu text-md">
 						<i class="material-icons text-muted m-r-sm m-l">store</i> <span class="text-white">Empresas</span>
 					</a>
 				<?php
@@ -6025,7 +5915,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			?>
 		</div>
 		<div class="col-xs-12 text-sm m-t-lg text-center">
-			Usamos ENCOM - <?= APP_URL ?>
+			Usamos <?= APP_NAME ?> - <?= APP_URL ?>
 		</div>
 	</div>
 <?php
@@ -8021,7 +7911,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function getAllPaymentMethodsArray($decoded = false)
 		{
-			$pTypes = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND (companyId = ? OR companyId IS NULL) LIMIT 100", [COMPANY_ID], false, true, true);
+			$pTypes = ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'paymentMethod' AND (companyId = ? OR companyId IS NULL) LIMIT 100", [COMPANY_ID], false, true, true);
 			$tPtypes = [];
 
 			if ($pTypes) {
@@ -8107,7 +7997,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			$inventory 	= getItemStock($itemId, $outletId);
 			$count 			= $inventory['stockOnHand'];
-			$depo 			= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
+			$depo 			= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
 
 			if ($depo) {
 				$dTotal = 0;
@@ -8132,7 +8022,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function getItemLocationsStock($itemId, $outletId)
 		{
-			$depo 		= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
+			$depo 		= ncmExecute("SELECT * FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC", [$outletId], false, true);
 			$depoA 		= [];
 
 			if ($depo) {
@@ -9093,7 +8983,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			$_SESSION['user']['outletsCount'] 	= $oCount;
 			$_SESSION['user']['startDate'] 		= false;
 			$_SESSION['user']['endDate'] 		= false;
-			$_SESSION['user']['ENCOM_ADM']    	= ($result['companyId'] == ENCOM_COMPANY_ID) ? true : false;
+			$_SESSION['user']['SAAS_ADM']    	= ($result['companyId'] == ENCOM_COMPANY_ID) ? true : false;
 
 			return 'true';
 			$result->Close();
@@ -9135,69 +9025,8 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			return $ip;
 		}
 
-		function gCaptcha($gtoken)
+function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = true)
 		{
-			// Bypass reCAPTCHA para desarrollo local
-			if (strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') !== false) {
-				return;
-			}
-
-			if (!$gtoken) {
-				jsonDieResult(['error' => 'invalid gtoken'], 500);
-			}
-
-			$captchaData   =   [
-				'secret'    => '6Lec_9MZAAAAAIAnKMCBdzBJ2jiEAVLVMJi3sRrz',
-				'response'  => $gtoken,
-				'remoteip'  => getUserIpAddr()
-			];
-
-			$captcha   = json_decode(curlContents('https://www.google.com/recaptcha/api/siteverify', 'POST', $captchaData), true);
-
-			if (!$captcha['success']) {
-				jsonDieResult(['error' => 'invalid gtoken'], 500);
-			}
-		}
-
-		function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = true)
-		{
-			// //Create a new PHPMailer instance
-			// $mail = new PHPMailer;
-
-			// if ($smtp) {
-			// 	$mail->isSMTP();                                      // Set mailer to use SMTP
-			// 	$mail->Host 		= 'smtp.sendgrid.net';                    // Specify server
-			// 	$mail->SMTPAuth 	= true;                               // Enable SMTP authentication
-			// 	$mail->Username 	= 'incomeregister';           // SMTP username
-			// 	$mail->Password 	= 'Holasendgrid1!';           // SMTP password
-			// 	$mail->Port 		= 587;                                    // Recommended Port
-			// 	$mail->SMTPSecure 	= 'tls';
-			// }
-
-			// //Set who the message is to be sent from
-			// $mail->setFrom($from, 'Income Register');
-			// //Set an alternative reply-to address
-			// $mail->addReplyTo($from, 'Income Register');
-			// //Set who the message is to be sent to
-			// $mail->addAddress($to);
-			// //Set the subject line
-			// $mail->Subject = toUTF8($subject);
-			// //Read an HTML message body from an external file, convert referenced images to embedded,
-			// //convert HTML into a basic plain-text alternative body
-			// $mail->msgHTML($body);
-			// //Replace the plain text body with one created manually
-			// //aca pasar un link con la fecha de compra y el register ID para evitar sale clash a un script que va a volver a build the bill
-			// $mail->AltBody = $altbody;
-
-			// //send the message, check for errors
-			// if (!$mail->send()) {
-			// 	//echo "Mailer Error: " . $mail->ErrorInfo;
-			// 	return $mail->ErrorInfo;
-			// } else {
-			// 	//echo "Message sent!";
-			// 	return true;
-			// }
-
 			// Envio de correo con Mailgun
 			$mgClient = MailgunClient::create(MAILGUN_TOKEN);
 			$domain = MAILGUN_DOMAIN;
@@ -9236,43 +9065,6 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function sendSMTPEmail($options, $to, $subject, $body, $altbody, $from = EMAIL_FROM, $fromName = APP_NAME)
 		{
-			// //Create a new PHPMailer instance
-			// $mail = new PHPMailer;
-
-			// $mail->isSMTP();                                      // Set mailer to use SMTP
-			// $mail->Host 		= 'smtp.sendgrid.net';                    // Specify server
-			// $mail->SMTPAuth 	= true;                               // Enable SMTP authentication
-			// $mail->Username 	= 'incomeregister';           // SMTP username
-			// $mail->Password 	= 'Holasendgrid1!';           // SMTP password
-			// $mail->Port 		= 587;                                    // Recommended Port
-			// $mail->SMTPSecure 	= 'tls';
-
-			// //Set who the message is to be sent from
-			// $mail->setFrom($from, $fromName);
-			// //Set an alternative reply-to address
-			// $mail->addReplyTo($from, $fromName);
-			// //Set who the message is to be sent to
-			// $mail->addAddress($to);
-			// //Set the subject line
-			// $mail->Subject = toUTF8($subject);
-			// //Read an HTML message body from an external file, convert referenced images to embedded,
-			// //convert HTML into a basic plain-text alternative body
-			// $mail->msgHTML($body);
-			// //Replace the plain text body with one created manually
-			// //aca pasar un link con la fecha de compra y el register ID para evitar sale clash a un script que va a volver a build the bill
-			// $mail->AltBody = $altbody;
-
-			// $mail->addCustomHeader("X-SMTPAPI: " . $options);
-
-			// //send the message, check for errors
-			// if (!$mail->send()) {
-			// 	//echo "Mailer Error: " . $mail->ErrorInfo;
-			// 	return $mail->ErrorInfo;
-			// } else {
-			// 	//echo "Message sent!";
-			// 	return true;
-			// }
-
 			// Envio de correo con Mailgun
 			$mgClient = MailgunClient::create(MAILGUN_TOKEN);
 			$domain = MAILGUN_DOMAIN;
@@ -9324,18 +9116,14 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function sendEmails($options)
 		{
-			// $templateCustomerID = "d-02e7f867251d4383af26d8c9cc2b4318"; //msgs al cliente
-			// $templateCompanyID = "d-b6020e19798c498d9750b121851aeb6f"; //msgs internos
 
 			$from     = iftn($options['from'], EMAIL_FROM);
 			$fromName = iftn($options['fromName'], APP_NAME);
 			$to       = $options['to'];
 			$subject  = $options['subject'];
 			// $type 	= $options['type'];
-			// $template = ($options['template']) ? $options['template'] : (($type == 'internal') ? $templateCompanyID : $templateCustomerID);
 			// $options['data']['subject'] = $subject;
 			// $data     = json_encode($options['data']); //paso php array y convierto a json
-			// $apiKey   = iftn(SENDGRID_API_KEY, "");
 
 			// $data   = '{' .
 			// 	' "from":{' .
@@ -9348,16 +9136,9 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			// 	'        ],' .
 			// 	'   "dynamic_template_data":' . $data .
 			// 	' }],' .
-			// 	' "template_id":"' . $template . '"' .
 			// 	'}';
 
-			// $header =   [
-			// 	"Accept: application/json",
-			// 	"Authorization: Bearer " . $apiKey,
-			// 	"Content-Type: application/json"
-			// ];
 
-			//return curlContents('https://api.sendgrid.com/v3/mail/send', 'POST', $data, $header);
 
 			// Envio de correo con Mailgun
 			$mgClient = MailgunClient::create(MAILGUN_TOKEN);
@@ -9455,32 +9236,18 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			if (!validity($number)) {
 				return '';
 			}
-			$countryCode 	= iftn($countryCode, COUNTRY_CODE);
-			$validate 		= curlContents('https://' . TWILIO_SID . ':' . TWILIO_AUTH_TOKEN . '@lookups.twilio.com/v1/PhoneNumbers/' . $number . '?CountryCode=' . $countryCode);
+			$countryCode = iftn($countryCode, COUNTRY_CODE);
+			$valid = json_decode(getFileContent(API_URL . '/phonevalidator.php?phone=' . rawurlencode($number) . '&country=' . $countryCode . '&format=international'), true);
 
-			if (!validity($validate)) {
+			if (empty($valid) || !empty($valid['error'])) {
 				return false;
 			}
 
-			$valid 			= json_decode($validate, true);
-			$international	= $valid[$returnField]; //formato internacional
+			// Mapa de campos Twilio Lookups → phonevalidator
+			$fieldMap = ['phone_number' => 'phone', 'national_format' => 'national'];
+			$field = $fieldMap[$returnField] ?? 'phone';
 
-			return iftn($international, '');
-
-			/*
-	$isLandLine 	= json_decode(curlContents('http://apilayer.net/api/validate?access_key=' . API_LAYER_KEY . '&number=' . $number . '&country_code=' . $countryCode),true);
-
-	if($isLandLineDec['success'] != 'false' && $isLandLineDec['valid'] == 'true'){
-		if($isLandLineDec['line_type'] != 'mobile'){
-			return false;
-		}else{
-			return iftn($international,'');
-		}
-	}else{
-		return iftn($international,'');
-	}
-	*/
-			//
+			return iftn($valid[$field], '');
 		}
 
 		function addWhatsAppLink($text = false)

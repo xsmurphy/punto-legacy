@@ -37,19 +37,10 @@ define('EMAIL_NOTIFICATION_TO', $_ENV['EMAIL_NOTIFICATION_TO'] ?? '');
 
 // Seguridad
 define('SALT',                              $_ENV['HASHIDS_SALT']                      ?? '');
-define('INTERCOM_IDENTITY_SECRET',          $_ENV['INTERCOM_IDENTITY_SECRET']          ?? '');
-define('INTERCOM_IDENTITY_SECRET_IOS',      $_ENV['INTERCOM_IDENTITY_SECRET_IOS']      ?? '');
-define('INTERCOM_IDENTITY_SECRET_ANDROID',  $_ENV['INTERCOM_IDENTITY_SECRET_ANDROID']  ?? '');
 
 // Servicios externos
 define('FACTURACION_ELECTRONICA_URL',   $_ENV['FACTURACION_ELECTRONICA_URL']   ?? '');
 define('FACTURACION_ELECTRONICA_TOKEN', $_ENV['FACTURACION_ELECTRONICA_TOKEN'] ?? '');
-define('TWILIO_PHONE',                  $_ENV['TWILIO_PHONE']                  ?? '');
-define('TWILIO_SID',                    $_ENV['TWILIO_SID']                    ?? '');
-define('TWILIO_AUTH_TOKEN',             $_ENV['TWILIO_AUTH_TOKEN']             ?? '');
-define('SENDGRID_API_KEY',              $_ENV['SENDGRID_API_KEY']              ?? '');
-define('INFOBIP_PHONE',                 $_ENV['INFOBIP_PHONE']                 ?? '29000');
-define('INFOBIP_AUTH',                  $_ENV['INFOBIP_AUTH']                  ?? '');
 define('API_LAYER_KEY',                 $_ENV['API_LAYER_KEY']                 ?? '');
 define('PDF_API_KEY',                   $_ENV['PDF_API_KEY']                   ?? '');
 define('DO_SPACES_ACCESS',              $_ENV['DO_SPACES_ACCESS']              ?? '');
@@ -64,6 +55,21 @@ define('PHONE_DB',                      'phone');
 define('AUDITORIA_URL',                 $_ENV['AUDITORIA_URL']                 ?? '');
 define('AUDITORIA_TOKEN',               $_ENV['AUDITORIA_TOKEN_PANEL']         ?? '');
 define('MAILGUN_TOKEN',                 $_ENV['MAILGUN_TOKEN']                 ?? '');
+
+// WhatsApp (Evolution API)
+define('EVOLUTION_API_URL',             $_ENV['EVOLUTION_API_URL']             ?? '');
+define('EVOLUTION_API_KEY',             $_ENV['EVOLUTION_API_KEY']             ?? '');
+define('EVOLUTION_INSTANCE',            $_ENV['EVOLUTION_INSTANCE']            ?? '');
+
+// Web Push / VAPID
+define('VAPID_SUBJECT',                 $_ENV['VAPID_SUBJECT']                 ?? '');
+define('VAPID_PUBLIC_KEY',              $_ENV['VAPID_PUBLIC_KEY']              ?? '');
+define('VAPID_PRIVATE_KEY',             $_ENV['VAPID_PRIVATE_KEY']             ?? '');
+
+// Analytics y tracking
+define('GOOGLE_ANALYTICS_ID',           $_ENV['GOOGLE_ANALYTICS_ID']           ?? '');
+define('FACEBOOK_PIXEL_ID',             $_ENV['FACEBOOK_PIXEL_ID']             ?? '');
+define('HEADWAY_ACCOUNT_ID',            $_ENV['HEADWAY_ACCOUNT_ID']            ?? '');
 
 $dias  = ["Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sábado"];
 $meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];

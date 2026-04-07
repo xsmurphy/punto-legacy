@@ -34,7 +34,7 @@
               'type'        => $type,
               'outlet'      => enc(OUTLET_ID)
             ];
-    $result = curlContents('https://api.encom.app/get_notifications','POST',$data);
+    $result = curlContents(API_URL . '/get_notifications','POST',$data);
     //error_log(print_r($result,true));
     if($result){
       header('Content-Type: application/json;'); 
@@ -56,7 +56,7 @@
               'type'        => $type,
               'outlet'      => enc(OUTLET_ID)
             ];
-    $result = curlContents('https://api.encom.app/get_notifications_count','POST',$data);
+    $result = curlContents(API_URL . '/get_notifications_count','POST',$data);
     if($result){
       header('Content-Type: application/json;'); 
       echo $result;
@@ -68,7 +68,7 @@
   //REMINDER
   if(validateHttp('widget') == 'getReminders'){
     header('Content-Type: application/json;'); 
-    if(COMPANY_ID == 10){
+    if(COMPANY_ID == 10){ // TODO: replace integer 10 with company UUID
       echo json_encode([
           ['note'=>'Este es otro recordatorio pero malo','type'=>'danger'],
           ['note'=>'Este es un recordatorio genial sobre el vencimiento del producto Rubbble el 25 de Junio, 2019','type'=>'default']
@@ -133,7 +133,7 @@
                                 AND (a.customerId IS NOT NULL AND a.customerId > 1)
                                 " . $oldRoc . "
                                 AND a.transactionType IN(0,3)
-                                AND a.customerId = b.contactUID
+                                AND a.customerId = b.contactId
                                 AND b.contactDate < ?
                                 AND b.type = 1
                                 GROUP BY a.customerId"
@@ -850,7 +850,7 @@
               ?>
               <div class="col-xs-12 no-bg no-padder" id="customerSatisfactionLevel">
                 <div class="h4 font-bold m-b">
-                  Nivel de satisfacción de clientes o <a href="https://docs.encom.app/preguntas-frecuentes/panel-de-control/que-es-satisfaccion-del-cliente-o-net-promoter-score-nps" target="_blank"> <span class="font-normal text-u-l">(NPS)</span></a>
+                  Nivel de satisfacción de clientes o <a href="/preguntas-frecuentes/panel-de-control/que-es-satisfaccion-del-cliente-o-net-promoter-score-nps" target="_blank"> <span class="font-normal text-u-l">(NPS)</span></a>
                   <a href="/@#report_satisfaction" class="pull-right hidden-print">
                     <i class="material-icons md-24">keyboard_arrow_right</i>
                   </a>
@@ -1006,7 +1006,7 @@
                 </table>
               </div>
 
-              <a href="https://docs.encom.app" target="_blank" class="col-xs-12 wrapper-md bg-dark text-center r-24x m-b">
+              <a href="" target="_blank" class="col-xs-12 wrapper-md bg-dark text-center r-24x m-b">
                 <span class="h3 font-bold text-white"><i class="material-icons pull-left md-24">help_outline</i>Ver guías y tutoriales</span>
               </a>
 
@@ -1073,8 +1073,8 @@
                
               <div class="col-xs-12 wrapper text-center text-white bg-info gradBgBlue animateBg">
                  <div class="font-bold" style="font-size: 3.5em;">
-                   <img src="https://app.encom.app/images/iconincomesmwhite.png" alt="Income" width="80"><br>
-                   Bienvenido a ENCOM
+                   <img src="/images/iconincomesmwhite.png" alt="Income" width="80"><br>
+                   Bienvenido a <?= APP_NAME ?>
                    <div class="h3 text-u-c">Siguientes pasos</div>
                  </div>
               </div>
@@ -1129,7 +1129,7 @@
                     </span> 
                   </a>
 
-                  <a href="https://app.encom.app" class="list-group-item clearfix hidden-print"> 
+                  <a href="" class="list-group-item clearfix hidden-print"> 
                     <span class="pull-right h2 text-muted m-l">
                       <i class="material-icons md-36"> keyboard_arrow_right </i>
                     </span> 
@@ -1197,7 +1197,7 @@
               <tr>
                 <td colspan="3" class="text-center font-bold text-muted">
                   <div class="text-center font-bold text-muted">
-                    <img src="https://assets.encom.app/images/emptystate7.png" height="130" class="m-b m-t-md">
+                    <img src="/assets/images/emptystate7.png" height="130" class="m-b m-t-md">
                   </div>
                 </td>
               </tr>
@@ -1352,12 +1352,13 @@
         </div>
       </script>
 
+      <?php if (defined('HEADWAY_ACCOUNT_ID') && HEADWAY_ACCOUNT_ID): ?>
       <script>
-        var HW_config = { 
-                          selector  : ".yowhatsnew", 
-                          account   :  "7vdo0y", 
+        var HW_config = {
+                          selector  : ".yowhatsnew",
+                          account   :  "<?= HEADWAY_ACCOUNT_ID ?>",
                           trigger   : ".changloglink",
-                          position  : {x : "left"}, 
+                          position  : {x : "left"},
                           translations: {
                                           title     : "Novedades",
                                           readMore  : "Leer más",
@@ -1371,6 +1372,7 @@
                         };
       </script>
       <script async src="https://cdn.headwayapp.co/widget.js"></script>
+      <?php endif; ?>
 
     <script>
       $(document).ready(function(){
@@ -1560,7 +1562,7 @@
                options:chartBarStackedGraphOptions
             });
           }else{
-            $('#topPayments').html('<div class="text-center font-bold text-muted"><img src="https://assets.encom.app/images/emptystate7.png" height="130" class="m-b m-t-lg"></div>');
+            $('#topPayments').html('<div class="text-center font-bold text-muted"><img src="/assets/images/emptystate7.png" height="130" class="m-b m-t-lg"></div>');
           }
         });
 
@@ -1803,7 +1805,7 @@
             });
 
           }else{
-            $('#topCategories').html('<div class="text-center font-bold text-muted"><img src="https://assets.encom.app/images/emptystate7.png" height="130" class="m-b m-t-xl"></div>');
+            $('#topCategories').html('<div class="text-center font-bold text-muted"><img src="/assets/images/emptystate7.png" height="130" class="m-b m-t-xl"></div>');
           }
         });
 
@@ -1836,7 +1838,7 @@
              }); 
 
           }else{
-            $('#topHours').html('<div class="text-center font-bold text-muted"><img src="https://assets.encom.app/images/emptystate7.png" height="130" class="m-b m-t-xl"></div>');
+            $('#topHours').html('<div class="text-center font-bold text-muted"><img src="/assets/images/emptystate7.png" height="130" class="m-b m-t-xl"></div>');
           }
         });
 
@@ -1849,9 +1851,9 @@
           ncmiGuiderConfig.tourTitle  = 'guide.dashboard';
           ncmiGuiderConfig.loc        = '/@#dashboard';
           ncmiGuiderConfig.intro    = {
-                                      cover:'https://encom.app/wordpress/wp-content/uploads/2020/07/retail_horizontal_banner.png',
+                                      cover:'//wordpress/wp-content/uploads/2020/07/retail_horizontal_banner.png',
                                       title:'¡Hola <?=USER_NAME?>! Te damos la bienvenida a tu Panel de Control',
-                                      content:'Con ENCOM podrás manejar tu negocio por completo, desde registrar todas tu compras y ventas, inventario, clientes, marketing y cientos de funciones y herramientas que se adaptan a todos los rubros.<br><br> <div class="g-modal-header text-white">Hagamos un tour rápido para conocer mejor tu panel.</div>',
+                                      content:'Con <?= APP_NAME ?> podrás manejar tu negocio por completo, desde registrar todas tu compras y ventas, inventario, clientes, marketing y cientos de funciones y herramientas que se adaptan a todos los rubros.<br><br> <div class="g-modal-header text-white">Hagamos un tour rápido para conocer mejor tu panel.</div>',
                                       width : 600
                                     };
 
@@ -1917,7 +1919,7 @@
                                       before  : ncmiGuiderConfig.scrollToIt
                                     },{
                                       title:'Información General',       
-                                      content:'Un vistazo al business analitycs que genera ENCOM basado en tus datos, información vital para tu negocio.',  
+                                      content:'Un vistazo al business analitycs que genera <?= APP_NAME ?> basado en tus datos, información vital para tu negocio.',
                                       target  :'div.panelGeneralInfo',
                                       delayBefore :250,
                                       before  : ncmiGuiderConfig.scrollToIt
@@ -1929,7 +1931,7 @@
                                       before  : ncmiGuiderConfig.scrollToIt
                                     },{
                                       title:'¿Necesitas guías de cada sector?',       
-                                      content:'Vistá aquí el Help Center donde encontrarás tutoriales que te ayudarán a entender y aprender a usar ENCOM.',  
+                                      content:'Vistá aquí el Help Center donde encontrarás tutoriales que te ayudarán a entender y aprender a usar <?= APP_NAME ?>.',
                                       target  :'a.gradBgGray',
                                       delayBefore :250,
                                       before  : ncmiGuiderConfig.scrollToIt
@@ -1988,7 +1990,7 @@
                                       disable:true
                                     },{
                                       title   : 'Novedades y noticias',       
-                                      content : 'Mantente siempre informado, en ENCOM estamos constantemente añadiendo y mejorando funciones. Accede aquí a las últimas noticias y novedades de la plataforma.',  
+                                      content : 'Mantente siempre informado, en <?= APP_NAME ?> estamos constantemente añadiendo y mejorando funciones. Accede aquí a las últimas noticias y novedades de la plataforma.',  
                                       target  :'#bodyContent > div:nth-child(2) > div.col-sm-8.col-xs-12.m-t > div.col-sm-3.no-padder > span.yowhatsnew',
                                       disable : true
                                     },{
@@ -2007,7 +2009,7 @@
                                       target  :'#sortable > div.col-md-4.col-sm-6.col-xs-12 > div.col-xs-12.no-bg.no-padder'
                                     },{
                                       title:'Información General',       
-                                      content:'Un vistazo al business analitycs que genera ENCOM basado en tus datos, información vital para tu negocio.',  
+                                      content:'Un vistazo al business analitycs que genera <?= APP_NAME ?> basado en tus datos, información vital para tu negocio.',
                                       target  :'#sortable > div.col-md-4.col-sm-6.col-xs-12 > div.col-xs-12.wrapper.panel.m-b.r-24x.clear.panelGeneralInfo',
                                       delayBefore :250,
                                       before  : ncmiGuiderConfig.scrollToIt
@@ -2019,7 +2021,7 @@
                                       before  : ncmiGuiderConfig.scrollToIt
                                     },{
                                       title:'¿Necesitas guías de cada sector?',       
-                                      content:'Vistá aquí el Help Center donde encontrarás tutoriales que te ayudarán a entender y aprender a usar ENCOM.',  
+                                      content:'Vistá aquí el Help Center donde encontrarás tutoriales que te ayudarán a entender y aprender a usar <?= APP_NAME ?>.',
                                       target  :'#sortable > div.col-md-4.col-sm-6.col-xs-12 > a',
                                       delayBefore :250,
                                       before  : ncmiGuiderConfig.scrollToIt
@@ -2088,14 +2090,14 @@
 
           if(ncmHelpers.validity(annots)){
             recAnnots = annots.map(function(val, index) {
-              var id        = "vline" + index;
-              var mode      = "vertical";
+              var id        = 'vline' + index;
+              var mode      = 'vertical';
               var scaleId   = "x-axis-0";
               var position  = iftn(val.position,'center');
 
               if(val.orientation == 'horizontal'){
-                id        = "hline" + index;
-                mode      = "horizontal";
+                id        = 'hline' + index;
+                mode      = 'horizontal';
                 scaleId   = "y-axis-0";
               }
 

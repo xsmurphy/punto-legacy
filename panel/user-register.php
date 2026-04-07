@@ -3,7 +3,6 @@
 // First we execute our common code to connection to the database and start the session
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php"); 
 include_once("includes/functions.php");
 include_once("libraries/countries.php");
@@ -13,10 +12,6 @@ include_once("libraries/countries.php");
 
 if(validateHttp('signup')){
 	// Ensure that the user has entered a non-empty username
-	if(validateHttp('src') != 'app'){
-		$gtoken = validateHttp('gtoken');
-		gCaptcha($gtoken);
-	}
 
 	if( !validateHttp('storename','post') || !validateHttp('password','post') || !validateHttp('email','post') || !validateHttp('category','post') || !validateHttp('country','post') || !validateHttp('username','post') ){
 		dai('Todos los campos son requeridos');
@@ -35,7 +30,7 @@ if(validateHttp('signup')){
 														)
 									)
 					));
-	sendSMTPEmail($options,$_POST['email'],'Su registro en ENCOM','ENCOM','ENCOM');*/
+	sendSMTPEmail($options,$_POST['email'],'Su registro en ENCOM',APP_NAME,APP_NAME);*/
 	//sendEmail($_POST['email'],'Su registro en Income Register',str_replace('<%user_email%>',$_POST['email'],$userregistertemplate),$userregistertemplatealt);
 
 	if($sign === true){
@@ -46,7 +41,7 @@ if(validateHttp('signup')){
 	dai();
 }
 
-header('location: https://encom.app');
+header('location: /');
 dai();
 ?>
 
@@ -67,7 +62,7 @@ dai();
 	<div class="col-sm-3"></div>
 
 	<div class="col-sm-6 text-center m-t-lg">
-		<img src="https://app.encom.app/images/incomeLogoLgDark.png" width="120" style="margin-top:10%;"> 
+		<img src="/images/incomeLogoLgDark.png" width="120" style="margin-top:10%;"> 
 		<h5 class="font-thin padder">Crear Cuenta</h5>
 	
 		<form action="/user-register?signup=1" method="POST" id="newAccount" name="newAccount" class="text-left m-t-lg">
@@ -127,7 +122,6 @@ dai();
 
 	<div class="col-sm-3"></div>
 
-	<script src="https://www.google.com/recaptcha/api.js?render=6Lec_9MZAAAAAMhsHtdq5X0gzRDP-7_-ttH4XxN3"></script>
 	<script>
 		var noSessionCheck = true;//avoid autosession check
 	</script>
@@ -143,25 +137,22 @@ dai();
 			$(document).on('submit','#newAccount',function(e) {
 				var tis = $(this);
 				spinner('body', 'show');
-				grecaptcha.execute('6Lec_9MZAAAAAMhsHtdq5X0gzRDP-7_-ttH4XxN3', {action: 'login'}).then(function(gtoken) {
-					$.ajax({ // create an AJAX call...
-						data: tis.serialize(), // get the form data
-						type: tis.attr('method'), // GET or POST
-						url : tis.attr('action')  + '&gtoken=' + gtoken, // the file to call
-						success: function(response) { // on success..
-							if(response == 'true'){
-								//mixpanel.track("Signed Up");
-								window.location = 'login';
-							}else if(response == 'false'){
-								message('Error al intentar procesar su petición','error');
-							}else{
-								alert(response);
-							}
-							spinner('body', 'hide');
+				$.ajax({
+					data: tis.serialize(),
+					type: tis.attr('method'),
+					url : tis.attr('action'),
+					success: function(response) {
+						if(response == 'true'){
+							window.location = 'login';
+						}else if(response == 'false'){
+							message('Error al intentar procesar su petición','error');
+						}else{
+							alert(response);
 						}
-					});
+						spinner('body', 'hide');
+					}
 				});
-				return false; // cancel original event to prevent form submitting
+				return false;
 			});
 		});
     </script>

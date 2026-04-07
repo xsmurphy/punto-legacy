@@ -3,11 +3,9 @@ header('location:/a_report_transactions');
 
 
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -60,7 +58,7 @@ if(validateHttp('action') == 'detailTable'){
 		$word 	= $db->Prepare(validateHttp('src'));
 
 		//primero obtengo posible fuente
-		$sData = ncmExecute('SELECT GROUP_CONCAT(contactUID) as uids FROM contact WHERE type = 1 AND (contactName LIKE "%' . $word . '%" OR contactTIN LIKE "%' . $word . '%" OR contactSecondName LIKE "%' . $word . '%") AND companyId = ? LIMIT 200',[COMPANY_ID]);
+		$sData = ncmExecute('SELECT STRING_AGG(contactId::text, \',\') as uids FROM contact WHERE type = 1 AND (contactName LIKE \'%\' . $word . \'%\' OR contactTIN LIKE \'%\' . $word . \'%\' OR contactSecondName LIKE \'%\' . $word . \'%\') AND companyId = ? LIMIT 200',[COMPANY_ID]);
 
 		if(is_numeric($word)){
 			$search .= ' ( invoiceNo = "' . $word . '" OR';
@@ -80,7 +78,7 @@ if(validateHttp('action') == 'detailTable'){
 			DESC
 			";
 
-			if(COMPANY_ID == 2829){
+			if(COMPANY_ID == 2829){ // TODO: replace integer 2829 with company UUID
 			//	print_r($sData);
 			//	echo $sql;
 			//	dai();
@@ -89,7 +87,7 @@ if(validateHttp('action') == 'detailTable'){
 		$saleDay = ncmExecute($sql,[],false,true,true);
 	}else{
 		if(validateHttp('cusId')){
-			$contactUID = dec(validateHttp('cusId'));
+			$contactId = dec(validateHttp('cusId'));
 
 			$sql = "SELECT *
 				FROM transaction 
@@ -100,10 +98,10 @@ if(validateHttp('action') == 'detailTable'){
 				DESC";
 
 				if($_GET['test']){
-					dai($sql . ' - ' . $contactUID);
+					dai($sql . ' - ' . $contactId);
 				}
 
-			$saleDay = ncmExecute($sql,[$contactUID],false,true,true);
+			$saleDay = ncmExecute($sql,[$contactId],false,true,true);
 		}else{
 			$sql = "SELECT *
 				FROM transaction 
@@ -366,7 +364,7 @@ if(validateHttp('action') == 'cobrosTable'){
 	if(validateHttp('src')){
 		$word 	= $db->Prepare(validateHttp('src'));
 		//primero obtengo posible fuente
-		$sData = ncmExecute('SELECT GROUP_CONCAT(contactUID) as uids FROM contact WHERE type = 1 AND (contactName LIKE "%' . $word . '%" OR contactTIN LIKE "%' . $word . '%" OR contactSecondName LIKE "%' . $word . '%") AND companyId = ? LIMIT 100',[COMPANY_ID],true);
+		$sData = ncmExecute('SELECT STRING_AGG(contactId::text, \',\') as uids FROM contact WHERE type = 1 AND (contactName LIKE \'%\' . $word . \'%\' OR contactTIN LIKE \'%\' . $word . \'%\' OR contactSecondName LIKE \'%\' . $word . \'%\') AND companyId = ? LIMIT 100',[COMPANY_ID],true);
 		
 		$search = ' AND customerId IN(' . $sData['uids'] . ')';
 
@@ -382,7 +380,7 @@ if(validateHttp('action') == 'cobrosTable'){
 	}else{
 
 		if(validateHttp('cusId')){
-			$contactUID = dec(validateHttp('cusId'));
+			$contactId = dec(validateHttp('cusId'));
 
 			$sql = "SELECT *
 				FROM transaction 
@@ -392,7 +390,7 @@ if(validateHttp('action') == 'cobrosTable'){
 			   AND customerId = ?
 			  ORDER BY transactionDate DESC";
 
-			$result = ncmExecute($sql,[$contactUID],false,true,true);
+			$result = ncmExecute($sql,[$contactId],false,true,true);
 		}else{
 			$sql = "SELECT *
 				FROM transaction 
@@ -759,7 +757,7 @@ if(validateHttp('action') == 'edit'){
 		    	<div class="col-md-4 col-sm-12 col-xs-12 wrapper bg-info gradBgBlue">
 		    		<?php
 	    			$userName 		= getValue('contact','contactName','WHERE type = 0 AND contactId = ' . $tUser);
-	    			$customerName 	= getValue('contact','contactName','WHERE type = 1 AND contactUID = ' . $tCustomer);
+	    			$customerName 	= getValue('contact','contactName','WHERE type = 1 AND contactId = ' . $tCustomer);
 
 	    			$userName 		= iftn($userName,'Asignar Usuario');
 	    			$customerName 	= iftn($customerName,'Sin cliente');
@@ -1298,7 +1296,7 @@ if(validateHttp('action') == 'edit'){
 		    					</div>
 
 		    					<?php
-		    					$TFisPDF = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyType = "tusFacturas" AND sourceId = ? AND companyId = ? LIMIT 1',[$result['transactionId'],COMPANY_ID]);
+		    					$TFisPDF = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyType = \'tusFacturas\' AND sourceId = ? AND companyId = ? LIMIT 1',[$result['transactionId'],COMPANY_ID]);
 
 		    					if($TFisPDF){
 		    						?>
@@ -1350,7 +1348,7 @@ if(validateHttp('action') == 'edit'){
 		    						?>
 		    					</div>
 		    					<div class="text-center col-xs-12 m-b-md m-t-md">
-		    						<a href="#" class="btn btn-primary btn-lg text-u-c btn-rounded font-bold" data-url="https://panel.encom.app/thirdparty/tusfacturas/tusfacturas?s=<?=base64_encode(enc(COMPANY_ID) . ',' . $id)?>" id="sendToHolaFactura" data-id="<?=$id;?>">Enviar a TusFacturas</a>
+		    						<a href="#" class="btn btn-primary btn-lg text-u-c btn-rounded font-bold" data-url="/thirdparty/tusfacturas/tusfacturas?s=<?=base64_encode(enc(COMPANY_ID) . ',' . $id)?>" id="sendToHolaFactura" data-id="<?=$id;?>">Enviar a TusFacturas</a>
 		    					</div>
 
 		    					<div id="TFerrorbox" style="display: none;" class="col-xs-12 wrapper bg-light b r-3x m-t"></div>
@@ -1367,9 +1365,9 @@ if(validateHttp('action') == 'edit'){
 							if($tLocation){
 						 ?>
 						<div class="col-xs-12 wrapper text-center">
-							<img width="100%" src="https://maps.googleapis.com/maps/api/staticmap?center=<?=$tLocation;?>&zoom=16&scale=2&size=400x180&maptype=roadmap&format=png&key=AIzaSyAkul2hWSkBbqJb2H_m54KXAIK9MsAcg5I&visual_refresh=true&markers=size:mid%7Ccolor:0xff0000%7Clabel:%7C<?=$tLocation;?>" alt="Mapa" />
+							<img width="100%" src="https://staticmap.openstreetmap.de/staticmap.php?center=<?= urlencode($tLocation) ?>&zoom=16&size=400x180&markers=<?= urlencode($tLocation) ?>,red-pushpin" alt="Mapa" />
 							<br><br>
-							<a href="https://maps.google.com/?q=<?=$tLocation;?>" class="text-info" target="_blank">Mapa completo</a>
+							<a href="https://www.openstreetmap.org/?mlat=<?= urlencode($tLocation) ?>&zoom=16" class="text-info" target="_blank">Mapa completo</a>
 						</div>
 						<?php 
 							}
@@ -1436,7 +1434,7 @@ if(validateHttp('action') == 'paymentForm'){
 		        <input type="text" class="maskCurrency form-control input-lg" name="payAmount" value="<?=formatCurrentNumber($deuda)?>" id="payAmountField">
 
 			    <!--<label class="font-bold m-t text-u-c">Método de Pago</label>
-	            <?php $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "paymentMethod" AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true); ?>
+	            <?php $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true); ?>
 	            <select id="paymentMethod" name="paymentMethod" tabindex="1" data-placeholder="Seleccione" class="form-control search" autocomplete="off">
 	               <option value="cash">Efectivo</option>
 	               <option value="creditcard">T. Crédito</option>
@@ -1687,7 +1685,7 @@ loadCDNFiles([
   		$name 	= getCustomerName($cData);
   		echo reportsTitle('Historial de ' . $name, true,false,false,true);
   	}else{
-  		echo reportsTitle('Transacciones y Pagos', true,'https://docs.encom.app/panel-de-control/reportes/reporte-de-ventas-1/transacciones',false);
+  		echo reportsTitle('Transacciones y Pagos', true,'/panel-de-control/reportes/reporte-de-ventas-1/transacciones',false);
   	}
 	
   	?>

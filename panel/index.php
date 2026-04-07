@@ -9,11 +9,9 @@ if(!isset($_SESSION['user'])){
 
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -36,9 +34,10 @@ list($calendar,$startDate,$endDate,$lessDays) = datesForGraphs(7);
 	loadCDNFiles([
 				'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.6/Chart.min.js',
 				'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js',
-				'//panel.encom.app/scripts/jquery.table2excel.js'
+				'/scripts/jquery.table2excel.js'
 				],'js');
 ?>
+	<?php if (defined('FACEBOOK_PIXEL_ID') && FACEBOOK_PIXEL_ID): ?>
 	<script>
        !function(f,b,e,v,n,t,s)
        {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
@@ -48,10 +47,11 @@ list($calendar,$startDate,$endDate,$lessDays) = datesForGraphs(7);
        t.src=v;s=b.getElementsByTagName(e)[0];
        s.parentNode.insertBefore(t,s)}(window, document,'script',
        'https://connect.facebook.net/en_US/fbevents.js');
-       fbq('init', '209776976578014');
+       fbq('init', '<?= FACEBOOK_PIXEL_ID ?>');
        fbq('track', 'PageView');
        fbq('track', 'CompleteRegistration');
      </script>
+	<?php endif; ?>
 </head>
 <body class="bg-light lter"> 
 	<?=menuFrame('top',true);?>
