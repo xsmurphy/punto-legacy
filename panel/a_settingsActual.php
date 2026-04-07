@@ -6,7 +6,7 @@ allowUser('settings','view');
 
 $baseUrl        = '/' . basename(__FILE__,'.php');
 
-$setting        = ncmExecute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[COMPANY_ID],false);
+$setting        = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID],false);
 $_cmpSettings   = $setting;
 $_fullSettings  = json_decode($_cmpSettings['settingObj'],true);
 
@@ -77,7 +77,7 @@ if(validateHttp('action') == 'update' && validateHttp('type') == 'setting'){
   if($update === false){
     echo $db->ErrorMsg();
   }else{
-    $result = ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+    $result = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
     $_SESSION['user']['companySettings'] = $result;
     updateLastTimeEdit();
     echo 'true';
@@ -95,7 +95,7 @@ if(validateHttp('action') == 'update' && validateHttp('type') == 'invoicing'){
   $record['settingBillTemplate']    = $_POST['invoicetemplate'];
   $record['settingTicketFoot']      = $_POST['billbottomtitle'] . '[@]' . $_POST['billbottomsubtitle'];
 
-  $update = ncmUpdate(['records' => $record, 'table' => 'setting', 'where' => $SQLcompanyId]);
+  $update = ncmUpdate(['records' => $record, 'table' => 'company', 'where' => $SQLcompanyId]);
 
   if($update['error'] === false){
     echo 'false';
@@ -285,7 +285,7 @@ if(validateHttp('action') == 'sortCategories'){
     dai();
   }
 
-  $result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra as UNSIGNED) as sort FROM taxonomy WHERE companyId = ? AND taxonomyType = ? ORDER BY sort ASC LIMIT 500",[COMPANY_ID,'category'],false,true);
+  $result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE companyId = ? AND taxonomyType = ? ORDER BY sort ASC LIMIT 500",[COMPANY_ID,'category'],false,true);
 
   $out = [];
 
@@ -325,7 +325,7 @@ if(validateHttp('action') == 'setCurrencies'){
 
     $_fullSettings['currencies'] = $updt;
     $settUpdt = json_encode($_fullSettings);
-    ncmUpdate(['records' => ['settingObj' => $settUpdt], 'table' => 'setting', 'where' => 'companyId = ' . COMPANY_ID ]);
+    ncmUpdate(['records' => ['settingObj' => $settUpdt], 'table' => 'company', 'where' => 'companyId = ' . COMPANY_ID ]);
 
     dai();
   }
@@ -380,7 +380,7 @@ if(validateHttp('action') == 'setCurrencies'){
     height: 360mm;
     /*margin: 0 auto;*/
     padding:21px 0 0 21px;
-    background:url("https://panel.encom.app/images/theGrid.png") no-repeat top left;
+    background:url("/images/theGrid.png") no-repeat top left;
   }
 
   #contentIt {
@@ -710,9 +710,6 @@ if(validateHttp('action') == 'setCurrencies'){
                         </select>
                     </div>
 
-                    <div class="col-xs-12">
-                      <div class="onesignal-customlink-container"></div>
-                    </div>
 
                   </div>
                   
@@ -789,7 +786,7 @@ if(validateHttp('action') == 'setCurrencies'){
                     
                       <div class="col-xs-12 wrapper b-b">
                         <?php 
-                        $tax = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "tax" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
+                        $tax = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'tax\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
                         ?>
                         <div class="col-xs-12 no-padder m-t-xs m-b-xs">
                           <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Valores de impuestos Ej: 5%, 10%, 12.5%, 21%</div>
@@ -827,7 +824,7 @@ if(validateHttp('action') == 'setCurrencies'){
 
                       <div class="col-xs-12 wrapper b-b">
                         <?php 
-                        $tC = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "transactionCategory" AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true);
+                        $tC = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'transactionCategory\' AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true);
                         ?>
                         <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Plan de cuentas (Egresos) <i class="material-icons text-muted m-l-xs pointer md-16" data-toggle="tooltip" data-placement="top" title="Cree métodos de pagos personalizados que se ajusten a sus necesidades">help_outline</i></div>
                         <div class="col-sm-4 col-xs-12 no-padder text-right">
@@ -1012,7 +1009,7 @@ if(validateHttp('action') == 'setCurrencies'){
 
                       <div class="col-xs-12 wrapper b-b">
                         <?php 
-                        $tag = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "tag" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
+                        $tag = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'tag\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
                         ?>
                         <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Etiquetas <i class="material-icons text-muted m-l-xs pointer md-16" data-toggle="tooltip" data-placement="top" title="Útiles para enriquecer las ventas con información específica, ej. Delivery, pickup, cambio, devolución, etc">help_outline</i></div>
                         <div class="col-sm-4 col-xs-12 no-padder text-right">
@@ -1041,7 +1038,7 @@ if(validateHttp('action') == 'setCurrencies'){
                      
                       <div class="col-xs-12 wrapper b-b">
                         <?php 
-                        $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "paymentMethod" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
+                        $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
                         
                         ?>
                         <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Métodos de Pago <i class="material-icons text-muted m-l-xs pointer md-16" data-toggle="tooltip" data-placement="top" title="Cree métodos de pagos personalizados que se ajusten a sus necesidades">help_outline</i></div>
@@ -1072,7 +1069,7 @@ if(validateHttp('action') == 'setCurrencies'){
 
                       <div class="col-xs-12 wrapper b-b">
                         <?php 
-                        $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "bankName" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
+                        $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'bankName\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
                         ?>
                         <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Bancos (Recepción de cheques) <i class="material-icons text-muted m-l-xs pointer md-16" data-toggle="tooltip" data-placement="top" title="Cree métodos de pagos personalizados que se ajusten a sus necesidades">help_outline</i></div>
                         <div class="col-sm-4 col-xs-12 no-padder text-right">
@@ -1282,7 +1279,7 @@ if(validateHttp('action') == 'setCurrencies'){
                         <a class="addField list-group-item" data-type="transaction_id" data-default="ID" href="#">ID de transacción</a>
                         <a class="addField list-group-item hidden" data-type="transaction_id_barcode" data-default="#######" href="#">Código de Barras</a>
                         <?php 
-                        $tax = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "tax" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
+                        $tax = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'tax\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC',[],false,true);
                         
                         if($tax){
                           while (!$tax->EOF) {
@@ -1327,7 +1324,7 @@ if(validateHttp('action') == 'setCurrencies'){
                         <a class="addField list-group-item receiptableN" data-type="item_total" data-default="Total" href="#">Total</a>
                         <?php 
 
-                        $tax = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "tax" AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true);
+                        $tax = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'tax\' AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true);
                         
                         if($tax){
                           while (!$tax->EOF) {
@@ -1806,7 +1803,7 @@ var tin_name  = '<?=TIN_NAME?>';
                                     '}' +
                                     '@font-face {' +
                                     '   font-family: "fakereceipt";' +
-                                    '   src: local("FakeReceipt-Regular"),local("fakereceipt"), url(https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/app/fonts/fakereceipt.woff) format("woff"), url(' + window.masterUrl + 'fonts/fakereceipt.ttf) format("truetype");' +
+                                    '   src: local("FakeReceipt-Regular"),local("fakereceipt"), url(/assets/app/fonts/fakereceipt.woff) format("woff"), url(' + window.masterUrl + 'fonts/fakereceipt.ttf) format("truetype");' +
                                     '}';
             var html = '<html><head><meta charset="utf-8"> <style type="text/css" media="print"> ' + loadFonts + '@page{size:auto;margin:0;padding:0;border:0;}pre,*{padding: 0; margin: 0;border:0;font-family:' + window.fontFamily + '!important; font-size:'+window.fontSize+'!important; text-transform: uppercase!important;}</style></head><body><pre style="margin-left:'+window.receipt_left_margin+'mm;">' +rows+ '</pre></body></html>';
           }else{
@@ -2081,7 +2078,7 @@ var tin_name  = '<?=TIN_NAME?>';
         var data      =  tis.find('div.loadTemplateData').text();
         $('textarea#jsonTemplateField').val( $.trim( data ) );
 
-        if($.type( data ) === "string") { 
+        if($.type( data ) === 'string') { 
           data = $.parseJSON(data);
         }else{
           
