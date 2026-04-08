@@ -1,0 +1,27 @@
+{
+  "name": "system",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "./build.sh",
+    "build:app": "./build.sh app",
+    "build:panel": "./build.sh panel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xsmurphy/punto-legacy.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/xsmurphy/punto-legacy/issues"
+  },
+  "homepage": "https://github.com/xsmurphy/punto-legacy#readme",
+  "devDependencies": {
+    "csso-cli": "^4.0.2",
+    "terser": "^5.46.1"
+  }
+}

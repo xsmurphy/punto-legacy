@@ -1,5 +1,21 @@
+# Python (graphify CLI)
+.venv/
+
+# graphify generated output (rebuild with `/graphify .` in Claude Code)
+graphify-out/
+
 # Environment
 .env
+
+# Node (build tools)
+node_modules/
+.build_tmp/
+
+# Composer (PHP dependencies — installed via composer install)
+app/composer/
+panel/composer/
+*/vendor/composer/
+panel/vendor/
 
 # Cache
 app/cach/*.js
