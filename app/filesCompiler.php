@@ -1,343 +1,193 @@
 <?php
-//echo phpinfo();
-//die();
-/*ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);*/
+/**
+ * Vendor file server.
+ * Sirve bundles pre-generados por build.sh desde app/cach/.
+ * En modo debug, concatena archivos al vuelo (sin cache).
+ *
+ * Uso: npm run build  (genera los bundles minificados)
+ */
 
-function curlContents($url, $method = 'GET', $data = false, $headers = false, $returnInfo = false, $spoofRef = false) {    
-    $ch = curl_init();
-    
-    if($method == 'POST') {
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-        if($data !== false) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-        }
-    } else {
-        if($data !== false) {
-            if(is_array($data)) {
-                $dataTokens = array();
-                foreach($data as $key => $value) {
-                    array_push( $dataTokens, urlencode($key) . '=' . urlencode($value) );
-                }
-                $data = implode('&', $dataTokens);
-            }
-            curl_setopt($ch, CURLOPT_URL, $url . '?' . $data);
-        } else {
-            curl_setopt($ch, CURLOPT_URL, $url);
-        }
-    }
+$vendor = $_GET['vendor'] ?? '';
 
-    if($spoofRef){
-		curl_setopt($ch, CURLOPT_REFERER, $url);
-		curl_setopt($ch, CURLOPT_AUTOREFERER, true);
-    }
+// Map vendor type → file extension
+$typeMap = [
+	'css'    => 'css',
+	'js'     => 'js',
+	'debug'  => 'debug',
+	'mobile' => 'mobile',
+	'test'   => 'test',
+];
 
-    curl_setopt($ch, CURLOPT_HEADER, false);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-    curl_setopt($ch, CURLOPT_ENCODING, '');
-    curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-
-    if($headers !== false) {
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    }
-
-    $contents = curl_exec($ch);
-
-    if($returnInfo) {
-        $info = curl_getinfo($ch);
-    }
-
-    curl_close($ch);
-
-    if($returnInfo) {
-        return array('contents' => $contents, 'info' => $info);
-    } else {
-        return $contents;
-    }
-}
-
-function getFileContent($url){//usar solo con urls propias y controladas por encom
-	// For relative/local file paths, read directly from disk
-	if (!filter_var($url, FILTER_VALIDATE_URL)) {
-		return file_get_contents($url);
-	}
-
-	// For self-referencing app URLs, read from disk to avoid single-threaded deadlock
-	global $_appBase;
-	if ($_appBase && strpos($url, $_appBase) === 0) {
-		$localPath = __DIR__ . parse_url($url, PHP_URL_PATH);
-		if (file_exists($localPath)) {
-			return file_get_contents($localPath);
-		}
-	}
-
-	$ops = 	[
-							    "ssl" => [
-									        "verify_peer" 		=> false,
-									        "verify_peer_name" 	=> false,
-									    ],
-								'http' => [
-											'header' 			=>
-											'Cookie: ' . ($_SERVER['HTTP_COOKIE'] ?? '') . "\r\n"
-										]
-							];
-
-	return file_get_contents($url, false, stream_context_create($ops));
-}
-
-function compileFilesOutput($data,$type){
-
-	if($type == 'css'){
-		header("Content-Type: text/css");
-	}else{
-		header("Content-Type: application/javascript");
-	}
-
-    echo $data;
+if (!isset($typeMap[$vendor])) {
+	http_response_code(404);
 	die();
 }
 
-function compileFiles($files,$name,$type = 'js',$debug=false){
-	$cachedir 	= "cach/";   // directorio de cache
-	$cacheext 	= $type;   // extensión de cache
-	$cachefile 	= $cachedir . sha1($name) . "." . $cacheext;
+$contentType = ($vendor === 'css') ? 'text/css' : 'application/javascript';
+$cachedir    = __DIR__ . '/cach/';
 
-	if (file_exists($cachefile)) {
-		$data = getFileContent($cachefile);
-		//$data = curlContents($cachefile);
-		compileFilesOutput($data,$type);
-	}else{
-		
-		$contents = [];
-		foreach($files as $file){
-			if (filter_var($file, FILTER_VALIDATE_URL) === FALSE) {
-			    $contents[] = $file;
-			}else{
-				//$buffer	= file_get_contents($file);
-				$buffer	= getFileContent($file);
-				$contents[] = $buffer;
-			}
-		}
+// debug and mobile use their own cache names
+$cacheNames = [
+	'css'    => '1',
+	'js'     => '1',
+	'debug'  => 'debug',
+	'mobile' => 'mobile',
+	'test'   => '1',
+];
 
-		$buffer = implode("\n", $contents);
+$ext       = ($vendor === 'css') ? 'css' : $typeMap[$vendor];
+$cachefile = $cachedir . sha1($cacheNames[$vendor]) . '.' . $ext;
 
-		if(!$debug){
-			$fp = fopen($cachefile, "w");
-			fwrite($fp, $buffer);
-			fclose($fp);
-		}
-
-		compileFilesOutput($buffer,$type);
-	}
-}
-
-$debug = false;
-
-// URLs base para desarrollo local vs producción
-$_scheme    = $_SERVER['REQUEST_SCHEME'] ?? ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http');
-$_appBase   = $_scheme . '://' . $_SERVER['HTTP_HOST'];
-$_panelBase = (strpos($_SERVER['HTTP_HOST'], 'localhost') !== false)
-              ? 'http://localhost:8001'
-              : 'https://panel.encom.app';
-
-if($_GET['vendor'] == 'css'){
-	$name 	= '1';
-	$files 	= [
-				'https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;900&display=swap',
-				'https://fonts.googleapis.com/icon?family=Material+Icons',
-				'https://fonts.googleapis.com/css2?family=Shadows+Into+Light&display=swap',
-				$_appBase . '/css/fonts.css?' . rand(),
-				'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/css/bootstrap.min.css',
-				$_appBase . '/css/app.css',
-				'https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.0.0/animate.compat.min.css',
-				'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/css/bootstrap-datetimepicker.min.css',
-				'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.css',
-				$_panelBase . '/css/color-selector-2.css',
-				'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.css',
-				'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/css/iguider.css?' . rand(),
-				'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/css/iguider.theme-material.css?' . rand(),
-				$_appBase . '/css/ncmCalendars.css?' . rand(),
-				$_appBase . '/css/chosen.css',
-				$_appBase . '/css/custom.css?' . rand()
-
-			];
-}else if($_GET['vendor'] == 'test'){
-	$name 	= '1';
-	$files = [
-		
-		
-		
-		'https://ncmaspace.nyc3.digitaloceanspaces.com/panel/js/fileReader.min.js',
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/ncmDropbox.min.js',
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/hereRouting.min.js',
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/dpb.min.js?' . rand()
-		];
-}else if($_GET['vendor'] == 'js'){
-	$name 	= '1';
-	$files = [
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.3/jquery.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/js/bootstrap.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment-with-locales.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/locale/es.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.19/js/jquery.dataTables.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/ismobilejs/0.4.1/isMobile.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/offline.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/chosen/1.8.7/chosen.jquery.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/df-number-format/2.1.6/jquery.number.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/mousetrap/1.6.3/mousetrap.min.js',
-		'https://cdn.jsdelivr.net/npm/jquery.actual@1.0.19/jquery.actual.min.js',
-		'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js',
-		'https://cdn.jsdelivr.net/npm/pouchdb@7.2.1/dist/pouchdb.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js',
-		$_panelBase . '/scripts/written-number.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/rsvp/4.8.3/rsvp.min.js',
-		$_appBase . '/scripts/sha256.js',
-		'https://cdn.rawgit.com/kjur/jsrsasign/c057d3447b194fa0a3fdcea110579454898e093d/jsrsasign-all-min.js',
-		'https://cdn.jsdelivr.net/npm/qz-tray@2.2.1/qz-tray.min.js',
-		$_appBase . '/scripts/sign-message.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/js/bootstrap-datetimepicker.min.js',
-		$_panelBase . '/scripts/color-selector-2.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/libphonenumber-js/1.6.8/libphonenumber-js.min.js',
-		'https://cdn.onesignal.com/sdks/OneSignalSDK.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.6/Chart.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/mustache.js/3.1.0/mustache.min.js',
-		$_appBase . '/scripts/iguider.stub.js', // iGuider CDN no disponible localmente
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery-fullscreen-plugin/1.1.5/jquery.fullscreen-min.js',
-		'https://ncmaspace.nyc3.digitaloceanspaces.com/panel/js/fileReader.min.js',
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/ncmDropbox.min.js',
-		'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js',
-		'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js',
-		'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/hereRouting.min.js',
-		'https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/jQuery-Geolocation/1.0.50/jquery.geolocation.min.js',
-		'https://js.pusher.com/7.2/pusher.min.js',
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.js',
-		//'https://www.google.com/recaptcha/api.js?render=6LfDSOoUAAAAALtjJkK_Epxdl7qFC7D7hynzu-ph',
-		'https://browser.sentry-cdn.com/6.0.1/bundle.min.js',
-		$_panelBase . "/scripts/rb.min.js?" . rand(),
-		$_panelBase . '/scripts/num2word.js?'. rand(),
-		// 'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/dpb.min.js?' . rand(),
-		$_panelBase . '/scripts/documentPrintBuilder.source.js?' . rand(),
-		$_appBase."/scripts/globalv2.js?" . rand(),
-		// $_appBase."/scripts/debug.js?".rand()
-		];
-}else if($_GET['vendor'] == 'debug'){
-	
-	$name 	= 'debug';
-	$debug 	= true;
-	$files 	= [
-				'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.3/jquery.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/fastclick/1.0.6/fastclick.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/js/bootstrap.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment-with-locales.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/locale/es.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.19/js/jquery.dataTables.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/ismobilejs/0.4.1/isMobile.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/offline.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/chosen/1.8.7/chosen.jquery.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/df-number-format/2.1.6/jquery.number.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/mousetrap/1.6.3/mousetrap.min.js',
-				'https://cdn.jsdelivr.net/npm/jquery.actual@1.0.19/jquery.actual.min.js',
-				'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js',
-				'https://cdn.jsdelivr.net/npm/pouchdb@7.2.1/dist/pouchdb.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js',
-				$_panelBase . '/scripts/written-number.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/rsvp/4.8.5/rsvp.min.js',
-				$_appBase . '/scripts/sha256.js',
-				'https://cdn.rawgit.com/kjur/jsrsasign/c057d3447b194fa0a3fdcea110579454898e093d/jsrsasign-all-min.js',
-				'https://cdn.jsdelivr.net/npm/qz-tray@2.2.1/qz-tray.min.js',
-				$_appBase . '/scripts/sign-message.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/js/bootstrap-datetimepicker.min.js',
-				$_panelBase . '/scripts/color-selector-2.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/libphonenumber-js/1.6.8/libphonenumber-js.min.js',
-				'https://cdn.onesignal.com/sdks/OneSignalSDK.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.6/Chart.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/mustache.js/3.1.0/mustache.min.js',
-				
-				
-				
-				'https://cdnjs.cloudflare.com/ajax/libs/jquery-fullscreen-plugin/1.1.5/jquery.fullscreen-min.js',
-				'https://browser.sentry-cdn.com/6.0.1/bundle.min.js',
-				'https://ncmaspace.nyc3.digitaloceanspaces.com/panel/js/fileReader.min.js',
-				'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/ncmDropbox.min.js',
-				'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js',
-				'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js',
-				'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/hereRouting.min.js',
-				'https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js',
-				'https://cdn.rawgit.com/neocotic/qrious/master/dist/qrious.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/jQuery-Geolocation/1.0.50/jquery.geolocation.min.js',
-				'https://js.pusher.com/7.2/pusher.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.js',
-				//'https://www.google.com/recaptcha/api.js?render=6LfDSOoUAAAAALtjJkK_Epxdl7qFC7D7hynzu-ph',
-				$_panelBase . '/scripts/rb.min.js?'.rand(),
-				$_panelBase . '/scripts/num2word.js?'. rand(),
-				//$_panelBase . '/scripts/dpb.min.js?' . rand(),
-				$_panelBase . '/scripts/documentPrintBuilder.source.js?' . rand(),
-				$_appBase."/scripts/debug.js?".rand()
-			];
-
-}else if($_GET['vendor'] == 'mobile'){
-	$name 	= 'mobile';
-	$debug 	= false;
-	$files 	= [
-				'https://cdnjs.cloudflare.com/ajax/libs/fastclick/1.0.6/fastclick.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/js/bootstrap.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment-with-locales.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/locale/es.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.19/js/jquery.dataTables.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/ismobilejs/0.4.1/isMobile.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/offline.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/chosen/1.8.7/chosen.jquery.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/df-number-format/2.1.6/jquery.number.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/mousetrap/1.6.3/mousetrap.min.js',
-				'https://cdn.jsdelivr.net/npm/jquery.actual@1.0.19/jquery.actual.min.js',
-				'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js',
-				'https://cdn.jsdelivr.net/npm/pouchdb@7.2.1/dist/pouchdb.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js',
-				$_panelBase . '/scripts/written-number.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/js/bootstrap-datetimepicker.min.js',
-				$_panelBase . '/scripts/color-selector-2.js',
-				$_appBase . '/scripts/sha256.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/libphonenumber-js/1.6.8/libphonenumber-js.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.6/Chart.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/mustache.js/3.1.0/mustache.min.js',
-				
-				
-				
-				'https://browser.sentry-cdn.com/6.0.1/bundle.min.js',
-				'https://ncmaspace.nyc3.digitaloceanspaces.com/panel/js/fileReader.min.js',
-				'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/ncmDropbox.min.js',
-				'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js',
-				'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js',
-				'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/hereRouting.min.js',
-				'https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/jQuery-Geolocation/1.0.50/jquery.geolocation.min.js',
-				'https://js.pusher.com/7.2/pusher.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.js',
-				//'https://www.google.com/recaptcha/api.js?render=6LfDSOoUAAAAALtjJkK_Epxdl7qFC7D7hynzu-ph',
-				$_panelBase . '/scripts/rb.min.js?'.rand(),
-				$_panelBase . '/scripts/num2word.js?'. rand(),
-				// 'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/dpb.min.js?'.rand(),
-				$_panelBase . '/scripts/documentPrintBuilder.source.js?' . rand(),
-				$_appBase . '/scripts/debug.js?'.rand()
-			];
-}else{
+// Serve cached bundle if it exists (generated by build.sh)
+if (file_exists($cachefile)) {
+	header("Content-Type: $contentType");
+	readfile($cachefile);
 	die();
 }
 
-$type = ($_GET['vendor'] == 'css')?'css':$_GET['vendor'];
+// ─── Fallback: concatenate on-the-fly (dev only) ────────────────────────
+// This runs when build.sh hasn't been executed yet.
+// It reads local files and concatenates them without minification.
 
-compileFiles($files,$name,$type,$debug);
-?>
+$rootDir = dirname(__DIR__); // project root
+
+function readLocalFile($path) {
+	global $rootDir;
+
+	// Absolute path from web root (e.g. /assets/vendor/js/...)
+	if (strpos($path, '/') === 0) {
+		$full = $rootDir . $path;
+		// Strip query string for file reads
+		$full = preg_replace('/\?.*$/', '', $full);
+		if (file_exists($full)) {
+			return file_get_contents($full);
+		}
+		return "/* MISSING: $path */\n";
+	}
+
+	// Relative path (e.g. cach/..., scripts/...)
+	$clean = preg_replace('/\?.*$/', '', $path);
+	if (file_exists($clean)) {
+		return file_get_contents($clean);
+	}
+
+	// External URL
+	if (filter_var($path, FILTER_VALIDATE_URL)) {
+		$ctx = stream_context_create([
+			'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+			'http' => ['timeout' => 10],
+		]);
+		$content = @file_get_contents($path, false, $ctx);
+		return $content !== false ? $content : "/* FETCH FAILED: $path */\n";
+	}
+
+	// Inline code (e.g. widget bridge)
+	return $path;
+}
+
+// ─── File lists (same as build.sh) ──────────────────────────────────────
+$_v = '/assets/vendor';
+
+$files_css = [
+	'https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;900&display=swap',
+	'https://fonts.googleapis.com/icon?family=Material+Icons',
+	'https://fonts.googleapis.com/css2?family=Shadows+Into+Light&display=swap',
+	'/app/css/fonts.css',
+	"$_v/css/bootstrap-3.4.1.min.css",
+	'/app/css/app.css',
+	"$_v/css/animate-4.0.0.compat.min.css",
+	"$_v/css/bootstrap-datetimepicker-4.17.47.min.css",
+	"$_v/css/jquery.toast-1.3.2.min.css",
+	'/panel/css/color-selector-2.css',
+	"$_v/css/sweetalert2-7.33.1.min.css",
+	'/assets/css/iguider.css',
+	'/assets/css/iguider.theme-material.css',
+	'/app/css/ncmCalendars.css',
+	'/app/css/chosen.css',
+	'/app/css/custom.css',
+];
+
+$files_js = [
+	"$_v/js/jquery-3.6.3.min.js",
+	"$_v/js/bootstrap-3.4.1.min.js",
+	"$_v/js/moment-2.24.0-with-locales.min.js",
+	"$_v/js/moment-locale-es.js",
+	"$_v/js/jquery.dataTables-1.10.22.min.js",
+	"$_v/js/isMobile-0.4.1.min.js",
+	"$_v/js/offline-0.7.19.min.js",
+	"$_v/js/chosen-1.8.7.min.js",
+	"$_v/js/jquery.number-2.1.6.min.js",
+	"$_v/js/mousetrap-1.6.3.min.js",
+	"$_v/js/jquery.actual-1.0.19.min.js",
+	"$_v/js/simpleStorage-0.2.1.min.js",
+	"$_v/js/pouchdb-7.2.1.min.js",
+	"$_v/js/lz-string-1.4.4.min.js",
+	'/panel/scripts/written-number.min.js',
+	"$_v/js/rsvp-4.8.5.min.js",
+	'/app/scripts/sha256.js',
+	"$_v/js/jsrsasign-all-min.js",
+	"$_v/js/qz-tray-2.2.1.min.js",
+	'/app/scripts/sign-message.js',
+	"$_v/js/bootstrap-datetimepicker-4.17.47.min.js",
+	'/panel/scripts/color-selector-2.js',
+	"$_v/js/libphonenumber-1.6.8.min.js",
+	"$_v/js/Chart-2.9.4.min.js",
+	"$_v/js/sweetalert2-7.33.1.min.js",
+	"$_v/js/push-1.0.8.min.js",
+	"$_v/js/mustache-4.0.1.min.js",
+	'/app/scripts/iguider.stub.js',
+	"$_v/js/jquery.fullscreen-1.1.5.min.js",
+	'/assets/panel/js/fileReader.min.js',
+	'/assets/scripts/ncmDropbox.min.js',
+	"$_v/js/leaflet-1.7.1.js",
+	"$_v/js/leaflet-routing-machine-3.2.12.js",
+	'/assets/scripts/hereRouting.min.js',
+	"$_v/js/fingerprintjs-3.min.js",
+	"$_v/js/jquery.geolocation-1.0.50.min.js",
+	"$_v/js/jquery.toast-1.3.2.min.js",
+	'/app/scripts/ncm-ws.js',
+	'/panel/scripts/rb.min.js',
+	'/panel/scripts/num2word.js',
+	'/panel/scripts/documentPrintBuilder.source.js',
+	'/app/scripts/globalv2.js',
+];
+
+$files_debug = array_merge(
+	["$_v/js/jquery-3.6.3.min.js", "$_v/js/fastclick-1.0.6.min.js"],
+	array_slice($files_js, 1, -1), // skip jquery (already added) and globalv2
+	["$_v/js/qrious.min.js", '/app/scripts/ncm-ws.js', '/app/scripts/debug.js']
+);
+
+$files_mobile = $files_debug; // same set
+
+$fileLists = [
+	'css'    => $files_css,
+	'js'     => $files_js,
+	'debug'  => $files_debug,
+	'mobile' => $files_mobile,
+	'test'   => [
+		'/assets/panel/js/fileReader.min.js',
+		'/assets/scripts/ncmDropbox.min.js',
+		'/assets/scripts/hereRouting.min.js',
+		'/assets/scripts/dpb.min.js',
+	],
+];
+
+$files  = $fileLists[$vendor] ?? [];
+$isDebug = ($vendor === 'debug');
+
+// Concatenate
+$contents = [];
+foreach ($files as $file) {
+	$contents[] = readLocalFile($file);
+}
+$buffer = implode("\n;\n", $contents);
+
+// Cache unless debug mode
+if (!$isDebug) {
+	@mkdir($cachedir, 0755, true);
+	file_put_contents($cachefile, $buffer);
+}
+
+header("Content-Type: $contentType");
+echo $buffer;

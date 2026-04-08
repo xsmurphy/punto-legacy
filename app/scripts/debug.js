@@ -5,13 +5,13 @@ $(document).ready(function () {
     $("<link/>", { //agrego el style a parte porque no funciona si no esta como un standalone file
         "rel": "stylesheet",
         "type": "text/css",
-        "href": "https://assets.encom.app/css/leaflet.css"
+        "href": "/assets/vendor/css/leaflet-1.7.1.css"
     }).appendTo("head");
 
     $("<link/>", { //agrego el style a parte porque no funciona si no esta como un standalone file
         "rel": "stylesheet",
         "type": "text/css",
-        "href": "https://assets.encom.app/css/routing-machine.css"
+        "href": "/assets/vendor/css/leaflet-routing-machine.css"
     }).appendTo("head");
 
     /*$("<script/>", { //agrego google recaptcha
@@ -395,7 +395,7 @@ $(document).ready(function () {
             if ($content.hasClass('isPopup')) {
                 var isDk = (ncmUIX.isDarkMode) ? 'lt' : 'dk';
                 handle = '<div class="col-xs-12 wrapper text-right">' +
-                    '   <a href="#" class="block imodalclose" style="background: url(https://assets.encom.app/images/modal_handle_' + isDk + '.png) no-repeat center top">' +
+                    '   <a href="#" class="block imodalclose" style="background: url(/assets/images/modal_handle_' + isDk + '.png) no-repeat center top">' +
                     '       <i class="material-icons md-24 imodalclose">close</i>' +
                     '   </a>' +
                     '</div>';
@@ -950,7 +950,7 @@ var ncmMenu = {
 
             $('.ncmMyMenuOrders').attr('href', window.standAloneUrl + 'userOrders?s=' + window.btoa(ncmGlobals.settings[0].companyId + ',' + ncmAuth.activeUser.activeUserId));
             $('.ncmMyMenuSchedule').attr('href', window.standAloneUrl + 'userAgenda?s=' + window.btoa(ncmGlobals.settings[0].companyId + ',' + ncmAuth.activeUser.activeUserId));
-            $('.ncmMyMenuPanel').attr('href', 'https://panel.encom.app/login?token=' + ncmAuth.activeUser.token);
+            $('.ncmMyMenuPanel').attr('href', '/login?token=' + ncmAuth.activeUser.token);
 
             $('.mainMenuContent').addClass('hidden');
             $('.menuToolsBtn').removeClass('hidden');
@@ -1049,7 +1049,7 @@ var ncmActionSheet = {
     visible: false,
     moving: false,
     setStyle: function () {
-        var head = '<a href="#" class="block asClose" style="background: url(https://assets.encom.app/images/modal_handle_' + ((ncmUIX.isDarkMode) ? 'lt' : 'dk') + '.png) no-repeat center top">' +
+        var head = '<a href="#" class="block asClose" style="background: url(/assets/images/modal_handle_' + ((ncmUIX.isDarkMode) ? 'lt' : 'dk') + '.png) no-repeat center top">' +
             '   <i class="material-icons md-24 asClose">close</i>' +
             '</a>';
         $('#actionSheetHead').html(head);
@@ -2933,7 +2933,7 @@ var ncmHelpers = {
                     'name': window.intercomSettings.name,
                     'email': window.intercomSettings.email,
                     'avatar': window.intercomSettings.company.avatar,
-                    'www': 'https://app.encom.app',
+                    'www': '',
                     'position': window.intercomSettings.Rol
                 });
 
@@ -3220,12 +3220,12 @@ var ncmHelpers = {
             return false;
         }
 
-        var snd = 'https://assets.encom.app/sounds/payment_success.m4a';
+        var snd = '/assets/sounds/payment_success.m4a';
 
         if (type == 'error') {
-            snd = 'https://assets.encom.app/sounds/payment_failure.m4a';
+            snd = '/assets/sounds/payment_failure.m4a';
         } else if (type == 'newOrder') {
-            snd = 'https://assets.encom.app/sounds/new_order_sound.mp3';
+            snd = '/assets/sounds/new_order_sound.mp3';
         }
 
         if (type == 'reset') {
@@ -4654,15 +4654,6 @@ var ncmEvents = {
         } else if (hash == 'reset') {
             ncmAlerts.alert({ title: "¿Realmente quiere desinstalar ENCOM?" }, function (result) {
                 if (result) {
-                    pluginExecute('onesignal', function () {
-                        window.plugins.OneSignal.removeExternalUserId();
-                    },
-                        function () {
-                            OneSignal.push(function () {
-                                OneSignal.removeExternalUserId();
-                            });
-                        });
-
                     ncmEvents.unHashUrl();
                     ncmStorage.nuke();//flush local db nuke
                     location.reload();
@@ -4725,8 +4716,7 @@ var ncmEvents = {
                     });
                 });
         } else if (type == 'notificationsBtn') {
-
-            OneSignal.registerForPushNotifications();
+            // Web Push registration handled elsewhere
         } else if (type == 'refreshDB') {
             var now = moment();//now
             var then = moment(ncmGlobals.lastDBUpdatedManually);
@@ -7393,7 +7383,7 @@ var ncmEvents = {
                 });
                 list += '<tr><td colspan="3" class="text-center text-sm">Importante: Las transacciones se sincronizan siempre y cuando la ventana de la caja esté abierta y en uso, si cambia a otra pestaña o página, las ventas quedarán pendientes hasta que vuelva a la pantalla de ventas</td></tr>';
             } else {
-                list += '<tr class="text-center"><td><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-t-md"><div class="font-bold m-t-sm m-b-sm h4">Nada pendiente de sincronización</div></td></tr>';
+                list += '<tr class="text-center"><td><img src="/assets/images/emptystate2.png" width="130" class="m-t-md"><div class="font-bold m-t-sm m-b-sm h4">Nada pendiente de sincronización</div></td></tr>';
             }
             list += '<tr><td class="text-center"><a href="#" class="text-danger clickeable" data-type="clearSync">[ Forzar envío ]</a></td></tr>';
             list += '</table>';
@@ -7648,7 +7638,7 @@ var ncmOrders = {
 
                     $.each(ncmOrders.panel.allOrders, function (index, order) {
                         var source = order.source;
-                        var sourc = '<img src="https://app.encom.app/images/' + (ncmUIX.isDarkMode ? 'iconincomesmwhite.png' : 'iconincomesm.png') + '" width="25" class="m-l-sm m-t-xs">';
+                        var sourc = '<img src="/images/' + (ncmUIX.isDarkMode ? 'iconincomesmwhite.png' : 'iconincomesm.png') + '" width="25" class="m-l-sm m-t-xs">';
                         var sourceTxt = 'orden';
                         var customer = '';
                         var animateTr = '';
@@ -7825,7 +7815,7 @@ var ncmOrders = {
                         } else if ($.inArray(source, ['web', 'monchis', 'pedidosya', 'rappi', 'uber', 'ecom', 'skytel', 'whatsapp']) !== -1) {
                             if (source == 'ecom') {
                                 sourc = '<span class="material-icons md-24 m-l-sm text-dark m-t-xs">shopping_cart</span>';
-                                //sourc         = '<img src="https://app.encom.app/images/' + (ncmUIX.isDarkMode ? 'iconincomesmwhite.png' : 'iconincomesm.png') + '" width="25" class="m-l m-t-xs">';
+                                //sourc         = '<img src="/images/' + (ncmUIX.isDarkMode ? 'iconincomesmwhite.png' : 'iconincomesm.png') + '" width="25" class="m-l m-t-xs">';
                                 sourceTxt = 'ecom';
                             } else if (source == 'email') {
                                 sourc = '<span class="material-icons md-24 m-l-sm text-dark m-t-xs">mail</span>';
@@ -7834,16 +7824,16 @@ var ncmOrders = {
                                 sourc = '<span class="material-icons md-24 m-l-sm text-dark m-t-xs">call</span>';
                                 sourceTxt = 'llamada';
                             } else if (source == 'monchis') {
-                                sourc = '<img src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/images/' + (ncmUIX.isDarkMode ? 'monchis_lt.png' : 'monchis_dk.png') + '" width="25" class="m-l-sm m-t-xs">';
+                                sourc = '<img src="/assets/images/' + (ncmUIX.isDarkMode ? 'monchis_lt.png' : 'monchis_dk.png') + '" width="25" class="m-l-sm m-t-xs">';
                                 sourceTxt = 'monchis';
                             } else if (source == 'pedidosya') {
-                                sourc = '<img src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/images/' + (ncmUIX.isDarkMode ? 'pedidosya_lt.png' : 'pedidosya_dk.png') + '" width="25" class="m-l-sm m-t-xs">';
+                                sourc = '<img src="/assets/images/' + (ncmUIX.isDarkMode ? 'pedidosya_lt.png' : 'pedidosya_dk.png') + '" width="25" class="m-l-sm m-t-xs">';
                                 sourceTxt = 'pedidos ya';
                             } else if (source == 'web') {
                                 sourc = '<span class="material-icons md-24 m-l-sm text-dark m-t-xs">wysiwyg</span>';
                                 sourceTxt = 'web';
                             } else if (source == 'skytel') {
-                                sourc = '<img src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/images/' + (ncmUIX.isDarkMode ? 'sky_lt.png' : 'sky_dk.png') + '" width="25" class="m-l-sm m-t-xs">';
+                                sourc = '<img src="/assets/images/' + (ncmUIX.isDarkMode ? 'sky_lt.png' : 'sky_dk.png') + '" width="25" class="m-l-sm m-t-xs">';
                                 sourceTxt = 'skytel';
                             } else if (source == 'whatsapp') {
                                 sourc = '<img src="https://cdnjs.cloudflare.com/ajax/libs/simple-icons/3.0.1/whatsapp.svg" style="' + (ncmUIX.isDarkMode ? 'filter: invert(100%) sepia(62%) saturate(1%) hue-rotate(351deg) brightness(104%) contrast(101%);' : 'filter: invert(40%) sepia(19%) saturate(477%) hue-rotate(169deg) brightness(94%) contrast(85%);') + '" width="25" class="m-l-sm m-t-xs">';
@@ -7968,7 +7958,7 @@ var ncmOrders = {
                 else {
                     if (!ncmOrders.panel.lastChk) {
                         var table = '<div class="col-xs-12 text-center">' +
-                            '   <img src="https://assets.encom.app/images/emptystate7.png" width="170" class="m-t-md" style="margin-top:25vh;">' +
+                            '   <img src="/assets/images/emptystate7.png" width="170" class="m-t-md" style="margin-top:25vh;">' +
                             '   <div class="m-t-sm m-b h2 font-bold">No hay órdenes</div>' +
                             '   <div>Agregue órdenes presionando en <i class="material-icons">more_horiz</i> > Orden</div>' +
                             '</div>';
@@ -8872,7 +8862,7 @@ var ncmCalendar = {
                     '       <i class="material-icons pull-right">block</i>' +
                     iftn(val.note) +
                     '   </div>' +
-                    '   <div class="bottom bg-dark wrap-t-sm ncmCalendarBlockHandler" style="background: url(https://assets.encom.app/images/modal_handle_dk.png) no-repeat center top;opacity:0.6;"></div>' +
+                    '   <div class="bottom bg-dark wrap-t-sm ncmCalendarBlockHandler" style="background: url(/assets/images/modal_handle_dk.png) no-repeat center top;opacity:0.6;"></div>' +
                     '</div>';
             } else {
                 tooltip = "<div class='text-left'>" +
@@ -8894,7 +8884,7 @@ var ncmCalendar = {
                     '       <i class="material-icons pull-right">' + val.icon + '</i>' +
                     '       <div class="font-bold block ncmCalendarHideOnSmallBlocksName">' + iftn(customer.fullName, customer.name) + '</div>' +
                     '   </div>' +
-                    '   <div class="bottom bg-dark wrap-t-sm ncmCalendarBlockHandler ' + (noHandler ? 'hidden' : '') + '" style="background: url(https://assets.encom.app/images/modal_handle_dk.png) no-repeat center top;opacity:0.6;"></div>' +
+                    '   <div class="bottom bg-dark wrap-t-sm ncmCalendarBlockHandler ' + (noHandler ? 'hidden' : '') + '" style="background: url(/assets/images/modal_handle_dk.png) no-repeat center top;opacity:0.6;"></div>' +
                     '</div>';
             }
 
@@ -13053,13 +13043,13 @@ var ncmDialogs = {
         var msg = msg ? msg : title;
         Push.create(title, {
             body: msg,
-            icon: 'https://app.encom.app/images/iconincomesm.png',
+            icon: '/images/iconincomesm.png',
             timeout: 4000,
             onClick: () => {
                 window.location = url;
             }
         });
-        //return OneSignal.sendSelfNotification(title,msg,'https://app.encom.app/' + url,'https://app.encom.app/images/iconincomesm.png',false,false);
+        //return OneSignal.sendSelfNotification(title,msg,'/' + url,'/images/iconincomesm.png',false,false);
     }
 };
 //Alerts End
@@ -14780,7 +14770,7 @@ var ncmUIX = {
 
                 $('.table-hover').removeClass('table-hover');
 
-                $('#splash img').attr('src', 'https://app.encom.app/images/iconincomesmwhite.png');
+                $('#splash img').attr('src', '/images/iconincomesmwhite.png');
                 $('#splash #loadingBar').toggleClass('bg-dark bg-light');
 
                 //alerts
@@ -14789,7 +14779,7 @@ var ncmUIX = {
                 $('.swal2-content').css({ 'color': '#fff' });
                 $('.swal2-cancel').css({ 'background-color': '#232c32' });
 
-                $('#lockPadScreen img').attr('src', 'https://app.encom.app/images/iconincomesmwhite.png');
+                $('#lockPadScreen img').attr('src', '/images/iconincomesmwhite.png');
 
                 $('input.form-control,select.form-control,textarea.form-control').addClass('text-white');
 
@@ -14828,7 +14818,7 @@ var ncmUIX = {
         return { "d": elapsedDays, "h": elapsedHours, "m": elapsedMins };
     },
     notFoundMsg: function (title, subtitle, image) {
-        var img = (image) ? image : 'https://assets.encom.app/images/emptystate2.png';
+        var img = (image) ? image : '/assets/images/emptystate2.png';
         var ttl = (title) ? title : 'Sin información';
         var sttl = (subtitle) ? subtitle : '';
 
@@ -15152,7 +15142,7 @@ var ncmTutorial = {
             }
 
             out += ' <div class="col-xs-12 wrapper-sm b-b font-bold pointer ncmTutorialEvent" data-type="addHotkeys">Añadir HotKeys</div>' +
-                ' <div class="col-xs-12 no-padder m-t text-center">Para más guías y tutoriales visita nuestro <a href="https://docs.encom.app" class="btn btn-default btn-block btn-rounded font-bold text-u-c m-t clickeable" data-type="url">Help Center</a></div>';
+                ' <div class="col-xs-12 no-padder m-t text-center">Para más guías y tutoriales visita nuestro <a href="" class="btn btn-default btn-block btn-rounded font-bold text-u-c m-t clickeable" data-type="url">Help Center</a></div>';
 
             return out;
         },
@@ -15381,7 +15371,7 @@ var ncmTutorial = {
         },
         {
             title: '¡Venta realizada!',
-            content: 'Finalizó una venta con éxito, para más detalles visite nuestra <br><br> <a href="https://docs.encom.app/caja-registradora/ventas" class="btn btn-default text-u-c font-bold btn-block clickeable btn-rounded" data-type="link">Guía de Ventas</a>',
+            content: 'Finalizó una venta con éxito, para más detalles visite nuestra <br><br> <a href="/caja-registradora/ventas" class="btn btn-default text-u-c font-bold btn-block clickeable btn-rounded" data-type="link">Guía de Ventas</a>',
             target: '.confirmIcon',
             shape: 1,
             delayBefore: 500,
@@ -15505,7 +15495,7 @@ var ncmTutorial = {
         },
         {
             title: '¡Cotización generada!',
-            content: 'Finalizó una cotización con éxito, para más guías visite nuestra <br><br> <a href="https://docs.encom.app/caja-registradora/cotizaciones" class="clickeable btn btn-default btn-block text-u-c font-bold text-u-l btn-rounded" data-type="link">Guía de Cotizaciones</a>',
+            content: 'Finalizó una cotización con éxito, para más guías visite nuestra <br><br> <a href="/caja-registradora/cotizaciones" class="clickeable btn btn-default btn-block text-u-c font-bold text-u-l btn-rounded" data-type="link">Guía de Cotizaciones</a>',
             target: '.confirmIcon',
             shape: 1,
             delayBefore: 500,
@@ -15533,7 +15523,7 @@ var ncmTutorial = {
             bgColor: '#3b464d',
             width: isMobile.phone ? false : '450',
             during: function () {
-                var img = '<div class=""><img src="https://assets.encom.app/src.php?src=https://encom.app/wordpress/wp-content/uploads/2020/12/Screen-Shot-2020-12-07-at-8.26.04-PM.png&h=220&w=450&q=85" alt="" width="100%"></div>';
+                var img = '<div class=""><img src="/assets/src.php?src=//wordpress/wp-content/uploads/2020/12/Screen-Shot-2020-12-07-at-8.26.04-PM.png&h=220&w=450&q=85" alt="" width="100%"></div>';
                 $('.g-modal-cover').html(img);
             }
         },
@@ -15645,7 +15635,7 @@ var ncmTutorial = {
         },
         {
             title: '¡Orden generada!',
-            content: 'Finalizó una orden con éxito, para más detalles visite nuestra <br><br> <a href="https://docs.encom.app/caja-registradora/panel-de-ordenes/crear-una-nueva-orden" class="clickeable btn btn-default btn-block text-u-c font-bold btn-rounded" data-type="link">Guía de Órdenes</a>',
+            content: 'Finalizó una orden con éxito, para más detalles visite nuestra <br><br> <a href="/caja-registradora/panel-de-ordenes/crear-una-nueva-orden" class="clickeable btn btn-default btn-block text-u-c font-bold btn-rounded" data-type="link">Guía de Órdenes</a>',
             target: '.confirmIcon',
             shape: 1,
             delayBefore: 500,
@@ -15678,14 +15668,14 @@ var ncmTutorial = {
         },
         {
             title: 'Calendario',
-            content: 'Este es el calendario principal, desde aquí podrá ver todas las citas agendadas por día, semana y mes. Todos los usuarios que tengan habilitada la opción Agendable aparecerán aquí. <br> <br> <div class="text-xs text-center"> <a href="https://docs.encom.app/caja-registradora/agendamientos" class="clickeable btn btn-default bg-white btn-rounded text-u-c font-bold" data-type="link">Guía completa</a> <br> Para ver más información sobre el módulo de citas y el calendario</div> <br><br> Presione en SIG para agendar una cita.',
+            content: 'Este es el calendario principal, desde aquí podrá ver todas las citas agendadas por día, semana y mes. Todos los usuarios que tengan habilitada la opción Agendable aparecerán aquí. <br> <br> <div class="text-xs text-center"> <a href="/caja-registradora/agendamientos" class="clickeable btn btn-default bg-white btn-rounded text-u-c font-bold" data-type="link">Guía completa</a> <br> Para ver más información sobre el módulo de citas y el calendario</div> <br><br> Presione en SIG para agendar una cita.',
             position: 'center',
             delayBefore: 350,
             waitElementTime: 5000,
             width: isMobile.phone ? false : '450',
             bgColor: '#3b464d',
             during: function () {
-                var img = '<div class=""><img src="https://assets.encom.app/src.php?src=https://encom.app/wp-content/uploads/2020/07/calendar_salon.png&h=220&w=450&q=85" alt="" width="100%"></div>';
+                var img = '<div class=""><img src="/assets/src.php?src=//wp-content/uploads/2020/07/calendar_salon.png&h=220&w=450&q=85" alt="" width="100%"></div>';
                 $('.g-modal-cover').html(img);
                 ncmEvents.a();
             }
@@ -15765,7 +15755,7 @@ var ncmTutorial = {
         },
         {
             title: '¡Cita generada!',
-            content: 'Finalizó una cita con éxito, para más detalles visite nuestra <a href="https://docs.encom.app/caja-registradora/agendamientos" class="clickeable btn btn-default text-u-c font-bold btn-block btn-rounded" data-type="link">Guía de Citas</a>',
+            content: 'Finalizó una cita con éxito, para más detalles visite nuestra <a href="/caja-registradora/agendamientos" class="clickeable btn btn-default text-u-c font-bold btn-block btn-rounded" data-type="link">Guía de Citas</a>',
             target: '.confirmIcon',
             shape: 1,
             delayBefore: 500,
@@ -15799,7 +15789,7 @@ var ncmTutorial = {
         },
         {
             title: 'Abrir mesa o espacio',
-            content: 'Para abrir solo debe presionar en el número de un espacio vacío, los espacios abiertos tienen color verde y los reservados color amarillo. <br> Al abrir el espacio podrá añadir directamente una orden asignada al mismo. <br><br> Para más detalles visite nuestra <br><br>  <a href="https://docs.encom.app/caja-registradora/modulo-de-mesas" class="clickeable btn btn-default text-u-c font-bold btn-block btn-rounded" data-type="link">Guía de Mesas y Espacios</a>',
+            content: 'Para abrir solo debe presionar en el número de un espacio vacío, los espacios abiertos tienen color verde y los reservados color amarillo. <br> Al abrir el espacio podrá añadir directamente una orden asignada al mismo. <br><br> Para más detalles visite nuestra <br><br>  <a href="/caja-registradora/modulo-de-mesas" class="clickeable btn btn-default text-u-c font-bold btn-block btn-rounded" data-type="link">Guía de Mesas y Espacios</a>',
             target: '#itsTable1',
             waitElementTime: 3000,
             disabled: true,
@@ -15982,7 +15972,7 @@ var ncmTutorial = {
             ncmTutorial.set.tourTitle = '¡Hola!';
             ncmTutorial.set.steps = ncmTutorial.welcome;
             ncmTutorial.set.intro = {
-                cover: 'https://encom.app/wordpress/wp-content/uploads/2020/07/retail_horizontal_banner.png',
+                cover: '//wordpress/wp-content/uploads/2020/07/retail_horizontal_banner.png',
                 title: '¡Te damos la bienvenida a ENCOM!',
                 content: 'Con ENCOM podrás manejar tu negocio por completo. <br> Este es el módulo de caja, desde aquí podrás realizar ventas y manejar la mayoría de las operaciones de tu negocio. <br><br> <div class="h3 font-bold text-white">¡Hagamos una guía rápida!</div>',
                 width: isMobile.phone ? false : 600
@@ -17127,7 +17117,7 @@ var ncmAuth = {
         if (justLoad) {
 
             ncmHttp.get({
-                url: 'https://api.encom.app/countries?format=json&hispanic',
+                url: '/API/countries?format=json&hispanic',
                 onSuccess: (data) => {
                     ncmAuth.countries = data;
                     $.get(geoURL).done(function (ip) {
@@ -17137,7 +17127,8 @@ var ncmAuth = {
                             var k = 'PY';
                         }
 
-                        var val = ncmAuth.countries[k];
+                        var val = ncmAuth.countries[k] || ncmAuth.countries['PY'];
+                        k = val ? k : 'PY';
                         var selected = '<img src="' + flagsCDN + k.toLowerCase() + '.svg" width="20"> <span class="font-bold text-md m-l-sm selectedPhoneCode" data-country="' + k + '">+' + val.phone + '</span>';
                         $('.countriesBtn').html(selected);
                     });
@@ -17230,7 +17221,7 @@ var ncmAuth = {
         $.ajax({ // create an AJAX call...
             data: $form.serialize(), // get the form data
             type: $form.attr('method'), // GET or POST
-            url: 'https://panel.encom.app/user-register?signup=1&src=app', // the file to call
+            url: '/user-register?signup=1&src=app', // the file to call
             success: function (response) { // on success..
                 if (response == 'true') {
                     var email = $form.find('#verifiedPhone').val();
@@ -17352,9 +17343,7 @@ var ncmAuth = {
     loadNewUser: () => {
         thalog('loadNewUser fn');
 
-        ncmWebSockets.start = new Pusher('24c4d438c59b81f27107', {
-            cluster: 'sa1'
-        });
+        ncmWebSockets.start = new NcmWS(window.WS_URL);
 
         if (!isMobile.any) {
             mixpanel.identify(ncmAuth.activeUser.activeUserId);
@@ -17422,12 +17411,7 @@ var ncmAuth = {
 
         ncmHelpers.bitrix.chat(intercomSettings);
 
-        Sentry.setUser({
-            company: ncmGlobals.settings[0].companyName,
-            username: ncmAuth.activeUser.name,
-            userid: ncmAuth.activeUser.activeUserId,
-            companyid: ncmGlobals.settings[0].companyId
-        });
+        // Sentry removed
 
         var welcomed = ncmStorage.getEntry('welcomeTutorialDone');
         if (!welcomed) {
@@ -17465,94 +17449,8 @@ var ncmAuth = {
                 }, 800);
             }
 
-            var notificationOpenedCallback = function (jsonData) {
-                //ncmDialogs.alert('Push',JSON.stringify(jsonData));
-            };
-
-            var iosSettings = {};
-            iosSettings["kOSSettingsKeyAutoPrompt"] = false;
-            iosSettings["kOSSettingsKeyInAppLaunchURL"] = false;
-
-            if (typeof window.plugins.OneSignal !== 'undefined' && !ncmAuth.activeUser.isSupport) {
-                window.plugins.OneSignal.setLogLevel({ logLevel: 6, visualLevel: 0 });
-                window.plugins.OneSignal.promptForPushNotificationsWithUserResponse();
-
-                window.plugins.OneSignal.startInit("01b01582-6a4a-4f25-81f4-86117df53c44");//f130b414-ff8a-4765-8f1f-97f7b2e3e1cf //OLD
-                window.plugins.OneSignal.handleNotificationOpened(notificationOpenedCallback);
-                window.plugins.OneSignal.iOSSettings(iosSettings)
-                    .inFocusDisplaying(window.plugins.OneSignal.OSInFocusDisplayOption.Notification)
-                    .endInit();
-
-                window.plugins.OneSignal.sendTags({
-                    'companyId': ncmGlobals.settings[0].companyId,
-                    'registerId': ncmTransactions.cRegisterData().registerId,
-                    'outletId': ncmTransactions.cOutletData().outletId,
-                    'userId': ncmAuth.activeUser.activeUserId,
-                    'isResource': isResource,
-                    'role': ncmAuth.activeUser.role
-                });
-
-                window.plugins.OneSignal.setExternalUserId(ncmGlobals.settings[0].companyId);
-
-            }
-
-        },
-            function () {
-
-                var OneSignal = window.OneSignal || [];
-                if (ncmHelpers.validity(OneSignal) && !isMobile.any && !ncmAuth.activeUser.isSupport) {
-
-                    OneSignal.push(function () {
-                        OneSignal.init({
-                            appId: "01b01582-6a4a-4f25-81f4-86117df53c44"//"f130b414-ff8a-4765-8f1f-97f7b2e3e1cf" //OLD,
-                        });
-                    });
-
-                    OneSignal.isPushNotificationsEnabled(function (isEnabled) {
-                        if (isEnabled) {
-                            $('.clickeable[data-type="notificationsBtn"] i').addClass('text-success');
-                            $('.clickeable[data-type="notificationsBtn"]').addClass('disabled');
-                        } else {
-                            $('.clickeable[data-type="notificationsBtn"] i').removeClass('text-success');
-                            $('.clickeable[data-type="notificationsBtn"]').removeClass('disabled');
-                        }
-                    });
-
-                    OneSignal.push(function () {
-                        OneSignal.sendTags({
-                            'companyId': ncmGlobals.settings[0].companyId,
-                            'registerId': ncmTransactions.cRegisterData().registerId,
-                            'outletId': ncmTransactions.cOutletData().outletId,
-                            'userId': ncmAuth.activeUser.activeUserId,
-                            'isResource': isResource,
-                            'role': ncmAuth.activeUser.role
-                        }).then(function (tagsSent) {
-                            // Callback called when tags have finished sending
-                        });
-                    });
-
-                    /*OneSignal.push(function() {
-                      OneSignal.removeExternalUserId();
-                    });*/
-
-                    OneSignal.push(function () {
-                        OneSignal.on('notificationDisplay', function (event) {
-                            console.warn('OneSignal notification displayed:', event);
-                            var data = event.data;
-                            if (ncmHelpers.validInObject(data, 'type') == 'order') {
-                                //    ncmOrders.panel.show({hideLoader:true});
-                            }
-                        });
-                    });
-
-                    OneSignal.push(function () {
-                        //outletId asi comunico por sucursal
-                        OneSignal.setExternalUserId(ncmGlobals.settings[0].companyId);
-                    });
-
-                }
-
-            });
+            // OneSignal removed — push notifications handled by Web Push (VAPID)
+        });
 
         if (!$('#splash').is(':visible')) {
             var inPage = $('#login').is(':visible') ? '#login' : '#signin';
@@ -17646,7 +17544,7 @@ var ncmAuth = {
                     class: 'pull-right r-3x md-whiteframe-4dp'
                 }).appendTo('#menu #spotifyWidgetPlayerWrap');
             } else {
-                $('#menu #spotifyWidgetPlayerWrap').html('<div class="h2 text-white font-bold text-right"><a href="https://docs.encom.app/caja-registradora/spotify" class="clickeable" data-type="url" target="_blank"><span class="text-white">Añade tu <br>playlist</a></div>');
+                $('#menu #spotifyWidgetPlayerWrap').html('<div class="h2 text-white font-bold text-right"><a href="/caja-registradora/spotify" class="clickeable" data-type="url" target="_blank"><span class="text-white">Añade tu <br>playlist</a></div>');
             }
         }
         //
@@ -19456,11 +19354,11 @@ var ncmMaps = {
 
             return 'https://2.base.maps.ls.hereapi.com/maptile/2.1/maptile/newest/' + styler + '/{z}/{x}/{y}/512/png8?apiKey=' + ncmMaps.theme.hereKey + '&ppi=320';
         },
-        storeIcon: 'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/ecom/images/marker_store_sq2.png',
-        meIcon: 'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/ecom/images/marker_me_sq2.png',
-        meIconD: 'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/ecom/images/marker_me_sq2_danger.png',
-        meIconW: 'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/ecom/images/marker_me_sq2_warning.png',
-        bikeIcon: 'https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/ecom/images/marker_bike_sq2.png',
+        storeIcon: '/assets/ecom/images/marker_store_sq2.png',
+        meIcon: '/assets/ecom/images/marker_me_sq2.png',
+        meIconD: '/assets/ecom/images/marker_me_sq2_danger.png',
+        meIconW: '/assets/ecom/images/marker_me_sq2_warning.png',
+        bikeIcon: '/assets/ecom/images/marker_bike_sq2.png',
         setIcon: function (ico) {
             var animation = 'fadeIn';
             var icon = ncmMaps.theme.meIcon;
@@ -20202,7 +20100,7 @@ var ncmCustomer = {
                     } else {
                         $this.find('.imodal-body').html(
                             '<div class="col-xs-12 wrapper text-center">' +
-                            '<img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-t-md">' +
+                            '<img src="/assets/images/emptystate2.png" width="130" class="m-t-md">' +
                             '<div class="font-bold m-t-sm m-b-sm h4">No encontramos datos sobre este cliente</div>' +
                             '<div class="m-b">Es posible que haya sido eliminado.</div>' +
                             '</div>');
@@ -23067,7 +22965,7 @@ var paymentMethodFn = function (coin, name, price) {
 
             var pixCustomer = '';
             var pixCustomerPhone = '0999999999';
-            var pixCustomerEmail = 'info@encom.com.py';
+            var pixCustomerEmail = '<?= EMAIL_FROM ?>';
 
             if (ncmHelpers.valid(ncmTransactions, 'customer')) {
                 if (ncmHelpers.valid(ncmTransactions.customer, 'phone')) {
@@ -23164,7 +23062,7 @@ var paymentMethodFn = function (coin, name, price) {
 
                     var prev = '   <div class="col-sm-6 col-xs-12 col-sm-offset-3 wrapper">' +
                         '       <div class="col-xs-12 font-bold text-center h4 wrapper">' +
-                        '           <img style="font-size: 60px !important; height: 60px;" src="https://app.encom.app/images/svg-loaders/puff.svg" width="60"></img>' +
+                        '           <img style="font-size: 60px !important; height: 60px;" src="/images/svg-loaders/puff.svg" width="60"></img>' +
                         '           <div>Cargando...</div>' +
                         '       </div>' +
                         '   </div>';
@@ -24137,7 +24035,7 @@ var ncmHotKeys = {
                         if (isMobile.phone) {
                             bgImage = 'background-image:url(' + img + ');';
                         } else {
-                            bgImage = 'background-image:url(https://app.encom.app/images/transparent.png);';// +
+                            bgImage = 'background-image:url(/images/transparent.png);';// +
                             //'-webkit-filter:blur(25px);' +
                             //'filter:blur(25px);';
                         }
@@ -24775,11 +24673,11 @@ $.ajaxSetup({
 window.masterUrl = location.protocol + '//' + location.host + '/';
 
 if (isMobile.any || window.encomInApp) {
-    window.masterUrl = 'https://app.encom.app/';
+    window.masterUrl = '/';
     isMobile.any = true;
 }
-window.assetsUrl = 'https://assets.encom.app/';
-window.apiUrl = 'https://api.encom.app/';
+window.assetsUrl = '/assets/';
+window.apiUrl = '/API/';
 window.clickEvent = 'touch';
 
 //GLOBAL VARS DECLARATION
@@ -24801,7 +24699,7 @@ window.drawerIsOpen = false;
 window.waUrl = 'whatsapp://send/?phone=';
 window.waIco = '<img src="https://cdnjs.cloudflare.com/ajax/libs/simple-icons/3.0.1/whatsapp.svg" class="m-r-sm" style="filter: invert(66%) sepia(81%) saturate(408%) hue-rotate(72deg) brightness(95%) contrast(78%);" width="20">';
 window.imgFolder = 'sysimages/';
-window.standAloneUrl = (ncmGlobals.settings[0] !== undefined && ncmGlobals.settings[0].publicURL !== undefined ? ncmGlobals.settings[0].publicURL + '/' : 'https://public.encom.app/');
+window.standAloneUrl = (ncmGlobals.settings[0] !== undefined && ncmGlobals.settings[0].publicURL !== undefined ? ncmGlobals.settings[0].publicURL + '/' : '/screens/');
 window.conexionChkUrl = masterUrl + 'ping';
 window.registerInit = false;
 window.isAnalytics = false;
@@ -24868,12 +24766,12 @@ var ncmOnReady = function () {
 
     ncmTutorial.nuke();//reseteo para que no auto inicie al actualizar
 
-    Sentry.init({ dsn: 'https://ef7fe52731c8466d800cee634f38bf3d@sentry.io/5186427' });
+    // Sentry removed
 
     if (!checkIfUrlDebug()) {
         if ('serviceWorker' in navigator) {
             console.log('CLIENT: service worker registration in progress.');
-            navigator.serviceWorker.register('/OneSignalSDKWorker.js?' + Math.random()).then(function () {
+            navigator.serviceWorker.register('/cache-sw.php?' + Math.random()).then(function () {
                 console.log('CLIENT: service worker registration complete.');
             }, function () {
                 console.log('CLIENT: service worker registration failure.');
@@ -25226,7 +25124,7 @@ var ncmPrinters = {
         thalog('printersTable fn');
         var out = '<li class="list-group-item wrapper-md text-center b-light">' +
             '   <div class="font-bold h4 text-muted m-b-sm">No tiene impresoras configuradas</div>' +
-            '   <a href="https://docs.encom.app/caja-registradora/menu-principal/ajustes/configurar-impresoras" class="clickeable" data-type="link">' +
+            '   <a href="/caja-registradora/menu-principal/ajustes/configurar-impresoras" class="clickeable" data-type="link">' +
             '       <span class="text-info">Ver guía para configurar impresoras</span>' +
             '   </a>' +
             '</li>';
@@ -25813,7 +25711,7 @@ var ncmPrinters = {
                 '}' +
                 '@font-face {' +
                 '   font-family: "fakereceipt";' +
-                '   src: local("FakeReceipt-Regular"),local("fakereceipt"), url(https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/app/fonts/fakereceipt.woff) format("woff"), url(' + window.masterUrl + 'fonts/fakereceipt.ttf) format("truetype");' +
+                '   src: local("FakeReceipt-Regular"),local("fakereceipt"), url(/assets/app/fonts/fakereceipt.woff) format("woff"), url(' + window.masterUrl + 'fonts/fakereceipt.ttf) format("truetype");' +
                 '}';
 
             if (isMobile.any) {

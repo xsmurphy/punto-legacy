@@ -1,19 +1,3 @@
-<?php
-ob_start();
-ob_implicit_flush(0);
-
-require_once(__DIR__ . '/includes/cors.php');
-header("Expires: Tue, 03 Jul 2001 06:00:00 GMT");
-header("Last-Modified: " . gmdate("D, d M Y H:i:s") . " GMT");
-header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0, s-maxage=0");
-header("Cache-Control: post-check=0, pre-check=0", false);
-header("Pragma: no-cache");
-header("Connection: close");
-
-include_once('app_version.php');
-include_once('includes/simple.config.php');
-include_once("libraries/countries.php");
-?>
 <!DOCTYPE html>
 <html class="noscroll bg-white">
 <head>  
@@ -38,7 +22,7 @@ include_once("libraries/countries.php");
   <link rel="canonical" href="" />
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#d7e5e8">
-  <meta name="application-name" content=APP_NAME/>
+  <meta name="application-name" content="Punto"/>
   <meta name="msapplication-TileColor" content="#d7e5e8" />
   <meta name="msapplication-TileImage" content="/mstile-144x144.png" />
   <meta name="msapplication-square70x70logo" content="/mstile-70x70.png" />
@@ -46,18 +30,22 @@ include_once("libraries/countries.php");
   <meta name="msapplication-wide310x150logo" content="/mstile-310x150.png" />
   <meta name="msapplication-square310x310logo" content="/mstile-310x310.png" />
 
-  <?php
-  $extensionCss = 'css';
-  if(isset($_GET['debug'])){
-    $extensionCss = 'css';
-  }else if(isset($_GET['mobile'])){
-    $extensionCss = 'mobilecss';
-  }else if(isset($_GET['mdebug'])){
-    $extensionCss = 'mdebugcss';
-  }
-  ?>
-
-  <link rel="stylesheet" href="/vendor.<?=$extensionCss;?>?<?=isset($_GET['debug']) ? rand() . '&' : ''?><?=APP_VERSION?>" type="text/css" />
+  <!-- Vendor CSS -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;900&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shadows+Into+Light&display=swap" />
+  <link rel="stylesheet" href="/assets/vendor/css/bootstrap-3.4.1.min.css" />
+  <link rel="stylesheet" href="/assets/vendor/css/animate-4.0.0.compat.min.css" />
+  <link rel="stylesheet" href="/assets/vendor/css/bootstrap-datetimepicker-4.17.47.min.css" />
+  <link rel="stylesheet" href="/assets/vendor/css/jquery.toast-1.3.2.min.css" />
+  <link rel="stylesheet" href="/assets/vendor/css/sweetalert2-7.33.1.min.css" />
+  <link rel="stylesheet" href="/assets/vendor/css/leaflet-1.7.1.css" />
+  <!-- App CSS -->
+  <link rel="stylesheet" href="/css/fonts.css" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/ncmCalendars.css" />
+  <link rel="stylesheet" href="/css/chosen.css" />
+  <link rel="stylesheet" href="/css/custom.css" />
 
   <style>
         /* Estilo base para el elemento */
@@ -206,21 +194,8 @@ include_once("libraries/countries.php");
                   <div class="col-sm-12 text-center no-padder signUpStep3" style="display: none;">
                     <input type="text" class="form-control m-b no-bg no-border b-b b-light text-center input-lg font-bold" placeholder="Nombre de la empresa" name="storename" autocomplete="organization" required/>
 
-                    <select name="category" class="form-control m-b no-bg no-border b-b b-light input-lg no-padder" autocomplete="off" required>
+                    <select name="category" id="companyCategorySelect" class="form-control m-b no-bg no-border b-b b-light input-lg no-padder" autocomplete="off" required>
                       <option value="">Categoría</option>
-                      <?php
-                        foreach($companyCategories as $key => $val){
-                            echo '<optgroup label="'.$key.'">';
-                            foreach($val as $k => $v){
-                              $selected = '';
-                              if(!empty($result)){
-                              if($result->fields['settingCompanyCategoryId'] == $v){$selected = 'selected';}
-                            }
-                            echo '<option value="' . $v . '" ' . $selected . '>' . $k . '</option>';
-                              }
-                            echo '</optgroup">';
-                        }
-                        ?>
                     </select>
 
                     <input type="text" class="form-control m-b no-bg no-border b-b b-light input-lg" placeholder="Su Nombre y Apellido" name="username" autocomplete="name" required/> 
@@ -447,7 +422,7 @@ include_once("libraries/countries.php");
                       </span>
 
                       <div class="text-muted m-t-sm">
-                        Versión <span class="appVersionCachedInHTML"><?=APP_VERSION?></span>
+                        Versión <span class="appVersionCachedInHTML">0.0.0</span>
                       </div>
                     </div>
 
@@ -508,7 +483,7 @@ include_once("libraries/countries.php");
                 </div>
 
                 <span class="col-xs-12 text-right">
-                  <div class="text-muted badge bg-dark dker">Versión <span class="appVersionCachedInHTML"><?=APP_VERSION?></span></div>
+                  <div class="text-muted badge bg-dark dker">Versión <span class="appVersionCachedInHTML">0.0.0</span></div>
                 </span>
 
                 
@@ -629,7 +604,7 @@ include_once("libraries/countries.php");
                   <span class="clear"> 
                     <span class="userName text-white"></span> <span class="userRole text-muted"></span> 
                     <small class="text-muted clear text-ellipsis outletAndRegisterText"></small>
-                    <small class="text-muted">Versión <span class="appVersionCachedInHTML"><?=APP_VERSION?></small>
+                    <small class="text-muted">Versión <span class="appVersionCachedInHTML">0.0.0</small>
                   </span> 
                 </a>
               </div>
@@ -1169,7 +1144,7 @@ include_once("libraries/countries.php");
                 <div class="text-center m-b m-t-n clickeable" id="cameraScanner" style="display: none;" data-type="cameraScanner"><i class="material-icons text-white md-36">camera</i></div>
                 <input type="search" class="form-control input-lg bg-white rounded no-border text-center font-bold block" placeholder="Buscar productos o servicios" id="itemInputBarcode" autocomplete="off"  style="font-size:25px; height:55px;">
 
-                <div class="text-white col-xs-12 wrapper text-center font-normal hidden" id="encAutoCompleteMsg">Administra tus productos y servicios en <br> <a href="/@#items" class="h3 text-white clickeable" data-type="link"><?= APP_URL ?>/@#items</a></div>
+                <div class="text-white col-xs-12 wrapper text-center font-normal hidden" id="encAutoCompleteMsg">Administra tus productos y servicios en <br> <a href="/@#items" class="h3 text-white clickeable" data-type="link">/@#items</a></div>
                 
                 <div  class="no-padder md-whiteframe-12dp r-24x m-t col-xs-12 m-b-lg bg-white hidden animated fadeIn speed-3x" id="encAutoComplete">
                   <div class="arrow top"></div>
@@ -2583,86 +2558,81 @@ include_once("libraries/countries.php");
     }
   </script>
   
-  <?php
-  $extension = 'js';
-  if(isset($_GET['debug'])){
-    $extension = 'debug';
-  }else if(isset($_GET['mobile'])){
-    $extension = 'mobile';
-  }else if(isset($_GET['mdebug'])){
-    $extension = 'mdebug';
-  }
-  ?>
+  <!-- Config (WS_URL, APP_VERSION, etc.) -->
+  <script src="/API/config.php"></script>
 
-  <script>var WS_URL = '<?= WS_URL ?>';</script>
-  <script type="text/javascript" src="/vendor.<?=$extension;?>?<?=APP_VERSION?>" async></script>
+  <!-- Vendor JS -->
+  <script src="/assets/vendor/js/jquery-3.6.3.min.js"></script>
+  <script src="/assets/vendor/js/bootstrap-3.4.1.min.js"></script>
+  <script src="/assets/vendor/js/moment-2.24.0-with-locales.min.js"></script>
+  <script src="/assets/vendor/js/moment-locale-es.js"></script>
+  <script src="/assets/vendor/js/jquery.dataTables-1.10.22.min.js"></script>
+  <script src="/assets/vendor/js/isMobile-0.4.1.min.js"></script>
+  <script src="/assets/vendor/js/offline-0.7.19.min.js"></script>
+  <script src="/assets/vendor/js/chosen-1.8.7.min.js"></script>
+  <script src="/assets/vendor/js/jquery.number-2.1.6.min.js"></script>
+  <script src="/assets/vendor/js/mousetrap-1.6.3.min.js"></script>
+  <script src="/assets/vendor/js/jquery.actual-1.0.19.min.js"></script>
+  <script src="/assets/vendor/js/simpleStorage-0.2.1.min.js"></script>
+  <script src="/assets/vendor/js/pouchdb-7.2.1.min.js"></script>
+  <script src="/assets/vendor/js/lz-string-1.4.4.min.js"></script>
+  <script src="/assets/vendor/js/rsvp-4.8.5.min.js"></script>
+  <script src="/assets/vendor/js/jsrsasign-all-min.js"></script>
+  <script src="/assets/vendor/js/qz-tray-2.2.1.min.js"></script>
+  <script src="/assets/vendor/js/bootstrap-datetimepicker-4.17.47.min.js"></script>
+  <script src="/assets/vendor/js/libphonenumber-1.6.8.min.js"></script>
+  <script src="/assets/vendor/js/Chart-2.9.4.min.js"></script>
+  <script src="/assets/vendor/js/sweetalert2-7.33.1.min.js"></script>
+  <script src="/assets/vendor/js/push-1.0.8.min.js"></script>
+  <script src="/assets/vendor/js/mustache-4.0.1.min.js"></script>
+  <script src="/assets/vendor/js/jquery.fullscreen-1.1.5.min.js"></script>
+  <script src="/assets/vendor/js/leaflet-1.7.1.js"></script>
+  <script src="/assets/vendor/js/leaflet-routing-machine-3.2.12.js"></script>
+  <script src="/assets/vendor/js/fingerprintjs-3.min.js"></script>
+  <script src="/assets/vendor/js/jquery.geolocation-1.0.50.min.js"></script>
+  <script src="/assets/vendor/js/jquery.toast-1.3.2.min.js"></script>
 
-  <?php
-    $get = $_GET;
+  <!-- App JS -->
+  <script src="/scripts/sha256.js"></script>
+  <script src="/scripts/sign-message.js"></script>
+  <script src="/scripts/iguider.stub.js"></script>
+  <script src="/scripts/ncm-ws.js"></script>
+  <script src="/scripts/globalv2.js"></script>
 
-    if($get['i']){
+  <!-- Deep link handler (replaces PHP ?i=, ?l=, ?signup logic) -->
+  <script>
+  (function() {
+    var params = new URLSearchParams(window.location.search);
+    var base = window.location.origin;
 
-      $decoded    = base64_decode($get['i'],true);
-      $json       = explode(',', $decoded);
-      $companyId  = $json[0];
-      $outletId   = $json[1];
-
-      if($companyId && $outletId){
-        ?>
-        <script type="text/javascript" src="/assets/vendor/js/simpleStorage-0.2.1.min.js"></script>
-        <script type="text/javascript">
-
-          var newCompanyId  = '<?=$companyId;?>';
-          var newOutletId   = '<?=$outletId;?>';
-
-          var oldCompanyId  = simpleStorage.get("companyId");
-
-          if(oldCompanyId == newCompanyId){
-            window.location.href = "<?= $_SERVER['REQUEST_SCHEME']."://".$_SERVER['HTTP_HOST']?>";
-          }else{
-            simpleStorage.flush();
-            simpleStorage.set("companyId",newCompanyId);
-            simpleStorage.set("outletId",newOutletId);
-            simpleStorage.set("installation",true);
-            window.location.href = "<?= $_SERVER['REQUEST_SCHEME']."://".$_SERVER['HTTP_HOST']?>";
-          }
-
-        </script>
-        <?php
+    if (params.get('i')) {
+      var decoded = atob(params.get('i'));
+      var parts = decoded.split(',');
+      var newCompanyId = parts[0], newOutletId = parts[1];
+      if (newCompanyId && newOutletId) {
+        var oldCompanyId = simpleStorage.get('companyId');
+        if (oldCompanyId !== newCompanyId) {
+          simpleStorage.flush();
+          simpleStorage.set('companyId', newCompanyId);
+          simpleStorage.set('outletId', newOutletId);
+          simpleStorage.set('installation', true);
+        }
+        window.location.href = base;
       }
-
-    }else if($get['l']){
-      ?>
-
-      <script type="text/javascript" src="/assets/vendor/js/simpleStorage-0.2.1.min.js"></script> 
-      <script type="text/javascript">
+    } else if (params.get('l')) {
       simpleStorage.flush();
-      window.location.href = "<?= $_SERVER['REQUEST_SCHEME']."://".$_SERVER['HTTP_HOST']?>";
-      </script>
-
-    <?php
-    }else if($get['signup']){
-    ?>
-      <script type="text/javascript" src="/assets/vendor/js/simpleStorage-0.2.1.min.js"></script> 
-      <script type="text/javascript">
-
+      window.location.href = base;
+    } else if (params.get('signup')) {
       var installed = simpleStorage.get('installation');
-      if(installed){
-        
-        var result = confirm("Ya tiene una cuenta instalada en este explorador, ¿Desea eliminarla?");
-
-        if(result){
+      if (installed) {
+        if (confirm('Ya tiene una cuenta instalada en este explorador, ¿Desea eliminarla?')) {
           simpleStorage.flush();
         }
-        
-        window.location.href = "<?= $_SERVER['REQUEST_SCHEME']."://".$_SERVER['HTTP_HOST']?>";
+        window.location.href = base;
       }
-        
-      </script>
-
-    <?php
     }
-    ?>
+  })();
+  </script>
   
   <script id="menuOpsListTpl" type="text/html">
     <a href="#" class="clickeable wrapper text-md block {{print}}" data-type="resumePrint"> 
@@ -4138,36 +4108,37 @@ include_once("libraries/countries.php");
 
   </script>
 
+  <!-- Populate dynamic content from config -->
+  <script>
+  (function() {
+    // Version badges
+    document.querySelectorAll('.appVersionCachedInHTML').forEach(function(el) {
+      el.textContent = APP_CONFIG.version;
+    });
+
+    // Company categories for signup form
+    var categories = {"Salud y Fitness":{"Gimnasio/Club de Bienestar":"0.1","Entrenador Personal":"0.2","Medicina Alternativa":"0.3","Medicina":"0.4","Profesional de la Salud":"0.5","Hospital/Centro de Salud":"0.6","Otro":"0"},"Alimentos y Bebidas":{"Panadería/Pastelería":"1.1","Bar/Club":"1.2","Cafetería":"1.3","Food Truck":"1.4","Comida Rápida":"1.6","Restaurante":"1.7","Comida Saludable":"1.8","Vinos y Bebidas":"1.9","Jugos y Smoothies":"1.10","Heladería":"1.11","Otro":"1"},"Retail":{"Arte/Fotografía/Filmaciones":"2.1","Libros/Música/Videos":"2.2","Ropa/Accesorios":"2.3","Electrónicos/Tecnología/Informática":"2.4","Regalos":"2.5","Kiosco/Mercado":"2.6","Ferretería":"2.7","Joyas/Relojes":"2.8","Tienda de Mascotas":"2.9","Tienda deportiva":"2.10","Hogar/Decoración":"2.11","Niños/Bebés":"2.12","Otro":"2"},"Reparación":{"Servicios para automóviles":"3.1","Ropas/Reparación de calzados/Lavandería":"3.3","Computadoras/Electrónica":"3.4","Hogar Servicios":"3.5","Otro":"3"},"Transporte":{"Delivery":"4.1","Limousine":"4.2","Taxi":"4.3","Bus":"4.4","Movilización":"4.5","Other":"4"},"Belleza":{"Salón de Belleza":"5.1","Peluquería/Barbería":"5.2","Masajes":"5.3","Spa de Uñas":"5.4","Spa":"5.5","Salon de bronceado":"5.6","Tatuajes/Piercing":"5.7","Otro":"5"},"Servicios Profesionales":{"Contabilidad":"6.1","Consultoría":"6.2","Diseño":"6.3","Marketing":"6.4","Real State":"6.5","Otro":"6"},"Educación":{"Instituto":"7.1","Universidad":"7.2","Cursos y Capacitaciones":"7.3","Enseñanza On-line":"7.4","Idiomas":"7.5","Otro":"7"},"Software":{"App":"8.1","SaaS":"8.2","Online Service":"8.3","Ecommerce":"8.4","Otro":"8"}};
+    var select = document.getElementById('companyCategorySelect');
+    if (select) {
+      Object.keys(categories).forEach(function(group) {
+        var optgroup = document.createElement('optgroup');
+        optgroup.label = group;
+        Object.keys(categories[group]).forEach(function(name) {
+          var opt = document.createElement('option');
+          opt.value = categories[group][name];
+          opt.textContent = name;
+          optgroup.appendChild(opt);
+        });
+        select.appendChild(optgroup);
+      });
+    }
+  })();
+  </script>
+
   <div style="font-family: 'dotmatrix'; height:1px!important; overflow: hidden;">ENCOM</div>
-  <div style="font-family: 'fakereceipt'; height:1px!important; overflow: hidden;"><?= APP_URL ?></div>
+  <div style="font-family: 'fakereceipt'; height:1px!important; overflow: hidden;"></div>
   <div style="height:1px!important; overflow: hidden;">All rights reserved <i class="material-icons">close</i></div>
   <iframe style="border:0!important;height:1px!important;width:1px!important;" id="printframe"></iframe>
 
 </body>
 </html>
-<?php 
-//GZIPPING END
-if( headers_sent() ){
-    $encoding = false;
-}elseif( strpos($HTTP_ACCEPT_ENCODING, 'x-gzip') !== false ){
-    $encoding = 'x-gzip';
-}elseif( strpos($HTTP_ACCEPT_ENCODING,'gzip') !== false ){
-    $encoding = 'gzip';
-}else{
-    $encoding = false;
-}
-
-if( $encoding ){
-    $contents = ob_get_clean();
-    header('Content-Encoding: '.$encoding);
-    //$contents = preg_replace('/\v(?:[\v\h]+)/', '', $contents);
-    $size     = strlen($contents);
-    $contents = gzcompress($contents, 9);
-    $contents = substr($contents, 0, $size);
-    echo $contents;
-    exit();
-}else{
-    ob_end_flush();
-    exit();
-}
-?>
