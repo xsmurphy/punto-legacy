@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
  
 $ID 							= validateHttp('id','post');
 $status 						= validateHttp('status','post');
@@ -28,7 +29,7 @@ if($ID){
 	$UID 						= intval( $UID );
 	$do 						= 'UID = ' . $UID;
 }else{
-	jsonDieMsg('Missing ID',401,'error');
+	apiError('Missing ID', 401);
 }
 
 if($date){
@@ -95,7 +96,7 @@ $record['updated_at'] 				= TODAY;
 $update 							= ncmUpdate(['records' => $record, 'table' => 'vPayments', 'where' => $do . ' AND companyId = ' . COMPANY_ID]);
 
 if($update['error']){
-	jsonDieMsg($db->ErrorMsg(),401,'error');
+	apiError($db->ErrorMsg(), 401);
 }else{
 	//verifico si existe la factura y si es una factura a credito
 	$result = ncmExecute('SELECT * FROM transaction WHERE transactionUID = ? AND companyId = ? LIMIT 1', [$UID, COMPANY_ID]);
@@ -126,6 +127,6 @@ if($update['error']){
 	}
 
 
-	jsonDieResult(['success' => 'Orden modificada', 'data' => $record, 'authCode' => $authCode]);
+	apiOk(['success' => 'Orden modificada', 'data' => $record, 'authCode' => $authCode]);
 }
 ?>

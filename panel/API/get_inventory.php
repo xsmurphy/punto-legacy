@@ -1,7 +1,6 @@
 <?php
 
 die();
-require_once('../libraries/whoops/autoload.php');
 include_once("../libraries/adodb/adodb.inc.php");
 
 $db = ADONewConnection('mysqli');
@@ -10,22 +9,13 @@ $db->cacheSecs 		= 3600*24;//cache 24 hs
 $ADODB_CACHE_DIR 	= '../../../cache/adodb';//desde root panel hasta el cache
 $ADODB_COUNTRECS 	= true;
 
-include_once("../libraries/hashid.php");
 include_once('../includes/simple.config.php');
 //include_once("../includes/config.php");
 include_once("../includes/functions.php");
 
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode($str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-	$hashids = new Hashids\Hashids(SALT);
-	$decoded = $hashids->decode($str)[0];
-	return (int)$decoded;
-}
+function dec($str): string { return (string)$str; }
 
 if(!validateAPIAccess($_GET['company_id'],$_GET['api_key'])){
 	dai(jsonError('Acceso denegado'));

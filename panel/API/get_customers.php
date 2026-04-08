@@ -16,7 +16,7 @@ if($result){
 		$address 					= getDefaultCustomerAddress($id);
 
 		$array["id"] 				= $id;
-		$array["UID"] 				= enc($result->fields['contactUID']);
+		$array["UID"] 				= enc($result->fields['contactId']);
 		$array["name"] 				= toUTF8($result->fields['contactName']);
 		$array["tin"] 				= $result->fields['contactTIN'];
 		$array["CI"] 				= $result->fields['contactCI'];

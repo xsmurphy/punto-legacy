@@ -1,6 +1,7 @@
 <?php
 
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $encoded 	= validateHttp('encoded');
 $array 		= getAllTags($encoded);

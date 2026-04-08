@@ -54,7 +54,7 @@ dai();
 	<meta name="viewport" content="user-scalable=no, initial-scale=1, minimum-scale=1, width=device-width" />
    <?php
 	loadCDNFiles([
-		'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.css'
+		'/assets/vendor/css/sweetalert2-7.33.1.min.css'
 	],'css');
 	?>
 </head>
@@ -128,7 +128,7 @@ dai();
 	</script>
 	<?php
 	loadCDNFiles([
-					'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js',
+					'/assets/vendor/js/sweetalert2-7.33.1.min.js',
 
 					],'js');
 	?>

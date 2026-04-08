@@ -1,9 +1,10 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 $tasks = validateHttp("tasks", "post");
 
 if (empty($tasks)) {
-    jsonDieResult(['error' => 'No hay tareas'], 422);
+    apiOk(['error' => 'No hay tareas'], 422);
 }
 
 $records = array();
@@ -16,19 +17,19 @@ foreach ($tasks as $task) {
     }
 
     if (empty($data)) {
-        jsonDieResult(['error' => 'El campo data es obligatorio'], 422);
+        apiOk(['error' => 'El campo data es obligatorio'], 422);
     }
 
     if (empty($date)) {
-        jsonDieResult(['error' => 'El date es obligatorio'], 422);
+        apiOk(['error' => 'El date es obligatorio'], 422);
     }
 
     if ($type === null || $type === '') {
-        jsonDieResult(['error' => 'El type es obligatorio'], 422);
+        apiOk(['error' => 'El type es obligatorio'], 422);
     }
 
     if (empty($resourceId)) {
-        jsonDieResult(['error' => 'El resourceId es obligatorio'], 422);
+        apiOk(['error' => 'El resourceId es obligatorio'], 422);
     } else {
         $resourceId = dec($resourceId);
     }
@@ -76,12 +77,12 @@ foreach ($tasks as $task) {
 }
 
 if ($insert === false) {
-    jsonDieResult([
+    apiOk([
         'error' => 'No se ha podido registrar',
         'success' => false
     ]);
 } else {
-    jsonDieResult(
+    apiOk(
         [
             'sucess' => 'Se ha registrado la tarea correctamente',
             'error' => false,

@@ -16,7 +16,7 @@ if(!$exists){
 	die();
 }
 
-$setting = ncmExecute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+$setting = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
 
 define('THOUSAND_SEPARATOR', $setting['settingThousandSeparator']);
 define('DECIMAL', $setting['settingDecimal']);
@@ -31,7 +31,7 @@ define('LANGUAGE', $setting['settingLanguage']);
 loadLanguage(LANGUAGE);
 date_default_timezone_set(TIMEZONE);
 
-$_modules 	= ncmExecute('SELECT digitalInvoice, digitalInvoiceData FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$_modules 	= ncmExecute('SELECT digitalInvoice, digitalInvoiceData FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 $modData 		= json_decode($_modules['digitalInvoiceData'],true);
 $_template 	= ncmExecute('SELECT taxonomyExtra as template FROM taxonomy WHERE taxonomyType = ? AND taxonomyId = ? AND companyId = ? LIMIT 1',['printTemplate',dec($modData['template']),COMPANY_ID]);
@@ -89,11 +89,11 @@ if(validateHttp('secret') != 'iwfyita'){
 $result 		= ncmExecute('SELECT * FROM transaction WHERE transactionType IN(0,3,5) AND transactionId = ? AND companyId = ? LIMIT 1',[TRANS_ID,COMPANY_ID]);
 
 if(!$result){
-	header('location: https://encom.app');
+	header('location: /');
 	dai();
 }
 
-$contact = ncmExecute('SELECT * FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1',[$result['customerId'],COMPANY_ID]);
+$contact = ncmExecute('SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',[$result['customerId'],COMPANY_ID]);
 
 $customerName 	= iftn($contact['contactName'],'Sin cliente');
 $customerRuc 		= iftn($contact['contactTIN'],'');
@@ -205,10 +205,10 @@ $jsonSale = [
 		var noSessionCheck, isMobile = {phone : false};
 	</script>
 	
-	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+	<script type="text/javascript" src="/assets/vendor/js/jquery-3.6.3.min.js"></script>
 	
-	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.3.2/html2canvas.min.js"></script>
-	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+	<script type="text/javascript" src="/assets/vendor/js/html2canvas-1.3.2.min.js"></script>
+	<script type="text/javascript" src="/assets/vendor/js/jspdf-2.4.0.umd.min.js"></script>
 
 	<script type="text/javascript" src="<?= APP_URL?>/scripts/dpb.min.js?<?=rand()?>"></script>
 	<script type="text/javascript" src="<?= APP_URL ?>/scripts/rb.min.js"></script>

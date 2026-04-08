@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
  
 $outlet 			= validateHttp('outlet','post');
 $name 				= validateHttp('name','post');
@@ -7,7 +8,7 @@ $date 				= validateHttp('date','post');
 $user 				= validateHttp('user','post');
 
 if(($outlet < 2 || !$outlet) || !$user){
-	jsonDieMsg('Debe incluir sucursal y usuario',401,'error');
+	apiError('Debe incluir sucursal y usuario', 401);
 }
 
 $date 				= iftn($date,TODAY);
@@ -23,8 +24,8 @@ $record['companyId']          	= COMPANY_ID;
 $insert                     = $db->AutoExecute('inventoryCount', $record, 'INSERT'); 
 $invId                      = $db->Insert_ID();
 if($insert === false){
-	jsonDieMsg($db->ErrorMsg(),401,'error');
+	apiError($db->ErrorMsg(), 401);
 }else{
-	jsonDieResult(['success' => 'Conteo generado','id' => enc($invId)]);
+	apiOk(['success' => 'Conteo generado','id' => enc($invId)]);
 }
 ?>

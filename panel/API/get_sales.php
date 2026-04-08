@@ -45,7 +45,7 @@ if($result){
 		$result->MoveNext();
 	}
 
-	$allCustomers 	 		= getAllContactsRaw(1,0,false,'contactName,contactSecondName,contactTIN,contactPhone,contactAddress,contactEmail,contactUID',' AND contactUID IN(' . implodes(',', $customersIn) . ')');
+	$allCustomers 	 		= getAllContactsRaw(1,0,false,'contactName,contactSecondName,contactTIN,contactPhone,contactAddress,contactEmail,contactId',' AND contactId IN(' . implodes(',', $customersIn) . ')');
 
 	$result->MoveFirst();
 

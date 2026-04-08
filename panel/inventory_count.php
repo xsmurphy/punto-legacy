@@ -1,14 +1,11 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
-include_once("libraries/parsecsv.lib.php");
 theErrorHandler();//error handler
 
 accessControl([0],$plansValues[PLAN]['inventory_count']);
@@ -81,7 +78,7 @@ if(validateBool('action') == 'edit' && validateBool('id')){
         <?=$result['inventoryCountNote']?>
       </div>
       <div class="col-xs-12 wrapper">
-        <a href="https://public.encom.app/inventory_count_list?s=<?=base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID))?>" class="btn btn-info btn-rounded text-u-c font-bold pull-right" target="_blank">Ver Reporte</a>
+        <a href="/screens/inventory_count_list?s=<?=base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID))?>" class="btn btn-info btn-rounded text-u-c font-bold pull-right" target="_blank">Ver Reporte</a>
         <a href="#" class="cancelItemView m-r m-t-sm pull-right">Cerrar</a>
       <?php
         if(ROLE_ID < 2){
@@ -97,7 +94,7 @@ if(validateBool('action') == 'edit' && validateBool('id')){
       <?php
       dai();
     }else{
-      //$cats   = ncmExecute('SELECT COUNT(taxonomyId) as count FROM taxonomy WHERE taxonomyType = "category" AND ' . $SQLcompanyId);
+      //$cats   = ncmExecute('SELECT COUNT(taxonomyId) as count FROM taxonomy WHERE taxonomyType = \'category\' AND ' . $SQLcompanyId);
     }
 ?>
   <div class="col-xs-12 no-padder bg-white">
@@ -127,7 +124,7 @@ if(validateBool('action') == 'edit' && validateBool('id')){
 
         <div class="col-xs-12 m-t-lg text-center">
           <?php
-          $startCountURL = 'https://public.encom.app/inventory_count_list?s=' . base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID));
+          $startCountURL = '/screens/inventory_count_list?s=' . base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID));
           ?>
           <a href="<?=$startCountURL?>" class="h2 font-bold" target="_blank"><span class="text-info">Iniciar Conteo</span></a>
           <div class="m-t">
@@ -240,7 +237,7 @@ if(validateBool('action') == 'generalTable'){
       $outletName   = $oNames[$outlet]['name'];
       $locationName = getLocationName($location);
 
-      $url = '<a href="https://public.encom.app/inventory_count_list?s=' . base64_encode(enc($fields['inventoryCountId']) . ',' . enc(COMPANY_ID)) . '" class="openLink text-md"><i class="material-icons text-info">launch</i></a>';
+      $url = '<a href="/screens/inventory_count_list?s=' . base64_encode(enc($fields['inventoryCountId']) . ',' . enc(COMPANY_ID)) . '" class="openLink text-md"><i class="material-icons text-info">launch</i></a>';
 
 
       $table .= '<tr data-type="loadItem" data-id="'.$itemId.'" data-element="#formItemSlot" data-load="?action=edit&id='.$itemId.'" class="itemsAction pointer">' . 
@@ -300,8 +297,8 @@ if(validateBool('action') == 'generalTable'){
 <title>Conteo de Stock</title>
 <?php
   loadCDNFiles([
-            'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/css/select2.min.css',
-            'https://cdnjs.cloudflare.com/ajax/libs/select2-bootstrap-theme/0.1.0-beta.10/select2-bootstrap.min.css'
+            '/assets/vendor/css/select2-4.0.6.min.css',
+            '/assets/vendor/css/select2-bootstrap-0.1.0.min.css'
             ],'css');
   ?>
 
@@ -336,8 +333,8 @@ if(validateBool('action') == 'generalTable'){
   <?php
   footerInjector();
   loadCDNFiles([
-            'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/js/select2.min.js',
-            'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.8/js/i18n/es.js'
+            '/assets/vendor/js/select2-4.1.0.min.js',
+            '/assets/vendor/js/select2-i18n-es.min.js'
             ],'js');
   ?>
 

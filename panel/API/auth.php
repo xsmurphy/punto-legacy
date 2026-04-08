@@ -30,10 +30,8 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
     }
 
     // Bootstrap mínimo
-    require_once __DIR__ . '/../libraries/whoops/autoload.php';
     include_once __DIR__ . '/../includes/db.php';
     include_once __DIR__ . '/../includes/simple.config.php';
-    include_once __DIR__ . '/../libraries/hashid.php';
     include_once __DIR__ . '/../includes/functions.php';
 
     $jwtSecret = $_ENV['JWT_SECRET'] ?? '';
@@ -55,10 +53,10 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
 
     // Verificar estado de la empresa
     $company = ncmExecute(
-        "SELECT companyStatus FROM company WHERE companyId = ? LIMIT 1",
+        "SELECT status FROM company WHERE companyId = ? LIMIT 1",
         [$result['companyId']]
     );
-    if (!$company || $company['companyStatus'] !== 'Active') {
+    if (!$company || $company['status'] !== 'Active') {
         apiError('Su cuenta está inhabilitada, por favor contáctenos', 403);
     }
 
@@ -72,10 +70,10 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
     $now = time();
 
     $token = jwtEncode([
-        'sub'  => (int)$result['contactId'],
-        'cid'  => (int)$result['companyId'],
-        'oid'  => (int)($outlet['outletId'] ?? 0),
-        'rid'  => 0,
+        'sub'  => (string)$result['contactId'],
+        'cid'  => (string)$result['companyId'],
+        'oid'  => (string)($outlet['outletId'] ?? ''),
+        'rid'  => '',
         'role' => (int)$result['role'],
         'iat'  => $now,
         'exp'  => $now + $ttl,

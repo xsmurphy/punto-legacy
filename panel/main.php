@@ -1841,10 +1841,10 @@ if (validateHttp('action') == 'soldByCompanyPM') {
   </script>
   <?php
   loadCDNFiles([
-    'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/css/select2.min.css',
-    'https://cdnjs.cloudflare.com/ajax/libs/select2-bootstrap-theme/0.1.0-beta.10/select2-bootstrap.min.css',
-    'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.css',
-    'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/3.1.4/css/bootstrap-datetimepicker.css'
+    '/assets/vendor/css/select2-4.0.6.min.css',
+    '/assets/vendor/css/select2-bootstrap-0.1.0.min.css',
+    '/assets/vendor/css/sweetalert2-7.33.1.min.css',
+    '/assets/vendor/css/bootstrap-datetimepicker-4.17.47.min.css'
   ], 'css');
 
   function modBlock($ops)
@@ -2087,22 +2087,22 @@ if (validateHttp('action') == 'soldByCompanyPM') {
   <?php
   footerInjector();
   /*loadCDNFiles([
-                'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js',
-                'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/js/select2.min.js',
-                'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.8/js/i18n/es.js',
-                'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js',
-                'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/3.1.4/js/bootstrap-datetimepicker.min.js'
+                '/assets/vendor/js/simpleStorage-0.2.1.min.js',
+                '/assets/vendor/js/select2-4.1.0.min.js',
+                '/assets/vendor/js/select2-i18n-es.min.js',
+                '/assets/vendor/js/sweetalert2-7.33.1.min.js',
+                '/assets/vendor/js/bootstrap-datetimepicker-4.17.47.min.js'
               ],'js');*/
   ?>
 
   <script type="text/javascript" src="/screens/scripts/ncm-ws.js"></script>
   <script>var WS_URL = '<?= WS_URL ?>';</script>
-  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js"></script>
+  <script type="text/javascript" src="/assets/vendor/js/push-1.0.8.min.js"></script>
 
   <script src="/scripts/initials.js?<?= date('d.H') ?>"></script>
   <script src="/scripts/tdp.js?<?= date('d.H') ?>"></script>
   <script src="/scripts/ncm.js?<?= date('d.h.s') ?>"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/3.1.4/js/bootstrap-datetimepicker.min.js"></script>
+  <script src="/assets/vendor/js/bootstrap-datetimepicker-4.17.47.min.js"></script>
 
 
   <script>
@@ -3025,6 +3025,7 @@ if (validateHttp('action') == 'soldByCompanyPM') {
 
     });
   </script>
+  <?php include_once('includes/webpush_init.php'); ?>
 </body>
 
 </html>

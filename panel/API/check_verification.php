@@ -18,10 +18,13 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 header('Content-Type: application/json');
 
 $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
-$phone   = validateHttp('phone');
-$code    = validateHttp('code');
 
-if (!$phone || !$code) {
+// No usar validateHttp() aquí: el PIN '0000' y teléfonos con '+' son rechazados
+// por validity() que trata '0000' como cero y algunos símbolos como inválidos.
+$phone = isset($_GET['phone']) ? trim($_GET['phone']) : '';
+$code  = isset($_GET['code'])  ? trim($_GET['code'])  : '';
+
+if (!strlen($phone) || !strlen($code)) {
     http_response_code(400);
     die(json_encode(['error' => 'phone y code requeridos']));
 }

@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $record 	= [];
 $maxLoop 	= 1000;
@@ -20,13 +21,13 @@ if(isJson($data)){
 if(validity($data,'array')){
 
 	if(count($data) > $maxLoop){
-		jsonDieResult(['error'=>'Máximo ' . $maxLoop . ' registros por vez'],403);
+		apiOk(['error'=>'Máximo ' . $maxLoop . ' registros por vez'], 403);
 	}
 
 	foreach ($data as $key => $value) {
 		
 		if(!$value['fiscalName'] && !$value['name']){
-			jsonDieResult(['error'=>'Nombre y apellido o Razón social son obligatorios'],403);
+			apiOk(['error'=>'Nombre y apellido o Razón social son obligatorios'], 403);
 		}
 
 		if($value['tin']){
@@ -122,7 +123,7 @@ if(validity($data,'array')){
 
 		$newUID = generateUID();
 
-		$record['contactUID'] 		= $newUID;
+		$record['contactId'] 		= $newUID;
 		$record['contactDate'] 		= TODAY;
 		$record['contactStatus'] 	= 1;
 		$record['type'] 			= 1;
@@ -154,13 +155,13 @@ if(validity($data,'array')){
 	}
 
 	if($success > 0){
-		jsonDieResult([$success . ' registros insertados y ' . $fail . ' fallidos'], 200);
+		apiOk([$success . ' registros insertados y ' . $fail . ' fallidos']);
 	}else{
-		jsonDieResult(['error' => $fail . ' fallidos'], 500);
+		apiOk(['error' => $fail . ' fallidos'], 500);
 	}
 
 }else{
-	jsonDieResult(['error'=>'No se encontraron datos'],404);
+	apiOk(['error'=>'No se encontraron datos'], 404);
 }
 
 ?>

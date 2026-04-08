@@ -1,10 +1,11 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $tId = validateHttp('id','post');
 
 if(!$tId){
-	jsonDieMsg('No se encontraron registros');
+	apiError('No se encontraron registros', 401);
 }
 
 $tId = dec($tId);
@@ -97,7 +98,7 @@ if($fields){
 				"sale_note" 		=> toUTF8($fields['transactionNote'])
 			];
 }else{
-	jsonDieMsg('No se encontraron registros');
+	apiError('No se encontraron registros', 401);
 }
 
 header('Content-Type: application/json');

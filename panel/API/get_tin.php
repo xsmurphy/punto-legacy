@@ -1,5 +1,6 @@
 <?php
-	include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 	function getMarangatu($key){
 		//BUSCO EN MARANGATU
@@ -26,7 +27,7 @@
 	$out 		= [];
 
 	if(!$id || !$country){
-		jsonDieMsg('El ID y codigo de pais son obligatorios',404);
+		apiError('El ID y codigo de pais son obligatorios', 404);
 	}
 
 	if($country == 'PY'){
@@ -35,7 +36,7 @@
 
 		$urlRUC = 'https://servicios.set.gov.py/eset-publico/contribuyente/estado?ruc=' . $id;
 		$urlCI 	= 'http://eas.suace.gov.py/eas_suace/api/eas/cedula/' . $id;
-		$urlNcm = 'https://app.encom.app/rucs?s=' . $id . '&c=' . $country;
+		$urlNcm = '/rucs?s=' . $id . '&c=' . $country;
 
 		//$ruc 	= curlContents($urlRUC);
 
@@ -80,16 +81,16 @@
 						$out['bday'] 		= '';
 						$out['address'] 	= '';
 					}else{
-						jsonDieMsg('No se encontraron registros',404);
+						apiError('No se encontraron registros', 404);
 					}
 				}else{
-					jsonDieMsg('No se encontraron registros',404);
+					apiError('No se encontraron registros', 404);
 				}
 			}
 
 		}
 
-		jsonDieResult($out,200);
+		apiOk($out);
 	}
 
 ?>

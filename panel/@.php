@@ -8,7 +8,7 @@ include_once("languages/" . LANGUAGE . ".php");
 include_once("includes/functions.php");
 theErrorHandler(); //error handler
 
-if (ENCOM_ADM && COMPANY_ID == ENCOM_COMPANY_ID) {
+if (SAAS_ADM && COMPANY_ID == ENCOM_COMPANY_ID) {
 	echo '<script>window.location.replace("/main")</script>';
 	dai();
 }
@@ -24,58 +24,59 @@ list($calendar, $startDate, $endDate, $lessDays) = datesForGraphs(7);
 
 if (!empty($_GET['update'])) {
 
+	$_v = '/assets/vendor';
 	$js = 'scripts/initials.js';
 	minifyJS([
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js' => $js,
+		"$_v/js/jquery-3.6.3.min.js" => $js,
+		"$_v/js/jquery-ui-1.12.1.min.js" => $js,
 		'$.widget.bridge("uitooltip", $.ui.tooltip); $.widget.bridge("uibutton", $.ui.button);' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/df-number-format/2.1.5/jquery.number.min.js' => $js,
-		'https://cdn.datatables.net/1.10.22/js/jquery.dataTables.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery.mask/1.14.11/jquery.mask.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.19.1/moment.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/locale/es.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-daterangepicker/3.1/daterangepicker.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.45/js/bootstrap-datetimepicker.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery.form/4.2.1/jquery.form.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/fastclick/1.0.6/fastclick.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/ismobilejs/0.4.1/isMobile.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery.finger/0.1.6/jquery.finger.min.js' => $js
+		"$_v/js/bootstrap-3.4.1.min.js" => $js,
+		"$_v/js/jquery.number-2.1.6.min.js" => $js,
+		"$_v/js/jquery.dataTables-1.10.22.min.js" => $js,
+		"$_v/js/jquery.mask-1.14.11.js" => $js,
+		"$_v/js/moment-2.24.0-with-locales.min.js" => $js,
+		"$_v/js/moment-locale-es.js" => $js,
+		"$_v/js/daterangepicker-3.1.min.js" => $js,
+		"$_v/js/bootstrap-datetimepicker-4.17.47.min.js" => $js,
+		"$_v/js/jquery.form-4.2.1.min.js" => $js,
+		"$_v/js/fastclick-1.0.6.min.js" => $js,
+		"$_v/js/isMobile-0.4.1.min.js" => $js,
+		"$_v/js/jquery.finger-0.1.6.min.js" => $js
 	], $js);
 
 	$js = 'scripts/tdp.js';
 	minifyJS([
-		'https://cdnjs.cloudflare.com/ajax/libs/snap.js/1.9.3/snap.min.js' => $js,
+		"$_v/js/snap-1.9.3.min.js" => $js,
 		'/assets/panel/js/fileReader.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.2/xlsx.full.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery.matchHeight/0.7.2/jquery.matchHeight-min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery-fullscreen-plugin/1.1.5/jquery.fullscreen-min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jQuery.print/1.5.1/jQuery.print.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/0.5.7/chartjs-plugin-annotation.min.js' => $js,
-		'https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@0.2.3/dist/chartjs-chart-treemap.min.js' => $js,
+		"$_v/js/xlsx-0.16.2.full.min.js" => $js,
+		"$_v/js/jquery.matchHeight-0.7.2.min.js" => $js,
+		"$_v/js/jquery.toast-1.3.2.min.js" => $js,
+		"$_v/js/jquery.fullscreen-1.1.5.min.js" => $js,
+		"$_v/js/jQuery.print-1.5.1.min.js" => $js,
+		"$_v/js/Chart-2.9.4.min.js" => $js,
+		"$_v/js/chartjs-plugin-annotation-0.5.7.min.js" => $js,
+		"$_v/js/chartjs-chart-treemap-0.2.3.min.js" => $js,
 		'/assets/scripts/Chart.roundedBarCharts.min.js' => $js,
-		'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0-beta.1/js/select2.full.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0-beta.1/js/i18n/es.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/mustache.js/4.0.1/mustache.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery.lazy/1.7.10/jquery.lazy.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery.businessHours/1.0.1/jquery.businessHours.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/offline.min.js' => $js,
+		"$_v/js/simpleStorage-0.2.1.min.js" => $js,
+		"$_v/js/select2-4.1.0.min.js" => $js,
+		"$_v/js/select2-i18n-es.min.js" => $js,
+		"$_v/js/mustache-4.0.1.min.js" => $js,
+		"$_v/js/jquery.lazy-1.7.10.min.js" => $js,
+		"$_v/js/jquery.businessHours-1.0.1.min.js" => $js,
+		"$_v/js/sweetalert2-7.33.1.min.js" => $js,
+		"$_v/js/offline-0.7.19.min.js" => $js,
 		'/assets/panel/js/iguider.theme-material.js' => $js,
 		'/assets/panel/js/iguider.js' => $js,
 		'/assets/panel/js/iguider.locale-es.js' => $js,
 		'/scripts/color-selector-2.js' => $js,
-		'https://cdnjs.cloudflare.com/ajax/libs/push.js/1.0.8/push.min.js' => $js,
+		"$_v/js/push-1.0.8.min.js" => $js,
 		'/screens/scripts/ncm-ws.js' => $js,
 		'/scripts/written-number.min.js' => $js,
-		'https://unpkg.com/leaflet@1.7.1/dist/leaflet.js' => $js,
-		'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js' => $js,
+		"$_v/js/leaflet-1.7.1.js" => $js,
+		"$_v/js/leaflet-routing-machine-3.2.12.js" => $js,
 		'/assets/scripts/hereRouting.min.js' => $js,
 		'/assets/scripts/leaflet-heat.min.js' => $js,
-		'https://browser.sentry-cdn.com/5.15.4/bundle.min.js' => $js
+		// Sentry removed
 	], $js);
 
 	$js = 'scripts/ncm.js';
@@ -94,23 +95,23 @@ if (!empty($_GET['update'])) {
 		'/css/font.css' => $cs,
 		'https://fonts.googleapis.com/icon?family=Material+Icons' => $cs,
 		'https://fonts.googleapis.com/css?family=VT323' => $cs,
-		'https://code.jquery.com/ui/jquery-ui-git.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-daterangepicker/3.1/daterangepicker.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.5.2/animate.min.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.45/css/bootstrap-datetimepicker.min.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/css/select2.min.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/select2-bootstrap-theme/0.1.0-beta.10/select2-bootstrap.min.css' => $cs,
+		"$_v/css/jquery-ui-git.css" => $cs,
+		"$_v/css/bootstrap-3.4.1.min.css" => $cs,
+		"$_v/css/daterangepicker-3.1.css" => $cs,
+		"$_v/css/animate-3.5.2.min.css" => $cs,
+		"$_v/css/jquery.toast-1.3.2.min.css" => $cs,
+		"$_v/css/bootstrap-datetimepicker-4.17.45.min.css" => $cs,
+		"$_v/css/select2-4.0.6.min.css" => $cs,
+		"$_v/css/select2-bootstrap-0.1.0.min.css" => $cs,
 		'/css/color-selector-2.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/themes/offline-language-spanish.min.css' => $cs,
-		'https://cdnjs.cloudflare.com/ajax/libs/offline-js/0.7.19/themes/offline-theme-dark.min.css' => $cs,
+		"$_v/css/sweetalert2-7.33.1.min.css" => $cs,
+		"$_v/css/offline-language-spanish.min.css" => $cs,
+		"$_v/css/offline-theme-dark.min.css" => $cs,
 		'/assets/panel/css/iguider.css' => $cs,
 		'/assets/panel/css/iguider.theme-material.css' => $cs,
 		'/css/app.css?' . rand() => $cs,
 		'/css/style.css?' . rand() => $cs,
-		'https://unpkg.com/leaflet@1.7.1/dist/leaflet.css' => $cs
+		"$_v/css/leaflet-1.7.1.css" => $cs
 	], $cs);
 }
 
@@ -122,7 +123,7 @@ if (!empty($_GET['update'])) {
 	<!-- meta -->
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-	<title>Panel de Control - ENCOM</title>
+	<title>Panel de Control - <?= APP_NAME ?></title>
 
 	<link rel="apple-touch-icon-precomposed" sizes="57x57" href="<?= APP_URL ?>/apple-touch-icon-57x57.png" />
 	<link rel="apple-touch-icon-precomposed" sizes="114x114" href="<?= APP_URL ?>/apple-touch-icon-114x114.png" />
@@ -261,182 +262,6 @@ if (!empty($_GET['update'])) {
 			</div>
 		</div>
 	</script>
-	<?php
-	// if(defined('USER_ID')){
-	?>
-	<script>
-		//Sentry.init({ dsn: 'https://0f6266003a674548806e65e9c25d2908@sentry.io/5186241' });
-		window.intercomSettings = {
-			"app_id": "uvb2fg2w",
-			"name": "<?php echo USER_NAME ?>",
-			"email": "<?php echo USER_EMAIL ?>",
-			"user_id": "<?php echo enc(USER_ID) ?>",
-			"phone": "<?php echo USER_PHONE ?>",
-			"job_title": "<?php echo $_SESSION['user']['roleName']; ?>",
-			"user_hash": "<?php echo hash_hmac('sha256', enc(USER_ID), INTERCOM_IDENTITY_SECRET); ?>",
-			"source": "Panel",
-			"company": {
-				"id": "<?php echo enc(COMPANY_ID) ?>",
-				"avatar": "<?php echo companyLogo() ?>",
-				"name": "<?php echo COMPANY_NAME ?>",
-				"created_at": "<?php echo strtotime(COMPANY_DATE) ?>",
-				"SMS Credit": "<?= SMS_CREDIT ?>",
-				"plan": "<?= $plansValues[PLAN]['name'] ?>",
-				"monthly_spend": "<?= ($plansValues[PLAN]['price'] * OUTLETS_COUNT) ?>",
-				"upgraded_at": null,
-				"outlets_count": "<?= OUTLETS_COUNT ?>",
-				"Currency": "<?= CURRENCY ?>",
-				"Extra Users": "<?= $_modules['extraUsers'] ?>",
-				"Mod Calendar": "<?= $_modules['calendar'] ?>",
-				"Mod Ecommerce": "<?= $_modules['ecom'] ?>",
-				"Mod Ecom URL": "https://<?= $_cmpSettings['slug'] ?><?= ECOMMERCE_URL ?>",
-				"Mod Spotify": "<?= $_modules['spotify'] ?>",
-				"Mod Loyalty": "<?= $_modules['loyalty'] ?>",
-				"Mod Feedback": "<?= $_modules['feedback'] ?>",
-				"Mod Tables": "<?= $_modules['tables'] ?>",
-				"Mod Production": "<?= $_modules['production'] ?>",
-				"Mod KDS": "<?= $_modules['kds'] ?>",
-				"Mod Orders": "<?= $_modules['ordersPanel'] ?>",
-				"Mod Newton": "<?= $_modules['newton'] ?>",
-				"Mod Recurring": "<?= $_modules['recurring'] ?>",
-				"Mod Dunning": "<?= $_modules['dunning'] ?>",
-				"Mod TusFacturas": "<?= $_modules['tusfacturas'] ?>",
-				"Mod Reminders": "<?= $_modules['reminder'] ?>",
-				"Mod CRM": "<?= $_modules['crm'] ?>",
-				"Mod Summary": "<?= $_modules['salesSummaryDaily'] ?>"
-
-			}
-		};
-	</script>
-
-	<?php if (strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') === false): ?>
-	<script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
-	<script>
-		var OSuserId = "<?= enc(COMPANY_ID) ?>";
-		var OneSignal = window.OneSignal || [];
-		OneSignal.push(function() {
-			OneSignal.init({
-				appId: "cd135ef0-2abc-4a20-a7e4-9783824e33b0"
-			});
-		});
-
-		OneSignal.push(function() {
-			OneSignal.sendTags({
-				'companyId': "<?= enc(COMPANY_ID) ?>",
-				'outletId': "<?= (OUTLET_ID) ? enc(OUTLET_ID) : false ?>",
-				'userId': "<?= enc(USER_ID) ?>",
-				'isResource': "false"
-			}).then(function(tagsSent) {
-				// Callback called when tags have finished sending
-			});
-		});
-
-		OneSignal.push(function() {
-			OneSignal.setExternalUserId(OSuserId);
-		});
-	</script>
-	<?php endif; ?>
-
-	<?php
-	if (USER_ID > 0 && COMPANY_ID && COMPANY_ID != ENCOM_COMPANY_ID && in_array(PLAN, [1, 2, 3, 4, 9, 10])) {
-	?>
-
-		<script>
-			(function(w, d, u) {
-				var s = d.createElement('script');
-				s.async = true;
-				s.src = u + '?' + (Date.now() / 60000 | 0);
-				var h = d.getElementsByTagName('script')[0];
-				h.parentNode.insertBefore(s, h);
-			})(window, document, 'https://cdn.bitrix24.com/b11821471/crm/site_button/loader_4_1xmwxy.js');
-
-			$(window).on('onBitrixLiveChat', (event) => {
-				var widget = event.detail.widget;
-				widget.setUserRegisterData({
-					//'hash' 		: window.intercomSettings.user_hash,
-					'name': window.intercomSettings.name,
-					'email': window.intercomSettings.email,
-					'avatar': window.intercomSettings.company.avatar,
-					'www': "<?= $_SERVER['REQUEST_SCHEME'] . "://" . $_SERVER['SERVER_NAME'] ?>",
-					'position': window.intercomSettings.job_title
-				});
-				widget.setCustomData([{
-						"USER": {
-							"NAME": window.intercomSettings.name,
-							"AVATAR": window.intercomSettings.company.avatar,
-						}
-					},
-					{
-						"GRID": [{
-								"NAME": "Empresa",
-								"VALUE": window.intercomSettings.company.name,
-								"DISPLAY": "LINE"
-							},
-							{
-								"NAME": "Plan",
-								"VALUE": window.intercomSettings.company.plan,
-								"DISPLAY": "LINE"
-							},
-							{
-								"NAME": "Fuente",
-								"VALUE": window.intercomSettings.source,
-								"DISPLAY": "LINE"
-							},
-							{
-								"NAME": "Rol",
-								"VALUE": window.intercomSettings.job_title,
-								"DISPLAY": "LINE"
-							},
-							{
-								"NAME": "E-mail",
-								"VALUE": window.intercomSettings.email,
-								"DISPLAY": "LINE",
-							},
-							{
-								"NAME": "Teléfono",
-								"VALUE": window.intercomSettings.phone,
-								"DISPLAY": "LINE",
-							},
-							{
-								"NAME": "ID",
-								"VALUE": window.intercomSettings.user_id,
-								"DISPLAY": "LINE"
-							}
-						]
-					}
-				]);
-			});
-		</script>
-
-		<script>
-			/*(function(){var w=window;var ic=w.Intercom;if(typeof ic==="function"){ic('reattach_activator');ic('update',intercomSettings);}else{var d=document;var i=function(){i.c(arguments)};i.q=[];i.c=function(args){i.q.push(args)};w.Intercom=i;function l(){var s=d.createElement('script');s.type='text/javascript';s.async=true;s.src='https://widget.intercom.io/widget/uvb2fg2w';var x=d.getElementsByTagName('script')[0];x.parentNode.insertBefore(s,x);}if(w.attachEvent){w.attachEvent('onload',l);}else{w.addEventListener('load',l,false);}}})();*/
-
-			! function(f, b, e, v, n, t, s) {
-				if (f.fbq) return;
-				n = f.fbq = function() {
-					n.callMethod ?
-						n.callMethod.apply(n, arguments) : n.queue.push(arguments)
-				};
-				if (!f._fbq) f._fbq = n;
-				n.push = n;
-				n.loaded = !0;
-				n.version = '2.0';
-				n.queue = [];
-				t = b.createElement(e);
-				t.async = !0;
-				t.src = v;
-				s = b.getElementsByTagName(e)[0];
-				s.parentNode.insertBefore(t, s)
-			}(window, document, 'script',
-				'https://connect.facebook.net/en_US/fbevents.js');
-			fbq('init', '474288730518931');
-			fbq('track', 'PageView');
-		</script>
-
-	<?php
-	}
-	// }
-	?>
 	<script>
 		var mainAlerts = '<?= mainAlerts() ?>';
 		var isLockedOut = <?= ($_cmpSettings['settingPartialBlock'] || $_cmpSettings['blocked']) ? 'true' : 'false' ?>;
@@ -519,6 +344,7 @@ if (!empty($_GET['update'])) {
 		?>
 	</script>
 	<script src="scripts/at.js?<?= date('d.i') ?>"></script>
+	<?php include_once('includes/webpush_init.php'); ?>
 
 </body>
 

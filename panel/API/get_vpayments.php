@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $ID			= validateHttp('ID', 'post');
 $UID 		= validateHttp('UID', 'post');
@@ -78,4 +79,4 @@ if ($result) {
 	$endResult = ['success' => $array];
 }
 
-jsonDieResult($endResult);
+apiOk($endResult);

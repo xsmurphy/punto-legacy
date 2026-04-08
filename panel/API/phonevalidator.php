@@ -1,7 +1,7 @@
 <?php
-if(isset($_GET['phone']) && isset($_GET['country'])){
+require_once __DIR__ . '/../vendor/autoload.php';
 
-	require '/home/encom/public_html/vendor/autoload.php';
+if(isset($_GET['phone']) && isset($_GET['country'])){
 
 	$phone 		= preg_replace("/[^0-9]/", "", $_GET['phone']);
 	$country 	= trim($_GET['country']);

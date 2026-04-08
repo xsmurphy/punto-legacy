@@ -1,9 +1,7 @@
 <?php
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -146,7 +144,7 @@ $it->Close();
 
 
 <?=coreFiles('top')?>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.3/css/select2.min.css" type="text/css" />
+<link rel="stylesheet" href="/assets/vendor/css/select2-4.0.6.min.css" type="text/css" />
 <link rel="stylesheet" href="css/select2-bootstrap.css" type="text/css" />
 <?=jsGlobals();?>
 <style type="text/css">
@@ -159,7 +157,7 @@ $it->Close();
   <?=head();?>
 
   <?php 
-    $result = $db->Execute('SELECT * FROM setting WHERE '.$SQLcompanyId); 
+    $result = $db->Execute('SELECT * FROM company WHERE '.$SQLcompanyId); 
     $compId = enc(COMPANY_ID);
 
     $img = SYSIMGS_FOLDER.'/'.$compId.'.jpg';
@@ -234,7 +232,7 @@ $it->Close();
                 </div>
 
                 <!--<label>Métodos de Pago</label>
-                <?php $pM = $db->Execute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "paymentMethod" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC'); ?>
+                <?php $pM = $db->Execute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC'); ?>
                 <select id="paymentMethod" name="paymentMethod" tabindex="1" data-placeholder="Seleccione" class="form-control m-b" autocomplete="off">
                    <option value="cash">Efectivo</option>
                    <option value="creditcard">T. Crédito</option>
@@ -346,8 +344,8 @@ $it->Close();
         <div class="col-md-2 col-sm-1"></div>
       </div>
 
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui-touch-punch/0.2.3/jquery.ui.touch-punch.min.js"></script>
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.3/js/select2.min.js"></script>
+<script type="text/javascript" src="/assets/vendor/js/jquery-ui-1.12.1.min.js"></script>
+<script type="text/javascript" src="/assets/vendor/js/select2-4.1.0.min.js"></script>
 
 
 <?php

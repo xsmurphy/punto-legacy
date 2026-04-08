@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $outletID			= validateHttp('ID','post');
 $data				= validateHttp('data','post');
@@ -99,17 +100,17 @@ if($outletID){
 							]);
 
 		if($update !== false){
-			jsonDieResult(['error' => false, 'ID' => enc($outletID )],200);
+			apiOk(['error' => false, 'ID' => enc($outletID )]);
 		}else{
-			jsonDieResult(['error' => 'Could not update'],404);
+			apiOk(['error' => 'Could not update'], 404);
 		}
 
 	}else{
-		jsonDieResult(['error' => 'Not found'],404);
+		apiOk(['error' => 'Not found'], 404);
 	}
 
 }else{
-	jsonDieResult(['error' => 'No ID provided'],404);
+	apiOk(['error' => 'No ID provided'], 404);
 }
 
 

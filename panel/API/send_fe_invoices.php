@@ -1,11 +1,12 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 $params = $post;
 if (!array_key_exists("nro_from", $params) || empty($params["nro_from"])) {
-    jsonDieMsg("Necesitas indicar desde que numero quieres enviar", 400);
+    apiError("Necesitas indicar desde que numero quieres enviar", 400);
 }
 if (!array_key_exists("nro_to", $params) || empty($params['nro_to'])) {
-    jsonDieMsg("Necesitas indicar hasta que numero quieres enviar", 400);
+    apiError("Necesitas indicar hasta que numero quieres enviar", 400);
 }
 
 $registerId = array_key_exists("register_id", $params) ? $params["register_id"]  : "5900";
@@ -36,11 +37,11 @@ if (!empty($transactions)) {
             $register = json_decode($register["data"], true);
         }
         $outlet = ncmExecute("SELECT * FROM outlet where outletId = '" . $fields['outletId'] . "' limit 1");
-        $customer = ncmExecute("SELECT * FROM contact where contactUID = '" . $fields['customerId'] . "' limit 1");
-        $setting = ncmExecute("SELECT * FROM setting where companyId = '" . $fields['companyId'] . "' limit 1");
+        $customer = ncmExecute("SELECT * FROM contact where contactId = '" . $fields['customerId'] . "' limit 1");
+        $setting = ncmExecute("SELECT * FROM company where companyId = '" . $fields['companyId'] . "' limit 1");
         $docNo = "";
         $dv = "";
-        // jsonDieResult($fields);
+        // apiOk($fields);
         if (!empty($customer) && !empty($customer["contactTIN"]) && strpos($customer["contactTIN"], "-") !== false) {
             $docNo   = explode("-", $customer["contactTIN"])[0];
             $dv      = explode("-", $customer["contactTIN"])[1];
@@ -51,7 +52,7 @@ if (!empty($transactions)) {
         $dataFE["timbrado"] = $register["registerInvoiceAuth"];
         //$dataFE["timbrado"] = "16487873";
         $invoicePrefix = explode("-", $register["registerInvoicePrefix"]);
-        // jsonDieResult($register);
+        // apiOk($register);
         $fechaInicioTimbrado = new DateTime($register["registerInvoiceAuthStart"]);
         $fechaInicioTimbrado->setTimezone(new DateTimeZone('America/Asuncion'));
         $dataFE["establecimiento"] = $invoicePrefix[0];
@@ -60,7 +61,7 @@ if (!empty($transactions)) {
         $dataFE["fecIni"] = $fechaInicioTimbrado->format('Y-m-d\TH:i:sP');
         //$dataFE["fecIni"] = "2023-06-21T00:00:00-04:00";
         $dataFE["sucursal"] = $outlet["outletName"];
-        $dataFE["operacionMoneda"] = "PYG";
+        $dataFE["operacionMoneda"] = 'PYG';
         $dataFE["docNro"] = $docNo ?? "XXXX";
         $dataFE["dv"] = $dv;
         $dataFE["razonSocial"] = $customer["contactName"] ?? "SIN NOMBRE";
@@ -129,7 +130,7 @@ if (!empty($transactions)) {
 
 
             
-            // if ($value["type"] == "cash") {
+            // if ($value["type"] == 'cash') {
             //     $dataFE["tiposPagos"][] = [
             //         "tipoPagoCodigo" => 1,
             //         "monto" => $value["price"],
@@ -198,19 +199,19 @@ if (!empty($transactions)) {
         // }
         $result[$register["registerInvoicePrefix"] . $dataFE["documentoNro"]] = [];
         //$result[$register["registerInvoicePrefix"] . $dataFE["documentoNro"]] = $fedata;
-        //jsonDieResult($fedata);
+        //apiOk($fedata);
         array_push($data, $fedata);
         if (empty($get["debug"])) {
             $feresult = sendFE($fedata, FACTURACION_ELECTRONICA_TOKEN);
             $result[$register["registerInvoicePrefix"] . $dataFE["documentoNro"]] = json_decode($feresult, true);
         }
         $transactions->MoveNext();
-        // jsonDieResult(json_decode($feresult,true));
+        // apiOk(json_decode($feresult,true));
     }
     $transactions->Close();
     if (empty($get["debug"])) {
-        jsonDieResult($result);
+        apiOk($result);
     } else {
-        jsonDieResult($data);
+        apiOk($data);
     }
 }

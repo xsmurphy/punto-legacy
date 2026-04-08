@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 //obtengo IP de cloudflare
 $hash 			= validateHttp('token','post');
@@ -10,7 +11,7 @@ $iHash 			= md5( enc(COMPANY_ID) . $outlet );
 $action 		= ['error','not found'];
 
 if(!$hash || !$user){
-	jsonDieResult(['error' => 'missing data'],404);
+	apiOk(['error' => 'missing data'], 404);
 }
 
 if($hash === $iHash){
@@ -52,9 +53,9 @@ if($hash === $iHash){
 		}
 	}
 
-    jsonDieResult(['error' => $action['error'], 'type' => $type],200);
+    apiOk(['error' => $action['error'], 'type' => $type]);
 
 }else{
-	jsonDieResult(['error'=>'Codigo incorrecto'],404);
+	apiOk(['error'=>'Codigo incorrecto'], 404);
 }
 ?>

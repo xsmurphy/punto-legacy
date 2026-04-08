@@ -1,7 +1,8 @@
 <?php
 
 // First we execute our common code to connection to the database and start the session
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 // This if statement checks to determine whether the registration form has been submitted
 // If it has, then the registration code is run, otherwise the form is displayed
@@ -15,4 +16,4 @@ if (!validateHttp('storename', 'post') || !validateHttp('password', 'post') || !
 $post = db_prepare($_POST);
 
 $sign = signUp($post, false);
-jsonDieMsg($sign,200,'success');
+apiOk(['success' => $sign]);

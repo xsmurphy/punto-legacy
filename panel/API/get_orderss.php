@@ -1,6 +1,7 @@
 <?php
 
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $limitQ 		= 500;
 $limit 			= validateHttp('limit','post');
@@ -126,7 +127,7 @@ if($result){
 		//$sql,$array=false,$cache=false,$forceObj=false,$getAssoc=false
 		$allCustomers = ncmExecute(
 										'	SELECT
-											contactUID, 
+											contactId, 
 											contactId,
 											contactRealId,
 											contactName,
@@ -144,7 +145,7 @@ if($result){
 											contactDate
 											FROM contact 
 											WHERE type = 1 
-											AND contactUID 
+											AND contactId 
 											IN(' . implodes(',',$inCustomers) . ') 
 											AND companyId = ?
 											LIMIT ' . $limitQ . '
@@ -205,7 +206,7 @@ if($result){
 			}
 		}
 
-		/*$cLocation 		= getDefaultCustomerAddress($aCustomer['contactUID'],false,COMPANY_ID);
+		/*$cLocation 		= getDefaultCustomerAddress($aCustomer['contactId'],false,COMPANY_ID);
 		$cLocationName 	= $cLocation['name'];
 		$cLocationAddress= $cLocation['address'];
 		$cLocationLat 	= $cLocation['lat'];

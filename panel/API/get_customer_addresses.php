@@ -1,11 +1,12 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
-$settings 			= ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
-$modules 			= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$settings 			= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$modules 			= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 if(!validateHttp('uid','post')){
-	jsonDieResult(['error'=>'No se encontraron registros'],404);
+	apiOk(['error'=>'No se encontraron registros'], 404);
 }
 
 $customerId 		= dec(validateHttp('uid','post'));
@@ -39,12 +40,12 @@ if($result){
 	$result->Close();
 	
 	if(validity($array,'array')){
-		jsonDieResult($array,200);
+		apiOk($array);
 	}else{
-		jsonDieResult(['error'=>'No se encontraron registros'],404);
+		apiOk(['error'=>'No se encontraron registros'], 404);
 	}
 }else{
-	jsonDieResult(['error'=>'No se encontraron registros'],404);
+	apiOk(['error'=>'No se encontraron registros'], 404);
 }
 
 dai();

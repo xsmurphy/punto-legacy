@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $user 			= validateHttp('user','post');
 $outlet			= validateHttp('outlet','post');
@@ -9,7 +10,7 @@ $limit			= validateHttp('limit','post') ? validateHttp('limit','post') : 100;
 $limit 			= intval($limit);
 
 if(!$outlet || !$user || !$start || !$end){
-	jsonDieResult(['error' => 'missing data'],404);
+	apiOk(['error' => 'missing data'], 404);
 }
 
 $outlet = dec($outlet);
@@ -70,5 +71,5 @@ if($result){
 	$out = ['error' => 'no data'];
 }
 
-jsonDieResult($out,200);
+apiOk($out);
 ?>

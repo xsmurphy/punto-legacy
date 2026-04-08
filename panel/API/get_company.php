@@ -3,8 +3,8 @@ require_once __DIR__ . '/lib/api_middleware.php';
 apiMiddleware();
 
 $_company		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
-$_settings		= ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID], true);
-$_modules		= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$_settings		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID], true);
+$_modules		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 $_outlets		= ncmExecute('SELECT * FROM outlet WHERE companyId = ? AND outletStatus = 1 LIMIT 100',[COMPANY_ID],false,true);
 $_countries 	= $countries;
 $jsonResult 	= [];
@@ -128,18 +128,18 @@ if($_company){
 											'address'    		=> toUTF8($_settings['settingAddress']),
 											'city' 				=> toUTF8($_settings['settingCity']),
 											'country' 			=> $_countries[$_settings['settingCountry']],
-											'logo' 				=> 'https://assets.encom.app/250-250/0/' . enc(COMPANY_ID) . '.jpg',
+											'logo' 				=> '/assets/250-250/0/' . enc(COMPANY_ID) . '.jpg',
 											'email' 			=> $_settings['settingEmail'],
 											'phone' 			=> $_settings['settingPhone'],
 											'website'    		=> $_settings['settingWebSite'],
-											'plan' 				=> getAllPlans($_company['companyPlan']),
+											'plan' 				=> getAllPlans($_company['plan']),
 											'category'  		=> $_settings['settingCompanyCategoryId'],
-											'status' 			=> $_company['companyStatus'],
-											'created' 			=> $_company['companyDate'],
-											'sms' 				=> $_company['companySMSCredit'],
-											"blocked" 			=> $_settings['settingBlocked'],
+											'status' 			=> $_company['status'],
+											'created' 			=> $_company['createdAt'],
+											'sms' 				=> $_company['smsCredit'],
+											"blocked" 			=> $_settings['blocked'],
 											'accountBlockingAlert'  => [
-																		'is' 	=> $_settings['settingPlanExpired'], 
+																		'is' 	=> $_settings['planExpired'], 
 																		'txt' 	=> 'Le recordamos que posee facturas vencidas en su cuenta ENCOM.'
 																		],
 											'outlets' 			=> $outletsArray
@@ -160,7 +160,7 @@ if($_company){
 											'removeTax'         => $_settings['settingRemoveTaxes'],
 											'customTemplates'   => $templatesArray,
 											'tags'              => getTaxonomyArray('tag',COMPANY_ID,true),
-											'tagsSys'           => getTagsDefaults(true),
+											'tagsSys'           => getTagsDefaults(COMPANY_ID),
 											'paymentMethods'    => getTaxonomyArray('paymentMethod',COMPANY_ID),
 											'bankNames'         => getTaxonomyArray('bankName',COMPANY_ID),
 											'sellSoldOut'       => $_settings['settingSellSoldOut'],

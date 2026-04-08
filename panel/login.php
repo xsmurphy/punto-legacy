@@ -85,7 +85,7 @@ if(validateHttp('recovery')){
 		if($update !== false){
 			
 			if(validity($result['contactEmail'],'email')){
-				$meta['subject'] = '[ENCOM] Su nueva contraseña';
+				$meta['subject'] = '[' . APP_NAME . '] Su nueva contraseña';
 				$meta['to']      = $result['contactEmail'];
 				$meta['fromName']= APP_NAME;
 				$meta['data']    = [
@@ -98,7 +98,7 @@ if(validateHttp('recovery')){
 			}else if( validity($result['contactPhone']) ){
 
 				$companyData = ncmExecute( 'SELECT settingCountry FROM company WHERE companyId = ? LIMIT 1',[$result['contactPhone']] );
-				$sent = sendSMS($result['contactPhone'],'[ENCOM] Su nueva contraseña es ' . $newPass,$companyData['settingCountry'],100,16);
+				$sent = sendSMS($result['contactPhone'],'[' . APP_NAME . '] Su nueva contraseña es ' . $newPass,$companyData['settingCountry'],100,16);
 			}
 
 			echo 'true';
@@ -165,10 +165,10 @@ $tips = [
     <meta charset="utf-8" />
     <title>Ingresar</title>
 	<meta name="viewport" content="user-scalable=no, initial-scale=1, minimum-scale=1, width=device-width" />
-	<meta property="og:title" content="ENCOM - Panel de Control" />
+	<meta property="og:title" content="<?= APP_NAME ?> - Panel de Control" />
   	<meta property="og:image" content="/images/iconincomesmw.png" />
    <?php
-	loadCDNFiles(['https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.css'],'css');
+	loadCDNFiles(['/assets/vendor/css/sweetalert2-7.33.1.min.css'],'css');
 	?>
 
 	<style type="text/css">
@@ -236,8 +236,8 @@ $tips = [
 						if(validateHttp('from') != 'app'){
 						?>
 						<div class="m-t text-md">
-							¿No tiene una cuenta en ENCOM?
-							<a href="" class="text-u-l m-t">Regístrate</a>
+							¿No tiene una cuenta en <?= APP_NAME ?>?
+							<a href="/signup" class="text-u-l m-t">Regístrate</a>
 						</div>
 						<?php
 						}
@@ -304,7 +304,7 @@ $tips = [
 	  window.standAlone   = true;
 	</script>
 	<?php
-	loadCDNFiles(['https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.min.js'],'js');
+	loadCDNFiles(['/assets/vendor/js/sweetalert2-7.33.1.min.js'],'js');
 	?>
 	 
 	<script type="text/javascript">

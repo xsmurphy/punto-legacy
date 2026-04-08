@@ -2,15 +2,15 @@
 require_once __DIR__ . '/lib/api_middleware.php';
 apiMiddleware();
 
-$field 			= ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID], true);
+$field 			= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID], true);
 $comp 			= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
-$_modules		= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$_modules		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 $jsonResult 	= [];
  
 if($field){
 	$jsonResult = 	[
 							"name" 				=> toUTF8($field['settingName']),
-							"logo" 				=> 'https://assets.encom.app/250-250/0/' . enc(COMPANY_ID) . '.jpg',
+							"logo" 				=> '/assets/250-250/0/' . enc(COMPANY_ID) . '.jpg',
 							"email" 			=> $field['settingEmail'],
 							"address" 			=> toUTF8($field['settingAddress']),
 							"phone" 			=> $field['settingPhone'],
@@ -30,11 +30,11 @@ if($field){
 							"social"			=> json_decode($field['settingSocialMedia'], true),
 							"tinName"			=> $field['settingTIN'],
 
-							"plan" 				=> $comp['companyPlan'],
-							"status" 			=> $comp['companyStatus'],
-							"created" 			=> $comp['companyDate'],
-							"sms" 				=> $comp['companySMSCredit'],
-							"blocked" 			=> $field['settingBlocked'],
+							"plan" 				=> $comp['plan'],
+							"status" 			=> $comp['status'],
+							"created" 			=> $comp['createdAt'],
+							"sms" 				=> $comp['smsCredit'],
+							"blocked" 			=> $field['blocked'],
 
 							"modules" 			=> [
 

@@ -1,7 +1,8 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
-$modules 		= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$modules 		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 $record 	= [];
 $maxLoop 	= 520;
@@ -19,14 +20,14 @@ if(validity($data,'array')){
 	foreach($data as $id => $value){
 		print_r( $value);
 		if($i > $maxLoop){
-			jsonDieResult(['success' => $success . ' Registros almacenados. Puede enviar hasta ' . $maxLoop . ' por vez'],200);
+			apiOk(['success' => $success . ' Registros almacenados. Puede enviar hasta ' . $maxLoop . ' por vez']);
 		}
 
 		if($value['contactId']){
 			$idQuery = 'contactId = ' . $db->Prepare(dec($value['contactId']));
 			$idIt 	= $value['contactId'];
 		}else if($value['uid']){
-			$idQuery = 'contactUID = ' . $db->Prepare(dec($value['uid']));
+			$idQuery = 'contactId = ' . $db->Prepare(dec($value['uid']));
 			$idIt 	= $value['uid'];
 		}else if($value['ci']){
 			$idQuery = 'contactCI = ' . $db->Prepare($value['ci']);
@@ -117,9 +118,9 @@ if(validity($data,'array')){
 
 		$i++;
 	}
-	jsonDieResult(['success'=>$success . ' Registros almacenados y ' . $fail . ' fallidos.','failed'=>$failArray],200);
+	apiOk(['success'=>$success . ' Registros almacenados y ' . $fail . ' fallidos.','failed'=>$failArray]);
 }else{
-	jsonDieResult(['error'=>'No se encontraron datos','failed'=>$data],404);
+	apiOk(['error'=>'No se encontraron datos','failed'=>$data], 404);
 }
 
 
@@ -129,7 +130,7 @@ if(validity($data,'array')){
 <html>
 <head>
 <title>Customers</title>
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script type="text/javascript" src="/assets/vendor/js/jquery-3.6.3.min.js"></script>
 <script type="text/javascript">
 	$(document).ready(function(){
 		console.log('passing data');

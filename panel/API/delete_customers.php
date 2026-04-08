@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $ID 		= validateHttp('ID','post');
 $UID 		= validateHttp('UID','post');
@@ -7,11 +8,11 @@ $field 		= 'contactId';
 
 if($UID && !$ID){
 	$ID 	= $UID;
-	$field 	= 'contactUID';
+	$field 	= 'contactId';
 }
 
 if(!$ID){
-	jsonDieResult([ 'error'=>'El ID es obligatorio' ], 500);
+	apiOk([ 'error'=>'El ID es obligatorio' ], 500);
 }
 
 if($ID == 'all'){
@@ -21,9 +22,9 @@ if($ID == 'all'){
 }
 
 if($delete !== false){
-	jsonDieResult([ 'success' => 'Cliente eliminado' ], 200);
+	apiOk([ 'success' => 'Cliente eliminado' ]);
 }else{
-	jsonDieResult([ 'error' => 'No se pudo eliminar el cliente' ], 500);
+	apiOk([ 'error' => 'No se pudo eliminar el cliente' ], 500);
 }
 
 ?>

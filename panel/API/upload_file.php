@@ -1,8 +1,8 @@
 <?php
-require '/home/encom/public_html/vendor/autoload.php';
 use Aws\S3\S3Client;
 
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 //fala ver como obtengo el contenido del archivo porque AWS pide el contenido por separado
 
 $data 			= validateHttp('data','post');
@@ -13,7 +13,7 @@ if(isJson($data)){
 }
 
 if($data['secret'] != NCM_SECRET){
-	jsonDieResult([ 'error' => 'Acceso denegado' ]);
+	apiOk([ 'error' => 'Acceso denegado' ]);
 }
 
 $allowedExt = ['pdf','jpg','png'];
@@ -21,7 +21,7 @@ $allowedExt = ['pdf','jpg','png'];
 if( $data['ext'] && $data['body'] && $data['action'] ){//lo esencial
 
 	if(!in_array($data['ext'], $allowedExt)){//valido extension
-		jsonDieResult([ 'error' => 'Extensión no reconocida' ]);
+		apiOk([ 'error' => 'Extensión no reconocida' ]);
 	}
 
 	$folder 	= 'companyFiles/' . ECOMPANY_ID . '/';
@@ -32,7 +32,7 @@ if( $data['ext'] && $data['body'] && $data['action'] ){//lo esencial
 	$client = new Aws\S3\S3Client([
 	        'version' 		=> 'latest',
 	        'region'  		=> 'us-east-1',
-	        'endpoint' 		=> 'https://nyc3.digitaloceanspaces.com',
+	        'endpoint' 		=> '/assets',
 	        'credentials' 	=> [
 	                'key'    	=> DO_SPACES_ACCESS,
 	                'secret' 	=> DO_SPACES_SECRET,
@@ -57,15 +57,15 @@ if( $data['ext'] && $data['body'] && $data['action'] ){//lo esencial
 					'ACL'    => $data['private'] ? 'private' : 'public-read'
 				]); //'ACL'    => 'private' //para archivos privados
 
-				jsonDieResult([ 'success' => $result['ObjectURL'] ]);
+				apiOk([ 'success' => $result['ObjectURL'] ]);
 			    
 			} catch (S3Exception $e) {
 				ncmExecute('DELETE FROM files WHERE filesId = ? AND companyId = ? LIMIT 1',[$insert,COMPANY_ID]);
-			    jsonDieResult([ 'error' => $e->getMessage() ]);
+			    apiOk([ 'error' => $e->getMessage() ]);
 			}
 
 		}else{
-			jsonDieResult([ 'error' => 'No se pudo guardar el archivo' ]);
+			apiOk([ 'error' => 'No se pudo guardar el archivo' ]);
 		}
 
 	}else if($data['action'] == 'delete'){
@@ -77,13 +77,13 @@ if( $data['ext'] && $data['body'] && $data['action'] ){//lo esencial
 			    'Key'	 => $fileName,
 			]);
 
-		    jsonDieResult([ 'success' => true ]);
+		    apiOk([ 'success' => true ]);
 		} catch (S3Exception $e) {
-		    jsonDieResult([ 'error' => $e->getMessage() ]);
+		    apiOk([ 'error' => $e->getMessage() ]);
 		}
 	}
 
 }else{
-	jsonDieResult(['error'=>"Información faltante","post"=>$data],500);
+	apiOk(['error'=>"Información faltante","post"=>$data], 500);
 }
 ?>

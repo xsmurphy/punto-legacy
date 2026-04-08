@@ -3,25 +3,15 @@
 require_once(__DIR__ . '/../includes/cors.php');
 
 
-require_once('../libraries/whoops/autoload.php');
 include_once("../libraries/adodb/adodb.inc.php");
 $db = ADONewConnection('mysqli');
 $db->NConnect('localhost', 'incomepo_905user', 'a0Hr(Rl~H6]r', 'incomepo_905');
 include_once('../includes/simple.config.php');
-include_once("../libraries/hashid.php");
 include_once("../includes/functions.php");
 
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode($str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-	$hashids = new Hashids\Hashids(SALT);
-	$decoded = $hashids->decode($str)[0];
-	return (int)$decoded;
-}
+function dec($str): string { return (string)$str; }
 
 function createInventoryAPI($data,$companyId){
 	global $db;

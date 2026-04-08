@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $outlet 			= dec(validateHttp('outlet', 'post'));
 $user 				= validateHttp('user', 'post') ? dec(validateHttp('user', 'post')) : NULL;
@@ -23,14 +24,14 @@ $msg 				= 'Orden de pago generada';
 $payNow 			= false;
 
 if (empty($authCode) && (!empty($source) && $source !== 'PIX')) {
-	jsonDieMsg("El codigo de autorizacion no debe ser vacio");
+	apiError("El codigo de autorizacion no debe ser vacio", 401);
 }
 if (($outlet < 2 || !$outlet)) {
-	jsonDieMsg('Debe incluir sucursal y ID de transaccion', 401, 'error');
+	apiError('Debe incluir sucursal y ID de transaccion', 401);
 }
 
 $result 		= ncmExecute('SELECT * FROM vPayments WHERE authCode = ? AND date(date) BETWEEN ? AND ? AND companyId = ? LIMIT 1', [$authCode, date('Y-m-d', strtotime("-1 month", strtotime($date))), date('Y-m-d', strtotime($date)), COMPANY_ID]);
-$_modules 		= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
+$_modules 		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
 
 $eposData 		= json_decode($_modules['eposData'], true);
 $processorData 	= json_decode($data, true);
@@ -179,13 +180,13 @@ if (!$result) {
 			ncmUpdate(['records' => ['transactionComplete' => 1], 'table' => 'transaction', 'where' => 'transactionId = ' . $result['transactionId'] . ' AND companyId = ' . COMPANY_ID]);
 		}
 
-		if (COMPANY_ID === 4456) {
+		if (COMPANY_ID === 4456) { // TODO: replace integer 4456 with the company UUID once data is migrated
 			try {
-				$customerRUC = ncmExecute("SELECT contactTIN FROM contact WHERE companyId = 4456 AND contactUID = ? LIMIT 1", [$result['customerId']]);
-				$company = ncmExecute("SELECT companyId FROM setting WHERE settingRUC = ? LIMIT 1", [$customerRUC['contactTIN']]);
-				$recordUpdate['settingBlocked'] 	= 0;
-				$recordUpdate['settingPlanExpired'] = 0;
-				$update = $db->AutoExecute('setting', $recordUpdate, 'UPDATE', 'companyId = ' . $company['companyId']);
+				$customerRUC = ncmExecute("SELECT contactTIN FROM contact WHERE companyId = 4456 AND contactId = ? LIMIT 1", [$result['customerId']]);
+				$company = ncmExecute("SELECT companyId FROM company WHERE config->>'settingRUC' = ? LIMIT 1", [$customerRUC['contactTIN']]);
+				$recordUpdate['blocked'] 	= 0;
+				$recordUpdate['planExpired'] = 0;
+				$update = $db->AutoExecute('company', $recordUpdate, 'UPDATE', 'companyId = ' . $db->qstr($company['companyId']));
 			} catch (\Throwable $th) {
 			}
 		}
@@ -197,7 +198,7 @@ if (!$result) {
 }
 
 if ($insert === false) {
-	jsonDieResult(['error' => 'already_exists', 'success' => false]);
+	apiOk(['error' => 'already_exists', 'success' => false]);
 } else {
-	jsonDieResult(['success' => $msg, 'UID' => $UID, 'ID' => $invId, 'authCode' => $authCode, 'operationNo' => $operationNo, 'payNow' => $payNow]);
+	apiOk(['success' => $msg, 'UID' => $UID, 'ID' => $invId, 'authCode' => $authCode, 'operationNo' => $operationNo, 'payNow' => $payNow]);
 }

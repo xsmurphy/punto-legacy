@@ -21,16 +21,11 @@ try {
   die(json_encode($data));
 }
 
-require_once('../libraries/whoops/autoload.php');
 include_once('../includes/db.php');
 include_once('../includes/simple.config.php');
-include_once('../libraries/hashid.php');
 include_once('../includes/functions.php');
 
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode($str);
-}
+function enc($str): string { return (string)$str; }
 
 function sendFE($data, $token){
 	$curl = curl_init();
@@ -58,70 +53,65 @@ function sendFE($data, $token){
   return $response;
 }
 
-//decode ID
-function dec($str){
-	$hashids = new Hashids\Hashids(SALT);
-	$decoded = $hashids->decode($str)[0];
-	return (int)$decoded;
-}
+function dec($str): string { return (string)$str; }
 function getSaleType($type){
 
 	switch ($type) {
 	    case '0':
-	        $saleType 	= "cashsale";
-	        $docType 	= "registerInvoiceNumber";
+	        $saleType 	= 'cashsale';
+	        $docType 	= 'registerInvoiceNumber';
 	        break;
 	    case '1':
 	        $saleType 	= "";
 	        $docType 	= "";
 	        break;
 	    case '2':
-	       	$saleType 	= "saved";
+	       	$saleType 	= 'saved';
 	        $docType 	= "";
 	        break;
 	    case '3':
-	        $saleType 	= "creditsale";
-	        $docType 	= "registerInvoiceNumber";
+	        $saleType 	= 'creditsale';
+	        $docType 	= 'registerInvoiceNumber';
 	        break;
 	    case '4':
 	        $saleType 	= "";
 	        $docType 	= "";
 	        break;
 	    case '5':
-	        $saleType 	= "creditpayment";
-	        $docType 	= "registerTicketNumber";
+	        $saleType 	= 'creditpayment';
+	        $docType 	= 'registerTicketNumber';
 	        break;
 	    case '6':
-	        $saleType 	= "return";
-	        $docType 	= "registerReturnNumber";
+	        $saleType 	= 'return';
+	        $docType 	= 'registerReturnNumber';
 	        break;
 	    case '7':
-	        $saleType 	= "void";
+	        $saleType 	= 'void';
 	        $docType 	= "";
 	        break;
 	    case '8':
-	        $saleType 	= "recursive";
+	        $saleType 	= 'recursive';
 	        $docType 	= "";
 	        break;
 	    case '9':
-	        $saleType 	= "quote";
-	        $docType 	= "registerQuoteNumber";
+	        $saleType 	= 'quote';
+	        $docType 	= 'registerQuoteNumber';
 	        break;
 	    case '10':
-	        $saleType 	= "delivery";
+	        $saleType 	= 'delivery';
 	        $docType 	= "";
 	        break;
 	    case '11':
-	        $saleType 	= "opentable";
+	        $saleType 	= 'opentable';
 	        $docType 	= "";
 	        break;
 	    case '12':
-	        $saleType 	= "order";
-	        $docType 	= "registerPedidoNumber";
+	        $saleType 	= 'order';
+	        $docType 	= 'registerPedidoNumber';
 	        break;
 	    case '13':
-	        $saleType 	= "schedule";
-	        $docType 	= "registerScheduleNumber";
+	        $saleType 	= 'schedule';
+	        $docType 	= 'registerScheduleNumber';
 	        break;
 	    case '14':
 	        $saleType 	= "";
@@ -148,7 +138,7 @@ setTimeZone(COMPANY_ID);//debe estar antes que date()
 define('TODAY', date('Y-m-d H:i:s'));
 define('TODAY_START', date('Y-m-d 00:00:00'));
 define('TODAY_END', date('Y-m-d 23:59:59'));
-define('ASSETS_URL', 'https://assets.encom.app/');
+define('ASSETS_URL', '/assets/');
 define('SYSIMGS_FOLDER', '/home/encom/public_html/assets/sysimages');
 define('OUTLET_ID', iftn($post['outletId'],''));
 define('REGISTER_ID', iftn($post['registerId'],''));

@@ -1,9 +1,7 @@
 <?php
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -69,8 +67,8 @@ if(validateBool('action') == 'editform' && validateBool('id')){
 	$img 				= ASSETS_URL.'/src.php?src='.$img.'&w=150&h=150&'.rand();
 
 	//Esta query es para el listado de items para el Compound por que debo de usar multiple times
-	$cmpndTms = $db->Execute('SELECT itemId as id, itemName as name, itemPrice as price FROM item WHERE itemIsParent = 0 AND itemStatus = 1 AND itemType = "product" AND '.$SQLcompanyId.' ORDER BY itemName ASC LIMIT '.$plansValues[PLAN]['max_items']);
-	$cmpndCts = $db->Execute('SELECT taxonomyId as id, taxonomyName as name FROM taxonomy WHERE taxonomyType = "category" AND '.$SQLcompanyId.' LIMIT '.$plansValues[PLAN]['max_categories']);
+	$cmpndTms = $db->Execute('SELECT itemId as id, itemName as name, itemPrice as price FROM item WHERE itemIsParent = 0 AND itemStatus = 1 AND itemType = \'product\' AND '.$SQLcompanyId.' ORDER BY itemName ASC LIMIT '.$plansValues[PLAN]['max_items']);
+	$cmpndCts = $db->Execute('SELECT taxonomyId as id, taxonomyName as name FROM taxonomy WHERE taxonomyType = \'category\' AND '.$SQLcompanyId.' LIMIT '.$plansValues[PLAN]['max_categories']);
 
 	if($itemCanSale > 0 && $itemTrackInventory < 1){
 		// servicio
@@ -198,7 +196,7 @@ if(validateBool('action') == 'editform' && validateBool('id')){
 					<div class="col-sm-4 no-padder">
 						<div class="form-group">
 					  <label>Descuento <i class="icon-question text-xs" data-toggle="tooltip" data-placement="top" title="" data-original-title="Asigne un descuento porcentual permanente a este Artículo"></i></label>
-					  <input type="text" class="form-control input-lg text-right maskPercent bg no-border b-b b-light" placeholder="0%" name="itemDiscount" value="<?=($itemDiscount)?>" autocomplete="off">
+					  <input type="text" class="form-control input-lg text-right maskPercent bg no-border b-b b-light" placeholder="0%' name="itemDiscount" value="<?=($itemDiscount)?>" autocomplete="off">
 					</div>
 					</div>
 
@@ -291,7 +289,7 @@ if(validateBool('action') == 'editform' && validateBool('id')){
 	          			<div class="col-xs-12 no-border b-dashed b-b wrapper-sm">
 				    		<span>Marca:</span>
 					        <?php 
-					        	$brand = $db->Execute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "brand" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC LIMIT '.$plansValues[PLAN]['max_brands']);
+					        	$brand = $db->Execute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'brand\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC LIMIT '.$plansValues[PLAN]['max_brands']);
 					        ?>
 					        <select id="brandEdit" name="brand" tabindex="1" data-placeholder="Seleccione una Marca" class="form-control m-b brand" autocomplete="off">
 					        	<option value="">Seleccionar</option>
@@ -315,7 +313,7 @@ if(validateBool('action') == 'editform' && validateBool('id')){
 						<div class="col-xs-12 no-border b-dashed b-b wrapper-sm">
 				    		<span>Categoría:</span>
 					        <?php 
-					        	$category = $db->Execute('SELECT taxonomyId, taxonomyName, taxonomyExtra FROM taxonomy WHERE taxonomyType = "category" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC LIMIT '.$plansValues[PLAN]['max_categories']);
+					        	$category = $db->Execute('SELECT taxonomyId, taxonomyName, taxonomyExtra FROM taxonomy WHERE taxonomyType = \'category\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC LIMIT '.$plansValues[PLAN]['max_categories']);
 					        ?>
 					        <select id="categoryEdit" name="category" tabindex="1" data-placeholder="Seleccione una Categoría" class="form-control category m-b" autocomplete="off">
 					        	<option value="" selected>Seleccionar</option>
@@ -1055,7 +1053,7 @@ if(validateBool('action') == 'inventoryUpdate' && validateBool('id',true,'post')
 <title><?=COMPANY_NAME?> Artículos</title>
 
 <?=coreFiles('top')?>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.3/css/select2.min.css" type="text/css" />
+<link rel="stylesheet" href="/assets/vendor/css/select2-4.0.6.min.css" type="text/css" />
 <link rel="stylesheet" href="css/select2-bootstrap.css" type="text/css" />
 
 <?=jsGlobals();?>
@@ -1146,7 +1144,7 @@ if(validateBool('action') == 'inventoryUpdate' && validateBool('id',true,'post')
 		var currency 			= '<?=CURRENCY?>';		
 	</script>
 	<?=coreFiles()?>
-	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.3/js/select2.min.js"></script>
+	<script type="text/javascript" src="/assets/vendor/js/select2-4.1.0.min.js"></script>
 	<script type="text/javascript">
 		$(document).ready(function(){
 			FastClick.attach(document.body);

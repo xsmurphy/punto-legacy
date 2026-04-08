@@ -1,10 +1,8 @@
 <?php
 //VER DE PASAR A STAND ALONE
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -180,7 +178,7 @@ include_once("includes/functions.php");
 		</div>
 		<div class="pagebreak"></div>
 		<?php
-			loadCDNFiles(['https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.0/JsBarcode.all.min.js'],'js');
+			loadCDNFiles(['/assets/vendor/js/JsBarcode-3.11.0.min.js'],'js');
 		?>
 		<script>
 			$(document).ready(function(){

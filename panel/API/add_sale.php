@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
  
 $postSale 		= validateHttp('sale','post');
 $order 			= is_array($postSale) ? $postSale : stripslashes( $postSale );
@@ -44,17 +45,17 @@ if($condition == 'credito'){
 
 $isOutlet 	= ncmExecute('SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1',[$outletId,COMPANY_ID]);
 if(!$isOutlet){
-	jsonDieMsg('Sucursal incorrecta = ' . $order,404,'error');
+	apiError('Sucursal incorrecta = ' . $order, 404);
 }
 
 $isRegister = ncmExecute('SELECT registerId FROM register WHERE registerId = ? AND outletId = ? AND companyId = ? LIMIT 1',[$registerId,$outletId,COMPANY_ID]);
 if(!$isRegister){
-	jsonDieMsg('Caja incorrecta',404,'error');
+	apiError('Caja incorrecta', 404);
 }
 
 $isUser 	= ncmExecute('SELECT contactId FROM contact WHERE contactId = ? AND type = 0 AND companyId = ? LIMIT 1',[$userId,COMPANY_ID]);
 if(!$isUser){
-	jsonDieMsg('Usuario incorrecto',404,'error');
+	apiError('Usuario incorrecto', 404);
 }
 
 //items
@@ -120,11 +121,11 @@ if(validity($saleDetail,'array')){
 		if($tin){
 			$getCustomer = ncmExecute('SELECT * FROM contact WHERE contactTIN = ? AND companyId = ? LIMIT 1',[$tin,COMPANY_ID]);
 			if($getCustomer){
-				$customer = $getCustomer['contactUID'];
+				$customer = $getCustomer['contactId'];
 			}else{
 				if($name){
 					$customer 					= generateUID();
-					$cRecord['contactUID']      = $customer;
+					$cRecord['contactId']      = $customer;
 					$cRecord['contactName']    	= $name;
 					$cRecord['contactTIN']     	= $tin;
 					$cRecord['contactPhone']   	= $phone;
@@ -206,10 +207,10 @@ if(validity($saleDetail,'array')){
 
 		insertNotifications($ops);*/
 
-		$pdf = 'https://public.encom.app/digitalInvoice?s=' . base64_encode( enc($insertedId) . ',' . enc(COMPANY_ID) ) . '&pdf=1';
+		$pdf = '/screens/digitalInvoice?s=' . base64_encode( enc($insertedId) . ',' . enc(COMPANY_ID) ) . '&pdf=1';
 
 
-		$setting 	= ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+		$setting 	= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 		if($order['sendEmail'] && $name && $email){
 			$body     = 'Hola ' . $name . ',' .
@@ -222,17 +223,17 @@ if(validity($saleDetail,'array')){
 			$meta['data']    = [
 			                    "message"     => $body,
 			                    "companyname" => $setting['settingName'],
-			                    "companylogo" => 'https://assets.encom.app/150-150/0/' . enc(COMPANY_ID) . '.jpg'
+			                    "companylogo" => '/assets/150-150/0/' . enc(COMPANY_ID) . '.jpg'
 			                	];
 
 			sendEmails($meta);
 		}		
 
-    	jsonDieResult([ 'success' => 'Venta generada', 'nro' => $docNo, 'ID' => enc($insertedId), 'PDF' => $pdf ]);
+    	apiOk([ 'success' => 'Venta generada', 'nro' => $docNo, 'ID' => enc($insertedId), 'PDF' => $pdf ]);
     }else{
-    	jsonDieMsg('No se pudo generar la orden',401,'error');
+    	apiError('No se pudo generar la orden', 401);
     }
 }else{
-	jsonDieMsg('Debe incluir productos o servicios',401,'error');
+	apiError('Debe incluir productos o servicios', 401);
 }
 ?>

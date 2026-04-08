@@ -1,13 +1,14 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $customerId 	= dec(validateHttp('id','post'));
 $phone 			= validateHttp('phone','post');
 $phoneSearch 	= validateHttp('phoneSearch','post');
 $result 		= false;
 
-$settings 		= ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
-$modules 		= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$settings 		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$modules 		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 if($phone){
 
@@ -32,14 +33,14 @@ if($phone){
 
 }else{
 	if(!validateHttp('uid','post') && !validateHttp('id','post')){
-		jsonDieResult(['error'=>'No se encontraron registros'],404);
+		apiOk(['error'=>'No se encontraron registros'], 404);
 	}
 
 	$sqlId = 'AND contactId = ?';
 
 	if(validateHttp('uid','post')){
 		$customerId 	= dec(validateHttp('uid','post'));
-		$sqlId 			= 'AND contactUID = ?';	
+		$sqlId 			= 'AND contactId = ?';	
 	}
 
 	$result 			= ncmExecute('SELECT *
@@ -52,10 +53,10 @@ if($result){
 	$array 						= [];
 	$id 						= enc($result['contactId']);
 
-	$address 					= getDefaultCustomerAddress($result['contactUID']);
+	$address 					= getDefaultCustomerAddress($result['contactId']);
 
 	$array["id"] 				= $id;//
-	$array["UID"] 				= enc($result['contactUID']);//
+	$array["UID"] 				= enc($result['contactId']);//
 	$array["name"] 				= toUTF8($result['contactName']);//
 	$array["date"] 				= $result['contactDate'];//
 	$array["fullname"] 			= toUTF8($result['contactSecondName']);//
@@ -85,12 +86,12 @@ if($result){
 	}
 	
 	if(validity($array,'array')){
-		jsonDieResult($array,200);
+		apiOk($array);
 	}else{
-		jsonDieResult(['error'=>'No se encontraron registros'],404);
+		apiOk(['error'=>'No se encontraron registros'], 404);
 	}
 }else{
-	jsonDieResult(['error' => 'No se encontraron registros ' . $phone],404);
+	apiOk(['error' => 'No se encontraron registros ' . $phone], 404);
 }
 
 dai();

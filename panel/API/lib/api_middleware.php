@@ -28,33 +28,11 @@ require_once __DIR__ . '/../../includes/jwt.php';
 // enc()/dec() son helpers globales que todos los endpoints usan.
 // En api_head.php se definen inline; aquí las proveemos para endpoints migrados.
 if (!function_exists('enc')) {
-    function enc($str): string
-    {
-        global $HASHIDS_INSTANCE;
-        if (!isset($HASHIDS_INSTANCE)) {
-            // SALT se define en simple.config.php — si aún no está cargado, cargarlo
-            if (!defined('SALT')) {
-                include_once __DIR__ . '/../../includes/simple.config.php';
-            }
-            $HASHIDS_INSTANCE = new Hashids\Hashids(SALT);
-        }
-        return $HASHIDS_INSTANCE->encode($str);
-    }
+    function enc($str): string { return (string)$str; }
 }
 
 if (!function_exists('dec')) {
-    function dec($str): int
-    {
-        global $HASHIDS_INSTANCE;
-        if (!isset($HASHIDS_INSTANCE)) {
-            if (!defined('SALT')) {
-                include_once __DIR__ . '/../../includes/simple.config.php';
-            }
-            $HASHIDS_INSTANCE = new Hashids\Hashids(SALT);
-        }
-        $decoded = $HASHIDS_INSTANCE->decode($str);
-        return (int)($decoded[0] ?? 0);
-    }
+    function dec($str): string { return (string)$str; }
 }
 
 /**
@@ -85,10 +63,8 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
     // $db debe ser global para que ncmExecute() lo encuentre con `global $db`
     global $db, $ADODB_CACHE_DIR, $plansValues, $countries;
 
-    require_once __DIR__ . '/../../libraries/whoops/autoload.php';
     include_once __DIR__ . '/../../includes/db.php';
     include_once __DIR__ . '/../../includes/simple.config.php';
-    include_once __DIR__ . '/../../libraries/hashid.php';
     include_once __DIR__ . '/../../includes/functions.php';
 
     // 4. Autenticación: JWT primero, legacy api_key como fallback
@@ -102,23 +78,21 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
             apiUnauthorized('Token inválido o expirado');
         }
 
-        $companyIdInt  = (int)($payload['cid']  ?? 0);
-        $outletIdInt   = (int)($payload['oid']  ?? 0);
-        $registerIdInt = (int)($payload['rid']  ?? 0);
-        $userIdInt     = (int)($payload['sub']  ?? 0);
+        $companyIdInt  = $payload['cid']  ?? '';
+        $outletIdInt   = $payload['oid']  ?? '';
+        $registerIdInt = $payload['rid']  ?? '';
+        $userIdInt     = $payload['sub']  ?? '';
         $roleInt       = (int)($payload['role'] ?? 0);
 
         if (!$companyIdInt) {
             apiUnauthorized('Token sin companyId');
         }
 
-        // Reconstruir encoded IDs para compatibilidad con código legacy que usa ECOMPANY_ID
-        $hashids       = new Hashids\Hashids(SALT);
-        $eCompanyId    = $hashids->encode($companyIdInt);
+        $eCompanyId = $companyIdInt; // con UUID, el ID codificado es el mismo
 
-        define('PANEL_JWT_AUTHED',    true);
-        define('PANEL_AUTHED_USER',   $userIdInt);
-        define('PANEL_AUTHED_ROLE',   $roleInt);
+            define('PANEL_JWT_AUTHED',  true);
+        define('PANEL_AUTHED_USER', $userIdInt);
+        define('PANEL_AUTHED_ROLE', $roleInt);
 
         // Constantes compartidas con api_head.php legacy
         _apiDefineSharedConstants($eCompanyId, $companyIdInt, $outletIdInt, $registerIdInt);
@@ -136,7 +110,7 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
         define('PANEL_AUTHED_USER',   0);
         define('PANEL_AUTHED_ROLE',   0);
 
-        _apiDefineSharedConstants($companyId, dec($companyId), 0, 0);
+        _apiDefineSharedConstants($companyId, $companyId, '', '');
     }
 }
 
@@ -184,23 +158,19 @@ function _apiExtractJwtToken(): ?string
     return null;
 }
 
-function _apiDefineSharedConstants(string $eCompanyId, int $companyId, int $outletId, int $registerId): void
+function _apiDefineSharedConstants(string $eCompanyId, string $companyId, string $outletId, string $registerId): void
 {
     define('ECOMPANY_ID',  $eCompanyId);
     define('COMPANY_ID',   $companyId);
-    define('OUTLET_ID',    $outletId > 0
-        ? (new Hashids\Hashids(SALT))->encode($outletId)
-        : (validateHttp('outletId', 'post') ?? ''));
-    define('REGISTER_ID',  $registerId > 0
-        ? (new Hashids\Hashids(SALT))->encode($registerId)
-        : (validateHttp('registerId', 'post') ?? ''));
+    define('OUTLET_ID',    $outletId ?: (validateHttp('outletId',   'post') ?? ''));
+    define('REGISTER_ID',  $registerId ?: (validateHttp('registerId', 'post') ?? ''));
 
     setTimeZone($companyId);
 
     define('TODAY',       date('Y-m-d H:i:s'));
     define('TODAY_START', date('Y-m-d 00:00:00'));
     define('TODAY_END',   date('Y-m-d 23:59:59'));
-    define('ASSETS_URL',  'https://assets.encom.app/');
+    define('ASSETS_URL',  '/assets/');
 
     // outlets count (igual que api_head.php)
     $outlets = ncmExecute(

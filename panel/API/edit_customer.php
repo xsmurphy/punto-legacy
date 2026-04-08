@@ -1,7 +1,8 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
-$modules 		= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$modules 		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 $record 	= [];
 $maxLoop 	= 520;
@@ -27,20 +28,20 @@ if(validity($value,'array')){
 		$idQuery = 'contactId = ' . $db->Prepare(dec($value['contactId']));
 		$idIt 	= $value['contactId'];
 	}else if($value['uid']){
-		$idQuery = 'contactUID = ' . $db->Prepare(dec($value['uid']));
+		$idQuery = 'contactId = ' . $db->Prepare(dec($value['uid']));
 		$idIt 	= $value['uid'];
 	}else if($value['ci']){
 		$idQuery = 'contactCI = ' . $db->Prepare($value['ci']);
 		$idIt 	= $value['ci'];
 	}
 
-	$thisCustomer = ncmExecute('SELECT contactUID FROM contact WHERE ' . $idQuery . ' AND companyId = ?',[COMPANY_ID]);
+	$thisCustomer = ncmExecute('SELECT contactId FROM contact WHERE ' . $idQuery . ' AND companyId = ?',[COMPANY_ID]);
 
 	if(!$thisCustomer){
-		jsonDieResult(['error' => 'Not found'],404);
+		apiOk(['error' => 'Not found'], 404);
 	}
 
-	$idQuery = 'contactUID = ' . $thisCustomer['contactUID'];
+	$idQuery = 'contactId = ' . $thisCustomer['contactId'];
 
 	if($value['tin']){
 		$record['contactTIN'] 		= $value['tin'];
@@ -117,14 +118,14 @@ if(validity($value,'array')){
 
 	$update = $db->AutoExecute('contact', $record, 'UPDATE', $idQuery . ' AND companyId = ' . $db->Prepare(COMPANY_ID) );
 	if($update === false){
-		jsonDieResult(['error' => $db->ErrorMsg()],403);
+		apiOk(['error' => $db->ErrorMsg()], 403);
 	}else{
 		updateLastTimeEdit(COMPANY_ID,'customer');
 
-		$hasAddress = ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = 1 LIMIT 1',[$thisCustomer['contactUID'],COMPANY_ID]);
+		$hasAddress = ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = 1 LIMIT 1',[$thisCustomer['contactId'],COMPANY_ID]);
 		if(!$hasAddress){
 			$eAddress['customerAddressDefault'] = 1;
-			$eAddress['customerId'] 			= $thisCustomer['contactUID'];
+			$eAddress['customerId'] 			= $thisCustomer['contactId'];
 			$eAddress['companyId'] 				= COMPANY_ID;
 
 			$addressUpdt['records'] = $eAddress;
@@ -134,14 +135,14 @@ if(validity($value,'array')){
 		}else{
 			$addressUpdt['records'] = $eAddress;
 			$addressUpdt['table'] 	= 'customerAddress';
-			$addressUpdt['where'] 	= 'customerAddressDefault = 1 AND customerId = ' . $thisCustomer['contactUID'] . ' AND companyId = ' . COMPANY_ID;
+			$addressUpdt['where'] 	= 'customerAddressDefault = 1 AND customerId = ' . $thisCustomer['contactId'] . ' AND companyId = ' . COMPANY_ID;
 			ncmUpdate($addressUpdt);
 		}
 		
-		jsonDieResult(['success' => 'Cliente actualizado'],200);
+		apiOk(['success' => 'Cliente actualizado']);
 	}
 }else{
-	jsonDieResult(['error'=>'No se recibieron datos','failed' => validateHttp('data','post')],404);
+	apiOk(['error'=>'No se recibieron datos','failed' => validateHttp('data','post')], 404);
 }
 
 ?>

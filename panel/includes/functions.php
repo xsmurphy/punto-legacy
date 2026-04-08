@@ -365,7 +365,7 @@ function passEncoder($pass)
 	// http://en.wikipedia.org/wiki/Salt_%28cryptography%29
 	// http://en.wikipedia.org/wiki/Brute-force_attack
 	// http://en.wikipedia.org/wiki/Rainbow_table
-	$salt = dechex(mt_rand(0, SALT)) . dechex(mt_rand(0, SALT));
+	$salt = dechex(mt_rand(0, mt_getrandmax())) . dechex(mt_rand(0, mt_getrandmax()));
 
 	// This hashes the password with the salt so that it can be stored securely
 	// in your database.  The output of this next statement is a 64 byte hex
@@ -4707,6 +4707,12 @@ function _getTableSchema(): array
                            'inBank', 'status', 'UID', 'source', 'transactionId', 'customerId',
                            'userId', 'outletId', 'companyId', 'updated_at', 'data'],
         ],
+        'taxonomy' => [
+            'pk'       => 'taxonomyId',
+            'jsonbCol' => 'taxonomyExtra',
+            'columns'  => ['taxonomyId', 'taxonomyName', 'taxonomyType', 'taxonomyExtra',
+                           'sourceId', 'outletId', 'companyId'],
+        ],
     ];
 
     return $schema;
@@ -4963,31 +4969,32 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 {
 	global $plansValues, $countries;
 
+	$_v = '/assets/vendor';
 	if ($type == 'js') {
 		$default = [
-			'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.4.1/jquery.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js', //quitar cuando pase a ajax page loads
-			'https://cdnjs.cloudflare.com/ajax/libs/df-number-format/2.1.5/jquery.number.min.js',
+			"$_v/js/jquery-3.6.3.min.js",
+			"$_v/js/bootstrap-3.4.1.min.js",
+			"$_v/js/jquery.number-2.1.6.min.js",
 
-			'https://cdn.datatables.net/1.10.19/js/jquery.dataTables.min.js',
-			'https://cdn.datatables.net/buttons/1.5.2/js/dataTables.buttons.min.js',
+			"$_v/js/jquery.dataTables-1.10.22.min.js",
+			"$_v/js/dataTables.buttons-1.5.2.min.js",
 
-			'https://cdn.datatables.net/plug-ins/1.10.16/api/sum().js',
+			"$_v/js/dataTables.sum.js",
 
-			'https://cdnjs.cloudflare.com/ajax/libs/jquery.mask/1.14.11/jquery.mask.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.19.1/moment.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/locale/es.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-daterangepicker/2.1.25/daterangepicker.min.js', //quitar cuando pase a ajax page loads
-			'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/jquery.form/4.2.1/jquery.form.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/fastclick/1.0.6/fastclick.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/ismobilejs/0.4.1/isMobile.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/snap.js/1.9.3/snap.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.15.2/xlsx.mini.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/jquery.matchHeight/0.7.2/jquery.matchHeight-min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.js',
-			'https://cdnjs.cloudflare.com/ajax/libs/jquery-fullscreen-plugin/1.1.5/jquery.fullscreen-min.js',
-			'https://browser.sentry-cdn.com/5.15.4/bundle.min.js'
+			"$_v/js/jquery.mask-1.14.11.js",
+			"$_v/js/moment-2.24.0-with-locales.min.js",
+			"$_v/js/moment-locale-es.js",
+			"$_v/js/daterangepicker-3.1.min.js",
+			"$_v/js/simpleStorage-0.2.1.min.js",
+			"$_v/js/jquery.form-4.2.1.min.js",
+			"$_v/js/fastclick-1.0.6.min.js",
+			"$_v/js/isMobile-0.4.1.min.js",
+			"$_v/js/snap-1.9.3.min.js",
+			"$_v/js/xlsx-0.16.2.full.min.js",
+			"$_v/js/jquery.matchHeight-0.7.2.min.js",
+			"$_v/js/jquery.toast-1.3.2.min.js",
+			"$_v/js/jquery.fullscreen-1.1.5.min.js",
+			// Sentry removed
 		];
 
 		//if($_GET['debug']){
@@ -5002,13 +5009,12 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 			'https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;900&display=swap',
 			'https://fonts.googleapis.com/icon?family=Material+Icons',
 			'https://fonts.googleapis.com/css2?family=Shadows+Into+Light&display=swap',
-			'https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css',
-			'https://cdnjs.cloudflare.com/ajax/libs/simple-line-icons/2.4.1/css/simple-line-icons.css',
+			"$_v/css/bootstrap-3.4.1.min.css",
+			"$_v/css/simple-line-icons-2.4.1.css",
 			APP_URL . '/css/font.css',
-			'https://fonts.googleapis.com/icon?family=Material+Icons',
-			'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-daterangepicker/2.1.25/daterangepicker.min.css',
-			'https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.5.2/animate.min.css',
-			'https://cdnjs.cloudflare.com/ajax/libs/jquery-toast-plugin/1.3.2/jquery.toast.min.css'
+			"$_v/css/daterangepicker-3.1.css",
+			"$_v/css/animate-3.5.2.min.css",
+			"$_v/css/jquery.toast-1.3.2.min.css"
 		];
 		$defaultLast = [APP_URL . '/css/app.css', APP_URL . '/css/style.css?' . mt_rand()];
 
@@ -6243,10 +6249,10 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 			$slug   = db_prepare(($slug) ? $slug : slugify($name));
 			$isSlug = ncmExecute('SELECT companyId FROM company WHERE slug = ? AND companyId != ? LIMIT 1', [$slug, $companyId]);
-			if ($isSlug) { // si ya existe una emrpesa con este slug
+			if ($isSlug) { // si ya existe una empresa con este slug
 				createSlug('', $slug . '-' . mt_rand(5, 90), $companyId);
 			} else {
-				$db->Execute("UPDATE company SET slug = '" . $slug . "' WHERE companyId = " . $companyId);
+				$db->Execute("UPDATE company SET slug = ? WHERE companyId = ?", [$slug, $companyId]);
 			}
 		}
 
@@ -9561,9 +9567,13 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 				$settingRecord['settingTIN']        		= iftn($tin, 'TIN');
 				$settingRecord['settingCompanyCategoryId'] 	= $post['category'];
 
-				$settingRecord['companyId']             	= $company;
-
-				$settingInsert 	= ncmInsert(['records' => $settingRecord, 'table' => 'company']);
+				// Settings are stored as JSONB in the company row — update, not insert
+				unset($settingRecord['companyId']);
+				$settingInsert 	= ncmUpdate([
+					'records' => $settingRecord,
+					'table'   => 'company',
+					'where'   => "companyId = '" . $company . "'",
+				]);
 
 				createSlug($storeName, false, $company);
 
@@ -9636,7 +9646,7 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 
 						//add hotkeys
 						$regHotKeys = ['registerHotkeys' => json_encode($hotKeys)];
-						ncmUpdate(['records' => $regHotKeys, 'table' => 'register', 'where' => 'registerId = ' . $registerInsert . ' AND companyId = ' . $company]);
+						ncmUpdate(['records' => $regHotKeys, 'table' => 'register', 'where' => 'registerId = ' . $db->qstr($registerInsert) . ' AND companyId = ' . $db->qstr($company)]);
 					}
 				}
 

@@ -434,7 +434,7 @@ loadCDNFiles([],'css');
 
  <?php
   footerInjector();
-  loadCDNFiles(['https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.6/Chart.min.js'],'js');
+  loadCDNFiles(['/assets/vendor/js/Chart-2.9.4.min.js'],'js');
   ?>
 
   <script>

@@ -4,7 +4,7 @@ apiMiddleware();
 
 $cache 	= validateHttp('cache','post') ? validateHttp('cache','post') : false;
 
-$result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra as UNSIGNED) as sort FROM taxonomy WHERE taxonomyType = 'category' AND companyId = ? ORDER BY sort ASC LIMIT 500",[COMPANY_ID],$cache,true);
+$result = ncmExecute("SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = 'category' AND companyId = ? ORDER BY sort ASC LIMIT 500",[COMPANY_ID],$cache,true);
 $arrays 		= [];
 
 if($result){

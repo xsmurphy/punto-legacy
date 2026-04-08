@@ -212,13 +212,17 @@ class DB
         try {
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute($params);
-            return new DBResult($stmt->fetchAll(PDO::FETCH_ASSOC));
+            // SELECT returns rows, INSERT/UPDATE/DELETE return empty result
+            $isSelect = stripos(ltrim($sql), 'SELECT') === 0 || stripos(ltrim($sql), 'WITH') === 0;
+            return new DBResult($isSelect ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
         } catch (PDOException $e) {
             $this->lastError = $e->getMessage();
             $this->lastErrNo = (int) $e->getCode();
-            if ($this->debug) {
-                error_log('[DB] Execute error: ' . $e->getMessage() . ' | SQL: ' . $sql);
+            // Mark transaction as failed so CompleteTrans rolls back
+            if ($this->pdo->inTransaction()) {
+                $this->transOk = false;
             }
+            error_log('[DB] Execute error: ' . $e->getMessage() . ' | SQL: ' . substr($sql, 0, 200));
             return false;
         }
     }

@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 if(!validateHttp('id','post')){
 	header('Content-Type: application/json; charset=utf-8;'); 
@@ -14,7 +15,7 @@ $type 			= validateHttp('type','post');
 $jsonResult 	= [];
 
 if(!$type){
-	jsonDieResult(['error' => 'Missing type'],404);
+	apiOk(['error' => 'Missing type'], 404);
 }
 
 if($type == 'comission'){
@@ -29,14 +30,14 @@ if($type == 'comission'){
 	$exists 		= ncmExecute('SELECT itemSoldId, transactionId FROM itemSold WHERE itemSoldId = ? LIMIT 1',[$ID]);
 
 	if(!$exists){
-		jsonDieResult(['error' => 'Invalid item'],500);
+		apiOk(['error' => 'Invalid item'], 500);
 	}
 
 	//obtengo companyId
 	$existsT 		= ncmExecute('SELECT transactionId, companyId FROM transaction WHERE transactionId = ? LIMIT 1',[$exists['transactionId']]);
 
 	if($existsT['companyId'] != COMPANY_ID){
-		jsonDieResult(['error' => 'Invalid company'],500);
+		apiOk(['error' => 'Invalid company'], 500);
 	}
 
 	$result 		= ncmUpdate(['records' => ['itemSoldComission' => 0], 'table' => 'itemSold', 'where' => 'itemSoldId = ' . $ID]);

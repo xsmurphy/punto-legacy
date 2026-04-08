@@ -2,25 +2,15 @@
 
 require_once(__DIR__ . '/../includes/cors.php');
 
-require_once('../libraries/whoops/autoload.php');
 include_once("../libraries/adodb/adodb.inc.php");
 $db = ADONewConnection('mysqli');
 $db->NConnect('localhost', 'incomepo_905user', 'a0Hr(Rl~H6]r', 'incomepo_905');
 include_once('../includes/simple.config.php');
-include_once("../libraries/hashid.php");
 include_once("../includes/functions.php");
 
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode($str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-	$hashids = new Hashids\Hashids(SALT);
-	$decoded = $hashids->decode($str)[0];
-	return (int)$decoded;
-}
+function dec($str): string { return (string)$str; }
 
 function editCustomer($data,$companyId){
 	global $db;
@@ -124,7 +114,7 @@ if(validateBool('data',true,'post')){
 <html>
 <head>
 	<title>Customers</title>
-	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+	<script type="text/javascript" src="/assets/vendor/js/jquery-3.6.3.min.js"></script>
 	<script type="text/javascript">
 		$(document).ready(function(){
 			console.log('passing data');

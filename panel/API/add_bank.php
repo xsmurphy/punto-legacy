@@ -1,7 +1,8 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
-$modules 		= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+$modules 		= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 $record 	= [];
 $i 			= 0;
@@ -22,20 +23,20 @@ if(isJson($value)){
 if(validity($value,'array')){
 
 	if(!validity($value['name'])){
-		jsonDieResult(['error' => 'Debe añadir un nombre válido'],403);
+		apiOk(['error' => 'Debe añadir un nombre válido'], 403);
 	}
 
     if($value['balance'] && !is_numeric($value['balance'])){
-		jsonDieResult(['error' => 'El balance debe ser numérico'],403);
+		apiOk(['error' => 'El balance debe ser numérico'], 403);
 	}
 
     /*if(!validity($value['outlet'])){
-        jsonDieResult(['error' => 'Asigne una sucursal válida'],403);
+        apiOk(['error' => 'Asigne una sucursal válida'], 403);
     }else{
         $OUTLET_ID  = dec( $value['outlet'] );
         $outlet     = ncmExecute('SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1',[$OUTLET_ID,COMPANY_ID]);
         if(!$outlet){
-            jsonDieResult(['error' => 'Asigne una sucursal válida'],403);
+            apiOk(['error' => 'Asigne una sucursal válida'], 403);
         }
     }*/
 
@@ -54,12 +55,12 @@ if(validity($value,'array')){
     $insert = ncmInsert(['records' => $record, 'table' => 'banks']);
 
 	if($insert === false){
-		jsonDieResult(['error' => 'No se pudo crear el banco'],403);
+		apiOk(['error' => 'No se pudo crear el banco'], 403);
 	}else{
-		jsonDieResult(['success' => 'Banco creado'],200);
+		apiOk(['success' => 'Banco creado']);
 	}
 }else{
-	jsonDieResult(['error'=>'No se encontraron datos','failed'=>$value],404);
+	apiOk(['error'=>'No se encontraron datos','failed'=>$value], 404);
 }
 
 ?>

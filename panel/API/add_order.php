@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 $order 			= stripslashes(validateHttp('order','post'));
 
 if(isJson($order)){
@@ -32,17 +33,17 @@ $payment		= isset($order['payment']) ? $order['payment'] : false;
 $isOutlet 	= ncmExecute('SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1',[$outletId,COMPANY_ID]);
 
 if(!$isOutlet){
-	jsonDieMsg('Sucursal incorrecta = ' . $order,404,'error');
+	apiError('Sucursal incorrecta = ' . $order, 404);
 }
 
 $isRegister = ncmExecute('SELECT registerId FROM register WHERE registerId = ? AND outletId = ? AND companyId = ? LIMIT 1',[$registerId,$outletId,COMPANY_ID]);
 if(!$isRegister){
-	jsonDieMsg('Caja incorrecta',404,'error');
+	apiError('Caja incorrecta', 404);
 }
 
 $isUser 	= ncmExecute('SELECT contactId FROM contact WHERE contactId = ? AND type = 0 AND companyId = ? LIMIT 1',[$userId,COMPANY_ID]);
 if(!$isUser){
-	jsonDieMsg('Usuario incorrecto',404,'error');
+	apiError('Usuario incorrecto', 404);
 }
 
 //items
@@ -141,11 +142,11 @@ if(validity($saleDetail,'array')){
 		if($tin){
 			$getCustomer = ncmExecute('SELECT * FROM contact WHERE contactTIN = ? AND companyId = ? LIMIT 1',[$tin,COMPANY_ID]);
 			if($getCustomer){
-				$customer = $getCustomer['contactUID'];
+				$customer = $getCustomer['contactId'];
 			}else{
 				if($name){
 					$customer 					= generateUID();
-					$cRecord['contactUID']      = $customer;
+					$cRecord['contactId']      = $customer;
 					$cRecord['contactName']    	= $name;
 					$cRecord['contactTIN']     	= $tin;
 					$cRecord['contactPhone']   	= $phone;
@@ -275,11 +276,11 @@ if(validity($saleDetail,'array')){
 
 		insertNotifications($ops);
 
-    	jsonDieResult([ 'success' => 'Orden generada', 'nro' => $docNo, 'ID' => enc($insertedId) ]);
+    	apiOk([ 'success' => 'Orden generada', 'nro' => $docNo, 'ID' => enc($insertedId) ]);
     }else{
-    	jsonDieMsg('No se pudo generar la orden',401,'error');
+    	apiError('No se pudo generar la orden', 401);
     }
 }else{
-	jsonDieMsg('Debe incluir productos o servicios',401,'error');
+	apiError('Debe incluir productos o servicios', 401);
 }
 ?>

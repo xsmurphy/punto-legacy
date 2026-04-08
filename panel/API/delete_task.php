@@ -1,10 +1,11 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $ID = validateHttp('ID','post');
 
 if(empty($ID)){
-	jsonDieMsg('Missing ID',401,'error');
+	apiError('Missing ID', 401);
 }
 
 $ID = dec($ID);
@@ -12,8 +13,8 @@ $ID = dec($ID);
 $result = ncmDelete('DELETE FROM tasks WHERE ID = ? LIMIT 1', [$ID]);
 
 if($result === false){
-	jsonDieMsg($db->ErrorMsg(),401,'error');
+	apiError($db->ErrorMsg(), 401);
 }else{
-	jsonDieResult(['success' => 'Tarea eliminada']);
+	apiOk(['success' => 'Tarea eliminada']);
 }
 ?>

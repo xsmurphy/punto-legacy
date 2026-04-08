@@ -22,12 +22,25 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 header('Content-Type: application/json');
 
 $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
-$phone   = validateHttp('phone');
-$country = validateHttp('country') ?: 'PY';
 
-if (!$phone) {
+// No usar validateHttp() aquí: teléfonos con '+' o numéricos pueden ser rechazados
+// por validity() en ciertos casos. Leemos directamente del superglobal.
+$phone   = isset($_GET['phone'])   ? trim($_GET['phone'])   : '';
+$country = isset($_GET['country']) ? trim($_GET['country']) : 'PY';
+
+if (!strlen($phone)) {
     http_response_code(400);
     die(json_encode(['error' => 'phone requerido']));
+}
+
+// En debug: evitar self-request HTTP (deadlock en php -S single-threaded)
+if ($isDebug) {
+    $digits = preg_replace('/\D/', '', $phone);
+    if (strlen($digits) < 6) {
+        http_response_code(400);
+        die(json_encode(['error' => 'Número de teléfono inválido']));
+    }
+    die(json_encode(['success' => true, 'phone' => '+' . $digits, 'code' => '0000']));
 }
 
 // Validar y formatear el número
@@ -44,10 +57,6 @@ if (isset($valid['type']) && $valid['type'] < 1) {
 }
 
 $formattedPhone = $valid['phone'];
-
-if ($isDebug) {
-    die(json_encode(['success' => true, 'phone' => $formattedPhone, 'code' => '0000']));
-}
 
 // Generar código vía 2fapin
 $pinResponse = json_decode(getFileContent(API_URL . '/2fapin.php?new=1&phone=' . rawurlencode($formattedPhone)), true);

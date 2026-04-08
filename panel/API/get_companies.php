@@ -1,7 +1,8 @@
 <?php
-include_once('api_head.php');
-// if($companyId != "Og"){
-//     jsonDieMsg('Acceso denegado',403);
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
+// if($companyId != 'Og'){
+//     apiError('Acceso denegado', 403);
 // }
 $result = ncmExecute('SELECT companyId, settingName from setting',[],false,true);
 $companies = [];
@@ -14,6 +15,6 @@ if($result){
         $result->MoveNext();
     }
 }
-jsonDieResult([
+apiOk([
     "data" => $companies
 ]);

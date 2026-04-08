@@ -1,7 +1,8 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
-$field 			= ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
+$field 			= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
 $jsonResult 	= [];
 $notAllowed 	= ['companyId'];
 
@@ -10,7 +11,7 @@ if ($field) {
 	foreach ($field as $key => $value) {
 		if (!is_numeric($key)) {
 			if (!in_array($key, $notAllowed)) {
-				if ($key == "ecom_data") {
+				if ($key == 'ecom_data') {
 					$ecom_data = json_decode($value, true);
 
 					if (isset($ecom_data['tiers']) && is_array($ecom_data['tiers'])) {
@@ -36,4 +37,4 @@ if ($field) {
 	}
 }
 
-jsonDieResult($jsonResult, 200);
+apiOk($jsonResult);

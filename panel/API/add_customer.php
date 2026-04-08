@@ -1,5 +1,6 @@
 <?php
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
 
 $record 	= [];
 $maxLoop 	= 520;
@@ -20,7 +21,7 @@ if(isJson($value)){
 if(validity($value,'array')){
 
 	if(!$value['fiscalName'] && !$value['name']){
-		jsonDieResult(['error'=>'Nombre y apellido o Razón social son obligatorios'],403);
+		apiOk(['error'=>'Nombre y apellido o Razón social son obligatorios'], 403);
 	}
 
 	if($value['tin']){
@@ -116,7 +117,7 @@ if(validity($value,'array')){
 
 	$newUID = generateUID();
 
-	$record['contactUID'] 		= $newUID;
+	$record['contactId'] 		= $newUID;
 	$record['contactDate'] 		= TODAY;
 	$record['contactStatus'] 	= 1;
 	$record['type'] 			= 1;
@@ -130,7 +131,7 @@ if(validity($value,'array')){
 	$eAddress['companyId'] 				= COMPANY_ID;
 
 	if($insert === false){
-		jsonDieResult(['error' => 'No se pudo crear el cliente'],403);
+		apiOk(['error' => 'No se pudo crear el cliente'], 403);
 	}else{
 		updateLastTimeEdit(COMPANY_ID,'customer');
 
@@ -138,10 +139,10 @@ if(validity($value,'array')){
 		$addressUpdt['table'] 	= 'customerAddress';
 
 		$idCreated = ncmInsert($addressUpdt);
-		jsonDieResult(['success' => 'Cliente creado','UID' => enc($newUID),'id' => enc($contactId)],200);
+		apiOk(['success' => 'Cliente creado','UID' => enc($newUID),'id' => enc($contactId)]);
 	}
 }else{
-	jsonDieResult(['error'=>'No se encontraron datos','failed'=>$value],404);
+	apiOk(['error'=>'No se encontraron datos','failed'=>$value], 404);
 }
 
 ?>

@@ -3,20 +3,11 @@ require_once(__DIR__ . '/../includes/cors.php');
 
 include_once('/home/encom/public_html/panel/includes/db.php');
 include_once('/home/encom/public_html/panel/includes/simple.config.php');
-include_once("/home/encom/public_html/panel/libraries/hashid.php");
 include_once("/home/encom/public_html/panel/includes/functions.php");
 
-//encode ID
-function enc($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->encode((int)$str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->decode($str)[0];
-}
+function dec($str): string { return (string)$str; }
 
 $get        = validity($_GET);
 
@@ -25,7 +16,7 @@ if(validity($get['a']) != NCM_SECRET){
 }
 
 $slug       = db_prepare( $get['s'] );
-$setting    = ncmExecute("SELECT companyId FROM setting WHERE settingSlug = ? LIMIT 1",[$slug],true);
+$setting    = ncmExecute("SELECT companyId FROM company WHERE slug = ? LIMIT 1",[$slug],true);
 
 if($setting){
   $company = ncmExecute("SELECT accountId,companyId FROM company WHERE companyId = ? LIMIT 1",[$setting['companyId']],true);

@@ -32,8 +32,8 @@ list($calendar,$startDate,$endDate,$lessDays) = datesForGraphs(7);
 	loadCDNFiles([],'css');
 	footerInjector();
 	loadCDNFiles([
-				'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.6/Chart.min.js',
-				'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js',
+				'/assets/vendor/js/Chart-2.9.4.min.js',
+				'/assets/vendor/js/simpleStorage-0.2.1.min.js',
 				'/scripts/jquery.table2excel.js'
 				],'js');
 ?>

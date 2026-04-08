@@ -1666,9 +1666,9 @@ if(validateHttp('action') == 'tusFacturas'){
 <?php //echo maintaining()?>
 <?php
 loadCDNFiles([
-			'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.45/css/bootstrap-datetimepicker.min.css',
-			'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/css/select2.min.css',
-			'https://cdnjs.cloudflare.com/ajax/libs/select2-bootstrap-theme/0.1.0-beta.10/select2-bootstrap.min.css'
+			'/assets/vendor/css/bootstrap-datetimepicker-4.17.45.min.css',
+			'/assets/vendor/css/select2-4.0.6.min.css',
+			'/assets/vendor/css/select2-bootstrap-0.1.0.min.css'
 			],'css');
 ?>
 
@@ -1745,12 +1745,12 @@ loadCDNFiles([
   <?php
   footerInjector();
   loadCDNFiles([
-				'https://cdnjs.cloudflare.com/ajax/libs/jQuery.print/1.6.0/jQuery.print.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.1/js/select2.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.5/js/i18n/es.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.6/Chart.min.js',
-				'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.45/js/bootstrap-datetimepicker.min.js',
-				'https://cdn.jsdelivr.net/simplestorage/0.2.1/simpleStorage.min.js'
+				'/assets/vendor/js/jQuery.print-1.5.1.min.js',
+				'/assets/vendor/js/select2-4.1.0.min.js',
+				'/assets/vendor/js/select2-i18n-es.min.js',
+				'/assets/vendor/js/Chart-2.9.4.min.js',
+				'/assets/vendor/js/bootstrap-datetimepicker-4.17.47.min.js',
+				'/assets/vendor/js/simpleStorage-0.2.1.min.js'
 				],'js');
   ?>
 
