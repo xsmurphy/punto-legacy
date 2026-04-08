@@ -10,12 +10,12 @@ $companyData 	= [];
 
 $company = ncmExecute("SELECT
 							a.companyId as id,
-							a.companySMSCredit as smsCredit,
+							a.smsCredit,
 							b.settingName as name,
 							b.settingCountry as country
 						FROM company a, setting b
-						WHERE a.companyStatus = 'Active'
-						AND	a.companyPlan IN (" . $allowedPlans . ") 
+						WHERE a.status = 'Active'
+						AND	a.plan IN (" . $allowedPlans . ") 
 						AND a.companyId = b.companyId
 						LIMIT 10000");
 if($company){
@@ -40,7 +40,7 @@ if($company){
 
 $rangeDate 	= date('Y-m-d');
 
-$sql 		= 'SELECT contactUID as uid,
+$sql 		= 'SELECT contactId as uid,
 					contactEmail as email,
 					contactPhone as phone,
 					contactPhone2 as phone2,
@@ -70,7 +70,7 @@ if($contacts){
 		$compName 	= $companyData[$fields['company']]['name'];
 		$compCountry= $companyData[$fields['company']]['country'];
 		$smsCredit 	= $companyData[$fields['company']]['sms'];
-		$compLogo 	= 'https://assets.encom.app/150-150/0/' . enc($fields['company']) . '.jpg';
+		$compLogo 	= '/assets/150-150/0/' . enc($fields['company']) . '.jpg';
 
 		$subject	= '[' . $compName . '] Que los cumplas feliz!';
 

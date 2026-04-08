@@ -1,7 +1,6 @@
 <?php
 include_once("../panel/includes/db.php");
 include_once('../panel/includes/simple.config.php');
-include_once("../panel/libraries/hashid.php");
 require_once('../panel/includes/config.php');
 require_once('../panel/libraries/php-thumb/ThumbLib.inc.php');
 

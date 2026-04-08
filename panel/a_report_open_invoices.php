@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -324,7 +322,7 @@ if(validateHttp('action') == 'generalTable'){
 						if(!$isToPay){ 
 			$tr .= 		'<tr data-family="' . enc($contactId) . '" class="noxls">' .
 						'	<td colspan="7" class="text-center">' .
-						'	<a href="https://public.encom.app/customerAccountStatus?s=' . base64_encode(enc(COMPANY_ID).','.enc($contactId)) . '" class="text-info text-md font-bold text-u-c hidden-print">Ver detalles</a>' .
+						'	<a href="/screens/customerAccountStatus?s=' . base64_encode(enc(COMPANY_ID).','.enc($contactId)) . '" class="text-info text-md font-bold text-u-c hidden-print">Ver detalles</a>' .
 						'	</td>' .
 						'</tr>';
 						}						

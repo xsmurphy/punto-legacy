@@ -1,8 +1,6 @@
 <?php
 require_once(__DIR__ . '/includes/cors.php');
 
-require_once('libraries/whoops/autoload.php');
-
 if(isset($_GET['c']) && isset($_GET['s'])){
 
     include_once("libraries/rateLimiter.php");
@@ -45,7 +43,6 @@ if(isset($_GET['c']) && isset($_GET['s'])){
 
 
     include_once("includes/simple.config.php");
-    include_once("libraries/hashid.php");
     include_once("libraries/countries.php");
     include_once("includes/functions.php");
     theErrorHandler('json');
@@ -53,7 +50,6 @@ if(isset($_GET['c']) && isset($_GET['s'])){
     $time_start = microtime(true);
 
     function getIPS($ci){
-        include_once('libraries/simple_html_dom.php');
         $return = [];
         $dom = new simple_html_dom();
 
@@ -305,7 +301,6 @@ if(isset($_GET['c']) && isset($_GET['s'])){
     if($_GET['scanner']){
 
         include_once("includes/simple.config.php");
-        include_once("libraries/hashid.php");
         include_once("libraries/countries.php");
         include_once("includes/functions.php");
 

@@ -145,7 +145,7 @@ if(validateHttp('action') == 'viewData' && validateHttp('d')){
 					$details .= '<a href="#" class="printList hidden-print block text-center m-t" data-id="' . enc($drawer) . '">Imprimir</a>';
 				}
 
-				$details .= '<a href="https://public.encom.app/closedRegister?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($drawer)) . '" class="hidden-print block text-center m-t" target="_blank">Vista externa</a>';
+				$details .= '<a href="/screens/closedRegister?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($drawer)) . '" class="hidden-print block text-center m-t" target="_blank">Vista externa</a>';
 
 
 		    	if($_modules['dropbox']){
@@ -442,7 +442,7 @@ if(validateHttp('action') == 'correctClosure'){
 ?>
 
 <?=menuReports();?>
-<?=reportsTitle('Reporte de Cajas',true,'https://docs.encom.app/panel-de-control/reportes/otros/control-de-caja');?>
+<?=reportsTitle('Reporte de Cajas',true,'/panel-de-control/reportes/otros/control-de-caja');?>
 	
 <section class="panel col-xs-12 wrapper push-chat-down r-24x tableContainer table-responsive" style="min-height:400px;">
     <table class="table table1 table-hover col-xs-12 no-padder" id="tableDrawers">

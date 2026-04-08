@@ -70,7 +70,7 @@ if($dbName){
 				CREATE TABLE `contact` (
 				  `contactId` int(11) NOT NULL AUTO_INCREMENT,
 				  `contactRealId` int(11) NOT NULL,
-				  `contactUID` bigint(20) DEFAULT NULL,
+				  `contactId` bigint(20) DEFAULT NULL,
 				  `contactName` varchar(255) NOT NULL,
 				  `contactSecondName` varchar(255) DEFAULT NULL,
 				  `contactEmail` varchar(255) DEFAULT NULL,
@@ -107,7 +107,7 @@ if($dbName){
 				  PRIMARY KEY (`contactId`),
 				  KEY `companyId` (`companyId`),
 				  KEY `contactId` (`contactId`),
-				  KEY `contactUID` (`contactUID`),
+				  KEY `contactId` (`contactId`),
 				  KEY `contactRealId` (`contactRealId`),
 				  KEY `type` (`type`)
 				) ENGINE=MyISAM DEFAULT CHARSET=latin1;");
@@ -552,7 +552,7 @@ if($dbName){
 				  `settingItemSerialized` tinyint(1) DEFAULT '1',
 				  `settingAcceptedTerms` tinyint(1) DEFAULT NULL,
 				  `settingSellCredit` tinyint(1) NOT NULL DEFAULT '1',
-				  `settingPlanExpired` tinyint(1) DEFAULT NULL,
+				  `planExpired` tinyint(1) DEFAULT NULL,
 				  `settingIsTrial` int(11) DEFAULT NULL,
 				  `settingLoyalty` int(1) DEFAULT NULL,
 				  `settingLoyaltyMin` decimal(15,2) DEFAULT NULL,

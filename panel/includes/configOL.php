@@ -4,13 +4,13 @@
 
 $origin 			= $_SERVER['HTTP_ORIGIN'];
 $allowed_domains 	= [
-    'https://encom.app',
-    'https://panel.encom.app',
-    'https://app.encom.app',
-    'https://assets.encom.app',
-    'https://api.encom.app',
-    'https://ecom.encom.app',
-    'https://encom.site',
+    '/',
+    '',
+    '',
+    '/assets',
+    API_URL,
+    '',
+    // ecommerce — configurar via ECOMMERCE_URL
 	'https://ncmsite.com'
 ];
 
@@ -76,17 +76,9 @@ function printSessionData($data){ //anhade seguridad al utilizar las variables d
 	}
 }
 
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode($str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-	$hashids = new Hashids\Hashids(SALT);
-	$decoded = $hashids->decode($str)[0];
-	return (int)$decoded;
-}
+function dec($str): string { return (string)$str; }
 
 function ncmEncode($str){
 	$based 		= base64_encode($str);
@@ -114,15 +106,15 @@ function getCompanyLoginSession($companyId,$encomADM = false){
 		$_SESSION['user']['companyId']  	= enc($contact->fields['companyId']);
 		$_SESSION['user']['companyDB']  	= $contact->fields['companyDB'];
 
-		$_SESSION['user']['companyStatus']  = $company->fields['companyStatus'];
+		$_SESSION['user']['companyStatus']  = $company->fields['status'];
 		$_SESSION['user']['companyParent']  = 0;
 		$_SESSION['user']['userName']     = $contact->fields['contactName'];
 		$_SESSION['user']['userEmail']    = $contact->fields['contactEmail'];
 		$_SESSION['user']['role']         = enc($contact->fields['role']);
 		$_SESSION['user']['outletId']     = enc($outlet->fields['outletId']);
 		$_SESSION['user']['registerId']   = 0;
-		$_SESSION['user']['plan']         = enc($company->fields['companyPlan']);
-		$_SESSION['user']['planExpires']  = $company->fields['companyExpiringDate'];
+		$_SESSION['user']['plan']         = enc($company->fields['plan']);
+		$_SESSION['user']['planExpires']  = $company->fields['expiresAt'];
 		$_SESSION['user']['outletsCount'] = $outletCount->fields['count'];
 		$_SESSION['user']['startDate']    = false;
 		$_SESSION['user']['endDate']      = false;
@@ -173,10 +165,10 @@ if(isset($_SESSION['user'])){
 		define('ENCOM_ADM', false);
 	}
 	
-	$setting 		= $db->Execute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+	$setting 		= $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
 	$_cmpSettings 	= $setting->fields;
 
-	$modules 		= $db->Execute("SELECT * FROM module WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+	$modules 		= $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
 	$_modules 		= $modules->fields;
 									
 	define('COMPANY_NAME', $_cmpSettings['settingName']);
@@ -194,7 +186,7 @@ if(isset($_SESSION['user'])){
 	setcookie('category_id', $_cmpSettings['settingCompanyCategoryId'], time() + (86400 * 300), "/");
 	define('REGISTER_CONTROL', 'yes');
 	define('ACCEPTED_TERMS', $_cmpSettings['settingAcceptedTerms']);
-	define('EXPIRED', $_cmpSettings['settingPlanExpired']);
+	define('EXPIRED', $_cmpSettings['planExpired']);
 	define('LOYALTY', $_modules['loyalty']);
 	define('STORE_CREDIT', $_cmpSettings['settingStoreCredit']);
 	define('LINE_CREDIT', $_cmpSettings['settingForceCreditLine']);
@@ -207,11 +199,11 @@ if(isset($_SESSION['user'])){
 	$modules->Close();
 
 	$companyData = $db->Execute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-	define('BALANCE', $companyData->fields['companyBalance']);
-	define('SMS_CREDIT', $companyData->fields['companySMSCredit']);
-	define('COMPANY_DATE', $companyData->fields['companyDate']);
+	define('BALANCE', $companyData->fields['balance']);
+	define('SMS_CREDIT', $companyData->fields['smsCredit']);
+	define('COMPANY_DATE', $companyData->fields['createdAt']);
 	define('LAST_TIME_EDIT', $companyData->fields['companyLastUpdate']);
-	define('COMPANY_DISCOUNT', $companyData->fields['companyDiscount']);
+	define('COMPANY_DISCOUNT', $companyData->fields['discount']);
 	define('API_KEY', sha1($companyData->fields['accountId']));
 
 	$companyData->Close();
@@ -254,7 +246,6 @@ define('INCOME_USER_ID', 32);
 define('INCOME_OUTLET_ID', 254);
 define('INCOME_REGISTER_ID', 2244);
 
-define('INTERCOM_IDENTITY_SECRET', $_ENV['INTERCOM_IDENTITY_SECRET'] ?? '');
 
 //ids de los productos de income
 define('PLAN_COMPANY_ID', 27558);
@@ -263,7 +254,7 @@ define('PLAN_STARTER_ID', 27559);
 define('PLAN_MICRO_ID', 27560);
 define('PLAN_FULL_ID', 32491);
 
-define('ASSETS_URL', 'https://assets.encom.app');
+define('ASSETS_URL', '/assets');
 define('SYSIMGS_FOLDER', '../assets/sysimages');
 
 define('TODAY', date('Y-m-d H:i:s'));
@@ -762,7 +753,7 @@ Tipos de Transacciones
 */
 
 
-$globals = ['COMPANY_ID','USER_ID','ENCOM_COMPANY_ID','USER_NAME','USER_EMAIL','USER_ID','USER_PHONE','INTERCOM_IDENTITY_SECRET','COMPANY_NAME','COMPANY_DATE','PLAN','OUTLETS_COUNT','OUTLET_ID','REGISTER_ID'];
+$globals = ['COMPANY_ID','USER_ID','ENCOM_COMPANY_ID','USER_NAME','USER_EMAIL','USER_ID','USER_PHONE','COMPANY_NAME','COMPANY_DATE','PLAN','OUTLETS_COUNT','OUTLET_ID','REGISTER_ID'];
 
 foreach ($globals as $value) {
 	if(!defined($value)){

@@ -4,13 +4,13 @@ include_once './cronHead.php';
 
 die();
 
-$meta['subject'] = '[ENCOM]';
+$meta['subject'] = '[' . APP_NAME . ']';
 $meta['to']      = 'drahgster@gmail.com';
-$meta['fromName']= 'ENCOM';
+$meta['fromName']= APP_NAME;
 $meta['data']    = [
                     "message"     => 'Hellooo wusup',
-                    "companyname" => 'ENCOM',
-                    "companylogo" => 'https://assets.encom.app/150-150/0/J9.jpg'
+                    "companyname" => APP_NAME,
+                    "companylogo" => '/assets/150-150/0/J9.jpg'
                 	];
 
 sendEmails($meta);
@@ -28,15 +28,15 @@ $c 			= 0;
 $e 			= 0;
 
 $allCompanies 		= getAllPayingCompaniesData();
-$allowedCompanies 	= ncmExecute('SELECT GROUP_CONCAT(companyId) as ids FROM company WHERE companyPlan IN(5,1,2) GROUP BY companyStatus');
+$allowedCompanies 	= ncmExecute('SELECT STRING_AGG(companyId::text, \',\') as ids FROM company WHERE plan IN(5,1,2) GROUP BY status');
 
-//$db->Execute('UPDATE setting SET settingPlanExpired = NULL WHERE companyId IN(' . $allowedCompanies['ids'] . ')'); //reseteo todos los expired warnings y luego vuelvo a poner si es que no pago
+//$db->Execute('UPDATE company SET planExpired = NULL WHERE companyId IN(' . $allowedCompanies['ids'] . ')'); //reseteo todos los expired warnings y luego vuelvo a poner si es que no pago
   
 while (!$result->EOF) {
 	$fields 	= $result->fields;
 	$id 		= $fields['customerId'];
 
-	$db->Execute('UPDATE setting SET settingPlanExpired = 1 WHERE encomSettingId = ?',[$id]); //reseteo todos los expired warnings y luego vuelvo a poner si es que no pago
+	$db->Execute("UPDATE company SET planExpired = 1 WHERE config->>'encomSettingId' = ?",[$id]); //reseteo todos los expired warnings y luego vuelvo a poner si es que no pago
 
 	//ACA VER DE HACER QUE VERIFIQUE SI TIENE CREDITO INTERNO Y USE ESO PARA PAGAR
 
@@ -53,7 +53,7 @@ while (!$result->EOF) {
 	if($total > 0){
 		if($balance >= $total){
 			//descuento el balance y set la nueva fecha de vencimiento
-			$db->Execute('UPDATE company SET companyBalance = companyBalance-'.$total.', companyExpiringDate = "'.$newExpiring.'" WHERE companyId = ?',array($id));
+			$db->Execute('UPDATE company SET balance = balance-'.$total.', expiresAt = "'.$newExpiring.'" WHERE companyId = ?',array($id));
 
 			//inserto pago total a venta a credito
 			$record['transactionTotal']       = $total; //total sale amount
@@ -72,7 +72,7 @@ while (!$result->EOF) {
 		    //set la venta a credito como finalizada
 		    $db->Execute('UPDATE transaction SET transactionComplete = 1 WHERE transactionId = ?',array($fields['transactionId']));
 		    //set flag a 0 para que no muestre alertas de vencimiento
-		    $db->Execute('UPDATE setting SET settingPlanExpired = 0 WHERE companyId = ?',array($id));
+		    $db->Execute('UPDATE company SET planExpired = 0 WHERE companyId = ?',array($id));
 
 			//success email
 			$subject 	= 'Plan Renovado';
@@ -82,12 +82,12 @@ while (!$result->EOF) {
 			$after5Days = date('Y-m-d 00:00:00', strtotime($fields['transactionDueDate'].' +5 day'));
 			if(time() >= strtotime($after5Days)){ //si pasaron 5 dias sin pagar
 				//account downgraded si tenía descuento dejo en 0
-				$db->Execute('UPDATE company SET companyPlan = 0, companyDiscount = 0 WHERE companyId = ?',array($id));
+				$db->Execute('UPDATE company SET plan = 0, discount = 0 WHERE companyId = ?',array($id));
 
 				//Anulo la venta a credito
 				$db->Execute('UPDATE transaction SET transactionType = 7 WHERE transactionId = ?',array($fields['transactionId']));
 				//set flag a 0 para que no muestre alertas de vencimiento
-				$db->Execute('UPDATE setting SET settingPlanExpired = 0 WHERE companyId = ?',array($id));
+				$db->Execute('UPDATE company SET planExpired = 0 WHERE companyId = ?',array($id));
 
 				$subject 	= 'Su plan fue cancelado';
 				$sub 		= array(":total"=>array($total));
@@ -95,7 +95,7 @@ while (!$result->EOF) {
 
 			}else{ //si aun no pasaron 5 dias
 				//activo este flag para que muestre en el panel alertas de que vencerá el plan
-				$db->Execute('UPDATE setting SET settingPlanExpired = 1 WHERE companyId = ?',array($id));
+				$db->Execute('UPDATE company SET planExpired = 1 WHERE companyId = ?',array($id));
 				//failed email 
 				$subject 	= 'Alerta, no pudimos renovar su plan';
 				$sub 		= array(":duedate"=>array(nicedate($fields['transactionDueDate'])),":total"=>array($total),":balance"=>array($balance));
@@ -104,7 +104,7 @@ while (!$result->EOF) {
 		}
 	}else{
 		//set la nueva fecha de vencimiento
-		$db->Execute('UPDATE company SET companyExpiringDate = "'.$newExpiring.'" WHERE companyId = ?',array($id));
+		$db->Execute('UPDATE company SET expiresAt = "'.$newExpiring.'" WHERE companyId = ?',array($id));
 
 		//inserto pago total a venta a credito
 		$record['transactionTotal']       = $total; //total sale amount
@@ -139,7 +139,7 @@ while (!$result->EOF) {
 /*
 if($result->RecordCount() > 0){
 	
-	$user = $db->Execute("SELECT contactEmail, companyId FROM contact WHERE role = 1 AND type = 0 AND companyId IN(".rtrim($where,',').")");
+	$user = $db->Execute("SELECT contactEmail, companyId FROM contact WHERE role = 1 AND type = 0 AND companyId IN('.rtrim($where,',').')");
 	while (!$user->EOF) {
 		$compId 	= $user->fields['companyId'];
 		

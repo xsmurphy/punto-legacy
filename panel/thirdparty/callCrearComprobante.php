@@ -75,7 +75,7 @@ curl_close($ch);
 
 
 // MANEJO LA RESPUESTA
-if ($rta->error == "N") {
+if ($rta->error == 'N') {
 	echo '  CAE otorgado:'.$rta->cae.'
 
 	Vto:'.$rta->vencimiento_cae.'

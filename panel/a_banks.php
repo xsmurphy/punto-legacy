@@ -32,7 +32,7 @@ if(validateHttp('action') == 'list'){
 			    'company_id'  	=> enc(COMPANY_ID)
 			  ];
 
-	$result = curlContents('https://api.encom.app/get_banks','POST',$data);
+	$result = curlContents(API_URL . '/get_banks','POST',$data);
 	
 	http_response_code(200);
 	header('Content-Type: application/json');
@@ -52,7 +52,7 @@ if(validateHttp('action') == 'delete' && validateHttp('id')){
 			    'ID' 			=> validateHttp('id')
 			  ];
 
-	$result = curlContents('https://api.encom.app/delete_bank','POST',$data);
+	$result = curlContents(API_URL . '/delete_bank','POST',$data);
 	
 	header('Content-Type: application/json'); 
 	dai($result);
@@ -71,7 +71,7 @@ if(validateHttp('action') == 'view' && validateHttp('id')){
 			    'ID' 			=> validateHttp('id')
 			  ];
 
-	$result = curlContents('https://api.encom.app/get_banks','POST',$data);
+	$result = curlContents(API_URL . '/get_banks','POST',$data);
 	
 	header('Content-Type: application/json'); 
 	dai($result);
@@ -90,7 +90,7 @@ if(validateHttp('action') == 'add' && validateHttp('id')){
 			    'data' 			=> json_decode(validateHttp('data'), true)
 			  ];
 
-	$result = curlContents('https://api.encom.app/add_bank','POST',$data);
+	$result = curlContents(API_URL . '/add_bank','POST',$data);
 	
 	header('Content-Type: application/json'); 
 	dai($result);

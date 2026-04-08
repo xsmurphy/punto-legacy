@@ -1,6 +1,5 @@
 <?php
 include_once("includes/simple.config.php");
-include_once("libraries/hashid.php");
 include_once("includes/functions.php");
 
 echo rand();

@@ -10,12 +10,12 @@ $dateDecided 	= $get['d'];
 
 $company = ncmExecute("SELECT
 							a.companyId as id,
-							a.companySMSCredit as smsCredit,
+							a.smsCredit,
 							b.settingName as name,
 							b.settingCountry as country
 						FROM company a, setting b
-						WHERE a.companyStatus = 'Active'
-						AND	a.companyPlan IN (" . $allowedPlans . ") 
+						WHERE a.status = 'Active'
+						AND	a.plan IN (" . $allowedPlans . ") 
 						AND a.companyId = b.companyId
 						LIMIT 10000");
 if($company){
@@ -88,7 +88,7 @@ if($tomorrowDue){
 				"title" 	=> "Cuentas por pagar",
 				"message" 	=> $alert . ' clic para ver el listado',
 				"type" 		=> 1,
-				"link" 		=> 'https://panel.encom.app/@#report_open_invoices?state=outcome&fltr=' . niceDate($rangeDate),
+				"link" 		=> '/@#report_open_invoices?state=outcome&fltr=' . niceDate($rangeDate),
 				"company" 	=> $fields['company'],
 				"email" 	=> true
 			];

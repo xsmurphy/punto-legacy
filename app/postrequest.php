@@ -1,21 +1,12 @@
 <?php
 include_once("includes/db.php");
 include_once("includes/simple.config.php");
-include_once("libraries/hashid.php");
 include_once("includes/functions.php");
 include_once("includes/invoicetemplates.php");
 
-//encode ID
-function enc($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->encode((int)$str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->decode($str)[0];
-}
+function dec($str): string { return (string)$str; }
 
 if(validateBool('dec')){
 	echo dec($_GET['dec']);
@@ -33,7 +24,7 @@ isHttps();
 
 <html>
 	<head>
-		<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+		<script type="text/javascript" src="/assets/vendor/js/jquery-3.6.3.min.js"></script>
 	</head>
 	<body>
 		<a href="#">Process</a>

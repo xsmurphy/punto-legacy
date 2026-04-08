@@ -13,7 +13,7 @@ $COMPANY_ID = dec($state);
 $params   =   [
                       'code'          => $token,
                       'grant_type'    => 'authorization_code',
-                      'redirect_uri'  => 'https://panel.encom.app/thirdparty/dropbox/auth.php',
+                      'redirect_uri'  => '/thirdparty/dropbox/auth.php',
                       'client_id'     => $DB_APPKEY,
                       'client_secret' => $DB_APPSECRET
                   ];
@@ -21,7 +21,7 @@ $params   =   [
 $tokens    = json_decode(curlContents('https://api.dropbox.com/1/oauth2/token','POST',$params),true);
 
 $updated    = ncmUpdate([
-                      'table'   => 'module',
+                      'table' => 'company',
                       'records' => [ 
                                       'dropboxToken' => $tokens['access_token']
                                     ],

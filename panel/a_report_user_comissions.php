@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -43,7 +41,7 @@ if(validateHttp('action') == 'delete' && validateHttp('id')){
 
 	//print_r($data);
 
-	$result = curlContents('https://api.encom.app/delete_user_comission.php','POST',$data);
+	$result = curlContents(API_URL . '/delete_user_comission.php','POST',$data);
 	
 	header('Content-Type: application/json'); 
 	dai($result);

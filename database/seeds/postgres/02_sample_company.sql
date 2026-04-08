@@ -10,7 +10,7 @@ INSERT INTO company (
 ) VALUES (
     '00000000-0000-0000-0000-000000000010',
     'Active',
-    0,
+    1,
     0.00,
     FALSE,
     '{"settingName":"Demo Company","settingCurrency":"PYG","settingLanguage":"es","settingCountry":"PY","settingTimeZone":"America/Asuncion","settingDecimal":",","settingThousandSeparator":"."}'

@@ -6,8 +6,8 @@ $data = explodes(',', base64_decode(validateHttp('s')));
 define("COMPANY_ID", dec( $db->Prepare( $data[0] ) ));
 define("TRANSACTION_ID", dec( $db->Prepare( $data[1] ) ));
 
-$setting    = ncmExecute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-$_modules   = ncmExecute("SELECT * FROM module WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+$setting    = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+$_modules   = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
 
 if(!$_modules['tusfacturas']){
   header('Content-Type: application/json');

@@ -295,7 +295,7 @@ $taxInput = selectInputTax(false,false,'',false,true);
           <div class="col-xs-12 no-padder hidden" id="moreOpsPanel">
             <div class="col-xs-12 no-padder m-b visiblePurchase">
               <label class="font-bold text-xs text-u-c">Métodos de Pago</label>
-              <?php $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "paymentMethod" AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true); ?>
+              <?php $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true); ?>
               <select id="paymentMethod" name="paymentMethod" tabindex="1" data-placeholder="Seleccione" class="form-control search" autocomplete="off">
                  <option value="cash">Efectivo</option>
                  <option value="creditcard">T. Crédito</option>
@@ -528,7 +528,7 @@ $taxInput = selectInputTax(false,false,'',false,true);
 
 <script type="text/html" id="noDataTpl">
   <div class="text-center wrapper-xl" id="noContentMsg">
-    <img src="https://assets.encom.app/images/emptystate7.png" height="120">
+    <img src="/assets/images/emptystate7.png" height="120">
     <div class="h4 m-t">Presione en AGREGAR<br>para comenzar</div>
   </div>
 </script>
@@ -1086,7 +1086,7 @@ $taxInput = selectInputTax(false,false,'',false,true);
     ncmiGuiderConfig.tourTitle  = 'guide.purchase';
     ncmiGuiderConfig.loc        = '/@#purchase';
     ncmiGuiderConfig.intro = {
-                                cover:'https://encom.app/wordpress/wp-content/uploads/2020/07/macbook-dashboard-plant.png',
+                                cover:'//wordpress/wp-content/uploads/2020/07/macbook-dashboard-plant.png',
                                 title:'¿Dudas de cómo usar la sección compras y gastos?',
                                 content:'Hagamos una guía rápida!',
                                 overlayColor:'#3b464d'
@@ -1173,7 +1173,7 @@ $taxInput = selectInputTax(false,false,'',false,true);
                                 before    : ncmiGuiderConfig.scrollToIt
                               },{
                                 title:'¿Todo listo?',       
-                                content:'Ahora si presiona en <b>Registrar</b> para procesar y finalizar la operación, <a href="https://docs.encom.app/panel-de-control/compras-y-gastos" target="_blank" class="text-white">visita el tutorial online</a> para más información.',
+                                content:'Ahora si presiona en <b>Registrar</b> para procesar y finalizar la operación, <a href="/panel-de-control/compras-y-gastos" target="_blank" class="text-white">visita el tutorial online</a> para más información.',
                                 target    :'#totalPurchase',
                                 delayBefore :250,
                                 before    : ncmiGuiderConfig.scrollToIt

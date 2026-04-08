@@ -3,7 +3,6 @@
     // First we execute our common code to connection to the database and start the session
 	include_once("includes/db.php");
 	include_once('includes/simple.config.php');
-	include_once("libraries/hashid.php");
     include_once("includes/config.php");
 
     session_start();
@@ -12,6 +11,6 @@
     unset($_SESSION['user']);
     
     // We redirect them to the login page
-   	header("Location:https://panel.encom.app/login");
+   	header("Location:/login");
     die("Redirecting");
 ?>

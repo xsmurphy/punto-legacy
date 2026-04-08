@@ -113,7 +113,7 @@ if(validateBool('action') == 'edit' && validateBool('id')){
         <?=$note?>
       </div>
       <div class="col-xs-12 wrapper">
-        <a href="https://public.encom.app/inventoryCount?s=<?=base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID))?>" class="btn btn-info btn-rounded text-u-c font-bold pull-right" target="_blank">Ver Reporte</a>
+        <a href="/screens/inventoryCount?s=<?=base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID))?>" class="btn btn-info btn-rounded text-u-c font-bold pull-right" target="_blank">Ver Reporte</a>
         <a href="#" class="cancelItemView m-r m-t-sm pull-right">Cerrar</a>
       
         <a href="#" class="deleteItem m-r m-t-sm pull-left" data-id="<?=$_GET['id']?>" data-name="<?=$name?>" data-load="<?=$baseUrl?>?action=delete&id=<?=$_GET['id']?>">
@@ -126,7 +126,7 @@ if(validateBool('action') == 'edit' && validateBool('id')){
     <?php
     dai();
   }else{
-    //$cats   = ncmExecute('SELECT COUNT(taxonomyId) as count FROM taxonomy WHERE taxonomyType = "category" AND ' . $SQLcompanyId);
+    //$cats   = ncmExecute('SELECT COUNT(taxonomyId) as count FROM taxonomy WHERE taxonomyType = \'category\' AND ' . $SQLcompanyId);
   }
 
 ?>
@@ -157,7 +157,7 @@ if(validateBool('action') == 'edit' && validateBool('id')){
 
         <div class="col-xs-12 m-t-lg text-center">
           <?php
-          $startCountURL = 'https://public.encom.app/inventoryCount?s=' . base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID));
+          $startCountURL = '/screens/inventoryCount?s=' . base64_encode(enc($result['inventoryCountId']).','.enc(COMPANY_ID));
           ?>
           <a href="<?=$startCountURL?>" class="h2 font-bold" target="_blank"><span class="text-info">Iniciar Conteo</span></a>
           <div class="m-t">
@@ -286,7 +286,7 @@ if(validateBool('action') == 'generalTable'){
       $outletName   = $oNames[$outlet]['name'];
       $locationName = getLocationName($location);
 
-      $url = '<a href="https://public.encom.app/inventoryCount?s=' . base64_encode(enc($fields['inventoryCountId']) . ',' . enc(COMPANY_ID)) . '" class="openLink text-md"><i class="material-icons text-info">launch</i></a>';
+      $url = '<a href="/screens/inventoryCount?s=' . base64_encode(enc($fields['inventoryCountId']) . ',' . enc(COMPANY_ID)) . '" class="openLink text-md"><i class="material-icons text-info">launch</i></a>';
 
 
       $table .= '<tr data-type="loadItem" data-id="'.$itemId.'" data-element="#formItemSlot" data-load="' . $baseUrl . '?action=edit&id='.$itemId.'" class="clickrow pointer">' . 

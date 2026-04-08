@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -52,7 +50,7 @@ if(validateHttp('action') == 'insert'){
     }
 
     $html   = '<div class="text-center">' .
-    '<img src="https://assets.encom.app/150-150/&amp;f=2|4,-50/' . COMPANY_ID . '.jpg" width="100">' .
+    '<img src="/assets/150-150/&amp;f=2|4,-50/' . COMPANY_ID . '.jpg" width="100">' .
     '</div>' .
     '<div class="text-center col-xs-12 h2 m-b">Orden de Producción</div>' .
     '<div class="col-xs-12 m-b text-center">' .
@@ -134,7 +132,7 @@ $it     = ncmExecute('  SELECT
   FROM item 
   WHERE itemStatus = 1 
   AND itemIsParent = 0 
-  AND (itemType = "product" || itemType = "production")
+  AND (itemType = \'product\' || itemType = \'production\')
   AND itemProduction = 1 
   AND ' . $SQLcompanyId . ' 
   ORDER BY itemName ASC 
@@ -218,7 +216,7 @@ if($it){
 
   <div id="noContentMsg" class="hidden">
     <div class="text-center wrapper-xl col-xs-12 noContentMsgIn">
-      <img src="https://assets.encom.app/images/emptystate7.png" height="120">
+      <img src="/assets/images/emptystate7.png" height="120">
       <div class="h4 m-t hidden-print">Presione en AGREGAR<br>para comenzar</div>
       <div class="h4 m-t visible-print">Debe añadir productos</div>
     </div>

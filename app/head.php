@@ -18,7 +18,6 @@ try {
 include_once("app_version.php");
 include_once("includes/db.php");
 include_once("includes/simple.config.php");
-include_once("libraries/hashid.php");
 include_once("libraries/countries.php");
 include_once("includes/functions.php");
 
@@ -27,20 +26,9 @@ theErrorHandler('json');
 $dias   = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sábado"];
 $meses  = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-//encode ID
-function enc($str){
-	$hashids = new Hashids\Hashids(SALT);
-	return $hashids->encode((int)$str);
-}
+function enc($str): string { return (string)$str; }
 
-//decode ID
-function dec($str){
-	$str 		= $str . '';
-	$hashids 	= new Hashids\Hashids(SALT);
-	$decoded 	= $hashids->decode($str)[0];
-	
-	return (int)$decoded;
-}
+function dec($str): string { return (string)$str; }
 
 function ncmEncode($str){
 	$based 		= base64_encode($str);

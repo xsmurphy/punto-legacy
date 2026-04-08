@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -35,7 +33,7 @@ $_rol 				= iftn(validateHttp('rol'),'customer');
 				contactDate as dates, 
 				contactAddress as address, 
 				contactAddress2 as address2, 
-				contactUID as id, 
+				contactId as id, 
 				contactCity as city, 
 				contactLocation as location, 
 				contactLatLng as latlng,
@@ -50,7 +48,7 @@ $_rol 				= iftn(validateHttp('rol'),'customer');
 			AND NOT EXISTS 
 			(
 				SELECT * FROM customerAddress ca
-				WHERE co.contactUID = ca.customerId
+				WHERE co.contactId = ca.customerId
 			)";
 
 	$allAddress = ncmExecute($sql,[],false,true);
@@ -138,7 +136,7 @@ if(validateHttp('action') == 'searchCustomerInputJson'){
 	if(validateHttp('not')){
 		$notIn 	= ' AND contactId != ' . $db->Prepare(dec(validateHttp('not')));
 	}
-	$sql    = 'SELECT contactUID, contactName, contactSecondName, contactTIN, contactId FROM contact WHERE (contactName LIKE "%' . $query . '%" OR contactTIN LIKE "%' . $query . '%")' . $notIn . ' AND type = ? AND ' . $SQLcompanyId . ' LIMIT 50';
+	$sql    = 'SELECT contactId, contactName, contactSecondName, contactTIN, contactId FROM contact WHERE (contactName LIKE \'%\' . $query . \'%\' OR contactTIN LIKE \'%\' . $query . \'%\')' . $notIn . ' AND type = ? AND ' . $SQLcompanyId . ' LIMIT 50';
 
   $result = ncmExecute($sql,[$type],false,true);
   $json   = [];
@@ -150,7 +148,7 @@ if(validateHttp('action') == 'searchCustomerInputJson'){
         			'sname' 		=> strtolower($result->fields['contactName']),
         			'secondname' 	=> strtolower($result->fields['contactSecondName']),
         			'stin' 			=> strtolower($result->fields['contactTIN']),
-        			'uid' 			=> ($type == 1) ? enc($result->fields['contactUID']) : enc($result->fields['contactId'])
+        			'uid' 			=> ($type == 1) ? enc($result->fields['contactId']) : enc($result->fields['contactId'])
         			];
 
         $result->MoveNext(); 
@@ -242,7 +240,7 @@ if(validateHttp('action') == 'insert'){
 		}
 
 		$record['contactTIN'] = $tin;
-		$record['contactUID'] = generateUID();
+		$record['contactId'] = generateUID();
 
 		$updateTable = 'customer';
 
@@ -391,7 +389,7 @@ if(validateHttp('action') == 'update'){
 			$consolidated = $db->AutoExecute('transaction', $consolidate, 'UPDATE', 'customerId = ' . $consFrom . ' AND ' . $SQLcompanyId); 
 
 			if($consolidated !== false){
-				$delete = $db->Execute('DELETE FROM contact WHERE contactUID = ? AND ' . $SQLcompanyId . ' LIMIT 1', [$consFrom]);
+				$delete = $db->Execute('DELETE FROM contact WHERE contactId = ? AND ' . $SQLcompanyId . ' LIMIT 1', [$consFrom]);
 			}
 		}
 
@@ -483,8 +481,8 @@ if(validateHttp('action') == 'form'){
 	$showForm = 'style="display:none;"';
 
 	if(validateHttp('id')){// 
-		$result	= ncmExecute('SELECT * FROM contact WHERE (contactId = ? OR contactUID = ?) AND ' . $SQLcompanyId . ' LIMIT 1', [dec($id),dec($id)]);
-		$userOwner  = ncmExecute('SELECT contactId FROM contact WHERE role = 1 AND main = "true" AND type = 0 AND companyId = ? LIMIT 1', [COMPANY_ID]);
+		$result	= ncmExecute('SELECT * FROM contact WHERE (contactId = ? OR contactId = ?) AND ' . $SQLcompanyId . ' LIMIT 1', [dec($id),dec($id)]);
+		$userOwner  = ncmExecute('SELECT contactId FROM contact WHERE role = 1 AND main = \'true\' AND type = 0 AND companyId = ? LIMIT 1', [COMPANY_ID]);
 
 		if(!$result){
 			echo 	'<div class="modal-body clear bg-white r-24x no-padder">' .
@@ -522,10 +520,10 @@ if(validateHttp('action') == 'form'){
 			$address 					= toUTF8($result['contactAddress']);
 			$addressUrl 			= '<a href="https://maps.google.com/?q=' . urlencode($addressUrl ?? "") . '" target="_blank"><span class="text-white">' . $address . '</span></a>';
 		}else if($isCustomer){
-			$totalPurNSold 		= getContactInSales($result['contactUID']);
+			$totalPurNSold 		= getContactInSales($result['contactId']);
 			$totalPurchased 	= iftn($totalPurNSold[0],0);
 	    $totalComprado 		= iftn($totalPurNSold[1],0);
-	    $totalItems 			= iftn(getContactPurchasedItems($result['contactUID']),0);
+	    $totalItems 			= iftn(getContactPurchasedItems($result['contactId']),0);
 	    $promedio 				= ($totalPurchased && $totalComprado)?($totalPurchased/$totalComprado):0;
 
 	    //calculo cantidad de años como cliente
@@ -533,7 +531,7 @@ if(validateHttp('action') == 'form'){
 	    $nowY 				= date('Y');
 	    $yearsApart 	= ($nowY - $startY); //canidad de años que es cliente
 
-	    $mainAddress 	= getDefaultCustomerAddress($result['contactUID']);
+	    $mainAddress 	= getDefaultCustomerAddress($result['contactId']);
 	    $address 			= $mainAddress['address'] ?? "";
 	    $addressUrl 	= '<a href="https://www.google.com/maps/place/' .( $mainAddress['lat'] ?? "" ). ',' .( $mainAddress['lng'] ?? "" ). '" target="_blank"><span class="text-white text-u-l">' . $address . '</span></a>';
 
@@ -637,7 +635,7 @@ if(validateHttp('action') == 'form'){
 					?>
 						<div class="m-b-xs">
 							<i class="material-icons md-14 m-r-sm">person</i> 
-							<?=iftn($result['contactUID'],'No posee ID')?>
+							<?=iftn($result['contactId'],'No posee ID')?>
 						</div>
 						<?php
 						}
@@ -661,18 +659,18 @@ if(validateHttp('action') == 'form'){
 						</div>
 						<div class="b-t m-t-sm wrapper-xs"></div>
 						<div class="m-b-xs">
-							<a href="/@#report_transactions?ci=<?=enc($result['contactUID'])?>" target="_blank">
+							<a href="/@#report_transactions?ci=<?=enc($result['contactId'])?>" target="_blank">
 								<span class="text-white text-u-l">Historial de transacciones</span>
 							</a>
 						</div>
 						<div class="m-b-xs">
-							<a href="/@#report_products?ci=<?=enc($result['contactUID'])?>" target="_blank">
+							<a href="/@#report_products?ci=<?=enc($result['contactId'])?>" target="_blank">
 								<span class="text-white text-u-l">Artículos adquiridos</span>
 							</a>
 						</div>
 
 						<div class="m-b-xs">
-							<a href="<?='https://public.encom.app/customerAccountStatus?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($result['contactUID']))?>" target="_blank">
+							<a href="<?='/screens/customerAccountStatus?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($result['contactId']))?>" target="_blank">
 								<span class="text-white text-u-l">Estado de Cuenta</span>
 							</a>
 						</div>						
@@ -682,7 +680,7 @@ if(validateHttp('action') == 'form'){
 
 					<?php
 	            	if(SCHEDULE && $isUser && $result['contactInCalendar']){
-	            		$agendaUrl 		= 'https://public.encom.app/userAgenda?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($result['contactId']));
+	            		$agendaUrl 		= '/screens/userAgenda?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($result['contactId']));
 	            	?>
 
 					<div class="m-b-xs">
@@ -1024,7 +1022,7 @@ if(validateHttp('action') == 'form'){
 
 	                <div class="form-group">      
 						<?php 
-						$pM = $db->Execute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "contactCategory" AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC');
+						$pM = $db->Execute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'contactCategory\' AND '.$SQLcompanyId.' ORDER BY taxonomyName ASC');
 						?>
 						<span class="font-bold text-u-c text-xs">Categoría</span>
 						<select id="concatAdd" name="category" data-placeholder="Seleccione" class="form-control contactCategory no-bg no-border b-b b-light block m-b" autocomplete="off">
@@ -1151,10 +1149,10 @@ if(validateHttp('action') == 'form'){
 			        if($result['role'] !== '4' && $isUser && !$main){
 			        ?>
 			        <div class="form-group">
-			        	<span class="font-bold text-u-c text-xs">Rol:</span> <a href="https://docs.encom.app/panel-de-control/contactos/descripcion-de-roles-de-usuarios" target="_blank"><span class="text-info text-xs">Ver descripción de Roles</span></a>
+			        	<span class="font-bold text-u-c text-xs">Rol:</span> <a href="/panel-de-control/contactos/descripcion-de-roles-de-usuarios" target="_blank"><span class="text-info text-xs">Ver descripción de Roles</span></a>
 			            <?php 
 
-			            $role = ncmExecute('SELECT taxonomyName, taxonomyExtra FROM taxonomy WHERE taxonomyType = "role" ORDER BY taxonomyId DESC',[],false,true);?>
+			            $role = ncmExecute('SELECT taxonomyName, taxonomyExtra FROM taxonomy WHERE taxonomyType = \'role\' ORDER BY taxonomyId DESC',[],false,true);?>
 
 			            <select name="role" class="form-control no-border b-b role <?=$disabled ?? ''?>" <?=$disabled ?? ''?> id="selectRole">
 		                <?php 
@@ -1235,7 +1233,7 @@ if(validateHttp('action') == 'form'){
 	            	</div>
 	            	<div class="col-sm-6 col-xs-12">
 	            		<div class="font-bold text-u-c text-xs">A:</div>
-	            		<input type="hidden" class="hidden" name="customerConsolidationTo" value="<?=enc($result['contactUID'])?>">
+	            		<input type="hidden" class="hidden" name="customerConsolidationTo" value="<?=enc($result['contactId'])?>">
 	            		<div class="h4"><?=$name?></div>
 	            	</div>
 	            </div>
@@ -1315,7 +1313,7 @@ if(validateHttp('action') == 'getCustomerAccount'){
 		</div>
 
 		<div class="wrapper text-center col-xs-12">
-			<a href="https://public.encom.app/customerAccountStatus?s=<?=base64_encode(enc(COMPANY_ID) . ',' . $id)?>" target="_blank" class="btn btn-default btn-rounded font-bold text-u-c">Ver detalles</a>
+			<a href="/screens/customerAccountStatus?s=<?=base64_encode(enc(COMPANY_ID) . ',' . $id)?>" target="_blank" class="btn btn-default btn-rounded font-bold text-u-c">Ver detalles</a>
 		</div>
 		
 
@@ -1470,7 +1468,7 @@ if(validateHttp('action') == 'file'){
 	}
 
 	if(validity($insertList)){
-		$sql = "INSERT INTO contact (contactUID, contactName, contactDate, contactTIN, contactSecondName, contactNote, contactAddress, contactAddress2, contactPhone, contactPhone2, contactEmail, companyId, type, role, contactLocation, contactCity, contactCI, contactBirthDay) VALUES " . implodes(',', $insertList);
+		$sql = "INSERT INTO contact (contactId, contactName, contactDate, contactTIN, contactSecondName, contactNote, contactAddress, contactAddress2, contactPhone, contactPhone2, contactEmail, companyId, type, role, contactLocation, contactCity, contactCI, contactBirthDay) VALUES " . implodes(',', $insertList);
 		$insert = ncmExecute($sql);
 		
 		// if($insert){
@@ -2209,7 +2207,7 @@ if(validateHttp('action') == 'csvModelFichas'){
 	if($contacts){
 		while (!$contacts->EOF) {
 			$fields 		= $contacts->fields;
-			$excellRow[]  	= [enc($fields['contactUID']),iftn($fields['contactName'],$fields['contactSecondName']),$fields['contactTIN']];
+			$excellRow[]  	= [enc($fields['contactId']),iftn($fields['contactName'],$fields['contactSecondName']),$fields['contactTIN']];
 
 			$contacts->MoveNext(); 
 		}
@@ -2318,7 +2316,6 @@ if(validateHttp('action') == 'mandatory'){
 
 if(validateHttp('action') == 'download'){
 	ini_set('memory_limit', '2048M');
-	include_once("libraries/parsecsv.lib.php");
 
 	$sql 		= 'SELECT contactId,contactName,contactSecondName,contactPhone,contactPhone2,contactEmail,contactTIN,contactAddress,contactAddress2,contactNote,role,type 
 				FROM contact 
@@ -2758,7 +2755,7 @@ if(validateHttp('action') == 'generalTable'){
 
 	if(validateHttp('src')){
 		$word 	= validateHttp('src');
-		$search = ' AND (contactName LIKE "%' . $word . '%" OR contactTIN LIKE "%' . $word . '%")';
+		$search = ' AND (contactName LIKE \'%\' . $word . \'%\' OR contactTIN LIKE \'%\' . $word . \'%\')';
 	}
 
 	if($_rol){
@@ -2869,7 +2866,7 @@ if(validateHttp('action') == 'generalTable'){
 		$loyalty 		= '-';		
 
 		if($_rol == 'customer'){
-				$customersIds = getAllByIDBuild($result,'contactUID');
+				$customersIds = getAllByIDBuild($result,'contactId');
 	      $allAddress 	= getAllCustomersAddress($customersIds);
 	  }
 
@@ -2939,7 +2936,7 @@ if(validateHttp('action') == 'generalTable'){
 
 			//if($type == 'Cliente' && $cAdd['customerAddressText']){
 			if($_rol == 'customer'){
-				$cAdd 						= $allAddress[$field['contactUID']] ?? [];
+				$cAdd 						= $allAddress[$field['contactId']] ?? [];
 
 				$field['contactAddress'] 	= $cAdd['address'] ?? "";
 				$field['contactLocation'] 	= $cAdd['location'] ?? "";
@@ -2971,7 +2968,7 @@ if(validateHttp('action') == 'generalTable'){
 
 				if($_rol == 'customer'){
 
-					$lastTransaction  = ncmExecute("SELECT transactionDate FROM transaction WHERE customerId = ? ORDER BY transactionDate DESC LIMIT 1",[$field['contactUID']],true);
+					$lastTransaction  = ncmExecute("SELECT transactionDate FROM transaction WHERE customerId = ? ORDER BY transactionDate DESC LIMIT 1",[$field['contactId']],true);
 					$lastDate 				= (is_array($lastTransaction) && array_key_exists('transactionDate',$lastTransaction)) ? $lastTransaction['transactionDate'] : false;
 					$lastDateF 				= $lastDate ? niceDate($lastDate,true) : '-';
 					

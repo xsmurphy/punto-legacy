@@ -21,11 +21,9 @@ try {
 }
 
 include_once('includes/compression_start.php');
-include_once('libraries/whoops/autoload.php');
 include_once('includes/secure.php');
 include_once('includes/db.php');
 include_once('includes/simple.config.php');
-include_once('libraries/hashid.php');
 include_once('includes/config.php');
 include_once('languages/' . LANGUAGE . '.php');
 include_once('includes/functions.php');

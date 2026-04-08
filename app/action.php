@@ -20,7 +20,6 @@ function checkExecTime($reference = false)
   $GLOBALS['_execution_start'] = microtime(true);
 }
 
-require_once('libraries/whoops/autoload.php');
 require_once('includes/jwt_middleware.php');
 
 // Decodificar parámetro legacy l= (siempre necesario para extraer la acción)
@@ -212,7 +211,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
     if (validity($ids)) {
 
-      $result     = ncmExecute("SELECT contactUID, contactUID FROM contact WHERE companyId = ? AND contactStatus > 0 AND type = 1 ORDER BY contactName ASC LIMIT 10000", [COMPANY_ID], false, true, true); //devuelvo object
+      $result     = ncmExecute("SELECT contactId, contactId FROM contact WHERE companyId = ? AND contactStatus > 0 AND type = 1 ORDER BY contactName ASC LIMIT 10000", [COMPANY_ID], false, true, true); //devuelvo object
 
       if ($result) {
         $result = array_flatten($result);
@@ -840,7 +839,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
             'expires'         => niceDate($record['giftCardSoldExpires']),
             'code'            => $get['id'],
             'lastUsed'        => niceDate($record['giftCardSoldLastUsed']),
-            'link'            => 'https://public.encom.app/giftCardRedeem?s=' . base64_encode($record['timestamp'] . ',' . enc(COMPANY_ID))
+            'link'            => '/screens/giftCardRedeem?s=' . base64_encode($record['timestamp'] . ',' . enc(COMPANY_ID))
           ];
 
           header('Content-Type: application/json');
@@ -943,7 +942,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
     $add      = ncmInsert(['records' => $record, 'table' => 'customerAddress']);
     $addedId  = $add;
 
-    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactUID = ' . $customerId . ' AND companyId = ' . COMPANY_ID]);
+    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactId = ' . $customerId . ' AND companyId = ' . COMPANY_ID]);
 
     if ($add === false) {
       jsonDieMsg();
@@ -979,7 +978,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
     $update  = ncmUpdate(['records' => $record, 'table' => 'customerAddress', 'where' => 'customerId = ' . $customerId . ' AND customerAddressId = ' . $addressId]);
 
-    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactUID = ' . $customerId . ' AND companyId = ' . COMPANY_ID]);
+    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactId = ' . $customerId . ' AND companyId = ' . COMPANY_ID]);
 
     if ($update === false) {
       jsonDieMsg();
@@ -996,7 +995,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
     $db->Execute('DELETE FROM toAddress WHERE customerAddressId = ?', [$addId]);
 
-    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactUID = ' . $id . ' AND companyId = ' . COMPANY_ID]);
+    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactId = ' . $id . ' AND companyId = ' . COMPANY_ID]);
 
     if ($delete !== false) {
       updateLastTimeEdit(COMPANY_ID, 'customer');
@@ -1019,7 +1018,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
     $update   = ncmUpdate(['records' => $record, 'table' => 'customerAddress', 'where' => 'customerId = ' . $customerId . ' AND customerAddressId = ' . $addId . ' AND companyId = ' . COMPANY_ID]);
 
-    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactUID = ' . $customerId . ' AND companyId = ' . COMPANY_ID]);
+    ncmUpdate(['records' => ['updated_at' => TODAY], 'table' => 'contact', 'where' => 'contactId = ' . $customerId . ' AND companyId = ' . COMPANY_ID]);
 
     if ($update['error'] == false) {
       updateLastTimeEdit(COMPANY_ID, 'customer');
@@ -1074,7 +1073,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
         $companyContacts  = [iftn($compEmail), iftn($compPhone)];
 
-        $url              = getShortURL('https://public.encom.app/scheduleConfirm?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
+        $url              = getShortURL('/screens/scheduleConfirm?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
 
         $subject  = '[' . $compName . '] Confirmación';
         $body     = 'Hola ' . $contactName . ',' .
@@ -1336,7 +1335,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
           //obtengo order # de la transaccion
           $orderNo    = ncmExecute('SELECT invoiceNo, transactionId FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1', [$orderId, COMPANY_ID]);
           $senderName = getCustomerName($customer, 'first');
-          $url        = 'https://public.encom.app/orderView?s=' . base64_encode(enc($orderNo['transactionId']) . ',' . enc(COMPANY_ID));
+          $url        = '/screens/orderView?s=' . base64_encode(enc($orderNo['transactionId']) . ',' . enc(COMPANY_ID));
 
           $meta['subject'] = '[' . $compName . '] Confirmación de pedido';
           $meta['to']      = $customer['email'];
@@ -1625,7 +1624,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
           $notifyCustomer = false;
         } else if ($status === 'reminder') {
-          $url              = getShortURL('https://public.encom.app/scheduleConfirm?s=' . base64_encode(enc($id) . ',' . enc(COMPANY_ID)));
+          $url              = getShortURL('/screens/scheduleConfirm?s=' . base64_encode(enc($id) . ',' . enc(COMPANY_ID)));
           $subject  = '[' . $compName . '] Recordatorio';
           $body     = 'Hola ' . $contactName . ',' .
             '<p>Le contactamos para recordarle su cita, acceda a más detalles en</p>' .
@@ -1761,7 +1760,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
         }
         $result->MoveFirst();
 
-        //$allCustomers         = validity($whereCustomer,'array') ? getAllContacts(1,' AND contactUID IN ('.implodes(',',$whereCustomer).')') : [];
+        //$allCustomers         = validity($whereCustomer,'array') ? getAllContacts(1,' AND contactId IN ('.implodes(',',$whereCustomer).')') : [];
         $allToPayTransactions = getAllToPayTransactions(' AND transactionParentId IN (' . implodes(',', $whereTrsId) . ')');
         $allPayedTransactions = getAllTransactionPayments(implodes(',', $whereTrsId));
 
@@ -1888,7 +1887,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
           $discount   = $fields['transactionDiscount'];
           $total      = $fields['transactionTotal'];
 
-          $cusData = ncmExecute('SELECT contactName,contactUID FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1', [$fields['customerId'], COMPANY_ID]);
+          $cusData = ncmExecute('SELECT contactName,contactId FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1', [$fields['customerId'], COMPANY_ID]);
           if (!$cusData) {
             $customerD = 'Sin Nombre';
           } else {
@@ -1936,7 +1935,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
           $table .=   '<tr ' .
             'class="clickeable text-left" ' .
             'data-sort="' . $rawDate . '"' .
-            getSalesDataList($fields, $type, $typeAttr, $cusData['contactUID'], $topay) .
+            getSalesDataList($fields, $type, $typeAttr, $cusData['contactId'], $topay) .
             '> ' .
             '<td class="' . $stat . '"> ' .
             '  <span class="block text-ellipsis font-bold text-md">' . $name . ' ' . $customerD . '</span> ' .
@@ -2455,7 +2454,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                           $benefName    = getCustomerName($benefData, 'first');
 
                           //msg
-                          $gifUrl       = getShortURL('https://public.encom.app/giftCardRedeem?s=' . base64_encode($sD['uId'] . ',' . enc(COMPANY_ID)));
+                          $gifUrl       = getShortURL('/screens/giftCardRedeem?s=' . base64_encode($sD['uId'] . ',' . enc(COMPANY_ID)));
 
                           //email
                           $subject  = '[' . $compName . '] Gift Card';
@@ -2483,7 +2482,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                   }
 
                   if (validity($sD['type']) == 'inCredit' && validity($client)) { //si es venta de credito interno y tiene cliente
-                    $db->Execute("UPDATE contact SET contactStoreCredit = contactStoreCredit + " . $sD['total'] . ", updated_at = '" . TODAY . "' WHERE contactUID = ?", [$client]);
+                    $db->Execute("UPDATE contact SET contactStoreCredit = contactStoreCredit + " . $sD['total'] . ", updated_at = '" . TODAY . "' WHERE contactId = ?", [$client]);
                     updateLastTimeEdit(COMPANY_ID, 'customer');
                   }
                 }
@@ -2689,7 +2688,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                     $subject      = '[' . $compName . '] ' . L_EMAIL_QUOTE_TITLE;
 
                     $filename     = $data['timestamp'] . '_' . enc(COMPANY_ID) . '.pdf';
-                    $surl         = 'https://public.encom.app/quoteView?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)); //pdfFile($data['document'],$filename);
+                    $surl         = '/screens/quoteView?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)); //pdfFile($data['document'],$filename);
                     $url          = getShortURL($surl);
                     $smsBody      = '[' . $compName . '] ' . L_HELLO . ' ' . $contactName . ', ' . L_SMS_QUOTE_BODY . ' ' . $url;
                     $body         = L_HELLO . ' ' . $contactName . ',' .
@@ -2698,7 +2697,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                   } else if (in_array($theSaleType, ['cashsale', 'creditsale'])) {
                     if (!validity($_modules['digitalInvoice'])) {
                       $subject      = '[' . $compName . '] ' . L_EMAIL_DETAILS_TITLE;
-                      $surl         = 'https://public.encom.app/receipt?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID));
+                      $surl         = '/screens/receipt?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID));
                       $url          = getShortURL($surl);
 
                       if (validity($data['electronicInvoicePY'], 'array')) {
@@ -2723,7 +2722,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                       }
 
                       $subject      = '[' . $compName . '] ' . $L_TITLE;
-                      $surl         = 'https://public.encom.app/digitalInvoice?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)) . '&pdf=1';
+                      $surl         = '/screens/digitalInvoice?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)) . '&pdf=1';
                       $url          = getShortURL($surl);
 
                       $smsBody      = '[' . $compName . '] ' . L_HELLO . ' ' . $contactName . ', ' . $L_SMSBODY . ' ' . $url; //no uso aqui por el acento
@@ -2733,7 +2732,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                     }
                   } else if ($theSaleType == 'creditpayment') {
                     $subject      = '[' . $compName . '] ' . L_EMAIL_RECEIPT_TITLE;
-                    $url          = getShortURL('https://public.encom.app/receipt?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
+                    $url          = getShortURL('/screens/receipt?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
 
                     $smsBody      = '[' . $compName . '] ' . L_HELLO . ' ' . $contactName . ', ' . L_SMS_RECEIPT_BODY . ' ' . $url; //no uso aqui por el acento
                     $body         = L_HELLO . ' ' . $contactName . ',' .
@@ -2765,7 +2764,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                 if ($contact && (validity($contact['email']) || validity($contact['phone']) || validity($contact['phone2'])) && ($data['from'] > TODAY_START && $data['to'] < TODAY_END)) {
 
                   //datacollect
-                  $url              = getShortURL('https://public.encom.app/scheduleConfirm?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
+                  $url              = getShortURL('/screens/scheduleConfirm?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
 
                   $contactEmail     = $contact['email'];
 
@@ -2795,7 +2794,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
                 }
 
                 if ($userResponsable && (validity($userResponsable['email']) || validity($userResponsable['phone']) || validity($userResponsable['phone2'])) && ($data['from'] > TODAY_START && $data['to'] < TODAY_END)) {
-                  // $url              = getShortURL('https://public.encom.app/scheduleConfirm?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
+                  // $url              = getShortURL('/screens/scheduleConfirm?s=' . base64_encode(enc($transID) . ',' . enc(COMPANY_ID)));
 
                   $userEmail     = $userResponsable['email'];
 
@@ -2835,19 +2834,19 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
             if (in_array($theSaleType, ['cashsale', 'creditsale', 'return'])) {
               //integración mcal y mariano
-              $_modules    = ncmExecute("SELECT * FROM module WHERE companyId = ? LIMIT 1", [COMPANY_ID], true);
+              $_modules    = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1", [COMPANY_ID], true);
               $modusArr    = json_decode($_modules['moduleData'], true);
 
               if (validity($modusArr['mcal'] ?? '', 'array')) {
                 $mcalData = base64_encode(enc(COMPANY_ID) . ',' . enc(OUTLET_ID) . ',0,' . enc($transID));
-                $mcalRes  = @file_get_contents('http://panel.encom.app/thirdparty/mcal/mcalSendSales.php?s=' . $mcalData);
+                $mcalRes  = @file_get_contents('/thirdparty/mcal/mcalSendSales.php?s=' . $mcalData);
               }
 
               //integración factura electronica PY
               if (validity($data['electronicInvoicePY'], 'array')) {
 
                 if ($data['type'] == 0 || $data['type'] == 3 || $data['type'] == 6) { //Solo envia si es venta contado, venta credito y devolución (Nota de Crédito)
-                  $getRuc = ncmExecute('SELECT settingRUC FROM setting WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
+                  $getRuc = ncmExecute('SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
 
                   $typeDoc = 'FC';
                   if ($data['type'] == 0) { //Factura Contado
@@ -2923,7 +2922,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
     } else if (array_key_exists('newClient', $data)) {
       $customerData = $data['newClient'];
 
-      $record['contactUID']      = $customerData['customerId'];
+      $record['contactId']      = $customerData['customerId'];
       $record['contactName']     = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['name']);
       $record['contactSecondName'] = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['fullName']);
       $record['contactTIN']      = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['ruc']);
@@ -2978,7 +2977,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
         sendWS([
           'channel'       => enc(COMPANY_ID),
           'event'         => 'addCustomers',
-          'message'       => json_encode(['ID' => enc($record['contactUID']), 'registerID' => enc(REGISTER_ID)])
+          'message'       => json_encode(['ID' => enc($record['contactId']), 'registerID' => enc(REGISTER_ID)])
         ]);
 
         try {
@@ -3049,7 +3048,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
         $id = db_prepare(dec($id));
       }
 
-      $update = ncmUpdate(['records' => $record, 'table' => 'contact', 'where' => "contactUID = '" . $id . "' AND " . $SQLcompanyId]);
+      $update = ncmUpdate(['records' => $record, 'table' => 'contact', 'where' => "contactId = '" . $id . "' AND " . $SQLcompanyId]);
 
       if ($update['error']) {
         $updateError = $update['error'];
@@ -3238,7 +3237,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
         $etitle                       = 'Cierre de Caja';
         $eaction                      = 'Monto total del cierre';
         $edate                        = $drawer['date'];
-        $link                         = 'https://public.encom.app/closedRegister?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($drawerSave['drawerId']));
+        $link                         = '/screens/closedRegister?s=' . base64_encode(enc(COMPANY_ID) . ',' . enc($drawerSave['drawerId']));
       } else {
         if ($drawer['type'] == 'close') { //si la caja esta cerrada y estoy queriendo cerrar, no hago nada
           jsonDieMsg('Already Closed', 200, 'success');
@@ -3568,7 +3567,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
   if ($action == 'consultStatusElectronicInvoice') {
     $data      = validateHttp('data', 'post');
-    $getRuc = ncmExecute('SELECT settingRUC FROM setting WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
+    $getRuc = ncmExecute('SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
 
     $electronicData = [
       'ruc'        => $getRuc['settingRUC'],

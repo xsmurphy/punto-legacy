@@ -180,7 +180,7 @@ var ncmHelpers = {
 
 		if(status == 'show'){
 			$container.parent().css('position','relative');
-			var svg = '<img class="spinnerLoad-' + ref + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="https://panel.encom.app/images/svg-loaders/puff.svg" width="60">';
+			var svg = '<img class="spinnerLoad-' + ref + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="/images/svg-loaders/puff.svg" width="60">';
 			$container.append(svg);
 		}else{
 			$('.spinnerLoad-' + ref).remove();
@@ -352,10 +352,10 @@ var ncmHelpers = {
 										$(container).html(data);
 
 										var title 		= $('#pageTitle').text();
-										document.title 	= iftn(title,'Panel de Control - ENCOM');
+										document.title 	= iftn(title,'Panel de Control - Punto');
 										/*window.history.pushState({
 										    id : hash
-										}, title, 'https://panel.encom.app/@#' + hash);	*/
+										}, title, '/@#' + hash);	*/
 
 										options.onAfter && options.onAfter();
 
@@ -921,7 +921,7 @@ var ncmDialogs = {
 function message(message,type,duration){
 	ncmDialogs.toast(message,type,duration);
 	return;
-	var logo 	= 'https://app.encom.app/images/iconincomesmwhite.png';
+	var logo 	= '/images/iconincomesmwhite.png';
 	var danger 	= '/images/toast_danger.png';
 	var success = '/images/toast_success.png';
 	var textual = '<div class="wrapper-xs wrap-l-sm wrap-r-sm bg-dark rounded text-white text-sm animated fadeInLeft speed-3x" id="toastnlogomsg" style="position:absolute;left:80px;top:30px;">' + message + '</div>';
@@ -2174,7 +2174,7 @@ var spinner = function(container, status){
 	if(status == 'show'){
 		//if($container.is(':empty')){
 			$container.parent().css('position','relative');
-			var svg = '<img class="spinnerLoad-' + exContainer + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="https://panel.encom.app/images/svg-loaders/puff.svg" width="60">';
+			var svg = '<img class="spinnerLoad-' + exContainer + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="/images/svg-loaders/puff.svg" width="60">';
 			$container.append(svg);
 		//}
 	}else{
@@ -3076,8 +3076,8 @@ var manageTableLoad = function(info,callback){
 					        								"sSearch": "",
 														    "decimal"		: dc,
 														    "thousands"		: ts,
-														    "zeroRecords"	: '<div class="text-center"><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> No pudimos encontrar lo que busca</div><div>Intente utilizando otra combinación de palabras</div></div>',
-														    "emptyTable" 	: '<div class="text-center"><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3">No hay información disponible</div></div>'
+														    "zeroRecords"	: '<div class="text-center"><img src="/assets/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> No pudimos encontrar lo que busca</div><div>Intente utilizando otra combinación de palabras</div></div>',
+														    "emptyTable" 	: '<div class="text-center"><img src="/assets/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3">No hay información disponible</div></div>'
 													  	},
 					        "buttons"				: 
 					        [
@@ -3593,7 +3593,7 @@ var logoUpload = function(){
           contentType: false,
           success: function (res) {
             
-            var img = 'https://assets.encom.app/src.php?src='+res+'&w=220';
+            var img = '/assets/src.php?src='+res+'&w=220';
             if(res == 'false'){
               img = 'images/add.png';
             }

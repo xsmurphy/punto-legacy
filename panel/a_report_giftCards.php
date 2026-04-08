@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -39,7 +37,7 @@ if(validateHttp('action') == 'giftcard' && validateHttp('id')){
 	$result = ncmExecute('SELECT * FROM giftCardSold WHERE giftCardSoldId = ? AND companyId = ? LIMIT 1',[$id,COMPANY_ID]);
 
 	if($result){
-		$benefName 		= getValue('contact','contactName','WHERE type = 1 AND contactUID = ' . $result['giftCardSoldBeneficiaryId']);
+		$benefName 		= getValue('contact','contactName','WHERE type = 1 AND contactId = ' . $result['giftCardSoldBeneficiaryId']);
 		$transaction 	= ncmExecute('SELECT invoiceNo, invoicePrefix FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',[$result['transactionId'],COMPANY_ID]);
 
 		$internalCode 	= $result['giftCardSoldCode'];
@@ -225,7 +223,7 @@ if(validateHttp('action') == 'detailTable'){
 			$ucode 		= '<span class="badge">'.chunk_split($result->fields['timestamp'], 4, ' ').'</span>';
 			$note 		= isBase64Decode($result->fields['giftCardSoldNote']);
 			$saldo 		= $result->fields['giftCardSoldValue'];
-			//$giftUrl 	= 'https://panel.encom.app/standalone/giftCardRedeem?s='.base64_encode($result->fields['timestamp'].','.enc(COMPANY_ID));
+			//$giftUrl 	= '/screens/giftCardRedeem?s='.base64_encode($result->fields['timestamp'].','.enc(COMPANY_ID));
 			$giftUrl 	= $baseUrl . '?action=giftcard&id=' . enc($result->fields['giftCardSoldId']);
 			$doc 		= getValue('transaction', 'invoiceNo', 'WHERE transactionId = ' . $result->fields['transactionId']);
 

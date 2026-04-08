@@ -1,7 +1,8 @@
 <?php
-require_once __DIR__ . '/../composer/vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 use Mailgun\Mailgun as MailgunClient;
+use PHPMailer\PHPMailer\PHPMailer;
 //user var 
 
 function isHttps(){
@@ -118,12 +119,12 @@ function companyLogo($small = false){
 }
 
 function getShortURL($url){
-	$creator 	= 'https://public.encom.app/shorturl.php?c=';
+	$creator 	= '/screens/shorturl.php?c=';
 	$short 		= file_get_contents($creator . rawurlencode($url));//@file_get_contents($creator . $url);
 	if($short && $short != 'false'){
 		return $short;
 	}else{
-		return 'https://encom.app';
+		return '/';
 	}
 }
 
@@ -135,7 +136,7 @@ function getImage($name,$w,$h){
     if(!$isImg){
       $img 		= 'images/transparent.png';
     }else{
-      $img 		= 'http://assets.encom.app/src.php?src='.$img.'&w='.$w.'&h='.$h.'&'.rand();
+      $img 		= '/assets/src.php?src='.$img.'&w='.$w.'&h='.$h.'&'.rand();
     }
     return $img;
 }
@@ -164,7 +165,7 @@ function getAllPlans($planId=false){
 
 function getCategoriesIds($companyId){
 	
-	$result = ncmExecute("SELECT GROUP_CONCAT(taxonomyId) as ids FROM taxonomy WHERE (taxonomyExtra = 2 OR taxonomyExtra IS NULL) AND taxonomyType = 'category' AND companyId = ?", [$companyId], false, true);
+	$result = ncmExecute("SELECT STRING_AGG(taxonomyId::text, ',') as ids FROM taxonomy WHERE (taxonomyExtra = 2 OR taxonomyExtra IS NULL) AND taxonomyType = 'category' AND companyId = ?", [$companyId], false, true);
 
 	if($result){
 		if($result->fields['ids']){
@@ -251,7 +252,7 @@ function getTableObjectName($id, $table, $customQuery = "", $column = 1, $where 
 function getRealCustomerId($id){
 	$l = strlen((string)$id);
 	if($l > 11) {
-	    return 'contactUID';
+	    return 'contactId';
 	} else {
 	    return 'contactId';
 	}
@@ -264,20 +265,20 @@ function manageCustomerLoyalty($type,$amount,$id,$compId=false){
 	$amount 	= $db->Prepare($amount);
 
 	if($type == 'used'){
-		$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount - " . $amount . ", updated_at = '" . TODAY . "' WHERE contactUID = ?",[$id]);
+		$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount - " . $amount . ", updated_at = '" . TODAY . "' WHERE contactId = ?",[$id]);
 	}else if($type == 'earned'){
-		$contactAble = ncmExecute('SELECT contactLoyalty FROM contact WHERE contactUID = ? LIMIT 1',[$id]);
+		$contactAble = ncmExecute('SELECT contactLoyalty FROM contact WHERE contactId = ? LIMIT 1',[$id]);
 
 		if(!empty($contactAble) && ($contactAble['contactLoyalty'] > 0)){
 
-			$loyaltyVal 	= ncmExecute('SELECT loyaltyMin,loyaltyValue FROM module WHERE companyId = ? LIMIT 1',[$compId]);
+			$loyaltyVal 	= ncmExecute('SELECT loyaltyMin,loyaltyValue FROM company WHERE companyId = ? LIMIT 1',[$compId]);
 			$loyalMin 		= $loyaltyVal['loyaltyMin'];
 			$loyalVal 		= $loyaltyVal['loyaltyValue'];
 
 			if($amount >= $loyalMin){
 				$mult 	= divider($amount,$loyalMin,false,'down');
 				$amount = $loyalVal * $mult;
-				$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + " . $amount . ", updated_at = '" . TODAY . "' WHERE contactUID = ?",[$id]);
+				$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + " . $amount . ", updated_at = '" . TODAY . "' WHERE contactId = ?",[$id]);
 			}
 		}
 	}
@@ -291,7 +292,7 @@ function manageCustomerStoreCredit($type,$amount,$id,$compId=false){
 	$amount = $db->Prepare($amount);
 
 	if($type == 'used'){
-		$db->Execute('UPDATE contact SET contactStoreCredit = contactStoreCredit-'.$amount.', updated_at = "'.TODAY.'" WHERE contactUID = ?',array($id));
+		$db->Execute('UPDATE contact SET contactStoreCredit = contactStoreCredit-'.$amount.', updated_at = "'.TODAY.'" WHERE contactId = ?',array($id));
 	}else if($type == 'earned'){
 		//
 	}
@@ -474,7 +475,7 @@ function getAllContacts($type=false,$where=''){
 							"ruc"		=>$result->fields['contactTIN'],
 							"id"		=>$result->fields['contactId'],
 							"rid"		=>$result->fields['contactRealId'],
-							"uid"		=>$result->fields['contactUID'],
+							"uid"		=>$result->fields['contactId'],
 							"phone"		=>$result->fields['contactPhone'],
 							"note"		=>$result->fields['contactNote'],
 							"city"		=>$result->fields['contactCity'],
@@ -486,7 +487,7 @@ function getAllContacts($type=false,$where=''){
 							"outlet"	=>$result->fields['outletId']
 						];
 
-		    $a1[$result->fields['contactUID']] 		= $values;
+		    $a1[$result->fields['contactId']] 		= $values;
 		    $a2[$result->fields['contactId']] 		= $values;
 		    $a3[$result->fields['contactRealId']] 	= $values;
 
@@ -552,8 +553,8 @@ function getContactData($id, $type=false,$cache=false){
 	$countries = [];
 
 	$where 		= 'contactId = ' . $id;
-	if($type == 'uid' || $type == 'contactUID'){
-		$where 	= 'contactUID = ' . $id;
+	if($type == 'uid' || $type == 'contactId'){
+		$where 	= 'contactId = ' . $id;
 	}
 
 	$genders 	= ['Masculino', 'Femenino', 'Otro'];
@@ -593,7 +594,7 @@ function getContactData($id, $type=false,$cache=false){
 			
 			return [
 							'id'					=> $result['contactId'],
-							'uid'					=> $result['contactUID'],
+							'uid'					=> $result['contactId'],
 							'name'				=> $name,
 							'secondName'	=> $sname,
 							'ruc'					=> $result['contactTIN'],
@@ -621,7 +622,7 @@ function getContactData($id, $type=false,$cache=false){
 
 			return [
 							'id'					=> $result['contactId'],
-							'uid'					=> $result['contactUID'],
+							'uid'					=> $result['contactId'],
 							'name'				=> 'Sin Nombre',
 							'secondName'	=> 'Sin Nombre',
 							'ruc'					=> '',
@@ -697,7 +698,7 @@ function getContactCreditLine($uid,$creditLine){
 	if(empty($uid)){
 		return 0;
 	}
-	$totalC  = ncmExecute('SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, GROUP_CONCAT(transactionId) as ids 
+	$totalC  = ncmExecute('SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, STRING_AGG(transactionId::text, \',\') as ids 
 	                        FROM transaction 
 	                        WHERE customerId = ? 
 	                        AND transactionType = 3
@@ -739,9 +740,9 @@ function getContactCreditLine($uid,$creditLine){
 }
 
 function checkCompanyStatus($id){
-	$result = ncmExecute('SELECT companyStatus FROM company WHERE companyId = ? LIMIT 1',[$id]);
+	$result = ncmExecute('SELECT status FROM company WHERE companyId = ? LIMIT 1',[$id]);
 
-	if($result && $result['companyStatus'] == 'Active'){
+	if($result && $result['status'] == 'Active'){
 		return true;
 	}else{
 		return false;
@@ -1444,7 +1445,7 @@ function calendarBuilder($options){
     $hour			= $openH;
 
     while($hour <= $closeH){
-    	$table .= '<tr style="background-image:url(https://app.encom.app/images/calendar_dash_hours.png);background-repeat: repeat-x;">';
+    	$table .= '<tr style="background-image:url(/images/calendar_dash_hours.png);background-repeat: repeat-x;">';
 
 		if($line == 1){
 			$table .= '<th class="bg-light dk text-center ncmCalendarClock"> <i class="material-icons text-primary">&#xe192;</i> </th>';
@@ -1521,7 +1522,7 @@ function calendarBuilder($options){
 
 	        				if($transData['status'] == 'blocked'){
 	        					if(!$ignoreBlocked){
-		        					$transStyle 	= 'style="width:' . $blockWidth . 'px; margin-top:' . $mTop . 'px; height:' . $height . 'px; background-image:url(https://app.encom.app/images/calendar_locks.png);"';
+		        					$transStyle 	= 'style="width:' . $blockWidth . 'px; margin-top:' . $mTop . 'px; height:' . $height . 'px; background-image:url(/images/calendar_locks.png);"';
 									$block        	= 	'<div class="wrapper-xs r-2x clear b-l b-5x clickeable ncmCalendarBlockData btnSchedule"
 					                					data-blockno="' . $counter . '"
 					                					data-placement="' . $tipPlace . '"
@@ -1606,7 +1607,7 @@ function calendarBuilder2($options){
     $hour			= $openH;
 
     while($hour <= $closeH){
-    	$table .= '<tr style="background-image:url(https://app.encom.app/images/calendar_dash_hours.png);background-repeat: repeat-x;">';
+    	$table .= '<tr style="background-image:url(/images/calendar_dash_hours.png);background-repeat: repeat-x;">';
 
 		if($line == 1){
 			$table .= '<th class="bg-light dk text-center ncmCalendarClock"> <i class="material-icons text-primary">&#xe192;</i> </th>';
@@ -1696,7 +1697,7 @@ function calendarBuilder2($options){
 
 	        				if($transData['status'] == 'blocked'){
 	        					if(!$ignoreBlocked){
-		        					$transStyle 	= 'style="width:' . $blockWidth . 'px; margin-top:' . $mTop . 'px; height:' . $height . 'px; background-image:url(https://app.encom.app/images/calendar_locks.png);"';
+		        					$transStyle 	= 'style="width:' . $blockWidth . 'px; margin-top:' . $mTop . 'px; height:' . $height . 'px; background-image:url(/images/calendar_locks.png);"';
 									$block        	= 	'<div class="wrapper-xs r-2x clear b-l b-5x clickeable ncmCalendarBlockData btnSchedule"
 					                					data-blockno="' . $counter . '"
 					                					data-placement="' . $tipPlace . '"
@@ -3194,7 +3195,7 @@ function emailTemplate($array,$tituloShare,$URLShare,$dec='',$ts=''){
 	      <td style="font-size:14px; color:#999; padding:20px 0; text-align:center;">
 	        © 2015 Income Point of Sale Paraguay. Todos los derechos reservados.
 	        <br>
-	        www.encom.app
+	        <?= APP_URL ?>
 	      </td>
 	    </tr>
 
@@ -3385,14 +3386,14 @@ function loginPart($result){
 	global $db;
 	$fields 	= $result->fields;
 	$company 	= ncmExecute("SELECT
-										companyStatus,
-										companyPlan
+										status,
+										plan
 									FROM company
 									WHERE
-										companyId = ? LIMIT 1"[$fields['companyId']]);
+										companyId = ? LIMIT 1", [$fields['companyId']]);
 
-	if($company['companyStatus'] != 'Active'){
-		return 'Cuenta inhabilitada, por favor contactenos al correo info@encom.app';
+	if($company['status'] != 'Active'){
+		return 'Cuenta inhabilitada, por favor contactenos al correo <?= EMAIL_FROM ?>';
 	}
 
 	$outlet 	= ncmExecute("SELECT
@@ -3417,13 +3418,13 @@ function loginPart($result){
 
 	$_SESSION['last_activity'] 			= time();
 	$_SESSION['user']['companyId']  	= enc($fields['companyId']);
-	$_SESSION['user']['companyStatus']  = $company['companyStatus'];
+	$_SESSION['user']['companyStatus']  = $company['status'];
 	$_SESSION['user']['userId']  		= enc($fields['userId']);
 	$_SESSION['user']['userName']  		= $fields['userName'];
 	$_SESSION['user']['role']  			= enc($fields['role']);
 	$_SESSION['user']['outletId'] 		= ($fields['role'] > 1) ? enc($fields['outletId']) : enc('1');
 	$_SESSION['user']['registerId'] 	= ($fields['role'] > 1) ? enc($fields['registerId']) : enc('1');
-	$_SESSION['user']['plan'] 			= enc($company['companyPlan']);
+	$_SESSION['user']['plan'] 			= enc($company['plan']);
 
 	return 'true';
 }
@@ -3504,7 +3505,7 @@ function getAllItemCategories($companyId){
 	global $db;
 	//GET ALL CATEGORIES ARRAY
 	$a 		= [];
-	$result = ncmExecute("SELECT taxonomyId,taxonomyName, CAST(taxonomyExtra as UNSIGNED) as sort FROM taxonomy WHERE taxonomyType = ? AND companyId = ? ORDER BY sort ASC LIMIT 500",['category',$companyId],false,true);
+	$result = ncmExecute("SELECT taxonomyId,taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = ? AND companyId = ? ORDER BY sort ASC LIMIT 500",['category',$companyId],false,true);
 
 	if($result){
 		while (!$result->EOF) {
@@ -3567,7 +3568,7 @@ function getNeedWithWaste($need,$wasteP){
 	return $need + $wasteValue;
 }
 
-/*function sendEmail($to,$subject,$body,$altbody,$from = 'info@encom.app',$smtp=true){
+/*function sendEmail($to,$subject,$body,$altbody,$from = EMAIL_FROM,$smtp=true){
 	//Create a new PHPMailer instance
 	$mail = new PHPMailer;
 
@@ -3606,20 +3607,18 @@ function getNeedWithWaste($need,$wasteP){
 	}
 }*/
 
-function sendSMTPEmail($meta,$template,$to,$subject,$body='ENCOM',$altbody='ENCOM'){
+function sendSMTPEmail($meta,$template,$to,$subject,$body=APP_NAME,$altbody=APP_NAME){
 
 	if(!validity($to,'email')){
 		return false;
 	}
 
-	$fromName 	= 'ENCOM';
-	$replayTo 	= iftn(OUTLET_EMAIL,'info@encom.app');
-	$from 		= 'info@encom.com.py';
-
-	include_once("libraries/phpmailer/PHPMailerAutoload.php");
+	$fromName 	= APP_NAME;
+	$replayTo 	= iftn(OUTLET_EMAIL,EMAIL_FROM);
+	$from 		= EMAIL_FROM;
 
 	//Create a new PHPMailer instance
-	$mail = new PHPMailer;
+	$mail = new PHPMailer(true);
 
 	$options = json_encode(
 					array(
@@ -3666,8 +3665,8 @@ function sendSMTPEmail($meta,$template,$to,$subject,$body='ENCOM',$altbody='ENCO
 }
 
 function sendEmails($options){
-  $from     = iftn($options['from'] ?? "","info@encom.com.py");
-  $fromName = iftn($options['fromName'] ?? "","ENCOM");
+  $from     = iftn($options['from'] ?? "",EMAIL_FROM);
+  $fromName = iftn($options['fromName'] ?? "",APP_NAME);
   $to       = $options['to'];
   $subject  = $options['subject'];
   $data     = $options['data']['message'] ?? '';
@@ -3700,7 +3699,7 @@ function sendEmails($options){
 
    // Envio de correo con Mailgun
    $mgClient = MailgunClient::create(MAILGUN_TOKEN);
-   $domain = "encom.com.py";
+   $domain = MAILGUN_DOMAIN;
 
    # Make the call to the client.			
    try {
@@ -3740,7 +3739,7 @@ function sendEmail($options){
 	            'secret' 				=> NCM_SECRET
 	          ];
 
-	$out = curlContents('https://api.encom.app/send_email','POST',$data);
+	$out = curlContents(API_URL . '/send_email','POST',$data);
 	
 	return $out;
 }
@@ -3759,7 +3758,7 @@ function sendSMS($number,$msg,$numvalidation=true,$auto=false){
 	            'secret' 				=> NCM_SECRET
 	          ];
 
-	$out = curlContents('https://api.encom.app/send_sms','POST',$data);
+	$out = curlContents(API_URL . '/send_sms','POST',$data);
 	
 	return $out;
 }
@@ -3798,7 +3797,7 @@ function sendNCMSMS($number,$msg,$country,$companyId=''){
 	            'secret' 		=> NCM_SECRET
 	          ];
 		
-	$sent = curlContents('https://api.encom.app/send_sms','POST',$data);
+	$sent = curlContents(API_URL . '/send_sms','POST',$data);
 
 	return [$sent,$number];
 }
@@ -3890,7 +3889,7 @@ function sendWS($ops = []){
 		              'message'       => $message
 		            ];
 
-  $result = curlContents('https://api.encom.app/send_webSocket.php','POST',$data);
+  $result = curlContents(API_URL . '/send_webSocket.php','POST',$data);
 
   return $result;
 }
@@ -4042,7 +4041,7 @@ function getFileContent($url){//usar solo con urls propias y controladas por enc
 function getValidPhone($phone,$country=COUNTRY_CODE,$format=false){
     $phone      = preg_replace("/[^0-9]/", "", $phone);
     $format     = ($format) ? $format : 'international';
-    $valid      = json_decode(curlContents('https://api.encom.app/phonevalidator.php?phone=' . $phone . '&country=' . $country . '&format=' . $format),true);
+    $valid      = json_decode(curlContents(API_URL . '/phonevalidator.php?phone=' . $phone . '&country=' . $country . '&format=' . $format),true);
 
     return $valid;
 }
@@ -4126,9 +4125,9 @@ function signUp($post,$login = true){
 		$itemRecord 	= array();
 		//
 		$companyRecord['companyName'] 		= $storeName;
-		$companyRecord['companyPlan'] 		= 3;
-		$companyRecord['companyStatus'] 	= 'Active';
-		$companyRecord['companyExpiringDate'] 	= date('Y-m-d 00:00:00', strtotime("+14 days"));
+		$companyRecord['plan'] 		= 3;
+		$companyRecord['status'] 	= 'Active';
+		$companyRecord['expiresAt'] 	= date('Y-m-d 00:00:00', strtotime("+14 days"));
 		$companyRecord['accountId'] 		= $accountId;
 		
 		$companyInsert = $db->AutoExecute('company', $companyRecord, 'INSERT'); 
@@ -4370,11 +4369,11 @@ function confirmationEmail($email,$template){
 	$email = $data['sendmail'];
 
 	//Create a new PHPMailer instance
-	$mail = new PHPMailer;
+	$mail = new PHPMailer(true);
 	//Set who the message is to be sent from
-	$mail->setFrom('c.murphy@encom.app', 'ENCOM');
+	$mail->setFrom(EMAIL_FROM, APP_NAME);
 	//Set an alternative reply-to address
-	$mail->addReplyTo('c.murphy@encom.app', 'ENCOM');
+	$mail->addReplyTo(EMAIL_FROM, APP_NAME);
 	//Set who the message is to be sent to
 	$mail->addAddress($email);
 	//Set the subject line
@@ -4484,7 +4483,7 @@ function isBase64Decode($str){
 function acceptCompanyPayment($amount,$companyId){//company ID seria el ID del cliente de Income
 	global $db,$meses;
 
-    $update 	= $db->Execute('UPDATE company SET companyBalance = companyBalance + ' . $amount . ' WHERE companyId = ?',array($companyId));
+    $update 	= $db->Execute('UPDATE company SET balance = balance + ' . $amount . ' WHERE companyId = ?',array($companyId));
     if($update){
     	$m 		 = date('m');
     	$month	 = $meses[$m-1];
@@ -4495,7 +4494,7 @@ function acceptCompanyPayment($amount,$companyId){//company ID seria el ID del c
 							":total" 			=> array('$'.$amount)
 						);
 
-		sendSMTPEmail($meta,"9f8ce200-803d-46c4-847b-5f9c162db288",$email,'Pago procesado exitosamente','ENCOM','ENCOM');
+		sendSMTPEmail($meta,"9f8ce200-803d-46c4-847b-5f9c162db288",$email,'Pago procesado exitosamente',APP_NAME,APP_NAME);
 
 		return true;
     }else{
@@ -4506,9 +4505,7 @@ function acceptCompanyPayment($amount,$companyId){//company ID seria el ID del c
 
 function mailSaleBackUp($sale,$companyId,$outletId,$date,$customerId='',$user='',$registerId='',$where=''){
 	
-  require_once('libraries/phpmailer/class.phpmailer.php');
-
-  $mail = new PHPMailer;
+  $mail = new PHPMailer(true);
   
   $mail->setFrom('backup@incomepos.com', 'Income POS');
   $mail->addReplyTo('backup@incomepos.com', 'Income POS');
@@ -4561,9 +4558,9 @@ function voidSale($trId,$motive=''){
 			foreach($group as $dat){
 				if(validity($customer['customerId'])){
 					if($dat['type'] == 'points'){//devuelvo loyalties
-						$db->Execute('UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount+'.$dat['price'].' WHERE contactUID = ?',array($customer['customerId']));
+						$db->Execute('UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount+'.$dat['price'].' WHERE contactId = ?',array($customer['customerId']));
 					}else if($dat['type'] == 'storeCredit'){//devuelvo credito interno
-						$db->Execute('UPDATE contact SET contactStoreCredit = contactStoreCredit+'.$dat['price'].' WHERE contactUID = ?',array($customer['customerId']));
+						$db->Execute('UPDATE contact SET contactStoreCredit = contactStoreCredit+'.$dat['price'].' WHERE contactId = ?',array($customer['customerId']));
 					} 
 				}
 

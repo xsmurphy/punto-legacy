@@ -29,12 +29,12 @@ function sendEmailToUsers($emails, $conf){
 
 $company = ncmExecute("SELECT
 							a.companyId as id,
-							a.companySMSCredit as smsCredit,
+							a.smsCredit,
 							b.settingName as name,
 							b.settingCountry as country
 						FROM company a, setting b
-						WHERE a.companyStatus = 'Active'
-						AND	a.companyPlan IN (" . $allowedPlans . ") 
+						WHERE a.status = 'Active'
+						AND	a.plan IN (" . $allowedPlans . ") 
 						AND a.companyId = b.companyId
 						LIMIT 10000");
 if($company){
@@ -101,7 +101,7 @@ if($tomorrowDue){
 	if(validity($inC,'array')){
 		$inC = implodes(',', $inC);
 
-		$sql = 'SELECT contactUID as uid,
+		$sql = 'SELECT contactId as uid,
 				contactEmail as email,
 				contactPhone as phone,
 				contactPhone2 as phone2,
@@ -109,7 +109,7 @@ if($tomorrowDue){
 				contactSecondName as secondName,
 				companyId as company
 			FROM contact
-			WHERE contactUID IN(' . $inC . ')
+			WHERE contactId IN(' . $inC . ')
 			AND (
 					(contactEmail != "" AND contactEmail IS NOT NULL)
 					OR
@@ -124,7 +124,7 @@ if($tomorrowDue){
 
 		if($contacts){
 
-			$users = ncmExecute("SELECT GROUP_CONCAT(contactEmail) AS emails FROM contact WHERE companyId = ? AND type = 0 AND (contactEmail IS NOT NUll AND contactEmail != '')");
+			$users = ncmExecute("SELECT STRING_AGG(contactEmail, ',') AS emails FROM contact WHERE companyId = ? AND type = 0 AND (contactEmail IS NOT NUll AND contactEmail != '')");
 
 			while (!$contacts->EOF) {
 				$fields 	= $contacts->fields;
@@ -132,11 +132,11 @@ if($tomorrowDue){
 				$name 		= ucwords( strtolower(getCustomerName($fields)) );//si no pongo el segundo campo me trae nombre y apellido
 				$phone     	= iftn($fields['phone'],$fields['phone2']);
 				$transID 	= $trsC[$fields['uid']];
-				$url        = getShortURL('https://panel.encom.app/standalone/scheduleConfirm?s=' . base64_encode(enc($transID).','.enc($fields['company'])));
+				$url        = getShortURL('/screens/scheduleConfirm?s=' . base64_encode(enc($transID).','.enc($fields['company'])));
 				$compName 	= $companyData[$fields['company']]['name'];
 				$compCountry= $companyData[$fields['company']]['country'];
 				$smsCredit 	= $companyData[$fields['company']]['sms'];
-				$compLogo 	= 'https://assets.encom.app/150-150/0/' . enc($fields['company']) . '.jpg';
+				$compLogo 	= '/assets/150-150/0/' . enc($fields['company']) . '.jpg';
 
 				$subject= '[' . $compName . '] Recordatorio';
 				$body 	= 	$name . 

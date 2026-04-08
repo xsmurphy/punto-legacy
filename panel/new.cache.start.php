@@ -6,7 +6,7 @@ if(!isset($_COOKIE['wp-settings-time-1'])){
 	$bucketUrl 	= "d3prgjesqo8z0b.cloudfront.net/"; 				//url del archivo en cloudfront
 	$goCacheGo 	= true; 											//dice al archivo new.cache.stop.php que genere el cache
 	$cachetime 	= 43200;   											//duración del cache 12 horas
-	$cacheext 	= "txt";   											//extensión de cache
+	$cacheext 	= 'txt';   											//extensión de cache
 	$cachepage 	= $_SERVER["HTTP_HOST"].$_SERVER["REQUEST_URI"]; 	//Url del archivo que se va a procesar
 	$cacheuri	= sha1($cachepage).".".$cacheext;					//nombre del archivo con la extension a ser cacheados
 	$cachefile 	= $bucketUrl.$cacheuri; 							//url del archivo en el cache

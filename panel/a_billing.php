@@ -3,11 +3,9 @@ die('No disponible');
 
 include_once("includes/compression_start.php");
 
-include_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("libraries/countries.php");
 include_once("languages/".LANGUAGE.".php");
@@ -23,11 +21,11 @@ if(validateHttp('action') == 'addPayment'){
 
     $meta['subject'] = 'Nuevo pago de ' . COMPANY_NAME;
     $meta['to']      = 'income.register@gmail.com';
-    $meta['fromName']= 'ENCOM';
+    $meta['fromName']= APP_NAME;
     $meta['data']    = [
                         "message"     => USER_NAME . ': ' . json_encode(validateHttp('cc','post')),
-                        "companyname" => 'ENCOM',
-                        "companylogo" => 'https://assets.encom.app/150-150/0/' . enc(COMPANY_ID) . '.jpg'
+                        "companyname" => APP_NAME,
+                        "companylogo" => '/assets/150-150/0/' . enc(COMPANY_ID) . '.jpg'
                       ];
 
     sendEmails($meta);
@@ -80,7 +78,7 @@ if(validateHttp('action') == 'addPayment'){
 
         if(BALANCE >= $total){
           
-          $pay = $db->Execute('UPDATE company SET companyBalance = companyBalance-'.$total.', companyPlan = ? WHERE '.$SQLcompanyId,array($selectedPlan));
+          $pay = $db->Execute('UPDATE company SET balance = balance-'.$total.', plan = ? WHERE '.$SQLcompanyId,array($selectedPlan));
         
           if($pay){ //si se pudo descontar del saldo, realizo una venta al Contado
             $record['transactionType']        = '0'; //contado
@@ -97,7 +95,7 @@ if(validateHttp('action') == 'addPayment'){
             header('location:' . $baseUrl . '?passed=false');
           }
         }else{
-          $pay = $db->Execute('UPDATE company SET companyPlan = ? WHERE ' . $SQLcompanyId, [$selectedPlan]);
+          $pay = $db->Execute('UPDATE company SET plan = ? WHERE ' . $SQLcompanyId, [$selectedPlan]);
 
           $record['transactionDueDate']     = TODAY;
           $record['transactionDate']        = TODAY;
@@ -132,11 +130,11 @@ if(validateHttp('action') == 'makePayment'){
   <div class="modal-body no-padder clear r-24x bg-white">
     
       <div class="col-sm-4 col-md-3 wrapper bg-grad-info hidden-xs text-center" style="min-height:520px;">
-        <img src="https://app.encom.app/images/iconincomesmwhite.png" width="30%" style="margin-top:140px;">
+        <img src="/images/iconincomesmwhite.png" width="30%" style="margin-top:140px;">
         <div class="m-b text-white text-xs">
-          <strong class="text-md">ENCOM</strong>
+          <strong class="text-md"><?= APP_NAME ?></strong>
           <br> Av. Aviadores del Chaco 
-          Edif. World Trade Center Torre 1, 9no. Piso, Asunción - info@encom.app  
+          Edif. World Trade Center Torre 1, 9no. Piso, Asunción - <?= EMAIL_FROM ?>  
         </div>
         
         <img src="https://www.2checkout.com/static/checkout/images/powered-by-2co.png" width="132" class="m-t-md">
@@ -337,7 +335,7 @@ if(validateHttp('action') == 'makePayment'){
 } 
 
 //veo si debe
-$totalC  = ncmExecute(' SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, GROUP_CONCAT(transactionId) as ids 
+$totalC  = ncmExecute(' SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, STRING_AGG(transactionId::text, \',\') as ids 
                         FROM transaction 
                         WHERE companyId = ' . ENCOM_COMPANY_ID . '
                         AND customerId IN(' . ENCOM_UID . ')
@@ -350,7 +348,7 @@ $payedC  = ncmExecute(' SELECT SUM(transactionTotal) as payed
                         AND transactionType = 5', []);
 
 //obtengo su credito a favor
-$balance  = ncmExecute(' SELECT contactStoreCredit FROM contact WHERE companyId = ' . ENCOM_COMPANY_ID . ' AND contactUID IN(' . ENCOM_UID . ')', []);
+$balance  = ncmExecute(' SELECT contactStoreCredit FROM contact WHERE companyId = ' . ENCOM_COMPANY_ID . ' AND contactId IN(' . ENCOM_UID . ')', []);
 
 $BALANCE        = formatCurrentNumber($balance['contactStoreCredit']);
 
@@ -455,7 +453,7 @@ $deudaTotal     = ($deudaTotal < 0.01) ? '0.00' : $deudaTotal;
       <div class="panel no-bg"> 
         <h4 class="font-bold padder text-left">Transferencias Bancarias</h4>
         <div class="panel-body center text-left m-b-lg">
-          Luego de realizar la transferencia, debe de enviar la copia del comprobante a administracion@encom.me
+          Luego de realizar la transferencia, debe de enviar la copia del comprobante a <?= EMAIL_FROM ?>
           <br>
           <span class="text-lg">Datos para la transferencia:</span>
             <br>
@@ -505,7 +503,7 @@ $deudaTotal     = ($deudaTotal < 0.01) ? '0.00' : $deudaTotal;
               $resetDueDate = explodes(' ',$fields['transactionDueDate']);
               $resetDueDate = strtotime($resetDueDate[0].' 00:00:00');
 
-              $receiptLink  = 'https://public.encom.app/receipt?s=' . base64_encode( $tId . ',' . enc(INCOME_COMPANY_ID) );
+              $receiptLink  = '/screens/receipt?s=' . base64_encode( $tId . ',' . enc(INCOME_COMPANY_ID) );
 
               if($i < 1){
                 $lastReceipt = $receiptLink;
@@ -552,7 +550,7 @@ $deudaTotal     = ($deudaTotal < 0.01) ? '0.00' : $deudaTotal;
             ?>
             <tr>
               <td colspan="5">
-                <?php noDataMessage('No tiene facturas','En esta sección aparecerán sus facturas mensuales <br> generadas por el servicio junto con el estado de cada una','https://assets.encom.app/images/emptystate4.png');?>
+                <?php noDataMessage('No tiene facturas','En esta sección aparecerán sus facturas mensuales <br> generadas por el servicio junto con el estado de cada una','/assets/images/emptystate4.png');?>
               </td>
             </tr>
             <?php
@@ -567,7 +565,7 @@ $deudaTotal     = ($deudaTotal < 0.01) ? '0.00' : $deudaTotal;
   <div class="col-xs-12 wrapper-md text-center text-md">
     <strong>Importante</strong>
     <br>
-    Si desea cancelar su cuenta, por favor pongase en contacto con nosotros a <a href="mailto:info@encom.app">info@encom.app</a>
+    Si desea cancelar su cuenta, por favor pongase en contacto con nosotros a <a href="mailto:<?= EMAIL_FROM ?>"><?= EMAIL_FROM ?></a>
   </div>
 
   <div class="modal fade" tabindex="-1" id="planes" role="dialog">

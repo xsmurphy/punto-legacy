@@ -352,7 +352,7 @@ if(validateHttp('action') == 'sessions'){
     $limits     = getTableLimits($limitDetailS,$offsetDetailS);
 
     $sql = "SELECT a.invoiceNo, a.customerId, contact.contactName , b.itemSoldDate,b.itemId, b.itemSoldId , c.itemName ,c.itemSessions, tDones.transactionId as tId ,count(tDones.transactionId) as dones FROM transaction a
-    left join contact on contact.contactUID = a.customerId
+    left join contact on contact.contactId = a.customerId
     left join itemSold b on b.transactionId = a.transactionId
     left join item c on c.itemId = b.itemId
     left join transaction tDones on tDones.transactionId = a.transactionId and tDones.transactionStatus = 6 and tDones.transactionType = 13

@@ -9,12 +9,12 @@ $dateDecided 	= $get['d'];
 
 $company = ncmExecute("SELECT
 							a.companyId as id,
-							a.companySMSCredit as smsCredit,
+							a.smsCredit,
 							b.settingName as name,
 							b.settingCountry as country
 						FROM company a, setting b
-						WHERE a.companyStatus = 'Active'
-						AND	a.companyPlan IN (" . $allowedPlans . ") 
+						WHERE a.status = 'Active'
+						AND	a.plan IN (" . $allowedPlans . ") 
 						AND a.companyId = b.companyId
 						LIMIT 10000");
 if($company){
@@ -88,7 +88,7 @@ if($result){
 														]
 												] );
 
-		$url 		= 'https://app.encom.app/action?l=' . base64_encode($fields['recurringTransactionData']);
+		$url 		= '/action?l=' . base64_encode($fields['recurringTransactionData']);
 
 		curlContents($url, 'POST', $data); //inserto venta
 		curlContents($url, 'POST', $invoiceData); //inserto invoice
@@ -118,7 +118,7 @@ if($result){
 				"message" 	=> "Se han generado una o varias facturas recurrentes, clic para ver el listado.",
 				"type" 		=> 0,
 				"email" 	=> 1,
-				"link" 		=> "https://panel.encom.app/@#report_transactions",
+				"link" 		=> "/@#report_transactions",
 				"company" 	=> $companyId,
 				"date" 		=> $rangeDate
 				];

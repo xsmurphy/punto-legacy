@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -133,7 +131,7 @@ if(validateHttp('action') == 'itemInventory'){
 
       <div id="empty" class="hidden">
         <div class="text-center wrapper-xl" id="noContentMsg">
-          <img src="https://assets.encom.app/images/emptystate7.png" height="120">
+          <img src="/assets/images/emptystate7.png" height="120">
           <div class="h4 m-t">Presione en AGREGAR<br>para comenzar</div>
         </div>
       </div>

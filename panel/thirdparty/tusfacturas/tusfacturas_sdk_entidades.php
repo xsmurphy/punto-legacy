@@ -111,10 +111,10 @@ class tusfacturas_sdk_entidades extends tusfacturas_sdk{
 
  
             // ABONOS
-            $comprobante["abono"]             =  ( $comprobante_data["abono"] == "S" ? 1 : 2);
+            $comprobante["abono"]             =  ( $comprobante_data["abono"] == 'S' ? 1 : 2);
             $comprobante["abono_frecuencia"]  =  ( intval($comprobante_data["abono_frecuencia"]) == 0 ? 1 : $comprobante_data["abono_frecuencia"] ) ;
             $comprobante["abono_hasta"]       =  ( trim($comprobante_data["abono_hasta"]) == '' ? date('m/Y', strtotime('+1 month')) : (strlen($comprobante_data["abono_hasta"]) == 10 ?  substr($comprobante_data["abono_hasta"],3, 7)  : $comprobante_data["abono_hasta"] )   );
-            $comprobante["abono_actualiza_precios"] = ( $comprobante_data["abono_actualiza_precios"] == "S" ? 1 : 2);
+            $comprobante["abono_actualiza_precios"] = ( $comprobante_data["abono_actualiza_precios"] == 'S' ? 1 : 2);
             // ABONOS
 
 

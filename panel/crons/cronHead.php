@@ -4,10 +4,8 @@ if(!$_GET['a'] || $_GET['a'] != NCM_SECRET){
 }
 
 include_once('/home/encom/public_html/panel/includes/compression_start.php');
-include_once('/home/encom/public_html/panel/libraries/whoops/autoload.php');
 include_once('/home/encom/public_html/panel/includes/db.php');
 include_once('/home/encom/public_html/panel/includes/simple.config.php');
-include_once('/home/encom/public_html/panel/libraries/hashid.php');
 include_once('/home/encom/public_html/panel/includes/functions.php');
 
 date_default_timezone_set('America/Asuncion');
@@ -41,17 +39,9 @@ function theErrorHandler($type=false){
   }
 }
 
-//encode ID
-function enc($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->encode((int)$str);
-}
- 
-//decode ID
-function dec($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->decode($str)[0];
-}
+function enc($str): string { return (string)$str; }
+
+function dec($str): string { return (string)$str; }
 
 function ncmEncode($str){
 	$based 		= base64_encode($str);

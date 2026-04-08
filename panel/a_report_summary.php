@@ -209,7 +209,7 @@ if(validateHttp('action') == 'getGiftcards'){
 								SUM(b.itemSoldUnits) as count
 							FROM item a, itemSold b
 							WHERE
-								a.itemType = "giftcard"
+								a.itemType = \'giftcard\'
 							AND a.itemId = b.itemId
 							AND a.companyId = ?
 							AND b.itemSoldDate 
@@ -1167,14 +1167,14 @@ var drawChart = function(result){
 
     if(ncmHelpers.validity(annots)){
       recAnnots = annots.map(function(val, index) {
-        var id        = "vline" + index;
-        var mode      = "vertical";
+        var id        = 'vline' + index;
+        var mode      = 'vertical';
         var scaleId   = "x-axis-0";
         var position  = iftn(val.position,'center');
 
         if(val.orientation == 'horizontal'){
-          id        = "hline" + index;
-          mode      = "horizontal";
+          id        = 'hline' + index;
+          mode      = 'horizontal';
           scaleId   = "y-axis-0";
         }
 

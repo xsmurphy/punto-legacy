@@ -252,12 +252,12 @@ var ncmHelpers = {
 	    return JSON.parse( JSON.stringify(obj) );
 	},
 	playSound : function(type){
-		var snd = 'https://assets.encom.app/sounds/payment_success.m4a';
+		var snd = '/assets/sounds/payment_success.m4a';
 
 		if(type == 'error'){
-		 	snd = 'https://assets.encom.app/sounds/payment_failure.m4a';
+		 	snd = '/assets/sounds/payment_failure.m4a';
 		}else if(type == 'newOrder'){
-			snd = 'https://assets.encom.app/sounds/new_order_sound.mp3';
+			snd = '/assets/sounds/new_order_sound.mp3';
 		}
 
 		if(type == 'reset'){
@@ -328,7 +328,7 @@ var ncmHelpers = {
 
 		if(status == 'show'){
 			$container.parent().css('position','relative');
-			var svg = '<img class="spinnerLoad-' + ref + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="https://panel.encom.app/images/svg-loaders/puff.svg" width="60">';
+			var svg = '<img class="spinnerLoad-' + ref + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="/images/svg-loaders/puff.svg" width="60">';
 			$container.append(svg);
 		}else{
 			$('.spinnerLoad-' + ref).remove();
@@ -472,7 +472,7 @@ var ncmHelpers = {
 		var title 		= $.trim($('#pageTitle').text());
 		title 			= title.replace('help_outline','').replace('live_help','');
 
-		document.title 	= iftn(title,'Panel de Control - ENCOM');
+		document.title 	= iftn(title,'Panel de Control - Punto');
 		return title;
 	},
 	loadOnHashFn : function(options){
@@ -552,7 +552,7 @@ var ncmHelpers = {
 
 									/*window.history.pushState({
 									    id : hash
-									}, title, 'https://panel.encom.app/@#' + hash);	*/
+									}, title, '/@#' + hash);	*/
 
 									options.onAfter && options.onAfter();
 
@@ -1374,7 +1374,7 @@ var ncmDialogs = {
 function message(message,type,duration){
 	ncmDialogs.toast(message,type,duration);
 	return;
-	var logo 	= 'https://app.encom.app/images/iconincomesmwhite.png';
+	var logo 	= '/images/iconincomesmwhite.png';
 	var danger 	= '/images/toast_danger.png';
 	var success = '/images/toast_success.png';
 	var textual = '<div class="wrapper-xs wrap-l-sm wrap-r-sm bg-dark rounded text-white text-sm animated fadeInLeft speed-3x" id="toastnlogomsg" style="position:absolute;left:80px;top:30px;">' + message + '</div>';
@@ -2667,7 +2667,7 @@ var spinner = function(container, status){
 	if(status == 'show'){
 		//if($container.is(':empty')){
 			$container.parent().css('position','relative');
-			var svg = '<img class="spinnerLoad-' + exContainer + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="https://panel.encom.app/images/svg-loaders/puff.svg" width="60">';
+			var svg = '<img class="spinnerLoad-' + exContainer + '" style="position: fixed; left:50%; top:40%; z-index:9999999; margin-left: -30px;" src="/images/svg-loaders/puff.svg" width="60">';
 			$container.append(svg);
 		//}
 	}else{
@@ -3003,7 +3003,7 @@ var manageTable = function(info,callback){
 			callback && callback(oTable);
 
 		}else{
-			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="https://assets.encom.app/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
+			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="/assets/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
 			$(table).html(noContent);
 			spinner(container, 'hide');
 			callback && callback();
@@ -3054,7 +3054,7 @@ var manageTablePage = function(info,callback){
 	function toFeed(data){
 
 		if(data.length < 1){
-			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="https://assets.encom.app/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
+			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="/assets/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
 			$(table).html(noContent);
 			spinner(container, 'hide');
 			callback && callback();
@@ -3300,7 +3300,7 @@ var manageTablePageJson = function(info,callback){
 	function toFeed(data){
 
 		if(data.length < 1){
-			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="https://assets.encom.app/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
+			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="/assets/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
 			$(table).html(noContent);
 			spinner(container, 'hide');
 			callback && callback();
@@ -3543,7 +3543,7 @@ var manageTableLoad = function(info,callback){
 	function toFeed(data){
 
 		if(data.length < 1){
-			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="https://assets.encom.app/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
+			var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="/assets/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
 			$(table).html(noContent);
 			spinner(container, 'hide');
 			callback && callback();
@@ -3573,8 +3573,8 @@ var manageTableLoad = function(info,callback){
 					        								"sSearch": "",
 														    "decimal"		: dc,
 														    "thousands"		: ts,
-														    "zeroRecords"	: '<div class="text-center"><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> No pudimos encontrar lo que busca</div><div>Intente utilizando otra combinación de palabras</div></div>',
-														    "emptyTable" 	: '<div class="text-center"><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3">No hay información disponible</div></div>'
+														    "zeroRecords"	: '<div class="text-center"><img src="/assets/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> No pudimos encontrar lo que busca</div><div>Intente utilizando otra combinación de palabras</div></div>',
+														    "emptyTable" 	: '<div class="text-center"><img src="/assets/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3">No hay información disponible</div></div>'
 													  	},
 					        "buttons"				: 
 					        [
@@ -3987,8 +3987,8 @@ var ncmDataTables = function(options,callback){
 							        								"sSearch" 		: "",
 																    "decimal"		: ncmTablesHTML.opts.decimal,
 																    "thousands"		: ncmTablesHTML.opts.thousand,
-																    "zeroRecords"	: '<div class="text-center"><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> No pudimos encontrar lo que busca</div><div>Intente utilizando otra combinación de palabras</div></div>',
-																    "emptyTable" 	: '<div class="text-center"><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3">No hay información disponible</div></div>'
+																    "zeroRecords"	: '<div class="text-center"><img src="/assets/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> No pudimos encontrar lo que busca</div><div>Intente utilizando otra combinación de palabras</div></div>',
+																    "emptyTable" 	: '<div class="text-center"><img src="/assets/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3">No hay información disponible</div></div>'
 															  	},
 							        "footerCallback"		: function ( row, data, start, end, display ) {
 							        	var fSumCol		= iftn(ncmTablesHTML.opts.footerSumCol,[]);
@@ -4366,7 +4366,7 @@ var ncmDataTables = function(options,callback){
 							},
 							toFeed : function(data){
 								if(data.length < 1){
-									var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="https://assets.encom.app/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
+									var noContent = '<div class="text-center col-xs-12 wrapper"> <img src="/assets/images/emptystate7.png" height="140"> <h1 class="font-bold">No encontramos información</h1> <div class="text-md m-t"> <p> Asegurese de haber añadido la información necesaria o escribanos directamente al chat para que le ayudemos. <br> (Psst, el chat es el circulo azul a la derecha) </p> </div></div>';
 									ncmTablesHTML.opts.el.html(noContent);
 									//spinner(ncmTablesHTML.opts.container, 'hide');
 									callback && callback();
@@ -4680,7 +4680,7 @@ var logoUpload = function(){
           contentType: false,
           success: function (res) {
             
-            var img = 'https://assets.encom.app/src.php?src='+res+'&w=220';
+            var img = '/assets/src.php?src='+res+'&w=220';
             if(res == 'false'){
               img = 'images/add.png';
             }

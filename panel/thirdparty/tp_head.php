@@ -1,23 +1,13 @@
 <?php
 require_once(__DIR__ . '/../includes/cors.php');
 
-include_once('/home/encom/public_html/panel/libraries/whoops/autoload.php');
 include_once('/home/encom/public_html/panel/includes/db.php');
 include_once('/home/encom/public_html/panel/includes/simple.config.php');
-include_once('/home/encom/public_html/panel/libraries/hashid.php');
 include_once('/home/encom/public_html/panel/includes/functions.php');
 
-//encode ID
-function enc($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->encode((int)$str);
-}
- 
-//decode ID
-function dec($str){
-  $hashids = new Hashids\Hashids(SALT);
-  return $hashids->decode($str)[0];
-}
+function enc($str): string { return (string)$str; }
+
+function dec($str): string { return (string)$str; }
 
 function ncmEncode($str){
 	$based 		= base64_encode($str);

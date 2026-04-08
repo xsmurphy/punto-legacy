@@ -1,14 +1,11 @@
 <?php
 require_once(__DIR__ . '/includes/cors.php');
 
-include_once("libraries/hashid.php");
 include_once("libraries/countries.php");
 include_once("includes/db.php");
 include_once("includes/simple.config.php");
 include_once("includes/functions.php");
 require_once('/home/incomepos/public_html/panel/includes/emailtemplates.php');
-require_once('libraries/phpmailer/PHPMailerAutoload.php');
-
 // This if statement checks to determine whether the registration form has been submitted
 // If it has, then the registration code is run, otherwise the form is displayed
 if(!empty($_POST)){

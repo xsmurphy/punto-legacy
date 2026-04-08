@@ -7,7 +7,7 @@ accessControl([0]);
 
   <div class="col-md-10 col-md-offset-1 col-sm-12 col-xs-12 wrapper text-right">
     <?=headerPrint();?>
-    <a href="https://docs.encom.app/panel-de-control/reportes" class="m-r-sm" target="_blank" data-toggle="tooltip" data-placement="left" title="" data-original-title="Visitar el centro de ayuda">
+    <a href="/panel-de-control/reportes" class="m-r-sm" target="_blank" data-toggle="tooltip" data-placement="left" title="" data-original-title="Visitar el centro de ayuda">
       <i class="material-icons text-info m-b-xs">help_outline</i>
     </a>
     <span class="font-bold h1" id="pageTitle">

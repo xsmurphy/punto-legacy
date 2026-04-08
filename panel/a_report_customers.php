@@ -6,7 +6,7 @@ allowUser('sales','view');
 
 $MAX_DAYS_RANGE = 31;
 
-if(ENCOM_ADM){
+if(SAAS_ADM){
 	$MAX_DAYS_RANGE = 31 * 12;
 }
 
@@ -35,7 +35,7 @@ if(validateHttp('action') == 'generalTable'){
 							SUM(transactionTotal) as total, 
 							SUM(transactionDiscount) as discount,
 							COUNT(transactionId) as count,
-							GROUP_CONCAT(tags) as tags
+							STRING_AGG(tags::text, ',') as tags
 						FROM
 							transaction 
 						WHERE 
@@ -229,10 +229,10 @@ if(validateHttp('action') == 'generalTable'){
 
 if(validateHttp('action') == 'byAge'){
 	$sql = "SELECT 
-			CASE WHEN (DATE_FORMAT(NOW(), '%Y') - DATE_FORMAT(contactBirthDay, '%Y') - (DATE_FORMAT(NOW(), '00-%m-%d') < DATE_FORMAT(contactBirthDay, '00-%m-%d'))) <= 20 THEN '1-20'
-			     WHEN (DATE_FORMAT(NOW(), '%Y') - DATE_FORMAT(contactBirthDay, '%Y') - (DATE_FORMAT(NOW(), '00-%m-%d') < DATE_FORMAT(contactBirthDay, '00-%m-%d'))) <= 30 THEN '20-30'
-			     WHEN (DATE_FORMAT(NOW(), '%Y') - DATE_FORMAT(contactBirthDay, '%Y') - (DATE_FORMAT(NOW(), '00-%m-%d') < DATE_FORMAT(contactBirthDay, '00-%m-%d'))) <= 50 THEN '30-50'
-			     WHEN (DATE_FORMAT(NOW(), '%Y') - DATE_FORMAT(contactBirthDay, '%Y') - (DATE_FORMAT(NOW(), '00-%m-%d') < DATE_FORMAT(contactBirthDay, '00-%m-%d'))) <= 50 THEN '50-100' END AS age,
+			CASE WHEN (TO_CHAR(NOW(), 'YYYY')::int - TO_CHAR(contactBirthDay, 'YYYY')::int - (TO_CHAR(NOW(), '00-MM-DD') < TO_CHAR(contactBirthDay, '00-MM-DD'))::int) <= 20 THEN '1-20'
+			     WHEN (TO_CHAR(NOW(), 'YYYY')::int - TO_CHAR(contactBirthDay, 'YYYY')::int - (TO_CHAR(NOW(), '00-MM-DD') < TO_CHAR(contactBirthDay, '00-MM-DD'))::int) <= 30 THEN '20-30'
+			     WHEN (TO_CHAR(NOW(), 'YYYY')::int - TO_CHAR(contactBirthDay, 'YYYY')::int - (TO_CHAR(NOW(), '00-MM-DD') < TO_CHAR(contactBirthDay, '00-MM-DD'))::int) <= 50 THEN '30-50'
+			     WHEN (TO_CHAR(NOW(), 'YYYY')::int - TO_CHAR(contactBirthDay, 'YYYY')::int - (TO_CHAR(NOW(), '00-MM-DD') < TO_CHAR(contactBirthDay, '00-MM-DD'))::int) <= 50 THEN '50-100' END AS age,
 			COUNT(*) total
 			FROM contact
 			WHERE companyId = ?
@@ -365,7 +365,7 @@ if(validateHttp('widget') == 'newRecurring'){
                                 AND (a.customerId IS NOT NULL AND a.customerId > 1)
                                 " . $oldRoc . "
                                 AND a.transactionType IN(0,3)
-                                AND a.customerId = b.contactUID
+                                AND a.customerId = b.contactId
                                 AND b.contactDate < ?
                                 AND b.type = 1
                                 GROUP BY date"
@@ -478,7 +478,7 @@ echo reportsDayAndTitle([
               ?>
               <div class="col-xs-12 no-bg no-padder" id="customerSatisfactionLevel">
                 <div class="h4 font-bold m-b">
-                  Nivel de satisfacción de clientes o <a href="https://docs.encom.app/preguntas-frecuentes/panel-de-control/que-es-satisfaccion-del-cliente-o-net-promoter-score-nps" target="_blank"> <span class="font-normal text-u-l">(NPS)</span></a>
+                  Nivel de satisfacción de clientes o <a href="/preguntas-frecuentes/panel-de-control/que-es-satisfaccion-del-cliente-o-net-promoter-score-nps" target="_blank"> <span class="font-normal text-u-l">(NPS)</span></a>
                   <a href="/@#report_satisfaction" class="pull-right hidden-print">
                     <i class="material-icons md-24">keyboard_arrow_right</i>
                   </a>

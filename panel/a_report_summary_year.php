@@ -185,8 +185,8 @@ if(validateHttp('action') == 'generalTable'){
   <?=menuReports('',false);?>
     
   <?php
-  $company  = ncmExecute('SELECT companyDate FROM company WHERE companyId = ?',[COMPANY_ID]);
-  $yCreated = date('Y', strtotime($company['companyDate']));
+  $company  = ncmExecute('SELECT createdAt FROM company WHERE companyId = ?',[COMPANY_ID]);
+  $yCreated = date('Y', strtotime($company['createdAt']));
   $yNow     = date('Y');
 
   if($yNow > $yCreated){
@@ -359,14 +359,14 @@ if(validateHttp('action') == 'generalTable'){
             var recAnnots = [];
             if(ncmHelpers.validity(annots)){
               recAnnots = annots.map(function(val, index) {
-                var id        = "vline" + index;
-                var mode      = "vertical";
+                var id        = 'vline' + index;
+                var mode      = 'vertical';
                 var scaleId   = "x-axis-0";
                 var position  = iftn(val.position,'center');
 
                 if(val.orientation == 'horizontal'){
-                  id        = "hline" + index;
-                  mode      = "horizontal";
+                  id        = 'hline' + index;
+                  mode      = 'horizontal';
                   scaleId   = "y-axis-0";
                 }
 

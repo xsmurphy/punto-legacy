@@ -9,14 +9,13 @@ $fullData 		= [];
 $dateDecided 	= $get['d'];
 
 $company = ncmExecute("SELECT
-							a.companyId as id,
-							a.companySMSCredit as smsCredit,
-							b.settingName as name,
-							b.settingCountry as country
-						FROM company a, setting b
-						WHERE a.companyStatus = 'Active'
-						AND	a.companyPlan IN (" . $allowedPlans . ") 
-						AND a.companyId = b.companyId
+							companyId as id,
+							smsCredit,
+							config->>'settingName'    as name,
+							config->>'settingCountry' as country
+						FROM company
+						WHERE status = 'active'
+						AND plan IN (" . $allowedPlans . ")
 						LIMIT 10000");
 if($company){
 	while (!$company->EOF) {
@@ -51,7 +50,7 @@ if($dateDecided == 'yesterday'){
 
 //veo si tioene habilitado el envio de reportes
 
-$_modules = ncmExecute('SELECT * FROM module WHERE ' . $field . ' > 0 AND companyId IN(' . $in . ') LIMIT 10000',[],false,true);
+$_modules = ncmExecute("SELECT * FROM company WHERE (config->>'" . $field . "')::int > 0 AND companyId IN(" . $in . ') LIMIT 10000',[],false,true);
 
 $dia    = $dias[date('w',strtotime($rangeDate))] . ' ' . date('d',strtotime($rangeDate));
 $mes    = $meses[date('n',strtotime($rangeDate)) - 1];
@@ -70,10 +69,10 @@ if($_modules){
 				$fields 	= $contacts->fields;
 
 				$name 		= $fields['contactName'];
-				$url    	= 'https://public.encom.app/statusSummary?s=' . base64_encode(enc($module['companyId']) . ',' . $rangeDate);
+				$url    	= '/screens/statusSummary?s=' . base64_encode(enc($module['companyId']) . ',' . $rangeDate);
 
 				$compName 	= $companyData[$module['companyId']]['name'];
-				$compLogo 	= 'https://assets.encom.app/150-150/0/' . enc($module['companyId']) . '.jpg';
+				$compLogo 	= '/assets/150-150/0/' . enc($module['companyId']) . '.jpg';
 
 				$subject 	= 	'Resumen del ' . $literalDate;
 				$body 	 	= 	'Puede acceder al resumen del ' . $literalDate . ' en: <br> ' . 
@@ -81,7 +80,7 @@ if($_modules){
 
 			    $meta['subject'] = $subject;
 				$meta['to']      = $fields['contactEmail'];
-				$meta['fromName']= 'ENCOM';
+				$meta['fromName']= APP_NAME;
 				$meta['data']    = [
 				                    "message"     => $body,
 				                    "companyname" => $compName,

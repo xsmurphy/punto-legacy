@@ -112,7 +112,7 @@ function getCompanyLoginSession($companyId,$encomADM = false){
 		$_SESSION['user']['outletsCount'] = $outletCount->fields['count'];
 		$_SESSION['user']['startDate']    = false;
 		$_SESSION['user']['endDate']      = false;
-		$_SESSION['user']['ENCOM_ADM']    = $encomADM;
+		$_SESSION['user']['SAAS_ADM']    = $encomADM;
 
 	}
 
@@ -141,16 +141,16 @@ if(isset($_SESSION['user'])){
 	define('PLAN', printSessionData(dec($sU['plan']))); //0 free, 1 Company, 2 full, 3 trial, 4 Privilege, 5 Starter, 6 Nada, 7 Micro
 	define('PLAN_EXPIRING_DATE', printSessionData($sU['planExpires']));
 
-	if($sU['ENCOM_ADM']){
-		if($_GET['backToENCOM'] == 'true'){
-			getCompanyLoginSession(15,true);
+	if($sU['SAAS_ADM']){
+		if($_GET['backToSaaS'] == 'true'){
+			getCompanyLoginSession(MASTER_COMPANY_ID, true);
 			header('location:/main');
   			die();
 		}else{
-			define('ENCOM_ADM', true);
+			define('SAAS_ADM', true);
 		}
 	}else{
-		define('ENCOM_ADM', false);
+		define('SAAS_ADM', false);
 	}
 
 	if(isset($sU['companySettings'])){
@@ -243,7 +243,6 @@ define('INCOME_USER_ID', 32);
 define('INCOME_OUTLET_ID', 254);
 define('INCOME_REGISTER_ID', 2244);
 
-define('INTERCOM_IDENTITY_SECRET', $_ENV['INTERCOM_IDENTITY_SECRET'] ?? '');
 if (!defined('POS_URL')) define('POS_URL', ''); // override in simple.config.php
 //ids de los productos de income
 define('PLAN_COMPANY_ID', 27558);
@@ -1269,7 +1268,7 @@ Tipos de Transacciones
 */
 
 
-$globals = ['COMPANY_ID','USER_ID','ENCOM_COMPANY_ID','USER_NAME','USER_EMAIL','USER_ID','USER_PHONE','INTERCOM_IDENTITY_SECRET','COMPANY_NAME','COMPANY_DATE','PLAN','OUTLETS_COUNT','OUTLET_ID','REGISTER_ID'];
+$globals = ['COMPANY_ID','USER_ID','ENCOM_COMPANY_ID','USER_NAME','USER_EMAIL','USER_ID','USER_PHONE','COMPANY_NAME','COMPANY_DATE','PLAN','OUTLETS_COUNT','OUTLET_ID','REGISTER_ID'];
 
 foreach ($globals as $value) {
 	if(!defined($value)){

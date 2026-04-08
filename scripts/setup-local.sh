@@ -5,190 +5,180 @@
 
 set -e
 
-echo "🚀 Configurando ENCOM para desarrollo local..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+echo "Configurando Punto para desarrollo local..."
 echo ""
 
-# Colores para output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Verificar requisitos
-echo "📋 Verificando requisitos..."
+echo "Verificando requisitos..."
 
 if ! command -v docker &> /dev/null; then
-    echo -e "${RED}❌ Docker no está instalado${NC}"
-    exit 1
-fi
-
-if ! command -v docker-compose &> /dev/null; then
-    echo -e "${RED}❌ Docker Compose no está instalado${NC}"
+    echo -e "${RED}ERROR: Docker no está instalado${NC}"
     exit 1
 fi
 
 if ! command -v php &> /dev/null; then
-    echo -e "${RED}❌ PHP no está instalado${NC}"
+    echo -e "${RED}ERROR: PHP no está instalado${NC}"
     exit 1
 fi
 
 if ! command -v composer &> /dev/null; then
-    echo -e "${RED}❌ Composer no está instalado${NC}"
+    echo -e "${RED}ERROR: Composer no está instalado${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✅ Todos los requisitos están instalados${NC}"
+echo -e "${GREEN}OK: Requisitos verificados${NC}"
 echo ""
 
-# Crear archivo .env si no existe
+cd "$ROOT_DIR"
+
+# Crear .env si no existe
 if [ ! -f .env ]; then
-    echo "📝 Creando archivo .env..."
+    echo "Creando .env desde .env.example..."
     cp .env.example .env
-    echo -e "${GREEN}✅ Archivo .env creado${NC}"
+    echo -e "${GREEN}OK: .env creado${NC}"
 else
-    echo -e "${YELLOW}⚠️  .env ya existe, saltando...${NC}"
+    echo -e "${YELLOW}SKIP: .env ya existe${NC}"
 fi
 echo ""
 
-# Crear directorios necesarios
-echo "📁 Creando directorios necesarios..."
+# Directorios de cache
+echo "Creando directorios de cache..."
 mkdir -p cache/adodb
 mkdir -p app/cach
-chmod -R 777 cache
-chmod -R 777 app/cach
-echo -e "${GREEN}✅ Directorios creados${NC}"
+chmod -R 777 cache app/cach
+echo -e "${GREEN}OK: Directorios creados${NC}"
 echo ""
 
-# Configurar archivos de base de datos
-echo "🔧 Configurando archivos de conexión a BD..."
+# db.php apunta a db.local.php (que usa PDO)
+echo "Configurando conexión a base de datos..."
 
-# Panel
-if [ -f panel/includes/db.php ] && [ ! -L panel/includes/db.php ]; then
-    mv panel/includes/db.php panel/includes/db.php.production
-    echo -e "${GREEN}✅ Respaldo de panel/includes/db.php creado${NC}"
-fi
-
-if [ ! -L panel/includes/db.php ]; then
-    ln -sf db.local.php panel/includes/db.php
-    echo -e "${GREEN}✅ Symlink creado para panel/includes/db.php${NC}"
-fi
-
-# App
-if [ -f app/includes/db.php ] && [ ! -L app/includes/db.php ]; then
-    mv app/includes/db.php app/includes/db.php.production
-    echo -e "${GREEN}✅ Respaldo de app/includes/db.php creado${NC}"
-fi
-
-if [ ! -L app/includes/db.php ]; then
-    ln -sf db.local.php app/includes/db.php
-    echo -e "${GREEN}✅ Symlink creado para app/includes/db.php${NC}"
-fi
+for dir in panel app; do
+    target="$dir/includes/db.php"
+    if [ -f "$target" ]; then
+        # Reemplazar contenido para apuntar a db.local.php
+        echo "<?php
+// LOCAL: apunta a db.local.php (PDO wrapper).
+// PROD:  cambiar a db.postgres.php (ADOdb) o db.pdo.php una vez validado.
+require_once __DIR__ . '/db.local.php';
+" > "$target"
+        echo -e "${GREEN}OK: $target → db.local.php${NC}"
+    fi
+done
 echo ""
 
 # Levantar Docker
-echo "🐳 Iniciando servicios Docker..."
-docker-compose up -d
+echo "Iniciando servicios Docker (PostgreSQL + pgAdmin + Redis)..."
+docker compose up -d
 
-echo "⏳ Esperando a que MySQL esté listo..."
-sleep 10
+echo "Esperando a que PostgreSQL esté listo..."
+for i in $(seq 1 15); do
+    if docker exec punto_postgres pg_isready -U encom -d encomdb &>/dev/null; then
+        echo -e "${GREEN}OK: PostgreSQL listo${NC}"
+        break
+    fi
+    if [ $i -eq 15 ]; then
+        echo -e "${RED}ERROR: PostgreSQL no respondió a tiempo${NC}"
+        docker compose logs postgres
+        exit 1
+    fi
+    sleep 2
+done
+echo ""
 
-# Verificar que MySQL esté corriendo
-if docker-compose ps | grep -q "encom_mysql.*Up"; then
-    echo -e "${GREEN}✅ MySQL está corriendo${NC}"
-else
-    echo -e "${RED}❌ MySQL no se pudo iniciar${NC}"
-    docker-compose logs mysql
-    exit 1
+# Instalar dependencias Composer
+echo "Instalando dependencias Composer..."
+
+if [ -f "panel/composer.json" ]; then
+    cd panel && composer install --no-interaction --quiet && cd "$ROOT_DIR"
+    echo -e "${GREEN}OK: panel/vendor/ instalado${NC}"
+fi
+
+if [ -f "app/composer.json" ]; then
+    cd app && composer install --no-interaction --quiet && cd "$ROOT_DIR"
+    echo -e "${GREEN}OK: app/vendor/ instalado${NC}"
 fi
 echo ""
 
-# Instalar dependencias de Composer
-echo "📦 Instalando dependencias de Composer..."
-
-if [ -d "panel/composer" ]; then
-    cd panel/composer
-    composer install --no-interaction
-    cd ../..
-    echo -e "${GREEN}✅ Dependencias del panel instaladas${NC}"
-fi
-
-if [ -d "app/composer" ]; then
-    cd app/composer
-    composer install --no-interaction
-    cd ../..
-    echo -e "${GREEN}✅ Dependencias de la app instaladas${NC}"
-fi
-echo ""
-
-# Crear datos de prueba
-echo "🗄️  ¿Deseas crear datos de prueba? (s/n)"
+# Datos de prueba
+echo "¿Crear datos de prueba en PostgreSQL? (s/n)"
 read -r response
 
 if [[ "$response" =~ ^([sS][iI]|[sS])$ ]]; then
-    echo "Creando datos de prueba..."
-    
-    docker exec -i encom_mysql mysql -uroot -proot123 encomdb << 'EOF'
--- Insertar empresa de prueba
-INSERT IGNORE INTO company (companyId, companyStatus, companyPlan, companyUserActivated) 
-VALUES (1, 'Active', 1, 1);
+    echo "Insertando datos de prueba..."
 
--- Insertar configuración
-INSERT IGNORE INTO setting (companyId, settingName, settingCountry, settingCurrency, settingTimeZone, settingDecimal, settingThousandSeparator) 
-VALUES (1, 'Mi Empresa Local', 'PY', 'PYG', 'America/Asuncion', ',', '.');
+    docker exec -i punto_postgres psql -U encom -d encomdb << 'PGSQL'
+-- Empresa de prueba
+INSERT INTO company (companyId, status, plan, smsCredit, balance, createdAt)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'Active', 1, 0, 0,
+    NOW()
+) ON CONFLICT DO NOTHING;
 
--- Insertar módulos
-INSERT IGNORE INTO module (companyId, moduleData) 
-VALUES (1, '{}');
+-- Sucursal
+INSERT INTO outlet (outletId, outletName, outletStatus, companyId)
+VALUES (
+    '00000000-0000-0000-0000-000000000010',
+    'Sucursal Principal', 1,
+    '00000000-0000-0000-0000-000000000001'
+) ON CONFLICT DO NOTHING;
 
--- Insertar sucursal
-INSERT IGNORE INTO outlet (outletId, outletName, outletStatus, companyId) 
-VALUES (1, 'Sucursal Principal', 1, 1);
+-- Caja
+INSERT INTO register (registerId, registerName, registerStatus, outletId, companyId)
+VALUES (
+    '00000000-0000-0000-0000-000000000100',
+    'Caja 1', 1,
+    '00000000-0000-0000-0000-000000000010',
+    '00000000-0000-0000-0000-000000000001'
+) ON CONFLICT DO NOTHING;
 
--- Insertar caja registradora  
-INSERT IGNORE INTO register (registerId, registerName, registerStatus, outletId, companyId) 
-VALUES (1, 'Caja 1', 1, 1, 1);
-
--- Insertar usuario admin
-INSERT IGNORE INTO contact (
-    contactId, contactName, contactEmail, contactPassword, 
-    type, role, main, companyId, outletId, contactStatus
+-- Usuario admin (password: admin123)
+INSERT INTO contact (
+    contactId, contactName, contactEmail, contactPassword,
+    type, role, companyId, outletId, contactStatus
 ) VALUES (
-    1, 'Administrador', 'admin@local.test', 
+    '00000000-0000-0000-0000-000000001000',
+    'Administrador', 'admin@local.test',
     '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
-    0, 1, 'admin', 1, 1, 1
-);
+    0, 1,
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000010',
+    1
+) ON CONFLICT DO NOTHING;
 
-SELECT 'Datos de prueba creados exitosamente' AS resultado;
-EOF
-    
-    echo -e "${GREEN}✅ Datos de prueba creados${NC}"
+SELECT 'Datos de prueba insertados' AS resultado;
+PGSQL
+
+    echo -e "${GREEN}OK: Datos de prueba creados${NC}"
     echo ""
-    echo -e "${YELLOW}Credenciales de acceso:${NC}"
-    echo "  Email: admin@local.test"
+    echo -e "${YELLOW}Credenciales:${NC}"
+    echo "  Email:    admin@local.test"
     echo "  Password: admin123"
 fi
 echo ""
 
-# Resumen final
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${GREEN}Configuracion completada${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${GREEN}✨ ¡Configuración completada!${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Servicios Docker:"
+echo "  PostgreSQL:  localhost:5432  (user: encom / encom123)"
+echo "  pgAdmin:     http://localhost:5050  (admin@punto.local / admin123)"
+echo "  Redis:       localhost:6379"
 echo ""
-echo "🌐 Servicios disponibles:"
-echo "  • PHPMyAdmin: http://localhost:8080"
-echo "    Usuario: root | Password: root123"
+echo "Iniciar servidores PHP:"
+echo "  cd panel && php -S localhost:8001"
+echo "  cd app   && php -S localhost:8000"
 echo ""
-echo "🚀 Para iniciar el sistema:"
+echo "URLs:"
+echo "  Panel:  http://localhost:8001"
+echo "  App:    http://localhost:8000"
 echo ""
-echo "  Panel Admin:"
-echo "    cd panel && php -S localhost:8001"
-echo "    Abre: http://localhost:8001"
-echo ""
-echo "  App POS:"
-echo "    cd app && php -S localhost:8000"
-echo "    Abre: http://localhost:8000"
-echo ""
-echo "📚 Documentación: README-LOCAL.md"
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

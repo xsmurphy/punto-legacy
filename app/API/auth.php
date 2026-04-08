@@ -91,10 +91,10 @@ $ttl    = (int)($_ENV['JWT_TTL'] ?? 28800);
 $now    = time();
 
 $payload = [
-    'sub'  => $userId,
-    'cid'  => $companyId,
-    'oid'  => $outletId,
-    'rid'  => $registerId,
+    'sub'  => (string)$userId,
+    'cid'  => (string)$companyId,
+    'oid'  => (string)$outletId,
+    'rid'  => (string)$registerId,
     'role' => (int)$result['role'],
     'iat'  => $now,
     'exp'  => $now + $ttl,

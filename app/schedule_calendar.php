@@ -1,6 +1,5 @@
 <?php
 include_once("includes/simple.config.php");
-include_once("libraries/hashid.php");
 include_once("libraries/countries.php");
 include_once("includes/functions.php");
 
@@ -34,8 +33,8 @@ $outletId   = $sources[1];
   <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
   <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16" />
   <link rel="icon" type="image/png" href="/favicon-128.png" sizes="128x128" />
-  <link rel="canonical" href="https://app.encom.app" />
-  <meta name="application-name" content="Encom"/>
+  <link rel="canonical" href="" />
+  <meta name="application-name" content=APP_NAME/>
   <meta name="msapplication-TileColor" content="#FFFFFF" />
   <meta name="msapplication-TileImage" content="/mstile-144x144.png" />
   <meta name="msapplication-square70x70logo" content="/mstile-70x70.png" />
@@ -96,7 +95,7 @@ $outletId   = $sources[1];
     });
 
     function standAloneLoadCalendar(load,type){
-      var url   = 'https://app.encom.app/load?l=' + masterUrlParams({load:load,date:window.currentDate});
+      var url   = '/load?l=' + masterUrlParams({load:load,date:window.currentDate});
       preloader('show');
       $.get(url,function(result){
 

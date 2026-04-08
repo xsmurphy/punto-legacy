@@ -28,8 +28,6 @@ function checkExecTime($reference = false){
   $GLOBALS['_execution_start'] = microtime(true);
 }
 
-require_once('libraries/whoops/autoload.php');
-
 if(isset($_POST['companyId']) && isset($_POST['outletId'])){
   $rateLimiterId = $_POST['outletId'];
 
@@ -74,8 +72,8 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
   if($login_ok){
 
     $outletCount  = getOutletCount(COMPANY_ID);
-    $settings     = ncmExecute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-    $_modules     = ncmExecute("SELECT * FROM module WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+    $settings     = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+    $_modules     = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
 
     $cmy = ncmExecute(" SELECT
                             *
@@ -84,11 +82,11 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
                         companyId = ? 
                         LIMIT 1",[COMPANY_ID]);
 
-    if($cmy['companyPlan'] < 1 || $settings['settingBlocked'] == 1){
+    if($cmy['plan'] < 1 || $settings['blocked'] == 1){
       jsonDieMsg('true',200,'locked');
     }
 
-    $planIt       =  getAllPlans($cmy['companyPlan']);
+    $planIt       =  getAllPlans($cmy['plan']);
 
     $__modules   = json_decode($_modules['moduleData'], true);
     $__modules 	= is_array($__modules) ? $__modules : [];
@@ -298,8 +296,8 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
                           'companyEmail'          => $settings['settingEmail'],
                           'companyWebsite'        => $settings['settingWebSite'],
                           'companyCategory'       => $settings['settingCompanyCategoryId'],
-                          'companyDate'           => strtotime($cmy['companyDate']),
-                          'companyBalance'        => $cmy['companyBalance'],
+                          'companyDate'           => strtotime($cmy['createdAt']),
+                          'companyBalance'        => $cmy['balance'],
                           'currency'              => $settings['settingCurrency'],
                           'taxName'               => $settings['settingTaxName'],
                           'removeTax'             => $settings['settingRemoveTaxes'],
@@ -372,7 +370,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
           //$db->query("SET NAMES 'utf8'");
         }
         
-        $customer = ncmExecute("  SELECT contactId, contactName, contactSecondName, contactUID, contactTIN, contactCI, contactPhone, contactPhone2, contactEmail, contactBirthDay, contactLoyaltyAmount, contactStatus, type, contactCreditLine, contactStoreCredit
+        $customer = ncmExecute("  SELECT contactId, contactName, contactSecondName, contactId, contactTIN, contactCI, contactPhone, contactPhone2, contactEmail, contactBirthDay, contactLoyaltyAmount, contactStatus, type, contactCreditLine, contactStoreCredit
                                   FROM contact 
                                   WHERE companyId = ? 
                                   " . $updated_at . "
@@ -393,7 +391,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
         while (!$customer->EOF) {
           $cFields  = $customer->fields;
           if($cFields['contactStatus'] > 0 && $cFields['type'] == 1){
-            $cAIns[] = $cFields['contactUID'];
+            $cAIns[] = $cFields['contactId'];
           }
           $customer->MoveNext();
         }
@@ -437,10 +435,10 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
               $name = toUTF8($cFields['contactSecondName']);
             }
 
-            if(validity($cFields['contactUID'])){
-              $cusArray['customerId']   = enc($cFields['contactUID']);
+            if(validity($cFields['contactId'])){
+              $cusArray['customerId']   = enc($cFields['contactId']);
               if(validity($lastUpdateApp)){//si solo quiero acttualizar envio decoded id para match con users recien creados
-                $cusArray['customerUnd']   = $cFields['contactUID'];
+                $cusArray['customerUnd']   = $cFields['contactId'];
               }
             }
             if(validity($name)){
@@ -492,7 +490,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
               $cusArray['latLng']      = $cFields['contactLatLng'];
             }
 
-            $custAddrs = $allAddress[$cFields['contactUID']];
+            $custAddrs = $allAddress[$cFields['contactId']];
 
             if($custAddrs){
               $cusArray['latLng']      = $custAddrs['latLng']; 
@@ -506,7 +504,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
               $cusArray['storeCredit']  = $cFields['contactStoreCredit'];
             }
             if(validity($cFields['contactCreditLine'])){
-              $cusArray['creditLine']   = getContactCreditLine($cFields['contactUID'],$cFields['contactCreditLine']);
+              $cusArray['creditLine']   = getContactCreditLine($cFields['contactId'],$cFields['contactCreditLine']);
             }
             if(validity($cFields['categoryId'])){
               $cusArray['category']   = $cFields['categoryId'];
@@ -548,7 +546,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
       $child        = [];
       $childrenIds  = getAllCompanyItemsChildren(COMPANY_ID);
       $allTaxonomy  = getAllTaxonomyNames(COMPANY_ID);
-      $decimal      = ncmExecute('SELECT settingDecimal FROM setting WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+      $decimal      = ncmExecute('SELECT settingDecimal FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
       
       $products     = ncmExecute("SELECT * FROM item WHERE companyId = ? AND itemStatus = 1 AND itemCanSale = 1 AND (outletId = ? OR outletId IS NULL OR outletId = 0)" . $updated_at . " ORDER BY itemDate " . $order . $limit, [COMPANY_ID,OUTLET_ID],30,true);
 

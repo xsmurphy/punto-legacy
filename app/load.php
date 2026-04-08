@@ -19,8 +19,6 @@ function checkExecTime($reference = false){
   $GLOBALS['_execution_start'] = microtime(true);
 }
 
-require_once('libraries/whoops/autoload.php');
-
 $get        = json_decode(base64_decode($_GET['l']),true);
 $post   = $_POST;
 $load       = $get['load'];
@@ -342,7 +340,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
         foreach($trans as $transId => $transData){
           $transData['transactionId'] = $transId;
           //customer data
-          $cusData    = ncmExecute('SELECT * FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1',[$transData['customerId'],COMPANY_ID]);
+          $cusData    = ncmExecute('SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',[$transData['customerId'],COMPANY_ID]);
           $cusName    = iftn($cusData['contactSecondName'],$cusData['contactName']);
           $cusPhone   = iftn($cusData['contactPhone'],$cusData['contactPhone2']);
           $cusEmail   = $cusData['contactEmail'];
@@ -371,7 +369,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
           $transData['date']          = $transData['userId'] . ' ' . $hourS;
           $transData['customerName']  = $cusName;
           $transData['customerPhone'] = '';//getPhoneFormat($cusPhone);
-          $transData['customerId']    = $cusData['contactUID'];
+          $transData['customerId']    = $cusData['contactId'];
 
           //ICON
           $stsIcon    = [
@@ -457,7 +455,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
 
     }else{
       $out =  '<div class="col-xs-12 no-padder text-center m-b-sm m-t-md">' .
-              ' <img src="https://panel.encom.app/images/emptystate2.png" width="80" class="m-t-md">' .
+              ' <img src="/images/emptystate2.png" width="80" class="m-t-md">' .
               ' <div class="m-t-sm m-b h3 font-bold">No hay recursos habilitados</div>' .
               '</div>';
       dai($out);
@@ -491,7 +489,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
       $user = ' AND contactId = ' . dec($get['resource']);
     }
     
-    $sqlUsers   = "SELECT GROUP_CONCAT(contactId) as users FROM contact WHERE type = 0 AND (outletId < 1 OR outletId = ?) AND companyId = ?" . $user . " ORDER BY contactCalendarPosition ASC LIMIT 100";
+    $sqlUsers   = "SELECT STRING_AGG(contactId::text, ',') as users FROM contact WHERE type = 0 AND (outletId < 1 OR outletId = ?) AND companyId = ?" . $user . " ORDER BY contactCalendarPosition ASC LIMIT 100";
 
     $users      = ncmExecute($sqlUsers, [OUTLET_ID,COMPANY_ID], true);
 
@@ -595,7 +593,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
       while (!$trans->EOF) {
         $fields     = $trans->fields;
         $day        = niceDate($fields['fromDate']);
-        $cusData    = ncmExecute('SELECT * FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1',[$fields['customerId'],COMPANY_ID]);
+        $cusData    = ncmExecute('SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',[$fields['customerId'],COMPANY_ID]);
         $cusName    = iftn($cusData['contactSecondName'],$cusData['contactName']);
 
         $group[$day][] = [
@@ -666,7 +664,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
 
       foreach($trans as $transId => $transData){
         $transData['transactionId'] = $transId;
-        $cusData    = ncmExecute('SELECT * FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1',[$transData['customerId'],COMPANY_ID]);
+        $cusData    = ncmExecute('SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',[$transData['customerId'],COMPANY_ID]);
         $cusName    = iftn($cusData['contactSecondName'],$cusData['contactName']);
         $cusPhone   = iftn($cusData['contactPhone'],$cusData['contactPhone2']);
         $cusEmail   = $cusData['contactEmail'];
@@ -818,7 +816,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
       while (!$trans->EOF) {
         $fields = $trans->fields;
         $day        = date('Y-m-d',strtotime($fields['fromDate']));
-        $cusData    = ncmExecute('SELECT * FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1',[$fields['customerId'],COMPANY_ID]);
+        $cusData    = ncmExecute('SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',[$fields['customerId'],COMPANY_ID]);
         $cusName    = iftn($cusData['contactSecondName'],$cusData['contactName']);
 
         $group[$day][] = [
@@ -856,7 +854,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
 
         foreach($groupData as $trans){
           if($trans['transactionStatus'] != 7){
-            $table .=   '<tr class="pointer clickeable" ' . getSalesDataList($trans,13,'reprintSale',$cusData['contactUID']) . '>' .
+            $table .=   '<tr class="pointer clickeable" ' . getSalesDataList($trans,13,'reprintSale',$cusData['contactId']) . '>' .
                         ' <td class="text-lg text-primary text-right b-b b-light">' .
                             $trans['startHour'] .
                         ' </td>' .
@@ -877,7 +875,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
     }else{
       $table    = '<tr><td>' .
                   ' <div class="col-xs-12 text-center no-padder m-b-sm">' .
-                  '   <img src="https://panel.encom.app/images/emptystate2.png" width="80" class="m-t-md">' .
+                  '   <img src="/images/emptystate2.png" width="80" class="m-t-md">' .
                   '   <div class="m-t-sm m-b h3">Nada en la agenda</div>' .
                   ' </div>' .
                   '</td></tr>';
@@ -1936,7 +1934,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
     $name     = getCustomerName($customer);    
     ?>
     <a href="#" class="thumb-md"> 
-      <img src="https://assets.encom.app/150-150/0/<?=enc(COMPANY_ID)?>.jpg" class="img-circle"> 
+      <img src="/assets/150-150/0/<?=enc(COMPANY_ID)?>.jpg" class="img-circle"> 
     </a>
 
     <div class="text-center m-t">Fichas de</div>
@@ -2216,7 +2214,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
     }else{
       ?>
       <div class="text-center col-xs-12 wrapper noDataMessage">
-        <img src="https://assets.encom.app/images/emptystate7.png" height="120">
+        <img src="/assets/images/emptystate7.png" height="120">
         <h2 class="font-bold">No ha creado fichas</h2>
         <div class="text-muted m-t">
           <p>Puede crear fichas personalizadas en la sección Contactos del Panel de Control</p>
@@ -2391,7 +2389,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
     }else{
       ?>
       <div class="text-center col-xs-12 wrapper noDataMessage">
-        <img src="https://panel.encom.app/images/emptystate2.png" height="140">
+        <img src="/images/emptystate2.png" height="140">
         <h1 class="font-thin">No posee progresos</h1>
         <div class="text-muted m-t">
           <p>Puede crear fichas de clientes en la sección Contactos del Panel de Control y luego podrá asignar progresos</p>
@@ -2421,7 +2419,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
                                     FROM
                                       contact 
                                     WHERE type      = 1
-                                    AND contactUID  = ?
+                                    AND contactId  = ?
                                     AND companyId   = ?
                                     LIMIT 1',
                                     [$id,COMPANY_ID]);
@@ -2432,7 +2430,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
         $qtotal     = ncmExecute('SELECT 
                                       COUNT(transactionId) as sales, 
                                       SUM(transactionTotal) as total, 
-                                      GROUP_CONCAT(transactionId) as ids, 
+                                      STRING_AGG(transactionId::text, \',\') as ids, 
                                       SUM(transactionUnitsSold) as units,
                                       transactionDate as date
                                     FROM 
@@ -2500,7 +2498,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
 
           //Cuenta corriente
 
-          $totalC  = ncmExecute(' SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, GROUP_CONCAT(transactionId) as ids 
+          $totalC  = ncmExecute(' SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, STRING_AGG(transactionId::text, \',\') as ids 
                                   FROM transaction 
                                   WHERE customerId = ? 
                                   AND transactionType = 3
@@ -2541,7 +2539,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
           }
 
           //vencidas
-          $totalV  = ncmExecute(" SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, GROUP_CONCAT(transactionId) as ids 
+          $totalV  = ncmExecute(" SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, STRING_AGG(transactionId::text, ',') as ids 
                                   FROM transaction 
                                   WHERE customerId = ? 
                                   AND transactionDueDate <= '" . TODAY . "'
@@ -2614,7 +2612,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
         $latLng   = $customer['contactLatLng'];
 
         //customer addresses
-        $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = 1 AND customerId = ? LIMIT 1',[COMPANY_ID, $customer['contactUID']]);
+        $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = 1 AND customerId = ? LIMIT 1',[COMPANY_ID, $customer['contactId']]);
 
         if(!empty($_GET['debug'])){
           print_r(['direcciones' => $custAddresses]);
@@ -2633,13 +2631,13 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
                                       'customerAddressDefault'  => 1,
                                       'customerAddressDate'     => TODAY,
                                       'companyId'               => COMPANY_ID, 
-                                      'customerId'              => $customer['contactUID']
+                                      'customerId'              => $customer['contactId']
                                     ] 
                     ]);
         }
 
         $jsonOut = [
-                      'customerId'          => enc($customer['contactUID']),
+                      'customerId'          => enc($customer['contactId']),
                       'customerName'        => toUTF8($customer['contactName']),
                       'customerFullName'    => $customer['contactSecondName'],
                       'customerTIN'         => $customer['contactTIN'],
@@ -2764,7 +2762,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
       $jsonOut    = [
                     'id'          => $eItemId,
                     'name'        => $item['itemName'],
-                    'img'         => 'https://assets.encom.app/250-250/0/' . $eCompanyId . '_' . $eItemId . '.jpg?' . mt_rand(),
+                    'img'         => '/assets/250-250/0/' . $eCompanyId . '_' . $eItemId . '.jpg?' . mt_rand(),
                     'price'       => CURRENCY . ' ' . formatCurrentNumber($item['itemPrice'],$dec,$ts),
                     'sku'         => iftn($item['itemSKU'],'Sin SKU'),
                     'type'        => $typeName,
@@ -2785,8 +2783,8 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
 
   if($load == 'walink' && $get['id']){
     $link         = '#notfound';
-    $url          = 'https://public.encom.app/scheduleConfirm?s=' . base64_encode($get['ti'] . ',' . enc(COMPANY_ID));
-    $phone        = ncmExecute('SELECT * FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1',[dec($get['id']),COMPANY_ID]);
+    $url          = '/screens/scheduleConfirm?s=' . base64_encode($get['ti'] . ',' . enc(COMPANY_ID));
+    $phone        = ncmExecute('SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',[dec($get['id']),COMPANY_ID]);
 
     if($phone){
       $cellphone    = iftn($phone['contactPhone'],$phone['contactPhone2']);
@@ -3090,7 +3088,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
           $discount   = $fields['transactionDiscount'];
           $total      = $fields['transactionTotal'];
 
-          $cusData = ncmExecute('SELECT contactName,contactSecondName,contactUID FROM contact WHERE contactUID = ? AND companyId = ? LIMIT 1',[$fields['customerId'],COMPANY_ID]);
+          $cusData = ncmExecute('SELECT contactName,contactSecondName,contactId FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',[$fields['customerId'],COMPANY_ID]);
 
           if(!$cusData){
             $customerD = 'Sin Nombre';
@@ -3114,7 +3112,7 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
           $table .=   '<tr '.
                         'class="clickeable text-left" ' .
                         'data-sort="' . $rawDate . '"' .
-                        (!empty($cusData['contactUID']) ? getSalesDataList($fields,$type,$typeAttr,$cusData['contactUID'],$topay) : "") .
+                        (!empty($cusData['contactId']) ? getSalesDataList($fields,$type,$typeAttr,$cusData['contactId'],$topay) : "") .
                         '> '.
                         '<td class="'.$stat.'"> ' .
                         '  <span class="block text-ellipsis font-bold text-md">' . $name . ' ' . $customerD . '</span> '.

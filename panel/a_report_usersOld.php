@@ -168,7 +168,7 @@ if(validateHttp('action') == 'generalTable'){
 			$tCount 	+= $count;
 
 			if($comission > 0){
-			$url 		= 'https://public.encom.app/userItemsSold?s=' . base64_encode(enc(COMPANY_ID) . ',' . $userId . ',' . $startDate . ',' . $endDate);
+			$url 		= '/screens/userItemsSold?s=' . base64_encode(enc(COMPANY_ID) . ',' . $userId . ',' . $startDate . ',' . $endDate);
 			$urlColor	= 'text-info';
 			$urlStatus	= '';
 			}

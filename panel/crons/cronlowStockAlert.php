@@ -14,13 +14,13 @@ $e = 0;
 
 //if(date('H') >= $timeToAlert){
 //obtengo todas las companies con plan starter y company
-//EJ: SELECT companyId FROM company WHERE companyPlan IN (1,2)
+//EJ: SELECT companyId FROM company WHERE plan IN (1,2)
 $company = ncmExecute("SELECT
 							companyId
 						FROM company
 						WHERE
-							companyStatus = 'Active'
-						AND	companyPlan IN (" . $allowedPlans . ") ORDER BY companyId ASC");
+							status = 'Active'
+						AND	plan IN (" . $allowedPlans . ") ORDER BY companyId ASC");
 if($company){
 	while (!$company->EOF) {
 		$fields = $company->fields;
@@ -121,7 +121,7 @@ $email = ncmExecute("SELECT
 							companyId 
 						IN (" . $in . ") 
 						AND type = 0 
-						AND main = 'true' 
+						AND main = \'true\' 
 						ORDER BY companyId ASC",false,false,true);
 
 while (!$email->EOF) {
@@ -178,7 +178,7 @@ while (!$email->EOF) {
 		$meta['subject'] = 'Alerta de Inventario';
 		$meta['to']      = $fields['contactEmail'];
 		$meta['type']    = 'internal';
-		$meta['fromName']= 'ENCOM';
+		$meta['fromName']= APP_NAME;
 		$meta['data']    = [
 		                    "message"     => $table
 		                	];
@@ -192,7 +192,7 @@ while (!$email->EOF) {
 				"title" 	=> "Alerta de Inventario",
 				"message" 	=> "Tiene productos que llegaron a sus niveles mínimos de stock.",
 				"type" 		=> 1,
-				"link"     	=> "https://panel.encom.app/@#items",
+				"link"     	=> "/@#items",
 				"company" 	=> $fields['companyId'],
 				"push"      => [
 		                        "tags" => [[

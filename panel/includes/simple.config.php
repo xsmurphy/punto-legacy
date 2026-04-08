@@ -17,16 +17,17 @@ define('HASH_TIMES',65646);
 // Detección automática de entorno local
 $_isLocal = (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'localhost') !== false);
 
-define('API_URL',    $_isLocal ? 'http://localhost:8002/API'      : ($_ENV['API_URL']    ?? ''));
-define('PUBLIC_URL', $_isLocal ? 'http://localhost:8002/screens'  : ($_ENV['PUBLIC_URL'] ?? ''));
+$_localHost = 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost:8001');
+define('API_URL',    $_isLocal ? ($_localHost . '/API')     : ($_ENV['API_URL']    ?? ''));
+define('PUBLIC_URL', $_isLocal ? ($_localHost . '/screens') : ($_ENV['PUBLIC_URL'] ?? ''));
 define('POS_URL',    $_isLocal ? 'http://localhost:8000'          : ($_ENV['POS_URL']    ?? ''));
-define('APP_URL',    $_isLocal ? 'http://' . $_SERVER['HTTP_HOST']: ($_ENV['APP_URL']    ?? ''));
+define('APP_URL',    $_isLocal ? $_localHost                     : ($_ENV['APP_URL']    ?? ''));
 define('HTTPS',      $_isLocal ? 'http' : 'https');
 define('WS_URL',     $_isLocal ? 'ws://localhost:6001'            : ($_ENV['WS_URL']     ?? ''));
 define('ECOMMERCE_URL',     $_ENV['ECOMMERCE_URL']     ?? '');
 define('MASTER_COMPANY_ID', $_ENV['MASTER_COMPANY_ID'] ?? '');
 
-unset($_isLocal);
+unset($_isLocal, $_localHost);
 
 // Branding
 define('APP_NAME',              $_ENV['APP_NAME']             ?? 'Punto');

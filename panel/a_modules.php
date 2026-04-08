@@ -6,7 +6,7 @@ allowUser('settings','view');
 
 $baseUrl = '/' . basename(__FILE__,'.php');
 
-$_modules 		= ncmExecute("SELECT * FROM module WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+$_modules 		= ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
 $__modules 		= json_decode($_modules['moduleData'],true);
 
 if(validateHttp('action') == 'update'){
@@ -19,7 +19,7 @@ if(validateHttp('action') == 'update'){
 	}else{
 		$value = 0;
 	}
-	if($value == "false"){
+	if($value == 'false'){
 		$value = 0;
 	}
 
@@ -27,7 +27,7 @@ if(validateHttp('action') == 'update'){
 	$record[$field] 		= $value;
 	$record['companyId'] 	= COMPANY_ID;
 
-	$exists = ncmExecute('SELECT * FROM module WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
+	$exists = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
 	$__modules 				= json_decode($exists['moduleData'],true);
 	$__modules 				= is_array($__modules) ? $__modules : [];
@@ -101,7 +101,7 @@ if(validateHttp('action') == 'mcal'){
 											  	]
 							]);
 
-	$update = ncmUpdate(['table' => 'module', 'records' => ['moduleData' => json_encode($__modules)], 'where' => 'companyId = ' . COMPANY_ID]);
+	$update = ncmUpdate(['table' => 'company', 'records' => ['moduleData' => json_encode($__modules)], 'where' => 'companyId = ' . COMPANY_ID]);
 	
 	dai();
 }
@@ -143,14 +143,14 @@ if(validateHttp('action') == 'digitalInvoice'){
 	$record 				= [];
 
 	if(validateHttp('template')){
-		$old 					= ncmExecute('SELECT digitalInvoiceData FROM module WHERE COMPANY_ID = ?',[COMPANY_ID]);
+		$old 					= ncmExecute('SELECT digitalInvoiceData FROM company WHERE COMPANY_ID = ?',[COMPANY_ID]);
 		$data 					= json_decode($old['digitalInvoiceData'],true);
 		$text 					= substr(validateHttp('template'),0,200);
 		$text 					= markupt2HTML(['text' => $text, 'type' => 'HtM']);
 		$data['template'] 		= $text;
 
 		$record['digitalInvoiceData'] 	= json_encode($data);
-		$update = ncmUpdate(['table' => 'module', 'records' => $record, 'where' => 'companyId = ' . COMPANY_ID]);
+		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ' . COMPANY_ID]);
 	}
 	
 	dai();
@@ -171,7 +171,7 @@ if(validateHttp('action') == 'crm'){
 			$__modules[] = ['crm' => ['crmDontAutoSendDocsToCustomer' => $data['crmDontAutoSendDocsToCustomer']]];
 		}
 				
-		$update = ncmUpdate(['table' => 'module', 'records' => ['moduleData' => json_encode($__modules)], 'where' => 'companyId = ' . COMPANY_ID]);
+		$update = ncmUpdate(['table' => 'company', 'records' => ['moduleData' => json_encode($__modules)], 'where' => 'companyId = ' . COMPANY_ID]);
 
 		if($update !== false){
 			jsonDieResult(['success'=>'updated']);
@@ -206,11 +206,11 @@ if(validateHttp('action') == 'tusFacturas'){
 	$str 					= $db->Prepare(validateHttp('data'));
 
 	$record['taxonomyName']  = $str;
-	$record['taxonomyType']  = "tusFacturas";
+	$record['taxonomyType']  = 'tusFacturas';
 	$record['outletId'] 	 = $outlet;
 	$record['companyId'] 	 = COMPANY_ID;
 
-	$is = ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = "tusFacturas" AND outletId = ?',[$outlet]);
+	$is = ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = \'tusFacturas\' AND outletId = ?',[$outlet]);
 
 	if($is){
 		$db->AutoExecute('taxonomy', $record, 'UPDATE', 'outletId = ' . $outlet);
@@ -230,7 +230,7 @@ if(validateHttp('action') == 'loadModal'){
 
 				<div class="text-center">Ingrese a su sitio</div>
 				<div class="col-xs-12 text-center h2 m-b font-bold">
-					<a href="https://<?=$_cmpSettings['settingSlug']?>.encom.site" class="text-info"><?=$_cmpSettings['settingSlug']?>.encom.site</a>
+					<a href="https://<?=$_cmpSettings['slug']?><?= ECOMMERCE_URL ?>" class="text-info"><?=$_cmpSettings['slug']?><?= ECOMMERCE_URL ?></a>
 				</div>
 				<div class="col-xs-12 wrapper bg-light lter r-3x m-b text-center">
 					El módulo e-commerce se encuentra aún en modo Beta, estamos abiertos a sugerencias para ir mejorando.
@@ -504,17 +504,17 @@ if(validateHttp('action') == 'loadModal'){
 		?>
 		<div class="col-xs-12 wrapper bg-white">
 			<div class="text-center m-b m-t-lg">
-				<img src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/images/dropbox.png" height="38">
+				<img src="/assets/panel/images/dropbox.png" height="38">
 			</div>
 			
-				<div class="text-center h3 DBConnected wrapper col-xs-12 <?=($_modules['dropboxToken'] ? '' : 'hidden')?>">Su cuenta ya está conectada a ENCOM</div>
+				<div class="text-center h3 DBConnected wrapper col-xs-12 <?=($_modules['dropboxToken'] ? '' : 'hidden')?>">Su cuenta ya está conectada a <?= APP_NAME ?></div>
 			
 				<div class="text-center m-t DBConnect <?=($_modules['dropboxToken'] ? 'hidden' : '')?>">
 					<div class="col-xs-12">
-						<a href="https://www.dropbox.com/oauth2/authorize?client_id=rxl1dgd24nrjixg&response_type=token&redirect_uri=https://panel.encom.app/thirdparty/dropbox/auth.php&state=<?=base64_encode( enc(COMPANY_ID) );?>&response_type=code" class="btn btn-rounded btn-info btn-lg text-u-c font-bold">Conectar</a>
+						<a href="https://www.dropbox.com/oauth2/authorize?client_id=rxl1dgd24nrjixg&response_type=token&redirect_uri=/thirdparty/dropbox/auth.php&state=<?=base64_encode( enc(COMPANY_ID) );?>&response_type=code" class="btn btn-rounded btn-info btn-lg text-u-c font-bold">Conectar</a>
 					</div>
 
-					<p class="col-xs-12 m-t">Ingrese a su cuenta de Dropbox para conectarla a ENCOM</p>
+					<p class="col-xs-12 m-t">Ingrese a su cuenta de Dropbox para conectarla a <?= APP_NAME ?></p>
 				</div>
 
 			<script type="text/javascript">
@@ -562,7 +562,7 @@ if(validateHttp('action') == 'loadModal'){
 			<?php
 			$oarray = getAllOutlets();
 			foreach($oarray as $name){
-				$url = 'https://app.encom.app/schedule_calendar?s=' . base64_encode( enc(COMPANY_ID) . ',' . enc($name['id']) );
+				$url = '/schedule_calendar?s=' . base64_encode( enc(COMPANY_ID) . ',' . enc($name['id']) );
 				?>
 				<tr>
 					<td class="no-padder">
@@ -841,7 +841,7 @@ if(validateHttp('action') == 'loadModal'){
 			<?php
 			$oarray = getAllOutlets();
 			foreach($oarray as $name){
-				$url = 'https://app.encom.app/schedule_calendar?s=' . base64_encode( enc(COMPANY_ID) . ',' . enc($name['id']) );
+				$url = '/schedule_calendar?s=' . base64_encode( enc(COMPANY_ID) . ',' . enc($name['id']) );
 				?>
 				<tr>
 					<td class="no-padder font-bold">
@@ -947,7 +947,7 @@ if(validateHttp('action') == 'loadModal'){
 			</div>
 			<?php
 			foreach ($allOutletsArray as $key => $value) {
-				$apiData 	= ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = "tusFacturas" AND outletId = ? AND sourceId IS NULL LIMIT 1',[$key]);
+				$apiData 	= ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = \'tusFacturas\' AND outletId = ? AND sourceId IS NULL LIMIT 1',[$key]);
 				$aToken 	= explodes(',', $apiData['taxonomyName'],false,0);
 				$uToken 	= explodes(',', $apiData['taxonomyName'],false,1);
 				$aKey 		= explodes(',', $apiData['taxonomyName'],false,2);
@@ -986,7 +986,7 @@ if(validateHttp('action') == 'loadModal'){
 				<div class="h1 font-bold m-n">En tu home screen</div>
 			</div>
 			<div class="col-xs-12 wrapper text-center">
-				<img src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/assets/images/osWidget.jpg" height="300px">
+				<img src="/assets/assets/images/osWidget.jpg" height="300px">
 			</div>
 			<div class="text-center">
 				Copia el link y pegalo en la aplicación <a href="https://apps.apple.com/us/app/glimpse-2/id1524217845" target="_blank"> Glimpse</a>. <br>Necesitas iOS 14 en adelante <br>
@@ -994,7 +994,7 @@ if(validateHttp('action') == 'loadModal'){
 					<?=PUBLIC_URL.'/osWidget?s=' . base64_encode(enc(COMPANY_ID)) ?>
 				</a>
 				<br>
-				<a href="https://docs.encom.app/panel-de-control/modulos/widgets" class="m-t-md block">Guía para configurar tu Widget de ENCOM</a>
+				<a href="/panel-de-control/modulos/widgets" class="m-t-md block">Guía para configurar tu Widget de <?= APP_NAME ?></a>
 			</div>
 		</div>
 		<?php
@@ -1072,7 +1072,7 @@ function modBlock($ops){
 		<!-- ECOM -->
 
 		<!-- Dropbox -->
-		<?=modBlock(['active' => $_modules['dropbox'], 'id' => 'dropbox', 'title' => '<img src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/panel/images/dropbox.png" height="39">', 'description' => 'Almacena archivos y asocialos a clientes, cotizaciones y más.']);?>
+		<?=modBlock(['active' => $_modules['dropbox'], 'id' => 'dropbox', 'title' => '<img src="/assets/panel/images/dropbox.png" height="39">', 'description' => 'Almacena archivos y asocialos a clientes, cotizaciones y más.']);?>
 		<!-- Dropbox -->
 
 		<!-- osWidget -->
@@ -1080,7 +1080,7 @@ function modBlock($ops){
 		<!-- osWidget -->
 
 		<!-- Spotify -->
-		<?=modBlock(['active' => $_modules['spotify'], 'id' => 'spotify', 'title' => '<img src="https://imgur.com/07JLXmP.png" height="39">', 'description' => 'Maneja la playlist de tu negocio y sucursales directamente desde ENCOM']);?>
+		<?=modBlock(['active' => $_modules['spotify'], 'id' => 'spotify', 'title' => '<img src="https://imgur.com/07JLXmP.png" height="39">', 'description' => 'Maneja la playlist de tu negocio y sucursales directamente desde ' . APP_NAME]);?>
 		<!-- Spotify -->
 
 		<!-- RECORDATORIOS -->
@@ -1186,11 +1186,11 @@ function modBlock($ops){
 		<!-- Reportes por email -->
 
 		<!-- API -->
-		<?=modBlock(['active' => ( (PLAN == 2) ? 1 : 0 ), 'id' => 'api', 'title' => 'API', 'description' => 'Conecta otras plataformas o sistemas a ENCOM']);?>
+		<?=modBlock(['active' => ( (PLAN == 2) ? 1 : 0 ), 'id' => 'api', 'title' => 'API', 'description' => 'Conecta otras plataformas o sistemas a ' . APP_NAME]);?>
 		<!-- API -->	
 	</div>	
 
-	<script src="https://ncmaspace.nyc3.cdn.digitaloceanspaces.com/assets/scripts/ncmDropbox.js"></script>
+	<script src="/assets/scripts/ncmDropbox.js"></script>
 
 	<script>
 		$(document).ready(function(){
@@ -1242,7 +1242,7 @@ function modBlock($ops){
 				}else if(type == 'ecom_dark' || type == 'ecom_menu' || type == 'ecom_delivery_hours'){
 					processEcomData();
 				}
-				if(type == "ecom_delivery_hours"){
+				if(type == 'ecom_delivery_hours'){
 					$("#deliveryHoursDetails").removeClass("hidden")
 					if(active){
 						$("#deliveryHoursDetails").show()

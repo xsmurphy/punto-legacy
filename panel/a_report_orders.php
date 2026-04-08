@@ -221,7 +221,7 @@ if(validateHttp('action') == 'delete' && validateHttp('id')){
 			    'parent' 		=> validateHttp('parent')
 			  ];
 
-	$result = curlContents('https://api.encom.app/delete_transaction','POST',$data);
+	$result = curlContents(API_URL . '/delete_transaction','POST',$data);
 	
 	header('Content-Type: application/json'); 
 	dai($result);

@@ -1,9 +1,7 @@
 <?php
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -154,7 +152,7 @@ if(validateHttp('action') == 'compoundTable'){
 	}
 
 	//Nuevo metodo para producción directa
-	$sql 	= "SELECT SUM(stockCount) as count, stockDate, stockCOGS, itemId FROM stock WHERE itemId IN(" . $itemsIds . ") AND stockSource = 'production' AND stockDate BETWEEN ? AND ? " . getROC(1) . " GROUP BY itemId";
+	$sql 	= "SELECT SUM(stockCount) as count, stockDate, stockCOGS, itemId FROM stock WHERE itemId IN(" . $itemsIds . ") AND stockSource = \'production\' AND stockDate BETWEEN ? AND ? " . getROC(1) . " GROUP BY itemId";
 
 	$result3   	= ncmExecute($sql,[$startDate,$endDate],false,true);
 
@@ -278,7 +276,7 @@ if(validateHttp('action') == 'compoundTableDay'){
 	}
 
 	//Nuevo metodo para producción directa
-	$sql 	= "SELECT SUM(stockCount) as count, stockDate, stockCOGS, itemId FROM stock WHERE itemId IN(" . $itemsIds . ") AND stockSource = 'production' AND stockDate BETWEEN ? AND ? " . getROC(1) . " GROUP BY DATE(stockDate), itemId";
+	$sql 	= "SELECT SUM(stockCount) as count, stockDate, stockCOGS, itemId FROM stock WHERE itemId IN(" . $itemsIds . ") AND stockSource = \'production\' AND stockDate BETWEEN ? AND ? " . getROC(1) . " GROUP BY DATE(stockDate), itemId";
 
 	$result3   	= ncmExecute($sql,[$startDate,$endDate],false,true);
 
@@ -385,7 +383,6 @@ if(validateHttp('action') == 'export'){
 	$var 		= array();
 
 	if(validateResultFromDB($result)){
-		include_once("libraries/parsecsv.lib.php");
 
 		$getAllOutlets 			= getAllOutlets();
 		$getAllRegisters 		= getAllRegisters();

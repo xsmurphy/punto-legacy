@@ -9,13 +9,13 @@ if($result){
 
 		$COMPANY_ID = $fields['companyId'];
 
-		$cSettings = ncmExecute('SELECT * FROM setting WHERE companyId = ? LIMIT 1',[$COMPANY_ID]);
+		$cSettings = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[$COMPANY_ID]);
 
 		$companyName 	= $cSettings['settingName'];
 		$companyEmail 	= $cSettings['settingEmail'];
 		$compCountry	= $cSettings['settingCountry'];
-		$smsCredit		= $cSettings['companySMSCredit'];
-		$compLogo 		= 'https://assets.encom.app/80-80/0/' . enc($COMPANY_ID) . '.jpg';
+		$smsCredit		= $cSettings['smsCredit'];
+		$compLogo 		= '/assets/80-80/0/' . enc($COMPANY_ID) . '.jpg';
 
 		$COMPANY_NAME 	= $companyName;
 		$COMPANY_EMAIL 	= $companyEmail;
@@ -43,7 +43,7 @@ if($result){
 			}
 
 			$benefName 	= explodes(' ',$benefName,false,0);
-			$url        = getShortURL('https://public.encom.app/giftCardRedeem?s=' . base64_encode($fields['timestamp'].','.enc($COMPANY_ID)));
+			$url        = getShortURL('/screens/giftCardRedeem?s=' . base64_encode($fields['timestamp'].','.enc($COMPANY_ID)));
 
 			$subject  = '[' . $COMPANY_NAME . '] Gift Card';
 			$body     = 'Hola ' . $benefName . ',' .

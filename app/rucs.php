@@ -1,14 +1,12 @@
 <?php
 require_once(__DIR__ . '/includes/cors.php');
 include_once("includes/simple.config.php");
-include_once("libraries/hashid.php");
 include_once("libraries/countries.php");
 include_once("includes/functions.php");
 
 $time_start = microtime(true);
 
 function getIPS($ci){
-    include_once('libraries/simple_html_dom.php');
     $dom = new simple_html_dom();
     $dom->load(curlContents('http://servicios.ips.gov.py/consulta_asegurado/comprobacion_de_derecho_externo.php', 'POST', 'nro_cic=' . $ci . '&recuperar=Recuperar&envio=ok&vesbrbacnorc=1'));
 

@@ -4,8 +4,8 @@ include_once './cronHead.php';
 $c = 0;
 $e = 0;
 
-//$result = ncmExecute("SELECT companyId FROM company WHERE companyExpiringDate = '" . date('Y-m-d 00:00:00') . "' AND companyPlan = 3",[],false,true);
-$result = ncmExecute("SELECT companyId FROM company WHERE companyDate < DATE(NOW()) - INTERVAL 2 WEEK AND companyPlan = 3",[],false,true);
+//$result = ncmExecute("SELECT companyId FROM company WHERE expiresAt = '" . date('Y-m-d 00:00:00') . "' AND plan = 3",[],false,true);
+$result = ncmExecute("SELECT companyId FROM company WHERE createdAt < NOW() - INTERVAL '2 weeks' AND plan = 3",[],false,true);
 
 if($result){
 	$where = [];
@@ -16,7 +16,7 @@ if($result){
 		$result->MoveNext(); 
 	}
 	
-	$update = ncmExecute("UPDATE company SET companyPlan = '0' WHERE companyId IN(" . implode(',',$where) . ")");
+	$update = ncmExecute("UPDATE company SET plan = 0 WHERE companyId IN(" . implode(',',$where) . ")");
 
 	$user 	= ncmExecute("SELECT contactEmail FROM contact WHERE role = 1 AND type = 0 AND companyId IN(" . implodes(',', $where) . ")",[],false,true);
 

@@ -1,13 +1,10 @@
 <?php
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
-include_once("libraries/parsecsv.lib.php");
 topHook();
 allowUser('settings','view');
 
@@ -85,7 +82,7 @@ if(validateHttp('action') == 'update' && validateHttp('id','post')){
               'data'          => $record
             ];
 
-  $result = curlContents('https://api.encom.app/get_orders','POST',$data);*/
+  $result = curlContents(API_URL . '/get_orders','POST',$data);*/
 
 
 
@@ -150,7 +147,7 @@ if(validateHttp('action') == 'edit' && validateHttp('id')){
     $lng = explode(',', $result['outletLatLng'])[1] ?? "";
     ?>
     <div class="row pull-out m-t-n m-b-xs customerInfoMap <?=$lat ? '' : 'hidden'?>" id="ncmGMap">
-      <iframe class="mapIframe" width="100%" height="200" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://public.encom.app/mapIframe?height=200&lat=<?=$lat?>&lng=<?=$lng?>&theme=light&icon=store&key=0VM_W3i3Uqi5E9P57uSsA_Q2-06swWpChj24kCv9WJ8"></iframe>
+      <iframe class="mapIframe" width="100%" height="200" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="/screens/mapIframe?height=200&lat=<?=$lat?>&lng=<?=$lng?>&theme=light&icon=store&key=0VM_W3i3Uqi5E9P57uSsA_Q2-06swWpChj24kCv9WJ8"></iframe>
     </div>
     <form action="<?=$baseUrl?>?action=update" method="post" id="editItem" name="editItem">
       <div class="col-xs-12 wrapper">
@@ -266,7 +263,7 @@ if(validateHttp('action') == 'edit' && validateHttp('id')){
               $dep = ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC",[$result['outletId']],false,true);
 
               if(!empty($_GET['debug'])){
-                echo 'SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "location" AND outletId = ' . $result['outletId'] . ' ORDER BY taxonomyName ASC';
+                echo 'SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ' . $result['outletId'] . ' ORDER BY taxonomyName ASC';
               }
               ?>
             <select id="location" name="location" data-placeholder="Seleccione" class="form-control search location no-bg no-border b-b b-light" autocomplete="off" data-toggle="tooltip" data-placement="top" title="Crea depósitos para organizar su inventario">
@@ -338,7 +335,7 @@ if(validateHttp('action') == 'edit' && validateHttp('id')){
           }
         ?>
 
-        <div class="form-group pull-left <?=(!ENCOM_ADM) ? 'hidden' : '';?>">
+        <div class="form-group pull-left <?=(!SAAS_ADM) ? 'hidden' : '';?>">
             <label>Estado:</label>
             <input type="checkbox" name="status" data-stat="<?=$result['outletStatus']?>" value="1" <?=$ch?> >
         </div>
@@ -619,7 +616,7 @@ if(validateHttp('showTable')){
 
 
       <?php
-      if(ENCOM_ADM){
+      if(SAAS_ADM){
       ?>
 
       ncmDialogs.confirm('¿Desea crear una nueva sucursal?','Implicará el cobro de cada sucursal de forma mensual','question',function(conf){

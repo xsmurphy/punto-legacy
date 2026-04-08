@@ -4,11 +4,9 @@
 
 include_once("includes/compression_start.php");
 
-include_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("libraries/countries.php");
 include_once("languages/" . LANGUAGE . ".php");
@@ -24,11 +22,11 @@ if (validateHttp('action') == 'addPayment') {
 
     $meta['subject'] = 'Nuevo pago de ' . COMPANY_NAME;
     $meta['to']      = 'income.register@gmail.com';
-    $meta['fromName'] = 'ENCOM';
+    $meta['fromName'] = APP_NAME;
     $meta['data']    = [
       "message"     => USER_NAME . ': ' . json_encode(validateHttp('cc', 'post')),
-      "companyname" => 'ENCOM',
-      "companylogo" => 'https://assets.encom.app/150-150/0/' . enc(COMPANY_ID) . '.jpg'
+      "companyname" => APP_NAME,
+      "companylogo" => '/assets/150-150/0/' . enc(COMPANY_ID) . '.jpg'
     ];
 
     sendEmails($meta);
@@ -81,7 +79,7 @@ if (validateHttp('action') == 'addPayment') {
 
         if (BALANCE >= $total) {
 
-          $pay = $db->Execute('UPDATE company SET companyBalance = companyBalance-' . $total . ', companyPlan = ? WHERE ' . $SQLcompanyId, array($selectedPlan));
+          $pay = $db->Execute('UPDATE company SET balance = balance-' . $total . ', plan = ? WHERE ' . $SQLcompanyId, array($selectedPlan));
 
           if ($pay) { //si se pudo descontar del saldo, realizo una venta al Contado
             $record['transactionType']        = '0'; //contado
@@ -98,7 +96,7 @@ if (validateHttp('action') == 'addPayment') {
             header('location:' . $baseUrl . '?passed=false');
           }
         } else {
-          $pay = $db->Execute('UPDATE company SET companyPlan = ? WHERE ' . $SQLcompanyId, [$selectedPlan]);
+          $pay = $db->Execute('UPDATE company SET plan = ? WHERE ' . $SQLcompanyId, [$selectedPlan]);
 
           $record['transactionDueDate']     = TODAY;
           $record['transactionDate']        = TODAY;
@@ -132,11 +130,11 @@ if (validateHttp('action') == 'makePayment') {
   <div class="modal-body no-padder clear r-24x bg-white">
 
     <div class="col-sm-4 col-md-3 wrapper bg-grad-info hidden-xs text-center" style="min-height:520px;">
-      <img src="https://app.encom.app/images/iconincomesmwhite.png" width="30%" style="margin-top:140px;">
+      <img src="/images/iconincomesmwhite.png" width="30%" style="margin-top:140px;">
       <div class="m-b text-white text-xs">
-        <strong class="text-md">ENCOM</strong>
+        <strong class="text-md"><?= APP_NAME ?></strong>
         <br> Av. Aviadores del Chaco
-        Edif. World Trade Center Torre 1, 9no. Piso, Asunción - info@encom.app
+        Edif. World Trade Center Torre 1, 9no. Piso, Asunción - <?= EMAIL_FROM ?>
       </div>
 
       <img src="https://www.2checkout.com/static/checkout/images/powered-by-2co.png" width="132" class="m-t-md">
@@ -350,7 +348,7 @@ if (validateHttp('action') == 'makePayment') {
 //                         AND transactionType = 5', []);
 
 // //obtengo su credito a favor
-// $balance  = ncmExecute(' SELECT contactStoreCredit FROM contact WHERE companyId = ' . COMPANY_ID . ' AND contactUID IN(' . ENCOM_UID . ')', []);
+// $balance  = ncmExecute(' SELECT contactStoreCredit FROM contact WHERE companyId = ' . COMPANY_ID . ' AND contactId IN(' . ENCOM_UID . ')', []);
 
 // $BALANCE        = formatCurrentNumber($balance['contactStoreCredit']);
 
@@ -362,9 +360,9 @@ if (validateHttp('action') == 'makePayment') {
 
 $deudaTotal     = 0;
 
-$query = $db->Execute("SELECT settingRUC FROM setting WHERE companyId = ? AND settingBlocked = 0 LIMIT 1", array(COMPANY_ID));
+$query = $db->Execute("SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? AND blocked = 0 LIMIT 1", array(COMPANY_ID));
 $client = $db->Execute("SELECT * FROM contact WHERE companyId = 4456 AND contactTIN = ? LIMIT 1", array($query->fields['settingRUC']));
-$result = $db->Execute("SELECT * FROM transaction WHERE companyId = 4456 AND customerId = ? AND transactionType IN (0, 3) AND transactionComplete = 0 ORDER BY transactionDate DESC", array($client->fields['contactUID']));
+$result = $db->Execute("SELECT * FROM transaction WHERE companyId = 4456 AND customerId = ? AND transactionType IN (0, 3) AND transactionComplete = 0 ORDER BY transactionDate DESC", array($client->fields['contactId']));
 
 if ($result) {
   while (!$result->EOF) {
@@ -510,13 +508,13 @@ if ($result) {
 
       <tbody>
         <?php
-        $query = $db->Execute("SELECT settingRUC FROM setting WHERE companyId = ? LIMIT 1", array(COMPANY_ID));
-        $plan = $db->Execute("SELECT companyPlan FROM company WHERE companyId = ? LIMIT 1", array(COMPANY_ID));
-        $plan = $plansValues[$plan->fields['companyPlan']];
+        $query = $db->Execute("SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1", array(COMPANY_ID));
+        $plan = $db->Execute("SELECT plan FROM company WHERE companyId = ? LIMIT 1", array(COMPANY_ID));
+        $plan = $plansValues[$plan->fields['plan']];
         $plan = $plan['name'];
 
         $client = $db->Execute("SELECT * FROM contact WHERE companyId = 4456 AND contactTIN = ? LIMIT 1", array($query->fields['settingRUC']));
-        $result = $db->Execute("SELECT * FROM transaction WHERE companyId = 4456 AND customerId = ? AND transactionType IN (0, 3) ORDER BY transactionDate DESC", array($client->fields['contactUID']));
+        $result = $db->Execute("SELECT * FROM transaction WHERE companyId = 4456 AND customerId = ? AND transactionType IN (0, 3) ORDER BY transactionDate DESC", array($client->fields['contactId']));
 
         if ($result) {
           while (!$result->EOF) {
@@ -560,7 +558,7 @@ if ($result) {
               'company'   => enc(4456),
               'outlet'    => enc($fields['outletId']),
               'amount'    => $deudaTotal,
-              'customer'  => enc($client->fields['contactUID']),
+              'customer'  => enc($client->fields['contactId']),
               'uid'       => $fields['transactionUID'],
               'date'      => TODAY
             ]);
@@ -614,7 +612,7 @@ if ($result) {
 <div class="col-xs-12 wrapper-md text-center text-md">
   <strong>Importante</strong>
   <br>
-  Si desea cancelar su cuenta, por favor pongase en contacto con nosotros a <a href="mailto:info@encom.app">info@encom.app</a>
+  Si desea cancelar su cuenta, por favor pongase en contacto con nosotros a <a href="mailto:<?= EMAIL_FROM ?>"><?= EMAIL_FROM ?></a>
 </div>
 
 <div class="modal fade" tabindex="-1" id="planes" role="dialog">

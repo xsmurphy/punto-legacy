@@ -1,9 +1,7 @@
 <?php
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -63,7 +61,7 @@ $it     = ncmExecute('SELECT itemId, itemName, itemSKU
                         WHERE itemStatus = 1 
                         AND itemIsParent = 0 
                         AND itemTrackInventory > 0 
-                        AND itemType IN("product","compound","production","giftcard")
+                        AND itemType IN(\'product\',\'compound\',\'production\',\'giftcard\')
                         AND ' . $SQLcompanyId . ' ORDER BY itemName ASC LIMIT ' . $plansValues[PLAN]['max_items'],[],false,true);
 
 $out    = '<option>Seleccionar</option>';

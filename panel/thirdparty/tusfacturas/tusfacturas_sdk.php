@@ -187,7 +187,7 @@ class tusfacturas_sdk {
      *     @param object $comprobante      Un array formado de la siguiente manera:
      * 
      *                                 $comprobante["tipo"]         = Segun tabla referencia: https://tusfacturas.gitbook.io/api-factura-electronica-afip/tablas-de-referencia#tipos-de-comprobantes
-     *                                 $comprobante["operacion"]    = "V" o "C" segun corresponda para ventas o compras
+     *                                 $comprobante["operacion"]    = 'V' o "C" segun corresponda para ventas o compras
      *                                 $comprobante["punto_venta"]  = El punto de venta asociado a tu CUIT
      * RESPUESTA:
      *     @return object $resultado
@@ -235,7 +235,7 @@ class tusfacturas_sdk {
 
     function hay_error($resultado) {
 
-        return(  $resultado->error == "S" ? true : false    );
+        return(  $resultado->error == 'S' ? true : false    );
 
     }
 
@@ -283,7 +283,7 @@ class tusfacturas_sdk {
 
         if ($this->json_data === null) { // ERROR DE ENCODING
 
-            $resultado["error"]     = "S";
+            $resultado["error"]     = 'S';
             $resultado["errores"][] = utf8_encode("Existian errores de formato en el JSON enviado, que impedian la ejecucion del metodo: ".$metodo) ;
 
         }else{ // FORMATO OK

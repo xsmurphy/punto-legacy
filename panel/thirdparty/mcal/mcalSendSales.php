@@ -10,8 +10,8 @@ $TO         = date('Y-m-d', strtotime($DATE)) . ' 23:59:59';
 $ENDPOINT   = 'https://sistema.mariscal.com.py/api/contrato/ventas';
 $METHOD     = 'POST';
 $ID         = $data[3];
-$setting    = ncmExecute("SELECT * FROM setting WHERE companyId = ? LIMIT 1",[$COMPANY_ID]);
-$modules    = ncmExecute("SELECT * FROM module WHERE companyId = ? LIMIT 1",[$COMPANY_ID]);
+$setting    = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[$COMPANY_ID]);
+$modules    = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[$COMPANY_ID]);
 $mcalArr    = json_decode($modules['moduleData'], true);
 $send       = [];
 $replaceChars = [',','.',';','|',' '];
@@ -73,7 +73,7 @@ if(validInArray($mcalArr, 'mcal')){
       }
 
       if($fields['customerId']){
-        $customer = ncmExecute('SELECT contactName, contactTIN FROM contact WHERE contactUID = ? LIMIT 1', [$fields['customerId']], true);
+        $customer = ncmExecute('SELECT contactName, contactTIN FROM contact WHERE contactId = ? LIMIT 1', [$fields['customerId']], true);
         if($customer){
           $cName  = $customer['contactName'];
           $cTIN   = $customer['contactTIN'];

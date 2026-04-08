@@ -1,0 +1,20 @@
+# graphify — paths relative to the folder you run `/graphify` on
+# https://github.com/safishamsi/graphify
+
+# Composer / deps
+**/vendor/
+**/node_modules/
+
+# Large vendored or generated trees
+panel/libraries/adodb/
+app/libraries/adodb/
+**/php-thumb/
+
+# Cache & env
+.env
+*.log
+mysql_data/
+postgres_data/
+
+# Optional: skip huge UI bundles if graphify feels slow
+# panel/screens/mapIframe.php

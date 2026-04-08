@@ -6,7 +6,7 @@ allowUser('sales','view');
 
 $baseUrl = '/' . basename(__FILE__,'.php');
 $MAX_DAYS_RANGE = 31;
-if(ENCOM_ADM){
+if(SAAS_ADM){
 	//$MAX_DAYS_RANGE = 31 * 12;
 }
 
@@ -43,7 +43,7 @@ if(validateHttp('action') == 'detailTable'){
 	if(validateHttp('src')){
 		$word 	= db_prepare(validateHttp('src'));
 		//primero obtengo posible fuente
-		$sData 	= ncmExecute('SELECT GROUP_CONCAT(itemId) as ids FROM item WHERE (itemName LIKE "%' . $word . '%" OR itemSKU LIKE "%' . $word . '%") AND companyId = ? AND itemStatus = 1 LIMIT 100',[COMPANY_ID],true);
+		$sData 	= ncmExecute('SELECT STRING_AGG(itemId::text, \',\') as ids FROM item WHERE (itemName LIKE \'%\' . $word . \'%\' OR itemSKU LIKE \'%\' . $word . \'%\') AND companyId = ? AND itemStatus = 1 LIMIT 100',[COMPANY_ID],true);
 		
 		$search = ' AND b.itemId IN(' . $sData['ids'] . ')';
 
@@ -83,7 +83,7 @@ if(validateHttp('action') == 'detailTable'){
 	}else{
 
 		if(validateHttp('cusId')){
-			$contactUID = dec(validateHttp('cusId'));
+			$contactId = dec(validateHttp('cusId'));
 
 
 			$sql = 'SELECT 
@@ -117,7 +117,7 @@ if(validateHttp('action') == 'detailTable'){
 					AND a.transactionId = b.transactionId
 					ORDER BY a.transactionDate DESC' . $limits;
 
-			$result 	= ncmExecute($sql,[COMPANY_DATE,TODAY,$contactUID],true,true);
+			$result 	= ncmExecute($sql,[COMPANY_DATE,TODAY,$contactId],true,true);
 		}else if(validateHttp('usrId')){
 			$contactID = dec(validateHttp('usrId'));
 
@@ -253,7 +253,7 @@ if(validateHttp('action') == 'detailTable'){
 		$allItems 	 			= getAllItems(false, true, implode(',', $itemsIDsArr), true);
 
 		$itemsIDsArr 			= getAllByIDBuild($result, 'customer');
-		$allContacts 			= getAllContacts(1, true, 'contactUID', implode(',', $itemsIDsArr), true);
+		$allContacts 			= getAllContacts(1, true, 'contactId', implode(',', $itemsIDsArr), true);
 		$allContacts 			= $allContacts[0];
 
 		$getAllOutlets 			= getAllOutlets();
@@ -473,7 +473,7 @@ if(validateHttp('action') == 'generalTable'){
 	$resultB 		= false;
 
 	if(validateHttp('cusId')){
-		$contactUID = dec(validateHttp('cusId'));
+		$contactId = dec(validateHttp('cusId'));
 
 		$sql = "SELECT 	a.itemId as id, 
 					SUM(a.itemSoldUnits) as usold, 
@@ -490,11 +490,11 @@ if(validateHttp('action') == 'generalTable'){
 				GROUP BY id ORDER BY usold DESC";
 
 		if($_GET['test']){
-			echo $sql . ' - ' . $contactUID;
+			echo $sql . ' - ' . $contactId;
 			dai();
 		}
 
-		$result 	= ncmExecute($sql,[$contactUID],true,true);
+		$result 	= ncmExecute($sql,[$contactId],true,true);
 
 	}else if(validateHttp('usrId')){
 		$contactID = dec(validateHttp('usrId'));
@@ -915,7 +915,7 @@ if(validateHttp('action') == 'combosTable'){
 	$resultB 		= false;
 
 	if(validateHttp('cusId')){
-		$contactUID = dec(validateHttp('cusId'));
+		$contactId = dec(validateHttp('cusId'));
 
 		$sql = "SELECT 	a.itemId as id, 
 					SUM(a.itemSoldUnits) as usold, 
@@ -932,11 +932,11 @@ if(validateHttp('action') == 'combosTable'){
 				GROUP BY id ORDER BY usold DESC";
 
 		if($_GET['test']){
-			echo $sql . ' - ' . $contactUID;
+			echo $sql . ' - ' . $contactId;
 			dai();
 		}
 
-		$result 	= ncmExecute($sql,[$contactUID],true,true);
+		$result 	= ncmExecute($sql,[$contactId],true,true);
 
 	}else if(validateHttp('usrId')){
 		$contactID = dec(validateHttp('usrId'));
@@ -1268,8 +1268,8 @@ if(validateHttp('ci')){
 					];
 
 	if(validateHttp('m') ){
-		$company  = ncmExecute('SELECT companyDate FROM company WHERE companyId = ?',[COMPANY_ID]);
-		$yCreated = date('Y', strtotime($company['companyDate']));
+		$company  = ncmExecute('SELECT createdAt FROM company WHERE companyId = ?',[COMPANY_ID]);
+		$yCreated = date('Y', strtotime($company['createdAt']));
 		$yNow     = date('Y');
 
 		if($yNow > $yCreated){

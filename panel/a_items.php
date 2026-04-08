@@ -17,7 +17,7 @@ $offsetDetail	= 0;
 if (validateHttp('action') == 'searchItemInputJson') {
 	$query  	= db_prepare(validateHttp('q'));
 	$queryl  	= strtolower($query);
-	$sql    = 'SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item WHERE (itemName LIKE "%' . $queryl . '%" OR itemSKU LIKE "%' . $queryl . '%") AND ' . $SQLcompanyId . ' AND itemStatus = 1 LIMIT 200';
+	$sql    = 'SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item WHERE (itemName LIKE \'%\' . $queryl . \'%\' OR itemSKU LIKE \'%\' . $queryl . \'%\') AND ' . $SQLcompanyId . ' AND itemStatus = 1 LIMIT 200';
 
 	$result = ncmExecute($sql, [], false, true);
 	$json   = [];
@@ -47,7 +47,7 @@ if (validateHttp('action') == 'searchItemStockableInputJson') {
 
 	$roc 		= (OUTLETS_COUNT > 1) ? ' AND (outletId = ' . OUTLET_ID . ' OR outletId IS NULL)' : '';
 
-	$sql    = 'SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item WHERE (itemName LIKE "%' . $query . '%" OR itemSKU LIKE "%' . $query . '%") AND itemType IN("product","compound","production") AND itemTrackInventory > 0 AND itemStatus = 1 AND ' . $SQLcompanyId . $roc . ' LIMIT 300';
+	$sql    = 'SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item WHERE (itemName LIKE \'%\' . $query . \'%\' OR itemSKU LIKE \'%\' . $query . \'%\') AND itemType IN(\'product\',\'compound\',\'production\') AND itemTrackInventory > 0 AND itemStatus = 1 AND ' . $SQLcompanyId . $roc . ' LIMIT 300';
 
 
 
@@ -151,7 +151,7 @@ if (validateHttp('action') == 'bulkEditForm') {
 				<div class="col-sm-6 m-b">
 					<span class="font-bold text-u-c text-xs">Marca</span>
 					<?php
-					$brand = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "brand" AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC LIMIT ' . $plansValues[PLAN]['max_brands'], [], false, true);
+					$brand = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'brand\' AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC LIMIT ' . $plansValues[PLAN]['max_brands'], [], false, true);
 					?>
 					<select id="brandEdit" name="brand" tabindex="1" data-placeholder="Seleccione una Marca" class="form-control brand no-bg no-border b-b b-light m-b searchSimple needsclick" autocomplete="off">
 						<option value="">Seleccionar</option>
@@ -374,7 +374,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 	//createInventory($result['itemId']);  
 	$letters 			= '';
 	$bg 					= 'opacity';
-	$img 					= 'https://assets.encom.app/250-250/0/' . enc(COMPANY_ID) . '_' . $itemId . '.jpg?' . $result['updated_at'];
+	$img 					= '/assets/250-250/0/' . enc(COMPANY_ID) . '_' . $itemId . '.jpg?' . $result['updated_at'];
 
 	if ($result['itemCanSale'] > 0 && $result['itemTrackInventory'] < 1) {
 		// servicio
@@ -974,7 +974,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 									<span class="font-bold text-u-c text-xs">Marca</span>
 
 									<?php
-									$brand = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "brand" AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC LIMIT ' . $plansValues[PLAN]['max_brands'], [], false, true);
+									$brand = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'brand\' AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC LIMIT ' . $plansValues[PLAN]['max_brands'], [], false, true);
 									?>
 									<select id="brandEdit" name="brand" tabindex="1" data-placeholder="Seleccione una Marca" class="form-control brand no-bg no-border b-b b-light m-b searchSimple needsclick" autocomplete="off">
 										<option value="">Seleccionar</option>
@@ -1142,7 +1142,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 
 						<?php
 						if ($type == 'combo' || $type == 'comboAddons') {
-							$cmpndCts = ncmExecute('SELECT taxonomyId as id, taxonomyName as name FROM taxonomy WHERE taxonomyType = "category" AND ' . $SQLcompanyId . ' LIMIT ' . $plansValues[PLAN]['max_categories'], [], false, true);
+							$cmpndCts = ncmExecute('SELECT taxonomyId as id, taxonomyName as name FROM taxonomy WHERE taxonomyType = \'category\' AND ' . $SQLcompanyId . ' LIMIT ' . $plansValues[PLAN]['max_categories'], [], false, true);
 							$inpuTComp = json_decode(selectInputCompound($cmpndCts, false, [], 'search bg-white'));
 						}
 
@@ -1507,7 +1507,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 								<div class="col-xs-12 m-b">
 									<select name="upsell[]" id="upsell[]" class="form-control m-b input-lg searchAjax no-border b-b" multiple="" tabindex="-1">
 										<?php
-										$upsells    	= ncmExecute('SELECT GROUP_CONCAT(upsellChildId) as names FROM upsell WHERE upsellParentId = ?', [dec($itemId)]);
+										$upsells    	= ncmExecute('SELECT STRING_AGG(upsellChildId::text, \',\') as names FROM upsell WHERE upsellParentId = ?', [dec($itemId)]);
 										$itemDecode = dec($itemId);
 										if (!empty($upsells["names"])) {
 											$upsellOps 	= ncmExecute('SELECT itemName, itemId FROM item WHERE itemId IN(' . $upsells['names'] . ')', [], false, true);
@@ -1751,7 +1751,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 												<select name="defaultLocation" class="form-control no-border b-b no-bg">
 													<option value="<?= enc(OUTLET_ID) ?>">Principal</option>
 													<?php
-													$dLocation = ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = "location" AND outletId = ?', [OUTLET_ID], false, true);
+													$dLocation = ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ?', [OUTLET_ID], false, true);
 													if ($dLocation) {
 														while (!$dLocation->EOF) {
 
@@ -2157,6 +2157,9 @@ if (validateHttp('action') == 'insertBtn') {
 	$record['companyId'] 				= COMPANY_ID;
 	$record['updated_at']				= TODAY;
 	$record['data']							= json_encode($record);
+
+	// itemTaxIncluded ya queda en el JSONB data; no existe como columna directa en PG
+	unset($record['itemTaxIncluded']);
 
 	$insert = $db->AutoExecute('item', $record, 'INSERT');
 	if ($insert === false) {
@@ -3109,7 +3112,6 @@ if (validateHttp('getItem')) {
 }
 
 if (validateHttp('action') == 'exportCSV' && validateHttp('ids')) {
-	include_once("libraries/parsecsv.lib.php");
 	$ids 		= explodes('|', $_GET['ids']);
 	$array 		= [];
 	$fields 	= ['TITULO', 'SKU', 'MARCA', 'CATEGORIA', 'DESCRIPCION', 'PRECIO DE COSTO', 'PRECIO DE VENTA', 'TIPO', TAX_NAME, 'SUCURSAL', '% DESCUENTO', 'UN. DE MEDIDA', '% MERMA', '% COMISION', 'SESIONES', 'DURACION EN MIN.', 'STOCK MINIMO', 'STOCK INICIAL (Sucursal:Cantidad;Sucursal2:Cantidad)'];
@@ -3235,7 +3237,7 @@ if (validateHttp('action') == 'importCSV') {
 
 				$isUpdate = validateHttp('isUpdate', 'post');
 
-				//$skus 			= ncmExecute("SELECT GROUP_CONCAT(itemSKU) FROM item WHERE itemSKU IS NOT NULL AND companyId = ?",[COMPANY_ID]);
+				//$skus 			= ncmExecute("SELECT STRING_AGG(itemSKU, ',') FROM item WHERE itemSKU IS NOT NULL AND companyId = ?",[COMPANY_ID]);
 				$allOutletsArrayLowerCase = array_map(function($item) {
 					$item['name'] = strtolower($item['name']);
 					return $item;
@@ -3383,7 +3385,6 @@ if (validateHttp('action') == 'importCSV') {
 }
 
 if (validateHttp('action') == 'csvModel') {
-	include_once("libraries/parsecsv.lib.php");
 	$array 		= [];
 	$fields 	= ['TITULO', 'SKU', 'MARCA', 'CATEGORIA', 'DESCRIPCION', 'PRECIO DE COSTO', 'PRECIO DE VENTA', 'TIPO', TAX_NAME, 'SUCURSAL', '% DESCUENTO', 'UN. DE MEDIDA', '% MERMA', '% COMISION', 'SESIONES', 'DURACION EN MIN.', 'STOCK MINIMO', 'STOCK INICIAL (Sucursal:Cantidad;Sucursal2:Cantidad)'];
 	$var 		= ['Guantes', 'B12345', 'Gadgets', 'Prendas', 'Ultra grip de cuero', '15000', '20000', 'Producto', '15', 'Central', '', 'Uni.', '', '', '', '', '5', 'Central:5;Sucursal:23'];
@@ -3490,7 +3491,7 @@ if (validateHttp('action') == 'showTable') {
 		if (validateHttp('src')) {
 			$word 	= db_prepare(validateHttp('src'));
 			//primero obtengo posible fuente
-			$sData = ncmExecute("SELECT GROUP_CONCAT(itemId) as ids FROM item WHERE (itemName LIKE '%" . $word . "%' OR itemSKU LIKE '%" . $word . "%') AND companyId = ? LIMIT 100", [COMPANY_ID], true);
+			$sData = ncmExecute("SELECT STRING_AGG(itemId::text, ',') as ids FROM item WHERE (itemName LIKE '%" . $word . "%' OR itemSKU LIKE '%" . $word . "%') AND companyId = ? LIMIT 100", [COMPANY_ID], true);
 
 			$search = ' AND itemId IN(' . $sData['ids'] . ')';
 
@@ -3758,7 +3759,7 @@ if (validateHttp('action') == 'showTable') {
 			$imgBlock 			= '';
 
 			if ($fields['itemImage'] == 'true') {
-				$imgBlock 			= 'class="lazy" data-src="https://assets.encom.app/60-60/0/' . enc(COMPANY_ID) . '_' . $itemId . '.jpg"';
+				$imgBlock 			= 'class="lazy" data-src="/assets/60-60/0/' . enc(COMPANY_ID) . '_' . $itemId . '.jpg"';
 			}
 
 			$table .= 	'<tr id="' . $itemId . '" class="clickrow ' . $modalNarrow . ' ' . $rowIsGroup . '" data-to-filter="' . enc($oNow) . '" >' .
@@ -3852,7 +3853,7 @@ if (validateHttp('action') == 'showTable') {
 		'		<span class="material-icons">category</span>' .
 		'	</a>' .
 		'	<ul class="dropdown-menu animated fadeIn speed-4x" style="max-height:400px; overflow:auto;">';
-	$result = ncmExecute('SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra as UNSIGNED) as sort FROM taxonomy WHERE taxonomyType = "category" AND ' . $SQLcompanyId . ' ORDER BY sort ASC LIMIT 500', [], false, true);
+	$result = ncmExecute('SELECT taxonomyId, taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = \'category\' AND ' . $SQLcompanyId . ' ORDER BY sort ASC LIMIT 500', [], false, true);
 	if ($result) {
 		$catsBtn .=	'<li>' .
 			'	<a href="#" data-id="all" class="text-default filterByCategory">Todas</a>' .
@@ -3945,7 +3946,7 @@ if (validateHttp('action') == 'showTable') {
 
 	<div class="col-sm-6 col-xs-12 no-padder text-right">
 		<span class="font-bold h1">
-			<a href="https://docs.encom.app/panel-de-control/articulos" class="m-r-sm hidden-print" target="_blank" data-toggle="tooltip" data-placement="left" title="" data-original-title="Visitar el centro de ayuda">
+			<a href="/panel-de-control/articulos" class="m-r-sm hidden-print" target="_blank" data-toggle="tooltip" data-placement="left" title="" data-original-title="Visitar el centro de ayuda">
 				<i class="material-icons text-info m-b-xs">help_outline</i>
 			</a>
 			<span id="pageTitle">Productos y Servicios</span>

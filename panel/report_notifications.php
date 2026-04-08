@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -42,7 +40,7 @@ if(validateHttp('action') == 'generalTable'){
 			    'company_id'  => enc(COMPANY_ID)
 			  ];
 
-	$result = curlContents('https://api.encom.app/get_notifications_all','POST',$data);
+	$result = curlContents(API_URL . '/get_notifications_all','POST',$data);
 
 	if($result){
 		$result 		= json_decode($result,true);
@@ -113,7 +111,7 @@ if(validateBool('action') == 'delete'){
 			    'id' 			=> validateHttp('id')
 			  ];
 
-	$result = curlContents('https://api.encom.app/delete_notification','POST',$data);
+	$result = curlContents(API_URL . '/delete_notification','POST',$data);
 
 	header('Content-Type: application/json'); 
 	dai($result);

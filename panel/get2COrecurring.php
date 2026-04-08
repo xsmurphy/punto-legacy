@@ -1,9 +1,7 @@
 <?php
 
-require_once('libraries/whoops/autoload.php');
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -27,7 +25,7 @@ if($_REQUEST){
 	if($mType === 'RECURRING_INSTALLMENT_SUCCESS'){
 		acceptCompanyPayment($amount,$companyId);
 	}else if($mType === 'RECURRING_INSTALLMENT_FAILED' || $mType === 'RECURRING_STOPPED' || $mType === 'RECURRING_COMPLETE'){
-		$db->Execute('UPDATE setting SET settingPlanExpired = 1 WHERE companyId = ?',array($companyId));
+		$db->Execute('UPDATE company SET planExpired = 1 WHERE companyId = ?',array($companyId));
 	}
 
 	$compName = getValue('setting', 'settingName', 'WHERE companyId = '.$companyId);

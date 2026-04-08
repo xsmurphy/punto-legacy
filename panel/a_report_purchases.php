@@ -837,7 +837,7 @@ if(validateHttp('action') == 'paymentForm'){
 		        <textarea class="form-control" name="payNote"></textarea>
 
 			    <!--<label class="font-bold m-t text-u-c">Método de Pago</label>
-	            <?php $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = "paymentMethod" AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true); ?>
+	            <?php $pM = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'paymentMethod\' AND ' . $SQLcompanyId . ' ORDER BY taxonomyName ASC',[],false,true); ?>
 	            <select id="paymentMethod" name="paymentMethod" tabindex="1" data-placeholder="Seleccione" class="form-control search" autocomplete="off">
 	               <option value="cash">Efectivo</option>
 	               <option value="creditcard">T. Crédito</option>
@@ -1306,7 +1306,7 @@ if(validateHttp('action') == 'detailTable'){
 	if(validateHttp('src')){
 		$word 	= $db->Prepare(validateHttp('src'));
 		//primero obtengo posible fuente
-		$sData 	= ncmExecute('SELECT GROUP_CONCAT(itemId) as ids FROM item WHERE (itemName LIKE "%' . $word . '%" OR itemSKU LIKE "%' . $word . '%") AND companyId = ? AND itemStatus = 1 LIMIT 100',[COMPANY_ID],true);
+		$sData 	= ncmExecute('SELECT STRING_AGG(itemId::text, \',\') as ids FROM item WHERE (itemName LIKE \'%\' . $word . \'%\' OR itemSKU LIKE \'%\' . $word . \'%\') AND companyId = ? AND itemStatus = 1 LIMIT 100',[COMPANY_ID],true);
 		
 		$search = ' AND b.itemId IN(' . $sData['ids'] . ')';
 
@@ -1492,7 +1492,7 @@ if(validateHttp('action') == 'detailTable'){
 			if(validity($details,'array')){
 
 				foreach($details as $k => $itm){
-					if(COMPANY_ID == 10){
+					if(COMPANY_ID == 10){ // TODO: replace integer 10 with company UUID
 						//echo 'sale itmId ' . dec($itm['itemId']) . ' ' . $id . ' plan ' . $itm['plan'];
 						//print_r($itm);
 					}

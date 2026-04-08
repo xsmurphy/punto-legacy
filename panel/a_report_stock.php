@@ -1,10 +1,8 @@
 <?php
 include_once('includes/compression_start.php');
-require_once('libraries/whoops/autoload.php');
 include_once("includes/secure.php");
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
-include_once("libraries/hashid.php");
 include_once("includes/config.php");
 include_once("languages/".LANGUAGE.".php");
 include_once("includes/functions.php");
@@ -32,7 +30,7 @@ $expired 			= strtotime('today');
 if(validateHttp('action') == 'generalTable'){
 
 	if(OUTLET_ID < 2){
-		$jsonResult['table'] = '<tbody><tr><td><div class="text-center"><img src="https://assets.encom.app/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> Debe seleccionar una sucursal</div><div>Por favor seleccione una sucursal y vuelva a intentar</div></div></td></tr></tbody>';
+		$jsonResult['table'] = '<tbody><tr><td><div class="text-center"><img src="/assets/images/emptystate2.png" width="130" class="m-b-md"><div class="font-bold h3"> Debe seleccionar una sucursal</div><div>Por favor seleccione una sucursal y vuelva a intentar</div></div></td></tr></tbody>';
 
 		header('Content-Type: application/json');
 		dai(json_encode($jsonResult));
