@@ -2,15 +2,30 @@
 define('HASH_TIMES',65646);
 
 // Cargar variables de entorno
+// Soporta: comentarios con #, valores con o sin quotes ('...' o "..."),
+// = dentro del valor (explode con limit=2).
 (function() {
     $envFile = __DIR__ . '/../../../.env';
     if (!file_exists($envFile)) $envFile = __DIR__ . '/../../.env';
-    if (file_exists($envFile)) {
-        foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-            if (strpos(trim($line), '#') === 0 || strpos($line, '=') === false) continue;
-            [$k, $v] = explode('=', $line, 2);
-            $_ENV[trim($k)] = trim($v);
+    if (!file_exists($envFile)) return;
+
+    foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') continue;
+        if (!preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/', $line, $m)) continue;
+
+        $value = trim($m[2]);
+        $len   = strlen($value);
+
+        if ($len >= 2) {
+            $first = $value[0];
+            $last  = $value[$len - 1];
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $value = substr($value, 1, -1);
+            }
         }
+
+        $_ENV[$m[1]] = $value;
     }
 })();
 
