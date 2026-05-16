@@ -25,6 +25,13 @@ define('TODAY', date('Y-m-d H:i:s'));
 
 $serverDate = date('Y-m-d H');
 
+// HMAC write token para autorizar action=update en /API/kds.
+// Bindea companyId+outletId+expiry firmado con JWT_SECRET. Válido 24h.
+// Sin este token, un slug filtrado solo permite lectura — no puede mutar órdenes.
+$kdsWriteExpiry = time() + 86400;
+$kdsWriteSig    = hash_hmac('sha256', COMPANY_ID . '|' . OUTLET_ID . '|' . $kdsWriteExpiry, $_ENV['JWT_SECRET'] ?? '');
+$kdsWriteToken  = $kdsWriteExpiry . '.' . $kdsWriteSig;
+
 if (validateHttp('action') == 'time') {
   jsonDieResult(['date' => $serverDate]);
 }
@@ -440,10 +447,11 @@ if (validateHttp('action') == 'manifest') {
   ?>
   <script type="text/javascript" src="/screens/scripts/ncm-ws.js"></script>
   <script type="text/javascript">
-    window.ese = '<?= validateHttp('s') ?>';
-    var baseUrl  = '<?= $baseUrl ?>';
-    var outletID = '<?= $EOUTLET_ID ?>';
-    var WS_URL   = '<?= WS_URL ?>';
+    window.ese       = '<?= validateHttp('s') ?>';
+    window.kdsWrite  = '<?= $kdsWriteToken ?>';
+    var baseUrl      = '<?= $baseUrl ?>';
+    var outletID     = '<?= $EOUTLET_ID ?>';
+    var WS_URL       = '<?= WS_URL ?>';
 
     <?php
     if ($_GET['update']) {
@@ -549,7 +557,7 @@ if (validateHttp('action') == 'manifest') {
                     ncmKDS.setUIX(ncmKDS.cachedResult);
                   }, 400);
 
-                  $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate, success);
+                  $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate + '&w=' + window.kdsWrite, success);
                 }
               });
 
@@ -572,7 +580,7 @@ if (validateHttp('action') == 'manifest') {
                 ncmKDS.setUIX(ncmKDS.cachedResult);
               }, 3000);
 
-              $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate, success);
+              $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate + '&w=' + window.kdsWrite, success);
 
             }
 

@@ -1,16 +1,19 @@
 <?php
 /**
  * API pública para el KDS (Kitchen Display System).
- * Auth: slug opaco ?s= que codifica companyId,outletId en base64.
- * No requiere JWT ni api_key — acceso público por diseño (dispositivo de cocina).
+ * Auth lectura: slug opaco ?s= que codifica companyId,outletId en base64.
+ * Auth escritura: HMAC write token ?w=<expiry>.<sig> emitido por screens/kds.php
+ * (válido 24h, firmado con JWT_SECRET, bindea companyId+outletId+expiry).
  *
- * Acciones GET:
+ * Acciones GET (lectura, solo slug):
  *   ?s=<slug>&action=time          → hora del servidor (para sincronía cliente)
  *   ?s=<slug>&action=lists         → órdenes activas (con delta opcional via ?time=)
  *   ?s=<slug>&action=items         → catálogo de ítems
  *   ?s=<slug>&action=tags          → etiquetas
  *   ?s=<slug>&action=categories    → categorías
- *   ?s=<slug>&action=update&i=&t=&d= → actualiza estado de orden + push WS
+ *
+ * Acción de escritura (requiere &w=<expiry>.<sig>):
+ *   ?s=<slug>&action=update&i=&t=&d=&w= → actualiza estado de orden + push WS
  */
 
 require_once __DIR__ . '/lib/api_middleware.php';
@@ -116,6 +119,30 @@ if ($action === 'categories') {
 }
 
 if ($action === 'update') {
+    // Validar HMAC write token (?w=<expiry>.<sig>)
+    $writeParam = validateHttp('w');
+    $jwtSecret  = $_ENV['JWT_SECRET'] ?? '';
+
+    if (!$writeParam || !$jwtSecret) {
+        http_response_code(403);
+        kdsJson(['error' => 'Token de escritura requerido']);
+    }
+
+    [$expiryStr, $sig] = array_pad(explode('.', $writeParam, 2), 2, '');
+    $expiry = (int)$expiryStr;
+
+    if ($expiry < time()) {
+        http_response_code(403);
+        kdsJson(['error' => 'Token de escritura expirado']);
+    }
+
+    $expected = hash_hmac('sha256', COMPANY_ID . '|' . OUTLET_ID . '|' . $expiry, $jwtSecret);
+
+    if (!hash_equals($expected, $sig)) {
+        http_response_code(403);
+        kdsJson(['error' => 'Token de escritura inválido']);
+    }
+
     $id     = validateHttp('i');
     $type   = validateHttp('t');
     $date   = validateHttp('d');

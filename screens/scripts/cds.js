@@ -152,7 +152,7 @@
                 ncmKDS.setUIX(ncmKDS.cachedResult);
               },400);
 
-              $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate,success);
+              $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate + '&w=' + window.kdsWrite,success);
             }
           });
           
@@ -175,7 +175,7 @@
             ncmKDS.setUIX(ncmKDS.cachedResult);
           },3000);
 
-          $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate,success);
+          $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate + '&w=' + window.kdsWrite,success);
 
         }
 
