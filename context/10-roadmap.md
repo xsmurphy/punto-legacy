@@ -133,30 +133,25 @@ mucho menor del esperado. De 14 casos candidatos:
 
 ---
 
-## Deprecation del fallback legacy `?l=` en /app
+## Deprecation del fallback legacy `?l=` en /app ✅ COMPLETO (server)
 
-**Problema**: `app/load.php`, `app/fetch.php` y `app/action.php` aún aceptan
-identidad client-supplied via `?l=base64(companyId,outletId,userId,roleId,registerId)`
-cuando el JWT falla. Cualquier request sin cookie `_jwt` puede impersonar
-cualquier tenant.
+**Problema (resuelto 2026-05-16)**: `app/load.php`, `app/fetch.php` y
+`app/action.php` aceptaban identidad client-supplied via
+`?l=base64(companyId,outletId,userId,roleId,registerId)` cuando el JWT
+fallaba. Cualquier request sin cookie `_jwt` podía impersonar cualquier
+tenant.
 
-**Estado actual (2026-05-16)**:
-- ✅ Logging activo via `app/includes/legacy_auth_log.php` — registra cada
-  uso del fallback con IP, UA, companyId. Buscar `[LEGACY_AUTH]` y
-  `[JWT_MISMATCH]` en error_log del servidor.
-- ❌ Sin enforcement aún. Cliente JS (`app/scripts/globalv2.js`) sigue
-  enviando `?l=` activamente en cada request — aunque tenga JWT cookie.
+**Fix aplicado (proyecto pre-producción → hard-disable directo)**:
+- Server: load.php / fetch.php / action.php retornan 401 si JWT falla,
+  sin fallback a IDs del request.
+- `?l=` se mantiene como sobre base64 pero SOLO para extraer la
+  operación (`load`, `action`) — los IDs vienen del JWT.
 
-**Plan de cutoff (3 fases)**:
-1. **Ahora**: monitorear logs `[LEGACY_AUTH]` por 30 días para entender
-   qué clientes realmente dependen del fallback (esperado: ninguno si todos
-   usan JWT cookie + globalv2.js manda `?l=` por costumbre)
-2. **+30 días**: emitir warning header en respuestas con `X-Legacy-Auth: 1`,
-   tipo `X-Legacy-Deprecation: cutoff=2026-08-01`
-3. **+60 días**: validar JWT obligatorio. Si JWT falla → 401. Eliminar
-   `?l=` del cliente JS también.
-
-**Esfuerzo total**: ~4h distribuidas en 3 sesiones (1 por fase).
+**Pendiente menor (cleanup, no seguridad)**:
+- `app/scripts/globalv2.js` aún construye el payload completo en `?l=`
+  con IDs que el server ya ignora. Limpiar en una sesión futura: el
+  cliente debería mandar solo `?l=base64({action})` o pasar directo a
+  query params planos (`?action=...`).
 
 ---
 

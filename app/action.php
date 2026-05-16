@@ -21,44 +21,31 @@ function checkExecTime($reference = false)
 }
 
 require_once('includes/jwt_middleware.php');
-require_once(__DIR__ . '/includes/legacy_auth_log.php');
 
-// Decodificar parámetro legacy l= (siempre necesario para extraer la acción)
-$decode     = base64_decode($_GET['l'] ?? '');
-$get        = json_decode($decode, true) ?? [];
-$action     = $get['action']     ?? null;
-$companyId  = $get['companyId']  ?? null;
-$outletId   = $get['outletId']   ?? null;
-$userId     = $get['userId']     ?? null;
-$roleId     = $get['roleId']     ?? null;
-$registerId = $get['registerId'] ?? null;
+// `?l=` se mantiene como sobre base64 pero SOLO para extraer la acción.
+// Los IDs de tenant/usuario vienen exclusivamente del JWT firmado.
+$decode = base64_decode($_GET['l'] ?? '');
+$get    = json_decode($decode, true) ?? [];
+$action = $get['action'] ?? null;
 
-if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
-  $rateLimiterId = $registerId;
-
+if ($action) {
+  $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
   include_once('head.php');
 
-  // Autenticación JWT (cookie HttpOnly, header Bearer, o POST _jwt)
-  $jwtValid = jwtAuthenticate();
-
-  if ($jwtValid) {
-    // Identidad validada server-side — valores del token firmado.
-    logJwtMismatch('action', AUTHED_COMPANY_ID, $companyId);
-    $companyId  = AUTHED_COMPANY_ID;
-    $outletId   = AUTHED_OUTLET_ID;
-    $userId     = AUTHED_USER_ID;
-    $roleId     = AUTHED_ROLE_ID;
-    $registerId = AUTHED_REGISTER_ID;
-  } else {
-    // Ruta legacy: decodificar del parámetro l=. Loggeado para deprecation.
-    header('X-Legacy-Auth: 1');
-    logLegacyFallback('action', $companyId, $outletId);
-    $companyId  = db_prepare(dec($companyId));
-    $outletId   = db_prepare(dec($outletId));
-    $userId     = db_prepare(dec($userId));
-    $roleId     = db_prepare($roleId);
-    $registerId = db_prepare(dec($registerId));
+  // JWT obligatorio — sin fallback. Project status: pre-producción
+  // (ver context/01-producto.md "Estado actual del proyecto").
+  if (!jwtAuthenticate()) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Autenticación requerida']);
+    exit;
   }
+
+  $companyId  = AUTHED_COMPANY_ID;
+  $outletId   = AUTHED_OUTLET_ID;
+  $userId     = AUTHED_USER_ID;
+  $roleId     = AUTHED_ROLE_ID;
+  $registerId = AUTHED_REGISTER_ID;
 
   if (!checkCompanyStatus($companyId)) {
     jsonDieMsg('Company Blocked');

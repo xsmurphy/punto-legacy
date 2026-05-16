@@ -38,3 +38,15 @@ Los empleados (cajeros, meseros, recepcionistas) usan la **app** para operar dí
 - Phase 2 completa (todos los endpoints formalizados)
 - Onboarding self-service funcional
 - Base de clientes activos en los 3 rubros
+
+## Estado actual del proyecto
+
+**No está en producción.** Es un refactor + modernización de un viejo
+proyecto PHP. No hay clientes desplegados, no hay terminales en uso real.
+
+**Implicaciones para el desarrollo**:
+- Los cambios breaking son aceptables sin period de transición
+- No hace falta mantener compat shims ni "rutas legacy por si hay clientes"
+- Las deprecations pueden ser hard-disable directo, no fases
+- El JWT debe ser la única fuente de verdad — sin fallbacks a identidad
+  client-supplied "por compat"

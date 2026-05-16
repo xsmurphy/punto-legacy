@@ -20,47 +20,34 @@ function checkExecTime($reference = false){
 }
 
 require_once('includes/jwt_middleware.php');
-require_once(__DIR__ . '/includes/legacy_auth_log.php');
 
-$get        = json_decode(base64_decode($_GET['l'] ?? ''),true) ?? [];
-$post   = $_POST;
-$load       = $get['load']       ?? null;
-$companyId  = $get['companyId']  ?? null;
-$outletId   = $get['outletId']   ?? null;
-$userId     = $get['userId']     ?? null;
-$roleId     = $get['roleId']     ?? null;
-$registerId = $get['registerId'] ?? null;
-if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) && !empty($roleId) && !empty($registerId)){
-  $rateLimiterId = $registerId;
+// `?l=` se mantiene como sobre base64 pero SOLO para extraer la operación
+// (`load`). Los IDs de tenant/usuario vienen exclusivamente del JWT firmado.
+$get   = json_decode(base64_decode($_GET['l'] ?? ''), true) ?? [];
+$post  = $_POST;
+$load  = $get['load'] ?? null;
+
+if (!empty($load)) {
+  // rateLimiterId se setea por IP hasta que JWT defina registerId server-side.
+  $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
   require_once('head.php');
   ob_start();
   ob_implicit_flush(0);
 
-  // Autenticación JWT (cookie HttpOnly, header Bearer, o POST _jwt)
-  $jwtValid = jwtAuthenticate();
-
-  if ($jwtValid) {
-    // Identidad validada server-side — valores del token firmado.
-    // Detectar y loggear mismatch: cliente envió IDs distintos en ?l= que
-    // los del JWT. Indica cliente desactualizado o intento de impersonation.
-    logJwtMismatch('load', AUTHED_COMPANY_ID, $companyId);
-    $companyId  = AUTHED_COMPANY_ID;
-    $outletId   = AUTHED_OUTLET_ID;
-    $userId     = AUTHED_USER_ID;
-    $roleId     = AUTHED_ROLE_ID;
-    $registerId = AUTHED_REGISTER_ID;
-  } else {
-    // Ruta legacy: decodificar del parámetro l=. Cliente sin JWT (mobile
-    // viejo, offline, o atacante con ?l= crafted). Loggeado para monitoreo
-    // del deprecation — ver context/10-roadmap.md.
-    header('X-Legacy-Auth: 1');
-    logLegacyFallback('load', $companyId, $outletId);
-    $companyId  = $db->Prepare(dec($companyId));
-    $outletId   = $db->Prepare(dec($outletId));
-    $userId     = $db->Prepare(dec($userId));
-    $roleId     = $db->Prepare($roleId);
-    $registerId = $db->Prepare(dec($registerId));
+  // JWT obligatorio — sin fallback. Project status: pre-producción
+  // (ver context/01-producto.md "Estado actual del proyecto").
+  if (!jwtAuthenticate()) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Autenticación requerida']);
+    exit;
   }
+
+  $companyId  = AUTHED_COMPANY_ID;
+  $outletId   = AUTHED_OUTLET_ID;
+  $userId     = AUTHED_USER_ID;
+  $roleId     = AUTHED_ROLE_ID;
+  $registerId = AUTHED_REGISTER_ID;
   $get        = $db->Prepare($get);
   if(!checkCompanyStatus($companyId)){
     jsonDieMsg();
