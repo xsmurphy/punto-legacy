@@ -25,6 +25,7 @@ $allowed_domains = [
 
 if (in_array($origin, $allowed_domains)) {
     header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Credentials: true'); // requerido para cookies JWT cross-origin
     header('Vary: Origin');
 } else {
     // Origen no permitido: no emitir header (el navegador bloqueará la request)

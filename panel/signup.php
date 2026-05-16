@@ -5,6 +5,8 @@
  * GET  /signup   → formulario
  * POST /signup   → procesa registro
  */
+session_start();
+
 include_once("includes/db.php");
 include_once('includes/simple.config.php');
 include_once("includes/config.php");

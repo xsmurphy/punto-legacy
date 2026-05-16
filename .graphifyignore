@@ -16,5 +16,21 @@ app/libraries/adodb/
 mysql_data/
 postgres_data/
 
+# Graphify's own outputs (avoid recursive ingestion)
+graphify-out/
+
+# Vendor libs (already analyzed; libs don't add project knowledge)
+assets/vendor/
+node_modules/
+
+# UI assets (backgrounds, icons — no semantic value)
+assets/images/
+app/images/
+panel/images/
+
+# Build artifacts
+.build_tmp/
+app/cach/
+
 # Optional: skip huge UI bundles if graphify feels slow
 # panel/screens/mapIframe.php

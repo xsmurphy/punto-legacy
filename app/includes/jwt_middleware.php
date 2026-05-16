@@ -44,11 +44,12 @@ function jwtAuthenticate(): bool
         ]));
     }
 
-    // Definir identidad autenticada como constantes PHP
-    define('AUTHED_USER_ID',     (int)($payload['sub']  ?? 0));
-    define('AUTHED_COMPANY_ID',  (int)($payload['cid']  ?? 0));
-    define('AUTHED_OUTLET_ID',   (int)($payload['oid']  ?? 0));
-    define('AUTHED_REGISTER_ID', (int)($payload['rid']  ?? 0));
+    // Definir identidad autenticada como constantes PHP.
+    // IDs son UUIDs (string) desde Phase UUID; role sigue siendo int.
+    define('AUTHED_USER_ID',     (string)($payload['sub']  ?? ''));
+    define('AUTHED_COMPANY_ID',  (string)($payload['cid']  ?? ''));
+    define('AUTHED_OUTLET_ID',   (string)($payload['oid']  ?? ''));
+    define('AUTHED_REGISTER_ID', (string)($payload['rid']  ?? ''));
     define('AUTHED_ROLE_ID',     (int)($payload['role'] ?? 0));
 
     return true;

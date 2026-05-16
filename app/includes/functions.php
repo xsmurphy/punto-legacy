@@ -72,7 +72,7 @@ function getPaymentMethodName($id,$decode=false){
 		$out = 'Cheque';
 	}else if($id == 'giftcard'){
 		$out = 'Gift Card';
-	}else if($id == 'inCredit'){
+	}else if($id == 'inCredit' || $id == 'storeCredit'){
 		$out = 'Crédito Interno';
 	}else if($id == 'points'){
 		$out = 'Loyalty';
@@ -84,7 +84,7 @@ function getPaymentMethodName($id,$decode=false){
 		if($decode){
 			$id = dec($id);
 		}
-		$result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? LIMIT 1',[$id]);
+		$result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1',[$id, COMPANY_ID]);
 
 		if($result){
 			$out = $result['taxonomyName'];
@@ -92,7 +92,7 @@ function getPaymentMethodName($id,$decode=false){
 			if(!$decode){
 				$id = dec($id);
 			}
-			$result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? LIMIT 1',[$id]);
+			$result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1',[$id, COMPANY_ID]);
 			if($result){
 				$out = $result['taxonomyName'];
 			}else{
@@ -443,7 +443,7 @@ function getDebtListByTransaction($id,$expireds=false){
 }
 
 function getAllContacts($type=false,$where=''){
-	global $db,$compId,$ADODB_CACHE_DIR;
+	global $db,$compId;
 	//GET ALL CUSTOMERS ARRAY
 	$a1 = [];
 	$a2 = [];
@@ -2534,7 +2534,7 @@ function validity($value,$force=false){
 }
 
 function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $getAssoc = false ){
-	global $db,$ADODB_CACHE_DIR;
+	global $db;
 
 	$go = false;
 

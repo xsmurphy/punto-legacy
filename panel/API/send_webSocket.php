@@ -14,7 +14,9 @@
  * Compatibilidad: acepta los mismos parámetros que el endpoint Pusher anterior.
  */
 
-include_once('api_head.php');
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
+
 require_once __DIR__ . '/../includes/ws_publish.php';
 
 $channel = validateHttp('channel', 'post');
@@ -22,7 +24,7 @@ $event   = validateHttp('event',   'post');
 $message = validateHttp('message', 'post');
 
 if (!$channel || !$event) {
-    jsonDieMsg('channel y event son requeridos', 422);
+    apiError('channel y event son requeridos', 422);
 }
 
 // message puede ser JSON string o valor simple
@@ -34,4 +36,4 @@ if ($message) {
 
 wsPublish($channel, $event, $data);
 
-jsonDieResult(['success' => true], 200);
+apiOk(['success' => true]);

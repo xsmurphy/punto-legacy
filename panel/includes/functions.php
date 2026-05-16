@@ -491,7 +491,7 @@ function getItemName($id)
 
 function getItemId($value, $field = 'itemSKU', $companyId = false, $cache = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 	$extr = '';
 	if ($companyId) {
 		$extr = ' AND companyId = ' . db_prepare($companyId);
@@ -646,7 +646,7 @@ function getContactTransactions($id, $from = false, $to = false, $field = 'custo
 
 function getContactInSales($id, $from = false, $to = false, $field = 'customerId', $cache = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 
 	$from 	= ($from) ? $from : COMPANY_DATE;
 	$to 	= ($to) ? $to : TODAY;
@@ -667,7 +667,7 @@ function getContactInSales($id, $from = false, $to = false, $field = 'customerId
 
 function getContactItemsSold($id, $from = false, $to = false, $field = 'customerId', $cache = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 
 	$from 		= iftn($from, COMPANY_DATE);
 	$to 		= iftn($to, TODAY);
@@ -918,7 +918,7 @@ function getTagsDefaults($company)
 
 	$out = [];
 
-	if (!$result) return $out;
+	if (!$result || !is_object($result)) return $out;
 
 	while (!$result->EOF) {
 		$out[] = ["tagid" => $result->fields['taxonomyId'], "tagname" => $result->fields['taxonomyName']];
@@ -1149,7 +1149,7 @@ function getLocationName($id)
 
 function getAllUnpaidParentsTransactions($cache = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 	$roc 	= getROC(1);
 	$date 	= '';
 	$a 		= [];
@@ -1170,7 +1170,7 @@ function getAllUnpaidParentsTransactions($cache = false)
 
 function getAllToPayTransactions($cache = false, $where = '')
 {
-	global $db, $ADODB_CACHE_DIR, $SQLcompanyId;
+	global $db, $SQLcompanyId;
 
 	$date 	= '';
 	$a 			= [];
@@ -1213,7 +1213,7 @@ function getAllPayingCompaniesData()
 
 function getAllTransactionPayments($from = false, $to = false, $roc = false, $cache = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 
 	$roc 		= (!$roc) ? getROC(1) : $roc;
 	$date 		= '';
@@ -1257,7 +1257,7 @@ function getAllTransactionPayments($from = false, $to = false, $roc = false, $ca
 
 function getAllTransactions($cache = false, $roc = false)
 {
-	global $db, $startDate, $endDate, $ADODB_CACHE_DIR;
+	global $db, $startDate, $endDate;
 	if (!$roc) {
 		$roc 	= getROC(1);
 	}
@@ -1306,7 +1306,7 @@ function getAllTransactions($cache = false, $roc = false)
 
 function getAllTransactionsRaw($cache = false, $roc = false, $limit = false)
 {
-	global $db, $startDate, $endDate, $ADODB_CACHE_DIR;
+	global $db, $startDate, $endDate;
 	$limit = iftn($limit, '', ' LIMIT ' . $limit);
 	if (!$roc) {
 		$roc 	= getROC(1);
@@ -1388,7 +1388,7 @@ function getIndexFromArray($array, $field, $value, $multi = false)
 
 function getAllItemsRaw($parents = false, $cache = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 	//GET ALL ITEMS ARRAY
 
 	if ($parents == 'children') {
@@ -1492,7 +1492,7 @@ function getAllContactsRaw($type = false, $index = false, $cache = false, $field
 
 function getAllItemSold($transId, $cache = false, $countOnly = false)
 {
-	global $db, $startDate, $endDate, $ADODB_CACHE_DIR;
+	global $db, $startDate, $endDate;
 
 	if (!$transId) {
 		return false;
@@ -2384,7 +2384,7 @@ function countExpiringInventory($itemId = false, $outletId = false)
 
 function getAllInventory($tax = false, $cache = false, $itemId = false, $outletId = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 
 	$roc 	= getROC(1); //el uno evita que filtre por caja
 	$inv 	= [];
@@ -2518,7 +2518,7 @@ function getAllIndividualInventory($id = false, $cache = false, $enc = 'si')
 
 function getAllIndividualInventoryRaw($cache = false, $itemId = false, $outlet = false)
 {
-	global $db, $plansValues, $ADODB_CACHE_DIR;
+	global $db, $plansValues;
 
 	$roc = str_replace(['companyId', 'outletId'], ['a.companyId', 'a.outletId'], getROC(1));
 
@@ -4174,7 +4174,7 @@ function selectInputRegister($match = '', $multi = false, $class = '', $name = '
 
 function selectInputUser($match = '', $multi = false, $class = '', $name = 'user', $cache = false, $data = '')
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 
 	$sql = 'SELECT contactId, contactRealId, contactName FROM contact WHERE type = 0 AND companyId = ' . COMPANY_ID;
 
@@ -4213,7 +4213,7 @@ function selectInputUser($match = '', $multi = false, $class = '', $name = 'user
 
 function selectInputCustomer($match = '', $multi = false, $class = '', $name = 'customer', $cache = false)
 {
-	global $db, $SQLcompanyId, $ADODB_CACHE_DIR, $plansValues;
+	global $db, $SQLcompanyId, $plansValues;
 
 	if (COMPANY_ID == INCOME_COMPANY_ID) {
 		$sql = "SELECT companyId as contactId, companyId as contactId, config->>'settingName' as contactName, config->>'settingEmail' as contactEmail FROM company";
@@ -4791,15 +4791,11 @@ function _flattenJsonb($row): CaseInsensitiveArray
 
 function ncmExecute($sql, $array = false, $cache = false, $forceObj = false, $getAssoc = false)
 {
-	global $db, $ADODB_CACHE_DIR;
+	global $db;
 	//No se necesita cerrar la conexión ej: $result->Close(), la conexion se cierra sola al terminar el script
 
 	$go 	= false;
 	$sql 	= $db->Prepare($sql);
-
-	if ($forceObj || $getAssoc) {
-		$ADODB_FETCH_MODE 	= ADODB_FETCH_BOTH;
-	}
 
 	if (!$cache) {
 		if ($getAssoc) {
@@ -7002,7 +6998,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function getItemsCOGS($from, $to, $array = false, $sameday = false, $cache = false)
 		{
-			global $db, $ADODB_CACHE_DIR;
+			global $db;
 
 			$roc = str_replace(array('registerId', 'outletId', 'companyId'), array('c.registerId', 'c.outletId', 'c.companyId'), getROC());
 
@@ -8897,6 +8893,59 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			return $clean;
 		}
 
+		/**
+		 * Emite un JWT HS256 para el panel tras un login/registro exitoso.
+		 * Setea además el cookie HttpOnly `_jwt_panel` para uso browser.
+		 *
+		 * Retorna un array con los datos del token para incluir en responses API.
+		 * No modifica $_SESSION — eso lo hace loginPart() por separado.
+		 */
+		function issueJwtPanel(array $user): array
+		{
+			global $db;
+
+			require_once __DIR__ . '/jwt.php';
+
+			$secret = $_ENV['JWT_SECRET'] ?? '';
+			if (!$secret) {
+				return ['token' => null, 'expiresIn' => 0];
+			}
+
+			// Primer outlet activo del usuario (o cualquiera de la empresa)
+			$outlet = ncmExecute(
+				"SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1",
+				[$user['companyId']]
+			);
+
+			$ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
+			$now = time();
+
+			$token = jwtEncode([
+				'sub'  => (string)$user['contactId'],
+				'cid'  => (string)$user['companyId'],
+				'oid'  => (string)($outlet['outletId'] ?? ''),
+				'rid'  => '',
+				'role' => (int)$user['role'],
+				'iat'  => $now,
+				'exp'  => $now + $ttl,
+			], $secret);
+
+			// Cookie HttpOnly — el browser la enviará automáticamente en requests same-origin
+			$isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+			setcookie('_jwt_panel', $token, [
+				'expires'  => $now + $ttl,
+				'path'     => '/',
+				'httponly' => true,
+				'samesite' => 'Strict',
+				'secure'   => $isHttps,
+			]);
+
+			return [
+				'token'     => $token,
+				'expiresIn' => $ttl,
+			];
+		}
+
 		function loginPart($result)
 		{
 			global $db;
@@ -8991,8 +9040,10 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			$_SESSION['user']['endDate'] 		= false;
 			$_SESSION['user']['SAAS_ADM']    	= ($result['companyId'] == ENCOM_COMPANY_ID) ? true : false;
 
+			// Emitir JWT además de la sesión PHP — ambos coexisten durante la transición
+			$GLOBALS['_last_jwt_panel'] = issueJwtPanel($result);
+
 			return 'true';
-			$result->Close();
 		}
 
 		function findEmailOrPhoneLogin($email)

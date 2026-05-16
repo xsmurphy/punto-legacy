@@ -28,13 +28,26 @@ function checkExecTime($reference = false){
   $GLOBALS['_execution_start'] = microtime(true);
 }
 
+require_once('includes/jwt_middleware.php');
+
 if(isset($_POST['companyId']) && isset($_POST['outletId'])){
   $rateLimiterId = $_POST['outletId'];
 
   include_once('head.php');
 
-  $companyId  = $db->Prepare(dec($_POST['companyId']));
-  $outletId   = $db->Prepare(dec($_POST['outletId']));
+  // Autenticación JWT (cookie HttpOnly, header Bearer, o POST _jwt)
+  $jwtValid = jwtAuthenticate();
+
+  if ($jwtValid) {
+    // Identidad validada server-side — valores del token firmado
+    $companyId = AUTHED_COMPANY_ID;
+    $outletId  = AUTHED_OUTLET_ID;
+  } else {
+    // Ruta legacy: decodificar ID del POST
+    header('X-Legacy-Auth: 1'); // monitoreo de adopción JWT
+    $companyId = $db->Prepare(dec($_POST['companyId']));
+    $outletId  = $db->Prepare(dec($_POST['outletId']));
+  }
 
   if(!checkCompanyStatus($companyId)){
     jsonDieMsg('Not found',404);

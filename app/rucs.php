@@ -48,28 +48,6 @@ function getANR($key){
     return [$tin2, $name2, $fullAddress];
 }
 
-function getSET($key){
-    include_once("libraries/adodb/adodb.inc.php");
-    $ADODB_CACHE_DIR    = '../../cache/adodb';
-    $db                 = ADONewConnection('mysqli');
-    $db->NConnect('localhost', 'incomepo_905user', 'a0Hr(Rl~H6]r', 'incomepo_rucpy');
-    $db->cacheSecs      = (86400*365);
-    include_once("includes/functions.php");
-    ini_set('default_socket_timeout', 1);
-
-    $tin    = '';
-    $name   = '';
-
-    $obj    = ncmExecute("SELECT tin, name, dv FROM tins WHERE tin = ? LIMIT 1", [$key]);
-
-    if($obj){
-        $tin    = ($obj['tin']) ? $obj['tin'] . '-' . $obj['dv'] : null;
-        $name   = $obj['name'];
-    }
-
-    return [$tin, $name];
-}
-
 function getMarangatu($key){
     //BUSCO EN MARANGATU
     $headers = [
@@ -102,8 +80,6 @@ function getMarangatu($key){
         $fullName       = $data['nombreFantasia'];
         $fullAddress    = $data['direccion'];
         $phone          = $data['telefono'];
-    }else{//si la SET no anda uso la DB de ENCOM
-        list($tin,$name) = getSET($key);
     }
 
     return array($tin,$name,$fullName,$fullAddress,$phone);

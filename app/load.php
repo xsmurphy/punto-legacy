@@ -19,24 +19,41 @@ function checkExecTime($reference = false){
   $GLOBALS['_execution_start'] = microtime(true);
 }
 
-$get        = json_decode(base64_decode($_GET['l']),true);
+require_once('includes/jwt_middleware.php');
+
+$get        = json_decode(base64_decode($_GET['l'] ?? ''),true) ?? [];
 $post   = $_POST;
-$load       = $get['load'];
-$companyId  = $get['companyId'];
-$outletId   = $get['outletId'];
-$userId     = $get['userId'];
-$roleId     = $get['roleId'];
-$registerId = $get['registerId'];
+$load       = $get['load']       ?? null;
+$companyId  = $get['companyId']  ?? null;
+$outletId   = $get['outletId']   ?? null;
+$userId     = $get['userId']     ?? null;
+$roleId     = $get['roleId']     ?? null;
+$registerId = $get['registerId'] ?? null;
 if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) && !empty($roleId) && !empty($registerId)){
   $rateLimiterId = $registerId;
   require_once('head.php');
   ob_start();
   ob_implicit_flush(0);
-  $companyId  = $db->Prepare(dec($companyId));
-  $outletId   = $db->Prepare(dec($outletId));
-  $userId     = $db->Prepare(dec($userId));
-  $roleId     = $db->Prepare($roleId);
-  $registerId = $db->Prepare(dec($registerId));
+
+  // Autenticación JWT (cookie HttpOnly, header Bearer, o POST _jwt)
+  $jwtValid = jwtAuthenticate();
+
+  if ($jwtValid) {
+    // Identidad validada server-side — valores del token firmado
+    $companyId  = AUTHED_COMPANY_ID;
+    $outletId   = AUTHED_OUTLET_ID;
+    $userId     = AUTHED_USER_ID;
+    $roleId     = AUTHED_ROLE_ID;
+    $registerId = AUTHED_REGISTER_ID;
+  } else {
+    // Ruta legacy: decodificar del parámetro l=
+    header('X-Legacy-Auth: 1'); // monitoreo de adopción JWT
+    $companyId  = $db->Prepare(dec($companyId));
+    $outletId   = $db->Prepare(dec($outletId));
+    $userId     = $db->Prepare(dec($userId));
+    $roleId     = $db->Prepare($roleId);
+    $registerId = $db->Prepare(dec($registerId));
+  }
   $get        = $db->Prepare($get);
   if(!checkCompanyStatus($companyId)){
     jsonDieMsg();

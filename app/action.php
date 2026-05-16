@@ -2846,7 +2846,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
               if (validity($data['electronicInvoicePY'], 'array')) {
 
                 if ($data['type'] == 0 || $data['type'] == 3 || $data['type'] == 6) { //Solo envia si es venta contado, venta credito y devolución (Nota de Crédito)
-                  $getRuc = ncmExecute('SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
+                  $getRuc = ncmExecute("SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1", [COMPANY_ID]);
 
                   $typeDoc = 'FC';
                   if ($data['type'] == 0) { //Factura Contado
@@ -3567,7 +3567,7 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
 
   if ($action == 'consultStatusElectronicInvoice') {
     $data      = validateHttp('data', 'post');
-    $getRuc = ncmExecute('SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1', [COMPANY_ID]);
+    $getRuc = ncmExecute("SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1", [COMPANY_ID]);
 
     $electronicData = [
       'ruc'        => $getRuc['settingRUC'],

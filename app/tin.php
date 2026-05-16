@@ -295,55 +295,6 @@ if(isset($_GET['c']) && isset($_GET['s'])){
     ob_end_flush();
 
     dai();
-}else{
-    die('false');
-
-    if($_GET['scanner']){
-
-        include_once("includes/simple.config.php");
-        include_once("libraries/countries.php");
-        include_once("includes/functions.php");
-
-        include_once("libraries/adodb/adodb.inc.php");
-        $db                 = ADONewConnection('mysqli');
-        $db->NConnect('localhost', 'incomepo_905user', 'a0Hr(Rl~H6]r', 'incomepo_rucpy');
-        ini_set('default_socket_timeout', 1);
-
-        $files = scandir('cache_rucs', 1);
-
-        foreach ($files as $key => $value) {
-            $cachefile      = 'cache_rucs/' . $value;
-
-            if(isset($_GET['clearcache'])){
-                @unlink($cachefile);
-                die('cache leared ' . $cachefile);
-            }
-
-            $data   = file_get_contents($cachefile);
-            $arr    = json_decode($data,true);
-            $return = $arr['tins'][0];
-            //@unlink($cachefile);
-
-            $razon  = $return['name'];
-            $tin    = $return['tin'];
-            $name   = $return['fullName'];
-            $phone  = $return['phone'];
-            $bday   = $return['bday'];
-            $address = $return['address'];
-
-            $tinp   = explode('-',$tin);
-            $dv     = $tinp[1];
-            $tin    = $tinp[0];
-
-            $result = ncmExecute('SELECT personaTIN FROM persona WHERE personaTIN = ?',[$tin]);
-
-            if(!$result){
-                $db->AutoExecute('persona', ['personaName'=>$razon,'personaTIN'=>$tin,'personaDV'=>$dv,'personaAltName'=>$name,'personaPhone'=>$phone,'personaBDay'=>$bday,'personaAddress'=>$address], 'INSERT');
-            }
-            
-        }
-    }
-    
 }
 
 ?>

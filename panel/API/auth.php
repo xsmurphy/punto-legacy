@@ -2,17 +2,20 @@
 /**
  * Endpoint de autenticación del panel.
  *
- * GET  /API/auth  (legacy)  → valida api_key + company_id (igual que antes)
- * POST /API/auth  (nuevo)   → email + password → emite JWT
+ * POST /API/auth  → email + password → emite JWT + sesión PHP + cookie _jwt_panel
+ * GET  /API/auth  (legacy)  → valida api_key + company_id
  *
- * Respuesta JWT:
- *   { "ok": true, "data": { "token": "..." }, "meta": { ... } }
+ * Respuesta canónica:
+ *   { "ok": true, "data": { "token": "...", "expiresIn": 28800, ... } }
  *
- * La cookie _jwt_panel (HttpOnly) se emite automáticamente para uso browser.
+ * La cookie `_jwt_panel` (HttpOnly) se emite automáticamente para uso browser.
+ * Internamente delega a `loginPart()` para mantener el flow unificado con
+ * `panel/login.php` (browser form) y `signUp()` (registro).
  */
 
+session_start();
+
 require_once __DIR__ . '/../includes/cors.php';
-require_once __DIR__ . '/../includes/jwt.php';
 require_once __DIR__ . '/lib/response.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -29,13 +32,12 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
         apiError('Debe completar todos los campos', 422);
     }
 
-    // Bootstrap mínimo
+    // Bootstrap — loginPart() y helpers viven en functions.php
     include_once __DIR__ . '/../includes/db.php';
     include_once __DIR__ . '/../includes/simple.config.php';
     include_once __DIR__ . '/../includes/functions.php';
 
-    $jwtSecret = $_ENV['JWT_SECRET'] ?? '';
-    if (!$jwtSecret) {
+    if (!($_ENV['JWT_SECRET'] ?? '')) {
         apiError('JWT no configurado en el servidor', 501);
     }
 
@@ -45,13 +47,11 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
         apiUnauthorized('Email o contraseña incorrectos');
     }
 
-    $hash = checkForPassword(db_prepare($pass), $result['salt']);
-
-    if ($hash !== $result['contactPassword']) {
+    if (checkForPassword(db_prepare($pass), $result['salt']) !== rtrim($result['contactPassword'])) {
         apiUnauthorized('Email o contraseña incorrectos');
     }
 
-    // Verificar estado de la empresa
+    // Chequear status ANTES de loginPart() para evitar su dai() que rompería el envelope
     $company = ncmExecute(
         "SELECT status FROM company WHERE companyId = ? LIMIT 1",
         [$result['companyId']]
@@ -60,45 +60,21 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
         apiError('Su cuenta está inhabilitada, por favor contáctenos', 403);
     }
 
-    // Primer outlet activo
-    $outlet = ncmExecute(
-        "SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1",
-        [$result['companyId']]
-    );
+    // Setea $_SESSION + emite cookie _jwt_panel (vía issueJwtPanel interno)
+    loginPart($result);
 
-    $ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
-    $now = time();
+    $jwt = $GLOBALS['_last_jwt_panel'] ?? ['token' => null, 'expiresIn' => 0];
 
-    $token = jwtEncode([
-        'sub'  => (string)$result['contactId'],
-        'cid'  => (string)$result['companyId'],
-        'oid'  => (string)($outlet['outletId'] ?? ''),
-        'rid'  => '',
-        'role' => (int)$result['role'],
-        'iat'  => $now,
-        'exp'  => $now + $ttl,
-    ], $jwtSecret);
-
-    // Cookie HttpOnly para browser
-    $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-    setcookie('_jwt_panel', $token, [
-        'expires'  => $now + $ttl,
-        'path'     => '/',
-        'httponly' => true,
-        'samesite' => 'Strict',
-        'secure'   => $isHttps,
-    ]);
-
-    $hashids = new Hashids\Hashids(SALT);
     apiOk([
-        'token'     => $token,
-        'expiresIn' => $ttl,
-        'userId'    => $hashids->encode((int)$result['contactId']),
-        'companyId' => $hashids->encode((int)$result['companyId']),
+        'token'     => $jwt['token'],
+        'expiresIn' => $jwt['expiresIn'],
+        'userId'    => (string)$result['contactId'],
+        'companyId' => (string)$result['companyId'],
         'role'      => (int)$result['role'],
     ]);
 }
 
 // ── Ruta legacy: api_key + company_id ────────────────────────────────────────
-include_once 'api_head.php';
-jsonDieResult(['success' => 'Conexión establecida'], 200);
+require_once __DIR__ . '/lib/api_middleware.php';
+apiMiddleware();
+apiOk(['success' => 'Conexión establecida']);

@@ -24660,6 +24660,9 @@ var focusIt = function ($el, callback) {
 //jQuery.fx.off = true;
 $.ajaxSetup({
     timeout: 200000,
+    // Envía cookies (incluyendo _jwt HttpOnly) en requests cross-origin.
+    // Requiere `Access-Control-Allow-Credentials: true` en el servidor (ver cors.php).
+    xhrFields: { withCredentials: true },
     error: function (xhr) {
         //ncmAlerts.toast('No pudimos conectarnos al servidor','danger');
         ncmHelpers.preloader('hide');

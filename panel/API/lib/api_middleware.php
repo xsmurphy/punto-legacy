@@ -61,7 +61,7 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
 
     // 3. Bootstrap de dependencias
     // $db debe ser global para que ncmExecute() lo encuentre con `global $db`
-    global $db, $ADODB_CACHE_DIR, $plansValues, $countries;
+    global $db, $plansValues, $countries;
 
     include_once __DIR__ . '/../../includes/db.php';
     include_once __DIR__ . '/../../includes/simple.config.php';
@@ -112,6 +112,40 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
 
         _apiDefineSharedConstants($companyId, $companyId, '', '');
     }
+}
+
+/**
+ * Middleware para endpoints públicos de screens (KDS, CDS, recibos, etc.).
+ * No requiere JWT ni api_key — autenticación basada en slug opaco.
+ * Hace CORS, rate-limit por slug, y bootstrap de DB/config/functions.
+ *
+ * @param string $slugId  Identificador para rate-limit (normalmente el ?s= slug)
+ */
+function apiMiddlewarePublic(string $slugId = ''): void
+{
+    require_once __DIR__ . '/../../includes/cors.php';
+
+    include_once __DIR__ . '/../../libraries/rateLimiter.php';
+    $limiterId   = $slugId ?: ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $rateLimiter = new RateLimiter($limiterId);
+    try {
+        $rateLimiter->limitRequestsInMinutes(60, 1);
+    } catch (RateExceededException $e) {
+        http_response_code(429);
+        header('Content-Type: application/json');
+        header('Retry-After: 60');
+        echo json_encode(apiErrorEnvelope('Rate Limit Exceeded', 429));
+        exit;
+    }
+
+    global $db, $plansValues, $countries;
+    include_once __DIR__ . '/../../includes/db.php';
+    include_once __DIR__ . '/../../includes/simple.config.php';
+    include_once __DIR__ . '/../../includes/functions.php';
+
+    define('PANEL_JWT_AUTHED', false);
+    define('PANEL_AUTHED_USER', 0);
+    define('PANEL_AUTHED_ROLE', 0);
 }
 
 // ---------------------------------------------------------------------------

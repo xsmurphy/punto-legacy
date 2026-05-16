@@ -54,8 +54,8 @@ if (!$result || passBuilder($pass, $result['salt']) !== $result['contactPassword
     die(json_encode(['error' => 'Credenciales inválidas']));
 }
 
-$companyId = (int)$result['companyId'];
-$userId    = (int)$result['contactId'];
+$companyId = (string)$result['companyId'];
+$userId    = (string)$result['contactId'];
 
 if (!checkCompanyStatus($companyId)) {
     http_response_code(403);
@@ -72,7 +72,7 @@ if (!$outlet) {
     die(json_encode(['error' => 'No se encontró un outlet configurado']));
 }
 
-$outletId = (int)$outlet['outletId'];
+$outletId = (string)$outlet['outletId'];
 
 $register = ncmExecute(
     "SELECT registerId FROM register WHERE outletId = ? ORDER BY registerId ASC LIMIT 1",
@@ -84,17 +84,17 @@ if (!$register) {
     die(json_encode(['error' => 'No se encontró una caja configurada']));
 }
 
-$registerId = (int)$register['registerId'];
+$registerId = (string)$register['registerId'];
 
 $secret = $_ENV['JWT_SECRET'] ?? '';
 $ttl    = (int)($_ENV['JWT_TTL'] ?? 28800);
 $now    = time();
 
 $payload = [
-    'sub'  => (string)$userId,
-    'cid'  => (string)$companyId,
-    'oid'  => (string)$outletId,
-    'rid'  => (string)$registerId,
+    'sub'  => $userId,
+    'cid'  => $companyId,
+    'oid'  => $outletId,
+    'rid'  => $registerId,
     'role' => (int)$result['role'],
     'iat'  => $now,
     'exp'  => $now + $ttl,
@@ -106,8 +106,8 @@ jwtSetCookie($token, $ttl);
 echo json_encode([
     'token'      => $token,
     'expires_in' => $ttl,
-    'companyId'  => enc($companyId),
-    'outletId'   => enc($outletId),
-    'registerId' => enc($registerId),
-    'userId'     => enc($userId),
+    'companyId'  => $companyId,
+    'outletId'   => $outletId,
+    'registerId' => $registerId,
+    'userId'     => $userId,
 ]);

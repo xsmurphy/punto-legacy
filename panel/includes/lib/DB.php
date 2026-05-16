@@ -1,23 +1,10 @@
 <?php
 
 /**
- * DB — Wrapper PDO que emula la API de ADOdb usada en este proyecto.
+ * DB — Wrapper PDO sobre PostgreSQL que emula la API de ADOdb usada
+ * históricamente en este proyecto. Cargado desde `includes/db.php`.
  *
- * Permite reemplazar ADOdb con cero cambios en el código de la aplicación.
- * Para activarlo, en db.postgres.php cambiar:
- *
- *   // ANTES (ADOdb)
- *   include_once($adodbPath);
- *   $db = ADONewConnection('postgres9');
- *   $db->Connect($host, $user, $pass, $dbname);
- *   $db->SetFetchMode(ADODB_FETCH_ASSOC);
- *
- *   // DESPUÉS (PDO)
- *   require_once __DIR__ . '/lib/DB.php';
- *   $db = new DB();
- *   $db->Connect($host, $user, $pass, $dbname);
- *
- * Métodos implementados:
+ * Métodos emulados:
  *   Execute, execute, AutoExecute, Insert, GetAssoc, CacheGetAssoc,
  *   cacheExecute, SelectLimit, qstr, Prepare, Param, StartTrans,
  *   CompleteTrans, FailTrans, HasFailedTrans, ErrorMsg, ErrorNo,

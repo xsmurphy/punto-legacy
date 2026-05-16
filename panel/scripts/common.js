@@ -1295,7 +1295,9 @@ function mt_rand (min, max){
 	
 $(document).ready(function(){
 	// loading state for buttons
-	$.ajaxSetup({timeout:50000}); //timeout para ajax requests
+	// Envía cookies (incluyendo _jwt_panel HttpOnly) en requests cross-origin.
+	// Requiere `Access-Control-Allow-Credentials: true` en el servidor (ver cors.php).
+	$.ajaxSetup({timeout:50000, xhrFields: {withCredentials: true}}); //timeout para ajax requests
 
 	if(jQuery().tooltip) {
     	$('[data-toggle="tooltip"]').tooltip({

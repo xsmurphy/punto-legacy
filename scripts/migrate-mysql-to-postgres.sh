@@ -205,10 +205,6 @@ if [ -f "app/includes/db.php" ] && [ ! -f "app/includes/db.php.mysql-backup" ]; 
     echo -e "${GREEN}✅ Backup de app/includes/db.php creado${NC}"
 fi
 
-# Crear symlinks a archivos PostgreSQL
-ln -sf db.postgres.php panel/includes/db.php
-ln -sf db.postgres.php app/includes/db.php
-
 echo -e "${GREEN}✅ Sistema configurado para usar PostgreSQL${NC}"
 echo ""
 

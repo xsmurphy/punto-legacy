@@ -51,27 +51,9 @@ echo ""
 
 # Directorios de cache
 echo "Creando directorios de cache..."
-mkdir -p cache/adodb
 mkdir -p app/cach
-chmod -R 777 cache app/cach
+chmod -R 777 app/cach
 echo -e "${GREEN}OK: Directorios creados${NC}"
-echo ""
-
-# db.php apunta a db.local.php (que usa PDO)
-echo "Configurando conexión a base de datos..."
-
-for dir in panel app; do
-    target="$dir/includes/db.php"
-    if [ -f "$target" ]; then
-        # Reemplazar contenido para apuntar a db.local.php
-        echo "<?php
-// LOCAL: apunta a db.local.php (PDO wrapper).
-// PROD:  cambiar a db.postgres.php (ADOdb) o db.pdo.php una vez validado.
-require_once __DIR__ . '/db.local.php';
-" > "$target"
-        echo -e "${GREEN}OK: $target → db.local.php${NC}"
-    fi
-done
 echo ""
 
 # Levantar Docker
