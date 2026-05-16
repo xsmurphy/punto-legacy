@@ -1,12 +1,12 @@
 <?php
-include_once('/home/encom/public_html/panel/includes/db.php');
-include_once('/home/encom/public_html/panel/includes/simple.config.php');
-include_once("/home/encom/public_html/panel/libraries/pseudocrypt.class.php");
+include_once(__DIR__ . '/../panel/includes/db.php');
+include_once(__DIR__ . '/../panel/includes/simple.config.php');
+include_once(__DIR__ . "/../panel/libraries/pseudocrypt.class.php");
 
 $db->selectDb('shorturl');
 
 $hashLngth 	= 4;
-$notFound 	= '/home/encom/public_html/panel/includes/404.inc.php';
+$notFound 	= __DIR__ . '/../panel/includes/404.inc.php';
 
 if(isset($_GET['u'])){
 	$decoded 	= $db->Prepare(PseudoCrypt::unhash($_GET['u']));

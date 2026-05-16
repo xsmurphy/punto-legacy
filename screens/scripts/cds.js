@@ -45,7 +45,7 @@
     },
 
     load    : (callback) => {
-      $.get('/cds.php?s=' + window.ese + '&action=list', (result) => {
+      $.get('/API/cds?s=' + window.ese + '&action=list', (result) => {
         ncmCDS.process(result);
       });
     },
@@ -152,7 +152,7 @@
                 ncmKDS.setUIX(ncmKDS.cachedResult);
               },400);
 
-              $.get('/kds.php?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate,success);
+              $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate,success);
             }
           });
           
@@ -175,7 +175,7 @@
             ncmKDS.setUIX(ncmKDS.cachedResult);
           },3000);
 
-          $.get('/kds.php?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate,success);
+          $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate,success);
 
         }
 
@@ -587,7 +587,7 @@
           ncmKDS.loading = true;
           ncmKDS.computerHour = moment().format('YYYY-MM-DD HH');
 
-          ncmKDS.xhr = $.get('/kds.php?s=' + window.ese + '&action=lists&time=' + ncmKDS.lastChecked + '&compTime=' + ncmKDS.computerHour + '&reverse=' + orderOrder,success).fail(function (jqXHR) {
+          ncmKDS.xhr = $.get('/API/kds?s=' + window.ese + '&action=lists&time=' + ncmKDS.lastChecked + '&compTime=' + ncmKDS.computerHour + '&reverse=' + orderOrder,success).fail(function (jqXHR) {
             ncmKDS.loading = false;
           });
         }else{

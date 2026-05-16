@@ -1,11 +1,11 @@
 <?php
 
-require_once(__DIR__ . '/../includes/cors.php');
+require_once(__DIR__ . '/../panel/includes/cors.php');
 
 //error_log('/n' . json_encode([$_POST, $_GET]) . '/n', 3, 'error_log');
 
 if(!isset($_GET['s']) && !isset($_POST['acquirerId']) && !isset($_GET['shop_process_id'])){
-	include_once('../includes/404.inc.php');
+	include_once(__DIR__ . '/../panel/includes/404.inc.php');
 	die();
 }else if(isset($_POST['acquirerId'])){
 	$ese = $_POST['acquirerId'];
@@ -15,7 +15,7 @@ if(!isset($_GET['s']) && !isset($_POST['acquirerId']) && !isset($_GET['shop_proc
 	$ese = $_GET['shop_process_id'];
 }
 
-include_once("../libraries/rateLimiter.php");
+include_once(__DIR__ . '/../panel/libraries/rateLimiter.php');
 
 $rateLimiter  = new RateLimiter($ese);
 $limit        = 60;//240       //  number of connections to limit a user per $minutes
@@ -33,10 +33,10 @@ try {
 
 $memUse['after rate limit'] = memory_get_usage();
 
-include_once('../includes/compression_start.php');
-include_once('../includes/db.php');
-include_once('../includes/simple.config.php');
-include_once('../includes/functions.php');
+include_once(__DIR__ . '/../panel/includes/compression_start.php');
+include_once(__DIR__ . '/../panel/includes/db.php');
+include_once(__DIR__ . '/../panel/includes/simple.config.php');
+include_once(__DIR__ . '/../panel/includes/functions.php');
 
 function enc($str): string { return (string)$str; }
 

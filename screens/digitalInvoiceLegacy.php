@@ -1,6 +1,6 @@
 <?php
 include_once('sa_head.php');
-include_once('../libraries/enLetras.class.php');
+include_once(__DIR__ . '/../panel/libraries/enLetras.class.php');
 
 $data = explodes(',', base64_decode($_GET['s']));
 
@@ -11,7 +11,7 @@ define('COMPANY_ID', dec($data[1]));
 $exists = ncmExecute('SELECT transactionId FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',[TRANS_ID,COMPANY_ID]);
  
 if(!$exists){
-	include_once('/home/encom/public_html/panel/includes/404.inc.php');
+	include_once(__DIR__ . '/../panel/includes/404.inc.php');
 	die();
 }
 
@@ -34,7 +34,7 @@ $_modules 	= ncmExecute('SELECT digitalInvoice, digitalInvoiceData FROM company 
 $_template 	= ncmExecute('SELECT taxonomyExtra as template FROM taxonomy WHERE taxonomyType = ? AND taxonomyId = ? AND companyId = ? LIMIT 1',['printTemplate','183036',COMPANY_ID]);
 
 if(!$_modules['digitalInvoice']){
-	include_once('/home/encom/public_html/panel/includes/404.inc.php');
+	include_once(__DIR__ . '/../panel/includes/404.inc.php');
 	die();
 }
 
@@ -57,7 +57,7 @@ if(validateHttp('pdf')){
 }
 
 if(validateHttp('secret') != 'iwfyita'){
-	include_once('/home/encom/public_html/panel/includes/404.inc.php');
+	include_once(__DIR__ . '/../panel/includes/404.inc.php');
 	die();
 }
 

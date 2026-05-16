@@ -1,0 +1,32 @@
+RewriteEngine On
+
+## Reconocer archivos sin extensión como .php
+RewriteRule ^([^\.]+)$ $1.php [NC,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_URI} !^/\.well-known/
+
+# BEGIN cPanel-generated php ini directives, do not edit
+<IfModule php7_module>
+   php_value post_max_size 25M
+   php_value max_input_vars 1500
+   php_flag display_errors Off
+   php_value max_execution_time 30
+   php_value max_input_time 60
+   php_value memory_limit 64M
+   php_value session.gc_maxlifetime 1440
+   php_value upload_max_filesize 5M
+   php_flag zlib.output_compression On
+</IfModule>
+<IfModule lsapi_module>
+   php_value post_max_size 25M
+   php_value max_input_vars 1500
+   php_flag display_errors Off
+   php_value max_execution_time 30
+   php_value max_input_time 60
+   php_value memory_limit 64M
+   php_value session.gc_maxlifetime 1440
+   php_value upload_max_filesize 5M
+   php_flag zlib.output_compression On
+</IfModule>
+# END cPanel-generated php ini directives, do not edit

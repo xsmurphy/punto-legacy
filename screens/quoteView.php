@@ -1,6 +1,6 @@
 <?php
 include_once('sa_head.php');
-include_once('../libraries/enLetras.class.php');
+include_once(__DIR__ . '/../panel/libraries/enLetras.class.php');
 
 $data = explodes(',', base64_decode($_GET['s']));
 
@@ -38,7 +38,7 @@ $CURRENCY 		= $setting['settingCurrency'];
 $result 		= ncmExecute('SELECT * FROM transaction WHERE transactionId = ? AND transactionType = 9 AND companyId = ? LIMIT 1',[TRANSACTION_ID,COMPANY_ID]);
 
 if(!$result){
-	include_once('/home/encom/public_html/panel/includes/404.inc.php');
+	include_once(__DIR__ . '/../panel/includes/404.inc.php');
 	dai();
 }
 

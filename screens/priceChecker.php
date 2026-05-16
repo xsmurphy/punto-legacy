@@ -8,7 +8,7 @@ define('COMPANY_ID', dec($data[0]));
 $setting = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID],true);
 
 if(!validity(COMPANY_ID)){
-  include_once('/home/encom/public_html/panel/includes/404.inc.php');
+  include_once(__DIR__ . '/../panel/includes/404.inc.php');
   dai();
 }
 

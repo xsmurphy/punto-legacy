@@ -25,16 +25,6 @@ define('TODAY', date('Y-m-d H:i:s'));
 
 $serverDate = date('Y-m-d H');
 
-$API_KEY = getAPICreds(COMPANY_ID);
-
-$data =   [
-  'api_key'       => $API_KEY,
-  'company_id'    => $ECOMPANY_ID,
-  'order'         => 'lastUpdated',
-  'children'      => 'all',
-  'customerdata'  => 1
-];
-
 if (validateHttp('action') == 'time') {
   jsonDieResult(['date' => $serverDate]);
 }
@@ -97,104 +87,7 @@ if (validateHttp('action') == 'manifest') {
   dai();
 }
 
-if (validateHttp('action') == 'lists') {
-
-  if (validateHttp('compTime') != $serverDate) {
-    jsonDieResult(['error' => 'time', 'servers' => $serverDate, 'sent' => validateHttp('compTime')]);
-  }
-
-  $timestamp        = validateHttp('time');
-  $array            = [];
-  $getList          = true; //true porque cuando no hay timestamp procesa
-
-  if ($timestamp) {
-    //consulto las updated order
-    $updated = json_decode(curlContents(API_URL . '/get_last_update.php', 'POST', $data), true);
-    if (strtotime($updated['orders']) < strtotime($timestamp)) {
-      $getList          = false;
-    }
-  }
-
-  if ($getList) {
-    $array            = [];
-    $data['type']     = 12;
-    $data['limit']    = 100;
-    $data['order']    = 'DESC';
-    $data['outlet']   = $EOUTLET_ID;
-    $data['status']   = '0,1,2,3'; //'0,1,2,3,4,5';
-
-    if (validateHttp('reverse')) {
-      $data['reverse']    = 'true';
-    }
-
-    $data['from']     = date('Y-m-d H:i:s', strtotime('-1 day'));
-    $data['to']       = date('Y-m-d H:i:s');
-    //$data['test']     = 1;
-
-    $result           = json_decode(curlContents(API_URL . '/get_orders.php', 'POST', $data), true);
-    $array['orders']  = $result;
-  }
-
-  jsonDieResult($array);
-}
-
-if (validateHttp('action') == 'items') {
-
-  //obtengo el listado de items al cargar y guardo en local storage
-  $data['nolimit'] = true;
-  $items      = json_decode(curlContents(API_URL . '/get_items', 'POST', $data), true);
-
-  jsonDieResult($items);
-}
-
-if (validateHttp('action') == 'tags') {
-  //obtengo el listado de items al cargar y guardo en local storage
-  $tags           = json_decode(curlContents(API_URL . '/get_tags.php', 'POST', $data), true);
-
-  jsonDieResult($tags);
-}
-
-if (validateHttp('action') == 'categories') {
-
-  //obtengo el listado de items al cargar y guardo en local storage
-  $cats           = json_decode(curlContents(API_URL . '/get_categories.php', 'POST', $data), true);
-
-  jsonDieResult($cats);
-}
-
-if (validateHttp('action') == 'update') {
-  $id               = validateHttp('i');
-  $type             = validateHttp('t');
-  $date             = validateHttp('d');
-
-  if ($type == 'start') {
-    $status = 3;
-  } else {
-    $status = 5;
-  }
-
-  $data['id']       = $id;
-  $data['status']   = $status;
-  $data['date']     = $date;
-  //hago update del stado de la orden
-  $update           = json_decode(curlContents(API_URL . '/edit_order_status.php', 'POST', $data), true);
-
-  if ($update['success']) {
-
-    $data['channel']  = enc(OUTLET_ID) . '-register';
-    $data['event']    = 'order';
-    $data['message']  = json_encode(['ID' => $id, 'registerID' => false]);
-    curlContents(API_URL . '/send_webSocket.php', 'POST', $data);
-
-
-    $data['channel']  = enc(OUTLET_ID) . '-KDS';
-    $data['event']    = 'order';
-    $data['message']  = $id;
-    curlContents(API_URL . '/send_webSocket.php', 'POST', $data);
-  }
-
-  jsonDieResult($update);
-}
+// Todas las acciones de datos (lists, items, tags, categories, update) → /API/kds
 ?>
 
 <!DOCTYPE html>
@@ -389,7 +282,7 @@ if (validateHttp('action') == 'update') {
     window.standAlone = true;
   </script>
   <?php
-  include_once("/home/encom/public_html/panel/includes/analyticstracking.php");
+  include_once(__DIR__ . "/../panel/includes/analyticstracking.php");
   ?>
   <script type="text/html" id="settingsTpl">
     <div class="col-xs-12 wrapper-lg bg-white">
@@ -656,7 +549,7 @@ if (validateHttp('action') == 'update') {
                     ncmKDS.setUIX(ncmKDS.cachedResult);
                   }, 400);
 
-                  $.get('/kds.php?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate, success);
+                  $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate, success);
                 }
               });
 
@@ -679,7 +572,7 @@ if (validateHttp('action') == 'update') {
                 ncmKDS.setUIX(ncmKDS.cachedResult);
               }, 3000);
 
-              $.get('/kds.php?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate, success);
+              $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate, success);
 
             }
 
@@ -1097,14 +990,14 @@ if (validateHttp('action') == 'update') {
             simpleStorage.set('tags', data);
           };
 
-          $.get('/kds.php?s=' + window.ese + '&action=tags', success);
+          $.get('/API/kds?s=' + window.ese + '&action=tags', success);
         },
         getCategories: function() {
           var success = function(data) {
             simpleStorage.set('categories', data);
           };
 
-          $.get('/kds.php?s=' + window.ese + '&action=categories', success);
+          $.get('/API/kds?s=' + window.ese + '&action=categories', success);
         },
         startDataLoad: function() {
           clearInterval(ncmKDS.dataLoadInterval);
@@ -1138,7 +1031,7 @@ if (validateHttp('action') == 'update') {
               ncmKDS.loading = true;
               ncmKDS.computerHour = moment().format('YYYY-MM-DD HH');
 
-              ncmKDS.xhr = $.get('/kds.php?s=' + window.ese + '&action=lists&time=' + ncmKDS.lastChecked + '&compTime=' + ncmKDS.computerHour + '&reverse=' + orderOrder, success).fail(function(jqXHR) {
+              ncmKDS.xhr = $.get('/API/kds?s=' + window.ese + '&action=lists&time=' + ncmKDS.lastChecked + '&compTime=' + ncmKDS.computerHour + '&reverse=' + orderOrder, success).fail(function(jqXHR) {
                 ncmKDS.loading = false;
               });
             } else {
@@ -1185,6 +1078,6 @@ if (validateHttp('action') == 'update') {
 </html>
 
 <?php
-include_once('/home/encom/public_html/panel/includes/freememory.php');
-include_once('/home/encom/public_html/panel/includes/compression_end.php');
+include_once(__DIR__ . '/../panel/includes/freememory.php');
+include_once(__DIR__ . '/../panel/includes/compression_end.php');
 ?>

@@ -357,6 +357,6 @@ loadCDNFiles([],'js');
 </body>
 </html>
 <?php
-include_once('../includes/compression_end.php');
+include_once(__DIR__ . '/../panel/includes/compression_end.php');
 dai();
 ?>

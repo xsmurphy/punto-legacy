@@ -26,7 +26,7 @@ if (isset($_POST['channel']) && isset($_POST['d'])) {
     die();
 }
 
-require_once dirname(__DIR__) . '/includes/ws_publish.php';
+require_once __DIR__ . '/../panel/includes/ws_publish.php';
 
 wsPublish($channel, 'checkoutScreen', ['message' => $message]);
 

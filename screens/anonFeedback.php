@@ -4,7 +4,7 @@ require_once('sa_head.php');
 $data = explodes(',', base64_decode($_GET['s']));
 
 if(!validity($data[0]) || !validity($data[1]) ){
-  include_once('../includes/404.inc.php');
+  include_once(__DIR__ . '/../panel/includes/404.inc.php');
   dai();
 }
 

@@ -11,7 +11,7 @@ $register = ncmExecute("SELECT * FROM register WHERE registerId = ? AND companyI
 $outlet   = ncmExecute("SELECT * FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1",[$register['outletId'], COMPANY_ID],true);
 
 if($setting['companyId'] != COMPANY_ID){
-  include_once('/home/encom/public_html/panel/includes/404.inc.php');
+  include_once(__DIR__ . '/../panel/includes/404.inc.php');
   dai();
 }
 

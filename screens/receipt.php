@@ -1,7 +1,7 @@
 <?php
 include_once('sa_head.php');
 
-require '../vendor/autoload.php';
+require __DIR__ . '/../panel/vendor/autoload.php';
 
 use Mailgun\Mailgun;
 

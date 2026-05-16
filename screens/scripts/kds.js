@@ -97,7 +97,7 @@ var ncmKDS = {
               ncmKDS.setUIX(ncmKDS.cachedResult);
             }, 400);
 
-            $.get('/kds.php?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate)
+            $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate)
               .done(function (response) {
                 // Aquí puedes manejar la respuesta exitosa
                 if (response.completed) {
@@ -126,7 +126,7 @@ var ncmKDS = {
           ncmKDS.setUIX(ncmKDS.cachedResult);
         }, 3000);
 
-        $.get('/kds.php?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate)
+        $.get('/API/kds?s=' + window.ese + '&action=update&i=' + id + '&t=' + type + '&d=' + currDate)
           .done(function (response) {
             // Aquí puedes manejar la respuesta exitosa
             if (response.completed) {
@@ -676,14 +676,14 @@ var ncmKDS = {
       simpleStorage.set('tags', data);
     };
 
-    $.get('/kds.php?s=' + window.ese + '&action=tags', success);
+    $.get('/API/kds?s=' + window.ese + '&action=tags', success);
   },
   getCategories: function () {
     var success = function (data) {
       simpleStorage.set('categories', data);
     };
 
-    $.get('/kds.php?s=' + window.ese + '&action=categories', success);
+    $.get('/API/kds?s=' + window.ese + '&action=categories', success);
   },
   startDataLoad: function () {
     clearInterval(ncmKDS.dataLoadInterval);
@@ -739,7 +739,7 @@ var ncmKDS = {
         ncmKDS.loading = true;
         ncmKDS.computerHour = moment().format('YYYY-MM-DD HH');
 
-        var url = '/kds.php?s=' + window.ese + '&action=lists&time=' + ncmKDS.lastChecked + '&compTime=' + ncmKDS.computerHour + '&reverse=' + orderOrder;
+        var url = '/API/kds?s=' + window.ese + '&action=lists&time=' + ncmKDS.lastChecked + '&compTime=' + ncmKDS.computerHour + '&reverse=' + orderOrder;
 
         $.get(url, success).fail(function (jqXHR) {
           console.error("Error in AJAX request:", jqXHR);

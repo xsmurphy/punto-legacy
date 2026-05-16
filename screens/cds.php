@@ -25,16 +25,6 @@ define('TODAY', date('Y-m-d H:i:s'));
 
 $serverDate = date('Y-m-d H');
 
-$API_KEY    = getAPICreds(COMPANY_ID);
-
-$data       =   [
-                  'api_key'       => $API_KEY,
-                  'company_id'    => $ECOMPANY_ID,
-                  'order'         => 'lastUpdated',
-                  'children'      => 'all',
-                  'customerdata'  => 1
-                ];
-
 if(validateHttp('action') == 'time'){
   jsonDieResult(['date'=>$serverDate]);
 }
@@ -97,28 +87,7 @@ if(validateHttp('action') == 'manifest'){
   dai();
 }
 
-if(validateHttp('action') == 'list'){
-
-  $array            = [];
-  $data['type']     = 12;
-  $data['limit']    = 100;
-  $data['order']    = 'DESC';
-  $data['outlet']   = $EOUTLET_ID;
-  $data['status']   = '3,5';
-
-  if(validateHttp('reverse')){
-    $data['reverse']= 'true';
-  }
-
-  $data['from']     = date('Y-m-d H:i:s',strtotime('-1 day'));
-  $data['to']       = date('Y-m-d 23:i:s');
-
-  $result           = json_decode(curlContents(API_URL . '/get_orders.php','POST',$data),true);
-  $array['orders']  = $result;
-
-  jsonDieResult($array);
-
-}
+// Acción de datos (list) → /API/cds
 
 ?>
 
@@ -215,7 +184,7 @@ if(validateHttp('action') == 'list'){
     window.standAlone   = true;
   </script>
   <?php
-  include_once("/home/encom/public_html/panel/includes/analyticstracking.php");
+  include_once(__DIR__ . "/../panel/includes/analyticstracking.php");
   ?>
 
   <script type="text/html" id="listTpl">
@@ -314,7 +283,7 @@ if(validateHttp('action') == 'list'){
     },
 
     load    : (callback) => {
-      $.get('/cds.php?s=' + window.ese + '&action=list', (result) => {
+      $.get('/API/cds?s=' + window.ese + '&action=list', (result) => {
         ncmCDS.process(result.orders);
       });
     },
@@ -379,6 +348,6 @@ if(validateHttp('action') == 'list'){
 </html>
 
 <?php
-include_once('/home/encom/public_html/panel/includes/freememory.php');
-include_once('/home/encom/public_html/panel/includes/compression_end.php');
+include_once(__DIR__ . '/../panel/includes/freememory.php');
+include_once(__DIR__ . '/../panel/includes/compression_end.php');
 ?>

@@ -1,5 +1,5 @@
 <?php
-require_once(__DIR__ . "/../includes/cors.php");
+require_once(__DIR__ . "/../panel/includes/cors.php");
 if(isset($_GET['p'])){
     function getFileContent($url){//usar solo con urls propias y controladas por encom
         $ops =  [
