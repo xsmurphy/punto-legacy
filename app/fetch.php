@@ -29,6 +29,7 @@ function checkExecTime($reference = false){
 }
 
 require_once('includes/jwt_middleware.php');
+require_once(__DIR__ . '/includes/legacy_auth_log.php');
 
 if(isset($_POST['companyId']) && isset($_POST['outletId'])){
   $rateLimiterId = $_POST['outletId'];
@@ -39,12 +40,14 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
   $jwtValid = jwtAuthenticate();
 
   if ($jwtValid) {
-    // Identidad validada server-side — valores del token firmado
+    // Identidad validada server-side — valores del token firmado.
+    logJwtMismatch('fetch', AUTHED_COMPANY_ID, $_POST['companyId'] ?? null);
     $companyId = AUTHED_COMPANY_ID;
     $outletId  = AUTHED_OUTLET_ID;
   } else {
-    // Ruta legacy: decodificar ID del POST
-    header('X-Legacy-Auth: 1'); // monitoreo de adopción JWT
+    // Ruta legacy: decodificar ID del POST. Loggeado para deprecation.
+    header('X-Legacy-Auth: 1');
+    logLegacyFallback('fetch', $_POST['companyId'] ?? null, $_POST['outletId'] ?? null);
     $companyId = $db->Prepare(dec($_POST['companyId']));
     $outletId  = $db->Prepare(dec($_POST['outletId']));
   }

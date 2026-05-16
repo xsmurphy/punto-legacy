@@ -20,6 +20,7 @@ function checkExecTime($reference = false){
 }
 
 require_once('includes/jwt_middleware.php');
+require_once(__DIR__ . '/includes/legacy_auth_log.php');
 
 $get        = json_decode(base64_decode($_GET['l'] ?? ''),true) ?? [];
 $post   = $_POST;
@@ -39,15 +40,21 @@ if(!empty($load) && !empty($companyId) && !empty($outletId) && !empty($userId) &
   $jwtValid = jwtAuthenticate();
 
   if ($jwtValid) {
-    // Identidad validada server-side — valores del token firmado
+    // Identidad validada server-side — valores del token firmado.
+    // Detectar y loggear mismatch: cliente envió IDs distintos en ?l= que
+    // los del JWT. Indica cliente desactualizado o intento de impersonation.
+    logJwtMismatch('load', AUTHED_COMPANY_ID, $companyId);
     $companyId  = AUTHED_COMPANY_ID;
     $outletId   = AUTHED_OUTLET_ID;
     $userId     = AUTHED_USER_ID;
     $roleId     = AUTHED_ROLE_ID;
     $registerId = AUTHED_REGISTER_ID;
   } else {
-    // Ruta legacy: decodificar del parámetro l=
-    header('X-Legacy-Auth: 1'); // monitoreo de adopción JWT
+    // Ruta legacy: decodificar del parámetro l=. Cliente sin JWT (mobile
+    // viejo, offline, o atacante con ?l= crafted). Loggeado para monitoreo
+    // del deprecation — ver context/10-roadmap.md.
+    header('X-Legacy-Auth: 1');
+    logLegacyFallback('load', $companyId, $outletId);
     $companyId  = $db->Prepare(dec($companyId));
     $outletId   = $db->Prepare(dec($outletId));
     $userId     = $db->Prepare(dec($userId));

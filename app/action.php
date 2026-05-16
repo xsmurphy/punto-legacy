@@ -21,6 +21,7 @@ function checkExecTime($reference = false)
 }
 
 require_once('includes/jwt_middleware.php');
+require_once(__DIR__ . '/includes/legacy_auth_log.php');
 
 // Decodificar parámetro legacy l= (siempre necesario para extraer la acción)
 $decode     = base64_decode($_GET['l'] ?? '');
@@ -41,15 +42,17 @@ if ($action && $companyId && $outletId && $userId && $roleId && $registerId) {
   $jwtValid = jwtAuthenticate();
 
   if ($jwtValid) {
-    // Identidad validada server-side — valores del token firmado
+    // Identidad validada server-side — valores del token firmado.
+    logJwtMismatch('action', AUTHED_COMPANY_ID, $companyId);
     $companyId  = AUTHED_COMPANY_ID;
     $outletId   = AUTHED_OUTLET_ID;
     $userId     = AUTHED_USER_ID;
     $roleId     = AUTHED_ROLE_ID;
     $registerId = AUTHED_REGISTER_ID;
   } else {
-    // Ruta legacy: decodificar Hashids del parámetro l=
-    header('X-Legacy-Auth: 1'); // monitoreo de adopción JWT
+    // Ruta legacy: decodificar del parámetro l=. Loggeado para deprecation.
+    header('X-Legacy-Auth: 1');
+    logLegacyFallback('action', $companyId, $outletId);
     $companyId  = db_prepare(dec($companyId));
     $outletId   = db_prepare(dec($outletId));
     $userId     = db_prepare(dec($userId));

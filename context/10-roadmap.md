@@ -102,6 +102,11 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 - ~~2.B — `get_company` 500~~ → `getTagsDefaults()` tiene guard `!is_object($result)` ✅
 - ~~2.C — `get_orders` 500~~ → resuelto implícitamente por Phase UUID (`dec()` es identity) ✅
 
+**Hardenings post-Phase 2 (2026-05-16)**:
+- ✅ HMAC write token en `panel/API/kds.php` action=update — slug ya no permite mutar órdenes
+- ✅ `.env` parser robusto — soporta valores con quotes
+- ✅ Logging del fallback legacy `?l=` en `app/load.php`, `fetch.php`, `action.php` via `app/includes/legacy_auth_log.php`
+
 **Nice-to-have (no bloquean Phase AI)**:
 
 | # | Qué | Detalle | Prioridad |
@@ -125,6 +130,33 @@ mucho menor del esperado. De 14 casos candidatos:
 - 🟡 IDOR potencial en `panel/screens/scheduleConfirm.php:6` — `COMPANY_ID` definido desde URL base64 sin verificar JWT. Rompe regla §1 (aislamiento tenant)
 - 🐛 Query rota en `app/includes/functions.php:4568` — SQL tiene 2 placeholders pero pasa 3 valores
 - 🧹 Dead code en `panel/API/get_tin.php` líneas 39, 55-57 que referencian la BD muerta `ruc_py`
+
+---
+
+## Deprecation del fallback legacy `?l=` en /app
+
+**Problema**: `app/load.php`, `app/fetch.php` y `app/action.php` aún aceptan
+identidad client-supplied via `?l=base64(companyId,outletId,userId,roleId,registerId)`
+cuando el JWT falla. Cualquier request sin cookie `_jwt` puede impersonar
+cualquier tenant.
+
+**Estado actual (2026-05-16)**:
+- ✅ Logging activo via `app/includes/legacy_auth_log.php` — registra cada
+  uso del fallback con IP, UA, companyId. Buscar `[LEGACY_AUTH]` y
+  `[JWT_MISMATCH]` en error_log del servidor.
+- ❌ Sin enforcement aún. Cliente JS (`app/scripts/globalv2.js`) sigue
+  enviando `?l=` activamente en cada request — aunque tenga JWT cookie.
+
+**Plan de cutoff (3 fases)**:
+1. **Ahora**: monitorear logs `[LEGACY_AUTH]` por 30 días para entender
+   qué clientes realmente dependen del fallback (esperado: ninguno si todos
+   usan JWT cookie + globalv2.js manda `?l=` por costumbre)
+2. **+30 días**: emitir warning header en respuestas con `X-Legacy-Auth: 1`,
+   tipo `X-Legacy-Deprecation: cutoff=2026-08-01`
+3. **+60 días**: validar JWT obligatorio. Si JWT falla → 401. Eliminar
+   `?l=` del cliente JS también.
+
+**Esfuerzo total**: ~4h distribuidas en 3 sesiones (1 por fase).
 
 ---
 
