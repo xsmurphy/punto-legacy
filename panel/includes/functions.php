@@ -1,4 +1,16 @@
 <?php
+// enc()/dec() son identity functions post-Phase UUID. Se definen aquí con guard
+// porque varios bootstrap (api_middleware, api_head, cronHead, config, etc.)
+// también las definen — el primero que cargue gana. Garantía: cualquier código
+// que use functions.php tendrá enc/dec disponible sin tener que conocer el
+// orden de includes.
+if (!function_exists('enc')) {
+	function enc($str): string { return (string)$str; }
+}
+if (!function_exists('dec')) {
+	function dec($str): string { return (string)$str; }
+}
+
 //user var
 $plansValues = getAllPlans();
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -5443,7 +5455,7 @@ function topHook()
 		theErrorHandler(); //error handler
 	}
 
-	if (ROLE_ID > 1 && COMPANY_ID == ENCOM_COMPANY_ID) {
+	if (ROLE_ID > 1 && COMPANY_ID == MASTER_COMPANY_ID) {
 		//    header('location:/main');
 	}
 }
@@ -6609,7 +6621,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 					return false;
 				}
 			}
-			if (ROLE_ID > 1 && COMPANY_ID == ENCOM_COMPANY_ID) {
+			if (ROLE_ID > 1 && COMPANY_ID == MASTER_COMPANY_ID) {
 				header('location:/main');
 			}
 		}
@@ -8900,7 +8912,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		 * Retorna un array con los datos del token para incluir en responses API.
 		 * No modifica $_SESSION — eso lo hace loginPart() por separado.
 		 */
-		function issueJwtPanel(array $user): array
+		function issueJwtPanel(array|ArrayAccess $user): array
 		{
 			global $db;
 
@@ -8964,15 +8976,18 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 	}*/
 			//dona chipa
 
-			$outlet 	= ncmExecute("SELECT
-									outletId
-								FROM outlet
-								WHERE
-									outletStatus = 1
-								AND	companyId = ? 
-								" . iftn($result['outletId'], '', ' AND outletId = ' . $result['outletId']) . "
-								ORDER BY 
-								outletId ASC LIMIT 1", [$result['companyId']]);
+			$outletParams = [$result['companyId']];
+			$outletFilter = '';
+			if (!empty($result['outletId'])) {
+				$outletFilter = ' AND outletId = ?';
+				$outletParams[] = $result['outletId'];
+			}
+			$outlet = ncmExecute(
+				"SELECT outletId FROM outlet
+				 WHERE outletStatus = 1 AND companyId = ?" . $outletFilter . "
+				 ORDER BY outletId ASC LIMIT 1",
+				$outletParams
+			);
 
 			$outletCount = ncmExecute("SELECT
 									COUNT(outletId) as count
@@ -9038,7 +9053,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			$_SESSION['user']['outletsCount'] 	= $oCount;
 			$_SESSION['user']['startDate'] 		= false;
 			$_SESSION['user']['endDate'] 		= false;
-			$_SESSION['user']['SAAS_ADM']    	= ($result['companyId'] == ENCOM_COMPANY_ID) ? true : false;
+			$_SESSION['user']['SAAS_ADM']    	= ($result['companyId'] == MASTER_COMPANY_ID) ? true : false;
 
 			// Emitir JWT además de la sesión PHP — ambos coexisten durante la transición
 			$GLOBALS['_last_jwt_panel'] = issueJwtPanel($result);

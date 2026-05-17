@@ -62,7 +62,7 @@ docker compose up -d
 
 echo "Esperando a que PostgreSQL esté listo..."
 for i in $(seq 1 15); do
-    if docker exec punto_postgres pg_isready -U encom -d encomdb &>/dev/null; then
+    if docker exec punto_postgres pg_isready -U punto -d puntoDB &>/dev/null; then
         echo -e "${GREEN}OK: PostgreSQL listo${NC}"
         break
     fi
@@ -96,7 +96,7 @@ read -r response
 if [[ "$response" =~ ^([sS][iI]|[sS])$ ]]; then
     echo "Insertando datos de prueba..."
 
-    docker exec -i punto_postgres psql -U encom -d encomdb << 'PGSQL'
+    docker exec -i punto_postgres psql -U punto -d puntoDB << 'PGSQL'
 -- Empresa de prueba
 INSERT INTO company (companyId, status, plan, smsCredit, balance, createdAt)
 VALUES (
@@ -152,15 +152,18 @@ echo -e "${GREEN}Configuracion completada${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Servicios Docker:"
-echo "  PostgreSQL:  localhost:5432  (user: encom / encom123)"
+echo "  PostgreSQL:  localhost:5432  (user: punto / punto123 / db: puntoDB)"
 echo "  pgAdmin:     http://localhost:5050  (admin@punto.local / admin123)"
 echo "  Redis:       localhost:6379"
+echo "  WebSocket:   ws://localhost:6001"
 echo ""
 echo "Iniciar servidores PHP:"
-echo "  cd panel && php -S localhost:8001"
-echo "  cd app   && php -S localhost:8000"
+echo "  cd panel   && php -S localhost:8001"
+echo "  cd app     && php -S localhost:8002"
+echo "  cd screens && php -S localhost:8003"
 echo ""
 echo "URLs:"
-echo "  Panel:  http://localhost:8001"
-echo "  App:    http://localhost:8000"
+echo "  Panel:    http://localhost:8001"
+echo "  App POS:  http://localhost:8002"
+echo "  Screens:  http://localhost:8003"
 echo ""
