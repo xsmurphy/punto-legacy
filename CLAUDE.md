@@ -50,6 +50,76 @@ Si una sesión te coloca en un worktree o branch distinta de `main`:
 - Al cerrar, mergear el branch a `main` y eliminar el worktree
 - Cualquier actualización al `context/` debe ir a `main`
 
+## Uso proactivo de agentes y skills
+
+Los **subagentes** y **skills** disponibles deben invocarse por iniciativa propia
+cuando la tarea matchee su descripción — no esperar a que el usuario pida.
+
+### Subagentes (`.claude/agents/`)
+
+| Agente | Cuándo invocarlo |
+|--------|-----------------|
+| `codebase-orchestrator` | Refactors multi-archivo con riesgo de regresión. Cambios estructurales del repo |
+| `postgres-pro` | Optimización de queries, índices, performance tuning de PG, replicación, schema design |
+| `typescript-pro` | Cuando se introduzca TypeScript en el stack (no aplica hoy) |
+| `react-specialist` | Cuando se introduzca React en el stack (no aplica hoy) |
+| `Explore` | Búsqueda exploratoria en el codebase (≥ 3 queries esperadas) |
+| `Plan` | Planificación de implementación para tareas no-triviales |
+| `general-purpose` | Para code-review del diff staged (rol obligatorio antes de commit). Investigaciones abiertas |
+
+### Skills (vía herramienta `Skill`)
+
+Invocar proactivamente cuando aplique:
+
+**Engineering** (las más usadas en este proyecto):
+- `engineering:debug` — ante stack traces, errores de prod, divergencia con expected
+- `engineering:code-review` — review pre-merge / pre-commit (complementa `Agent(general-purpose)`)
+- `engineering:architecture` — al elegir entre tecnologías o documentar trade-offs (ADR)
+- `engineering:tech-debt` — al auditar code health o priorizar refactors
+- `engineering:testing-strategy` — al diseñar tests o discutir coverage
+- `engineering:documentation` — al escribir READMEs, runbooks, API docs
+- `engineering:incident-response` — si algo se rompe en prod
+- `engineering:deploy-checklist` — antes de release con migrations / feature flags
+- `engineering:system-design` — al diseñar nuevos servicios, APIs, data models
+- `engineering:standup` — para resúmenes de actividad reciente
+
+**AI / Claude API**:
+- `claude-api` — **crítica para Phase AI**. Tool use, prompt caching, model selection, migración entre modelos. Trigger automático si código importa `anthropic` SDK
+
+**Reviews especializadas**:
+- `security-review` — auditoría de seguridad del branch actual
+- `review` — review de PR
+- `simplify` — limpieza de código cambiado (reuso, calidad, eficiencia)
+
+**Operations**:
+- `operations:runbook` — al documentar procedimientos repetibles
+- `operations:change-request` — al proponer cambios con impact analysis
+- `operations:process-doc` — al formalizar workflows
+- `operations:risk-assessment` — al evaluar riesgos de un cambio
+
+**Tooling del harness**:
+- `update-config` — para modificar `settings.json`, hooks, permisos, env vars
+- `fewer-permission-prompts` — para reducir prompts repetitivos de permisos
+- `keybindings-help` — atajos de teclado
+
+**Búsqueda y conocimiento**:
+- `enterprise-search:search` — buscar en sources conectadas
+- `find-skills` — descubrir e instalar skills nuevas
+
+**UI** (cuando aplique al proyecto):
+- `shadcn` — si se introduce shadcn/ui en el futuro
+- `design:design-critique`, `design:accessibility-review`, `design:ux-copy` — cuando se rediseñe UI del panel
+- `design:user-research`, `design:research-synthesis` — para entender usuarios objetivo
+
+**Documentos** (puntual):
+- `anthropic-skills:pdf|docx|xlsx|pptx` — solo si la tarea produce/consume ese archivo
+- `pdf-viewer:*` — solo si hay interacción visual con PDF
+
+### Regla general
+
+> Si una skill o agente matchea claramente el trigger declarado en su descripción,
+> invocarla sin pedir permiso. Si hay duda razonable, preguntar al usuario qué prefiere.
+
 ## graphify
 
 Este proyecto tiene un knowledge graph en `graphify-out/`.
