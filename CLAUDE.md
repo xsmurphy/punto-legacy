@@ -102,6 +102,12 @@ Invocar proactivamente cuando aplique:
 - `fewer-permission-prompts` — para reducir prompts repetitivos de permisos
 - `keybindings-help` — atajos de teclado
 
+**Cierre de sesión** (skill local del proyecto):
+- `end-session` — appendea un resumen 2-5 bullets a `context/_session-log.md`
+  con qué se hizo, decisiones, pendientes. Triggera con `/end-session` o
+  "cerremos por hoy". Lee `git log` desde la última entry y sintetiza —
+  no duplica commits
+
 **Búsqueda y conocimiento**:
 - `enterprise-search:search` — buscar en sources conectadas
 - `find-skills` — descubrir e instalar skills nuevas
