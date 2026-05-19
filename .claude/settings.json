@@ -6,7 +6,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -f graphify-out/graph.json ] && echo 'graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.' || true"
+            "command": "[ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.\"}}' || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": ".claude/hooks/pre-commit-check.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"git push completed. If the just-landed commit was a cambio relevante per CLAUDE.md (new module, schema change, plan/pricing change, new convention, god-node refactor, infra/env-var change, new product term), invoke the context-updater subagent now via Agent(subagent_type: \\\"context-updater\\\") to sync /context/ docs and rebuild graphify. Skip for bug fixes, single-file refactors, copy/UI tweaks. The pipeline is YOUR call — no spawn happens automatically.\"}}'"
           }
         ]
       }
