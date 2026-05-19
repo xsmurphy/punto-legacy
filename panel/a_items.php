@@ -1783,27 +1783,66 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 
 										<div class="col-xs-12 wrapper">
 											<?php
-											if (OUTLET_ID > 0 && 1 == 2) {
-											?>
-												<span class="font-bold text-u-c text-xs">Depósito Asignado</span>
-												<select name="defaultLocation" class="form-control no-border b-b no-bg">
-													<option value="<?= enc(OUTLET_ID) ?>">Principal</option>
-													<?php
-													$dLocation = ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = \'location\' AND outletId = ?', [OUTLET_ID], false, true);
-													if ($dLocation) {
-														while (!$dLocation->EOF) {
-
-													?>
-															<option value="<?= enc($dLocation->fields['outletId']) ?>"><?= $dLocation->fields['taxonomyName'] ?></option>
-													<?php
-															$dLocation->MoveNext();
-														}
-													}
-													?>
-												</select>
-											<?php
+											// Multi-depósito: lista TODOS los outlets de la company con sus depósitos.
+											// Por cada depósito, checkbox para asignar + radio para marcar default
+											// por sucursal. La persistencia la hace LocationService::syncForItem().
+											require_once __DIR__ . '/lib/items/LocationService.php';
+											$_locSvc      = new LocationService($db);
+											$_existing    = !empty($itemId) ? $_locSvc->listForItem($itemId) : [];
+											$_assigned    = [];
+											$_defaultByOu = [];
+											foreach ($_existing as $_r) {
+												$_assigned[$_r['locationid']] = true;
+												if (!empty($_r['isdefault'])) $_defaultByOu[$_r['outletid']] = $_r['locationid'];
 											}
+											$_outRs = $db->Execute(
+												"SELECT outletId, outletName FROM outlet WHERE companyId = ? ORDER BY outletName",
+												[COMPANY_ID]
+											);
+											$_outlets      = ($_outRs === false) ? [] : $_outRs->GetRows();
+											$_anyLocations = false;
 											?>
+											<span class="font-bold text-u-c text-xs">Depósitos donde vive este artículo</span>
+											<div class="text-muted text-xs m-b-sm">
+												Marcá los depósitos donde se almacena el stock. En cada sucursal, elegí el
+												<em>default</em> que se usa al vender o producir si no se especifica otro.
+											</div>
+											<?php foreach ($_outlets as $_ou):
+												$_ouId   = $_ou['outletid'];
+												$_ouName = $_ou['outletname'];
+												$_locRs  = $db->Execute(
+													"SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName",
+													[$_ouId]
+												);
+												$_locs   = ($_locRs === false) ? [] : $_locRs->GetRows();
+												if (empty($_locs)) continue;
+												$_anyLocations = true;
+											?>
+												<div class="m-b-sm">
+													<div class="text-u-c text-xs font-bold m-b-xs"><?= htmlspecialchars($_ouName) ?></div>
+													<?php foreach ($_locs as $_lo):
+														$_loId    = $_lo['taxonomyid'];
+														$_loName  = $_lo['taxonomyname'];
+														$_isCheck = isset($_assigned[$_loId]);
+														$_isDflt  = isset($_defaultByOu[$_ouId]) && $_defaultByOu[$_ouId] === $_loId;
+													?>
+														<label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px;">
+															<input type="checkbox" name="itemLocations[]" value="<?= enc($_loId) ?>" <?= $_isCheck ? 'checked' : '' ?>>
+															<span><?= htmlspecialchars($_loName) ?></span>
+														</label>
+														<label class="m-r-sm text-xs text-muted">
+															<input type="radio" name="itemLocationDefault[<?= enc($_ouId) ?>]" value="<?= enc($_loId) ?>" <?= $_isDflt ? 'checked' : '' ?>>
+															default
+														</label>
+													<?php endforeach; ?>
+												</div>
+											<?php endforeach; ?>
+											<?php if (!$_anyLocations): ?>
+												<div class="text-muted text-xs">
+													Aún no creaste depósitos. Configurá los depósitos de cada sucursal en
+													<a href="/@#outlets" target="_blank">Sucursales</a>.
+												</div>
+											<?php endif; ?>
 										</div>
 
 
@@ -2514,12 +2553,26 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 		}
 	}
 
-	// defaultLocation resuelve outletId implícito vía taxonomy; $location va al UPDATE
-	// como columna item.locationId. La tabla `toItemLocation` quedó como dead code
-	// post-migración Phase PG (no existe en el schema).
+	// Multi-depósito: sync itemLocation desde POST (form muestra checkbox por
+	// depósito + radio para default por sucursal). LocationService maneja la
+	// persistencia. item.locationId legacy queda como NULL — el lookup ahora
+	// va por LocationService::resolveFor() (ver Fase 1D-3).
 	$location = NULL;
-	if (validateHttp('defaultLocation', 'post')) {
-		list($ouNotUse, $location) = outletOrLocation(dec(validateHttp('defaultLocation', 'post')));
+	if (isset($_POST['itemLocations']) && is_array($_POST['itemLocations'])) {
+		require_once __DIR__ . '/lib/items/LocationService.php';
+		$locSvc      = new LocationService($db);
+		$locationIds = array_values(array_filter(array_map('dec', $_POST['itemLocations'])));
+		$locSvc->syncForItem($id, COMPANY_ID, $locationIds);
+
+		// Aplicar default por outlet
+		if (isset($_POST['itemLocationDefault']) && is_array($_POST['itemLocationDefault'])) {
+			foreach ($_POST['itemLocationDefault'] as $encOutletId => $encLocId) {
+				$loc = dec($encLocId);
+				if ($loc && in_array($loc, $locationIds, true)) {
+					$locSvc->setDefault($id, $loc);
+				}
+			}
+		}
 	}
 
 	if (validateHttp('sort', 'post')) {
