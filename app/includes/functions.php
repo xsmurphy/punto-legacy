@@ -949,20 +949,27 @@ function getTagsDefaults($idsOnly=false){
 function getCustomTemplates($company){
 	global $db;
 
-	$result = ncmExecute("SELECT taxonomyId,taxonomyName,taxonomyExtra FROM taxonomy WHERE taxonomyType = 'printTemplate' AND (companyId = ".$company." OR companyId = 1)",[],false,true);
-	
+	// Parametrizar companyId (UUID en PG). Mantener el OR companyId IS NULL
+	// como fallback para templates globales heredados.
+	$result = ncmExecute(
+		"SELECT taxonomyId,taxonomyName,taxonomyExtra FROM taxonomy
+		 WHERE taxonomyType = 'printTemplate' AND (companyId = ? OR companyId IS NULL)",
+		[$company], false, true
+	);
+
 	$out = [];
 
+	if (!$result || !is_object($result)) {
+		return json_encode($out);
+	}
+
 	while (!$result->EOF) {
-        $out[] = array('id'=>enc($result->fields['taxonomyId']),'name'=>$result->fields['taxonomyName'],'data'=>$result->fields['taxonomyExtra']);
+		$out[] = array('id'=>enc($result->fields['taxonomyId']),'name'=>$result->fields['taxonomyName'],'data'=>$result->fields['taxonomyExtra']);
+		$result->MoveNext();
+	}
+	$result->Close();
 
-        $result->MoveNext(); 
-    }
-    $result->Close();
-
-    $out = json_encode($out);
-
-    return $out;    
+	return json_encode($out);
 }
 
 function getTaxonomyName($id,$numeric=false,$company=false){
@@ -2533,6 +2540,31 @@ function validity($value,$force=false){
 	}
 }
 
+/**
+ * Aplana columnas JSONB (data, meta, config) en el resultado plano para que
+ * `$row['settingName']` funcione aunque el campo viva dentro de `config`.
+ * Copia idéntica de panel/includes/functions.php::_flattenJsonb para que
+ * el módulo /app no necesite incluir el del panel. Phase PG.4.
+ */
+function _flattenJsonb($row): CaseInsensitiveArray
+{
+	$arr = ($row instanceof CaseInsensitiveArray) ? $row->toArray() : (array) $row;
+
+	static $jsonbCols = ['data', 'meta', 'config'];
+	foreach ($jsonbCols as $col) {
+		$val = $arr[$col] ?? $arr[strtolower($col)] ?? null;
+		if (isset($val) && is_string($val) && $val !== '') {
+			$decoded = json_decode($val, true);
+			if (is_array($decoded) && !array_is_list($decoded)) {
+				$arr = array_merge($decoded, $arr); // columna gana sobre JSONB
+				unset($arr[$col]);
+			}
+		}
+	}
+
+	return new CaseInsensitiveArray($arr);
+}
+
 function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $getAssoc = false ){
 	global $db;
 
@@ -2555,7 +2587,7 @@ function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $g
 		}else{
 			$result = $db->cacheExecute($cachTime,$sql,$array);
 		}
-		
+
 	}
 
 	if($getAssoc){
@@ -2576,12 +2608,13 @@ function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $g
 
 	if($go){
 		if($getAssoc){
-			return $result;
+			// Aplanar JSONB en cada fila del array asociativo
+			return array_map('_flattenJsonb', $result);
 		}else{
 			if($count > 1 || $forceObj){
-				return $result;
+				return $result; // objeto ADOdb — el flatten se aplica al iterar
 			}else if($count > 0){
-				return $result->fields;
+				return _flattenJsonb($result->fields);
 			}else{
 				return 0;
 			}

@@ -49,7 +49,9 @@ if (!$email || !$pass) {
 
 $result = findEmailOrPhoneLogin($email);
 
-if (!$result || passBuilder($pass, $result['salt']) !== $result['contactPassword']) {
+// contactPassword es CHAR(68) padded con espacios → rtrim antes de comparar.
+// Mismo patrón que panel/API/auth.php tras el refactor JWT.
+if (!$result || passBuilder($pass, $result['salt']) !== rtrim($result['contactPassword'])) {
     http_response_code(401);
     die(json_encode(['error' => 'Credenciales inválidas']));
 }
@@ -62,17 +64,23 @@ if (!checkCompanyStatus($companyId)) {
     die(json_encode(['error' => 'Su cuenta está inhabilitada, por favor contáctenos']));
 }
 
-$outlet = ncmExecute(
-    "SELECT outletId FROM outlet WHERE companyId = ? ORDER BY outletId ASC LIMIT 1",
-    [$companyId]
-);
+// Si el contact tiene outlet asignado, usarlo; sino fallback al primer outlet activo.
+// Mismo patrón que loginPart() en panel/includes/functions.php.
+$contactOutletId = !empty($result['outletId']) ? (string)$result['outletId'] : null;
 
-if (!$outlet) {
-    http_response_code(500);
-    die(json_encode(['error' => 'No se encontró un outlet configurado']));
+if ($contactOutletId) {
+    $outletId = $contactOutletId;
+} else {
+    $outlet = ncmExecute(
+        "SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1",
+        [$companyId]
+    );
+    if (!$outlet) {
+        http_response_code(500);
+        die(json_encode(['error' => 'No se encontró un outlet configurado']));
+    }
+    $outletId = (string)$outlet['outletId'];
 }
-
-$outletId = (string)$outlet['outletId'];
 
 $register = ncmExecute(
     "SELECT registerId FROM register WHERE outletId = ? ORDER BY registerId ASC LIMIT 1",

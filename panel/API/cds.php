@@ -10,7 +10,9 @@
 
 require_once __DIR__ . '/lib/api_middleware.php';
 
-$slug = validateHttp('s') ?: ($_GET['s'] ?? '');
+// Slug viene del query string. validateHttp() vive en functions.php, que se
+// carga DENTRO de apiMiddlewarePublic(), así que acá solo leemos el raw $_GET.
+$slug = (string)($_GET['s'] ?? '');
 apiMiddlewarePublic($slug);
 
 $parts       = explode(',', base64_decode($slug));
