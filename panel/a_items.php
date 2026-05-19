@@ -2444,97 +2444,46 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 		$trackInventory = 0;
 	}
 
+	require_once __DIR__ . '/lib/items/StockService.php';
+	$stockService = new StockService($db);
+
 	if ($trackInventory < 1) {
-		$stocktrigger 	= 0;
-		$autoorder 		= 0;
+		$autoorder      = 0;
 		$autoordercount = 0;
-
-		//elimino el inventario y stock trigger en caso de que haya tenido para que no quede al pedo en la DB
-		$db->Execute('DELETE FROM stock WHERE itemId = ? AND companyId = ?', [$id, COMPANY_ID]);
-		$db->Execute('DELETE FROM stockTrigger WHERE itemId = ?', [$id]);
-	} else {
-		if (validateHttp('stocktrigger', 'post')) {
-			$location = validateHttp('stocktriggerLocation', 'post');
-
-			foreach (validateHttp('stocktrigger', 'post') as $key => $value) {
-				stockTriggerManager($id, $value, dec($location[$key]));
-			}
-			//dai();
-		}
+		$stockService->clear($id, COMPANY_ID);
+	} elseif (validateHttp('stocktrigger', 'post')) {
+		$stockService->applyTriggers(
+			$id,
+			validateHttp('stocktrigger', 'post'),
+			validateHttp('stocktriggerLocation', 'post') ?: []
+		);
 	}
-	////
 
 	if (validateHttp('resetCombo', 'post')) {
 		$deleteCompounds = true;
 	}
 
-	//compuestos
+	require_once __DIR__ . '/lib/items/CompoundService.php';
+	$compoundService = new CompoundService($db);
+
+	$itemDiscount = $itemDiscount ?? 0;
+
 	if (validateHttp('compid', 'post') && !$deleteCompounds) {
-
-		$json 					= [];
-		$cogsC 					= 0;
-		$priceC 				= 0;
-		$itemDiscount 	= 0;
-		$cleared 			= false;
-		$compIDA 			= validateHttp('compid', 'post');
-		$compQTYA 		= validateHttp('compunits', 'post');
-		$compPRESA 		= validateHttp('comppreselect', 'post');
-
-
-		if (validateHttp('compidPreselected', 'post')) {
-			array_push($compIDA, validateHttp('compidPreselected', 'post'));
-			array_push($compQTYA, -1);
-			//print_r($compIDA);
-			//print_r($compQTYA);
-			//dai();
-		}
-
-		foreach ($compIDA as $key => $n) {
-			$compid 	= $compIDA;
-			$compqty 	= $compQTYA;
-			$comppre 	= $compPRESA;
-
-			$compid 	= $compid[$key];
-			$compqty 	= $compqty[$key];
-			$comppre 	= is_array($comppre) ? ($comppre[$key] ?? 0) : 0;
-
-			if ($isCombo) {
-				$compu 		= formatNumberToInsertDB($compqty, true, 2);
-			} else if ($isProduction) {
-				$compu 		= formatNumberToInsertDB($compqty, true, 3);
-			}
-
-			if ($compqty === -1) {
-				$compu = $compqty;
-			}
-
-			if (validity($compid)) {
-				if (!$cleared) {
-					ncmExecute('DELETE FROM toCompound WHERE itemId = ?', [$id]);
-					$cleared = true;
-				}
-
-				$compIns 										= [];
-				$compIns['itemId'] 					= $id;
-				$compIns['compoundId'] 			= dec($compid);
-				$compIns['toCompoundQty'] 	= $compu;
-				$compIns['toCompoundOrder'] = $key;
-				$compIns['toCompoundPreselected'] = $comppre;
-				$inserted = $db->AutoExecute('toCompound', $compIns, 'INSERT');
-
-				if (($isCombo && $type == 'precombo') || $isProduction) {
-					$priceC += (getItemPrice($compid) * $compu);
-				}
-			}
-		}
-
-		$record['itemPrice'] 	= $price;
+		$compPres = validateHttp('comppreselect', 'post');
+		$compoundService->rebuild(
+			$id,
+			validateHttp('compid', 'post'),
+			validateHttp('compunits', 'post') ?: [],
+			is_array($compPres) ? $compPres : [],
+			validateHttp('compidPreselected', 'post') ?: null,
+			$isCombo,
+			$isProduction
+		);
+		$record['itemPrice'] = $price;
 	} else {
-		ncmExecute('DELETE FROM toCompound WHERE itemId = ?', [$id]);
-		$record['itemPrice'] 		= ($cogs > $price) ? $cogs : $price;
+		$compoundService->clear($id);
+		$record['itemPrice'] = ($cogs > $price) ? $cogs : $price;
 	}
-
-	//compuestos//
 
 	if ($businessHours) {
 		$record['itemDateHour']	= $businessHours;
@@ -2558,32 +2507,19 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 	}
 
 	if (validateHttp('upsell', 'post')) {
-		//print_R(validateHttp('upsell','post'));
-		$db->Execute('DELETE FROM upsell WHERE upsellParentId = ?', [$id]);
-
-		foreach (validateHttp('upsell', 'post') as $key => $value) {
-			$uRecord 					= [];
-			$uRecord['upsellParentId'] 	= $id;
-			$uRecord['upsellChildId'] 	= dec($value);
-			$uRecord['companyId'] 		= COMPANY_ID;
-			$db->AutoExecute('upsell', $uRecord, 'INSERT');
-		}
-
+		require_once __DIR__ . '/lib/items/UpsellService.php';
+		(new UpsellService($db))->replaceFor($id, COMPANY_ID, validateHttp('upsell', 'post'));
 		if (validateHttp('upsellDescription', 'post')) {
-			$record['itemUpsellDescription'] 	= validateHttp('upsellDescription', 'post');
+			$record['itemUpsellDescription'] = validateHttp('upsellDescription', 'post');
 		}
 	}
 
-	//location
+	// defaultLocation resuelve outletId implícito vía taxonomy; $location va al UPDATE
+	// como columna item.locationId. La tabla `toItemLocation` quedó como dead code
+	// post-migración Phase PG (no existe en el schema).
 	$location = NULL;
 	if (validateHttp('defaultLocation', 'post')) {
-		$lRecord = [];
 		list($ouNotUse, $location) = outletOrLocation(dec(validateHttp('defaultLocation', 'post')));
-
-		$db->Execute('DELETE FROM toItemLocation WHERE itemId = ? AND outletId = ?', [$id, $location]);
-		$lRecord['itemId'] 		= $id;
-		$lRecord['outletId'] 	= $location;
-		$db->AutoExecute('toItemLocation', $lRecord, 'INSERT');
 	}
 
 	if (validateHttp('sort', 'post')) {
