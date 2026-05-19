@@ -20,6 +20,13 @@ if (COMPANY_IS_PARENT == 1) {
 
 topHook();
 
+// Liberar el lock de sesión PHP antes del HTML rendering — el dashboard
+// dispara 15+ widgets AJAX en paralelo y todos comparten PHPSESSID.
+// Sin esto, PHP built-in server (single-thread) serializa todos los AJAX
+// y la página tarda 20s+ por el lock. /@ solo necesita $_SESSION read
+// hasta este punto; después solo renderea HTML.
+session_write_close();
+
 list($calendar, $startDate, $endDate, $lessDays) = datesForGraphs(7);
 
 if (!empty($_GET['update'])) {

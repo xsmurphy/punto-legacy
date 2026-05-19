@@ -18,7 +18,13 @@
   }
   //
 
-  $dashCache = $_SESSION['ncmCache']['dashboard'][OUTLET_ID][$startDate . $endDate];
+  $dashCache = $_SESSION['ncmCache']['dashboard'][OUTLET_ID][$startDate . $endDate] ?? null;
+
+  // Liberar el lock de sesión PHP — los 15+ widgets AJAX que el dashboard
+  // dispara en paralelo comparten el mismo PHPSESSID. Sin esto, PHP built-in
+  // server (single-thread) los serializa y cada uno espera 20s+ por el lock.
+  // a_dashboard.php solo lee $_SESSION (no escribe), así que cerrar acá es seguro.
+  session_write_close();
 
   //NOTIFY
   if(validateHttp('widget') == 'notifications'){

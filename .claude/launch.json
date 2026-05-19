@@ -6,21 +6,30 @@
       "runtimeExecutable": "/opt/homebrew/bin/php",
       "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8001", "-t", "panel", "panel/router.php"],
       "cwd": ".",
-      "port": 8001
+      "port": 8001,
+      "env": {
+        "PHP_CLI_SERVER_WORKERS": "8"
+      }
     },
     {
       "name": "Punto App (POS)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
       "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8002", "-t", "app", "app/router.php"],
       "cwd": ".",
-      "port": 8002
+      "port": 8002,
+      "env": {
+        "PHP_CLI_SERVER_WORKERS": "8"
+      }
     },
     {
       "name": "Punto Screens (KDS/CDS/recibos)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
       "runtimeArgs": ["-S", "localhost:8003", "-t", "screens"],
       "cwd": ".",
-      "port": 8003
+      "port": 8003,
+      "env": {
+        "PHP_CLI_SERVER_WORKERS": "4"
+      }
     }
   ]
 }
