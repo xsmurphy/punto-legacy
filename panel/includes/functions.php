@@ -6785,6 +6785,14 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function iftn($if, $else = false, $then = false)
 		{
+			// Caller pasó NULL explícito como $else → respetar (no castear a "").
+			// Pre-PG MySQL aceptaba "" como NULL en columnas UUID/timestamp; PG no.
+			// Sin este chequeo, code como iftn($x, NULL) terminaba en "" y rompía
+			// INSERTs en columnas UUID nullable (ej. stock.transactionId).
+			if ($else === null) {
+				$final = validity($then) ? $then : $if;
+				return validity($if) ? $final : null;
+			}
 			$else 		= validity($else) ? $else : '';
 			$final 		= validity($then) ? $then : $if;
 
@@ -8031,19 +8039,39 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			}
 		}
 
-		function getItemStock($itemId, $outlet = false, $wasted = false)
+		function getItemStock($itemId, $outlet = false, $wasted = false, $location = null)
 		{
 			if (!validity($itemId)) {
 				return false;
 			}
 
-			if ($outlet > 0) { //outlet es para forzar a traer items de esa sucursal sin importar el ROC
-				$roc 	= ' AND outletId = ' . $outlet;
+			// validity() acepta strings; antes `$outlet > 0` solo funcionaba con
+			// outletIds numéricos (MySQL legacy). Post-PG son UUID → necesita
+			// parametrización + check semántico.
+			//
+			// $location (4to arg, opcional): si se pasa, el balance se calcula
+			// POR depósito — `stock` es movement log, así que filtrar por
+			// locationId permite mantener saldos independientes por depósito
+			// dentro del mismo outlet. Si no se pasa, mantiene la semántica
+			// legacy de balance global por outlet.
+			if (validity($outlet)) {
+				if (validity($location)) {
+					$result = ncmExecute(
+						'SELECT * FROM stock WHERE itemId = ? AND outletId = ? AND locationId = ? ORDER BY stockId DESC LIMIT 1',
+						[$itemId, $outlet, $location]
+					);
+				} else {
+					$result = ncmExecute(
+						'SELECT * FROM stock WHERE itemId = ? AND outletId = ? ORDER BY stockId DESC LIMIT 1',
+						[$itemId, $outlet]
+					);
+				}
 			} else {
-				$roc 	= getROC(1);
+				$result = ncmExecute(
+					'SELECT * FROM stock WHERE itemId = ? ' . getROC(1) . ' ORDER BY stockId DESC LIMIT 1',
+					[$itemId]
+				);
 			}
-
-			$result = ncmExecute('SELECT * FROM stock WHERE itemId = ? ' . $roc . ' ORDER BY stockId DESC LIMIT 1', [$itemId]);
 
 			return $result;
 		}
@@ -8199,7 +8227,10 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				return false;
 			}
 
-			$stock 				= getItemStock($itemId, $outlet);
+			// Si hay locationId, balance independiente por depósito (cada depósito
+			// del outlet mantiene su propio saldo). Sin locationId, balance global
+			// del outlet (semántica legacy).
+			$stock 				= getItemStock($itemId, $outlet, false, $location);
 
 			$oldStock			= is_numeric($stock['stockOnHand'] ?? false) ? $stock['stockOnHand'] : 0;
 			$oldACOGS			= is_numeric($stock['stockOnHandCOGS'] ?? false) ? $stock['stockOnHandCOGS'] : 0; //getItemLastStockOnHand($itemId,$outlet);

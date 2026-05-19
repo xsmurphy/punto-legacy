@@ -144,6 +144,7 @@ Eliminar `a_items.php` (22 acciones legacy). Mantener solo el shell HTML del mod
   - [x] **1D-1**: tabla `itemLocation` + `LocationService` (multi-depósito por item)
   - [x] **1D-2**: refactor UI a_items para multi-depósito (checkbox + radio default por outlet)
   - [x] **1D-3**: `produce()` + voidTransaction usan `resolveItemLocation()` (LocationService + fallback item.locationId)
+  - [x] **1D-4**: `getItemStock` y `manageStock` filtran por `locationId` → saldos independientes por depósito. Fix bugs PG: `iftn(_, NULL)` ya no devuelve `""`, `getItemStock` parametriza outletId UUID. Verificado E2E: 100/50 → -2 desde Almacén → 98/50 → cambia default → -2 desde Cocina → 98/48.
   - [ ] **1B-2**: extraer normalización masiva del POST → `ItemService::buildUpdateRecord()`
 - [ ] Fase 2 — pendiente
 - [ ] Fase 3 — pendiente
