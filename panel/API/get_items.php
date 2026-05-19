@@ -137,7 +137,7 @@ if($result){
 
 							$catItemsImageUrl = '';
 
-							if($cfields['itemImage'] === 'true'){
+							if(!empty($cfields['itemImage'])){
 								$catItemsImageUrl 				= ASSETS_URL . '180-180/0/' . enc(COMPANY_ID) . '_' . enc($cfields['itemId']) . '.jpg';
 							}
 
@@ -185,7 +185,7 @@ if($result){
 		$array["category"]		= $allCats[$fields['categoryId']]['name'];
 		$array["brand"]			= $allBrands[$fields['brandId']]['name'];
 
-		if($fields['itemImage'] === 'true'){
+		if(!empty($fields['itemImage'])){
 			$imageUrl 				= ASSETS_URL . '180-180/0/' . enc(COMPANY_ID) . '_' . $itemId . '.jpg';
 		}
 

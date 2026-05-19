@@ -225,7 +225,7 @@ class DB
      * INSERT o UPDATE automático desde un array asociativo.
      * Equivale a ADOdb->AutoExecute($table, $data, 'INSERT'|'UPDATE', $where).
      */
-    public function AutoExecute(string $table, array $data, string $mode, string $where = ''): bool
+    public function AutoExecute(string $table, array $data, string $mode, string $where = '', array $whereParams = []): bool
     {
         $mode = strtoupper(trim($mode));
 
@@ -254,7 +254,8 @@ class DB
         } elseif ($mode === 'UPDATE') {
             $sets   = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
             $sql    = "UPDATE {$table} SET {$sets}" . ($where !== '' ? " WHERE {$where}" : '');
-            $params = array_values($data);
+            // Si el caller pasó whereParams, se appendean a los params de SET.
+            $params = array_merge(array_values($data), $whereParams);
             return $this->Execute($sql, $params) !== false;
         }
 

@@ -267,7 +267,7 @@ CREATE TABLE item (
   itemIsParent       BOOLEAN        DEFAULT FALSE,
   itemParentId       UUID           REFERENCES item(itemId),
   itemType           VARCHAR(25)    DEFAULT 'product',
-  itemImage          VARCHAR(10)    DEFAULT 'false',
+  itemImage          BOOLEAN        NOT NULL DEFAULT FALSE,
   itemStatus         SMALLINT       DEFAULT 1,
   itemTrackInventory BOOLEAN        DEFAULT FALSE,
   itemCanSale        BOOLEAN        DEFAULT TRUE,

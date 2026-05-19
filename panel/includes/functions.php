@@ -4929,9 +4929,10 @@ function ncmUpdate($options)
 		return false;
 	}
 
-	$table  = $options['table'];
-	$record = $options['records'];
-	$where  = $options['where'];
+	$table       = $options['table'];
+	$record      = $options['records'];
+	$where       = $options['where'];
+	$whereParams = $options['whereParams'] ?? [];
 
 	// Enrutar campos desconocidos al JSONB de la tabla
 	[$cleanRecord, $jsonbExtra, $jsonbCol] = _routeToJsonb($table, $record);
@@ -4940,15 +4941,16 @@ function ncmUpdate($options)
 	$update   = true;
 	$updateId = null;
 	if (!empty($cleanRecord)) {
-		$update   = $db->AutoExecute($table, $cleanRecord, 'UPDATE', $where);
+		$update   = $db->AutoExecute($table, $cleanRecord, 'UPDATE', $where, $whereParams);
 		$updateId = $db->Insert_ID();
 	}
 
 	// Fusionar campos JSONB usando el operador || de PostgreSQL (non-destructive merge).
 	// COALESCE maneja el caso en que la columna sea NULL en la fila existente.
 	if ($update !== false && !empty($jsonbExtra)) {
-		$jsonSql = "UPDATE $table SET $jsonbCol = COALESCE($jsonbCol, '{}') || ?::jsonb WHERE $where";
-		$db->Execute($jsonSql, [json_encode($jsonbExtra)]);
+		$jsonSql    = "UPDATE $table SET $jsonbCol = COALESCE($jsonbCol, '{}') || ?::jsonb WHERE $where";
+		$jsonParams = array_merge([json_encode($jsonbExtra)], $whereParams);
+		$db->Execute($jsonSql, $jsonParams);
 	}
 
 	if ($update !== false) {
@@ -9703,7 +9705,7 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 							$itemRecord['itemSKU'] 			= "PS 00" . $i;
 							$itemRecord['itemStatus'] 		= 1;
 							$itemRecord['taxId'] 			= $taxonomyInsert;
-							$itemRecord['itemImage'] 		= 'false';
+							$itemRecord['itemImage'] 		= false;
 							$itemRecord['itemPrice'] 		= $item['price'];
 
 							$itemRecord['companyId'] 		= $company;

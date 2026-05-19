@@ -15,11 +15,16 @@ $offsetDetail	= 0;
 
 
 if (validateHttp('action') == 'searchItemInputJson') {
-	$query  	= db_prepare(validateHttp('q'));
-	$queryl  	= strtolower($query);
-	$sql    = 'SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item WHERE (itemName LIKE \'%\' . $queryl . \'%\' OR itemSKU LIKE \'%\' . $queryl . \'%\') AND ' . $SQLcompanyId . ' AND itemStatus = 1 LIMIT 200';
+	// Parametrizado: el query del usuario va por `?` placeholder, no concatenado.
+	// ILIKE = LIKE case-insensitive en PG (en MySQL legacy era LIKE + LOWER()).
+	$queryl  = strtolower(validateHttp('q'));
+	$pattern = '%' . $queryl . '%';
+	$sql = "SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item
+			WHERE (itemName ILIKE ? OR itemSKU ILIKE ?)
+			AND companyId = ? AND itemStatus = 1
+			LIMIT 200";
 
-	$result = ncmExecute($sql, [], false, true);
+	$result = ncmExecute($sql, [$pattern, $pattern, COMPANY_ID], false, true);
 	$json   = [];
 
 	if ($result) {
@@ -47,11 +52,26 @@ if (validateHttp('action') == 'searchItemStockableInputJson') {
 
 	$roc 		= (OUTLETS_COUNT > 1) ? ' AND (outletId = ' . OUTLET_ID . ' OR outletId IS NULL)' : '';
 
-	$sql    = 'SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item WHERE (itemName LIKE \'%\' . $query . \'%\' OR itemSKU LIKE \'%\' . $query . \'%\') AND itemType IN(\'product\',\'compound\',\'production\') AND itemTrackInventory > 0 AND itemStatus = 1 AND ' . $SQLcompanyId . $roc . ' LIMIT 300';
+	// Parametrizado: query y outletId van por `?` en vez de concat.
+	$query   = strtolower(validateHttp('q'));
+	$pattern = '%' . $query . '%';
+	$params  = [$pattern, $pattern, COMPANY_ID];
 
+	$roc = '';
+	if (OUTLETS_COUNT > 1) {
+		$roc = ' AND (outletId = ? OR outletId IS NULL)';
+		$params[] = OUTLET_ID;
+	}
 
+	$sql = "SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item
+			WHERE (itemName ILIKE ? OR itemSKU ILIKE ?)
+			AND itemType IN ('product', 'compound', 'production')
+			AND itemTrackInventory > 0
+			AND itemStatus = 1
+			AND companyId = ?" . $roc . "
+			LIMIT 300";
 
-	$result = ncmExecute($sql, [], false, true);
+	$result = ncmExecute($sql, $params, false, true);
 	$json   = [];
 
 	if ($result) {
@@ -1507,11 +1527,28 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 								<div class="col-xs-12 m-b">
 									<select name="upsell[]" id="upsell[]" class="form-control m-b input-lg searchAjax no-border b-b" multiple="" tabindex="-1">
 										<?php
-										$upsells    	= ncmExecute('SELECT STRING_AGG(upsellChildId::text, \',\') as names FROM upsell WHERE upsellParentId = ?', [dec($itemId)]);
+										// Obtener upsells como array (no STRING_AGG) para parametrizar la IN-clause.
 										$itemDecode = dec($itemId);
-										if (!empty($upsells["names"])) {
-											$upsellOps 	= ncmExecute('SELECT itemName, itemId FROM item WHERE itemId IN(' . $upsells['names'] . ')', [], false, true);
-											if ($upsellOps) {
+										$upsellIds  = ncmExecute(
+											'SELECT upsellChildId FROM upsell WHERE upsellParentId = ?',
+											[$itemDecode], false, true
+										);
+										$ids = [];
+										if ($upsellIds && is_object($upsellIds)) {
+											while (!$upsellIds->EOF) {
+												$ids[] = $upsellIds->fields['upsellChildId'];
+												$upsellIds->MoveNext();
+											}
+											$upsellIds->Close();
+										}
+
+										if (!empty($ids)) {
+											$placeholders = implode(',', array_fill(0, count($ids), '?'));
+											$upsellOps    = ncmExecute(
+												"SELECT itemName, itemId FROM item WHERE itemId IN ($placeholders)",
+												$ids, false, true
+											);
+											if ($upsellOps && is_object($upsellOps)) {
 												while (!$upsellOps->EOF) {
 													echo '<option value="' . enc($upsellOps->fields['itemId']) . '" selected>' . toUTF8($upsellOps->fields['itemName']) . '</option>';
 													$upsellOps->MoveNext();
@@ -2088,7 +2125,12 @@ if (validateHttp('action') == 'setCurrencies') {
 		}
 
 		$settUpdt = json_encode($updt);
-		ncmUpdate(['records' => ['itemCurrencies' => $settUpdt], 'table' => 'item', 'where' => 'itemId = ' . $itID . ' AND companyId = ' . COMPANY_ID]);
+		ncmUpdate([
+			'records'     => ['itemCurrencies' => $settUpdt],
+			'table'       => 'item',
+			'where'       => 'itemId = ? AND companyId = ?',
+			'whereParams' => [$itID, COMPANY_ID],
+		]);
 
 		dai();
 	}
@@ -2585,7 +2627,7 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 	$record['autoReOrder'] 					= $autoorder;
 	$record['autoReOrderLevel'] 		= $autoordercount;
 	$record['inventoryMethod'] 			= $inventorycountmethod;
-	$record['itemImage'] 						= iftn(validateHttp('itemImgFlag', 'post'), '', 'true');
+	$record['itemImage'] 						= !empty(validateHttp('itemImgFlag', 'post'));
 	$record['itemDiscount']					= $itemDiscount;
 	$record['itemProcedure']				= $procedure;
 	$record['itemProduction']				= $productionType;
@@ -2793,7 +2835,12 @@ if (validateHttp('action') == 'bulkUpdate' && validateHttp('ids', 'post')) {
 	
 			$datavalue['itemEcom'] = $recordP['itemEcom'];
 			$recordP['data'] = json_encode($datavalue);
-			ncmUpdate(['records' => $recordP, 'table' => 'item', 'where' => 'itemId = ' . db_prepare($itemId) . ' AND ' . $SQLcompanyId]);
+			ncmUpdate([
+				'records'     => $recordP,
+				'table'       => 'item',
+				'where'       => 'itemId = ? AND companyId = ?',
+				'whereParams' => [$itemId, COMPANY_ID],
+			]);
 	
 			} 
 		$itemId 	= dec($id);
@@ -2802,8 +2849,13 @@ if (validateHttp('action') == 'bulkUpdate' && validateHttp('ids', 'post')) {
 			$children 	= ncmExecute('SELECT itemId,itemPrice FROM item WHERE itemParentId = ? AND companyId = ? LIMIT 200', [$itemData['itemId'], COMPANY_ID], false, true);
 
 			if ($recordP) {
-				ncmUpdate(['records' => $recordP, 'table' => 'item', 'where' => 'itemId = ' . $itemData['itemId']]);
-			}	
+				ncmUpdate([
+					'records'     => $recordP,
+					'table'       => 'item',
+					'where'       => 'itemId = ?',
+					'whereParams' => [$itemData['itemId']],
+				]);
+			}
 
 			if ($children) {
 				while (!$children->EOF) {
@@ -2848,9 +2900,12 @@ if (validateHttp('action') == 'bulkUpdate' && validateHttp('ids', 'post')) {
 				}
 			}
 
-			$update = ncmUpdate(['records' => $record, 'table' => 'item', 'where' => 'itemId = ' . db_prepare($itemId) . ' AND ' . $SQLcompanyId]);
-
-			//$update = $db->AutoExecute('item', $record, 'UPDATE', 'itemId = ' . db_prepare($itemId) . ' AND ' . $SQLcompanyId); 
+			$update = ncmUpdate([
+				'records'     => $record,
+				'table'       => 'item',
+				'where'       => 'itemId = ? AND companyId = ?',
+				'whereParams' => [$itemId, COMPANY_ID],
+			]);
 			if (!$update['error']) {
 				updateLastTimeEdit(false, 'item');
 			}
@@ -3313,7 +3368,7 @@ if (validateHttp('action') == 'importCSV') {
 						$record['itemDate'] 		= TODAY;
 						$record['itemSKU'] 			= $sku;
 						$record['itemStatus'] 	= 1;
-						$record['itemImage'] 		= 'false';
+						$record['itemImage'] 		= false;
 						$record['itemType']			= 'product';
 
 						$record['itemComissionPercent']	= $comission;
@@ -3340,8 +3395,13 @@ if (validateHttp('action') == 'importCSV') {
 						$record['updated_at'] 		= TODAY;
 
 						if ($isUpdate) {
-							$insert 					= ncmUpdate(['records' => $record, 'table' => 'item', 'where' => 'itemId = ' . $id . ' AND companyId = ' . COMPANY_ID]); //$db->AutoExecute('item', $record, 'INSERT');
-							$insert 					= $insert['error'] ? false : true;
+							$insert = ncmUpdate([
+								'records'     => $record,
+								'table'       => 'item',
+								'where'       => 'itemId = ? AND companyId = ?',
+								'whereParams' => [$id, COMPANY_ID],
+							]);
+							$insert = $insert['error'] ? false : true;
 							$lastInserted 				= $insert['id'];
 						} else {
 							$insert 					= ncmInsert(['records' => $record, 'table' => 'item']);
@@ -3758,7 +3818,7 @@ if (validateHttp('action') == 'showTable') {
 
 			$imgBlock 			= '';
 
-			if ($fields['itemImage'] == 'true') {
+			if ($fields['itemImage']) {
 				$imgBlock 			= 'class="lazy" data-src="/assets/60-60/0/' . enc(COMPANY_ID) . '_' . $itemId . '.jpg"';
 			}
 
