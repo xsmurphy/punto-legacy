@@ -404,9 +404,9 @@ var ncmHelpers = {
 		}
 	},
 	trackPage : function(page,title){
-		ga('set', 'page', page);
-		ga('set', 'title', title);
-		ga('send', 'pageview');
+		// Google Analytics removed — no-op.
+		// Si en el futuro se quiere reintroducir analytics, definir window.ga
+		// y reemplazar la implementación de trackPage.
 	},
 	unHashUrl : function(){
 		var noHashURL = window.location.href.replace(/#.*$/, '');

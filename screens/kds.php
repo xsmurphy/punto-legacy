@@ -289,7 +289,6 @@ if (validateHttp('action') == 'manifest') {
     window.standAlone = true;
   </script>
   <?php
-  include_once(__DIR__ . "/../panel/includes/analyticstracking.php");
   ?>
   <script type="text/html" id="settingsTpl">
     <div class="col-xs-12 wrapper-lg bg-white">

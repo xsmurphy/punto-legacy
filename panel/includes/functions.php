@@ -5571,7 +5571,6 @@ function insertNotifications($ops)
 function leftMenu($isoutlet = false, $register = false, $submenu = false)
 {
 	global $db, $SQLcompanyId, $plansValues, $_modules;
-	include_once("includes/analyticstracking.php");
 ?>
 	<?= menuMobile('left', $isoutlet) ?>
 	<aside class="bg-light aside hidden-print hidden-xs nav-xs text-center" id="nav" style="height:99vh; max-width:80px; width:80px; padding:10px 0 10px 10px;">
