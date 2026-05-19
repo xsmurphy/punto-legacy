@@ -136,8 +136,11 @@ Eliminar `a_items.php` (22 acciones legacy). Mantener solo el shell HTML del mod
 
 ## Estado de avance
 
-- [x] **Fase 0** — en ejecución 2026-05-19
-- [ ] Fase 1 — pendiente
+- [x] **Fase 0** — completada 2026-05-19
+- [ ] **Fase 1** — en ejecución 2026-05-19
+  - [x] **1A**: `ItemRepository` + `ItemService` + refactor de `?action=insertBtn` (POC)
+  - [ ] 1B: refactor de `?action=update` (~400 líneas)
+  - [ ] 1C: extraer `PricingService` + `StockService` + `CompoundService`
 - [ ] Fase 2 — pendiente
 - [ ] Fase 3 — pendiente
 - [ ] Fase 4 — pendiente (decisión de stack SPA)

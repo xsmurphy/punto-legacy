@@ -1,6 +1,7 @@
 <?php
 
 include_once('includes/top_includes.php');
+require_once __DIR__ . '/lib/items/ItemService.php';
 topHook();
 allowUser('items', 'view');
 
@@ -2176,42 +2177,17 @@ if (validateHttp('action') == 'insertBtn') {
 		dai('max');
 	}
 
-	$name 	= 'Nuevo Artículo';
+	$type = null;
+	if (validateHttp('discount'))       $type = 'discount';
+	else if (validateHttp('combo'))     $type = 'combo';
+	else if (validateHttp('giftcard'))  $type = 'giftcard';
 
-	$record = [];
+	$itemService = new ItemService(new ItemRepository($db));
+	$itemId      = $itemService->createBlank(COMPANY_ID, $type);
 
-	if (validateHttp('discount')) {
-		$name = 'Nuevo Descuento';
-		$record['itemType'] = 'discount';
-	} else if (validateHttp('combo')) {
-		$name = 'Nuevo Combo';
-		$record['itemType'] = 'combo';
-	} else if (validateHttp('giftcard')) {
-		$name 													= 'Gift Card';
-		$record['itemType'] 						= 'giftcard';
-		$record['itemTrackInventory'] 	= 1;
-		$record['itemDescription'] 			= '1 year';
-	}
-
-	$record['itemName'] 				= $name;
-	$record['itemTaxIncluded']	= 1;
-	$record['itemDate'] 				= TODAY;
-	$record['companyId'] 				= COMPANY_ID;
-	$record['updated_at']				= TODAY;
-	$record['data']							= json_encode($record);
-
-	// itemTaxIncluded ya queda en el JSONB data; no existe como columna directa en PG
-	unset($record['itemTaxIncluded']);
-
-	$insert = $db->AutoExecute('item', $record, 'INSERT');
-	if ($insert === false) {
+	if ($itemId === false) {
 		echo 'false';
 	} else {
-
-		$itemId = $db->Insert_ID();
-
-		//insertBlankInventoryinAllOutlets($itemId,$SQLcompanyId);//importante si no hago esto y alguien añade un item sin inventario se arma un quilombo en la app porque el index de los articulos son relativos al index del inventario (esto tiene que cambiar con el nuevo inventario debido a los multiples inventarios o lotes)
-
 		echo 'true|0|' . enc($itemId);
 		updateLastTimeEdit(false, 'item');
 
