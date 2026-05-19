@@ -145,6 +145,12 @@ class DB
     public string $databaseType = 'postgres';
     public int    $fetchMode    = 2; // ADODB_FETCH_ASSOC
 
+    // Captura el PK auto-generado por el último AutoExecute INSERT.
+    // En PostgreSQL los PK son UUIDs (gen_random_uuid() default), así que
+    // PDO::lastInsertId() no funciona. Usamos RETURNING * y guardamos la
+    // primera columna del resultado.
+    private ?string $_lastInsertId = null;
+
     // ─── Conexión ──────────────────────────────────────────────────────────
 
     /**
@@ -226,17 +232,43 @@ class DB
         if ($mode === 'INSERT') {
             $cols         = implode(', ', array_keys($data));
             $placeholders = implode(', ', array_fill(0, count($data), '?'));
-            $sql          = "INSERT INTO {$table} ({$cols}) VALUES ({$placeholders})";
+            // RETURNING * permite capturar el PK auto-generado (UUIDs en PG).
+            $sql          = "INSERT INTO {$table} ({$cols}) VALUES ({$placeholders}) RETURNING *";
             $params       = array_values($data);
+
+            try {
+                $stmt = $this->pdo->prepare($sql);
+                $ok   = $stmt->execute($params);
+                if ($ok) {
+                    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                    // PK siempre es la primera columna en este schema (convención
+                    // de los CREATE TABLE de db-schema-postgres.sql).
+                    $this->_lastInsertId = $row ? (string) array_values($row)[0] : null;
+                }
+                return $ok;
+            } catch (\PDOException $e) {
+                error_log('[DB] AutoExecute INSERT error: ' . $e->getMessage() . ' | SQL: ' . $sql);
+                $this->_lastInsertId = null;
+                return false;
+            }
         } elseif ($mode === 'UPDATE') {
             $sets   = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
             $sql    = "UPDATE {$table} SET {$sets}" . ($where !== '' ? " WHERE {$where}" : '');
             $params = array_values($data);
-        } else {
-            return false;
+            return $this->Execute($sql, $params) !== false;
         }
 
-        return $this->Execute($sql, $params) !== false;
+        return false;
+    }
+
+    /**
+     * Retorna el PK auto-generado por el último AutoExecute INSERT.
+     * Equivale a ADOdb->Insert_ID() / MySQL's LAST_INSERT_ID().
+     * En PostgreSQL con UUIDs, capturamos vía RETURNING *.
+     */
+    public function Insert_ID(): ?string
+    {
+        return $this->_lastInsertId;
     }
 
     /**
