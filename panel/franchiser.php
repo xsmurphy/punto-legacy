@@ -113,11 +113,14 @@ if(validateHttp('action') == 'delete' && validateHttp('id')){
 if(validateHttp('action') == 'generalTable'){
 
   $setting  = [];
-  $result   = ncmExecute('SELECT a.parentId, b.* FROM company a, setting b WHERE a.companyId = b.companyId AND a.parentId = ? LIMIT 100',[COMPANY_ID],false,true);
+  // Phase PG: tabla `setting` fue mergeada en `company.config` JSONB.
+  // El JOIN ya no aplica — un solo SELECT FROM company alcanza, y
+  // _flattenJsonb() expone settingName/settingCountry/etc. transparentemente.
+  $result   = ncmExecute('SELECT * FROM company WHERE parentId = ? LIMIT 100',[COMPANY_ID],false,true);
 
   $ins = [];
   $tComps = 0;
-  if($result){
+  if($result && is_object($result)){
     while (!$result->EOF) {
       $ins[] = $result->fields['companyId'];
       $setting[$result->fields['companyId']] = [
@@ -126,22 +129,28 @@ if(validateHttp('action') == 'generalTable'){
                                                 "category"=>  $result->fields['settingCompanyCategoryId']
                                                 ];
       $tComps++;
-      $result->MoveNext(); 
+      $result->MoveNext();
     }
     $result->Close();
   }
 
   $userEmail  = [];
-  $contact     = ncmExecute("SELECT contactEmail, companyId FROM contact WHERE main = 'true' AND type = 0 AND companyId IN(" . implode(',', $ins) . ")",[],false,true);
+  // Parametrizar IN-clause con placeholders dinámicos; skip si no hay companies hijas.
+  if (!empty($ins)) {
+    $placeholders = implode(',', array_fill(0, count($ins), '?'));
+    $contact = ncmExecute(
+      "SELECT contactEmail, companyId FROM contact
+       WHERE main = 'true' AND type = 0 AND companyId IN ($placeholders)",
+      $ins, false, true
+    );
 
-  if($contact){
-    while (!$contact->EOF) {
-        $userEmail[$contact->fields['companyId']] = array(
-                          "email"=>$contact->fields['contactEmail']
-                          );
-        $contact->MoveNext(); 
+    if ($contact && is_object($contact)) {
+      while (!$contact->EOF) {
+        $userEmail[$contact->fields['companyId']] = ['email' => $contact->fields['contactEmail']];
+        $contact->MoveNext();
+      }
+      $contact->Close();
     }
-    $contact->Close();
   }
 
   $result = ncmExecute('SELECT * FROM company WHERE parentId = ?',[COMPANY_ID],false,true);
@@ -299,7 +308,7 @@ if(validateHttp('action') == 'generalTable'){
   $jsonResult['table']  = $fullTable;
   $jsonResult['data']   = [
                             'count'     => formatQty($tComps),
-                            'income'    => CURRENCY . formatCurrentNumber( array_sum($barData) ),
+                            'income'    => CURRENCY . formatCurrentNumber( array_sum(is_array($barData) ? $barData : []) ),
                             'outcome'   => CURRENCY . formatCurrentNumber( $expTotal ),
                             'customers' => formatQty($cusTotal)
                           ];

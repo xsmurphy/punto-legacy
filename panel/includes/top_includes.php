@@ -1,5 +1,7 @@
 <?php
-include_once('libraries/rateLimiter.php');
+// Path absoluto vía __DIR__: cuando top_includes.php se carga desde un script
+// que no chdir() a panel/, el path relativo "libraries/rateLimiter.php" falla.
+include_once(__DIR__ . '/../libraries/rateLimiter.php');
 
 $_RATER = $_SERVER["HTTP_CF_CONNECTING_IP"] ?? $_SERVER["REMOTE_ADDR"] ?? '127.0.0.1';
 if(isset($_SESSION['user']) && $_SESSION['user']['companyId']){
@@ -20,13 +22,14 @@ try {
   die(json_encode($data));
 }
 
-include_once('includes/compression_start.php');
-include_once('includes/secure.php');
-include_once('includes/db.php');
-include_once('includes/simple.config.php');
-include_once('includes/config.php');
-include_once('languages/' . LANGUAGE . '.php');
-include_once('includes/functions.php');
-include_once('libraries/countries.php');
-include_once('libraries/timezone.php');
+// __DIR__ === panel/includes/, así que ../ = panel/
+include_once(__DIR__ . '/compression_start.php');
+include_once(__DIR__ . '/secure.php');
+include_once(__DIR__ . '/db.php');
+include_once(__DIR__ . '/simple.config.php');
+include_once(__DIR__ . '/config.php');
+include_once(__DIR__ . '/../languages/' . LANGUAGE . '.php');
+include_once(__DIR__ . '/functions.php');
+include_once(__DIR__ . '/../libraries/countries.php');
+include_once(__DIR__ . '/../libraries/timezone.php');
 ?>

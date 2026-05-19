@@ -2,18 +2,25 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Punto APP (POS)",
-      "runtimeExecutable": "/opt/homebrew/bin/php",
-      "runtimeArgs": ["-S", "localhost:8000", "router.php"],
-      "cwd": "/Users/xstian/Dropbox/Punto/system/app",
-      "port": 8000
-    },
-    {
       "name": "Punto Panel (Admin)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
-      "runtimeArgs": ["-S", "localhost:8001", "router.php"],
-      "cwd": "/Users/xstian/Dropbox/Punto/system/panel",
+      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8001", "-t", "panel", "panel/router.php"],
+      "cwd": ".",
       "port": 8001
+    },
+    {
+      "name": "Punto App (POS)",
+      "runtimeExecutable": "/opt/homebrew/bin/php",
+      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8002", "-t", "app", "app/router.php"],
+      "cwd": ".",
+      "port": 8002
+    },
+    {
+      "name": "Punto Screens (KDS/CDS/recibos)",
+      "runtimeExecutable": "/opt/homebrew/bin/php",
+      "runtimeArgs": ["-S", "localhost:8003", "-t", "screens"],
+      "cwd": ".",
+      "port": 8003
     }
   ]
 }
