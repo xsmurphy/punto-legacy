@@ -2627,10 +2627,10 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 
 	$record['priceRule'] 						= $priceRule;
 
-	$record['data']									= json_encode($record);
+	// JSONB routing lo hace ncmUpdate vía ItemService — no collapse manual.
 
-
-	$update = $db->AutoExecute('item', $record, 'UPDATE', 'itemId = ' . db_prepare($id) . ' AND ' . $SQLcompanyId);
+	$itemService = new ItemService(new ItemRepository($db));
+	$update      = $itemService->update($id, COMPANY_ID, $record);
 	if ($update === false) {
 		echo 'false';
 	} else {
