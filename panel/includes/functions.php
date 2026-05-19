@@ -3002,25 +3002,23 @@ function voidSale($trId, $motive = '')
 
 			if (validity($compound, 'array')) {
 				foreach ($compound as $comr) {
-					$itmData = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$comr['compoundId'], COMPANY_ID]);
 					manageStock([
 						'itemId'    			=> $comr['compoundId'],
 						'outletId'  			=> OUTLET_ID,
 						'date'          	=> TODAY,
 						'count'     			=> abs($comr['toCompoundQty'] * $fields['itemSoldUnits'] ?? 0),
 						'source'    			=> 'void',
-						'locationId' 			=> $itmData['locationId'],
+						'locationId' 			=> resolveItemLocation($comr['compoundId'], OUTLET_ID),
 						'transactionId' 	=> $trId
 					]);
 				}
 			}
 
-			$itmData = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$fields['itemId'], COMPANY_ID]);
 			manageStock([
 				'itemId'    			=> $fields['itemId'],
 				'outletId'  			=> OUTLET_ID,
 				'date'          	=> TODAY,
-				'locationId' 			=> $itmData['locationId'],
+				'locationId' 			=> resolveItemLocation($fields['itemId'], OUTLET_ID),
 				'count'     			=> abs($fields['itemSoldUnits'] ?? 0),
 				'source'    			=> 'void',
 				'transactionId' 	=> $trId
@@ -3108,6 +3106,46 @@ function getCompoundsArray($itemId, $cache = false)
 {
 	$result = ncmExecute('SELECT * FROM toCompound WHERE itemId = ? ORDER BY toCompoundOrder LIMIT 1000', [$itemId], $cache, true, true);
 	return $result;
+}
+
+/**
+ * Resuelve el depósito a usar para descontar/sumar stock de un item en un outlet.
+ *
+ * Prioridad:
+ *   1) LocationService::resolveFor($itemId, $outletId) — el modelo multi-depósito
+ *      nuevo (tabla itemLocation, default por outlet).
+ *   2) Fallback a item.locationId legacy si el item aún no tiene itemLocation.
+ *
+ * Cache en $GLOBALS por (itemId, outletId) para evitar N queries en un mismo request.
+ */
+function resolveItemLocation(string $itemId, ?string $outletId): ?string
+{
+	if (empty($outletId)) return null;
+
+	$cacheKey = $itemId . '|' . $outletId;
+	if (isset($GLOBALS['_RIL_CACHE'][$cacheKey])) {
+		return $GLOBALS['_RIL_CACHE'][$cacheKey];
+	}
+
+	global $db;
+	static $locSvc = null;
+	if ($locSvc === null) {
+		require_once __DIR__ . '/../lib/items/LocationService.php';
+		$locSvc = new LocationService($db);
+	}
+
+	$resolved = $locSvc->resolveFor($itemId, $outletId);
+	if ($resolved === null) {
+		// Fallback legacy: lee item.locationId. Pre-Fase 1D los items
+		// tenían UN único depósito asignado en esta columna.
+		$rs = $db->Execute("SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1", [$itemId, COMPANY_ID]);
+		if ($rs !== false && !$rs->EOF) {
+			$resolved = $rs->fields['locationid'] ?? null;
+		}
+	}
+
+	$GLOBALS['_RIL_CACHE'][$cacheKey] = $resolved;
+	return $resolved;
 }
 
 function getAllCompoundsArray($itemIndex = false)
@@ -8378,7 +8416,6 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 						$count 			= getNeedWithWaste($count, $wasteP);
 					}
 					$thisItemCogs = 0;
-					$itmData 			= ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$id, COMPANY_ID]);
 
 					if (!validity($order)) { //si es solo una orden de impresión no afecto el inventario
 
@@ -8386,7 +8423,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 						//inserto
 						$ops['itemId']    = $id;
 						$ops['outletId']  = $outletId;
-						$ops['locationId'] = $itmData['locationId'];
+						$ops['locationId'] = resolveItemLocation($id, $outletId);
 						$ops['count']     = $count;
 						$ops['type']      = '-';
 						$ops['source']    = 'production';
@@ -8415,7 +8452,9 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 					//inserto
 					$ops['itemId']    = $itemId;
 					$ops['outletId']  = $outletId;
-					$ops['locationId'] = $locationId;
+					// $locationId vino de outletOrLocation(): será null si el caller
+					// pasó un outletId puro. Caemos al lookup multi-depósito.
+					$ops['locationId'] = $locationId ?: resolveItemLocation($itemId, $outletId);
 					$ops['count']     = $units;
 					$ops['cogs']	  = divider($totalCOGS, $units, true);
 					$ops['type']      = '+';

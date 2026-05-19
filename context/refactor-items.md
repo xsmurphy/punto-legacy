@@ -143,7 +143,7 @@ Eliminar `a_items.php` (22 acciones legacy). Mantener solo el shell HTML del mod
   - [x] **1C**: `CompoundService` + `StockService` + `UpsellService`
   - [x] **1D-1**: tabla `itemLocation` + `LocationService` (multi-depósito por item)
   - [x] **1D-2**: refactor UI a_items para multi-depósito (checkbox + radio default por outlet)
-  - [ ] **1D-3**: `ProductionService` usa `LocationService::resolveFor()`
+  - [x] **1D-3**: `produce()` + voidTransaction usan `resolveItemLocation()` (LocationService + fallback item.locationId)
   - [ ] **1B-2**: extraer normalización masiva del POST → `ItemService::buildUpdateRecord()`
 - [ ] Fase 2 — pendiente
 - [ ] Fase 3 — pendiente
