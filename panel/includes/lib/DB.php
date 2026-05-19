@@ -202,6 +202,12 @@ class DB
             $params = [];
         }
 
+        // PG no acepta bool PHP en placeholders (false → "" vacío).
+        // Convertimos a 'true'/'false' textual aceptado por PG.
+        foreach ($params as $i => $v) {
+            if (is_bool($v)) $params[$i] = $v ? 'true' : 'false';
+        }
+
         try {
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute($params);
@@ -228,6 +234,12 @@ class DB
     public function AutoExecute(string $table, array $data, string $mode, string $where = '', array $whereParams = []): bool
     {
         $mode = strtoupper(trim($mode));
+
+        // PG rechaza booleanos PHP en placeholders genéricos (false → "" string vacío).
+        // Convertimos a 'true'/'false' textual que PG sí acepta como BOOLEAN.
+        foreach ($data as $k => $v) {
+            if (is_bool($v)) $data[$k] = $v ? 'true' : 'false';
+        }
 
         if ($mode === 'INSERT') {
             $cols         = implode(', ', array_keys($data));
