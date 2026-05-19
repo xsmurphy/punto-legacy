@@ -294,7 +294,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 	$itemCanSale 				= $result['itemCanSale'];
 	$itemDiscount 			= $result['itemDiscount'];
 	$itemStatus 				= $result['itemStatus'];
-	$itemOnline 				= array_key_exists('itemOnline', $result) && $result['itemOnline'];
+	$itemOnline 				= !empty($result['itemOnline']);
 	$itemSessions 			= $result['itemSessions'];
 	$itemDuration 			= $result['itemDuration'];
 	$isParent 					= $result['itemIsParent'];
@@ -855,7 +855,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 								<input type="text" id="insertItemName" class="form-control maskRequiredText no-padder no-border no-bg font-bold text-dark " style="font-size:30px; height:55px;" name="name" placeholder="Nombre del Artículo" value="<?= toUTF8($result['itemName']); ?>" autocomplete="off">
 
 								<div class="col-sm-6">
-									<input type="text" class="form-control no-padder no-border no-bg text-muted font-bold text-u-c " name="uid" placeholder="SKU o Código de Barras" value="<?= ($result['itemSKU']) ? $result['itemSKU'] : (array_key_exists("itemAutoSKU", $result) && $result['itemAutoSKU']); ?>" autocomplete="off">
+									<input type="text" class="form-control no-padder no-border no-bg text-muted font-bold text-u-c " name="uid" placeholder="SKU o Código de Barras" value="<?= ($result['itemSKU']) ? $result['itemSKU'] : !empty($result['itemAutoSKU']); ?>" autocomplete="off">
 								</div>
 								<?php
 								if ($result['itemCanSale'] > 0) {
