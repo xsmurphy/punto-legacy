@@ -332,7 +332,21 @@ class DB
             return (string) $value[0];
         }
         $str = (string) $value;
+
+        // UUIDs y numéricos son SQL-safe y se usan como params de `?` placeholders.
+        // NO envolver en quotes — eso rompe PDO::bindValue (recibe "'uuid'" con
+        // comillas embebidas y postgres lo rechaza con "invalid uuid syntax").
+        // Detectar UUID v4/v7: 8-4-4-4-12 hex con guiones.
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $str)) {
+            return $str;
+        }
+        if (is_numeric($str)) {
+            return $str;
+        }
+
         // Si parece un valor escalar (sin espacios ni ?), escaparlo como string literal.
+        // Mantenido para callers legacy que concatenan directo en SQL (deberían
+        // migrar a `?` placeholders — pendiente como deuda en roadmap).
         if (!str_contains($str, ' ') && !str_contains($str, '?')) {
             return $this->qstr($str);
         }

@@ -977,7 +977,7 @@ if(validateHttp('action') == 'loadModal'){
 		?>
 		<?php
 		if(PLAN == 2){
-			$apis = ncmExecute('SELECT accountId FROM company WHERE companyId = ?',[COMPANY_ID]);
+			$apis = ncmExecute("SELECT config->>'accountId' AS \"accountId\" FROM company WHERE companyId = ?",[COMPANY_ID]);
 		}
 		?>
 		<div class="col-xs-12 wrapper bg-white">
@@ -1002,7 +1002,7 @@ if(validateHttp('action') == 'loadModal'){
 		?>
 		<?php
 		if(PLAN == 2){
-			$apis = ncmExecute('SELECT accountId FROM company WHERE companyId = ?',[COMPANY_ID]);
+			$apis = ncmExecute("SELECT config->>'accountId' AS \"accountId\" FROM company WHERE companyId = ?",[COMPANY_ID]);
 		}
 		?>
 		<div class="col-xs-12 wrapper bg-white">

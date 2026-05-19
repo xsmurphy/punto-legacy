@@ -15,12 +15,16 @@ if(validateHttp('register','post')){
 	$reg = ' AND notifyRegister = 1';
 }
 
-if(validateHttp('outlet','post')){
-	$out = " AND (outletId = '" . $outlet . "' OR outletId IS NULL)";
+// Parametrizar con `?` en vez de concatenar — evita doble-quoting de UUIDs.
+$params = [];
+
+if (validateHttp('outlet','post')) {
+	$out = " AND (outletId = ? OR outletId IS NULL)";
+	$params[] = $outlet;
 }
 
 if(!validateHttp('user','post')){
-	header('Content-Type: application/json; charset=utf-8;'); 
+	header('Content-Type: application/json; charset=utf-8;');
 	$jsonResult['error'] = 1;
 	$jsonResult['message'] = 'User ID is required';
 	dai(json_encodes($jsonResult));
@@ -29,20 +33,21 @@ if(!validateHttp('user','post')){
 $lastS 		= ncmExecute('SELECT contactLastNotificationSeen FROM contact WHERE contactId = ?',[$user]);
 $lastSeen 	= iftn($lastS['contactLastNotificationSeen'],'2019-01-01 00:00:00');
 
-$sql 			= 	"SELECT * 
-					FROM notify 
+$params[] = $lastSeen;
+$params[] = COMPANY_ID;
+
+$sql 			= 	"SELECT *
+					FROM notify
 					WHERE notifyStatus = 1
 					" . $reg . "
 					" . $out . "
-					AND notifyDate > '" . $lastSeen . "'
+					AND notifyDate > ?
 					AND (companyId = ? OR companyId IS NULL)
-					ORDER BY notifyDate 
+					ORDER BY notifyDate
 					DESC LIMIT 100";
 
 
-//echo $sql;
-
-$result 		= ncmExecute($sql,[COMPANY_ID],false,true);
+$result 		= ncmExecute($sql, $params, false, true);
 $jsonResult 	= [];
 
 if($result){

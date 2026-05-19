@@ -511,7 +511,7 @@ if (validateHttp('action') == 'delete' && validateHttp('id')) {
   $db->Execute('DELETE FROM comission WHERE companyId = ?', [$id]);
   $errors .= '3. ' . $db->ErrorMsg() . '\n';
   //--company elimino mas adelante
-  $db->Execute('DELETE FROM companyHours WHERE companyId = ?', [$id]);
+  $db->Execute("UPDATE company SET config = config - 'companyHours' WHERE companyId = ?", [$id]);
   $errors .= '4. ' . $db->ErrorMsg() . '\n';
   //--contacts elimino mas adelante
   $db->Execute('DELETE FROM cpayments WHERE companyId = ?', [$id]);
@@ -1265,10 +1265,16 @@ if (validateHttp('action') == 'listePOSTable') {
     $table      = '';
     $limits     = getTableLimits($limitDetail, $offsetDetail);
 
-    $result     = ncmExecute('SELECT c.*, m.epos, m.eposData, s.planExpired, s.settingName, s.settingEncomID, s.settingCountry, s.settingCompanyCategoryId
-                              FROM company c JOIN module m ON c.companyId = m.companyId
-                              LEFT JOIN setting s ON c.companyId = s.companyId 
-                              WHERE m.epos = true OR JSON_EXTRACT(m.eposData,"$.eposCard") = "1" 
+    $result     = ncmExecute('SELECT c.*,
+                                     (c.config->>\'epos\')::boolean AS epos,
+                                     c.config->>\'eposData\' AS "eposData",
+                                     (c.config->>\'planExpired\')::boolean AS "planExpired",
+                                     c.config->>\'settingName\' AS "settingName",
+                                     c.config->>\'settingEncomID\' AS "settingEncomID",
+                                     c.config->>\'settingCountry\' AS "settingCountry",
+                                     c.config->>\'settingCompanyCategoryId\' AS "settingCompanyCategoryId"
+                              FROM company c
+                              WHERE (c.config->>\'epos\')::boolean = true OR (c.config->\'eposData\'->>\'eposCard\') = \'1\'
                               ORDER BY c.createdAt DESC ' . $limits, [], false, true);
 
     $head = '<thead class="text-u-c">
@@ -1749,12 +1755,14 @@ if (validateHttp('action') == 'soldByCompanyPM') {
   $compLimit  = 350;
 
   $companies    = ncmExecute(
-    'SELECT a.*, b.* 
-                              FROM company a, setting b 
-                              WHERE 
+    'SELECT a.*,
+            a.config->>\'settingName\' AS "settingName",
+            a.config->>\'settingCompanyCategoryId\' AS "settingCompanyCategoryId",
+            a.config->>\'settingCountry\' AS "settingCountry"
+                              FROM company a
+                              WHERE
                                 a.companyLastUpdate   > ?
-                                AND a.companyId       = b.companyId 
-                                AND b.settingCountry  = ? 
+                                AND a.config->>\'settingCountry\' = ?
                               LIMIT ?',
     [$dateStart, 'PY', $compLimit],
     false,

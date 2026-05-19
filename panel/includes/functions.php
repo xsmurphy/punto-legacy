@@ -1809,7 +1809,7 @@ function getAllCompanies()
 	$result->Close();
 	//
 	$b = array();
-	$result = $db->Execute("SELECT * FROM company");
+	$result = $db->Execute("SELECT companyId, config->>'settingName' AS \"settingName\" FROM company");
 	$c = 0;
 	while (!$result->EOF) {
 		$b[$a[$c]] = array(
@@ -6071,8 +6071,11 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 
 		function setTimeZone($companyId, $setting = false)
 		{
-			$setting = ($setting) ? $setting : ncmExecute("SELECT settingTimeZone FROM company WHERE companyId = ? LIMIT 1", [$companyId]);
-			date_default_timezone_set($setting['settingTimeZone']);
+			$setting = ($setting) ? $setting : ncmExecute("SELECT config->>'settingTimeZone' AS \"settingTimeZone\" FROM company WHERE companyId = ? LIMIT 1", [$companyId]);
+			$tz = $setting['settingTimeZone'] ?? '';
+			if ($tz !== '') {
+				date_default_timezone_set($tz);
+			}
 		}
 
 		function dates_month($month = 1, $year = 2000, $format = 'Y-m-d')
@@ -9908,7 +9911,7 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 			$returns 	= false;
 
 			if ($id) {
-				$result = ncmExecute("SELECT accountId
+				$result = ncmExecute("SELECT config->>'accountId' AS \"accountId\"
 								FROM company
 								WHERE companyId = ?
 								AND status = 'Active'
@@ -9925,7 +9928,7 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 		function getAPICreds($id)
 		{
 			if ($id) {
-				$result = ncmExecute("	SELECT accountId
+				$result = ncmExecute("SELECT config->>'accountId' AS \"accountId\"
 								FROM company
 								WHERE companyId = ?
 								AND status = 'Active'

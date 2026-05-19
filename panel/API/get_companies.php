@@ -4,7 +4,7 @@ apiMiddleware();
 // if($companyId != 'Og'){
 //     apiError('Acceso denegado', 403);
 // }
-$result = ncmExecute('SELECT companyId, settingName from setting',[],false,true);
+$result = ncmExecute('SELECT companyId, config->>\'settingName\' AS "settingName" FROM company',[],false,true);
 $companies = [];
 if($result){
     while(!$result->EOF){

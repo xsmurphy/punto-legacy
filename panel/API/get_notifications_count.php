@@ -26,22 +26,30 @@ if(validateHttp('register','post')){
 	$reg = ' AND notifyRegister = 1';
 }
 
-if(validateHttp('outlet','post')){
-	$out = " AND (outletId = '" . $outlet . "' OR outletId IS NULL)";
+// Parametrizar con `?` en vez de concatenar — evita doble-quoting de UUIDs
+// (Prepare() ahora no quotea UUIDs, ver panel/includes/lib/DB.php).
+$params = [$type];
+
+if (validateHttp('outlet','post')) {
+	$out = " AND (outletId = ? OR outletId IS NULL)";
+	$params[] = $outlet;
 }
 
-$sql 			= 	"SELECT COUNT(notifyId) as count 
-					FROM notify 
-					WHERE notifyMode = ? 
+$params[] = $lastSeen;
+$params[] = COMPANY_ID;
+
+$sql 			= 	"SELECT COUNT(notifyId) as count
+					FROM notify
+					WHERE notifyMode = ?
 					AND notifyStatus = 1
 					" . $reg . "
 					" . $out . "
-					AND notifyDate > '" . $lastSeen . "'
+					AND notifyDate > ?
 					AND (companyId = ? OR companyId IS NULL)
-					ORDER BY notifyDate 
+					ORDER BY notifyDate
 					DESC LIMIT 100";
 
-$result 		= ncmExecute($sql,[$type,COMPANY_ID]);
+$result 		= ncmExecute($sql, $params);
 $jsonResult 	= [];
 
 if($result){

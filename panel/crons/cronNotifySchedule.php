@@ -30,12 +30,11 @@ function sendEmailToUsers($emails, $conf){
 $company = ncmExecute("SELECT
 							a.companyId as id,
 							a.smsCredit,
-							b.settingName as name,
-							b.settingCountry as country
-						FROM company a, setting b
+							a.config->>'settingName' as name,
+							a.config->>'settingCountry' as country
+						FROM company a
 						WHERE a.status = 'Active'
-						AND	a.plan IN (" . $allowedPlans . ") 
-						AND a.companyId = b.companyId
+						AND	a.plan IN (" . $allowedPlans . ")
 						LIMIT 10000");
 if($company){
 	while (!$company->EOF) {
