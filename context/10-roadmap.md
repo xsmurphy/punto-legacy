@@ -133,6 +133,34 @@ mucho menor del esperado. De 14 casos candidatos:
 
 ---
 
+## Phase PG — queries con schema viejo (deuda real descubierta 2026-05-19)
+
+**Problema descubierto al cargar el dashboard franchiser visualmente**:
+Phase PG migró ~95 archivos pero quedaron queries en el panel que aún
+referencian schema viejo eliminado/refactoreado:
+
+| Tipo de bug | Ejemplo | Cantidad estimada |
+|------------|---------|-------------------|
+| `FROM setting` | `FROM company a, setting b` | varias (eliminada Phase PG.2) |
+| Columnas que ahora viven en JSONB | `SELECT settingTimeZone FROM company` | docenas — debe ser `config->>'settingTimeZone'` |
+| Columnas que no existen | `SELECT accountId FROM company` | TBD |
+| UUIDs concatenados con doble-quoting | `outletId = ''019e4075-...''` | varias |
+| `companyId IN()` sin null check | `IN(implode(',', $ids))` | varias |
+
+**Cómo encontrar más**: arrancar preview server con `display_errors=on`,
+ejercer el flujo end-to-end del dashboard/listados/reportes del panel,
+y leer los logs PHP. Cada error revela una query rota.
+
+**Estrategia recomendada**: agente `postgres-pro` puede mapear todas las
+queries del panel que referencien `settingX FROM company` o tabla `setting`
+y generar un patch masivo cambiando a `config->>'X'`. Tiempo estimado: 4-6h.
+
+**Bloquea**: navegación completa del panel admin (dashboard, reports).
+NO bloquea: login, API endpoints `panel/API/` migrados (todos usan
+`_flattenJsonb` ya), `/app` POS, KDS/CDS, WebSocket — todos validados OK.
+
+---
+
 ## Deprecation del fallback legacy `?l=` en /app ✅ COMPLETO (server)
 
 **Problema (resuelto 2026-05-16)**: `app/load.php`, `app/fetch.php` y
