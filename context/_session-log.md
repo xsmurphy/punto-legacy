@@ -3,6 +3,25 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-19 (martes, smoke test E2E del refactor)
+
+- **Decisión clave**: antes de arrancar Phase AI hay que validar que la modernización (PG, JWT, screens, no-ADOdb) funciona end-to-end. El usuario lo planteó: "no sabemos ni si la refactorización funciona". Phase AI quedó **pospuesto** hasta cerrar el smoke test.
+- **Hallazgo crítico**: hay **2 postgres conviviendo en localhost:5432**. Uno del host (xstian, corriendo desde 15-abr) y otro de docker. PHP tomaba el del host (con seed completo: 5 outlets, 2 registers, 3 companies). Decisión del usuario: **usar el host postgres, detener el de docker** (`docker compose stop postgres pgadmin`). Stack actual = host PG + docker (redis + ws-server).
+- **6 smoke tests ejecutados, 6 bugs reales encontrados y arreglados** (commit `c485eae`):
+  1. `app/API/auth.php` — falta `rtrim()` en password compare (CHAR(68) padded). Login `/app` daba 401 silencioso
+  2. `app/API/auth.php` — resolución de outlet usaba `ORDER BY outletId ASC LIMIT 1` ignorando `contact.outletId`. Si el primer outlet no tenía register → 500. Fix: respetar `contact.outletId` (mismo patrón que `loginPart()` del panel)
+  3. `app/includes/functions.php` — `ncmExecute()` del /app **no aplicaba** `_flattenJsonb()`. Por eso `SELECT * FROM company` devolvía `settingTimeZone = NULL` (vive en `config` JSONB tras Phase PG). `data.php:52` crasheaba. Fix: agregar `_flattenJsonb` copia del panel + invocarla en ncmExecute
+  4. `app/includes/functions.php::getCustomTemplates()` — SQL injection (concat), comparación legacy `companyId = 1` (ahora UUID), y while sin nil check. Crasheaba con `MoveNext on false` cuando `taxonomy` vacía. Fix: parametrizar + `IS NULL` para templates globales + guard
+  5. `panel/API/kds.php` y `panel/API/cds.php` — llamaban `validateHttp('s')` ANTES de `apiMiddlewarePublic()` (que es donde se carga `functions.php`). Fatal "Call to undefined function". Fix: leer raw `$_GET['s']`
+- **WebSocket bridge E2E confirmado**: `wsPublish()` desde PHP → Redis pub → ws-server → cliente recibe `{event, channel, data}` con payload correcto. Protocolo: cliente envía `{action: subscribe, channel: ...}`, server responde con `{event: ...}`.
+- **Estado final**: login panel ✅, login app ✅, fetch settings ✅, KDS/CDS HTML + API ✅, WS ✅. **La base del refactor funciona**.
+- **Pendiente próxima sesión**:
+  - Notar que `fetch.php` devuelve `outlets:[], registers:[], users:[]` vacíos para admin@local.test → puede ser filtro `outletStatus = 1` (verificar) o un bug en queries específicas. NO crítico para el agente pero hay que entenderlo
+  - Cuando tengamos confianza de que la base es estable: arrancar Phase AI.1 (el design doc ya está en mi memoria, falta volcarlo a `punto-agent/README.md` cuando arranquemos)
+  - Migración endpoints legacy MySQL (B2-B5) sigue pendiente
+
+---
+
 ## 2026-05-16 (sábado, micro-sesión: flujo commit+push con agentes)
 
 - Introducida **REGLA OBLIGATORIA #3** en `CLAUDE.md`: flujo `edit → code-reviewer → commit → context-updater → push` (push inmediato). Motivación: sesiones previas acumulaban 10+ commits sin push y sin reviewer; el kit tenía los agentes pero no se invocaban
