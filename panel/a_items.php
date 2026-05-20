@@ -3477,79 +3477,68 @@ if (validateHttp('action') == 'showTable') {
 
 	$cOutletName 		= getCurrentOutletName();
 	$outletNow 			= ($cOutletName == 'None') ? '' : $cOutletName;
-	$archived 			= ' AND itemStatus = 1';
-	$unGrouped 			= ' AND (itemIsParent > 0 OR (itemParentId IS NULL OR itemParentId = 0))';
 	$class 					= 'bg-light lter';
-	$outletSearch 	= '';
-	$singleRow 			= '';
 
 	$debug = false;
-
 	if (!empty($_GET['debug'])) {
 		$db->debug = true;
 		$debug = true;
 	}
 
-	//$limit 			= ' LIMIT ' . $plansValues[PLAN]['max_items'];
-	$limits 		= getTableLimits($limitDetail, $offsetDetail);
+	$limits = getTableLimits($limitDetail, $offsetDetail);
+
+	// Build WHERE clauses + params en orden. Post-PG:
+	//   itemId/itemParentId/categoryId/outletId son UUID — no admiten > 0 ni = 0
+	//   itemIsParent es BOOLEAN
+	$where  = ['companyId = ?'];
+	$params = [COMPANY_ID];
 
 	if (validateHttp('archived')) {
-		$archived 	= ' AND itemStatus = 0 AND (itemIsParent < 1 OR itemIsParent IS NULL)';
-		$unGrouped 	= '';
-	}
-
-	if (validateHttp('ungroup')) {
-		$unGrouped = ' AND (itemIsParent < 1 OR itemIsParent IS NULL)';
+		$where[] = 'itemStatus = 0';
+		$where[] = '(itemIsParent = false OR itemIsParent IS NULL)';
+	} else {
+		$where[] = 'itemStatus = 1';
+		// "no hijo de otro item" — incluye raíces y agrupadores
+		if (validateHttp('ungroup')) {
+			$where[] = '(itemIsParent = false OR itemIsParent IS NULL)';
+		} else {
+			$where[] = '(itemIsParent = true OR itemParentId IS NULL)';
+		}
 	}
 
 	if (validateHttp('singleRow')) {
-		$singleRow = ' AND itemId = ' . dec(validateHttp('singleRow'));
+		$where[]  = 'itemId = ?';
+		$params[] = dec(validateHttp('singleRow'));
 	}
 
-	//outlet search logic
-	if (OUTLETS_COUNT > 1 && OUTLET_ID > 1) {
-		$outletSearch = ' AND (outletId = ' . OUTLET_ID . ' OR outletId IS NULL or outletId = 0)';
+	if (OUTLETS_COUNT > 1 && validity(OUTLET_ID)) {
+		$where[]  = '(outletId = ? OR outletId IS NULL)';
+		$params[] = OUTLET_ID;
 	}
 
-	if (validateHttp('src') || validateHttp('srccat')) {
-
-		if (validateHttp('src')) {
-			$word 	= db_prepare(validateHttp('src'));
-			//primero obtengo posible fuente
-			$sData = ncmExecute("SELECT STRING_AGG(itemId::text, ',') as ids FROM item WHERE (itemName LIKE '%" . $word . "%' OR itemSKU LIKE '%" . $word . "%') AND companyId = ? LIMIT 100", [COMPANY_ID], true);
-
-			$search = ' AND itemId IN(' . $sData['ids'] . ')';
-
-			$sql = 'SELECT *
-				FROM item
-				WHERE (itemParentId < 1 OR itemParentId IS NULL)' .
-				$outletSearch . $singleRow . $search . ' AND companyId = ?' . $archived . '
-				ORDER BY itemId DESC' . $limits;
-		} else if (validateHttp('srccat')) {
-			if (validateHttp('srccat') == 'none') {
-				$search = ' AND categoryId IS NULL';
-			} else {
-				$word 	= db_prepare(dec(validateHttp('srccat')));
-				$search = ' AND categoryId = ' . $word;
-			}
-
-			$sql = 'SELECT *
-					FROM item
-					WHERE (itemParentId < 1 OR itemParentId IS NULL)' .
-				$outletSearch . $singleRow . $search . ' AND companyId = ?' . $archived . '
-					ORDER BY itemId DESC' . $limits;
+	if (validateHttp('src')) {
+		// Pre-PG era LIKE + concat con SQL injection latente. Ahora ILIKE parametrizado.
+		$pattern  = '%' . validateHttp('src') . '%';
+		$where[]  = '(itemName ILIKE ? OR itemSKU ILIKE ?)';
+		$params[] = $pattern;
+		$params[] = $pattern;
+	} elseif (validateHttp('srccat')) {
+		if (validateHttp('srccat') == 'none') {
+			$where[] = 'categoryId IS NULL';
+		} else {
+			$where[]  = 'categoryId = ?';
+			$params[] = dec(validateHttp('srccat'));
 		}
-	} else {
-		$sql = 'SELECT *
-						FROM item
-						WHERE companyId = ? AND itemId > 0' .
-			$outletSearch . $singleRow . $archived . $unGrouped .
-			' ORDER BY itemId DESC ' . $limits;
+		// Cuando hay filtro por categoría, solo items raíz (no hijos agrupados)
+		$where[] = 'itemParentId IS NULL';
 	}
+
+	$sql = 'SELECT * FROM item WHERE ' . implode(' AND ', $where) .
+	       ' ORDER BY itemDate DESC ' . $limits;
 
 	endPageLoadTimeCalculator($timeSE, 'before exec query', true);
 
-	$result 		= ncmExecute($sql, [COMPANY_ID], false, true);
+	$result = ncmExecute($sql, $params, false, true);
 
 	$head		= 	'	<thead class="text-u-c">' .
 		'		<tr>' .

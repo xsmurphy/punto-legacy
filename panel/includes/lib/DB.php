@@ -105,6 +105,23 @@ class DBResult
         }
     }
 
+    /**
+     * Rebobina el cursor al primer registro.
+     * Equivale a $rs->moveFirst() / $rs->MoveFirst() de ADOdb — PHP es
+     * case-insensitive en nombres de método, así que basta con uno.
+     */
+    public function MoveFirst(): void
+    {
+        $this->pos = 0;
+        if (count($this->rows) > 0) {
+            $this->EOF    = false;
+            $this->fields = new CaseInsensitiveArray($this->rows[0]);
+        } else {
+            $this->EOF    = true;
+            $this->fields = new CaseInsensitiveArray([]);
+        }
+    }
+
     /** Número total de filas. Equivale a $rs->RecordCount(). */
     public function RecordCount(): int
     {
