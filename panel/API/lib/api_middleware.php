@@ -102,16 +102,46 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
         $companyId = validateHttp('company_id', 'post');
         $apiKey    = validateHttp('api_key', 'post');
 
-        if (!validateAPIAccess($companyId, $apiKey, $_GET['debug'] ?? false)) {
+        if (validateAPIAccess($companyId, $apiKey, $_GET['debug'] ?? false)) {
+            define('PANEL_JWT_AUTHED',    false);
+            define('PANEL_AUTHED_USER',   0);
+            define('PANEL_AUTHED_ROLE',   0);
+            _apiDefineSharedConstants($companyId, $companyId, '', '');
+        } elseif (_apiTrySessionAuth($sUser)) {
+            // Fallback: usuario del panel autenticado vía $_SESSION['user'].
+            // Permite que el mismo browser logueado en /@ consuma la API sin
+            // pasar api_key ni JWT (caso típico: el frontend del panel hace
+            // fetch('/API/v1/...') con credentials:'include').
+            define('PANEL_JWT_AUTHED',    false);
+            define('PANEL_AUTHED_USER',   $sUser['userId']   ?? $sUser['contactId'] ?? 0);
+            define('PANEL_AUTHED_ROLE',   $sUser['userRole'] ?? 0);
+            _apiDefineSharedConstants(
+                $sUser['companyId'],
+                $sUser['companyId'],
+                $sUser['outletId']   ?? '',
+                $sUser['registerId'] ?? ''
+            );
+        } else {
             apiForbidden('Acceso denegado');
         }
-
-        define('PANEL_JWT_AUTHED',    false);
-        define('PANEL_AUTHED_USER',   0);
-        define('PANEL_AUTHED_ROLE',   0);
-
-        _apiDefineSharedConstants($companyId, $companyId, '', '');
     }
+}
+
+/**
+ * Si hay una sesión PHP activa con un user del panel, devuelve true y popula $out.
+ * Booteja la sesión si no está iniciada (los endpoints API por defecto no la
+ * inician — solo se hace acá para verificar credentials).
+ */
+function _apiTrySessionAuth(?array &$out = null): bool
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    if (!empty($_SESSION['user']) && is_array($_SESSION['user']) && !empty($_SESSION['user']['companyId'])) {
+        $out = $_SESSION['user'];
+        return true;
+    }
+    return false;
 }
 
 /**
