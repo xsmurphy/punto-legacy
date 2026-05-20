@@ -3973,7 +3973,11 @@ if (validateHttp('action') == 'showTable') {
 	window.limit = <?= $limitDetail ?>;
 	window.offset = <?= $offsetDetail ?>;
 	window.baseUrl = '<?= $baseUrl; ?>';
-	window.baseUrlH = window.baseUrl.replace('a_', '').replace('/', '');
+	// baseUrlH = "items" o "items?archived=true" — necesita el query param para
+	// que al cerrar el modal de un artículo (hidden.bs.modal) la URL vuelva
+	// al hash correcto y no se pierda el contexto Activos/Archivados.
+	window.baseUrlH = window.baseUrl.replace('a_', '').replace('/', '') +
+		(isArchived ? '?archived=true' : '');
 	var ncmDBActive = '<?= $_modules['dropboxToken'] ?>';
 	var thousandSeparator = '<?= THOUSAND_SEPARATOR ?>';
 	var decimal = '<?= DECIMAL ?>';
