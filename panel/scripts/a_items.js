@@ -203,54 +203,36 @@
 			});
 
 			ncmHelpers.onClickWrap('.createItemBtn',function(event,tis){
-				var extraUrl = '';
-				if(tis.hasClass('discount')){
-					extraUrl = '&discount=true';
-				}else if(tis.hasClass('combo')){
-					extraUrl = '&combo=true';
-				}else if(tis.hasClass('giftcard')){
-					extraUrl = '&giftcard=true';
-				}
+				var narrow = tis.hasClass('modal-narrow');
+				var type = tis.hasClass('discount') ? 'discount'
+				         : tis.hasClass('combo')    ? 'combo'
+				         : tis.hasClass('giftcard') ? 'giftcard'
+				         : null;
 
-				var narrow 	 = tis.hasClass('modal-narrow');
-
-				$.get(baseUrl + '?action=insertBtn' + extraUrl,function(response){
-					if(validity(response,'string')){
-						response = response.split('|');
-					}else{
-						ncmDialogs.alert('No posee permisos');
-						return false;
-					}
-
-					if(response[0] == 'true'){
-
-						id = response[2];
-						loadForm(baseUrl + '?action=editform&id=' + id,'#modalLarge .modal-content',function(){
-							if(narrow){
-								$('#modalLarge .modal-dialog').removeClass('modal-lg');
-							}else{
-								$('#modalLarge .modal-dialog').addClass('modal-lg');
-							}
-
-							editItemActions();
-
-							$('#modalLarge').modal('show').one('shown.bs.modal',function(){
-								$.get(tableOps.rawUrl + '&part=1&singleRow=' + id,function(data){
-									var $tr = $(data);
-									oTable.row.add($tr).draw();
-								});
-							}).one('show.bs.modal',function(){
-								
+				itemsApi.create(type ? { type: type } : {}).then(function(created) {
+					var id = created.itemid;
+					loadForm(baseUrl + '?action=editform&id=' + id, '#modalLarge .modal-content', function() {
+						if (narrow) {
+							$('#modalLarge .modal-dialog').removeClass('modal-lg');
+						} else {
+							$('#modalLarge .modal-dialog').addClass('modal-lg');
+						}
+						editItemActions();
+						$('#modalLarge').modal('show').one('shown.bs.modal', function() {
+							$.get(tableOps.rawUrl + '&part=1&singleRow=' + id, function(data) {
+								var $tr = $(data);
+								oTable.row.add($tr).draw();
 							});
 						});
-						
-					}else if(response[0] == 'false'){
-						message('Error al intentar procesar su petición','danger');
-					}else if(response[0] == 'max'){
-						ncmDialogs.confirm('Ha alcanzado el límite de artículos','Contáctenos y le asistiremos para incrementar','warning');
-					}else{
-						ncmDialogs.alert(response[0]);
-						return false;
+					});
+				}).catch(function(err) {
+					if (err.code === 403) {
+						ncmDialogs.alert('No posee permisos');
+					} else if (err.code === 402) {
+						// plan_max_reached
+						ncmDialogs.confirm('Ha alcanzado el límite de artículos', 'Contáctenos y le asistiremos para incrementar', 'warning');
+					} else {
+						ncmDialogs.alert(err.message || 'Error al crear');
 					}
 				});
 			});
@@ -300,45 +282,26 @@
 					}else if(type == 'delete' || type == 'edit' || type == 'group' || type == 'bulkEdit'){
 						ncmDialogs.alert('Debe seleccionar mas de un artículo de la lista');
 						spinner('body', 'hide');
-					}else if(type == 'archive'){
-						var url = baseUrl + '?multi=true&action=archive&id=' + selected.join('|');
+					}else if(type == 'archive' || type == 'unarchive'){
+						var doneMsg = type == 'archive' ? 'Archivado' : 'Re Activado';
+						var op      = type == 'archive' ? 'bulkArchive' : 'bulkUnarchive';
 
-						$.get(url, function(response) {
-							if(validity(response)){
-								message('Archivado','success');
-								$.each(selected,function(k,id){
-									var $tRow = $('tr#' + id);
-									if($tRow.length > 0){
-										oTable.row($tRow).remove();
-									}
-								});
-								oTable.draw();
-								delete ncmHelpers.loadedPageCache['items'];
-								delete ncmHelpers.loadedPageCache['items?archived=true'];
-							}else{
-								message('Error al intentar procesar su petición','danger');
+						itemsApi[op](selected).then(function(res) {
+							if (res.errors.length === 0) {
+								message(doneMsg, 'success');
+							} else {
+								message(res.successes + ' procesados, ' + res.errors.length + ' fallaron', 'warning');
 							}
-							spinner('body', 'hide');
-						});
-					}else if(type == 'unarchive'){
-
-						var url = baseUrl + '?multi=true&action=unarchive&id=' + selected.join('|');
-
-						$.get(url, function(response) {
-							if(validity(response)){
-								message('Re Activado','success');
-								$.each(selected,function(k,id){
-									var $tRow = $('tr#' + id);
-									if($tRow.length > 0){
-										oTable.row($tRow).remove();
-									}
-								});
-								oTable.draw();
-								delete ncmHelpers.loadedPageCache['items'];
-								delete ncmHelpers.loadedPageCache['items?archived=true'];
-							}else{
-								message('Error al intentar procesar su petición','danger');
-							}
+							$.each(selected, function(k, id) {
+								var $tRow = $('tr#' + id);
+								if ($tRow.length > 0) oTable.row($tRow).remove();
+							});
+							oTable.draw();
+							delete ncmHelpers.loadedPageCache['items'];
+							delete ncmHelpers.loadedPageCache['items?archived=true'];
+						}).catch(function(e) {
+							message('Error: ' + (e.message || 'desconocido'), 'danger');
+						}).finally(function() {
 							spinner('body', 'hide');
 						});
 					}else if(type == 'inventory'){
@@ -436,44 +399,26 @@
 								}
 							});
 						}		
-					}else if(type == 'archive'){
-						
-						var url = baseUrl + '?multi=true&action=archive&id='+selected.join('|');
-						
-						$.get(url, function(response) {
-							//console.log(response);
-							if(validity(response)){
-								message('Archivados','success');
-								$.each(selected,function(k,id){
-									var $tRow = $('tr#' + id);
-									if($tRow.length > 0){
-										oTable.row($tRow).remove();
-									}
-								});
-							}else{
-								message('Error al intentar procesar su petición','danger');
+					}else if(type == 'archive' || type == 'unarchive'){
+						var doneMsg = type == 'archive' ? 'Archivados' : 'Re Activados';
+						var op      = type == 'archive' ? 'bulkArchive' : 'bulkUnarchive';
+
+						itemsApi[op](selected).then(function(res) {
+							if (res.errors.length === 0) {
+								message(doneMsg, 'success');
+							} else {
+								message(res.successes + ' procesados, ' + res.errors.length + ' fallaron', 'warning');
 							}
+							$.each(selected, function(k, id) {
+								var $tRow = $('tr#' + id);
+								if ($tRow.length > 0) oTable.row($tRow).remove();
+							});
 							oTable.draw();
-							spinner('body', 'hide');
-						});
-					}else if(type == 'unarchive'){
-						
-						var url = baseUrl + '?multi=true&action=unarchive&id='+selected.join('|');
-						
-						$.get(url, function(response) {
-							//console.log(response);
-							if(response == 'true'){
-								message('Re Activados','success');
-								$.each(selected,function(k,id){
-									$.get(tableOps.rawUrl + '&part=1&singleRow=' + id,function(data){
-										var $tRow = $('tr#' + id);
-										oTable.row($tRow).remove();
-									});
-								});
-							}else{
-								message('Error al intentar procesar su petición','danger');
-							}
-							oTable.draw();
+							delete ncmHelpers.loadedPageCache['items'];
+							delete ncmHelpers.loadedPageCache['items?archived=true'];
+						}).catch(function(e) {
+							message('Error: ' + (e.message || 'desconocido'), 'danger');
+						}).finally(function() {
 							spinner('body', 'hide');
 						});
 					}else if(type == 'bulkEdit'){
@@ -562,23 +507,20 @@
 					var warn = (type == 'archiveItem') ? '¿Seguro que desea Archivar?' : '¿Seguro que desea eliminar?';
 					var done = (type == 'archiveItem') ? 'archivado' : 'eliminado';
 					confirmation(warn, function (e) {
-						if (e) {
-							$.get(load, function(response) {
-								if(response == 'false'){
-									message('Error al eliminar','danger');
-									return;
-								}
+						if (!e) return;
 
-								oTable.row($('tr#' + id)).remove().draw();
-								// Invalidar cache de las 2 vistas de items para que al
-								// cambiar entre Activos/Archivados se haga refetch fresh.
-								delete ncmHelpers.loadedPageCache['items'];
-								delete ncmHelpers.loadedPageCache['items?archived=true'];
-								$('#modalLarge').modal('hide');
-								message('Artículo ' + done,'success');
-								$('.modal').modal('hide');
-							});
-						}
+						// Tanto deleteItem como archiveItem usan archive (soft-delete) por ahora.
+						// El delete físico real está en TODO — la API canónica no lo expone aún.
+						itemsApi.archive(id).then(function() {
+							oTable.row($('tr#' + id)).remove().draw();
+							delete ncmHelpers.loadedPageCache['items'];
+							delete ncmHelpers.loadedPageCache['items?archived=true'];
+							$('#modalLarge').modal('hide');
+							message('Artículo ' + done, 'success');
+							$('.modal').modal('hide');
+						}).catch(function(err) {
+							message('Error al eliminar: ' + (err.message || 'desconocido'), 'danger');
+						});
 					});
 				}else if(type == 'empty'){
 

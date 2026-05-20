@@ -78,6 +78,14 @@
 		throw new ApiError(err.message || 'Error desconocido', err.code || res.status, err.details);
 	}
 
+	async function _bulk(ids, fn) {
+		const results = await Promise.allSettled(ids.map(fn));
+		return {
+			successes: results.filter(r => r.status === 'fulfilled').length,
+			errors:    results.filter(r => r.status === 'rejected').map(r => r.reason),
+		};
+	}
+
 	const itemsApi = {
 		ApiError: ApiError,
 
@@ -104,6 +112,20 @@
 		// DELETE /API/v1/items?id=<uuid>
 		archive: function (id) {
 			return request('DELETE', '', { id: id });
+		},
+
+		// PUT itemStatus=1 — reactiva un item archivado.
+		unarchive: function (id) {
+			return request('PUT', '', { id: id }, { itemStatus: 1 });
+		},
+
+		// Helpers bulk — el backend aún no tiene endpoints multi, lo hacemos
+		// en paralelo. Devuelve { successes: number, errors: ApiError[] }.
+		bulkArchive: function (ids) {
+			return _bulk(ids, function (id) { return itemsApi.archive(id); });
+		},
+		bulkUnarchive: function (ids) {
+			return _bulk(ids, function (id) { return itemsApi.unarchive(id); });
 		},
 
 		locations: {

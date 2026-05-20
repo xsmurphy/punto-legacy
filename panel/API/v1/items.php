@@ -103,6 +103,12 @@ switch ($method) {
         ]);
 
     case 'POST':
+        // El plan-max-check y allowUser del handler legacy (?action=insertBtn)
+        // requieren constantes (SAAS_ADM, PLAN, plansValues por outlet) que el
+        // bootstrap mínimo de apiMiddleware NO carga. Por ahora la API confía
+        // en la autenticación de session/JWT — todo usuario logueado puede
+        // crear items. Plan-limits deberán moverse a un middleware aparte
+        // cuando se integren al API.
         $type   = $_POST['type'] ?? null;
         $newId  = $itemService->createBlank(COMPANY_ID, $type);
         if ($newId === false) apiError('No se pudo crear el item', 500);
