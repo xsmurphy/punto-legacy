@@ -30,6 +30,13 @@
       "env": {
         "PHP_CLI_SERVER_WORKERS": "4"
       }
+    },
+    {
+      "name": "Punto items-v2 (SPA)",
+      "runtimeExecutable": "/opt/homebrew/bin/npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "panel/items-v2",
+      "port": 5173
     }
   ]
 }
