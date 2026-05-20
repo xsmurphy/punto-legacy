@@ -3052,19 +3052,15 @@ if (validateHttp('action') == 'archive' && validateHttp('id')) {
 		jsonDieResult(['error' => 'No permissions']);
 	}
 
-	$arch['itemStatus'] 	= 0;
-	$arch['itemParentId'] 	= NULL;
-	$arch['updated_at'] 	= TODAY;
+	$arch['itemStatus']     = 0;
+	$arch['itemParentId']   = NULL;
+	$arch['updated_at']     = TODAY;
 
-	if (validateHttp('multi')) {
-		$ids = explodes('|', validateHttp('id'));
-
-		foreach ($ids as $value) {
-			$id 		= db_prepare(dec($value));
-			$archive 	= $db->AutoExecute('item', $arch, 'UPDATE', 'itemId = ' . $id);
-		}
-	} else {
-		$archive = $db->AutoExecute('item', $arch, 'UPDATE', 'itemId = ' . db_prepare(dec($_GET['id'])));
+	$ids = validateHttp('multi') ? explodes('|', validateHttp('id')) : [validateHttp('id')];
+	foreach ($ids as $value) {
+		$db->AutoExecute('item', $arch, 'UPDATE',
+			'itemId = ? AND companyId = ?',
+			[dec($value), COMPANY_ID]);
 	}
 
 	updateLastTimeEdit(COMPANY_ID, 'item');
@@ -3079,15 +3075,12 @@ if (validateHttp('action') == 'unarchive' && validateHttp('id')) {
 
 	$arch['itemStatus'] = 1;
 	$arch['updated_at'] = TODAY;
-	if (validateHttp('multi')) {
-		$ids = explodes('|', validateHttp('id'));
 
-		foreach ($ids as $value) {
-			$id 		= db_prepare(dec($value));
-			$archive 	= $db->AutoExecute('item', $arch, 'UPDATE', 'itemId = ' . $id);
-		}
-	} else {
-		$archive = $db->AutoExecute('item', $arch, 'UPDATE', 'itemId = ' . db_prepare($_GET['id']));
+	$ids = validateHttp('multi') ? explodes('|', validateHttp('id')) : [validateHttp('id')];
+	foreach ($ids as $value) {
+		$db->AutoExecute('item', $arch, 'UPDATE',
+			'itemId = ? AND companyId = ?',
+			[dec($value), COMPANY_ID]);
 	}
 
 	updateLastTimeEdit(COMPANY_ID, 'item');
