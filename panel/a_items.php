@@ -5577,6 +5577,7 @@ if (validateHttp('action') == 'showTable') {
 				$("#countFor").val(parseInt(count));
 			}
 </script>
+<script src="scripts/api/items.js?<?= date('d.i') . rand() ?>"></script>
 <script src="scripts<?= $baseUrl ?>.js?<?= date('d.i') . rand() ?>"></script>
 
 <?php
