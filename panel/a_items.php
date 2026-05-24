@@ -303,6 +303,19 @@ if (validateHttp('action') == 'bulkEditForm') {
 	dai();
 }
 
+/**
+ * Convierte [taxonomyId => ['name'=>..]] (formato de getAllTax/Categories/Brands)
+ * a [{id, name}] preservando el id, para los <select> del form en el front.
+ */
+function _itemsMapOptions(array $arr): array
+{
+	$out = [];
+	foreach ($arr as $id => $v) {
+		$out[] = ['id' => enc($id), 'name' => $v['name'] ?? ''];
+	}
+	return $out;
+}
+
 if (validateHttp('action') == 'editform' && validateHttp('id')) {
 	theErrorHandler('json');
 
@@ -482,9 +495,10 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 			'upsells'   => $upsells,
 			'locations' => $locSvc->listForItem($result['itemId']),
 			'options'   => [
-				'brands'     => array_values(getAllItemBrands()),
-				'categories' => array_values(getAllItemCategories()),
-				'taxes'      => array_values(getAllTax()),
+				// getAll*() devuelven [taxonomyId => ['name'=>..]] — preservamos el id.
+				'brands'     => _itemsMapOptions(getAllItemBrands()),
+				'categories' => _itemsMapOptions(getAllItemCategories()),
+				'taxes'      => _itemsMapOptions(getAllTax()),
 			],
 		];
 
