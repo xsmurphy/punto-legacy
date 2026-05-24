@@ -475,6 +475,37 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 			}
 		}
 
+		// Depósitos: estructura outlets→locations con flags assigned/default
+		// (alimenta el widget multi-depósito del inventoryTab).
+		$_assigned = [];
+		$_defByOu  = [];
+		foreach ($locSvc->listForItem($result['itemId']) as $_r) {
+			$_assigned[$_r['locationid']] = true;
+			if (!empty($_r['isdefault'])) $_defByOu[$_r['outletid']] = $_r['locationid'];
+		}
+		$deposits = [];
+		$ouRs = $db->Execute("SELECT outletId, outletName FROM outlet WHERE companyId = ? ORDER BY outletName", [COMPANY_ID]);
+		if ($ouRs !== false) {
+			foreach ($ouRs->GetRows() as $ou) {
+				$locRs = $db->Execute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName", [$ou['outletid']]);
+				$locs = [];
+				if ($locRs !== false) {
+					foreach ($locRs->GetRows() as $lo) {
+						$locs[] = [
+							'id'        => enc($lo['taxonomyid']),
+							'name'      => $lo['taxonomyname'],
+							'outletId'  => enc($ou['outletid']),
+							'assigned'  => isset($_assigned[$lo['taxonomyid']]),
+							'isDefault' => isset($_defByOu[$ou['outletid']]) && $_defByOu[$ou['outletid']] === $lo['taxonomyid'],
+						];
+					}
+				}
+				if (!empty($locs)) {
+					$deposits[] = ['outletId' => enc($ou['outletid']), 'outletName' => $ou['outletname'], 'locations' => $locs];
+				}
+			}
+		}
+
 		$payload = [
 			'item' => _flattenJsonb($result)->toArray(),
 			'form' => [
@@ -494,6 +525,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 			'compounds' => $compounds,
 			'upsells'   => $upsells,
 			'locations' => $locSvc->listForItem($result['itemId']),
+			'deposits'  => $deposits,
 			'options'   => [
 				// getAll*() devuelven [taxonomyId => ['name'=>..]] — preservamos el id.
 				'brands'     => _itemsMapOptions(getAllItemBrands()),

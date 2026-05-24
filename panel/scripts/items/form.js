@@ -44,10 +44,11 @@
 		var finalPrice = discount > 0 ? price - (price * discount / 100) : price;
 
 		// stock puede venir null o como objeto con stockOnHandCOGS
-		var cogs = 0;
-		if (d.stock && typeof d.stock === 'object') {
-			cogs = parseFloat(d.stock.stockOnHandCOGS || d.stock.stockonhandcogs || 0) || 0;
-		}
+		var stock = (d.stock && typeof d.stock === 'object') ? d.stock : {};
+		function sf(k) { return parseFloat(stock[k] || stock[k.toLowerCase()] || 0) || 0; }
+		var cogs = sf('stockOnHandCOGS');
+		var purchaseCogs = sf('stockCOGS');
+		var onHand = sf('stockOnHand');
 		var gross = finalPrice - cogs;
 		var markup = (cogs > 0 && gross > 0) ? (gross / cogs) * 100 : 0;
 		var margin = (finalPrice > 0 && gross > 0) ? (gross / finalPrice) * 100 : 0;
@@ -59,6 +60,11 @@
 		}
 
 		return {
+			// flags de tabs condicionales (qué tabs mostrar según tipo)
+			inventoryTools:  !!f.inventoryTools,
+			productionTools: !!f.productionTools,
+			comboTools:      !!f.comboTools,
+
 			itemId:        it.itemid,
 			itemName:      it.itemname || '',
 			itemSKU:       it.itemsku || '',
@@ -92,6 +98,13 @@
 			taxIncluded:      truthy(it.itemtaxincluded),
 			ecom:             truthy(it.itemecom),
 			featured:         truthy(it.itemfeatured),
+
+			// inventoryTab
+			stockCogsFmt:     fmt(purchaseCogs),
+			stockAvgCogsFmt:  fmt(cogs),
+			stockValueFmt:    fmt(cogs * onHand),
+			deposits:         d.deposits || [],
+			hasDeposits:      (d.deposits || []).length > 0,
 		};
 	}
 
@@ -113,12 +126,14 @@
 						loadTpl('header-default'),
 						loadTpl('dataTab'),
 						loadTpl('settingsTab'),
+						loadTpl('inventoryTab'),
 					]).then(function (tpls) {
 						var vm = buildViewModel(d);
 						var html = Mustache.render(tpls[0], vm, {
-							header:      tpls[1],
-							dataTab:     tpls[2],
-							settingsTab: tpls[3],
+							header:       tpls[1],
+							dataTab:      tpls[2],
+							settingsTab:  tpls[3],
+							inventoryTab: tpls[4],
 						});
 						// .first() + .empty() evita duplicar si el modal-content
 						// ya tenía un render previo o si el selector matchea más de uno.

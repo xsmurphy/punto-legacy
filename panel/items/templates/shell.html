@@ -18,12 +18,20 @@
 								<i class="material-icons">settings</i>
 							</a>
 						</li>
+						{{#inventoryTools}}
+						<li>
+							<a href="#inventoryTabV2" class="tabs" title="Inventario">
+								<i class="material-icons">inventory</i>
+							</a>
+						</li>
+						{{/inventoryTools}}
 					</ul>
 				</header>
 			</div>
 			<div class="tab-content">
 				{{> dataTab}}
 				{{> settingsTab}}
+				{{#inventoryTools}}{{> inventoryTab}}{{/inventoryTools}}
 			</div>
 		</div>
 	</form>
