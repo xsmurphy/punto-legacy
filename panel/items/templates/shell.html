@@ -38,6 +38,11 @@
 								<i class="material-icons">layers</i>
 							</a>
 						</li>
+						<li>
+							<a href="#upsellTabV2" class="tabs" title="Upsell">
+								<i class="material-icons">loupe</i>
+							</a>
+						</li>
 						{{/comboTools}}
 					</ul>
 				</header>
@@ -47,7 +52,20 @@
 				{{> settingsTab}}
 				{{#productionTools}}{{> productionTab}}{{/productionTools}}
 				{{#inventoryTools}}{{> inventoryTab}}{{/inventoryTools}}
-				{{#comboTools}}{{> kitTab}}{{/comboTools}}
+				{{#comboTools}}{{> kitTab}}{{> upsellTab}}{{/comboTools}}
+			</div>
+
+			<div class="col-xs-12 no-padder m-t-md wrapper">
+				{{#archived}}
+				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="deleteItem" data-load="/items?action=delete&id={{itemId}}" title="Eliminar Artículo"><span class="text-danger">Eliminar</span></a>
+				{{/archived}}
+				{{^archived}}
+				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="archiveItem" data-load="/items?action=archive&id={{itemId}}" title="Archivar Artículo"><span class="text-danger">Archivar</span></a>
+				{{/archived}}
+				<input class="btn btn-info btn-lg btn-rounded text-u-c font-bold pull-right" type="submit" value="{{saveLabel}}">
+				<a href="#" class="cancelItemView m-r-lg m-t pull-right">Cancelar</a>
+				<input type="hidden" value="{{itemId}}" name="id">
+				<input type="hidden" value="{{type}}" name="itemType">
 			</div>
 		</div>
 	</form>

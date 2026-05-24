@@ -1,0 +1,13 @@
+<div class="tab-pane bg-white col-xs-12 wrapper animated fadeIn speed-4x" id="upsellTabV2" style="min-height: 400px;">
+	<div class="col-xs-12 wrapper h4 font-bold text-u-c">Upselling</div>
+	<div class="col-xs-12 m-b-sm">Seleccione los artículos que recomendarán este combo</div>
+	<div class="col-xs-12 m-b">
+		<select name="upsell[]" id="upsellV2" class="form-control m-b input-lg searchAjax no-border b-b" multiple="" tabindex="-1">
+			{{#upsells}}<option value="{{id}}" selected>{{name}}</option>{{/upsells}}
+		</select>
+	</div>
+	<div class="col-xs-12 m-b m-t">
+		<div class="col-xs-12 h4 wrapper m-b-sm">Añada una descripción a la recomendación de este combo</div>
+		<textarea class="form-control" name="upsellDescription">{{upsellDescription}}</textarea>
+	</div>
+</div>

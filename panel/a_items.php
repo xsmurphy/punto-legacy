@@ -509,6 +509,24 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 			}
 		}
 
+		// Hijos (para tipo group): items con itemParentId = este item.
+		$children = [];
+		$chRs = ncmExecute('SELECT itemName, itemId, itemPrice, itemType FROM item WHERE itemStatus = 1 AND itemParentId = ? LIMIT 50', [$result['itemId']], false, true);
+		if ($chRs) {
+			while (!$chRs->EOF) {
+				$children[] = [
+					'id'       => enc($chRs->fields['itemId']),
+					'name'     => toUTF8($chRs->fields['itemName']),
+					'priceFmt' => $chRs->fields['itemPrice'] ? formatCurrentNumber($chRs->fields['itemPrice']) : '',
+				];
+				$chRs->MoveNext();
+			}
+		}
+
+		// Giftcard: expiración parseada de itemDescription ("1 year")
+		$giftExpCount = explodes(' ', $result['itemDescription'] ?? '', true, 0);
+		$giftExpTime  = explodes(' ', $result['itemDescription'] ?? '', true, 1);
+
 		$payload = [
 			'item' => _flattenJsonb($result)->toArray(),
 			'form' => [
@@ -527,6 +545,9 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 			'image'     => !empty($result['itemImage']),
 			'compounds' => $compounds,
 			'upsells'   => $upsells,
+			'children'  => $children,
+			'giftExpCount' => $giftExpCount ?: '1',
+			'giftExpTime'  => $giftExpTime ?: 'year',
 			'locations' => $locSvc->listForItem($result['itemId']),
 			'deposits'  => $deposits,
 			'options'   => [
