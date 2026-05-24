@@ -20,6 +20,39 @@
 
 
 
+	// Dropdown de categorías armado en el front desde el array del JSON.
+	function buildCategoriesDropdown(cats){
+		var out = '<span class="btn-group m-r-xs">' +
+			'<a href="#" class="btn dropdown-toggle b b-light r-3x" data-toggle="dropdown" id="typeActivator" title="Categorías">' +
+			'<span class="material-icons">category</span></a>' +
+			'<ul class="dropdown-menu animated fadeIn speed-4x" style="max-height:400px; overflow:auto;">' +
+			'<li><a href="#" data-id="all" class="text-default filterByCategory">Todas</a>' +
+			'<a href="#" data-id="none" class="text-default filterByCategory">Sin categoría</a></li>';
+		$.each(cats || [], function(i, c){
+			out += '<li><a href="#" data-id="' + c.id + '" class="text-default filterByCategory">' +
+				$('<div>').text(c.name).html() + '</a></li>';
+		});
+		out += '</ul></span>';
+		return out;
+	}
+
+	// Trae UNA fila por id (JSON) y la agrega o reemplaza en la tabla.
+	// Reemplaza el patrón legacy $.get(rawUrl+'&part=1&singleRow='+id) que
+	// devolvía HTML; ahora el backend manda JSON y el front arma el <tr>.
+	function fetchAndPlaceRow(oTable, rawUrl, id, cb){
+		$.get(rawUrl + '&singleRow=' + id, function(resp){
+			var its = (resp && resp.data && resp.data.items) ? resp.data.items : [];
+			if(its.length){
+				var $tr = $(itemsRender.row(its[0]));
+				var existing = $('tr#' + id);
+				if(existing.length){ oTable.row(existing).remove(); }
+				oTable.row.add($tr).draw();
+				$('[data-toggle="tooltip"]').tooltip();
+			}
+			cb && cb(its[0]);
+		});
+	}
+
 	$(document).ready(function(){
 		window.baseUrl = window.baseUrl ? window.baseUrl : '/items';
 		FastClick.attach(document.body);
@@ -51,9 +84,17 @@
 			return ids;
 		};
 
-		var url     = baseUrl + "?action=showTable" + iftn(archived,'');
+		var url     = baseUrl + "?action=showTable&format=json" + iftn(archived,'');
 	  var rawUrl  = url;
-		var xhr 		= $.get(url,function(result){
+		var xhr 		= $.get(url,function(resp){
+
+			// Backend manda JSON crudo; el front arma toda la presentación.
+			var items  = (resp && resp.data && resp.data.items)      ? resp.data.items      : [];
+			var cats   = (resp && resp.data && resp.data.categories) ? resp.data.categories : [];
+			var result = {
+				table            : itemsRender.table(items),
+				categoriesSelect : buildCategoriesDropdown(cats)
+			};
 
 			var tiposList = [
 							{type : 'products',name : 'Productos', search : 'producto'},
@@ -219,10 +260,7 @@
 						}
 						editItemActions();
 						$('#modalLarge').modal('show').one('shown.bs.modal', function() {
-							$.get(tableOps.rawUrl + '&part=1&singleRow=' + id, function(data) {
-								var $tr = $(data);
-								oTable.row.add($tr).draw();
-							});
+							fetchAndPlaceRow(oTable, tableOps.rawUrl, id);
 						});
 					});
 				}).catch(function(err) {
@@ -246,12 +284,8 @@
 								message('Removido','success');
 
 								$('.row' + id).remove();
-								$.get(tableOps.rawUrl + '&part=1&singleRow=' + id,function(data){
-									oTable.row.add($(data));
-								});
+								fetchAndPlaceRow(oTable, tableOps.rawUrl, id);
 
-								oTable.draw();
-								
 							}else{
 								message('Error al intentar procesar su petición','danger');
 							}
@@ -379,9 +413,7 @@
 									
 									$.get(url, function(response) {//respuesta será ID del grupo creado
 										if(response){
-											$.get(tableOps.rawUrl + '&part=1&singleRow=' + response,function(data){
-												oTable.row.add($(data)).draw();
-											});
+											fetchAndPlaceRow(oTable, tableOps.rawUrl, response);
 
 											$.each(selected,function(k,id){
 												var $tRow = $('tr#' + id);
@@ -541,19 +573,14 @@
 			    		}
 
 		    			spinner(tableOps.container, 'show');
-		    			$.get(tableOps.rawUrl + '&src=' + value + '&part=1&nolimit=1',function(result){
+		    			$.get(tableOps.rawUrl + '&src=' + encodeURIComponent(value) + '&nolimit=1',function(resp){
 		    				oTable.rows().remove();
-		    				if(result){
-		    					var line 	= explodes('[@]',result);
-		    					$.each(line,function(i,data){
-		    						if(data){
-		                    			oTable.row.add($(data));
-		                    		}
-		    					});
-		    				}
-
+		    				var its = (resp && resp.data && resp.data.items) ? resp.data.items : [];
+		    				$.each(its,function(i,it){
+		    					oTable.row.add($(itemsRender.row(it)));
+		    				});
 		    				oTable.draw();
-
+		    				$('[data-toggle="tooltip"]').tooltip();
 		    				$('.lodMoreBtnHolder').addClass('hidden');
 		    				spinner(tableOps.container, 'hide');
 			    		});
@@ -582,20 +609,15 @@
 				if(id == 'all'){					
 					ncmDataTablesReset(oTable,tableOps);
 				}else{
-					var url = tableOps.rawUrl + '&srccat=' + id + '&part=1&nolimit=1';
-					$.get(url,function(result){
+					var url = tableOps.rawUrl + '&srccat=' + id + '&nolimit=1';
+					$.get(url,function(resp){
 						oTable.rows().remove();
-						if(result){
-							var line 	= explodes('[@]',result);
-							$.each(line,function(i,data){
-								if(data){
-		                			oTable.row.add($(data));
-		                		}
-							});
-						}
-
+						var its = (resp && resp.data && resp.data.items) ? resp.data.items : [];
+						$.each(its,function(i,it){
+							oTable.row.add($(itemsRender.row(it)));
+						});
 						oTable.draw();
-
+						$('[data-toggle="tooltip"]').tooltip();
 						$('.lodMoreBtnHolder').addClass('hidden');
 						spinner(tableOps.container, 'hide');
 		    		});
@@ -633,32 +655,14 @@
 					$('#modalLarge, #modalSmall').trigger('ncmModalUpdate');
 				});
 
-				$.get(tableOps.rawUrl + '&part=1&singleRow=' + id,function(data){
-					var $tRow = $('tr#' + id);
-					if($tRow.length > 0){
-						oTable.row($tRow).remove();
-						if(data){
-							oTable.row.add($(data));
-						}
-					}
-					oTable.draw();
-				});
+				fetchAndPlaceRow(oTable, tableOps.rawUrl, id);
 			},true);
 
 			submitForm2('#editItemBulk',function(element,ids){
 				$('#modalLarge').modal('hide');
 				var idss = ids.split(',');
 				$.each(idss,function(k,id){
-					$.get(tableOps.rawUrl + '&part=1&singleRow=' + id,function(data){
-						var $tRow = $('tr#' + id);
-						if($tRow.length > 0){
-							oTable.row($tRow).remove();
-							if(data){
-								oTable.row.add($(data));
-							}
-						}
-						oTable.draw();
-					});
+					fetchAndPlaceRow(oTable, tableOps.rawUrl, id);
 				});
 			},true);
 
@@ -669,14 +673,7 @@
 
 			submitForm2('#inventoryForm',function(element,id){
 				$('#modalLoad').modal('hide');
-				$.get(tableOps.rawUrl + '&part=1&singleRow=' + id,function(data){
-					var $tRow = $('tr#' + id);
-					if($tRow.length > 0){
-						oTable.row($tRow).remove();
-						oTable.row.add($(data));
-					}
-					oTable.draw();
-				});
+				fetchAndPlaceRow(oTable, tableOps.rawUrl, id);
 			});
 
 		};
