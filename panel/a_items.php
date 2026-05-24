@@ -5726,6 +5726,7 @@ if (validateHttp('action') == 'showTable') {
 </script>
 <script src="scripts/api/items.js?<?= date('d.i') . rand() ?>"></script>
 <script src="scripts/items/render.js?<?= date('d.i') . rand() ?>"></script>
+<script src="scripts/items/form.js?<?= date('d.i') . rand() ?>"></script>
 <script src="scripts<?= $baseUrl ?>.js?<?= date('d.i') . rand() ?>"></script>
 
 <?php
