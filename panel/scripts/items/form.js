@@ -18,7 +18,8 @@
 
 	function loadTpl(name) {
 		if (cache[name]) return Promise.resolve(cache[name]);
-		return fetch(TPL_BASE + name + '.html', { credentials: 'include' })
+		// cache-bust en dev para no servir templates viejos del cache del browser
+		return fetch(TPL_BASE + name + '.html?v=' + Date.now(), { credentials: 'include' })
 			.then(function (r) { return r.text(); })
 			.then(function (t) { cache[name] = t; return t; });
 	}
