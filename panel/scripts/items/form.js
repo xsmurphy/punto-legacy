@@ -77,6 +77,21 @@
 			grossFmt:      fmt(gross),
 			taxes:         withSelected(d.options && d.options.taxes,      it.taxid),
 			categories:    withSelected(d.options && d.options.categories, it.categoryid),
+
+			// settingsTab
+			brands:           withSelected(d.options && d.options.brands,   it.brandid),
+			outlets:          withSelected(d.options && d.options.outlets,  it.outletid),
+			discount:         it.itemdiscount ? parseFloat(it.itemdiscount) : 0,
+			uom:              it.itemuom || '',
+			waste:            it.itemwaste || '',
+			sort:             (it.itemsort !== undefined && it.itemsort !== null) ? it.itemsort : '',
+			commission:       it.itemcomissionpercent || '',
+			commissionSymbol: truthy(it.itemcomissiontype) ? (window.currency || '$') : '%',
+			pricePercent:     it.itempricepercent || '',
+			priceTypeSymbol:  truthy(it.itempricetype) ? '%' : (window.currency || '$'),
+			taxIncluded:      truthy(it.itemtaxincluded),
+			ecom:             truthy(it.itemecom),
+			featured:         truthy(it.itemfeatured),
 		};
 	}
 
@@ -97,11 +112,13 @@
 						loadTpl('shell'),
 						loadTpl('header-default'),
 						loadTpl('dataTab'),
+						loadTpl('settingsTab'),
 					]).then(function (tpls) {
 						var vm = buildViewModel(d);
 						var html = Mustache.render(tpls[0], vm, {
-							header:  tpls[1],
-							dataTab: tpls[2],
+							header:      tpls[1],
+							dataTab:     tpls[2],
+							settingsTab: tpls[3],
 						});
 						// .first() + .empty() evita duplicar si el modal-content
 						// ya tenía un render previo o si el selector matchea más de uno.

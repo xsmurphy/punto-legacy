@@ -499,6 +499,9 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 				'brands'     => _itemsMapOptions(getAllItemBrands()),
 				'categories' => _itemsMapOptions(getAllItemCategories()),
 				'taxes'      => _itemsMapOptions(getAllTax()),
+				'outlets'    => array_map(function ($o) {
+					return ['id' => enc($o['id']), 'name' => $o['name']];
+				}, array_values(getAllOutlets())),
 			],
 		];
 

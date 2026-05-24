@@ -1,0 +1,83 @@
+<div class="tab-pane bg-white col-xs-12 wrapper animated fadeIn speed-4x" id="settingsTabV2" style="min-height: 400px;">
+	<div class="col-xs-12 no-padder">
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Marca</span>
+			<select id="brandEdit" name="brand" class="form-control brand no-bg no-border b-b b-light m-b searchSimple" autocomplete="off">
+				<option value="">Seleccionar</option>
+				{{#brands}}<option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>{{/brands}}
+			</select>
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Sucursal</span>
+			<select name="outlet" class="form-control no-bg no-border searchSimple b-b b-light" autocomplete="off">
+				<option value="all">Todas</option>
+				{{#outlets}}<option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>{{/outlets}}
+			</select>
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Descuento %</span>
+			<input type="text" class="form-control no-padder no-border maskPercent no-bg b-b" placeholder="0" name="itemDiscount" value="{{discount}}" autocomplete="off">
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Unidad de medida</span>
+			<input type="text" class="form-control no-padder no-border no-bg b-b" name="uom" placeholder="Ej. ml" value="{{uom}}" autocomplete="off">
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Merma %</span>
+			<input type="text" class="form-control no-padder no-border maskInteger no-bg b-b" name="waste" placeholder="0" value="{{waste}}" autocomplete="off">
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Prioridad de Ordenamiento</span>
+			<input type="text" class="form-control no-padder no-border maskInteger no-bg b-b" name="sort" placeholder="0" value="{{sort}}" autocomplete="off">
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Comisión</span>
+			<div class="input-group">
+				<input type="text" class="form-control no-border maskInteger no-bg b-b text-left" placeholder="0" name="itemComission" value="{{commission}}" autocomplete="off" id="itemComission">
+				<span class="input-group-addon">{{commissionSymbol}}</span>
+				<input class="comissionType" type="hidden" value="{{commissionSymbol}}" name="comissionType">
+			</div>
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<span class="font-bold text-u-c text-xs">Tipo de Precio (% sobre costo)</span>
+			<div class="input-group">
+				<input type="text" class="form-control no-border maskPercentInt no-bg b-b text-right" placeholder="0" name="itemPricePercent" id="itemPricePercent" value="{{pricePercent}}" autocomplete="off">
+				<span class="input-group-addon">{{priceTypeSymbol}}</span>
+				<input class="priceType" type="hidden" value="{{priceTypeSymbol}}" name="priceType">
+			</div>
+			<div class="font-bold text-u-c text-xs m-t">IVA Incluído</div>
+			<div class="switch-select switch {{#taxIncluded}}selected{{/taxIncluded}}" id="taxIncluded">
+				<div class="swinner">
+					<input type="checkbox" name="taxIncluded" class="taxIncludedClass" value="1" {{#taxIncluded}}checked{{/taxIncluded}} />
+				</div>
+			</div>
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<div class="font-bold text-u-c text-xs">Online</div>
+			<div class="switch-select switch {{#ecom}}selected{{/ecom}}" id="ecom">
+				<div class="swinner">
+					<input type="checkbox" name="ecom" class="ecomClass" value="1" {{#ecom}}checked{{/ecom}} />
+				</div>
+			</div>
+		</div>
+
+		<div class="col-sm-6 m-b">
+			<div class="font-bold text-u-c text-xs">Destacado</div>
+			<div class="switch-select switch {{#featured}}selected{{/featured}}" id="featured">
+				<div class="swinner">
+					<input type="checkbox" name="featured" class="featuredClass" value="1" {{#featured}}checked{{/featured}} />
+				</div>
+			</div>
+		</div>
+
+	</div>
+</div>
