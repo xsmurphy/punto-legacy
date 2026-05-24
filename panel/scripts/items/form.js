@@ -29,6 +29,11 @@
 	function fmtNoDec(v) {
 		return formatNumber(v || 0, '', 'no', window.thousandSeparator);
 	}
+	// El JSON trae booleanos PG como true/false (no 1/0). parseInt(true)=NaN,
+	// así que hay que aceptar ambos.
+	function truthy(v) {
+		return v === true || v === 1 || v === '1' || parseInt(v, 10) > 0;
+	}
 
 	function buildViewModel(d) {
 		var it = d.item || {};
@@ -60,8 +65,8 @@
 			description:   it.itemdescription || it.description || '',
 			currency:      window.currency || '',
 			finalPriceFmt: fmt(finalPrice),
-			canSale:       parseInt(it.itemcansale, 10) > 0,
-			archived:      !(parseInt(it.itemstatus, 10) > 0),
+			canSale:       truthy(it.itemcansale),
+			archived:      !truthy(it.itemstatus),
 			typeName:      f.typeName || '',
 			img:           '/assets/250-250/0/' + window.companyId + '_' + it.itemid + '.jpg?' + (it.updated_at || ''),
 			imgFlag:       d.image ? 1 : 0,
@@ -97,8 +102,11 @@
 							header:  tpls[1],
 							dataTab: tpls[2],
 						});
-						$(modalSel + ' .modal-content').html(html);
-						$(modalSel + ' .modal-dialog').addClass('modal-lg');
+						// .first() + .empty() evita duplicar si el modal-content
+						// ya tenía un render previo o si el selector matchea más de uno.
+						var $content = $(modalSel + ' .modal-content').first();
+						$content.empty().html(html);
+						$(modalSel + ' .modal-dialog').first().addClass('modal-lg');
 						$(modalSel).modal('show');
 						return vm;
 					});

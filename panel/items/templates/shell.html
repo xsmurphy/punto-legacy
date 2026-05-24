@@ -4,28 +4,23 @@
 <div class="modal-body no-padder bg-white">
 	<form action="/items?action=update" method="post" id="editItemV2" name="editItemV2">
 		<input type="hidden" name="id" value="{{itemId}}">
-		<div class="col-sm-12 no-padder">
-			<div class="row m0">
 
-				{{> header}}
+		{{> header}}
 
-				<div class="col-sm-8 no-padder bg-white">
-					<div class="col-xs-12 no-padder bg-light dk block">
-						<header class="header bg-light lt">
-							<ul class="nav nav-tabs nav-white">
-								<li class="active">
-									<a href="#dataTabV2" class="tabs" title="Información">
-										<i class="material-icons">list_alt</i>
-									</a>
-								</li>
-							</ul>
-						</header>
-					</div>
-					<div class="tab-content">
-						{{> dataTab}}
-					</div>
-				</div>
-
+		<div class="col-sm-8 no-padder bg-white matchCols">
+			<div class="col-xs-12 no-padder bg-light dk block">
+				<header class="header bg-light lt">
+					<ul class="nav nav-tabs nav-white">
+						<li class="active">
+							<a href="#dataTabV2" class="tabs" title="Información">
+								<i class="material-icons">list_alt</i>
+							</a>
+						</li>
+					</ul>
+				</header>
+			</div>
+			<div class="tab-content">
+				{{> dataTab}}
 			</div>
 		</div>
 	</form>
