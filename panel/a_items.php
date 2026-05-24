@@ -3472,6 +3472,12 @@ if (validateHttp('action') == 'showTable') {
 	$outletNow 			= ($cOutletName == 'None') ? '' : $cOutletName;
 	$class 					= 'bg-light lter';
 
+	// Modo JSON: mismo cómputo que el render HTML pero devuelve datos crudos.
+	// El front (DataTables data-driven) arma la presentación. Ver
+	// context/02-arquitectura.md § Patrón de refactorización por fases.
+	$asJson    = validateHttp('format') === 'json';
+	$jsonItems = [];
+
 	$debug = false;
 	if (!empty($_GET['debug'])) {
 		$db->debug = true;
@@ -3594,6 +3600,13 @@ if (validateHttp('action') == 'showTable') {
 		endPageLoadTimeCalculator($timeSE, 'before while', true);
 
 		while (!$result->EOF) {
+
+			// Reset por iteración para que el modo JSON no arrastre valores
+			// computados condicionalmente en la fila anterior.
+			$class       = 'bg-light lter';
+			$avCOGS      = 0;
+			$capacityIs  = null;
+			$stockRaw    = 0;
 
 			$fields 			= $result->fields;
 			$brand 				= toUTF8(iftn($allBrandsArray[$fields['brandId']]['name'] ?? false, '-'));
@@ -3827,6 +3840,40 @@ if (validateHttp('action') == 'showTable') {
 				$table .= '[@]';
 			}
 
+			if ($asJson) {
+				$jsonItems[] = [
+					'itemId'         => $fields['itemId'],
+					'name'           => toUTF8($fields['itemName']),
+					'type'           => $itemType,
+					'textIcon'       => $textIcon,
+					'date'           => $fechUgly,
+					'sku'            => $fields['itemSKU'],
+					'uom'            => $fields['itemUOM'],
+					'brand'          => $brand,
+					'category'       => $category,
+					'outlet'         => $outletName,
+					'sessions'       => $fields['itemSessions'],
+					'duration'       => $fields['itemDuration'],
+					'waste'          => (float) $fields['itemWaste'],
+					'commission'     => $fields['itemComissionPercent'],
+					'commissionType' => (int) $fields['itemComissionType'],
+					'discount'       => (float) $fields['itemDiscount'],
+					'cogs'           => (float) $avCOGS,
+					'price'          => (float) $rawPrice,
+					'priceStored'    => (float) $fields['itemPrice'],
+					'value'          => ($avCOGS > 0) ? ($avCOGS * $stockRaw) : 0,
+					'tax'            => $taxName,
+					'stock'          => (float) $stockRaw,
+					'stockClass'     => $class,
+					'capacity'       => $capacityIs,
+					'online'         => (bool) $fields['itemEcom'],
+					'image'          => (bool) $fields['itemImage'],
+					'canSell'        => (int) $fields['itemCanSale'],
+					'trackInventory' => (int) $fields['itemTrackInventory'],
+					'isParent'       => (bool) $fields['itemIsParent'],
+					'narrow'         => $modalNarrow !== '',
+				];
+			}
 
 			$result->MoveNext();
 		}
@@ -3882,6 +3929,30 @@ if (validateHttp('action') == 'showTable') {
 		'</span>';
 
 	endPageLoadTimeCalculator($timeSE, 'after cats btn', true);
+
+	// Modo JSON data-driven: datos crudos + envelope canónico. El front arma
+	// la tabla con DataTables (columns + render). categories como lista de
+	// objetos en vez de HTML <ul>.
+	if ($asJson) {
+		$cats = [];
+		$catRs = ncmExecute('SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = \'category\' AND ' . $SQLcompanyId . ' ORDER BY CAST(taxonomyExtra AS INTEGER) ASC LIMIT 500', [], false, true);
+		if ($catRs) {
+			while (!$catRs->EOF) {
+				$cats[] = ['id' => $catRs->fields['taxonomyId'], 'name' => toUTF8($catRs->fields['taxonomyName'])];
+				$catRs->MoveNext();
+			}
+		}
+		header('Content-Type: application/json');
+		dai(json_encodes([
+			'ok'   => true,
+			'data' => [
+				'items'      => $jsonItems,
+				'total'      => count($jsonItems),
+				'categories' => $cats,
+			],
+			'meta' => ['ts' => time(), 'v' => '1'],
+		], true));
+	}
 
 	if (validateHttp('part')) {
 		dai($table);
