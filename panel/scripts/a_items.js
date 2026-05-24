@@ -252,17 +252,24 @@
 
 				itemsApi.create(type ? { type: type } : {}).then(function(created) {
 					var id = created.itemid;
-					loadForm(baseUrl + '?action=editform&id=' + id, '#modalLarge .modal-content', function() {
-						if (narrow) {
-							$('#modalLarge .modal-dialog').removeClass('modal-lg');
-						} else {
-							$('#modalLarge .modal-dialog').addClass('modal-lg');
-						}
+					// form-v2 para el item recién creado (mismo flujo que el click).
+					var openV2 = window.itemFormV2 && typeof itemFormV2.open === 'function';
+					var done = function() {
 						editItemActions();
 						$('#modalLarge').modal('show').one('shown.bs.modal', function() {
 							fetchAndPlaceRow(oTable, tableOps.rawUrl, id);
 						});
-					});
+					};
+					if (openV2) {
+						itemFormV2.open(id, '#modalLarge').then(function(vm) {
+							if (!vm) { loadForm(baseUrl + '?action=editform&id=' + id, '#modalLarge .modal-content', done); return; }
+							done();
+						}).catch(function() {
+							loadForm(baseUrl + '?action=editform&id=' + id, '#modalLarge .modal-content', done);
+						});
+					} else {
+						loadForm(baseUrl + '?action=editform&id=' + id, '#modalLarge .modal-content', done);
+					}
 				}).catch(function(err) {
 					if (err.code === 403) {
 						ncmDialogs.alert('No posee permisos');
@@ -507,17 +514,29 @@
 					if($('.modal').is(':visible')){
 						$('.modal').modal('hide');
 					}
-					
-					$(modal).find('.modal-content').html('<div class="col-xs-12 no-padder">' + placeHolder + '</div>',function(){
-						setTimeout(function(){
-							$(modal).modal('show');
-						},300);
-						
+
+					// form-v2: arma el form desde templates Mustache + JSON.
+					// editItemActions() engancha los eventos (submit, máscaras,
+					// compuestos) — funcionan porque el v2 usa los mismos ids/
+					// names que el legacy. Fallback a loadForm si el v2 falla.
+					var legacyOpen = function(){
+						$(modal).find('.modal-content').html('<div class="col-xs-12 no-padder">' + placeHolder + '</div>');
+						setTimeout(function(){ $(modal).modal('show'); }, 300);
 						loadForm(load, modal + ' .modal-content', function(){
 							helpers.loadPageLoad = true;
-							editItemActions();				
+							editItemActions();
 						});
-					});
+					};
+
+					if(window.itemFormV2 && typeof itemFormV2.open === 'function'){
+						itemFormV2.open(jHash['i'], modal).then(function(vm){
+							if(!vm){ legacyOpen(); return; }   // v2 falló silenciosamente
+							helpers.loadPageLoad = true;
+							editItemActions();
+						}).catch(function(){ legacyOpen(); });
+					}else{
+						legacyOpen();
+					}
 				}
 			});
 

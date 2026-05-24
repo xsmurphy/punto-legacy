@@ -88,6 +88,7 @@
 			giftExpMonth: d.giftExpTime === 'month',
 			giftExpDay:   d.giftExpTime === 'day',
 
+			baseUrl:       window.baseUrl || '/a_items',
 			isParent:      truthy(it.itemisparent),
 			itemId:        it.itemid,
 			itemName:      it.itemname || '',

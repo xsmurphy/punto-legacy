@@ -2753,6 +2753,12 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 
 	// JSONB routing lo hace ncmUpdate vía ItemService — no collapse manual.
 
+	// itemSort es INTEGER en PG — el input lleva máscara con separador de miles
+	// ("99.999"), que PG rechaza. Sanitizar a entero puro.
+	if (isset($record['itemSort'])) {
+		$record['itemSort'] = (int) preg_replace('/\D/', '', (string) $record['itemSort']);
+	}
+
 	$itemService = new ItemService(new ItemRepository($db));
 	$update      = $itemService->update($id, COMPANY_ID, $record);
 	if ($update === false) {

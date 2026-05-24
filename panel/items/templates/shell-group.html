@@ -1,7 +1,7 @@
 <div class="modal-body no-padder bg-white">
-	<form action="/items?action=update" method="post" id="editItemV2" name="editItemV2">
+	<form action="{{baseUrl}}?action=update" method="post" id="editItem" name="editItem">
 		<div class="col-xs-12 wrapper text-center bg-info gradBgBlue animateBg">
-			<input type="text" id="insertItemNameV2" class="form-control maskRequiredText text-center no-border b-b b-white no-bg font-bold text-white m-t m-b" style="font-size:25px; height:55px;" name="name" placeholder="Nombre" value="{{itemName}}" autocomplete="off">
+			<input type="text" id="insertItemName" class="form-control maskRequiredText text-center no-border b-b b-white no-bg font-bold text-white m-t m-b" style="font-size:25px; height:55px;" name="name" placeholder="Nombre" value="{{itemName}}" autocomplete="off">
 		</div>
 
 		<div class="col-xs-12 bg-white wrapper">
@@ -47,7 +47,7 @@
 			</div>
 
 			<div class="col-xs-12 no-padder m-t-md">
-				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="archiveItem" data-load="/items?action=delete&id={{itemId}}" title="Eliminar"><span class="text-danger">Eliminar</span></a>
+				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="archiveItem" data-load="{{baseUrl}}?action=delete&id={{itemId}}" title="Eliminar"><span class="text-danger">Eliminar</span></a>
 				<input class="btn btn-info btn-lg btn-rounded text-u-c font-bold pull-right" type="submit" value="{{saveLabel}}">
 				<a href="#" class="cancelItemView m-r-lg m-t pull-right">Cancelar</a>
 				<input type="hidden" value="{{itemId}}" name="id">

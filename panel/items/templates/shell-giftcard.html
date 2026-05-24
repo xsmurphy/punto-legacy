@@ -1,5 +1,5 @@
 <div class="modal-body no-padder bg-white">
-	<form action="/items?action=update" method="post" id="editItemV2" name="editItemV2">
+	<form action="{{baseUrl}}?action=update" method="post" id="editItem" name="editItem">
 		<div class="col-sm-12 wrapper gradBgOrange clear" id="giftBg">
 			<div class="col-xs-12 no-padder text-center m-b-md">
 				<div><i class="material-icons text-white" style="font-size:120px!important;">card_giftcard</i></div>
@@ -8,7 +8,7 @@
 			<div class="col-xs-12 no-padder text-center text-white">Añada un nombre y un monto mínimo inicial</div>
 
 			<div class="col-sm-8 wrapper-xs m-b">
-				<input type="text" id="insertItemNameV2" class="form-control maskRequiredText no-border b-b b-white no-bg font-bold text-white" style="font-size:25px; height:55px;" name="name" placeholder="Nombre" value="{{itemName}}" autocomplete="off">
+				<input type="text" id="insertItemName" class="form-control maskRequiredText no-border b-b b-white no-bg font-bold text-white" style="font-size:25px; height:55px;" name="name" placeholder="Nombre" value="{{itemName}}" autocomplete="off">
 			</div>
 
 			<div class="col-sm-4 wrapper-xs m-b">
@@ -59,7 +59,7 @@
 			</div>
 
 			<div class="col-xs-12 no-padder m-t-md">
-				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="archiveItem" data-load="/items?action=archive&id={{itemId}}" title="Archivar Artículo"><span class="text-white font-bold">Archivar</span></a>
+				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="archiveItem" data-load="{{baseUrl}}?action=archive&id={{itemId}}" title="Archivar Artículo"><span class="text-white font-bold">Archivar</span></a>
 				<input class="btn btn-info btn-lg btn-rounded text-u-c font-bold pull-right" type="submit" value="{{saveLabel}}">
 				<a href="#" class="cancelItemView m-r-lg m-t pull-right">Cancelar</a>
 				<input type="hidden" value="{{itemId}}" name="id">

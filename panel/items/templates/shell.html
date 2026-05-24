@@ -1,5 +1,5 @@
 <div class="modal-body no-padder bg-white">
-	<form action="/items?action=update" method="post" id="editItemV2" name="editItemV2">
+	<form action="{{baseUrl}}?action=update" method="post" id="editItem" name="editItem">
 		<input type="hidden" name="id" value="{{itemId}}">
 
 		{{> header}}
@@ -9,37 +9,37 @@
 				<header class="header bg-light lt">
 					<ul class="nav nav-tabs nav-white">
 						<li class="active">
-							<a href="#dataTabV2" class="tabs" title="Información">
+							<a href="#dataTab" class="tabs" title="Información">
 								<i class="material-icons">list_alt</i>
 							</a>
 						</li>
 						<li>
-							<a href="#settingsTabV2" class="tabs" title="Ajustes">
+							<a href="#settingsTab" class="tabs" title="Ajustes">
 								<i class="material-icons">settings</i>
 							</a>
 						</li>
 						{{#productionTools}}
 						<li>
-							<a href="#productionTabV2" class="tabs" title="Producción">
+							<a href="#productionTab" class="tabs" title="Producción">
 								<i class="material-icons">precision_manufacturing</i>
 							</a>
 						</li>
 						{{/productionTools}}
 						{{#inventoryTools}}
 						<li>
-							<a href="#inventoryTabV2" class="tabs" title="Inventario">
+							<a href="#inventoryTab" class="tabs" title="Inventario">
 								<i class="material-icons">inventory</i>
 							</a>
 						</li>
 						{{/inventoryTools}}
 						{{#comboTools}}
 						<li>
-							<a href="#kitTabV2" class="tabs" title="Combo">
+							<a href="#kitTab" class="tabs" title="Combo">
 								<i class="material-icons">layers</i>
 							</a>
 						</li>
 						<li>
-							<a href="#upsellTabV2" class="tabs" title="Upsell">
+							<a href="#upsellTab" class="tabs" title="Upsell">
 								<i class="material-icons">loupe</i>
 							</a>
 						</li>
@@ -57,10 +57,10 @@
 
 			<div class="col-xs-12 no-padder m-t-md wrapper">
 				{{#archived}}
-				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="deleteItem" data-load="/items?action=delete&id={{itemId}}" title="Eliminar Artículo"><span class="text-danger">Eliminar</span></a>
+				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="deleteItem" data-load="{{baseUrl}}?action=delete&id={{itemId}}" title="Eliminar Artículo"><span class="text-danger">Eliminar</span></a>
 				{{/archived}}
 				{{^archived}}
-				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="archiveItem" data-load="/items?action=archive&id={{itemId}}" title="Archivar Artículo"><span class="text-danger">Archivar</span></a>
+				<a href="#" class="pull-left m-t m-l itemsAction" data-id="{{itemId}}" data-type="archiveItem" data-load="{{baseUrl}}?action=archive&id={{itemId}}" title="Archivar Artículo"><span class="text-danger">Archivar</span></a>
 				{{/archived}}
 				<input class="btn btn-info btn-lg btn-rounded text-u-c font-bold pull-right" type="submit" value="{{saveLabel}}">
 				<a href="#" class="cancelItemView m-r-lg m-t pull-right">Cancelar</a>
