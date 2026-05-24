@@ -65,6 +65,18 @@
 			productionTools: !!f.productionTools,
 			comboTools:      !!f.comboTools,
 
+			// selectores por tipo (Mustache logic-less → pre-computar el selected)
+			type:               f.type,
+			isPrecombo:         f.type === 'precombo',
+			isCombo:            f.type === 'combo',
+			isComboAddons:      f.type === 'comboAddons',
+			isProduct:          f.type === 'product',
+			isProduction:       f.type === 'production',
+			isDirectProduction: f.type === 'direct_production',
+
+			// compuestos / receta
+			compounds:     d.compounds || [],
+
 			itemId:        it.itemid,
 			itemName:      it.itemname || '',
 			itemSKU:       it.itemsku || '',
@@ -127,13 +139,17 @@
 						loadTpl('dataTab'),
 						loadTpl('settingsTab'),
 						loadTpl('inventoryTab'),
+						loadTpl('productionTab'),
+						loadTpl('kitTab'),
 					]).then(function (tpls) {
 						var vm = buildViewModel(d);
 						var html = Mustache.render(tpls[0], vm, {
-							header:       tpls[1],
-							dataTab:      tpls[2],
-							settingsTab:  tpls[3],
-							inventoryTab: tpls[4],
+							header:        tpls[1],
+							dataTab:       tpls[2],
+							settingsTab:   tpls[3],
+							inventoryTab:  tpls[4],
+							productionTab: tpls[5],
+							kitTab:        tpls[6],
 						});
 						// .first() + .empty() evita duplicar si el modal-content
 						// ya tenía un render previo o si el selector matchea más de uno.

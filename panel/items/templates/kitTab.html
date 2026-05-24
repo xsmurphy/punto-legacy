@@ -1,0 +1,53 @@
+<div class="tab-pane bg-white col-xs-12 wrapper animated fadeIn speed-4x" id="kitTabV2" style="min-height: 400px;">
+
+	<div class="col-xs-12 wrapper">
+		<div class="col-xs-12 no-padder h4 font-bold text-u-c m-b">Tipo de combo</div>
+		<div class="col-xs-12 no-padder">
+			<div class="col-sm-3 no-padder"></div>
+			<div class="col-sm-6 no-padder">
+				<select class="form-control rounded" name="comboType" id="comboSelector" data-type="{{type}}">
+					<option value="1" {{#isPrecombo}}selected{{/isPrecombo}}>Predefinido</option>
+					<option value="2" {{#isCombo}}selected{{/isCombo}}>Dinámico</option>
+					<option value="3" {{#isComboAddons}}selected{{/isComboAddons}}>Add-on</option>
+				</select>
+			</div>
+			<div class="col-sm-3 no-padder"></div>
+		</div>
+	</div>
+
+	<div class="col-xs-12 h4 m-t-md font-bold wrapper text-u-c">Compuestos</div>
+
+	<div class="col-xs-12 no-padder">
+		<div class="col-xs-12 wrapper bg-light lter r-3x" id="compoundHolder">
+			{{#compounds}}
+			<div class="TextBoxDiv row">
+				<div class="col-sm-6 wrapper-xs">
+					<select name="compid[]" class="form-control bg-white no-border b-b compoundSelect searchAjax" autocomplete="off">
+						<option value="{{compoundId}}">{{name}}</option>
+					</select>
+				</div>
+				<div class="col-sm-4 wrapper-xs">
+					<input type="text" class="form-control text-right no-border b-b no-bg maskFloat" name="compunits[]" data-units="{{qtyFmt}}" value="{{qtyFmt}}">
+				</div>
+				<div class="col-sm-2 wrapper-xs uom font-bold m-t-sm">
+					<span class="badge">{{uom}}</span>
+				</div>
+			</div>
+			{{/compounds}}
+
+			<div class="TextBoxDiv">
+				<div class="col-sm-6 wrapper-xs">
+					<select name="compid[]" class="form-control bg-white no-border b-b compoundSelect searchAjax" autocomplete="off"></select>
+				</div>
+				<div class="col-sm-4 wrapper-xs">
+					<input type="text" class="form-control text-right no-border b-b no-bg maskFloat" name="compunits[]" placeholder="Cantidad" value="">
+				</div>
+				<div class="col-sm-2 wrapper-xs uom font-bold m-t-sm"><span class="badge"></span></div>
+			</div>
+		</div>
+		<div class="col-xs-12 text-right m-t m-b">
+			<a href="#" id="addCompound" class="m-r-lg"><span class="text-info font-bold text-u-c">Agregar</span></a>
+		</div>
+	</div>
+
+</div>

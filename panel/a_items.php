@@ -454,12 +454,15 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 		$compRs = getCompoundsArray($result['itemId']);
 		if (validity($compRs, 'array')) {
 			foreach ($compRs as $c) {
+				$cData = ncmExecute('SELECT itemUOM, itemPrice FROM item WHERE itemId = ? LIMIT 1', [$c['compoundId']]);
 				$compounds[] = [
 					'compoundId'  => enc($c['compoundId']),
 					'qty'         => $c['toCompoundQty'],
+					'qtyFmt'      => number_format((float) $c['toCompoundQty'], 2, '.', ''),
 					'order'       => $c['toCompoundOrder'],
-					'preselected' => !empty($c['toCompoundPreselected']) ? enc($c['toCompoundPreselected']) : null,
+					'preselected' => !empty($c['toCompoundPreselected']),
 					'name'        => getItemName($c['compoundId']),
+					'uom'         => is_object($cData) ? ($cData['itemUOM'] ?? '') : '',
 				];
 			}
 		}

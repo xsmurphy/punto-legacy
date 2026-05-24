@@ -1,0 +1,59 @@
+<div class="tab-pane bg-white col-xs-12 wrapper animated fadeIn speed-4x" id="productionTabV2" style="min-height: 400px;">
+
+	<div class="col-xs-12 wrapper">
+		<div class="col-xs-12 no-padder h4 font-bold text-u-c m-b">Tipos de producción</div>
+		<div class="col-xs-12 no-padder">
+			<div class="col-sm-3 no-padder"></div>
+			<div class="col-sm-6 no-padder">
+				<select class="form-control rounded" id="productionType" name="productionType">
+					<option value="3" {{#isProduct}}selected{{/isProduct}}>Ningún tipo</option>
+					<option value="2" {{#isDirectProduction}}selected{{/isDirectProduction}}>Directa</option>
+					<option value="1" {{#isProduction}}selected{{/isProduction}}>Previa</option>
+				</select>
+			</div>
+			<div class="col-sm-3 no-padder"></div>
+		</div>
+	</div>
+
+	<div class="col-xs-12 wrapper h4 m-t font-bold text-u-c">Insumos</div>
+
+	<div class="col-xs-12 no-padder">
+		<div class="col-xs-12 wrapper bg-light lter r-3x" id="compoundHolderProd">
+			{{#compounds}}
+			<div class="TextBoxDiv row">
+				<div class="col-sm-6 wrapper-xs">
+					<select name="compid[]" class="form-control bg-white no-border b-b compoundSelect searchAjax" autocomplete="off">
+						<option value="{{compoundId}}">{{name}}</option>
+					</select>
+				</div>
+				<div class="col-sm-2 wrapper-xs">
+					<input type="text" class="form-control text-right no-border b-b no-bg maskFloat3" name="compunits[]" placeholder="Cantidad" value="{{qtyFmt}}">
+				</div>
+				<div class="col-sm-2 wrapper-xs uom font-bold m-t-sm text-right">
+					<span class="badge m-r">{{uom}}</span>
+				</div>
+				<div class="col-sm-2 wrapper-xs">
+					<a href="#" class="rmCompound" data-index="{{order}}">
+						<span class="text-danger m-r-xs material-icons">close</span>
+					</a>
+				</div>
+			</div>
+			{{/compounds}}
+
+			<div class="TextBoxDiv">
+				<div class="col-sm-6 wrapper-xs">
+					<select name="compid[]" class="form-control bg-white no-border b-b compoundSelect searchAjax" autocomplete="off"></select>
+				</div>
+				<div class="col-sm-2 wrapper-xs">
+					<input type="text" class="form-control text-right no-border b-b no-bg maskFloat3" name="compunits[]" placeholder="Cantidad" value="">
+				</div>
+				<div class="col-sm-2 wrapper-xs uom font-bold m-t-sm"><span class="badge"></span></div>
+				<div class="col-sm-2"></div>
+			</div>
+		</div>
+		<div class="col-xs-12 text-right m-t m-b">
+			<a href="#" id="addCompoundProd" class="m-r-lg"><span class="text-info font-bold text-u-c">Agregar</span></a>
+		</div>
+	</div>
+
+</div>

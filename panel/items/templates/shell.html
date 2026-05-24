@@ -18,6 +18,13 @@
 								<i class="material-icons">settings</i>
 							</a>
 						</li>
+						{{#productionTools}}
+						<li>
+							<a href="#productionTabV2" class="tabs" title="Producción">
+								<i class="material-icons">precision_manufacturing</i>
+							</a>
+						</li>
+						{{/productionTools}}
 						{{#inventoryTools}}
 						<li>
 							<a href="#inventoryTabV2" class="tabs" title="Inventario">
@@ -25,13 +32,22 @@
 							</a>
 						</li>
 						{{/inventoryTools}}
+						{{#comboTools}}
+						<li>
+							<a href="#kitTabV2" class="tabs" title="Combo">
+								<i class="material-icons">layers</i>
+							</a>
+						</li>
+						{{/comboTools}}
 					</ul>
 				</header>
 			</div>
 			<div class="tab-content">
 				{{> dataTab}}
 				{{> settingsTab}}
+				{{#productionTools}}{{> productionTab}}{{/productionTools}}
 				{{#inventoryTools}}{{> inventoryTab}}{{/inventoryTools}}
+				{{#comboTools}}{{> kitTab}}{{/comboTools}}
 			</div>
 		</div>
 	</form>
