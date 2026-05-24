@@ -430,6 +430,68 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 	$archiveSelected = ($result['itemStatus'] > 0) ? true : false;
 	$reorderSelected = $result['autoReOrder'];
 
+	// ── Modo JSON: datos del form para hidratar el template en el front ──
+	// Additivo: el HTML legacy (abajo) sigue intacto para ?action=editform sin format.
+	if (validateHttp('format') === 'json') {
+		require_once __DIR__ . '/lib/items/LocationService.php';
+		$locSvc = new LocationService($db);
+
+		// Compuestos (receta de producción / combo)
+		$compounds = [];
+		$compRs = getCompoundsArray($result['itemId']);
+		if (validity($compRs, 'array')) {
+			foreach ($compRs as $c) {
+				$compounds[] = [
+					'compoundId'  => enc($c['compoundId']),
+					'qty'         => $c['toCompoundQty'],
+					'order'       => $c['toCompoundOrder'],
+					'preselected' => !empty($c['toCompoundPreselected']) ? enc($c['toCompoundPreselected']) : null,
+					'name'        => getItemName($c['compoundId']),
+				];
+			}
+		}
+
+		// Upsells
+		$upsells = [];
+		$upRs = ncmExecute('SELECT upsellChildId FROM upsell WHERE upsellParentId = ?', [$result['itemId']], false, true);
+		if ($upRs) {
+			while (!$upRs->EOF) {
+				$cid = $upRs->fields['upsellChildId'];
+				$upsells[] = ['id' => enc($cid), 'name' => getItemName($cid)];
+				$upRs->MoveNext();
+			}
+		}
+
+		$payload = [
+			'item' => _flattenJsonb($result)->toArray(),
+			'form' => [
+				'type'            => $type,
+				'realType'        => $realType,
+				'typeName'        => $typeName ?? '',
+				'productionTools' => (bool) $productionTools,
+				'inventoryTools'  => (bool) $inventoryTools,
+				'comboTools'      => (bool) $comboTools,
+				'itemTypeSelect'  => trim(($itemTypeOne ?? '') ? '0' : (($itemTypeTwo ?? '') ? '1' : (($itemTypeThree ?? '') ? '2' : (($itemTypeFour ?? '') ? '3' : (($itemTypeFive ?? '') ? 'dynamic' : '0'))))),
+				'archiveSelected' => $archiveSelected,
+				'reorderSelected' => $reorderSelected,
+			],
+			'price'     => (float) $itemPrice,
+			'stock'     => $itemStock ?? null,
+			'image'     => !empty($result['itemImage']),
+			'compounds' => $compounds,
+			'upsells'   => $upsells,
+			'locations' => $locSvc->listForItem($result['itemId']),
+			'options'   => [
+				'brands'     => array_values(getAllItemBrands()),
+				'categories' => array_values(getAllItemCategories()),
+				'taxes'      => array_values(getAllTax()),
+			],
+		];
+
+		header('Content-Type: application/json');
+		dai(json_encodes(['ok' => true, 'data' => $payload, 'meta' => ['ts' => time(), 'v' => '1']], true));
+	}
+
 ?>
 
 	<div class="modal-body no-padder bg-white">
