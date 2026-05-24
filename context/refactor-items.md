@@ -51,18 +51,30 @@ Más 4 flags booleanos: `itemCanSale`, `itemTrackInventory`, `itemIsParent`, `it
 
 ## Arquitectura objetivo
 
+> **El patrón de 4 capas es canónico para todos los módulos** — ver
+> `context/02-arquitectura.md § Patrón de refactorización por fases`.
+> Items es la implementación de referencia.
+
+**Decisión 2026-05-19**: se evaluó migrar el front a React + shadcn
+(scaffold en `/panel/items-v2`, commit `69cb299`) pero se **revirtió**
+(commit `8b2563b`). Mantenemos el stack del front: **jQuery + Bootstrap 3
++ CSS vanilla**. Lo que se moderniza es la *organización*, no el *stack*.
+
 ```
-Frontend (SPA moderna en /panel/items-v2)
-         ↓ JSON envelope canónico
-BFF (PHP) — panel/lib/items/*
-  - ItemRepository, ItemService, PricingService,
-    StockService, CompoundService
-         ↓ SQL parametrizado
-PostgreSQL
-  - item normalizado, JSONB solo para extensiones reales
-  - item_variant + item_compound (junctions explícitas)
-  - taxonomy split → category, brand, tag, tax_rate
+① UI         a_items.js              JS + jQuery (DataTables, BS3)
+                  ↓ llama a
+② Cliente    scripts/api/items.js    JS vanilla (fetch) → window.itemsApi
+                  ↓ HTTP { ok, data }
+③ API REST   API/v1/items.php        PHP (apiMiddleware + apiOk)
+                  ↓ delega en
+④ Dominio    lib/items/*.php         PHP — Repository + Services
+                  ↓ SQL parametrizado
+             PostgreSQL
 ```
+
+Services en `panel/lib/items/`:
+`ItemRepository`, `ItemService`, `CompoundService`, `StockService`,
+`UpsellService`, `LocationService`.
 
 ### Endpoints objetivo (`/api/v1/items`)
 

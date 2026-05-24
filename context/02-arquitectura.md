@@ -97,3 +97,89 @@ a funciones de `panel/includes/functions.php`. No son módulos independientes.
 - **No ORM moderno** — ADOdb es legacy pero funcional; las queries son explícitas
 - **API dentro de panel/** — no se separa en repo aparte (no vale la pena aún)
 - **Agente IA como microservicio Python separado** — no toca el monolito PHP
+
+## Patrón de refactorización por fases (canónico)
+
+> **Esta es la estructura objetivo de TODA refactorización de módulos.**
+> Surgió del refactor de Items (ver `context/refactor-items.md`) y se aplica
+> a cualquier módulo legacy que vayamos modernizando (compras, clientes,
+> ventas, etc.). **No cambiamos de stack** — seguimos en PHP + jQuery +
+> Bootstrap 3. Lo que cambia es *cómo está organizado*, no *con qué está hecho*.
+
+### Las 4 capas
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  BROWSER                                                       │
+│                                                                │
+│  ① UI            a_<modulo>.js        JS + jQuery              │
+│     (tabla, modal, eventos)           ↑ DataTables + BS3       │
+│        │ llama a                                               │
+│        ▼                                                       │
+│  ② Cliente API   scripts/api/<x>.js   JS vanilla (fetch)       │
+│     (itemsApi.create, .update...)     ↑ sin jQuery, portable   │
+└────────┼───────────────────────────────────────────────────────┘
+         │ HTTP — JSON { ok, data } / { ok:false, error }
+┌────────▼───────────────────────────────────────────────────────┐
+│  SERVIDOR (PHP)                                                 │
+│                                                                │
+│  ③ API REST      API/v1/<x>.php       PHP                       │
+│     (GET/POST/PUT/DELETE)             ↑ apiMiddleware + apiOk() │
+│        │ delega en                                             │
+│        ▼                                                       │
+│  ④ Dominio       lib/<x>/*.php        PHP                       │
+│     (Service + Repository)            ↑ SQL parametrizado,      │
+│                                          reglas de negocio      │
+│        │                                                       │
+│        ▼  PostgreSQL                                           │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Regla de oro: separar por capa, no por pureza
+
+| Capa | Stack | Por qué |
+|------|-------|---------|
+| ① UI (DOM/eventos) | **jQuery** | DataTables y Bootstrap 3 son dependencias duras de jQuery. Sacarlo del código nuevo no reduce el bundle — solo agrega inconsistencia. |
+| ② Cliente API | **JS vanilla** (`fetch`) | Portable: si mañana cambia el front, el cliente se reusa. Cero jQuery. |
+| ③ API REST | **PHP** | Endpoint fino: auth (`apiMiddleware`) + envelope (`apiOk`/`apiError`) + delega en Services. Sin lógica de negocio. |
+| ④ Dominio | **PHP** | `<X>Service` orquesta reglas; `<X>Repository` hace SQL parametrizado. Reutilizable por API REST y handlers legacy. |
+
+**El backend NO cambia de lenguaje** — sigue siendo PHP. Solo se reorganiza:
+la lógica que antes vivía mezclada con HTML en `a_<modulo>.php` se extrae a
+Services + un endpoint REST limpio.
+
+### Envelope canónico (capa ③)
+
+```jsonc
+// éxito
+{ "ok": true, "data": { ... }, "meta": { "ts": 1234567890, "v": "1" } }
+// error
+{ "ok": false, "error": { "message": "...", "code": 422, "details": [] } }
+```
+
+Helpers: `apiOk($data)`, `apiError($msg, $code)`, `apiNotFound()`, etc.
+(`panel/API/lib/response.php`). El cliente vanilla (capa ②) desempaqueta
+`data` o lanza un `ApiError` tipado si `ok === false`.
+
+### Orden de las fases (probado en Items)
+
+| Fase | Qué hace | Riesgo |
+|------|----------|--------|
+| **0** | Quick wins: borrar duplicados, fix SQLi, migraciones de tipo | bajo |
+| **1** | Extraer dominio a `lib/<x>/` (Repository + Services) | bajo (no toca UI) |
+| **2** | API REST `/API/v1/<x>/*` que reusa los Services | bajo (superficie nueva) |
+| **3** | Schema cleanup (constraints, normalización incremental) | alto (migrations) |
+| **4** | Front consume la API: cliente vanilla + UI jQuery llama a la API en vez de a handlers PHP de UI | medio |
+| **5** | Decommission: borrar handlers PHP de UI ya migrados | medio |
+
+**`apiMiddleware` acepta 3 vías de auth** (en orden): JWT (`_jwt_panel`) →
+`api_key` + `company_id` → sesión PHP del panel (`$_SESSION['user']`). Esto
+último permite que el front logueado consuma su propia API con
+`fetch(..., { credentials:'include' })` sin credenciales extra.
+
+### Cuándo se reconsidera el stack del front
+
+Solo cuando se decida reemplazar **DataTables** (por tabla vanilla / web
+component) y **Bootstrap 3** (por BS5 sin jQuery, o CSS puro). Eso es un
+proyecto aparte con su propia fase — hasta entonces, jQuery se queda en la
+capa ①.
