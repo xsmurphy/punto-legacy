@@ -97,6 +97,16 @@ Archivo: `.env` (no commiteado). Template: `.env.example`
 **TO-DO**: Implementar runner automático que corra migraciones en deploy.
 Propuesta: script bash que checkee `schema_migrations` table y ejecute pendientes.
 
+### Privilegio de owner para DDL (hallazgo 2026-05-25)
+
+`ALTER TABLE DROP COLUMN` (y cualquier DDL que modifique estructura) requiere ser **OWNER** de la tabla. El usuario de app (`POSTGRES_USER=punto`) NO es owner — es el usuario de conexión de la aplicación y solo tiene privilegios DML (INSERT/UPDATE/SELECT/DELETE).
+
+**Regla operativa**: los scripts de migración con DDL (DROP COLUMN, ADD COLUMN, CREATE INDEX CONCURRENTLY, etc.) deben ejecutarse con el usuario superuser/owner de PG. En local: el usuario del OS (Postgres.app corre como el usuario macOS, ej: `xstian`). En producción: el usuario `postgres` superuser o el owner explícito de las tablas.
+
+El backfill UPDATE previo al DROP puede correr perfectamente con el usuario `punto` de la app.
+
+Ejemplo: migración `06_contact_jsonb_demote.sql` (backfill → DROP de 6 columnas) requirió ejecución como usuario owner, no como `punto`.
+
 ## Build pipeline
 
 ```bash

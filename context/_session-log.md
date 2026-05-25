@@ -3,6 +3,18 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-25 (contacts: JSONB demotion migración 06 + writers ncm + PG fixes — commits 53c5dae, 01d6eba)
+
+- **Schema**: 6 columnas descriptivas eliminadas de `contact` y movidas a `contact.data` JSONB (migración `06_contact_jsonb_demote.sql`, atómica: backfill UPDATE + DROP). Columnas demotadas: `contactNote`, `contactCity`, `contactLocation`, `contactCountry`, `contactAddress`, `contactAddress2`. Keys en camelCase consistente con convención existente.
+- **Regla de diseño establecida**: solo van como columnas reales los campos indexables o calculados por SQL; todo lo descriptivo/estático va a `data` JSONB. Aplica a `contact` ahora y a `item` (diferido). Documentado como invariante #6 en `04-modelo-de-dominio.md`.
+- **Writers migrados a ncm**: `add_customer.php`, `add_customers.php`, `edit_customer.php`, `edit_customers.php`, `a_contacts.php` — de `$db->AutoExecute` / bulk INSERT raw a `ncmInsert`/`ncmUpdate` (ADOdb AutoExecute hace hard-crash en columna inexistente; ncm rutea a JSONB automáticamente).
+- **`customerAddress` registrada en `_getTableSchema()`**: su ausencia inyectaba una columna `id` espuria y fallaba silenciosamente en cada INSERT de dirección.
+- **PG bugs corregidos**: (a) `generateUID()` devuelve INT — inválido para UUID PK; ahora `ncmInsert` genera UUID v7. (b) `customerAddressDefault = 1` crasheaba PG (`operator does not exist: boolean = integer`); corregido a `= true` en `ContactRepository` y `edit_customer.php`.
+- **Pendientes — 5 sitios `= 1` legacy** (rutas `/app` sin verificar): `panel/includes/functions.php:3464,3790`, `app/action.php`, `app/load.php`, `app/fetch.php`, `app/fetchs.php`. Documentado en invariante #7 de `04-modelo-de-dominio.md`.
+- **Pendiente — reader de descarga en `a_contacts.php`**: el CSV export lee columnas que ya no existen como columnas reales; necesita actualización para leer desde `data` JSONB.
+- **Pendiente — JSONB demotion para `item`**: mismo patrón, diferido para próxima sesión.
+- **Infra**: DDL (`ALTER TABLE DROP COLUMN`) requiere ser owner de la tabla; el usuario `punto` de la app no lo es. Documentado en `06-infraestructura.md §Privilegio de owner para DDL`.
+
 ## 2026-05-25 (backend-first módulo Contacts — commit e0d3fbd)
 
 - **Hecho — backend Contacts implementado** (4 archivos, 696 inserciones): `panel/lib/contacts/ContactRepository.php` (SQL parametrizado sobre `contact` + `customerAddress`), `panel/lib/contacts/ContactService.php` (mapeo de API pública → columnas, validación, sync de dirección por defecto), `panel/API/v1/contacts.php` (REST GET/POST/PUT/DELETE + sub-recurso `?resource=addresses`), `panel/scripts/api/contacts.js` (`window.contactsApi`: list/get/create/update/archive/unarchive/bulkArchive + addresses.list).

@@ -38,11 +38,16 @@ company (tenant)
 |-------|--------------|------------|
 | `company` | `config` | Toda config del tenant: nombre, RUC, moneda, horarios, módulos activos, datos SIFEN |
 | `item` | `data` | Campos no-indexables: descripción larga, variantes, metadata |
-| `contact` | `data` | Campos extensibles del cliente/proveedor |
+| `contact` | `data` | Campos descriptivos del cliente/proveedor. **Desde migración 06 (2026-05-25)** contiene también los 6 campos demotados: `contactNote`, `contactCity`, `contactLocation`, `contactCountry`, `contactAddress`, `contactAddress2`. Keys en camelCase, consistente con `item.data` (ej: `itemTaxIncluded`). |
 | `transaction` | `meta` | Metadata de la venta: canal, device, notas |
 | `itemSold` | `meta` | Metadata de la línea: descuentos aplicados, promo |
 | `outlet` | `data` | Config específica de sucursal |
 | `register` | `data` | Config específica de caja |
+
+**Regla de diseño JSONB (decisión 2026-05-25):** solo van como columnas reales los campos que necesitan índice o cálculo SQL. Lo estrictamente descriptivo/estático va a `data` JSONB. Aplicado:
+- **Quedan como columnas** en `contact`: `contactName`, `contactEmail`, `contactPhone`, `contactTIN`, `contactCI`, `contactStatus`, `contactType`, `contactStoreCredit`, `contactLoyalty`, financieros indexados.
+- **Van a `contact.data`**: note, city, location, country, address, address2 (y cualquier campo descriptivo futuro).
+- El mismo patrón aplica a `item` (demotion de items pendiente, diferida).
 
 ### Funciones PHP de routing JSONB
 
@@ -51,8 +56,10 @@ company (tenant)
 | `_flattenJsonb($row, $jsonCol)` | Lee: aplana columna JSONB al row PHP |
 | `_getTableSchema($table)` | Introspección: devuelve columnas reales de la tabla |
 | `_routeToJsonb($table, $data)` | Escritura: separa campos reales vs JSONB automáticamente |
-| `ncmInsert($table, $data)` | INSERT con UUID auto + routing JSONB |
+| `ncmInsert($table, $data)` | INSERT con UUID v7 auto + routing JSONB |
 | `ncmUpdate($table, $data, $where)` | UPDATE con routing JSONB |
+
+**Tablas registradas en `_getTableSchema()` (whitelist):** incluye `contact` (sin las 6 columnas demotadas en migración 06) y `customerAddress` (pk=`customerAddressId`, agregada en commit 01d6eba — su ausencia causaba que `ncmInsert` inyectara una columna `id` inexistente y silenciara el error).
 
 ### Invariantes del schema
 
@@ -61,6 +68,8 @@ company (tenant)
 3. **config JSONB en company** — acceso via `config->>'settingName'`, `config->>'settingRUC'`, etc.
 4. **No hay CASCADE DELETE** en FKs principales — las eliminaciones son soft (status/flag)
 5. **Timestamps**: `createdAt` (auto), `updatedAt` (trigger), timezone: `America/Asuncion`
+6. **JSONB vs columna real** — campos indexables, buscados, o usados en cálculos SQL son columnas reales; campos descriptivos/estáticos van a `data` JSONB. Violaciones se corrigen con migraciones (ej: `06_contact_jsonb_demote.sql`).
+7. **Columnas BOOLEAN en PG** — comparar con `= true` / `= false`, nunca `= 1` / `= 0`. Error PG: `operator does not exist: boolean = integer`. Sitios pendientes de corregir: `panel/includes/functions.php:3464,3790` y `app/action.php`, `app/load.php`, `app/fetch.php`, `app/fetchs.php`.
 
 ### Extensiones PostgreSQL activas
 
