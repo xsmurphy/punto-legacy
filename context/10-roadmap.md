@@ -206,11 +206,36 @@ tenant.
 **Problema**: El valor diferencial del producto es ser AI-first. Sin agente funcional
 no hay diferenciación.
 
-**Dependencia**: Phase 2 completa (API limpia y predecible)
+**Dependencia**: backend de los módulos consultados expuesto como Services/API limpia (las tools del agente leen de ahí). Refuerza la estrategia backend-first de `02-arquitectura.md`: cada módulo modernizado le da más superficie de datos al agente. NO requiere modernizar el frontend de los reportes — el agente los reemplaza.
+
+**Cliente LLM**: OpenRouter (no Anthropic directo), SDK `openai` apuntando a OpenRouter. El "tool use" es function calling estándar (formato OpenAI).
 
 ### Visión
 
-Un agente autónomo que habla con la API de Punto via JWT. Los usuarios interactúan con el sistema por chat (Telegram, WhatsApp, widget web) en lenguaje natural. El agente interpreta la intención, llama los endpoints correctos y devuelve respuestas formateadas.
+Un agente autónomo que habla con la API de Punto via JWT. Los usuarios interactúan con el sistema por chat (widget web, Telegram, WhatsApp) en lenguaje natural. El agente interpreta la intención, llama los endpoints correctos y devuelve respuestas formateadas.
+
+**El agente tiene dos facetas que comparten la misma base** (tools deterministas + LLM orquestador):
+
+1. **Chatbot / asistente genérico** — el usuario pregunta sobre sus datos ("¿cómo van las ventas?", "¿qué producto se vende menos?"), pide recomendaciones ("¿qué debería reponer?", "¿conviene este combo?") y obtiene ayuda operativa. Conversacional, libre.
+
+2. **Analista de datos** — reemplaza la proliferación de reportes hardcodeados (~13K líneas en `report_*`). El usuario pide reportes ad-hoc en NL y **dashboards customizados**: describe qué quiere ver, la IA arma la estructura, se guarda, y se renderiza en vivo. Ver "Reportes y dashboards por IA" abajo.
+
+**Decisión (2026-05-24)**: el agente es el reemplazo de los reportes exploratorios, no un chatbot decorativo. Los reportes legales/contables (facturación, libro de ventas, impositivos) se quedan hardcodeados — formato exacto y auditable, la IA no aporta ahí.
+
+### Regla de oro — correctitud y seguridad (NO negociable)
+
+En finanzas/inventario los números deben ser **exactos**; un dato mal calculado hace que el dueño decida con info falsa.
+
+- **Tool calling determinista, NUNCA text-to-SQL libre.** El LLM elige entre funciones acotadas y parametrizadas (`ventas_periodo(desde, hasta, agrupar_por)`, `top_productos(n)`, `stock_bajo()`). Cada tool ejecuta SQL fija filtrada por `companyId`. El LLM **no escribe SQL ni hace aritmética** — solo decide qué preguntar y presenta el resultado.
+- **Por qué**: text-to-SQL libre = fuga multi-tenant (leer otra company), queries que tumban la DB, y JOINs mal hechos = números errados con cara de correctos.
+- **Aislamiento de tenant**: el JWT del usuario fija `companyId`; toda tool lo aplica en el WHERE. El LLM nunca recibe ni elige el `companyId`.
+
+### Reportes y dashboards por IA
+
+- **Reporte ad-hoc**: pregunta NL → el LLM elige tool(s) → datos exactos → respuesta formateada (texto + tabla/gráfico).
+- **Dashboard custom**: el usuario describe ("ventas diarias del mes, top 5 productos, alertas de stock bajo") → la IA genera una **config** (JSON: lista de widgets, cada uno = una tool + params) → se guarda la config (`dashboard.config` JSONB por usuario/company) → el dashboard se renderiza **en vivo**, cada widget llama su tool.
+- **KPIs guardados = DEFINICIONES, no valores.** Se persiste la fórmula/tool/params del KPI, nunca el número calculado (quedaría viejo y, si lo calculó la IA, podría estar mal). Los datos son siempre frescos y deterministas.
+- La IA hace el trabajo creativo (estructurar) **una vez**; los números vienen de queries cada vez.
 
 ### Arquitectura
 
@@ -218,9 +243,9 @@ Un agente autónomo que habla con la API de Punto via JWT. Los usuarios interact
 Telegram / WhatsApp / Widget Web
          ↓
     punto-agent/  (microservicio Python + FastAPI)
-    ├── Interpreta intención (Claude API — tool use)
-    ├── Llama panel/API/* con JWT del usuario
-    └── Formatea y devuelve respuesta
+    ├── Interpreta intención (LLM via OpenRouter — function calling)
+    ├── Llama tools deterministas → panel/API/* con JWT del usuario
+    └── Formatea y devuelve respuesta (texto / tabla / config de dashboard)
          ↓
     panel/API/  (los endpoints existentes, sin modificar)
 ```
@@ -252,13 +277,15 @@ tools = [
 
 ### Casos de uso iniciales
 
-| Canal | Ejemplo de input | Action |
-|-------|-----------------|--------|
-| Telegram | "mandame el cierre de hoy" | `get_sales` → resumen formateado |
-| Telegram | "cuánto stock me queda de Coca Cola" | `get_items` con filtro |
-| WhatsApp | "registrá una venta de 2 hamburguesas" | `create_order` |
-| Widget | "mostrame los clientes nuevos esta semana" | `get_customers` con filtro |
-| Proactivo | (sin trigger) stock bajo detectado | Alerta automática |
+| Faceta | Ejemplo de input | Action |
+|--------|-----------------|--------|
+| Chatbot | "mandame el cierre de hoy" | `ventas_periodo(hoy)` → resumen formateado |
+| Chatbot | "cuánto stock me queda de Coca Cola" | `stock_nivel` con filtro |
+| Chatbot (recomendación) | "¿qué debería reponer?" | `stock_bajo` + razonamiento sobre el resultado |
+| Analista (reporte ad-hoc) | "ventas del mes pasado por categoría" | `ventas_periodo(..., agrupar_por=categoria)` → tabla/gráfico |
+| Analista (dashboard) | "armame un dashboard con ventas diarias, top 5 productos y stock bajo" | genera config JSON → se guarda → render en vivo |
+| Escritura (AI.3+) | "registrá una venta de 2 hamburguesas" | `create_order` |
+| Proactivo (AI.5) | (sin trigger) stock bajo detectado | Alerta automática |
 
 ### Stack técnico
 
@@ -290,14 +317,17 @@ Usuario envía /start en Telegram
 
 | Fase | Scope | Prioridad |
 |------|-------|-----------|
-| AI.1 | Agente básico + widget web + 5 tools de solo lectura (ventas, items, clientes) | Alta |
-| AI.2 | Integración Telegram + bot de reportes | Alta |
-| AI.3 | Tools de escritura (crear órdenes, registrar ventas) | Media |
-| AI.4 | WhatsApp (Meta Cloud API) | Media |
-| AI.5 | Alertas proactivas (cron que monitorea + notifica) | Media |
-| AI.6 | Contexto persistente por usuario (memoria conversacional) | Baja |
+| AI.1 | Agente básico (OpenRouter) + widget web chat + 5 tools de solo lectura (ventas, items, stock, clientes) | Alta |
+| AI.2 | **Reportes ad-hoc por NL** — el chatbot responde preguntas de datos con tablas/gráficos (reemplaza reportes exploratorios) | Alta |
+| AI.3 | **Dashboards customizados** — IA genera config JSON, se guarda en `dashboard.config`, render en vivo. KPIs = definiciones | Alta |
+| AI.4 | Recomendaciones (reponer stock, combos, productos lentos) sobre los datos de las tools | Media |
+| AI.5 | Integración Telegram + bot de reportes | Media |
+| AI.6 | Tools de escritura (crear órdenes, registrar ventas) | Media |
+| AI.7 | WhatsApp (Meta Cloud API) | Media |
+| AI.8 | Alertas proactivas (cron que monitorea + notifica) | Media |
+| AI.9 | Contexto persistente por usuario (memoria conversacional) | Baja |
 
-**Esfuerzo MVP (AI.1)**: ~2 semanas
+**Esfuerzo MVP (AI.1)**: ~2 semanas. AI.2/AI.3 reusan las mismas tools — el costo es el frontend (chat + render de tablas/dashboards), no nuevo backend.
 
 ---
 
