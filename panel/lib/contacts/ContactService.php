@@ -59,6 +59,7 @@ class ContactService
         if (isset($in['location'])) $rec['contactLocation'] = strip_tags((string) $in['location']);
         if (isset($in['country']))  $rec['contactCountry']  = strip_tags((string) $in['country']);
         if (isset($in['address']))  $rec['contactAddress']  = strip_tags((string) $in['address']);
+        if (isset($in['address2'])) $rec['contactAddress2'] = strip_tags((string) $in['address2']);
         if (isset($in['phone']))    $rec['contactPhone']    = $in['phone'];
         if (isset($in['phone2']))   $rec['contactPhone2']   = $in['phone2'];
         if (isset($in['email']))    $rec['contactEmail']    = strip_tags((string) $in['email']);
@@ -260,6 +261,7 @@ class ContactService
             'date'        => $row['contactDate'] ?? null,
             'addressId'   => $address['customerAddressId'] ?? null,
             'address'     => $address['customerAddressText'] ?? ($row['contactAddress'] ?? null),
+            'address2'    => $row['contactAddress2'] ?? null,
             'city'        => $address['customerAddressCity'] ?? ($row['contactCity'] ?? null),
             'location'    => $address['customerAddressLocation'] ?? ($row['contactLocation'] ?? null),
             'lat'         => $address['customerAddressLat'] ?? null,

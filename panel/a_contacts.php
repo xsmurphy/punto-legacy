@@ -2960,6 +2960,27 @@ if(validateHttp('action') == 'generalTable'){
 			if($allow){
 
 				if($_rol == 'user'){
+
+					if($jsonMode){
+						$jsonRows[] = [
+							'id'       => $itemId,
+							'color'    => ($contactColor !== '') ? ($field['contactColor'] ?? '') : '',
+							'name'     => toUTF8($contactBillingName),
+							'tin'      => $field['contactTIN'],
+							'date'     => $field['contactDate'],
+							'dateF'    => niceDate($field['contactDate'],true),
+							'phone'    => $field['contactPhone'],
+							'email'    => $field['contactEmail'],
+							'address'  => toUTF8($field['contactAddress']),
+							'roleName' => $type,
+							'label'    => $label,
+							'active'   => ($field['contactStatus'] >= 1),
+							'outlet'   => $outlet,
+						];
+						$result->MoveNext();
+						continue;
+					}
+
 					$table .= 	'<tr data-id="' . $itemId . '" class="clickrow ' . $itemId . '">' .
 								'	<td style="' . $contactColor . '">' . $itemId . '</td>' .
 								'	<td class="font-bold">' .
@@ -3041,6 +3062,24 @@ if(validateHttp('action') == 'generalTable'){
 
 				if($_rol == 'supplier'){
 
+					if($jsonMode){
+						$jsonRows[] = [
+							'id'       => $itemId,
+							'color'    => ($contactColor !== '') ? ($field['contactColor'] ?? '') : '',
+							'name'     => toUTF8($contactBillingName),
+							'tin'      => $field['contactTIN'],
+							'fullname' => toUTF8($contactName),
+							'date'     => $field['contactDate'],
+							'dateF'    => niceDate($field['contactDate'],true),
+							'phone'    => $field['contactPhone'],
+							'email'    => $field['contactEmail'],
+							'address'  => toUTF8($field['contactAddress']),
+							'category' => $category,
+						];
+						$result->MoveNext();
+						continue;
+					}
+
 					$table .= 	'<tr data-id="' . $itemId . '" class="clickrow ' . $itemId . '">' .
 											'	<td style="' . $contactColor . '">' . $itemId . '</td>' .
 											'	<td class="font-bold">' .
@@ -3110,9 +3149,9 @@ if(validateHttp('action') == 'generalTable'){
 		<div class="btn-group m-r-xs pull-right"> 
 			<button class="btn btn-info btn-rounded bg-info dk dropdown-toggle" data-toggle="dropdown"><span class="m-r-sm font-bold text-u-c">Crear</span><span class="caret"></span></button> 
 			<ul class="dropdown-menu"> 
-				<li class="create" data-type="<?=enc(0);?>"><a href="#">Usuario</a></li> 
-				<li class="create" data-type="<?=enc(1);?>"><a href="#">Cliente</a></li> 
-				<li class="create" data-type="<?=enc(2);?>"><a href="#">Proveedor</a></li>
+				<li class="create" data-type="<?=enc(0);?>" data-rol="user"><a href="#">Usuario</a></li>
+				<li class="create" data-type="<?=enc(1);?>" data-rol="customer"><a href="#">Cliente</a></li>
+				<li class="create" data-type="<?=enc(2);?>" data-rol="supplier"><a href="#">Proveedor</a></li>
 				<li class="divider"></li>
 				<li><a href="#" id="createRecord">Fichas</a>
 				<li><a href="<?=$baseUrl?>?action=mandatory" id="mandatory">Campos Obligatorios</a></li>
@@ -3825,6 +3864,7 @@ if(validateHttp('action') == 'generalTable'){
 </script>
 <script src="scripts/api/contacts.js?<?=date('d.i')?>"></script>
 <script src="scripts/contacts/render.js?<?=date('d.i')?>"></script>
+<script src="scripts/contacts/form.js?<?=date('d.i')?>"></script>
 <script src="scripts/a_contacts.js?<?=date('d.i')?>"></script>
 <!--<script src="scripts<?=$baseUrl?>.js?<?=date('d.i')?>"></script>-->
 

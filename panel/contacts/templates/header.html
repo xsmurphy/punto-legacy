@@ -1,0 +1,26 @@
+<!-- header — columna izquierda del editform de contacto: avatar + datos rápidos + historial. -->
+<div class="col-sm-4 wrapper text-white text-center clear hidden-xs bg-info gradBgBlue animateBg matchCols" style="min-height:400px;">
+	<i class="material-icons" style="font-size:8em!important;margin-top:30px;">person</i>
+
+	<div class="font-bold h3 m-t">{{name}}</div>
+	<div class="m-b">
+		<span class="label text-sm bg-light lter">{{#tin}}{{tinName}} {{tin}}{{/tin}}{{^tin}}Sin {{tinName}}{{/tin}}</span>
+	</div>
+
+	{{^isNew}}
+	<div class="text-left wrapper text-sm">
+		<div class="m-b-xs"><i class="material-icons md-14 m-r-sm">email</i> {{#email}}{{email}}{{/email}}{{^email}}Sin email{{/email}}</div>
+		<div class="m-b-xs"><i class="material-icons md-14 m-r-sm">phone</i> {{#phone}}{{phone}}{{/phone}}{{^phone}}Sin teléfono{{/phone}}</div>
+		<div class="m-b-xs"><i class="material-icons md-14 m-r-sm">location_on</i> {{#address}}{{address}}{{/address}}{{^address}}Sin dirección{{/address}}</div>
+
+		<div class="b-t m-t-sm wrapper-xs"></div>
+
+		<div class="m-b-xs">
+			<a href="{{reportTransactionsUrl}}" target="_blank"><span class="text-white text-u-l">Historial de transacciones</span></a>
+		</div>
+		<div class="m-b-xs">
+			<a href="{{reportProductsUrl}}" target="_blank"><span class="text-white text-u-l">Artículos adquiridos</span></a>
+		</div>
+	</div>
+	{{/isNew}}
+</div>

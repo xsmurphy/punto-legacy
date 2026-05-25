@@ -1,0 +1,48 @@
+<!-- shell — contenedor del editform v2 de contactos (rol customer).
+     Espejo de items/templates/shell.html: header (col izq) + tabs + footer.
+     El submit lo intercepta contactFormV2 (scripts/contacts/form.js) → contactsApi. -->
+<div class="modal-body no-padder bg-white">
+	<form id="contactFormV2" name="contactFormV2" class="animated fadeIn">
+		<input type="hidden" name="id" value="{{id}}">
+
+		{{> header}}
+
+		<div class="col-sm-8 no-padder bg-white matchCols">
+			<div class="col-xs-12 no-padder bg-light dk block">
+				<header class="header bg-light lt">
+					<ul class="nav nav-tabs nav-white">
+						<li class="active">
+							<a href="#contactBasicTab" class="tabs" title="Información">
+								<i class="material-icons">badge</i>
+							</a>
+						</li>
+						<li>
+							<a href="#contactAddressTab" class="tabs" title="Dirección">
+								<i class="material-icons">location_on</i>
+							</a>
+						</li>
+						<li>
+							<a href="#contactNotesTab" class="tabs" title="Nota">
+								<i class="material-icons">notes</i>
+							</a>
+						</li>
+					</ul>
+				</header>
+			</div>
+
+			<div class="tab-content">
+				{{> basicTab}}
+				{{> addressTab}}
+				{{> notesTab}}
+			</div>
+
+			<div class="col-xs-12 no-padder m-t-md wrapper">
+				{{^isNew}}
+				<a href="#" class="pull-left m-t m-l contactFormV2Archive" data-id="{{id}}" title="Archivar contacto"><span class="text-danger">Archivar</span></a>
+				{{/isNew}}
+				<input class="btn btn-info btn-lg btn-rounded text-u-c font-bold pull-right" type="submit" value="{{saveLabel}}">
+				<a href="#" class="cancelItemView m-r-lg m-t pull-right">Cancelar</a>
+			</div>
+		</div>
+	</form>
+</div>

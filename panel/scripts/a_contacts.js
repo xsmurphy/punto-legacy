@@ -10,9 +10,39 @@
 	      }
 	    };
 
-		// rol customer: data-driven (el server manda JSON, el front pinta vía contactsRender).
-		// user/supplier siguen en el camino legacy (HTML server-side) hasta portarlos.
-		var listUrl = (_rol == 'customer') ? loadUrl + '&format=json' : loadUrl;
+		// Referencia a la DataTable, capturada al inicializarla — la usan los
+		// callbacks de guardado para refrescar el listado sin recargar la página.
+		var gOTable = null;
+
+		// Re-fetch del listado data-driven + redibujo. Se llama tras crear/editar/archivar
+		// un customer desde contactFormV2 (presentRow del v1 API no trae todas las columnas
+		// del listado —scoring/distance/lastDate—, por eso re-consultamos generalTable).
+		var reloadList = function(){
+			$.get(loadUrl + '&format=json', function(result){
+				if(!gOTable){ return; }
+				gOTable.clear();
+				var trs = $('<table></table>').html(contactsRender.table(result.contacts || [], _rol)).find('tbody').children();
+				if(trs.length){ gOTable.rows.add(trs); }
+				gOTable.draw();
+			}).fail(function(){
+				// El guardado ya fue OK; si el re-fetch falla, recargamos para no dejar el listado stale.
+				location.reload();
+			});
+		};
+
+		// Form legacy (HTML server-side) — fallback para user/supplier y si el v2 falla.
+		var legacyForm = function(url){
+			loadForm(url,'#modalLarge .modal-content',function(){
+				$('#modalLarge').modal('show');
+				$('.lockpass').mask('0000');
+				masksCurrency($('.maskInteger'),thousandSeparator,'no');
+				masksCurrency($('.maskCurrency'),thousandSeparator,decimal);
+			});
+		};
+
+		// Los 3 roles (customer/user/supplier) son data-driven: el server manda JSON
+		// (&format=json) y el front pinta vía contactsRender.table(contacts, rol).
+		var listUrl = loadUrl + '&format=json';
 
 		$.get(listUrl,function(result){
 
@@ -77,7 +107,7 @@
 		            "container"   	: ".tableContainer",
 		            "url"       		: loadUrl,
 		            "rawUrl" 				: loadUrl,
-		            "iniData" 			: (_rol == 'customer') ? contactsRender.table(result.contacts || []) : result.table,
+		            "iniData" 			: contactsRender.table(result.contacts || [], _rol),
 		            "table"     		: "#tableContacts",
 		            "sort"      		: sortBy,
 								"search" 				: 'detailTableSearch',
@@ -104,6 +134,7 @@
 						};
 
 			ncmDataTables(tableOps,function(oTable,_scope){
+				gOTable = oTable;
 				loadTheTable(tableOps,oTable,_scope);
 			});
 
@@ -483,14 +514,18 @@
 					return false;
 				}
 
-				var load 	= baseUrl + '?action=form&id=' + jHash['i'];
+				var id 			= jHash['i'];
+				var legacyLoad 	= baseUrl + '?action=form&id=' + id;
 
-				loadForm(load,'#modalLarge .modal-content',function(){
-					$('#modalLarge').modal('show');
-					$('.lockpass').mask('0000');
-					masksCurrency($('.maskInteger'),thousandSeparator,'no');
-					masksCurrency($('.maskCurrency'),thousandSeparator,decimal);
-				});
+				// customer → editform v2 (Mustache + contactsApi). user/supplier → legacy.
+				if(_rol == 'customer' && window.contactFormV2){
+					contactFormV2.open(id, {
+						onSaved: reloadList,
+						onError: function(){ legacyForm(legacyLoad); }
+					});
+				}else{
+					legacyForm(legacyLoad);
+				}
 			}
 		});
 
@@ -509,13 +544,20 @@
 	    });
 
 		onClickWrap('.create',function(event,tis){
-			var type = tis.data('type');
-	        loadForm(baseUrl + '?action=form&type=' + type,'#modalLarge .modal-content',function(){
-              $('#modalLarge').modal('show');
-              $('.lockpass').mask('0000');
-              masksCurrency($('.maskInteger'),thousandSeparator,'no');
-              masksCurrency($('.maskCurrency'),thousandSeparator,decimal);
-            });
+			var type 		= tis.data('type');
+			var rol 		= tis.data('rol');
+			var legacyLoad 	= baseUrl + '?action=form&type=' + type;
+
+			// Crear cliente → form v2; usuario/proveedor → form legacy.
+			if(rol == 'customer' && window.contactFormV2){
+				contactFormV2.open(null, {
+					onSaved: reloadList,
+					onError: function(){ legacyForm(legacyLoad); }
+				});
+				return;
+			}
+
+			legacyForm(legacyLoad);
 	    },false,true);
 
 		onClickWrap('#reportDownloadGeneral',function(event,tis){
