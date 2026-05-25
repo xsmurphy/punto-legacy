@@ -294,7 +294,12 @@
 			}
 		};
 
-		$(".table-responsive").fileReaderJS(opts);
+		// El plugin fileReaderJS (drag-drop de CSV) no siempre está cargado en esta página;
+		// sin guard, su ausencia tiraba y abortaba loadTheTable → los handlers de abajo
+		// (hashvarchange para abrir el form, .create) nunca se cableaban y el click "no hacía nada".
+		if ($.fn.fileReaderJS) {
+			$(".table-responsive").fileReaderJS(opts);
+		}
 
 		onClickWrap('#createRecord',function(event,tis){
 			$('#modalRecords').modal('show');
