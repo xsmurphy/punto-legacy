@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-25 (items: JSONB demotion migración 07 + writers ncm + readers flatten — commit ea48a32)
+
+- **Schema**: 4 columnas demotadas de `item` a `item.data` JSONB vía migración `07_item_jsonb_demote.sql` (atómica: backfill UPDATE + DROP). Columnas: `itemImage` (bool → JSON boolean), `itemTaxExcluded` (era columna fantasma: 0 lecturas/escrituras en todo el repo), `itemDiscount`, `itemUOM`. Criterio: 0 apariciones en WHERE/ORDER/JOIN/GROUP/SUM (auditado por grep). `itemPrice`/`itemCost` NO se movieron (usados en SUM/AVG). `itemName`/`itemSKU`/`itemSort`/`itemStatus`/`itemType` NO se movieron (indexados).
+- **Whitelist actualizada**: 4 columnas quitadas de `_getTableSchema()['item']['columns']` en el mismo commit del DROP (regla: si se hace después, `_flattenJsonb` hace que la columna real gane sobre JSONB y se producen lecturas stale).
+- **Writers migrados**: `a_items.php:2986` (bulkUpdate de hijos) de AutoExecute crudo → `ncmUpdate`. Seed de signup en `app/includes/functions.php` dejó de escribir `itemImage` (CRÍTICO: el `ncm` de `app/` no tiene `_routeToJsonb` — no rutea a JSONB; writers de app/ no pueden pasar columnas demotadas).
+- **Readers arreglados**: (a) Explícitos con hard SQL error post-DROP: `a_items.php:23,67` (búsqueda), `:457` (compound), `a_bulk_production.php:108`, `ItemRepository::searchByName`, `get_items.php:116` → alias `data->>'col' AS col` o + columna `data`. (b) SELECT*/forceObj/raw-Execute sin flatten: `a_items.php:3752` (render lista), `inventory.php:51` (editform), loop principal de `get_items.php`, `app/fetch.php:584`, `app/fetchs.php:725` → ahora aplican `_flattenJsonb()`. Insight: readers via `ncmExecute` single-row (incl. `getItemData()`) YA aplanaban — no requirieron cambio.
+- **Verificado E2E**: migración aplicada local (1 fila backfilleada, 4 columnas dropeadas); round-trip v1 PUT/GET confirmó itemUOM/itemDiscount/itemImage escritos a `data` y leídos vía flatten; `itemImage` devuelto como boolean PHP (no string 'true'); search y showTable del panel renderizan UOM desde data sin error SQL.
+- **Bug legacy descubierto (fuera de scope, NO arreglado)**: `panel/API/get_items.php` devuelve 404 porque su query tiene `itemIsParent > 0` (boolean vs int → PG error) y `itemParentId = 0` (UUID vs int). Los cambios de flatten en ese endpoint son correctos pero inalcanzables. Mismo patrón de bugs legacy ya trackeado en invariante #7.
+
 ## 2026-05-25 (contacts: JSONB demotion migración 06 + writers ncm + PG fixes — commits 53c5dae, 01d6eba)
 
 - **Schema**: 6 columnas descriptivas eliminadas de `contact` y movidas a `contact.data` JSONB (migración `06_contact_jsonb_demote.sql`, atómica: backfill UPDATE + DROP). Columnas demotadas: `contactNote`, `contactCity`, `contactLocation`, `contactCountry`, `contactAddress`, `contactAddress2`. Keys en camelCase consistente con convención existente.
