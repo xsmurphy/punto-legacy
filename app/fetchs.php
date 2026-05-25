@@ -722,10 +722,10 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
         if($products){
           while (!$products->EOF) {
 
-            $pFields    = $products->fields;
+            $pData      = json_decode($products->fields['data'] ?? "",true);
+            $pFields    = _flattenJsonb($products->fields);
             $inv        = [];
             $prodArray  = [];
-            $pData      = json_decode($pFields['data'] ?? "",true);
 
             if($pFields['itemIsParent'] != 0){
               $child = $childrenIds[enc($pFields['itemId'])];

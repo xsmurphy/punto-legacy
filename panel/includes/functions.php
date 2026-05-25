@@ -4647,12 +4647,14 @@ function _getTableSchema(): array
         'item' => [
             'pk'       => 'itemId',
             'jsonbCol' => 'data',
+            // itemImage/itemTaxExcluded/itemDiscount/itemUOM degradados a `data` JSONB
+            // (migración 07_item_jsonb_demote.sql). NO re-agregar: re-crearía la columna
+            // fantasma y _flattenJsonb haría que gane sobre el JSONB → lecturas stale.
             'columns'  => ['itemId', 'itemName', 'itemDate', 'itemSKU', 'itemCost', 'itemPrice',
-                           'itemIsParent', 'itemParentId', 'itemType', 'itemImage', 'itemStatus',
-                           'itemTrackInventory', 'itemCanSale', 'itemTaxExcluded', 'itemDiscount',
-                           'itemUOM', 'itemSort', 'itemProduction', 'taxId', 'brandId',
-                           'categoryId', 'supplierId', 'locationId', 'outletId', 'companyId',
-                           'updated_at', 'data'],
+                           'itemIsParent', 'itemParentId', 'itemType', 'itemStatus',
+                           'itemTrackInventory', 'itemCanSale', 'itemSort', 'itemProduction',
+                           'taxId', 'brandId', 'categoryId', 'supplierId', 'locationId',
+                           'outletId', 'companyId', 'updated_at', 'data'],
         ],
         'contact' => [
             'pk'       => 'contactId',

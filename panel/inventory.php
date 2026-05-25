@@ -49,6 +49,7 @@ if($_GET['rofl']){
 if(validateBool('action') == 'editform' && validateBool('id')){
 	
 	$result 			= $db->Execute('SELECT * FROM item WHERE itemId = ? AND '.$SQLcompanyId, array(dec($_GET['id'])));
+	$result->fields		= _flattenJsonb($result->fields);
 	$itemId 			= enc($result->fields['itemId']);
 	$realType			= $result->fields['itemType'];
 	$type 				= ($realType == 'precombo')?'combo':$realType;

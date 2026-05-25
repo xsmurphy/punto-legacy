@@ -65,7 +65,7 @@ class ItemRepository
     public function searchByName(string $pattern, string $companyId, int $limit = 200): array
     {
         $like = '%' . strtolower($pattern) . '%';
-        $sql  = "SELECT itemId, itemName, itemSKU, itemUOM, taxId
+        $sql  = "SELECT itemId, itemName, itemSKU, taxId, data
                  FROM item
                  WHERE (LOWER(itemName) ILIKE ? OR LOWER(itemSKU) ILIKE ?)
                    AND companyId = ? AND itemStatus = 1

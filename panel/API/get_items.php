@@ -59,7 +59,7 @@ if($result){
 	$allBrands 	= getAllItemBrands();
 	
 	while (!$result->EOF) {
-		$fields 					= $result->fields;
+		$fields 					= _flattenJsonb($result->fields);
 		$array 						= [];
 		$itemId 					= enc($fields['itemId']);
 		$discPercent 				= 0;
@@ -113,11 +113,11 @@ if($result){
 													'catItems' => []
 												];
 
-					$catItems 	= ncmExecute('SELECT itemName, itemPrice, itemId, itemImage, itemDiscount FROM item WHERE categoryId = ? AND itemStatus > 0 AND companyId = ?',[$catId,COMPANY_ID],$cache,true);
+					$catItems 	= ncmExecute('SELECT itemName, itemPrice, itemId, data FROM item WHERE categoryId = ? AND itemStatus > 0 AND companyId = ?',[$catId,COMPANY_ID],$cache,true);
 
 					if($catItems){
 						while (!$catItems->EOF) {
-							$cfields 		= $catItems->fields;
+							$cfields 		= _flattenJsonb($catItems->fields);
 							$cPrice 		= $cfields['itemPrice'];
 							$cType 			= 'inCombo';
 
@@ -159,8 +159,6 @@ if($result){
 			//$compsList = $compound;
 		}
 
-		$iData 						= json_decode($fields['data'],true);
-		
 		$array["discount"] 			= ($fields['itemDiscount'] > 0) ? $fields['itemDiscount'] : 0;
 		$array["created"] 			= $fields['itemDate'];
 		$array["tax"]				= $allTax[$fields['taxId']]['name'];
@@ -176,7 +174,7 @@ if($result){
 		$array["featured"]			= $fields['itemFeatured'];
 		$array["online"]			= $fields['itemEcom'];
 		$array["outletID"]			= $fields['outletId'] ? enc($fields['outletId']) : null;
-		$array["priceRule"]			= $iData['priceRule'];
+		$array["priceRule"]			= $fields['priceRule'];
 		$array["comboAddOns"]		= $compsList;
 		$array["daysNHours"]		= json_decode( stripslashes($fields['itemDateHour']),true );
 		

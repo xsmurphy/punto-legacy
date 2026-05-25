@@ -4221,7 +4221,6 @@ function signUp($post,$login = true){
 		$itemRecord['itemName'] 		= 'Artículo de Prueba';
 		$itemRecord['itemSKU'] 			= "";
 		$itemRecord['itemStatus'] 		= 1;
-		$itemRecord['itemImage'] 		= 'false';
 		$itemRecord['itemPrice'] 		= 50;
 
 		$itemRecord['companyId'] 		= $company;

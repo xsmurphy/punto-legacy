@@ -20,7 +20,7 @@ if (validateHttp('action') == 'searchItemInputJson') {
 	// ILIKE = LIKE case-insensitive en PG (en MySQL legacy era LIKE + LOWER()).
 	$queryl  = strtolower(validateHttp('q'));
 	$pattern = '%' . $queryl . '%';
-	$sql = "SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item
+	$sql = "SELECT itemId, itemName, itemSKU, data->>'itemUOM' AS itemUOM, taxId FROM item
 			WHERE (itemName ILIKE ? OR itemSKU ILIKE ?)
 			AND companyId = ? AND itemStatus = 1
 			LIMIT 200";
@@ -64,7 +64,7 @@ if (validateHttp('action') == 'searchItemStockableInputJson') {
 		$params[] = OUTLET_ID;
 	}
 
-	$sql = "SELECT itemId, itemName, itemSKU, itemUOM, taxId FROM item
+	$sql = "SELECT itemId, itemName, itemSKU, data->>'itemUOM' AS itemUOM, taxId FROM item
 			WHERE (itemName ILIKE ? OR itemSKU ILIKE ?)
 			AND itemType IN ('product', 'compound', 'production')
 			AND itemTrackInventory > 0
@@ -454,7 +454,7 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 		$compRs = getCompoundsArray($result['itemId']);
 		if (validity($compRs, 'array')) {
 			foreach ($compRs as $c) {
-				$cData = ncmExecute('SELECT itemUOM, itemPrice FROM item WHERE itemId = ? LIMIT 1', [$c['compoundId']]);
+				$cData = ncmExecute("SELECT data->>'itemUOM' AS itemUOM, itemPrice FROM item WHERE itemId = ? LIMIT 1", [$c['compoundId']]);
 				$compounds[] = [
 					'compoundId'  => enc($c['compoundId']),
 					'qty'         => $c['toCompoundQty'],
@@ -2983,9 +2983,13 @@ if (validateHttp('action') == 'bulkUpdate' && validateHttp('ids', 'post')) {
 						}
 					}
 
-					$update = $db->AutoExecute('item', $record, 'UPDATE', 'itemId = ' . db_prepare($itemId) . ' AND ' . $SQLcompanyId);
-					if ($update === false) {
-					} else {
+					$update = ncmUpdate([
+						'records'     => $record,
+						'table'       => 'item',
+						'where'       => 'itemId = ? AND companyId = ?',
+						'whereParams' => [$itemId, COMPANY_ID],
+					]);
+					if (is_array($update) && empty($update['error'])) {
 						updateLastTimeEdit(false, 'item');
 					}
 					$children->MoveNext();
@@ -3749,7 +3753,7 @@ if (validateHttp('action') == 'showTable') {
 			$capacityIs  = null;
 			$stockRaw    = 0;
 
-			$fields 			= $result->fields;
+			$fields 			= _flattenJsonb($result->fields);
 			$brand 				= toUTF8(iftn($allBrandsArray[$fields['brandId']]['name'] ?? false, '-'));
 			$category 		= toUTF8(iftn($allCategoriesArray[$fields['categoryId']]['name'] ?? false, '-'));
 			$textIcon 		= 'Servicio';

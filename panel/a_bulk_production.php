@@ -105,7 +105,7 @@ if(validateHttp('action') == 'capacity' && validateHttp('id')){
   $inventory  = getAllItemStock();
   $waste      = getAllWasteValue();//obtengo waste de todos los productos de la empresa
 
-  $itemData   = ncmExecute('SELECT itemUOM FROM item WHERE itemId = ? LIMIT 1',[$id]);
+  $itemData   = ncmExecute("SELECT data->>'itemUOM' AS itemUOM FROM item WHERE itemId = ? LIMIT 1",[$id]);
   $uom        = iftn($itemData['itemUOM'],'');
   $compound   = getCompoundsArray($id);
 

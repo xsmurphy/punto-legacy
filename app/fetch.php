@@ -581,7 +581,7 @@ if (isset($_POST['companyId']) && isset($_POST['outletId'])) {
       if($products){
         while (!$products->EOF) {
 
-          $pFields    = $products->fields;
+          $pFields    = _flattenJsonb($products->fields);
           $inv        = [];
           $prodArray  = [];
 
