@@ -480,7 +480,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
       if($downloadItems){
           
-          $customer = ncmExecute("  SELECT contactId, contactName, contactNote, contactSecondName, contactId, contactTIN, contactCI, contactPhone, contactPhone2, contactEmail, contactBirthDay, contactLoyaltyAmount, contactStatus, type, contactCreditLine, contactStoreCredit, data
+          $customer = ncmExecute("  SELECT contactId, contactName, contactSecondName, contactId, contactTIN, contactCI, contactPhone, contactPhone2, contactEmail, contactBirthDay, contactLoyaltyAmount, contactStatus, type, contactCreditLine, contactStoreCredit, data
                                     FROM contact 
                                     WHERE companyId = ? 
                                     " . $updated_at . "

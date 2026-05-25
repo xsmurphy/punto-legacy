@@ -108,7 +108,9 @@ if(validity($data,'array')){
 
 		$record['updated_at']      	= TODAY;
 
-		$update = $db->AutoExecute('contact', $record, 'UPDATE', $idQuery.' AND companyId = ' . $db->Prepare(COMPANY_ID) );
+		// ncmUpdate enruta columnas degradadas a JSONB (este handler es dead code: hay un die() arriba).
+		$updateRes = ncmUpdate(['table'=>'contact','records'=>$record,'where'=>$idQuery.' AND companyId = ?','whereParams'=>[COMPANY_ID]]);
+		$update = is_array($updateRes) ? empty($updateRes['error']) : ($updateRes !== false);
 		if($update === false){
 			$fail++;
 			$failArray[] = $idIt;

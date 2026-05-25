@@ -4657,9 +4657,10 @@ function _getTableSchema(): array
         'contact' => [
             'pk'       => 'contactId',
             'jsonbCol' => 'data',
+            // contactAddress/Address2/Note/City/Location/Country degradados a `data` JSONB
+            // (migración 06_contact_jsonb_demote.sql). NO re-agregar: re-crearía la columna fantasma.
             'columns'  => ['contactId', 'contactName', 'contactSecondName', 'contactEmail',
-                           'contactAddress', 'contactAddress2', 'contactPhone', 'contactPhone2',
-                           'contactNote', 'contactCity', 'contactLocation', 'contactCountry',
+                           'contactPhone', 'contactPhone2',
                            'contactTIN', 'contactCI', 'contactDate', 'contactBirthDay',
                            'contactPassword', 'contactLoyalty', 'contactLoyaltyAmount',
                            'contactStoreCredit', 'contactCreditable', 'contactCreditLine',
