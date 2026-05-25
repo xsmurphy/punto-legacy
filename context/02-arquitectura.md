@@ -183,3 +183,51 @@ Solo cuando se decida reemplazar **DataTables** (por tabla vanilla / web
 component) y **Bootstrap 3** (por BS5 sin jQuery, o CSS puro). Eso es un
 proyecto aparte con su propia fase — hasta entonces, jQuery se queda en la
 capa ①.
+
+## Estrategia de modernización del monolito (decisión 2026-05-24)
+
+El panel son **48 módulos / ~45K líneas** + `app/action.php` (POS, 3.6K).
+Modernizar todo de punta a punta (como se hizo con Items) tomaría meses.
+Decisión estratégica para salir del monolito **rápido**:
+
+**1. Backend primero, en TODOS los módulos.** El desacople de mayor valor
+es sacar SQL + lógica de negocio del HTML hacia `lib/<x>/{Repository,Service}`
++ `API/v1/<x>.php`. Eso solo ya saca el módulo del monolito y deja base
+para cualquier frontend. Es **mecánico y replicable** (ver el molde abajo).
+
+**2. Frontend = vista PHP pura por defecto.** Mientras el backend se
+desacopla, el HTML lo sigue renderizando PHP — pero como **presentación
+pura** (sin queries ni lógica; los datos vienen de un Service/view-model).
+Eso ya es "desacoplado". NO es obligatorio convertir a JS+hidratación.
+
+**3. Frontend reactivo (Alpine.js) solo donde la UX lo amerita.** Para los
+CRUD/POS donde la interactividad importa, usar **Alpine.js** (no Mustache):
+reactividad declarativa en el HTML (`x-data`/`x-model`/`x-for`/`x-if`), sin
+build, convive con jQuery/BS3, ~15KB. Elimina el view-model manual que hace
+Mustache verboso y bug-prone. **Items queda en Mustache** (ya funciona, no
+se reescribe); lo nuevo va en Alpine.
+
+**Priorización por tipo de módulo:**
+
+| Tipo | Módulos | Acción | Esfuerzo |
+|------|---------|--------|----------|
+| Reportes (read-only) | 5 (~13K líneas) | backend→API + listado data-driven; sin tocar forms | bajo |
+| CRUD pesado | items✓, contacts, purchase | backend Services+API; frontend Alpine si UX lo pide | medio |
+| Config/raros | settings, modules, … | dejar legacy; solo backend si se tocan | diferido |
+
+### El molde backend (replicable por módulo)
+
+Para que cada módulo sea mecánico, no artesanal:
+
+```
+lib/<modulo>/
+  <Modulo>Repository.php   SQL parametrizado puro
+  <Modulo>Service.php      reglas de negocio + orquestación
+API/v1/<modulo>.php        REST con apiMiddleware() + apiOk()/apiError()
+scripts/api/<modulo>.js    cliente fetch vanilla (window.<modulo>Api)
+a_<modulo>.php             vista: HTML de presentación pura (consume el Service)
+```
+
+Muchos módulos ya tienen endpoints sueltos en `API/*.php` (73 en total,
+ej. `get_customers.php`, `edit_customer.php`) — se consolidan bajo el
+Service + `API/v1/` canónico.
