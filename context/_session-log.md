@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-25 (contacts: listado rol customer data-driven — commit dc9ce01)
+
+- **Front/back separados en el listado de clientes** (patrón Items): `a_contacts.php` handler `generalTable` ahora soporta `&format=json` para rol `customer` — emite un array de objetos JSON (reusando cómputos existentes: `lastTransaction`, `scoring`, `distance`, `color`, mapa de direcciones) en vez de concatenar `<tr>`. El camino legacy HTML (roles user/supplier + fallback) queda intacto.
+- **`scripts/contacts/render.js` (nuevo)**: `window.contactsRender.table()` pinta thead+tbody+tfoot (19 cols) desde el JSON, espejo de `scripts/items/render.js`. Escapa todo con `esc()` (el path legacy NO escapaba → más seguro).
+- **`a_contacts.js`**: rol customer hace `fetch &format=json` y usa `contactsRender` como `iniData` de `ncmDataTables`; user/supplier siguen legacy. Búsqueda confirmada client-side (`ncmDataTables.feedData` usa iniData sin re-fetch cuando se le pasa data).
+- **Verificado E2E**: endpoint `format=json` → HTTP 200 shape correcto; `render.js` corrido en node sobre data real → tabla 19 cols bien formada; `a_contacts.php` acepta cookie `_jwt_panel`.
+- **Pendiente (mismo patrón)**: portar roles **user/supplier** del listado + el **editform** (`scripts/contacts/form.js` + `panel/contacts/templates/`) como se hizo con Items.
+
 ## 2026-05-25 (items: JSONB demotion migración 07 + writers ncm + readers flatten — commit ea48a32)
 
 - **Schema**: 4 columnas demotadas de `item` a `item.data` JSONB vía migración `07_item_jsonb_demote.sql` (atómica: backfill UPDATE + DROP). Columnas: `itemImage` (bool → JSON boolean), `itemTaxExcluded` (era columna fantasma: 0 lecturas/escrituras en todo el repo), `itemDiscount`, `itemUOM`. Criterio: 0 apariciones en WHERE/ORDER/JOIN/GROUP/SUM (auditado por grep). `itemPrice`/`itemCost` NO se movieron (usados en SUM/AVG). `itemName`/`itemSKU`/`itemSort`/`itemStatus`/`itemType` NO se movieron (indexados).
