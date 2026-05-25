@@ -264,8 +264,8 @@ if(validateHttp('action') == 'insert'){
 	$record['updated_at']      	= TODAY;
 	$record['contactColor'] 	= $color;
 
-	$insert = $db->AutoExecute('contact', $record, 'INSERT');
-	$contactId = $db->Insert_ID(); 
+	$contactId = ncmInsert(['table' => 'contact', 'records' => $record]);
+	$insert = ($contactId !== false);
 	if($insert === false){
 		echo 'false';
 	}else{
@@ -424,9 +424,6 @@ if(validateHttp('action') == 'update'){
 	$record['updated_at']      				= TODAY;
 
 	$record['hourSalary'] 						= $hourSalary;
-	$allData 													=	json_encode($record);
-
-	$record['data'] 									= $allData;
 
 	$trackEvent['name'] 		= $name;
 	$trackEvent['note'] 		= $note;
@@ -434,7 +431,13 @@ if(validateHttp('action') == 'update'){
 	$trackEvent['phone'] 		= $phone;
 	$trackEvent['email'] 		= $email;
 
-	$update = $db->AutoExecute('contact', $record, 'UPDATE', 'contactId = ' . $id . ' AND ' . $SQLcompanyId); 
+	$updateRes = ncmUpdate([
+		'table'       => 'contact',
+		'records'     => $record,
+		'where'       => 'contactId = ? AND companyId = ?',
+		'whereParams' => [$id, COMPANY_ID],
+	]);
+	$update = is_array($updateRes) ? empty($updateRes['error']) : ($updateRes !== false);
 
 	if(isset($insert) && $insert === false){
 		echo 'false';
@@ -1426,60 +1429,65 @@ if(validateHttp('action') == 'file'){
 				if(isset($fechaNacimiento) && !empty($fechaNacimiento)){
 					$record['contactBirthDay'] = $fechaNacimiento;
 				}
-				$db->AutoExecute('contact', $record, 'UPDATE', 'contactId = ' . $id . ' AND ' . $SQLcompanyId); 
+				ncmUpdate([
+					'table'       => 'contact',
+					'records'     => $record,
+					'where'       => 'contactId = ? AND companyId = ?',
+					'whereParams' => [$id, COMPANY_ID],
+				]);
 
 				$modCount++;
 			}
 		}else if($insCount < $maxIns){//para insertar
 			$uidCustomer = generateUID($insCount);
-			$insertList[] = "('" . 
-												$uidCustomer . "','" . 
-												$name . "','" . 
-												TODAY . "','" . 
-												$ruc . "','" . 
-												$fullname . "','" . 
-												$note . "','" . 
-												$address . "','" . 
-												$address2 . "','" . 
-												$phone . "','" . 
-												$phone2 ."','" . 
-												$email . "','" . 
-												COMPANY_ID . "','" . 
-												$type . "','" . 
-												$roleId . "','" . 
-												$location . "','" . 
-												$city . "','" . 
-												$ci . "',".
-												(!empty($fechaNacimiento) ? "'{$fechaNacimiento}'" : "NULL").
-											")";
+			$insertList[] = [
+				'contactId'         => $uidCustomer,
+				'contactName'       => $name,
+				'contactDate'       => TODAY,
+				'contactTIN'        => $ruc,
+				'contactSecondName' => $fullname,
+				'contactNote'       => $note,
+				'contactAddress'    => $address,
+				'contactAddress2'   => $address2,
+				'contactPhone'      => $phone,
+				'contactPhone2'     => $phone2,
+				'contactEmail'      => $email,
+				'companyId'         => COMPANY_ID,
+				'type'              => $type,
+				'role'              => $roleId,
+				'contactLocation'   => $location,
+				'contactCity'       => $city,
+				'contactCI'         => $ci,
+				'contactBirthDay'   => !empty($fechaNacimiento) ? $fechaNacimiento : null,
+			];
 
-			$insertListA[] = "('" . 
-												$address . "','" 	. 
-												"1','" 						. 
-												// TODAY . "','" . 
-												$location . "','" . 
-												$city . "','" . 
-												$uidCustomer . "','".
-												COMPANY_ID.
-											"')";
+			$insertListA[] = [
+				'customerAddressText'     => $address,
+				'customerAddressDefault'  => 1,
+				'customerAddressLocation' => $location,
+				'customerAddressCity'     => $city,
+				'customerId'              => $uidCustomer,
+				'companyId'               => COMPANY_ID,
+			];
 
 			$insCount++;
 		}
 	}
 
 	if(validity($insertList)){
-		$sql = "INSERT INTO contact (contactId, contactName, contactDate, contactTIN, contactSecondName, contactNote, contactAddress, contactAddress2, contactPhone, contactPhone2, contactEmail, companyId, type, role, contactLocation, contactCity, contactCI, contactBirthDay) VALUES " . implodes(',', $insertList);
-		$insert = ncmExecute($sql);
-		
-		// if($insert){
-		// 	foreach ($data as $key => $row) {
-
-		// 	}
-		// }
-		if($insert && count($insertListA) > 0){
-			$insertA = $db->Execute("INSERT INTO customerAddress (customerAddressText, customerAddressDefault, customerAddressLocation, customerAddressCity, customerId, companyId) VALUES " . implodes(',', $insertListA));
+		// ncmInsert por fila: genera UUID v7, enruta columnas degradadas a JSONB, parametriza
+		// (antes era un INSERT bulk con concatenación cruda + contactId = generateUID() inválido).
+		$insert = true;
+		foreach($insertList as $idx => $cr){
+			unset($cr['contactId']); // dejar que ncmInsert genere el UUID v7
+			$newId = ncmInsert(['table' => 'contact', 'records' => $cr]);
+			if($newId === false){ $insert = false; continue; }
+			if(isset($insertListA[$idx])){
+				$ar = $insertListA[$idx];
+				$ar['customerId'] = $newId;
+				ncmInsert(['table' => 'customerAddress', 'records' => $ar]);
+			}
 		}
-
 	}
 
 	if($insert !== false){

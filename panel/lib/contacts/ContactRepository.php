@@ -171,7 +171,7 @@ class ContactRepository
     public function defaultAddress(string $contactId, string $companyId): ?CaseInsensitiveArray
     {
         $sql = "SELECT * FROM customerAddress
-                 WHERE customerId = ? AND companyId = ? AND customerAddressDefault = 1
+                 WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true
                  LIMIT 1";
         $rs  = $this->db->Execute($sql, [$contactId, $companyId]);
         if ($rs === false || $rs->EOF) return null;
@@ -191,7 +191,7 @@ class ContactRepository
         $ok = ncmUpdate([
             'table'       => 'customerAddress',
             'records'     => $record,
-            'where'       => 'customerAddressDefault = 1 AND customerId = ? AND companyId = ?',
+            'where'       => 'customerAddressDefault = true AND customerId = ? AND companyId = ?',
             'whereParams' => [$contactId, $companyId],
         ]);
         return is_array($ok) && empty($ok['error']);

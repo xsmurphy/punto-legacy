@@ -116,13 +116,18 @@ if(validity($value,'array')){
 
 	$record['updated_at']      			= TODAY;
 
-	$update = $db->AutoExecute('contact', $record, 'UPDATE', $idQuery . ' AND companyId = ' . $db->Prepare(COMPANY_ID) );
-	if($update === false){
-		apiOk(['error' => $db->ErrorMsg()], 403);
+	$updateRes = ncmUpdate([
+		'table'       => 'contact',
+		'records'     => $record,
+		'where'       => 'contactId = ? AND companyId = ?',
+		'whereParams' => [$thisCustomer['contactId'], COMPANY_ID],
+	]);
+	if(!is_array($updateRes) || !empty($updateRes['error'])){
+		apiOk(['error' => is_array($updateRes) ? $updateRes['error'] : $db->ErrorMsg()], 403);
 	}else{
 		updateLastTimeEdit(COMPANY_ID,'customer');
 
-		$hasAddress = ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = 1 LIMIT 1',[$thisCustomer['contactId'],COMPANY_ID]);
+		$hasAddress = ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true LIMIT 1',[$thisCustomer['contactId'],COMPANY_ID]);
 		if(!$hasAddress){
 			$eAddress['customerAddressDefault'] = 1;
 			$eAddress['customerId'] 			= $thisCustomer['contactId'];
@@ -133,9 +138,10 @@ if(validity($value,'array')){
 
 			ncmInsert($addressUpdt);
 		}else{
-			$addressUpdt['records'] = $eAddress;
-			$addressUpdt['table'] 	= 'customerAddress';
-			$addressUpdt['where'] 	= 'customerAddressDefault = 1 AND customerId = ' . $thisCustomer['contactId'] . ' AND companyId = ' . COMPANY_ID;
+			$addressUpdt['records']     = $eAddress;
+			$addressUpdt['table'] 	    = 'customerAddress';
+			$addressUpdt['where'] 	    = 'customerAddressDefault = true AND customerId = ? AND companyId = ?';
+			$addressUpdt['whereParams'] = [$thisCustomer['contactId'], COMPANY_ID];
 			ncmUpdate($addressUpdt);
 		}
 		

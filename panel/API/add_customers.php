@@ -121,16 +121,15 @@ if(validity($data,'array')){
 			$record['contactLatLng'] 		= strip_tags($value['lat'] . ',' . $value['lng']);
 		}
 
-		$newUID = generateUID();
-
-		$record['contactId'] 		= $newUID;
 		$record['contactDate'] 		= TODAY;
 		$record['contactStatus'] 	= 1;
 		$record['type'] 			= 1;
 		$record['companyId'] 		= COMPANY_ID;
 		$record['updated_at']      	= TODAY;
 
-		$insert = $db->AutoExecute('contact', $record, 'INSERT');
+		// ncmInsert genera el UUID v7 (generateUID() daba un timestamp int inválido para la PK).
+		$newUID = ncmInsert(['table' => 'contact', 'records' => $record]);
+		$insert = ($newUID !== false);
 
 		$eAddress['customerAddressDefault'] = 1;
 		$eAddress['customerId'] 			= $newUID;

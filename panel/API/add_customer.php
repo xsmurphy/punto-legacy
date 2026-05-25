@@ -115,17 +115,17 @@ if(validity($value,'array')){
 		$record['contactLatLng'] 		= strip_tags($value['lat'] . ',' . $value['lng']);
 	}
 
-	$newUID = generateUID();
-
-	$record['contactId'] 		= $newUID;
 	$record['contactDate'] 		= TODAY;
 	$record['contactStatus'] 	= 1;
 	$record['type'] 			= 1;
 	$record['companyId'] 		= COMPANY_ID;
 	$record['updated_at']      	= TODAY;
 
-	$insert = $db->AutoExecute('contact', $record, 'INSERT');
-	$contactId = $db->Insert_ID();
+	// ncmInsert genera el UUID v7 y enruta campos no-columna (incl. los degradados) a JSONB.
+	// (generateUID() devolvía un timestamp int → inválido para la PK UUID).
+	$contactId = ncmInsert(['table' => 'contact', 'records' => $record]);
+	$insert    = ($contactId !== false);
+	$newUID    = $contactId;
 	$eAddress['customerAddressDefault'] = 1;
 	$eAddress['customerId'] 			= $newUID;
 	$eAddress['companyId'] 				= COMPANY_ID;

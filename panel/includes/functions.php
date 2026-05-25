@@ -4763,6 +4763,17 @@ function _getTableSchema(): array
             'columns'  => ['taxonomyId', 'taxonomyName', 'taxonomyType', 'taxonomyExtra',
                            'sourceId', 'outletId', 'companyId'],
         ],
+        // customerAddress no tiene columna JSONB; jsonbCol='data' es nominal (solo se
+        // usaría si llegara un campo desconocido, lo cual no ocurre hoy). Registrarla acá
+        // hace que ncmInsert genere el PK correcto (customerAddressId) en vez de inyectar 'id'.
+        'customerAddress' => [
+            'pk'       => 'customerAddressId',
+            'jsonbCol' => 'data',
+            'columns'  => ['customerAddressId', 'customerAddressDate', 'customerAddressName',
+                           'customerAddressText', 'customerAddressLat', 'customerAddressLng',
+                           'customerAddressDefault', 'customerAddressLocation', 'customerAddressCity',
+                           'customerId', 'companyId', 'updated_at'],
+        ],
     ];
 
     return $schema;
