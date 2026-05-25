@@ -43,7 +43,12 @@ reportes, configuración de módulos, usuarios.
 **Páginas** (`panel/a_*.php`, 80+ archivos):
 - `a_dashboard.php` (91KB) — Analytics, resúmenes, datos real-time
 - `a_items.php` (201KB) — Inventario/productos
-- `a_contacts.php` (140KB) — Clientes y proveedores [backend modernizado 2026-05-25: `lib/contacts/` + `API/v1/contacts.php` + `scripts/api/contacts.js`; front legacy aún activo como fallback; pendiente cablear UI + custom records]
+- `a_contacts.php` (~140KB) — Clientes y proveedores. Estado de modernización (2026-05-25):
+  - **Backend**: `lib/contacts/{ContactRepository,ContactService}.php` + `API/v1/contacts.php` + `scripts/api/contacts.js` (window.contactsApi) — completo.
+  - **Listado (Fase 4)**: los 3 roles (customer/user/supplier) emiten `&format=json` → `scripts/contacts/render.js` (renderCustomerRow / renderUserRow / renderSupplierRow + `table(contacts, rol)`). Todos escapados con `esc()`.
+  - **Editform v2 (Fase 4)**: `scripts/contacts/form.js` — `contactFormV2` con templates Mustache en `panel/contacts/templates/` (shell + header + basicTab + addressTab + notesTab). Cubre SOLO rol **customer**; user/supplier usan form legacy. Tabs "fichas/custom records" e "historial detallado" diferidos.
+  - **Fallback**: form legacy (`?action=form`) sigue activo como `onError` del v2. Custom records solo en `a_contacts.php` legacy.
+  - **Pendiente**: custom records, CSV export (lee columnas ya en JSONB), user/supplier en form v2.
 - `a_billing.php` (23KB) — Facturación
 - `a_modules.php` — Feature toggles por rubro
 - `a_reports.php` — Reportes

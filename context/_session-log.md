@@ -3,6 +3,17 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-25 (contacts: front/back split completo — listado 3 roles + editform v2 — commit bae21fa)
+
+- **Listado data-driven para los 3 roles**: `a_contacts.php` handler `generalTable`, el bloque `&format=json` ahora cubre user (10 cols), supplier (9 cols) y customer (19 cols, ya existente), todos bajo el mismo gate `$allow`. El path HTML legacy queda intacto como fallback.
+- **`render.js` ampliado**: `renderUserRow` / `renderSupplierRow` + `table(contacts, rol)` con thead/tfoot por rol — todo escapado con `esc()`. `a_contacts.js` quitó el gate `_rol=='customer'`: los 3 roles usan `&format=json`.
+- **`contactFormV2` (nuevo `scripts/contacts/form.js`)**: form Mustache hidratado desde `contactsApi.get(id)` (API v1), submit/archive vía `contactsApi.create/update/archive`, modo crear (`id=null`). Tabs: básico, dirección, nota. Templates en `panel/contacts/templates/`: `shell.html`, `header.html`, `basicTab.html`, `addressTab.html`, `notesTab.html`. Cableado desde `a_contacts.js`: editar/crear customer → `contactFormV2` con fallback `onError` al form legacy; `reloadList()` re-fetchea JSON y redibuja DataTable tras guardar.
+- **ContactService**: round-trip de `address2` agregado en `mapToColumns` + `presentRow` (completaba el campo que faltaba en el commit dc9ce01).
+- **Scope del v2**: cubre SOLO rol **customer** (API v1 type=1). user/supplier siguen con form legacy. Tabs "fichas/custom records" e "historial detallado" diferidos.
+- **Pendiente conocido (NO bug nuevo)**: listado customer muestra note/address/city/location vacíos porque `ncmExecute(...,forceObj=true)` NO aplana JSONB en el loop de `generalTable`. El v1 API (get/presentRow) sí trae esos campos via `_flattenJsonb`. Pre-existente de dc9ce01.
+- **Entorno local**: `$plansValues`/`PLAN` no definidos en ningún .php → gate `$allow` deja listados user/supplier vacíos. No es regresión — afecta legacy y JSON por igual.
+- **Verificado E2E**: create/update vía v1 API persisten a data JSONB; get(id) hidrata el form; render.js produce columnas 1:1 con cada thead; templates Mustache compilan en modo crear/editar; Cliente Prueba SRL (id 019e6018-…) y supplier de prueba creados en company 0001.
+
 ## 2026-05-25 (contacts: listado rol customer data-driven — commit dc9ce01)
 
 - **Front/back separados en el listado de clientes** (patrón Items): `a_contacts.php` handler `generalTable` ahora soporta `&format=json` para rol `customer` — emite un array de objetos JSON (reusando cómputos existentes: `lastTransaction`, `scoring`, `distance`, `color`, mapa de direcciones) en vez de concatenar `<tr>`. El camino legacy HTML (roles user/supplier + fallback) queda intacto.

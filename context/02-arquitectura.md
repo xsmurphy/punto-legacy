@@ -212,8 +212,10 @@ se reescribe); lo nuevo va en Alpine.
 | Tipo | Módulos | Acción | Esfuerzo |
 |------|---------|--------|----------|
 | Reportes (read-only) | 5 (~13K líneas) | backend→API + listado data-driven; sin tocar forms | bajo |
-| CRUD pesado | items✓, contacts (backend✓ 2026-05-25 — UI pendiente), purchase | backend Services+API; frontend Alpine si UX lo pide | medio |
+| CRUD pesado | items✓, contacts✓ (backend + listado data-driven 3 roles + editform v2 customer — 2026-05-25), purchase | backend Services+API; frontend Alpine si UX lo pide | medio |
 | Config/raros | settings, modules, … | dejar legacy; solo backend si se tocan | diferido |
+
+> **Contacts — pendientes post-v2 (2026-05-25)**: (a) editform v2 para roles user/supplier (hoy usan form legacy); (b) custom records (solo en `a_contacts.php` legacy); (c) CSV export (lee columnas ya en JSONB); (d) listado customer muestra note/address/city vacíos (loop generalTable no aplana JSONB — pre-existente).
 
 ### El molde backend (replicable por módulo)
 
