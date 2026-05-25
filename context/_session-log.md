@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-24 (refactor completo módulo Items + estrategia de modernización)
+
+- **Hecho — módulo Items refactorizado punta a punta** (commits `d4e5a49`..`886abcd`): Fase 0 (dedup ~8K líneas, fix SQLi, `itemImage`→bool) · Fase 1 (extracción de dominio: `ItemRepository` + `ItemService`/`Compound`/`Stock`/`Upsell`/`Location` en `lib/items/`) · Fase 1D multi-depósito (tabla `itemLocation` + `LocationService` + `resolveItemLocation()` en venta/producción) · Fase 2 (API REST `/API/v1/items/*` con envelope `apiOk`, `apiMiddleware` ahora acepta sesión PHP) · Fase 4 (listado **data-driven** backend→JSON→render JS, y **editform-v2** reconstruido con templates Mustache: shell + 6 tabs + 3 shells por tipo, cableado al click/crear con fallback al legacy, **guardando OK**).
+- **Decisión — frontend**: se probó React+shadcn (scaffold `69cb299`) y se **revirtió** (`8b2563b`). Stack se queda jQuery+BS3+CSS. El editform-v2 usa Mustache + hidratación JSON (`scripts/items/form.js` + `panel/items/templates/`).
+- **Decisión estratégica (`08ed731`) — modernización del monolito**: con 48 módulos/~45K líneas, modernizar todo como Items tomaría meses. Rumbo aprobado: **(1) backend primero en TODOS los módulos** (Services+API = el desacople de mayor valor), **(2) frontend = vista PHP pura por defecto**, **(3) Alpine.js (no Mustache) solo donde la UX lo amerite**. Molde backend replicable + priorización por tipo documentados en `02-arquitectura.md § Estrategia de modernización`.
+- **Pendiente**: aplicar el molde a **Contacts** (2º CRUD más grande, 3.787 líneas; ya tiene endpoints sueltos `get_customers`/`edit_customer` para consolidar). Luego reportes (backend→API + listado data-driven) y POS (`app/action.php`, análisis aparte). Recomendado arrancar Contacts en sesión fresca.
+- **Atención**: el editform PHP legacy de items sigue como **fallback** (no se eliminó) hasta validar el v2 en uso real. `productionTab` portado pero NO verificado (módulo `production` deshabilitado en la company de prueba). Bugs PG recurrentes en otros módulos: `id > 0`/`= 0` sobre UUID, `db_prepare(dec())` en WHERE, máscaras con separador de miles en columnas INTEGER (`itemSort`).
+
 ## 2026-05-19 (martes, smoke test E2E del refactor)
 
 - **Decisión clave**: antes de arrancar Phase AI hay que validar que la modernización (PG, JWT, screens, no-ADOdb) funciona end-to-end. El usuario lo planteó: "no sabemos ni si la refactorización funciona". Phase AI quedó **pospuesto** hasta cerrar el smoke test.
