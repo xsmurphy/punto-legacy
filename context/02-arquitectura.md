@@ -212,7 +212,7 @@ se reescribe); lo nuevo va en Alpine.
 | Tipo | Módulos | Acción | Esfuerzo |
 |------|---------|--------|----------|
 | Reportes (read-only) | 5 (~13K líneas) | backend→API + listado data-driven; sin tocar forms | bajo |
-| CRUD pesado | items✓, contacts, purchase | backend Services+API; frontend Alpine si UX lo pide | medio |
+| CRUD pesado | items✓, contacts (backend✓ 2026-05-25 — UI pendiente), purchase | backend Services+API; frontend Alpine si UX lo pide | medio |
 | Config/raros | settings, modules, … | dejar legacy; solo backend si se tocan | diferido |
 
 ### El molde backend (replicable por módulo)

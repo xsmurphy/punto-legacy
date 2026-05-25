@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-25 (backend-first módulo Contacts — commit e0d3fbd)
+
+- **Hecho — backend Contacts implementado** (4 archivos, 696 inserciones): `panel/lib/contacts/ContactRepository.php` (SQL parametrizado sobre `contact` + `customerAddress`), `panel/lib/contacts/ContactService.php` (mapeo de API pública → columnas, validación, sync de dirección por defecto), `panel/API/v1/contacts.php` (REST GET/POST/PUT/DELETE + sub-recurso `?resource=addresses`), `panel/scripts/api/contacts.js` (`window.contactsApi`: list/get/create/update/archive/unarchive/bulkArchive + addresses.list).
+- **Additive, no destructivo**: los endpoints legacy (`get_customers.php`, `get_customer.php`, `add_customer.php`, `edit_customer.php`, `delete_customers.php`, `get_customer_addresses.php`) NO se tocaron; quedan como fallback.
+- **Bugs corregidos en el código nuevo** (no afectan legacy): `ncmUpdate` devuelve `['error'=>false,...]` en éxito, nunca bare `false` → el repo verifica `is_array($ok) && empty($ok['error'])`; `ci` ahora se escribe en `contactCI` (legacy `edit_customer.php` lo escribía erróneamente en `contactTIN`); UUIDs siempre bound como param, nunca concatenados (legacy `get_customers.php` concatenaba `COMPANY_ID` sin comillas).
+- **Diferido para follow-up**: custom records (`customerRecord`/`cRecordField`/`cRecordValue`), matriz de roles/permisos, y CSV import — todavía solo en `panel/a_contacts.php` (3.787 líneas).
+- **Próximo paso**: cablear `a_contacts.php` (listado + form) para consumir `contactsApi`; luego abordar los sub-dominios diferidos. Contacts es el 2º CRUD pesado del molde backend-first confirmado.
+
 ## 2026-05-24 (refactor completo módulo Items + estrategia de modernización)
 
 - **Hecho — módulo Items refactorizado punta a punta** (commits `d4e5a49`..`886abcd`): Fase 0 (dedup ~8K líneas, fix SQLi, `itemImage`→bool) · Fase 1 (extracción de dominio: `ItemRepository` + `ItemService`/`Compound`/`Stock`/`Upsell`/`Location` en `lib/items/`) · Fase 1D multi-depósito (tabla `itemLocation` + `LocationService` + `resolveItemLocation()` en venta/producción) · Fase 2 (API REST `/API/v1/items/*` con envelope `apiOk`, `apiMiddleware` ahora acepta sesión PHP) · Fase 4 (listado **data-driven** backend→JSON→render JS, y **editform-v2** reconstruido con templates Mustache: shell + 6 tabs + 3 shells por tipo, cableado al click/crear con fallback al legacy, **guardando OK**).
