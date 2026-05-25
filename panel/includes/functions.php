@@ -3461,7 +3461,7 @@ function getDefaultCustomerAddress($id, $cache = false, $company = false)
 		return [];
 	}
 
-	$obj 		= ncmExecute("SELECT * FROM customerAddress WHERE customerAddressDefault = 1 AND customerId = ? AND companyId = ? LIMIT 1", [$id, $company], $cache);
+	$obj 		= ncmExecute("SELECT * FROM customerAddress WHERE customerAddressDefault = true AND customerId = ? AND companyId = ? LIMIT 1", [$id, $company], $cache);
 	if ($obj) {
 		$out = [
 			'id' 		=> enc($obj['customerAddressId']),
@@ -3787,7 +3787,7 @@ function getAllCustomersAddress($in = false)
 		$ins = ' AND customerId IN (' . implodes(',', $in) . ')';
 	}
 
-	$custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = 1' . $ins, [COMPANY_ID], false, true);
+	$custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true' . $ins, [COMPANY_ID], false, true);
 	$allAddress = [];
 	if ($custAddresses) {
 		while (!$custAddresses->EOF) {

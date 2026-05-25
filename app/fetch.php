@@ -410,7 +410,7 @@ if (isset($_POST['companyId']) && isset($_POST['outletId'])) {
         forcedAbotion();
 
         $allAddress     = [];
-        $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = 1 AND customerId IN(' . implodes(',', $cAIns) . ')',[COMPANY_ID],60,true);
+        $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId IN(' . implodes(',', $cAIns) . ')',[COMPANY_ID],60,true);
         if($custAddresses){
           while (!$custAddresses->EOF) {
             $cAfields = $custAddresses->fields;

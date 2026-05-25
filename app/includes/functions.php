@@ -573,7 +573,7 @@ function getContactData($id, $type=false,$cache=false){
 			$lat 					= 0;
 			$lng 					= 0;
 
-			$address    	= ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = 1 LIMIT 1',[$id,COMPANY_ID]); 
+			$address    	= ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true LIMIT 1',[$id,COMPANY_ID]); 
 
 			if($address){
 				$address 		= toUTF8($result['customerAddressText'] ?? "");

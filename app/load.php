@@ -2623,7 +2623,7 @@ if (!empty($load)) {
         $latLng   = $customer['contactLatLng'];
 
         //customer addresses
-        $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = 1 AND customerId = ? LIMIT 1',[COMPANY_ID, $customer['contactId']]);
+        $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId = ? LIMIT 1',[COMPANY_ID, $customer['contactId']]);
 
         if(!empty($_GET['debug'])){
           print_r(['direcciones' => $custAddresses]);

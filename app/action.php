@@ -3048,7 +3048,7 @@ if ($action) {
 
       if (validity($customerData['address'])) {
 
-        $addressExists = ncmExecute('SELECT customerAddressId FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = 1 LIMIT 1', [$id, COMPANY_ID]);
+        $addressExists = ncmExecute('SELECT customerAddressId FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true LIMIT 1', [$id, COMPANY_ID]);
 
         $recordAdd['customerAddressText']       = $customerData['address'];
         $recordAdd['customerAddressDefault']    = 1;

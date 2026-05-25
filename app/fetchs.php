@@ -505,7 +505,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
           $customer->MoveFirst();
 
           $allAddress     = [];
-          $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = 1 AND customerId IN(' . implodes(',', $cAIns) . ')',[COMPANY_ID],false,true);
+          $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId IN(' . implodes(',', $cAIns) . ')',[COMPANY_ID],false,true);
 
           if($custAddresses){
 
