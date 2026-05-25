@@ -2800,6 +2800,8 @@ if(validateHttp('action') == 'generalTable'){
 
 	$result 	= ncmExecute($sql,[],$cache,true);
 	$table 		= '';
+	$jsonMode 	= (validateHttp('format') === 'json'); // data-driven: el server manda DATOS, el front pinta
+	$jsonRows 	= [];
 	$userCount 	= 1;
 	$supCount 	= 1;
 
@@ -2979,7 +2981,37 @@ if(validateHttp('action') == 'generalTable'){
 					$lastTransaction  = ncmExecute("SELECT transactionDate FROM transaction WHERE customerId = ? ORDER BY transactionDate DESC LIMIT 1",[$field['contactId']],true);
 					$lastDate 				= (is_array($lastTransaction) && array_key_exists('transactionDate',$lastTransaction)) ? $lastTransaction['transactionDate'] : false;
 					$lastDateF 				= $lastDate ? niceDate($lastDate,true) : '-';
-					
+
+					if($jsonMode){
+						$jsonRows[] = [
+							'id'        => $itemId,
+							'color'     => $field['contactColor'] ?? '',
+							'name'      => toUTF8($contactBillingName),
+							'tin'       => $field['contactTIN'],
+							'fullname'  => toUTF8($contactName),
+							'ci'        => $field['contactCI'],
+							'bday'      => $field['contactBirthDay'] ?? '',
+							'date'      => $field['contactDate'],
+							'dateF'     => niceDate($field['contactDate'],true),
+							'updated'   => $field['updated_at'],
+							'updatedF'  => niceDate($field['updated_at'],true),
+							'lastDate'  => $lastDate,
+							'lastDateF' => $lastDateF,
+							'phone'     => $field['contactPhone'],
+							'phone2'    => $field['contactPhone2'],
+							'email'     => $field['contactEmail'],
+							'address'   => toUTF8($field['contactAddress']),
+							'location'  => toUTF8($field['contactLocation']),
+							'city'      => toUTF8($field['contactCity']),
+							'note'      => toUTF8($field['contactNote']),
+							'scoring'   => $scoring,
+							'loyalty'   => $loyalty,
+							'distance'  => $distance,
+						];
+						$result->MoveNext();
+						continue;
+					}
+
 					$table .= 	'<tr data-id="' . $itemId . '" class="clickrow ' . $itemId . '">' .
 											'	<td style="' . $contactColor . '">' . $itemId . '</td>' .
 											'	<td class="font-bold">' .
@@ -3034,6 +3066,10 @@ if(validateHttp('action') == 'generalTable'){
 			
 			$result->MoveNext(); 
 		}
+	}
+
+	if($jsonMode){
+		jsonDieResult(['contacts' => $jsonRows]);
 	}
 
 	if($_rol == 'user'){
@@ -3787,6 +3823,8 @@ if(validateHttp('action') == 'generalTable'){
 }
 ?>
 </script>
+<script src="scripts/api/contacts.js?<?=date('d.i')?>"></script>
+<script src="scripts/contacts/render.js?<?=date('d.i')?>"></script>
 <script src="scripts/a_contacts.js?<?=date('d.i')?>"></script>
 <!--<script src="scripts<?=$baseUrl?>.js?<?=date('d.i')?>"></script>-->
 

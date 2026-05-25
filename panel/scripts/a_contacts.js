@@ -10,7 +10,11 @@
 	      }
 	    };
 
-		$.get(loadUrl,function(result){
+		// rol customer: data-driven (el server manda JSON, el front pinta vía contactsRender).
+		// user/supplier siguen en el camino legacy (HTML server-side) hasta portarlos.
+		var listUrl = (_rol == 'customer') ? loadUrl + '&format=json' : loadUrl;
+
+		$.get(listUrl,function(result){
 
 			if(_rol == 'user'){
 				var sortBy = 3;
@@ -73,7 +77,7 @@
 		            "container"   	: ".tableContainer",
 		            "url"       		: loadUrl,
 		            "rawUrl" 				: loadUrl,
-		            "iniData" 			: result.table,
+		            "iniData" 			: (_rol == 'customer') ? contactsRender.table(result.contacts || []) : result.table,
 		            "table"     		: "#tableContacts",
 		            "sort"      		: sortBy,
 								"search" 				: 'detailTableSearch',
