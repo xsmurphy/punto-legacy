@@ -46,7 +46,8 @@ class ItemRepository
             'where'       => 'itemId = ? AND companyId = ?',
             'whereParams' => [$id, $companyId],
         ]);
-        return $ok !== false;
+        // ncmUpdate devuelve ['error'=>false,...] en éxito o ['error'=>$msg] en fallo (nunca false).
+        return is_array($ok) && empty($ok['error']);
     }
 
     /**
