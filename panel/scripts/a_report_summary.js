@@ -8,9 +8,11 @@
  *   - ventas por hora                             ← GET /bff/reports/summary.php?view=hours
  *   - pestaña Por Día                             ← GET /bff/reports/summary.php?view=byday
  *
- * El front NUNCA pega a /API/v1 (siempre al BFF) y formatea los números client-side
- * (formatNumber del shell + flechas de comparación). drawChart/chartByHours quedan
- * intactos: el BFF emite exactamente el shape que esperan. Ver context/02-arquitectura.md.
+ * El front NUNCA pega a /API/v1 (siempre al BFF). Los valores vienen YA PRE-FORMATEADOS
+ * del BFF (REGLA RAÍZ 2: el PHP no genera markup, solo JSON con datos de display); este JS
+ * solo ARMA el markup colocando esos strings + construye los spans de comparación desde el
+ * objeto `compare`. drawChart/chartByHours quedan intactos (el BFF emite su shape exacto,
+ * con números para Chart.js y labels pre-formateadas). Ver context/02-arquitectura.md § REGLA RAÍZ 2.
  */
 (function () {
 
@@ -24,50 +26,23 @@
 	var FROM = moment().subtract(7, 'days').format('YYYY-MM-DD 00:00:00');
 	var TO   = moment().endOf('day').format('YYYY-MM-DD HH:mm:ss');
 
-	/* ───────────── helpers de formateo (client-side) ───────────── */
+	/* ───────────── markup (el front solo arma visual; los valores vienen pre-formateados del BFF) ───────────── */
 
-	function fmt(n) {
-		return formatNumber(n || 0, '', RS.decimal, RS.thousand);
+	// Escapa texto antes de inyectarlo como contenido de markup (el front es dueño del markup,
+	// así que escapa para su contexto). Los montos/fechas vienen del BFF (numéricos, seguros);
+	// el name del medio de pago viene de la BD → se escapa.
+	function esc(s) {
+		return String(s == null ? '' : s)
+			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 	}
 
-	// Espejo de formatQty del panel: entero → sin decimales; con decimales → 2.
-	function fmtQty(v) {
-		v = parseFloat(v) || 0;
-		return (v % 1 === 0) ? formatNumber(v, '', 'no', RS.thousand)
-		                     : formatNumber(v, '', 'yes', RS.thousand);
-	}
-
-	// Espejo de comparePeriodsArrowsPercent (icon=true): flecha + % + color, tooltip con el período anterior.
-	function cmp(now, past, inverted) {
-		now  = Math.abs(now || 0);
-		past = Math.abs(past || 0);
-		var up   = '<i class="material-icons">trending_up</i>';
-		var down = '<i class="material-icons">trending_down</i>';
-		var flat = '<i class="material-icons">trending_flat</i>';
-		var sign, color, diff;
-		if (now > past) {
-			sign  = up;
-			color = inverted ? 'text-danger' : 'text-success';
-			diff  = (now - past) * 100 / now;
-		} else if (now < past) {
-			sign  = down;
-			color = inverted ? 'text-success' : 'text-danger';
-			diff  = (past - now) * 100 / past;
-		} else {
-			sign  = flat;
-			color = 'text-muted';
-			diff  = 0;
-		}
-		diff = Math.round(diff);
-		return '<span class="' + color + ' pointer" data-toggle="tooltip" title="Periodo anterior: ' + fmt(past) + '">' + sign + ' ' + diff + '%</span>';
-	}
-
-	// Espejo de niceDate del panel (no-literal): "26 May, 2026".
-	function niceDateJs(date) {
-		var meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-		var d = moment(date);
-		if (!d.isValid()) { return 'No date'; }
-		return d.format('DD') + ' ' + meses[d.month()] + ', ' + d.format('YYYY');
+	// Arma el span de comparación desde el objeto {dir,pct,prev,positive} del BFF.
+	// El BFF ya hizo el cálculo y el formateo; acá solo elegimos icono y clase.
+	function buildCmpSpan(c) {
+		if (!c) { return '...'; }
+		var icon  = c.dir === 'up' ? 'trending_up' : (c.dir === 'down' ? 'trending_down' : 'trending_flat');
+		var color = c.positive === true ? 'text-success' : (c.positive === false ? 'text-danger' : 'text-muted');
+		return '<span class="' + color + ' pointer" data-toggle="tooltip" title="Periodo anterior: ' + c.prev + '"><i class="material-icons">' + icon + '</i> ' + c.pct + '%</span>';
 	}
 
 	/* ───────────── carga de datos (BFF) ───────────── */
@@ -87,54 +62,51 @@
 	}
 
 	function renderKpis(d) {
-		var cur  = d.current  || {};
-		var prev = d.previous || {};
+		var cur = d.current || {};
+		var cmp = d.compare || {};
 
-		$('#globalSubtotal').html(fmt(cur.grossSales));
-		$('#globalSubtotalB').html(cmp(cur.grossSales, prev.grossSales, false));
+		$('#globalSubtotal').html(cur.grossSales);
+		$('#globalSubtotalB').html(buildCmpSpan(cmp.grossSales));
 
-		$('#globalCogs').html(fmt(cur.totalReturns));
-		$('#globalCogsB').html(cmp(cur.totalReturns, prev.totalReturns, true));
+		$('#globalCogs').html(cur.totalReturns);
+		$('#globalCogsB').html(buildCmpSpan(cmp.totalReturns));
 
-		$('#globalDiscount').html(fmt(cur.totalDiscounts));
-		$('#globalDiscountB').html(cmp(cur.totalDiscounts, prev.totalDiscounts, true));
+		$('#globalDiscount').html(cur.totalDiscounts);
+		$('#globalDiscountB').html(buildCmpSpan(cmp.totalDiscounts));
 
-		$('#globalUtility').html(fmt(cur.netSales));
-		$('#globalUtilityB').html(cmp(cur.netSales, prev.netSales, false));
+		$('#globalUtility').html(cur.netSales);
+		$('#globalUtilityB').html(buildCmpSpan(cmp.netSales));
 
-		// Tabla Ventas
+		// Tabla Ventas (valores ya formateados por el BFF)
 		var salesTable =
-			'<tr class="bg-light lter"><td class="font-bold"> Ventas Brutas</td><td class="text-right font-bold">' + fmt(cur.grossSales) + '</td></tr>' +
-			'<tr><td> <span class="text-u-l pointer" data-toggle="tooltip" title="Pagos realizados con créditos de la empresa, Gift Cards, Crédito Interno o Puntos Loyalty">Pagos con créditos</span></td><td class="text-right">-' + fmt(cur.creditPays) + '</td></tr>' +
-			'<tr><td> Devoluciones</td><td class="text-right">-' + fmt(cur.totalReturns) + '</td></tr>' +
-			'<tr><td> Descuentos</td><td class="text-right">-' + fmt(cur.totalDiscounts) + '</td></tr>' +
-			'<tr class="bg-light lter"><td class="font-bold"> Ventas Netas</td><td class="text-right font-bold">' + fmt(cur.netSales) + '</td></tr>' +
-			'<tr><td>' + RS.taxName + '</td><td class="text-right">' + fmt(cur.totalTax) + '</td></tr>';
+			'<tr class="bg-light lter"><td class="font-bold"> Ventas Brutas</td><td class="text-right font-bold">' + cur.grossSales + '</td></tr>' +
+			'<tr><td> <span class="text-u-l pointer" data-toggle="tooltip" title="Pagos realizados con créditos de la empresa, Gift Cards, Crédito Interno o Puntos Loyalty">Pagos con créditos</span></td><td class="text-right">-' + cur.creditPays + '</td></tr>' +
+			'<tr><td> Devoluciones</td><td class="text-right">-' + cur.totalReturns + '</td></tr>' +
+			'<tr><td> Descuentos</td><td class="text-right">-' + cur.totalDiscounts + '</td></tr>' +
+			'<tr class="bg-light lter"><td class="font-bold"> Ventas Netas</td><td class="text-right font-bold">' + cur.netSales + '</td></tr>' +
+			'<tr><td>' + RS.taxName + '</td><td class="text-right">' + cur.totalTax + '</td></tr>';
 		$('#salesTable').html(salesTable);
 
-		// Tabla Medios de Pago
+		// Tabla Medios de Pago (name + monto pre-formateado; total calculado por el BFF)
 		var payTable = '';
-		var payTotal = 0;
 		$.each(cur.payments || [], function (i, p) {
-			payTotal += parseFloat(p.price) || 0;
-			payTable += '<tr><td>' + (p.name || '') + '</td><td class="text-right">' + fmt(p.price) + '</td></tr>';
+			payTable += '<tr><td>' + esc(p.name) + '</td><td class="text-right">' + p.amount + '</td></tr>';
 		});
-		payTable += '<tr class="font-bold text-u-c"><td>Total</td><td class="text-right">' + fmt(payTotal) + '</td></tr>';
+		payTable += '<tr class="font-bold text-u-c"><td>Total</td><td class="text-right">' + cur.paymentsTotal + '</td></tr>';
 		$('#paymentsMethodsTable').html(payTable);
 
-		// Tabla Tipos
-		var totalBruto = (parseFloat(cur.cashSales) || 0) + (parseFloat(cur.creditSales) || 0);
+		// Tabla Tipos (totalBruto calculado por el BFF)
 		var typeTable =
-			'<tr><td> Ventas al Contado</td><td class="text-right">' + fmt(cur.cashSales) + '</td></tr>' +
-			'<tr><td> Ventas a Crédito</td><td class="text-right">' + fmt(cur.creditSales) + '</td></tr>' +
-			'<tr><td class="font-bold text-u-c"> Total Bruto</td><td class="text-right font-bold">' + fmt(totalBruto) + '</td></tr>';
+			'<tr><td> Ventas al Contado</td><td class="text-right">' + cur.cashSales + '</td></tr>' +
+			'<tr><td> Ventas a Crédito</td><td class="text-right">' + cur.creditSales + '</td></tr>' +
+			'<tr><td class="font-bold text-u-c"> Total Bruto</td><td class="text-right font-bold">' + cur.totalBruto + '</td></tr>';
 		$('#typeSalesTable').html(typeTable);
 
 		// Tabla Gift Cards
 		var gcTable =
-			'<tr><td class="font-bold text-u-c"> Vendido</td><td class="text-right font-bold">' + fmt(cur.giftcardsSold) + '</td></tr>' +
-			'<tr><td> Cantidad</td><td class="text-right">' + fmtQty(cur.giftcardsCount) + '</td></tr>' +
-			'<tr><td> Canjeado</td><td class="text-right">' + fmt(cur.totalGiftcardUsed) + '</td></tr>';
+			'<tr><td class="font-bold text-u-c"> Vendido</td><td class="text-right font-bold">' + cur.giftcardsSold + '</td></tr>' +
+			'<tr><td> Cantidad</td><td class="text-right">' + cur.giftcardsCount + '</td></tr>' +
+			'<tr><td> Canjeado</td><td class="text-right">' + cur.totalGiftcardUsed + '</td></tr>';
 		$('#giftcardsTabe').html(gcTable);
 
 		$('[data-toggle="tooltip"]').tooltip();
@@ -154,14 +126,15 @@
 
 		var body = '';
 		$.each(rows, function (i, r) {
+			// display ya formateado por el BFF; *Raw para data-order (sort + footer de DataTables).
 			body +=
 				'<tr class="clickrow">' +
-				' <td data-order="' + r.date + '"> ' + niceDateJs(r.date) + ' </td>' +
-				' <td class="text-right" data-order="' + r.count + '"> ' + fmtQty(r.count) + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.discount + '" data-format="money"> ' + fmt(r.discount) + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.tax + '" data-format="money"> ' + fmt(r.tax) + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.subtotal + '" data-format="money"> ' + fmt(r.subtotal) + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.total + '" data-format="money"> ' + fmt(r.total) + ' </td>' +
+				' <td data-order="' + r.dateRaw + '"> ' + r.date + ' </td>' +
+				' <td class="text-right" data-order="' + r.countRaw + '"> ' + r.count + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.discountRaw + '" data-format="money"> ' + r.discount + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.taxRaw + '" data-format="money"> ' + r.tax + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.subtotalRaw + '" data-format="money"> ' + r.subtotal + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.totalRaw + '" data-format="money"> ' + r.total + ' </td>' +
 				'</tr>';
 		});
 

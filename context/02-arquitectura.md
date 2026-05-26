@@ -138,9 +138,36 @@ a funciones de `panel/includes/functions.php`. No son módulos independientes.
   mismo motor: ecommerce, billetera digital, lo que se construya encima de Punto. Si le
   metemos lógica específica de la App Punto, deja de ser reusable.
 - **El BFF es específico de la App Punto.** Toma lo que da la API y lo procesa para las
-  necesidades de la app: push, websockets, cálculos finales, análisis cruzados, formateo.
-  Oculta funciones/procesos/validaciones internas del front.
+  necesidades de la app: push, websockets, cálculos finales, análisis cruzados, **formateo
+  de valores**. Oculta funciones/procesos/validaciones internas del front.
 - **El front solo muestra.** Cero reglas de negocio en JS.
+
+### 🔑 REGLA RAÍZ 2 — PHP nunca genera front visual (refinada 2026-05-26)
+
+> **Ni la API ni el BFF generan HTML, CSS ni JS. El PHP solo sirve datos en JSON.**
+> Todo lo visual (markup, tablas, tarjetas, spans, clases, iconos) lo **arma el front**
+> (HTML + JS) a partir del JSON. Esto complementa la REGLA RAÍZ ("PHP nunca sirve HTML"):
+> no solo no sirve la *página*, tampoco emite *fragmentos* de markup dentro de un JSON.
+
+**División de responsabilidades (canónica):**
+
+| Capa | Hace | NO hace |
+|------|------|---------|
+| **API** | auth + CRUD + datasets casi raw (números crudos), multi-tenant | formateo, lógica de App Punto, markup |
+| **BFF** | cálculos extra, cruce de datos, gateway a la API, y **pre-formatea los valores** (números→`"1.000,00"`, fechas→`"26 May"`, deltas/%) → devuelve **JSON con valores listos para mostrar** | **NINGÚN** HTML/CSS/JS. No arma tablas ni spans. |
+| **FRONT** (`.html` + JS) | arma **TODO** el markup/visual colocando los valores pre-formateados del BFF; aplica clases/iconos/colores | cálculos de negocio, formateo de números (ya viene del BFF) |
+
+**Anti-patrón explícito (lo que hacen `a_report_orders.php` y todos los reportes legacy):**
+el BFF arma la `<table>`/`<tr>` con `formatCurrentNumber`/`niceDate` y la devuelve como
+string HTML dentro del JSON (`{table:"<table>…"}`). **Eso está MAL** — mezcla presentación
+en el PHP. Al migrar cada reporte hay que **invertir** esto: el BFF devuelve los datos
+pre-formateados (p. ej. `[{date:"26 May", total:"1.000,00", totalRaw:1000}]`) y el JS arma
+el `<tr>`. Para tablas con sort/sumas client-side (DataTables) el BFF manda ambos: el valor
+de display (string) y el valor crudo (`*Raw`, para `data-order`/footer).
+
+**Supersede** la nota previa "el formateo se resuelve en el front (JS) / números crudos":
+el formateo de *valores* lo hace el **BFF** (devuelve strings de display); el front solo
+los **coloca** en el markup que él mismo construye.
 
 ### ⚠️ Constraint que define el diseño: App y API en servidores separados
 

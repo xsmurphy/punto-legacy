@@ -98,9 +98,14 @@ function bffNetSales(array $d)
     return (($gross - $discount) - $returns) - $nonAdd;
 }
 
-/** Aplana el dataset crudo de la API a los KPIs que el front pinta (números crudos). */
-function bffKpis(array $d)
+/** Aplana el dataset crudo de la API a los KPIs en NÚMEROS crudos (uso interno del BFF). */
+function bffKpisRaw(array $d)
 {
+    $payTotal = 0;
+    foreach (($d['payments'] ?? []) as $p) {
+        $payTotal += (float) ($p['price'] ?? 0);
+    }
+
     return [
         'grossSales'        => $d['totals']['total'] ?? 0,
         'totalDiscounts'    => $d['totals']['discount'] ?? 0,
@@ -113,12 +118,68 @@ function bffKpis(array $d)
         'giftcardsCount'    => $d['giftcards']['count'] ?? 0,
         'totalGiftcardUsed' => $d['nonAddingToSales']['totalGiftCards'] ?? 0,
         'creditPays'        => $d['nonAddingToSales']['total'] ?? 0,
-        // type + name (resueltos por la API) + price crudo; el front formatea el monto.
-        'payments'          => array_map(
-            fn($p) => ['type' => $p['type'] ?? '', 'name' => $p['name'] ?? '', 'price' => $p['price'] ?? 0],
-            $d['payments'] ?? []
-        ),
+        'paymentsTotal'     => $payTotal,                                            // cálculo en el BFF, no en el front
+        'totalBruto'        => (($d['byType']['cash']['total'] ?? 0)   - ($d['byType']['cash']['discount'] ?? 0))
+                             + (($d['byType']['credit']['total'] ?? 0) - ($d['byType']['credit']['discount'] ?? 0)),
+        'payments'          => $d['payments'] ?? [],
     ];
+}
+
+/**
+ * KPIs ya PRE-FORMATEADOS para el front (strings de display). El front NO formatea:
+ * solo coloca estos valores en el markup que él arma. Ver REGLA RAÍZ 2 en 02-arquitectura.md.
+ */
+function bffKpisFormatted(array $raw)
+{
+    $payments = array_map(
+        // name (resuelto por la API) + monto ya formateado. Cero markup.
+        fn($p) => ['name' => $p['name'] ?? '', 'amount' => bffFormatNumber($p['price'] ?? 0)],
+        $raw['payments']
+    );
+
+    return [
+        'grossSales'        => bffFormatNumber($raw['grossSales']),
+        'totalDiscounts'    => bffFormatNumber($raw['totalDiscounts']),
+        'totalReturns'      => bffFormatNumber($raw['totalReturns']),
+        'totalTax'          => bffFormatNumber($raw['totalTax']),
+        'netSales'          => bffFormatNumber($raw['netSales']),
+        'cashSales'         => bffFormatNumber($raw['cashSales']),
+        'creditSales'       => bffFormatNumber($raw['creditSales']),
+        'totalBruto'        => bffFormatNumber($raw['totalBruto']),
+        'giftcardsSold'     => bffFormatNumber($raw['giftcardsSold']),
+        'giftcardsCount'    => bffFormatQty($raw['giftcardsCount']),
+        'totalGiftcardUsed' => bffFormatNumber($raw['totalGiftcardUsed']),
+        'creditPays'        => bffFormatNumber($raw['creditPays']),
+        'paymentsTotal'     => bffFormatNumber($raw['paymentsTotal']),
+        'payments'          => $payments,
+    ];
+}
+
+/**
+ * Comparación período actual vs anterior. Devuelve los DATOS de la comparación
+ * (dirección, %, valor anterior formateado, si es señal positiva) — NO el markup.
+ * El front arma el span con icono/clase. (= comparePeriodsArrowsPercent del panel)
+ */
+function bffCompare($now, $past, $inverted = false)
+{
+    $now  = abs($now ?? 0);
+    $past = abs($past ?? 0);
+
+    if ($now > $past) {
+        $dir      = 'up';
+        $pct      = $now ? round(($now - $past) * 100 / $now) : 0;
+        $positive = !$inverted;
+    } elseif ($now < $past) {
+        $dir      = 'down';
+        $pct      = $past ? round(($past - $now) * 100 / $past) : 0;
+        $positive = (bool) $inverted;
+    } else {
+        $dir      = 'flat';
+        $pct      = 0;
+        $positive = null; // neutral
+    }
+
+    return ['dir' => $dir, 'pct' => $pct, 'prev' => bffFormatNumber($past), 'positive' => $positive];
 }
 
 function bffViewKpis($from, $to)
@@ -131,12 +192,26 @@ function bffViewKpis($from, $to)
     [$pf, $pt] = bffPrevPeriod($from, $to);
     $prev      = bffFetchSummary($pf, $pt);
 
+    $curRaw  = bffKpisRaw($cur['data']);
+    $prevRaw = $prev['ok'] ? bffKpisRaw($prev['data']) : null;
+
+    // Comparaciones (returns/discounts: subir es señal negativa → inverted).
+    $compare = null;
+    if ($prevRaw) {
+        $compare = [
+            'grossSales'     => bffCompare($curRaw['grossSales'],     $prevRaw['grossSales']),
+            'totalReturns'   => bffCompare($curRaw['totalReturns'],   $prevRaw['totalReturns'],   true),
+            'totalDiscounts' => bffCompare($curRaw['totalDiscounts'], $prevRaw['totalDiscounts'], true),
+            'netSales'       => bffCompare($curRaw['netSales'],       $prevRaw['netSales']),
+        ];
+    }
+
     bffJson([
         'ok'   => true,
         'data' => [
-            'period'   => ['from' => $from, 'to' => $to],
-            'current'  => bffKpis($cur['data']),
-            'previous' => $prev['ok'] ? bffKpis($prev['data']) : null,
+            'period'  => ['from' => $from, 'to' => $to],
+            'current' => bffKpisFormatted($curRaw),
+            'compare' => $compare,
         ],
     ]);
 }
@@ -294,7 +369,8 @@ function bffViewByDay($from, $to)
         bffFailFromApi($res);
     }
 
-    // Derivados por fila (números crudos; el front formatea y arma la tabla).
+    // Derivados por fila + pre-formateo. Mandamos display (string) Y crudo (*Raw):
+    // el front usa el crudo para data-order/sort/footer de DataTables y el display para mostrar.
     $rows = [];
     foreach ($res['data'] as $r) {
         $total    = ($r['total'] < 1) ? 0 : $r['total'];
@@ -304,44 +380,78 @@ function bffViewByDay($from, $to)
         $tax      = ($r['tax'] < 0) ? 0 : $r['tax'];
 
         $rows[] = [
-            'date'     => $r['date'],
-            'count'    => $r['count'],
-            'discount' => $r['discount'],
-            'tax'      => $tax,
-            'subtotal' => $subtotal,
-            'total'    => $total,
+            'date'        => bffNiceDateShort($r['date']),
+            'dateRaw'     => $r['date'],
+            'count'       => bffFormatQty($r['count']),
+            'countRaw'    => $r['count'],
+            'discount'    => bffFormatNumber($r['discount']),
+            'discountRaw' => $r['discount'],
+            'tax'         => bffFormatNumber($tax),
+            'taxRaw'      => $tax,
+            'subtotal'    => bffFormatNumber($subtotal),
+            'subtotalRaw' => $subtotal,
+            'total'       => bffFormatNumber($total),
+            'totalRaw'    => $total,
         ];
     }
 
     bffJson(['ok' => true, 'data' => ['rows' => $rows]]);
 }
 
-/* ───────────────────────── formateo del config de la company ─────────────────────────
- * Solo para el texto de la anotación del gráfico. El BFF pide el config a la API (bootstrap),
- * que es la única capa con BD. (= formatCurrentNumber del panel) */
+/* ───────────────────────── formateo de valores (config de la company) ─────────────────────────
+ * El BFF pre-formatea TODOS los valores de display (REGLA RAÍZ 2). Pide el config a la API
+ * (bootstrap) — única capa con BD. Espejo de formatCurrentNumber/formatQty/niceDate del panel. */
 
-function bffFormatNumber($number)
+/** Config de la company (currency/decimal/thousand), cacheado por request. */
+function bffConfig()
 {
     static $cfg = null;
     if ($cfg === null) {
         $b   = bffApiGet('v1/bootstrap.php');
         $cfg = ($b['ok'] && is_array($b['data'])) ? $b['data'] : [];
     }
-    $decimal  = $cfg['decimal']  ?? 'no';
-    $thousand = $cfg['thousand'] ?? 'dot';
+    return $cfg;
+}
 
+/** Número como string de display, respetando decimal/thousand de la company. */
+function bffFormatNumber($number)
+{
+    $cfg     = bffConfig();
+    $decimal = ($cfg['decimal'] ?? 'no') === 'no' ? 0 : 2;
+    return bffNumber($number, $decimal, $cfg['thousand'] ?? 'dot');
+}
+
+/** Cantidad: enteros sin decimales, con decimales si los tiene (= formatQty del panel). */
+function bffFormatQty($v)
+{
+    $v   = is_numeric($v) ? (float) $v : 0;
+    $cfg = bffConfig();
+    return bffNumber($v, (floor($v) == $v) ? 0 : 2, $cfg['thousand'] ?? 'dot');
+}
+
+/** number_format con el separador de miles de la company. */
+function bffNumber($number, $decimals, $thousand)
+{
     if (!is_numeric($number)) {
         $number = 0;
     }
-    if ($decimal === 'no') {
+    if ($decimals === 0) {
         $number = round($number);
-        return ($thousand === 'comma')
-            ? number_format($number, 0, '.', ',')
-            : number_format($number, 0, ',', '.');
     }
     return ($thousand === 'comma')
-        ? number_format($number, 2, '.', ',')
-        : number_format($number, 2, ',', '.');
+        ? number_format($number, $decimals, '.', ',')
+        : number_format($number, $decimals, ',', '.');
+}
+
+/** Fecha corta de display "26 May, 2026" (= niceDate no-literal del panel). */
+function bffNiceDateShort($date)
+{
+    static $meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    if (empty($date) || $date === '0000-00-00 00:00:00') {
+        return 'No date';
+    }
+    $t = strtotime($date);
+    return date('d', $t) . ' ' . $meses[(int) date('m', $t) - 1] . ', ' . date('Y', $t);
 }
 
 /* ───────────────────────── dispatch ───────────────────────── */
