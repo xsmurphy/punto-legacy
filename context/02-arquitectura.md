@@ -98,91 +98,105 @@ a funciones de `panel/includes/functions.php`. No son módulos independientes.
 - **API dentro de panel/** — no se separa en repo aparte (no vale la pena aún)
 - **Agente IA como microservicio Python separado** — no toca el monolito PHP
 
-## Patrón de refactorización por fases (canónico)
+## Arquitectura objetivo: BFF de 3 niveles (canónico — decisión 2026-05-26)
 
-> **Esta es la estructura objetivo de TODA refactorización de módulos.**
-> Surgió del refactor de Items (ver `context/refactor-items.md`) y se aplica
-> a cualquier módulo legacy que vayamos modernizando (compras, clientes,
-> ventas, etc.). **No cambiamos de stack** — seguimos en PHP + jQuery +
-> Bootstrap 3. Lo que cambia es *cómo está organizado*, no *con qué está hecho*.
+> **Esta es la estructura objetivo de TODA modernización de módulos.**
+> No cambiamos de stack (PHP + jQuery + Bootstrap 3); cambia *cómo está
+> organizado* y *quién habla con quién*.
 
-### Las 4 capas
+### El modelo
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  BROWSER                                                       │
-│                                                                │
-│  ① UI            a_<modulo>.js        JS + jQuery              │
-│     (tabla, modal, eventos)           ↑ DataTables + BS3       │
-│        │ llama a                                               │
-│        ▼                                                       │
-│  ② Cliente API   scripts/api/<x>.js   JS vanilla (fetch)       │
-│     (itemsApi.create, .update...)     ↑ sin jQuery, portable   │
-└────────┼───────────────────────────────────────────────────────┘
-         │ HTTP — JSON { ok, data } / { ok:false, error }
-┌────────▼───────────────────────────────────────────────────────┐
-│  SERVIDOR (PHP)                                                 │
-│                                                                │
-│  ③ API REST      API/v1/<x>.php       PHP                       │
-│     (GET/POST/PUT/DELETE)             ↑ apiMiddleware + apiOk() │
-│        │ delega en                                             │
-│        ▼                                                       │
-│  ④ Dominio       lib/<x>/*.php        PHP                       │
-│     (Service + Repository)            ↑ SQL parametrizado,      │
-│                                          reglas de negocio      │
-│        │                                                       │
-│        ▼  PostgreSQL                                           │
-└────────────────────────────────────────────────────────────────┘
+   HTML + JS        →        PHP (BFF)        →        API        →   BD
+   (solo muestra)            (procesa para            (motor ERP        
+                             la App Punto)            genérico, raw)    
+
+┌─────────────────────────┐   ┌──────────────────────────┐   ┌─────────────────────────┐
+│  FRONT (browser)        │   │  BFF — App Punto (PHP)    │   │  API — motor ERP (PHP)  │
+│  a_<x>.js + render.js   │   │  a_<x>.php?action=…&json  │   │  API/v1/<x>.php         │
+│  pinta lo que da el BFF │──▶│  push, websockets, cálcu- │──▶│  thin: auth + CRUD +    │
+│  NO calcula reglas      │   │  los finales, análisis    │   │  datos casi RAW         │
+│                         │   │  cruzados, formateo       │   │       │ delega en        │
+│                         │   │  oculta internals/valida- │   │       ▼                 │
+│                         │   │  ciones del front         │   │  lib/<x>/ (dominio)     │
+│                         │   │  NO toca BD ni lib/       │   │  Repository + Service   │
+└─────────────────────────┘   └──────────────────────────┘   │       │ SQL              │
+                                                              │       ▼ PostgreSQL      │
+                                                              └─────────────────────────┘
 ```
 
-### Regla de oro: separar por capa, no por pureza
+### Por qué este modelo
 
-| Capa | Stack | Por qué |
-|------|-------|---------|
-| ① UI (DOM/eventos) | **jQuery** | DataTables y Bootstrap 3 son dependencias duras de jQuery. Sacarlo del código nuevo no reduce el bundle — solo agrega inconsistencia. |
-| ② Cliente API | **JS vanilla** (`fetch`) | Portable: si mañana cambia el front, el cliente se reusa. Cero jQuery. |
-| ③ API REST | **PHP** | Endpoint fino: auth (`apiMiddleware`) + envelope (`apiOk`/`apiError`) + delega en Services. Sin lógica de negocio. |
-| ④ Dominio | **PHP** | `<X>Service` orquesta reglas; `<X>Repository` hace SQL parametrizado. Reutilizable por API REST y handlers legacy. |
+- **La API es un motor ERP genérico y reusable.** Sirve datos casi raw (seguridad +
+  CRUD, poco procesamiento) y debe poder alimentar a **otras apps nuestras** sobre el
+  mismo motor: ecommerce, billetera digital, lo que se construya encima de Punto. Si le
+  metemos lógica específica de la App Punto, deja de ser reusable.
+- **El BFF es específico de la App Punto.** Toma lo que da la API y lo procesa para las
+  necesidades de la app: push, websockets, cálculos finales, análisis cruzados, formateo.
+  Oculta funciones/procesos/validaciones internas del front.
+- **El front solo muestra.** Cero reglas de negocio en JS.
 
-**El backend NO cambia de lenguaje** — sigue siendo PHP. Solo se reorganiza:
-la lógica que antes vivía mezclada con HTML en `a_<modulo>.php` se extrae a
-Services + un endpoint REST limpio.
+### ⚠️ Constraint que define el diseño: App y API en servidores separados
 
-### Envelope canónico (capa ③)
+Eventualmente la **App (front + BFF)** y la **API (+ dominio + BD)** viven en
+**servidores distintos**. De ahí la regla no-negociable:
+
+> **El BFF NUNCA toca la BD ni `lib/` directamente. Obtiene TODA su data de la API.**
+
+Consecuencias:
+- La API debe exponer los **datasets crudos** que el BFF necesita para componer. Ej.: la
+  columna "última operación" del listado de clientes **no** se calcula en la API (la
+  acoplaría a Punto) — la API expone transacciones crudas y el **BFF las cruza**.
+- El cálculo/cross-analysis/formateo vive en el **BFF**, no en la API ni en el front.
+- Cachear en el BFF los paths calientes (para no ser chatty contra la API remota).
+
+### Transporte y auth BFF↔API (propuesto — confirmar antes de implementar)
+
+- **Transporte:** cliente PHP HTTP fino en el BFF (`$api->get('/v1/contacts')`) →
+  `localhost/API` hoy, URL del server API mañana. Boundary real desde el día 1; el split
+  = cambiar base URL, sin tocar lógica.
+- **Auth:** el BFF reenvía el JWT del usuario logueado a la API; service token para
+  crons/procesos sin usuario. El front nunca ve `api_key`.
+
+### Dónde vive cada cosa
+
+```
+FRONT   panel/scripts/a_<x>.js + panel/scripts/<x>/render.js + templates/   (pinta)
+BFF     panel/a_<x>.php?action=…&format=json                                (procesa para la app)
+API     panel/API/v1/<x>.php  → apiMiddleware + apiOk()/apiError() (envelope) — RAW
+DOMINIO panel/lib/<x>/{Repository,Service}.php  (SQL + reglas de escritura)  — vive con la API
+```
+
+### Envelope canónico (API)
 
 ```jsonc
-// éxito
-{ "ok": true, "data": { ... }, "meta": { "ts": 1234567890, "v": "1" } }
-// error
-{ "ok": false, "error": { "message": "...", "code": 422, "details": [] } }
+{ "ok": true, "data": { ... }, "meta": { "ts": 1234567890, "v": "1" } }   // éxito
+{ "ok": false, "error": { "message": "...", "code": 422, "details": [] } } // error
 ```
+Helpers en `panel/API/lib/response.php`. El BFF desempaqueta `data` o maneja el error.
 
-Helpers: `apiOk($data)`, `apiError($msg, $code)`, `apiNotFound()`, etc.
-(`panel/API/lib/response.php`). El cliente vanilla (capa ②) desempaqueta
-`data` o lanza un `ApiError` tipado si `ok === false`.
-
-### Orden de las fases (probado en Items)
+### Orden de fases por módulo
 
 | Fase | Qué hace | Riesgo |
 |------|----------|--------|
-| **0** | Quick wins: borrar duplicados, fix SQLi, migraciones de tipo | bajo |
-| **1** | Extraer dominio a `lib/<x>/` (Repository + Services) | bajo (no toca UI) |
-| **2** | API REST `/API/v1/<x>/*` que reusa los Services | bajo (superficie nueva) |
-| **3** | Schema cleanup (constraints, normalización incremental) | alto (migrations) |
-| **4** | Front consume la API: cliente vanilla + UI jQuery llama a la API en vez de a handlers PHP de UI | medio |
-| **5** | Decommission: borrar handlers PHP de UI ya migrados | medio |
+| **1** | Extraer dominio a `lib/<x>/` (Repository + Service: SQL + reglas) | bajo |
+| **2** | API REST `/API/v1/<x>` **raw** sobre el dominio (para apps externas) | bajo |
+| **3** | BFF: `a_<x>.php?action=…&format=json` consume la API (vía cliente HTTP) + procesa para la app | medio |
+| **4** | Front: `render.js`/form pintan lo del BFF; el front habla **solo** con el BFF | medio |
+| **5** | Decommission de los handlers de UI legacy ya migrados | medio |
 
-**`apiMiddleware` acepta 3 vías de auth** (en orden): JWT (`_jwt_panel`) →
-`api_key` + `company_id` → sesión PHP del panel (`$_SESSION['user']`). Esto
-último permite que el front logueado consuma su propia API con
-`fetch(..., { credentials:'include' })` sin credenciales extra.
+### Desvío corregido (2026-05-26)
+
+El modelo previo era **front → API directo** (4 capas en 2 niveles, sin BFF). Eso hizo
+que: (a) el editform v2 de contacts pegue directo a `/API/v1/contacts` desde JS, y (b)
+`API/v1/contacts` devuelva data ya formateada para la app (`presentRow`), acoplando la API
+genérica a Punto. **Items y Contacts** quedaron con ese desvío y necesitan que se les
+inserte el BFF: el front pasa a hablar con el BFF, y `/API/v1/*` se adelgaza a raw.
 
 ### Cuándo se reconsidera el stack del front
 
-Solo cuando se decida reemplazar **DataTables** (por tabla vanilla / web
-component) y **Bootstrap 3** (por BS5 sin jQuery, o CSS puro). Eso es un
-proyecto aparte con su propia fase — hasta entonces, jQuery se queda en la
-capa ①.
+Solo al reemplazar **DataTables** y **Bootstrap 3** — proyecto aparte. Hasta entonces
+jQuery se queda en la capa de UI.
 
 ## Estrategia de modernización del monolito (decisión 2026-05-24)
 
@@ -217,19 +231,21 @@ se reescribe); lo nuevo va en Alpine.
 
 > **Contacts — pendientes post-v2 (2026-05-25)**: (a) editform v2 para roles user/supplier (hoy usan form legacy); (b) custom records (solo en `a_contacts.php` legacy); (c) CSV export (lee columnas ya en JSONB); (d) listado customer muestra note/address/city vacíos (loop generalTable no aplana JSONB — pre-existente).
 
-### El molde backend (replicable por módulo)
+### El molde por módulo (alineado al BFF de 3 niveles)
 
-Para que cada módulo sea mecánico, no artesanal:
+> Reemplaza al molde viejo (front → API directo). El cableado canónico es el de
+> la sección **"Arquitectura objetivo: BFF de 3 niveles"** arriba.
 
 ```
-lib/<modulo>/
-  <Modulo>Repository.php   SQL parametrizado puro
-  <Modulo>Service.php      reglas de negocio + orquestación
-API/v1/<modulo>.php        REST con apiMiddleware() + apiOk()/apiError()
-scripts/api/<modulo>.js    cliente fetch vanilla (window.<modulo>Api)
-a_<modulo>.php             vista: HTML de presentación pura (consume el Service)
+DOMINIO  lib/<modulo>/{<Modulo>Repository.php, <Modulo>Service.php}   SQL + reglas (vive con la API)
+API      API/v1/<modulo>.php     REST raw (apiMiddleware + apiOk/apiError) — reusable por apps externas
+BFF      a_<modulo>.php?action=…&format=json   consume la API (cliente HTTP) + procesa para la app
+FRONT    scripts/<modulo>/render.js + form.js + templates/   pinta lo del BFF; habla SOLO con el BFF
 ```
+
+Reglas: el **front nunca pega a `/API/v1`** (pega al BFF). El **BFF nunca toca BD/`lib/`**
+(pide a la API). La **API no formatea para Punto** (devuelve raw; el BFF compone/cruza/formatea).
 
 Muchos módulos ya tienen endpoints sueltos en `API/*.php` (73 en total,
 ej. `get_customers.php`, `edit_customer.php`) — se consolidan bajo el
-Service + `API/v1/` canónico.
+Service + `API/v1/` canónico (raw).
