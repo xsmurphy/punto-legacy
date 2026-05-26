@@ -98,30 +98,36 @@ a funciones de `panel/includes/functions.php`. No son módulos independientes.
 - **API dentro de panel/** — no se separa en repo aparte (no vale la pena aún)
 - **Agente IA como microservicio Python separado** — no toca el monolito PHP
 
-## Arquitectura objetivo: BFF de 3 niveles (canónico — decisión 2026-05-26)
+## Arquitectura objetivo: BFF de 3 niveles (canónico — decisión 2026-05-26, refinada 2026-05-26)
 
-> **Esta es la estructura objetivo de TODA modernización de módulos.**
+> **Esta es la estructura objetivo de TODA modernización de módulos, en TODO el sistema.**
 > No cambiamos de stack (PHP + jQuery + Bootstrap 3); cambia *cómo está
 > organizado* y *quién habla con quién*.
+
+> **🔑 REGLA RAÍZ (no-negociable, refinamiento 2026-05-26): PHP NUNCA sirve HTML.**
+> El front son archivos **`.html` estáticos** (HTML + JS, cero PHP). PHP existe
+> solo en dos capas: **BFF** (intermedia, devuelve JSON) y **API** (Postgres,
+> devuelve JSON). El auth y el chrome (menú/título/constantes) los resuelve el
+> **JS del front** pidiéndoselos al BFF — nunca un `include` PHP que renderiza layout.
 
 ### El modelo
 
 ```
-   HTML + JS        →        PHP (BFF)        →        API        →   BD
-   (solo muestra)            (procesa para            (motor ERP        
-                             la App Punto)            genérico, raw)    
+   front.html (HTML+JS)   →        bff.php (PHP)        →        api.php (PHP)     →   BD
+   estático, cero PHP              intermedia, SIN BD            motor ERP, única       
+   auth+chrome client-side        solo llama a la API           capa con Postgres      
 
 ┌─────────────────────────┐   ┌──────────────────────────┐   ┌─────────────────────────┐
-│  FRONT (browser)        │   │  BFF — App Punto (PHP)    │   │  API — motor ERP (PHP)  │
-│  a_<x>.js + render.js   │   │  a_<x>.php?action=…&json  │   │  API/v1/<x>.php         │
+│  FRONT — .html estático │   │  BFF — App Punto (PHP)    │   │  API — motor ERP (PHP)  │
+│  <x>.html + <x>.js      │   │  bff/<x>.php  (solo JSON) │   │  API/v1/<x>.php         │
 │  pinta lo que da el BFF │──▶│  push, websockets, cálcu- │──▶│  thin: auth + CRUD +    │
-│  NO calcula reglas      │   │  los finales, análisis    │   │  datos casi RAW         │
-│                         │   │  cruzados, formateo       │   │       │ delega en        │
-│                         │   │  oculta internals/valida- │   │       ▼                 │
-│                         │   │  ciones del front         │   │  lib/<x>/ (dominio)     │
+│  auth + chrome por JS   │   │  los finales, análisis    │   │  datos casi RAW         │
+│  (bootstrap del BFF)    │   │  cruzados, formateo       │   │       │ delega en        │
+│  NO calcula reglas      │   │  oculta internals/valida- │   │       ▼                 │
+│  NINGÚN tag PHP         │   │  ciones del front         │   │  lib/<x>/ (dominio)     │
 │                         │   │  NO toca BD ni lib/       │   │  Repository + Service   │
-└─────────────────────────┘   └──────────────────────────┘   │       │ SQL              │
-                                                              │       ▼ PostgreSQL      │
+│                         │   │  NO sirve HTML            │   │       │ SQL              │
+└─────────────────────────┘   └──────────────────────────┘   │       ▼ PostgreSQL      │
                                                               └─────────────────────────┘
 ```
 
@@ -150,20 +156,26 @@ Consecuencias:
 - El cálculo/cross-analysis/formateo vive en el **BFF**, no en la API ni en el front.
 - Cachear en el BFF los paths calientes (para no ser chatty contra la API remota).
 
-### Transporte y auth BFF↔API (propuesto — confirmar antes de implementar)
+### Transporte y auth (confirmado 2026-05-26)
 
-- **Transporte:** cliente PHP HTTP fino en el BFF (`$api->get('/v1/contacts')`) →
-  `localhost/API` hoy, URL del server API mañana. Boundary real desde el día 1; el split
-  = cambiar base URL, sin tocar lógica.
-- **Auth:** el BFF reenvía el JWT del usuario logueado a la API; service token para
-  crons/procesos sin usuario. El front nunca ve `api_key`.
+- **Front → BFF:** el JS del `.html` hace `fetch` al BFF (`/bff/reports/summary.php?action=…`).
+  El front nunca pega a `/API/v1` ni ve `api_key`.
+- **BFF → API:** cliente PHP HTTP fino en el BFF (`$api->get('/v1/reports/sales', …)`) →
+  `localhost/API` hoy, URL del server API mañana. **Boundary HTTP real desde el día 1**
+  (ya NO se difiere); el split a servidores separados = cambiar base URL, sin tocar lógica.
+  El BFF reenvía el JWT del usuario a la API; service token para crons sin usuario.
+- **Auth del front (client-side):** el JS lleva el JWT (cookie `_jwt_panel`); si el BFF
+  responde 401, el JS redirige a `/login`. No hay gate PHP que renderice la página.
+- **Chrome (client-side):** menú, título, `CURRENCY`, `TAX_NAME`, permisos vienen de un
+  `GET /bff/bootstrap` que el JS pide al cargar; el JS pinta el layout. El `.html` trae el
+  markup estático del layout; el JS solo hidrata los valores dinámicos.
 
 ### Dónde vive cada cosa
 
 ```
-FRONT   panel/scripts/a_<x>.js + panel/scripts/<x>/render.js + templates/   (pinta)
-BFF     panel/a_<x>.php?action=…&format=json                                (procesa para la app)
-API     panel/API/v1/<x>.php  → apiMiddleware + apiOk()/apiError() (envelope) — RAW
+FRONT   panel/reports/<x>.html  (estático, cero PHP)  +  panel/scripts/<x>.js   (pinta + auth + chrome)
+BFF     panel/bff/<area>/<x>.php   → JWT + llama a la API + formatea + JSON   (NO BD, NO HTML)
+API     panel/API/v1/<area>/<x>.php  → apiMiddleware + apiOk()/apiError() (envelope) — RAW
 DOMINIO panel/lib/<x>/{Repository,Service}.php  (SQL + reglas de escritura)  — vive con la API
 ```
 
@@ -209,17 +221,19 @@ es sacar SQL + lógica de negocio del HTML hacia `lib/<x>/{Repository,Service}`
 + `API/v1/<x>.php`. Eso solo ya saca el módulo del monolito y deja base
 para cualquier frontend. Es **mecánico y replicable** (ver el molde abajo).
 
-**2. Frontend = vista PHP pura por defecto.** Mientras el backend se
-desacopla, el HTML lo sigue renderizando PHP — pero como **presentación
-pura** (sin queries ni lógica; los datos vienen de un Service/view-model).
-Eso ya es "desacoplado". NO es obligatorio convertir a JS+hidratación.
+**2. Frontend = `.html` estático (HTML + JS), CERO PHP.** ⚠️ *Superseded 2026-05-26:*
+el supuesto previo era "vista PHP pura por defecto". **Ya no.** PHP nunca sirve HTML
+(ver REGLA RAÍZ arriba). El front es un `.html` estático que el JS hidrata con datos
+del BFF; auth y chrome también client-side. El backend-first sigue siendo válido como
+*orden* (primero API+BFF, luego el front estático), pero el destino del front NO es PHP.
 
 **3. Frontend reactivo (Alpine.js) solo donde la UX lo amerita.** Para los
 CRUD/POS donde la interactividad importa, usar **Alpine.js** (no Mustache):
 reactividad declarativa en el HTML (`x-data`/`x-model`/`x-for`/`x-if`), sin
 build, convive con jQuery/BS3, ~15KB. Elimina el view-model manual que hace
 Mustache verboso y bug-prone. **Items queda en Mustache** (ya funciona, no
-se reescribe); lo nuevo va en Alpine.
+se reescribe); lo nuevo va en Alpine. (Aplica dentro del `.html` estático — Alpine
+es JS puro, no rompe la regla de cero-PHP.)
 
 **Priorización por tipo de módulo:**
 
@@ -238,13 +252,14 @@ se reescribe); lo nuevo va en Alpine.
 
 ```
 DOMINIO  lib/<modulo>/{<Modulo>Repository.php, <Modulo>Service.php}   SQL + reglas (vive con la API)
-API      API/v1/<modulo>.php     REST raw (apiMiddleware + apiOk/apiError) — reusable por apps externas
-BFF      a_<modulo>.php?action=…&format=json   consume la API (cliente HTTP) + procesa para la app
-FRONT    scripts/<modulo>/render.js + form.js + templates/   pinta lo del BFF; habla SOLO con el BFF
+API      API/v1/<area>/<modulo>.php   REST raw (apiMiddleware + apiOk/apiError) — reusable por apps externas
+BFF      bff/<area>/<modulo>.php?action=…   consume la API (cliente HTTP) + procesa para la app — JSON, NO HTML
+FRONT    reports/<modulo>.html (estático) + scripts/<modulo>.js   pinta lo del BFF; habla SOLO con el BFF
 ```
 
-Reglas: el **front nunca pega a `/API/v1`** (pega al BFF). El **BFF nunca toca BD/`lib/`**
-(pide a la API). La **API no formatea para Punto** (devuelve raw; el BFF compone/cruza/formatea).
+Reglas: el **front es `.html` estático** (cero PHP) y **nunca pega a `/API/v1`** (pega al BFF).
+El **BFF nunca toca BD/`lib/` ni sirve HTML** (pide a la API, devuelve JSON). La **API no formatea
+para Punto** (devuelve raw; el BFF compone/cruza/formatea). **PHP nunca sirve HTML.**
 
 Muchos módulos ya tienen endpoints sueltos en `API/*.php` (73 en total,
 ej. `get_customers.php`, `edit_customer.php`) — se consolidan bajo el

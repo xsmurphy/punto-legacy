@@ -331,28 +331,38 @@ Usuario envía /start en Telegram
 
 ---
 
-## Phase 3 — Desacople HTML/PHP/JS en el panel
+## Phase 3 — Separación de capas: front.html → bff.php → api.php (ACTIVO 2026-05-26)
 
-**Problema**: Los `a_*.php` mezclan auth + queries + template. Imposible testear o mantener.
+> **⚠️ Reescrito 2026-05-26.** La propuesta vieja (page controller PHP + template HTML)
+> quedó superseded por la **REGLA RAÍZ: PHP nunca sirve HTML**. Ver
+> [02-arquitectura.md](02-arquitectura.md) § "Arquitectura objetivo: BFF de 3 niveles".
 
-**Dependencia**: Phase 2 completa
+**Estructura canónica para TODO el sistema** (decisión del usuario 2026-05-26):
 
-**Propuesta**: Separar en: page controller (auth + `$pageData` mínimo) + data via API (AJAX).
+```
+front.html (HTML+JS, cero PHP)  →  bff.php (PHP, sin BD)  →  api.php (PHP + Postgres)
+auth + chrome client-side          intermedia + formatea      única capa con queries
+```
 
-**Antes:** `a_items.php` = auth + queries SQL + template HTML (todo junto)
+**Esto revierte** el diferimiento del boundary HTTP de la sesión 2026-05-26 (que dejaba
+el BFF llamando a `lib/` in-process). Ahora el BFF llama a la API por HTTP desde el día 1.
 
-**Después:**
-- `a_items.php` = solo `include('secure.php')` + `$pageData` mínimo + template HTML
-- Data del catálogo → `panel/API/get_items.php` vía AJAX
+**Piloto en curso: módulo Reportes, reporte `a_report_summary`** (read-only, sin escrituras):
 
-| # | Qué | Archivo |
-|---|-----|---------|
-| 3.1 | Piloto: refactorizar `a_items.php` | `panel/a_items.php` |
-| 3.2 | Extraer componentes de layout reutilizables | `panel/layout/*.php` |
-| 3.3 | Pipeline JS con `esbuild` | `panel/package.json` |
-| 3.4 | Migrar 4 páginas más: contacts, dashboard, settings, reports | `panel/a_*.php` |
+| # | Qué | Archivo | Estado |
+|---|-----|---------|--------|
+| 3.1 | API: SQL de agregación de ventas (6 handlers) | `panel/API/v1/reports/sales.php` | en curso |
+| 3.2 | BFF: llama a la API, formatea, JSON | `panel/bff/reports/summary.php` | en curso |
+| 3.3 | Front estático + JS (auth + chrome client-side) | `panel/reports/summary.html` + `scripts/a_report_summary.js` | en curso |
+| 3.4 | Bootstrap del chrome (menú/título/currency/permisos) | `panel/bff/bootstrap.php` | pendiente |
+| 3.5 | Replicar a los otros 27 reportes + demás módulos | — | pendiente |
 
-**Esfuerzo**: ~1 día por página (hay 80+, priorizar las más usadas)
+**Nota sobre el "split" previo (commits 5adfc79, d6bcfef)**: summary e inventory solo
+tienen el JS extraído a `scripts/` — siguen siendo `.php` que mezclan back+vista HTML.
+Es un paso intermedio, NO la estructura objetivo. El piloto los lleva al modelo real.
+
+**Esfuerzo**: el piloto fija el patrón (incl. cómo el `.html` resuelve auth+chrome sin PHP);
+replicar a los demás es mecánico una vez probado.
 
 ---
 
