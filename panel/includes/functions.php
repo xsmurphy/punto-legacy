@@ -7578,8 +7578,10 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 					$arrQuery 	= [$from];
 				}
 
-				$sql 	= 	"SELECT transactionPaymentType, transactionType, transactionParentId, tags
-					FROM transaction USE INDEX(transactionType,transactionDate)
+				// tags vive en `meta` JSONB (Phase PG); se selecciona explícito porque este
+				// path usa forceObj (no aplana por fila). Antes: `tags` + `USE INDEX(...)` (MySQL) → rompía en PG.
+				$sql 	= 	"SELECT transactionPaymentType, transactionType, transactionParentId, meta->>'tags' AS tags
+					FROM transaction
 					WHERE  " . $date . "
 					AND transactionType IN (0,5)" .
 					$roc;
@@ -7773,9 +7775,10 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		{
 			$roc 				= getROC(1);
 
-			$query 				= "SELECT transactionTotal as total, transactionDiscount as discount, registerId, transactionDate, transactionParentId, transactionType, tags
-							FROM transaction 
-							WHERE transactionDate 
+			// tags vive en `meta` JSONB (Phase PG) — leer explícito (forceObj no aplana por fila).
+			$query 				= "SELECT transactionTotal as total, transactionDiscount as discount, registerId, transactionDate, transactionParentId, transactionType, meta->>'tags' AS tags
+							FROM transaction
+							WHERE transactionDate
 							BETWEEN '" . db_prepare($from) . "' 
 							AND '" . db_prepare($to) . "'
 							AND transactionType IN (0,5,6)" . $roc;
