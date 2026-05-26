@@ -28,7 +28,7 @@ class ReportSalesService
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc;
 
-        $r = ncmExecute($sql, [$from, $to], true);
+        $r = ncmExecute($sql, [$from, $to]);
 
         return [
             'unitsSold' => (float) ($r['unitssold'] ?? 0),
@@ -48,7 +48,7 @@ class ReportSalesService
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc;
 
-        $r = ncmExecute($sql, [$from, $to], true);
+        $r = ncmExecute($sql, [$from, $to]);
 
         return (float) ($r['returned'] ?? 0);
     }
@@ -64,8 +64,8 @@ class ReportSalesService
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc;
 
-        $cash   = ncmExecute($sql, [0, $from, $to], true);
-        $credit = ncmExecute($sql, [3, $from, $to], true);
+        $cash   = ncmExecute($sql, [0, $from, $to]);
+        $credit = ncmExecute($sql, [3, $from, $to]);
 
         return [
             'cash' => [
@@ -91,7 +91,7 @@ class ReportSalesService
                 AND a.companyId = ?
                 AND b.itemSoldDate BETWEEN ? AND ?';
 
-        $r = ncmExecute($sql, [$companyId, $from, $to], true);
+        $r = ncmExecute($sql, [$companyId, $from, $to]);
 
         return [
             'total' => (float) ($r['total'] ?? 0),
