@@ -403,137 +403,18 @@ if(validateHttp('widget') == 'inventory'){
     </div>
 
 	<script>
-	$(document).ready(() => {
-		var baseUrl = '<?=$baseUrl?>';
-		FastClick.attach(document.body);
-		dateRangePickerForReports("<?=$startDate?>","<?=$endDate?>");
-
-		<?php
-		if(validateHttp('bd')){
-		?>
-		var rawUrl 	= baseUrl + "?action=generalTableByDay";
-		var url 		= rawUrl + "&ii=<?=validateHttp('ii')?>";
-
-		$.get(url, (result) => {
-
-			var options = {
-														"container" 	: ".tableContainer",
-														"url" 				: url,
-														"rawUrl" 			: rawUrl,
-														"iniData" 		: result.table,
-														"table" 			: ".table1",
-														"sort" 				: 0,
-														"footerSumCol": [5,6],
-														"currency" 		: "<?=CURRENCY?>",
-														"decimal" 		: decimal,
-														"thousand" 		: thousandSeparator,
-														"offset" 			: <?=$offsetDetail?>,
-														"limit" 			: <?=$limitDetail?>,
-														"nolimit" 		: true,
-														"ncmTools"		: {
-																							left 		: '<a href="#" class="btn btn-default exportTable" data-table="tableTransactions" data-name="Inventario por día">Exportar Listado</a>',
-																							right 	: ''
-																		  			},
-														"colsFilter"	: {
-																							name 	: 'inventoryHistoryByDay',
-																							menu 	:  [
-																													{"index":0,"name":"Fecha","visible":true},
-																													{"index":1,"name":"Artículo","visible":true},
-																													{"index":2,"name":"Código / SKU","visible":false},
-																													{"index":3,"name":'Sucursal',"visible":false},
-																													{"index":4,"name":'Usuario',"visible":false},
-																													{"index":5,"name":'Existencia',"visible":true},
-																													{"index":6,"name":'Costo Uni.',"visible":true}
-																												]
-																						}
-										    				
-										};
-
-			manageTableLoad(options,function(oTable){
-				loadTheTable(options,oTable);
-			});
-
-		});
-		<?php
-		}else{
-		?>
-		
-		var rawUrl 	= baseUrl + "?action=generalTable";
-		var url 	= rawUrl + "&ii=<?=validateHttp('ii')?>";
-
-		$.get(url,function(result){
-			//var result = JSON.parse(result);
-
-			var options = {
-							"container" 	: ".tableContainer",
-							"url" 			: url,
-							"rawUrl" 		: rawUrl,
-							"iniData" 		: result.table,
-							"table" 		: ".table1",
-							"sort" 			: 0,
-							"footerSumCol" 	: [7,8,9,10],
-							"currency" 		: "<?=CURRENCY?>",
-							"decimal" 		: decimal,
-							"thousand" 		: thousandSeparator,
-							"offset" 		: <?=$offsetDetail?>,
-							"limit" 		: <?=$limitDetail?>,
-							"nolimit" 		: true,
-							"ncmTools"		: {
-												left 	: '<a href="#" class="btn btn-default exportTable" data-table="tableTransactions" data-name="Inventario">Exportar Listado</a><a href="/@#report_inventory?<?=validateHttp('ii') ? 'ii=' . validateHttp('ii') . '&bd=1' : 'bd=1'?>" class="btn btn-default hidden">Por Día</a>',
-												right 	: ''
-											  },
-							"colsFilter"		: {
-												name 	: 'inventoryHistory2',
-												menu 	:  [
-																{"index":0,"name":"Fecha","visible":true},
-																{"index":1,"name":"Artículo","visible":true},
-																{"index":2,"name":"Código / SKU","visible":false},
-																{"index":3,"name":'Sucursal',"visible":false},
-																{"index":4,"name":'Depósito',"visible":false},
-																{"index":5,"name":'Usuario',"visible":false},
-																{"index":6,"name":'Fuente',"visible":true},
-																{"index":7,"name":'Ingreso',"visible":true},
-																{"index":8,"name":'Egreso',"visible":true},
-																{"index":9,"name":'Existencia',"visible":false},
-																{"index":10,"name":'Costo Uni.',"visible":true}
-															]
-											  }
-			    				
-			};
-
-			manageTableLoad(options,function(oTable){
-				loadTheTable(options,oTable);
-			});
-		});
-
-		<?php
-		}
-		?>
-
-		<?php
-	  if(!validateHttp('ii')){
-	  ?>
-		$.get(baseUrl + '?widget=inventory',function(result){
-			$('#stockCOGS').text(result.cost);
-			$('#stockSell').text(result.sell);
-			$('#stockTotal').text(result.total);
-		});
-		<?php
-	  }
-	  ?>
-
-		var loadTheTable = function(tableOps,oTable){
-			onClickWrap('.doc',function(event,tis){
-				var load = tis.attr('href');
-				loadForm(load,'#modalLarge .modal-content',function(){
-					$('#modalLarge').modal('show');
-				});
-			},false,true);
-
-
-		};
-	});
+	window.reportInventory = {
+		baseUrl:   '<?=$baseUrl?>',
+		startDate: "<?=$startDate?>",
+		endDate:   "<?=$endDate?>",
+		currency:  "<?=CURRENCY?>",
+		offset:    <?=$offsetDetail?>,
+		limit:     <?=$limitDetail?>,
+		byDay:     <?=validateHttp('bd') ? 'true' : 'false'?>,
+		itemId:    <?=json_encode((string) validateHttp('ii'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP)?>
+	};
 	</script>
+	<script src="scripts<?=$baseUrl?>.js?<?=date('d.i')?>"></script>
 
 <?php
 include_once('includes/compression_end.php');
