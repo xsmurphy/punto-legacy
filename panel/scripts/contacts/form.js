@@ -1,10 +1,12 @@
 /**
  * contactFormV2 — editform de contactos (rol customer) con templates Mustache +
- * hidratación JSON desde la API canónica /API/v1/contacts.
+ * hidratación JSON desde el BFF (a_contacts.php), NO desde /API/v1.
  *
- * Espejo de scripts/items/form.js, con dos diferencias:
- *   - los datos salen de window.contactsApi.get(id) (no de ?action=editform)
- *   - el submit persiste vía contactsApi.create/update (no por POST al handler legacy)
+ * El front habla SOLO con el BFF (front → BFF → dominio in-process; ver
+ * 02-arquitectura.md § BFF de 3 niveles):
+ *   - datos:  GET  a_contacts.php?action=getContact&id=…   (bffGet)
+ *   - guardar: POST a_contacts.php?action=saveContact       (bffPost)
+ *   - archivar: POST a_contacts.php?action=archiveContact   (bffPost)
  *
  * Uso:
  *   contactFormV2.open('<contactId>', { onSaved: fn, onError: fn });   // editar
@@ -21,6 +23,32 @@
 
 	var TPL_BASE = '/contacts/templates/';
 	var cache = {};
+
+	// El front habla con el BFF (a_contacts.php), NO con /API/v1. baseUrl global = '/a_contacts'.
+	// El BFF usa ContactService in-process; cuando se separen App/API pasará a HTTP.
+	function bffUrl(action, extra) {
+		return window.baseUrl + '?action=' + action + '&format=json' + (extra || '');
+	}
+	function bffGet(id) {
+		return fetch(bffUrl('getContact', '&id=' + encodeURIComponent(id)), { credentials: 'include' })
+			.then(function (r) { return r.json(); })
+			.then(function (j) { if (j && j.error) throw new Error(j.error); return (j && j.contact) || {}; });
+	}
+	function bffPost(action, id, payload) {
+		var body = new URLSearchParams();
+		if (id) body.append('id', id);
+		if (payload) {
+			for (var k in payload) {
+				if (payload[k] !== undefined && payload[k] !== null) body.append(k, payload[k]);
+			}
+		}
+		return fetch(bffUrl(action), {
+			method: 'POST', credentials: 'include',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: body.toString(),
+		}).then(function (r) { return r.json(); })
+		  .then(function (j) { if (j && j.error) throw new Error(j.error); return j; });
+	}
 
 	function loadTpl(name) {
 		if (cache[name]) return Promise.resolve(cache[name]);
@@ -94,7 +122,7 @@
 			}
 
 			if (window.spinner) spinner('body', 'show');
-			var p = id ? window.contactsApi.update(id, payload) : window.contactsApi.create(payload);
+			var p = bffPost('saveContact', id, payload).then(function (j) { return j && j.contact; });
 
 			p.then(function (saved) {
 				if (window.spinner) spinner('body', 'hide');
@@ -114,7 +142,7 @@
 			if (!id) return;
 			var doArchive = function () {
 				if (window.spinner) spinner('body', 'show');
-				window.contactsApi.archive(id).then(function () {
+				bffPost('archiveContact', id, null).then(function () {
 					if (window.spinner) spinner('body', 'hide');
 					$(modalSel).modal('hide');
 					if (window.message) message('Contacto archivado', 'success');
@@ -136,7 +164,7 @@
 			var modalSel = opts.modalSel || '#modalLarge';
 
 			var loadData = id
-				? window.contactsApi.get(id)
+				? bffGet(id)
 				: Promise.resolve({}); // modo crear: form vacío
 
 			return loadData.then(function (c) {

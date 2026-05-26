@@ -23,6 +23,56 @@ $offsetDetail		= 0;
 
 $_rol 				= iftn(validateHttp('rol'),'customer');
 
+// ── BFF del editform v2 (rol customer): el front (form.js) habla ACÁ, no a /API/v1 ──
+// Por ahora usa ContactService in-process. Cuando separemos App/API en servidores
+// distintos, esto pasará a consumir la API por HTTP (ver 02-arquitectura.md § BFF).
+if(validateHttp('action') == 'getContact'){
+	require_once __DIR__ . '/lib/contacts/ContactService.php';
+	$svc     = new ContactService(new ContactRepository($db));
+	$id      = dec(validateHttp('id'));
+	$contact = $id ? $svc->getCustomer($id, COMPANY_ID) : null;
+	if($contact === null){
+		jsonDieResult(['error' => 'Contacto no encontrado']);
+	}
+	jsonDieResult(['contact' => $contact]);
+}
+
+if(validateHttp('action') == 'saveContact'){
+	if(!allowUser('contacts','edit',true)){
+		jsonDieResult(['error' => 'Sin permisos']);
+	}
+	require_once __DIR__ . '/lib/contacts/ContactService.php';
+	$svc = new ContactService(new ContactRepository($db));
+	$id  = validateHttp('id','post') ? dec(validateHttp('id','post')) : null;
+	try {
+		if($id){
+			if(!$svc->update($id, COMPANY_ID, $_POST)){
+				jsonDieResult(['error' => 'No se pudo actualizar el contacto']);
+			}
+		}else{
+			$id = $svc->create(COMPANY_ID, $_POST);
+		}
+		jsonDieResult(['success' => true, 'contact' => $svc->getCustomer($id, COMPANY_ID)]);
+	} catch(InvalidArgumentException $e){
+		jsonDieResult(['error' => $e->getMessage()]);
+	} catch(Throwable $e){
+		jsonDieResult(['error' => $e->getMessage()]);
+	}
+}
+
+if(validateHttp('action') == 'archiveContact'){
+	if(!allowUser('contacts','edit',true)){
+		jsonDieResult(['error' => 'Sin permisos']);
+	}
+	require_once __DIR__ . '/lib/contacts/ContactService.php';
+	$svc = new ContactService(new ContactRepository($db));
+	$id  = dec(validateHttp('id','post'));
+	if(!$id || !$svc->archive($id, COMPANY_ID)){
+		jsonDieResult(['error' => 'No se pudo archivar el contacto']);
+	}
+	jsonDieResult(['success' => true]);
+}
+
 /*if($_GET['noo'] == 'naa'){
 	dai();
 	//selecciono todos los contactos que tienen dirección
