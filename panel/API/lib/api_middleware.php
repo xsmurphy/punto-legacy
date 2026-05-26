@@ -226,8 +226,19 @@ function _apiDefineSharedConstants(string $eCompanyId, string $companyId, string
 {
     define('ECOMPANY_ID',  $eCompanyId);
     define('COMPANY_ID',   $companyId);
-    define('OUTLET_ID',    $outletId ?: (validateHttp('outletId',   'post') ?? ''));
-    define('REGISTER_ID',  $registerId ?: (validateHttp('registerId', 'post') ?? ''));
+
+    // outletId/registerId de fuente confiable (JWT/sesión) se usan tal cual. Si están
+    // vacíos, se acepta el valor del POST SOLO si pertenece a COMPANY_ID (§1 — aislamiento
+    // de tenant): un cliente autenticado no puede scopear queries a un outlet/register de
+    // otra empresa pasando su UUID por el body. Si no pertenece, se descarta (queda '').
+    if (!$outletId) {
+        $outletId = _apiScopedId('outlet', 'outletId', validateHttp('outletId', 'post') ?: '', $companyId);
+    }
+    if (!$registerId) {
+        $registerId = _apiScopedId('register', 'registerId', validateHttp('registerId', 'post') ?: '', $companyId);
+    }
+    define('OUTLET_ID',    $outletId);
+    define('REGISTER_ID',  $registerId);
 
     setTimeZone($companyId);
 
@@ -243,4 +254,22 @@ function _apiDefineSharedConstants(string $eCompanyId, string $companyId, string
         true
     );
     define('OUTLETS_COUNT', (int)($outlets['count'] ?? 0));
+}
+
+/**
+ * Devuelve $id solo si pertenece a $companyId; si no, devuelve '' (lo descarta).
+ * $table/$col son literales internos (no input del cliente) — la interpolación es segura;
+ * $id y $companyId van por placeholders parametrizados.
+ */
+function _apiScopedId(string $table, string $col, string $id, string $companyId): string
+{
+    if ($id === '' || $companyId === '') {
+        return '';
+    }
+    $row = ncmExecute(
+        "SELECT $col FROM $table WHERE $col = ? AND companyId = ? LIMIT 1",
+        [$id, $companyId],
+        true
+    );
+    return (is_array($row) && !empty($row[$col])) ? (string)$row[$col] : '';
 }

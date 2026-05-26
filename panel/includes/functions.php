@@ -1664,7 +1664,10 @@ function getROC($register = false, $outlet = false, $company = false)
 {
 	// Register o Outlet o Company — devuelve un fragmento SQL WHERE.
 	// getROC(1) es un flag legacy que significa "sin filtro de caja, solo sucursal/empresa".
-	// Solo se filtra por register/outlet si el valor es un UUID real (36 chars).
+	// El filtro register/outlet se AÑADE; el scope de companyId SIEMPRE está presente
+	// (§1 — aislamiento de tenant). Antes este helper reemplazaba el companyId por
+	// outletId/registerId, lo que dejaba queries sin scope de empresa si el valor venía
+	// del request del cliente (fuga cross-tenant). Ahora companyId es inamovible.
 
 	$register = iftn($register, REGISTER_ID);
 	$outlet   = iftn($outlet,   OUTLET_ID);
@@ -1672,12 +1675,15 @@ function getROC($register = false, $outlet = false, $company = false)
 
 	$roc = " AND companyId = '$company'";
 
-	$isUUID = fn($v) => is_string($v) && strlen($v) === 36;
+	// UUID estricto (no solo 36 chars): garantiza que el valor interpolado solo
+	// contenga hex + guiones, neutralizando inyección vía outletId/registerId del POST
+	// mientras db_prepare() sea no-op (ver §12 — auditoría SQL injection).
+	$isUUID = fn($v) => is_string($v) && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $v) === 1;
 
 	if ($isUUID($register)) {
-		$roc = " AND registerId = '$register'";
+		$roc .= " AND registerId = '$register'";
 	} elseif ($isUUID($outlet)) {
-		$roc = " AND outletId = '$outlet'";
+		$roc .= " AND outletId = '$outlet'";
 	}
 
 	return $roc;
