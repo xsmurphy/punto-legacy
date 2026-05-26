@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-26 (reportes: piloto a_report_summary + estrategia del módulo — commit d6bcfef)
+
+- **Hecho**: piloto del módulo Reportes — split front/back en `a_report_summary`. Se extrajo el `<script>` inline (~487 líneas) a `scripts/a_report_summary.js` (IIFE); las 7 vars que se inyectaban con tags PHP (startDate/endDate/baseUrl/TAX_NAME/CURRENCY/offset/limit) pasan por `window.reportSummary` en un shell chico. El back (`action=getSales/getTypeSales/getGiftcards/getChartSales/topHours/salesListByDay`) ya devolvía JSON y quedó intacto. `a_report_summary.php` 1376 → 900 líneas. Verificado en browser (date-picker, chart, KPIs; cero errores de consola).
+- **Patrón establecido (repetible para reportes)**: si el back ya devuelve JSON → extraer JS inline a `scripts/<reporte>.js` + shell `window.<reporte>` con las vars PHP. El `.php` queda como back (handlers `action=`) + shell.
+- **Hallazgo (corrige supuesto del roadmap)**: "Reportes = read-only fácil" es solo parcial. Los 5 grandes (`a_report_transactions`/`purchases`/`products`/`production`) tienen **escrituras enterradas** (update/delete/insert) → su split es tipo CRUD (front→BFF lectura *y* escritura), no el fácil. Los genuinamente limpios: `summary`✓, `p_methods`, `inventory`.
+- **Pendiente**: replicar el patrón a `a_report_p_methods`/`a_report_inventory` y demás chicos; **fix `a_report_customers`** (lee columnas de contact ya degradadas a JSONB → probablemente roto); los reportes grandes con escritura = fase aparte. Siguen diferidos: `PuntoApi` + adelgazar `/API/v1` (fase servidores separados).
+
 ## 2026-05-26 (arquitectura: modelo BFF canónico + editform de contacts por el BFF — commits 8bacb5a, cd736f2)
 
 - **Course-correction del usuario**: el roadmap real es **HTML+JS → PHP (BFF) → API → BD**, donde la **API es un motor ERP genérico/raw** reusable por otras apps (ecommerce, billetera) y el **BFF (PHP)** procesa para la App Punto (push, WS, cálculos, cross-analysis, formateo). El front solo pinta. **Constraint clave: App y API irán a servidores separados** → el BFF nunca toca BD/`lib/` directo; pide todo a la API; la API expone datasets crudos y el BFF los cruza.
