@@ -362,7 +362,7 @@ if(validateHttp('widget') == 'newRecurring'){
                                 WHERE a.transactionDate
                                 BETWEEN ?
                                 AND ?
-                                AND (a.customerId IS NOT NULL AND a.customerId > 1)
+                                AND a.customerId IS NOT NULL
                                 " . $oldRoc . "
                                 AND a.transactionType IN(0,3)
                                 AND a.customerId = b.contactId
