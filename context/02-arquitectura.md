@@ -156,6 +156,14 @@ Consecuencias:
 - El cálculo/cross-analysis/formateo vive en el **BFF**, no en la API ni en el front.
 - Cachear en el BFF los paths calientes (para no ser chatty contra la API remota).
 
+### Estado del piloto (commit 051dd59, 2026-05-26)
+
+El modelo de 3 niveles tiene un **piloto completo verificado E2E** en `a_report_summary`:
+
+- **Modo de integración actual: fragmento-en-shell.** El `.html` se inyecta en `#bodyContent` via hash-nav (`@.php`); el shell ya provee head/menú/jQuery/Chart.js/BS3/globals. El modo "standalone 100% autónomo" (con auth+chrome propios y redirect a `/login` ante 401) queda DIFERIDO para cuando el front sea autosuficiente.
+- **Routing dev**: `panel/router.php` mapea `/a_report_summary` → sirve `panel/reports/summary.html` estático. En prod replicar con `RewriteRule` en `.htaccess`.
+- **Front nunca pega a `/API/v1`**: todo pasa por el BFF (`/bff/reports/summary.php`).
+
 ### Transporte y auth (confirmado 2026-05-26)
 
 - **Front → BFF:** el JS del `.html` hace `fetch` al BFF (`/bff/reports/summary.php?action=…`).

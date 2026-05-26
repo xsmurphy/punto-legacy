@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-05-16
+> **Última actualización:** 2026-05-26
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -347,15 +347,22 @@ auth + chrome client-side          intermedia + formatea      única capa con qu
 **Esto revierte** el diferimiento del boundary HTTP de la sesión 2026-05-26 (que dejaba
 el BFF llamando a `lib/` in-process). Ahora el BFF llama a la API por HTTP desde el día 1.
 
-**Piloto en curso: módulo Reportes, reporte `a_report_summary`** (read-only, sin escrituras):
+**Piloto COMPLETO E2E (commit 051dd59, 2026-05-26): módulo Reportes, reporte `a_report_summary`** (read-only, sin escrituras):
 
 | # | Qué | Archivo | Estado |
 |---|-----|---------|--------|
-| 3.1 | API: SQL de agregación de ventas (6 handlers) | `panel/API/v1/reports/sales.php` | en curso |
-| 3.2 | BFF: llama a la API, formatea, JSON | `panel/bff/reports/summary.php` | en curso |
-| 3.3 | Front estático + JS (auth + chrome client-side) | `panel/reports/summary.html` + `scripts/a_report_summary.js` | en curso |
-| 3.4 | Bootstrap del chrome (menú/título/currency/permisos) | `panel/bff/bootstrap.php` | pendiente |
-| 3.5 | Replicar a los otros 27 reportes + demás módulos | — | pendiente |
+| 3.1 | API: SQL de agregación de ventas (6 handlers; SQL portado MySQL→PG: `HOUR()`→`EXTRACT`, sin `USE INDEX`) | `panel/API/v1/reports/sales.php` + `panel/lib/reports/ReportSalesService.php` | ✅ |
+| 3.2 | BFF: llama a la API por HTTP, compone derivados (netSales, margin, byweek, período anterior), helpers de fecha puros (sin `functions.php`) | `panel/bff/reports/summary.php` | ✅ |
+| 3.3 | Front estático + JS recableado al BFF; formateo de números y flechas de comparación client-side; `drawChart`/`chartByHours` intactos | `panel/reports/summary.html` + `panel/scripts/a_report_summary.js` | ✅ |
+| 3.4 | Bootstrap del chrome (`panel/API/v1/bootstrap.php` devuelve `thousand` como `'comma'/'dot'`; `panel/bff/bootstrap.php` lo expone al front) | `panel/API/v1/bootstrap.php` + `panel/bff/bootstrap.php` | ✅ |
+| 3.5 | Replicar a los otros ~27 reportes + demás módulos (patrón YA fijado y verificado E2E) | — | pendiente |
+
+**Notas del piloto (commit 051dd59)**:
+- Verificado E2E en browser (Demo Company, companyId 0010): KPIs, charts, tabs Resumen/Por Día, date-picker con re-fetch sin reload, cero errores de consola.
+- El data-path numérico quedó sin verificar con datos reales (BD demo sin transacciones → empty-state idéntico al legacy; el SQL es PG-válido sin errores).
+- **Integración**: el front corre como **fragmento dentro del shell existente** (`@.php` inyecta `reports/summary.html` en `#bodyContent` por hash-nav). El shell provee head/menú/jQuery/Chart.js/BS3/globals; el modo "standalone 100% autónomo con auth+chrome propio" queda DIFERIDO.
+- Redirect a `/login` ante 401 del BFF NO implementado todavía (el shell ya gatea auth; se implementa cuando el front sea standalone).
+- **Routing dev**: `panel/router.php` mapea `/a_report_summary` → sirve `reports/summary.html` estático. Prod: replicar con `RewriteRule` en `.htaccess`.
 
 **Nota sobre el "split" previo (commits 5adfc79, d6bcfef)**: summary e inventory solo
 tienen el JS extraído a `scripts/` — siguen siendo `.php` que mezclan back+vista HTML.
