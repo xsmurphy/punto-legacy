@@ -357,7 +357,8 @@ el BFF llamando a `lib/` in-process). Ahora el BFF llama a la API por HTTP desde
 | 3.4 | Bootstrap del chrome (`panel/API/v1/bootstrap.php` devuelve `thousand` como `'comma'/'dot'`; `panel/bff/bootstrap.php` lo expone al front) | `panel/API/v1/bootstrap.php` + `panel/bff/bootstrap.php` | ✅ |
 | 3.5 | Replicar a los otros ~27 reportes + demás módulos (patrón YA fijado y verificado E2E) | — | pendiente |
 
-**Notas del piloto (commit 051dd59)**:
+**Notas del piloto (commits 051dd59, 973c9c5)**:
+- **División de labor (canónica, ver 02-arquitectura.md § REGLA RAÍZ 2)**: el PHP (API+BFF) NUNCA genera markup. El **BFF pre-formatea los valores** (números/fechas→strings de display, deltas/%) y hace cálculos/cross-data; el **front solo arma el markup**. Anti-patrón a corregir al migrar: el BFF que arma `<table>` HTML (lo que hacen `a_report_orders` y todos los reportes legacy). Para tablas con sort/sumas (DataTables) el BFF manda display + crudo (`*Raw`). Esto es lo que hay que replicar en 3.5.
 - Verificado E2E en browser (Demo Company, companyId 0010): KPIs, charts, tabs Resumen/Por Día, date-picker con re-fetch sin reload, cero errores de consola.
 - El data-path numérico quedó sin verificar con datos reales (BD demo sin transacciones → empty-state idéntico al legacy; el SQL es PG-válido sin errores).
 - **Integración**: el front corre como **fragmento dentro del shell existente** (`@.php` inyecta `reports/summary.html` en `#bodyContent` por hash-nav). El shell provee head/menú/jQuery/Chart.js/BS3/globals; el modo "standalone 100% autónomo con auth+chrome propio" queda DIFERIDO.
