@@ -33,6 +33,21 @@ if (preg_match('|^/assets/\d+-\d+/|', $path)) {
     return true;
 }
 
+// Front estático del BFF: el shell navega a /a_<hash>, pero los reportes migrados al
+// modelo BFF de 3 niveles se sirven como .html estático (PHP nunca sirve HTML).
+// En prod, replicar con un RewriteRule en .htaccess.
+$bffStaticReports = [
+    '/a_report_summary' => '/reports/summary.html',
+];
+if (isset($bffStaticReports[$path])) {
+    $htmlFile = __DIR__ . $bffStaticReports[$path];
+    if (file_exists($htmlFile)) {
+        header('Content-Type: text/html; charset=utf-8');
+        readfile($htmlFile);
+        return true;
+    }
+}
+
 // Regla: URLs sin extension -> .php (incluye API/)
 if ($path !== '/' && !pathinfo($path, PATHINFO_EXTENSION)) {
     $phpFile = __DIR__ . $path . '.php';

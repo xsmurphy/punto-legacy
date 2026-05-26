@@ -37,7 +37,8 @@ apiOk([
     'currency'    => $row['currency'] ?? '',
     // settingDecimal es 'yes'/'no' (usar decimales o no), NO un conteo de dígitos.
     'decimal'     => $row['decimal'] ?? 'no',
-    'thousand'    => ($row['thousand'] ?? '') === 'comma' ? ',' : '.',
+    // Valor crudo 'comma'/'dot' (como lo espera formatNumber del front, no el símbolo).
+    'thousand'    => ($row['thousand'] ?? '') === 'comma' ? 'comma' : 'dot',
     'taxName'     => $row['taxname'] ?: 'IVA',
     'companyName' => $row['companyname'] ?? '',
     'user'        => [

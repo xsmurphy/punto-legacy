@@ -111,6 +111,9 @@ class ReportSalesService
         foreach (getSalesByPayment($from, $to) as $m) {
             $payments[] = [
                 'type'  => $m['type'],
+                // El nombre del medio (incl. métodos custom de la company) sale de la BD
+                // → es dato del ERP, no presentación; lo resuelve la API. El front formatea el precio.
+                'name'  => getPaymentMethodName($m['type']),
                 'price' => (float) ($m['price'] ?? 0),
                 'total' => (float) ($m['total'] ?? 0),
             ];
@@ -134,5 +137,128 @@ class ReportSalesService
                 'totalGiftCards' => (float) ($nonAdding['totalGiftCards'] ?? 0),
             ],
         ];
+    }
+
+    /**
+     * Series crudas de UN período para el gráfico. El BFF llama esto una vez por
+     * período (actual + anterior) y compone labels/margin/byweek/anotaciones.
+     *
+     * Si el rango es de un solo día, agrupa por hora (bucket 0..23); si abarca
+     * varios días, agrupa por fecha (bucket 'Y-m-d'). Devuelve ventas (tipos
+     * 0,3,6) y egresos (tipos 1,4) — números crudos, sin formatear ni rellenar.
+     */
+    public function series($from, $to, $roc, $isDay)
+    {
+        if ($isDay) {
+            // Por hora del día (EXTRACT, no el HOUR() de MySQL).
+            $bucket = 'EXTRACT(HOUR FROM transactionDate)::int';
+        } else {
+            // Por fecha (cast ::date, no el DATE() de MySQL).
+            $bucket = 'transactionDate::date';
+        }
+
+        $salesSql = 'SELECT ' . $bucket . ' AS bucket,
+                        COUNT(transactionId)                   AS count,
+                        COALESCE(SUM(transactionUnitsSold), 0) AS units,
+                        COALESCE(SUM(transactionDiscount), 0)  AS discount,
+                        COALESCE(SUM(transactionTax), 0)       AS tax,
+                        COALESCE(SUM(transactionTotal), 0)     AS total
+                     FROM transaction
+                     WHERE transactionType IN (0, 3, 6)
+                     AND transactionDate >= ?
+                     AND transactionDate <= ?' . $roc . '
+                     GROUP BY bucket
+                     ORDER BY bucket ASC';
+
+        $expSql = 'SELECT ' . $bucket . ' AS bucket,
+                      COALESCE(SUM(transactionTotal), 0)    AS total,
+                      COALESCE(SUM(transactionDiscount), 0) AS discount
+                   FROM transaction
+                   WHERE transactionType IN (1, 4)
+                   AND transactionDate >= ?
+                   AND transactionDate <= ?' . $roc . '
+                   GROUP BY bucket
+                   ORDER BY bucket ASC';
+
+        return [
+            'isDay'    => (bool) $isDay,
+            'sales'    => $this->rows($salesSql, [$from, $to], $isDay),
+            'expenses' => $this->rows($expSql, [$from, $to], $isDay),
+        ];
+    }
+
+    /** Conteo de ventas por hora del día (tipos 0,3) — para el gráfico "Ventas por Hora". */
+    public function hours($from, $to, $roc)
+    {
+        $sql = 'SELECT EXTRACT(HOUR FROM transactionDate)::int AS hour,
+                    COUNT(transactionId)                   AS total,
+                    COALESCE(SUM(transactionUnitsSold), 0) AS units
+                FROM transaction
+                WHERE transactionType IN (0, 3)
+                AND transactionDate >= ?
+                AND transactionDate <= ?' . $roc . '
+                GROUP BY hour
+                ORDER BY hour ASC';
+
+        return $this->rows($sql, [$from, $to], true);
+    }
+
+    /**
+     * Filas crudas por día (tipos 0,3,6) para la pestaña "Por Día".
+     * La resta de ventas internas (lessInternalTotals) está desactivada salvo que
+     * la company tenga ignoreInternal — se deja al front/BFF cuando aplique.
+     */
+    public function byDay($from, $to, $roc)
+    {
+        $sql = 'SELECT transactionDate::date            AS bucket,
+                    COALESCE(SUM(transactionUnitsSold), 0) AS units,
+                    COUNT(transactionDate)                 AS count,
+                    COALESCE(SUM(transactionDiscount), 0)  AS discount,
+                    COALESCE(SUM(transactionTax), 0)       AS tax,
+                    COALESCE(SUM(transactionTotal), 0)     AS total
+                FROM transaction
+                WHERE transactionType IN (0, 3, 6)
+                AND transactionDate >= ?
+                AND transactionDate <= ?' . $roc . '
+                GROUP BY transactionDate::date
+                ORDER BY bucket DESC';
+
+        $rows = [];
+        foreach ($this->rows($sql, [$from, $to], false) as $r) {
+            $rows[] = [
+                'date'     => (string) $r['bucket'],
+                'usold'    => (float) $r['units'],
+                'count'    => (int)   $r['count'],
+                'discount' => (float) $r['discount'],
+                'tax'      => (float) $r['tax'],
+                'total'    => (float) $r['total'],
+            ];
+        }
+        return $rows;
+    }
+
+    /** Ejecuta una query multi-fila y la colecta en un array de filas crudas. */
+    private function rows($sql, array $params, $isDay)
+    {
+        $res  = ncmExecute($sql, $params, false, true);
+        $rows = [];
+
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $f      = $res->fields;
+                $bucket = $isDay ? (int) $f['bucket'] : (string) $f['bucket'];
+                $rows[] = [
+                    'bucket'   => $bucket,
+                    'count'    => isset($f['count'])    ? (int) $f['count']      : 0,
+                    'units'    => isset($f['units'])    ? (float) $f['units']    : 0,
+                    'discount' => isset($f['discount']) ? (float) $f['discount'] : 0,
+                    'tax'      => isset($f['tax'])      ? (float) $f['tax']      : 0,
+                    'total'    => isset($f['total'])    ? (float) $f['total']    : 0,
+                ];
+                $res->MoveNext();
+            }
+        }
+
+        return $rows;
     }
 }

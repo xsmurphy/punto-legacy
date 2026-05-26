@@ -1,0 +1,158 @@
+<!--
+  Front del reporte Resumen de Ingresos (a_report_summary) — fragmento estático.
+
+  Cero PHP: el shell del panel inyecta este HTML en #bodyContent y provee head/menú/
+  jQuery/Chart.js/BS3. El diseño es EXACTAMENTE el del reporte legacy (mismas cards,
+  charts, tabs y tablas BS3). La plomería de datos cambia: scripts/a_report_summary.js
+  pide el config a /bff/bootstrap.php y los datos a /bff/reports/summary.php, formatea
+  client-side y dibuja. Ver context/02-arquitectura.md § BFF de 3 niveles.
+-->
+<div class="col-xs-12 no-padder">
+
+	<div class="col-xs-12 text-center m-t m-b visible-print">
+		<div class="col-xs-12 font-bold h3 m-t-sm bff-company-name"></div>
+	</div>
+
+	<div class="col-xs-12 no-padder">
+		<div class="col-sm-5 col-xs-12 m-t-sm m-b">
+			<form action="" class="col-md-9 col-xs-12 no-padder" method="post" id="manualDate" name="manualDate">
+				<label class="visible-print text-u-c font-bold text-xs m-b-n-xs">Fecha</label>
+				<input type="text" id="customDateR" class="form-control no-border bg-white pointer font-bold text-center rounded needsclick" name="range" value="" data-max="31" />
+			</form>
+			<div class="col-xs-12 visible-xs m-b"></div>
+		</div>
+
+		<div class="col-sm-7 col-xs-12 m-t-sm m-b">
+			<div class="pull-right">
+				<h1 class="no-padder hidden-print m-n font-bold"><span id="pageTitle"><div class="text-md text-right font-default">Resumen de</div> Ingresos</span></h1>
+				<h3 class="no-padder visible-print m-n font-bold"><div class="text-md text-right font-default">Resumen de</div> Ingresos</h3>
+			</div>
+		</div>
+	</div>
+
+	<div class="col-xs-12 no-padder m-b hidden-print">
+		<div class="col-xs-12 wrapper" id="loadingChart" style="height:350px;">
+			<div class="col-xs-3 wrapper" style="height:100%;"><div class="col-xs-12 wrapper bg-light dker" style="height:100%;"></div></div>
+			<div class="col-xs-3 wrapper" style="height:100%;"><div class="col-xs-12 wrapper bg-light dker" style="height:90%; margin-top:10%;"></div></div>
+			<div class="col-xs-3 wrapper" style="height:100%;"><div class="col-xs-12 wrapper bg-light dker" style="height:75%; margin-top:25%;"></div></div>
+			<div class="col-xs-3 wrapper" style="height:100%;"><div class="col-xs-12 wrapper bg-light dker" style="height:60%; margin-top:40%;"></div></div>
+		</div>
+		<canvas id="summaryChart" height="350" style="width:100%; height:350px;" class="hidden"></canvas>
+	</div>
+</div>
+
+<div class="col-xs-12 m-b-lg no-padder text-center">
+
+	<section class="col-md-3 col-sm-6 col-xs-12">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalSubtotal"><span class="label bg-black-opacity-1 animated flash infinite animatedx15 r-3x">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </span></span></div>
+			Total <span class="text-xs text-muted">(Bruto)</span> <span id="globalSubtotalB">...</span>
+		</div>
+	</section>
+
+	<section class="col-md-3 col-sm-6 col-xs-12">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalCogs"><span class="label bg-black-opacity-1 animated flash infinite animatedx15 r-3x">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </span></span></div>
+			Devoluciones <span id="globalCogsB">...</span>
+		</div>
+	</section>
+
+	<section class="col-md-3 col-sm-6 col-xs-12">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalDiscount"><span class="label bg-black-opacity-1 animated flash infinite animatedx15 r-3x">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </span></span></div>
+			Descuentos <span id="globalDiscountB">...</span>
+		</div>
+	</section>
+
+	<section class="col-md-3 col-sm-6 col-xs-12">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalUtility"><span class="label bg-black-opacity-1 animated flash infinite animatedx15 r-3x">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </span></span></div>
+			Total <span class="text-xs text-muted">(Neto)</span> <span id="globalUtilityB">...</span>
+		</div>
+	</section>
+</div>
+
+<div class="row m-t noDayHolder">
+	<div class="col-sm-5 col-xs-12 text-center m-b">
+		<h4 class="font-bold">Día de la semana</h4>
+		<canvas id="days" height="200" style="width:100%; max-height:200px;"></canvas>
+	</div>
+
+	<div class="col-sm-7 col-xs-12 text-center m-b">
+		<h4 class="font-bold">Ventas por Hora</h4>
+		<canvas id="hours" height="200" style="width:100%; max-height:200px;"></canvas>
+	</div>
+</div>
+
+<div class="col-xs-12 no-padder m-t m-b-lg push-chat-down">
+
+	<section class="col-xs-12 no-padder" id="reportsTablesAndTabs">
+		<ul class="nav nav-tabs padder hidden-print">
+			<li class="active">
+				<a href="#tab1" data-toggle="tab">Resumen</a>
+			</li>
+			<li id="byDayTabLink">
+				<a href="#tab2" data-toggle="tab">Por Día</a>
+			</li>
+		</ul>
+		<section class="panel r-24x">
+			<div class="panel-body table-responsive">
+				<div class="tab-content m-b-lg">
+					<div class="tab-pane overflow-auto active" id="tab1">
+						<div class="row">
+							<div class="col-sm-6">
+								<section class="panel r-24x bg-white wrapper b">
+									<div class="col-xs-12 no-padder m-b">
+										<span class="text-md font-bold text-u-c pull-left">Ventas</span>
+										<a href="#" data-table="salesTable" data-name="ventas" class="btn r-3x font-bold text-u-c b b-light pull-right export hidden-print">Excel</a>
+									</div>
+									<table class="table" id="salesTable"></table>
+								</section>
+							</div>
+
+							<div class="col-sm-6">
+								<section class="panel r-24x bg-white wrapper b">
+									<div class="col-xs-12 no-padder m-b">
+										<span class="text-md font-bold text-u-c pull-left">Medios de Pago</span>
+										<a href="#" data-table="paymentsMethodsTable" data-name="medios_de_pago" class="btn r-3x font-bold text-u-c b b-light pull-right export hidden-print">Excel</a>
+									</div>
+									<table class="table" id="paymentsMethodsTable"></table>
+								</section>
+							</div>
+						</div>
+
+						<div class="row">
+							<div class="col-sm-6">
+								<section class="panel r-24x bg-white wrapper b">
+									<div class="col-xs-12 no-padder m-b">
+										<span class="text-md font-bold text-u-c pull-left">Tipos</span>
+										<a href="#" data-table="typeSalesTable" data-name="tipos" class="btn r-3x font-bold text-u-c b b-light pull-right export hidden-print">Excel</a>
+									</div>
+									<table class="table" id="typeSalesTable"></table>
+								</section>
+							</div>
+
+							<div class="col-sm-6">
+								<section class="panel r-24x bg-white wrapper b">
+									<div class="col-xs-12 no-padder m-b">
+										<span class="text-md font-bold text-u-c pull-left">Gift Cards</span>
+										<a href="#" data-table="giftcardsTabe" data-name="gift_cards" class="btn r-3x font-bold text-u-c b b-light pull-right export hidden-print">Excel</a>
+									</div>
+									<table class="table" id="giftcardsTabe"></table>
+								</section>
+							</div>
+						</div>
+					</div>
+
+					<div class="tab-pane overflow-auto" id="tab2">
+						<div id="byDayTable">
+							<table class="table table1 table-hover col-xs-12 no-padder" id="tableTransactions"></table>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+	</section>
+</div>
+
+<script src="scripts/a_report_summary.js?v=bff1"></script>
