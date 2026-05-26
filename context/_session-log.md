@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-26 (arquitectura: modelo BFF canónico + editform de contacts por el BFF — commits 8bacb5a, cd736f2)
+
+- **Course-correction del usuario**: el roadmap real es **HTML+JS → PHP (BFF) → API → BD**, donde la **API es un motor ERP genérico/raw** reusable por otras apps (ecommerce, billetera) y el **BFF (PHP)** procesa para la App Punto (push, WS, cálculos, cross-analysis, formateo). El front solo pinta. **Constraint clave: App y API irán a servidores separados** → el BFF nunca toca BD/`lib/` directo; pide todo a la API; la API expone datasets crudos y el BFF los cruza.
+- **Desvío identificado y documentado** (`02-arquitectura.md` reescrito): el modelo previo (4 capas, front→API directo) hizo que el editform pegara a `/API/v1` y que la API devolviera data formateada (`presentRow`) — acoplándola a Punto. Items y Contacts quedaron con ese desvío.
+- **Fix aplicado a Contacts (editform)**: el front (`form.js`/`contactFormV2`) ahora habla SOLO con el **BFF** (`a_contacts.php?action=getContact/saveContact/archiveContact&format=json`), que usa `ContactService` **in-process**. Verificado en browser (GET/POST al BFF 200, ninguno toca `/API/v1`). El listado ya era BFF (`generalTable&format=json`).
+- **Decisión de secuenciamiento**: el **boundary HTTP real** (cliente `PuntoApi`, adelgazar `/API/v1` a raw, separación de servidores) se **difiere** a una fase explícita futura. Por ahora el BFF usa `lib/` in-process. Prioridad: ir **a lo ancho** (extraer front/back en más módulos) antes que profundizar.
+- **Pendientes**: PuntoApi + adelgazar API (fase boundary HTTP); editform v2 para user/supplier; replicar el split front/back en otros módulos (reportes read-only = bajo esfuerzo; purchase = CRUD pesado).
+
 ## 2026-05-25 (contacts: front/back split completo — listado 3 roles + editform v2 — commit bae21fa)
 
 - **Listado data-driven para los 3 roles**: `a_contacts.php` handler `generalTable`, el bloque `&format=json` ahora cubre user (10 cols), supplier (9 cols) y customer (19 cols, ya existente), todos bajo el mismo gate `$allow`. El path HTML legacy queda intacto como fallback.
