@@ -22,6 +22,17 @@
       }
     },
     {
+      "name": "Punto Panel Preview (8011)",
+      "runtimeExecutable": "/opt/homebrew/bin/php",
+      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8011", "-t", "panel", "panel/router.php"],
+      "cwd": ".",
+      "port": 8011,
+      "env": {
+        "PHP_CLI_SERVER_WORKERS": "8",
+        "PUNTO_API_BASE": "http://localhost:8011/API"
+      }
+    },
+    {
       "name": "Punto Screens (KDS/CDS/recibos)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
       "runtimeArgs": ["-S", "localhost:8003", "-t", "screens"],
