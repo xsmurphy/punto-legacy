@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 6) — `production` migrado (20º, mediano): 3 lecturas al BFF (módulo deshabilitado → data-layer verificado)
+
+- **`a_report_production` (Producción, ~1068 líneas) migrado al BFF — parcial.** 3 vistas: `general` (producción agregada por ítem + utilidad), `detail` (ventas direct_production por línea), `compound` (compuestos de productionRecipe + stock source=production, toggle día). recipe/export/delete quedan legacy vía `?action=`. Router: `production` en `$bffPartialReports`.
+- **El módulo de producción está DESHABILITADO en la empresa de prueba** → verificado a nivel data-layer (3 vistas ejecutan sin error PG) + general con seed mínimo (1 fila `production` → utilidad 50000 OK) + render estructural; detail/compound ejecutan limpio pero sin datos reales que validen los números (limitación aceptada).
+- **Fixes PG (legacy MUY roto acá, en `10-roadmap.md` §3.5):** ① `productionType` es BOOLEAN en PG → `= 1` rompe, usar `= true`. ② compuestos: `$db->GetAssoc()` keyea por 1ª columna (itemId fuera del value → IN vacío) + `\'production\'` con backslashes literales → ahora itemIds + stockSource bindeados. ③ roc ambiguo en JOIN → calificado por alias `b.`. ④ meta vía getItemData (JSONB). ⑤ code-reviewer P1: general `GROUP BY itemId,userId` sub-contaba ítems multi-usuario → `GROUP BY itemId` + MAX(userId).
+- **TODOS los reportes "simples/medianos/pesados" designados están migrados (20 + 1 alias).** Pendientes con wrinkle (decisión de negocio/infra, NO mecánicos): `cashflow` (semántica financiera MySQL `itemId=0` mercadería/servicios — requiere decisión), `open_invoices` (WRITE embebido en el read + dep de purchases), `vpayments` (gateway externo Bancard/Dinelco, no verificable en dev). Todo pusheado a `main`.
+
 ## 2026-05-27 (cont. 5) — `schedule` migrado (19º, mediano): 3 lecturas al BFF + donut/KPIs
 
 - **`a_report_schedule` (Agendamientos, ~907 líneas) migrado al BFF — parcial.** 3 vistas de lectura: `detail` (citas tipo 13 + summary por estado + donut), `stats` (conteos por contacto, usuarios/clientes), `sessions` (paquetes con itemSessions). El modal de sesiones (`detail` por id) y el write (`delete`) quedan legacy vía `?action=`; el click en fila abre el form de TRANSACTIONS legacy (cross-módulo). Router: `schedule` en `$bffPartialReports`.

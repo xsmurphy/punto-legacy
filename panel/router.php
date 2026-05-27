@@ -74,6 +74,7 @@ $bffPartialReports = [
     '/a_report_transactions' => '/reports/transactions.html',
     '/a_report_giftcards'    => '/reports/giftcards.html',
     '/a_report_schedule'     => '/reports/schedule.html',
+    '/a_report_production'   => '/reports/production.html',
 ];
 if (isset($bffPartialReports[$path]) && empty($_GET['action'])) {
     $htmlFile = __DIR__ . $bffPartialReports[$path];
