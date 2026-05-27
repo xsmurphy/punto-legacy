@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 3) — `transactions` migrado (17º, EL MÁS GRANDE ~3987 líneas): 2ª migración parcial
+
+- **`a_report_transactions` (Pagos y Transacciones) migrado al BFF — parcial, igual que purchases.** Se migraron 3 vistas de lectura de BD: `detail` (ventas tipos 0,3,6,7,8 + deuda de crédito + comprobante de la caja + tags + totales calculables), `cobros` (pagos tipo 5 + comprobante padre), `quotes` (cotizaciones tipo 9 + estado). **`feTable` NO migrada** (gateway a API externa de Facturación Electrónica con token hardcodeado, no verificable en dev) → el front carga su HTML del legacy `?action=feTable`. CRUD/export/fiscales (rg90/libro-ventas/mcal/tusFacturas) quedan legacy. Router: `transactions` sumado al mapa `$bffPartialReports`.
+- **Hallazgo importante (TRAP, en `10-roadmap.md` §3.5):** `array_map(fn($r)=>$r['col'], $res)` sobre filas getAssoc de `ncmExecute` (CaseInsensitiveArray) **lee mal algunas columnas** (p.ej. `customerId` daba vacío mientras `userId` funcionaba) cuando el SELECT tiene columnas explícitas + una computada (`meta->>'x' AS x`). Solución: recolectar ids con `foreach`, no `array_map`. Se detectó porque `customerName` venía vacío y `userName` no, ambos por el mismo `contactInfo`.
+- **Otros hallazgos**: `transaction.tags` está en `meta` JSONB (leer `meta->>'tags'`); `register.registerReturnPrefix` vive dentro del `data` JSONB de la caja (json_decode, distinguir clave ausente vs vacía); datos de caja por fila eran N+1 → un solo `registerInfo()` batch.
+- **Verificado E2E** (curl + browser harness): seed de ventas (contado 110k, crédito 330k con pago parcial 100k → deuda 230k, devolución 50k, anulada→total 0, cotización aprobada 200k) en company 0001; 3 vistas BFF correctas; render de 4 tabs (incl. Factura electrónica visible en PY), badges CONTADO/ANULADO/DEVOLUCIÓN/CRÉDITO con color por deuda, RG90/Libro Ventas, formato PYG; cero errores de consola. `code-reviewer`: sin P0/P1, un P2 cosmético (prefijo de devolución) ya corregido.
+- **Pendiente — medianos/restantes**: `giftCards`, `schedule`, `production`; diferidos con wrinkle: `cashflow` (semántica MySQL `itemId=0`), `open_invoices` (WRITE en read + dep purchases), `vpayments` (gateway externo). Todo pusheado a `main`.
+
 ## 2026-05-27 (cont. 2) — `purchases` migrado (16º): 1ª MIGRACIÓN PARCIAL (3 lecturas al BFF, CRUD+fiscales legacy)
 
 - **`a_report_purchases` (Compras y Gastos, ~2632 líneas) migrado al BFF — pero PARCIAL.** Es un CRUD pesado + 2 fiscales, no un reporte limpio. Se migraron al BFF de 3 capas SOLO las **3 vistas de lectura**: `general` (cabeceras tipo 1,4 + proveedor/usuario/medios de pago resueltos + **deuda** batch), `cobros` (pagos tipo 5 + comprobante padre tipo 4), `detail` (transaction⋈itemSold + costo unitario + búsqueda `src`). El CRUD de edición (`edit`/`update`/`paymentForm`/`addPayment`/`delete`) y los fiscales (`rg90`, `libro-compra`) **quedan en el PHP legacy** `a_report_purchases.php`.
