@@ -52,6 +52,7 @@ $bffStaticReports = [
     // Está huérfano (nada lo linkea); se aliasa al front canónico por si queda algún bookmark.
     '/a_report_by_brands'    => '/reports/brands.html',
     '/a_report_customers'    => '/reports/customers.html',
+    '/a_report_expenses'     => '/reports/expenses.html',
 ];
 if (isset($bffStaticReports[$path])) {
     $htmlFile = __DIR__ . $bffStaticReports[$path];

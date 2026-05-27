@@ -1,0 +1,42 @@
+<!--
+  Front del reporte Movimientos de Caja (a_report_expenses) — fragmento estático.
+  Cero PHP. scripts/a_report_expenses.js pide config a /bff/bootstrap.php y datos a
+  /bff/reports/expenses.php (crudos), formatea y arma la tabla; el modal de edición y la
+  eliminación postean al mismo BFF. Ver context/02-arquitectura.md § REGLA RAÍZ 2.
+-->
+<div class="col-xs-12 no-padder">
+
+	<div class="col-xs-12 text-center m-t m-b visible-print">
+		<div class="col-xs-12 font-bold h3 m-t-sm bff-company-name"></div>
+	</div>
+
+	<div class="col-xs-12 no-padder">
+		<div class="col-sm-5 col-xs-12 m-t-sm m-b">
+			<form action="" class="col-md-9 col-xs-12 no-padder" method="post" id="manualDate" name="manualDate">
+				<label class="visible-print text-u-c font-bold text-xs m-b-n-xs">Fecha</label>
+				<input type="text" id="customDateR" class="form-control no-border bg-white pointer font-bold text-center rounded needsclick" name="range" value="" data-max="31" />
+			</form>
+		</div>
+		<div class="col-sm-7 col-xs-12 m-t-sm m-b">
+			<div class="pull-right">
+				<h1 class="no-padder hidden-print m-n font-bold">Movimientos de Caja</h1>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="col-xs-12 clear wrapper panel r-24x bg-white push-chat-down">
+	<div class="col-xs-12 no-padder m-b hidden-print">
+		<a href="#" class="btn btn-default exportTable" data-table="tableExtractions" data-name="extracciones_de_caja">
+			<span class="material-icons m-r-sm">get_app</span> Exportar Listado
+		</a>
+		<a class="btn btn-default" href="javascript:window.print();">
+			<span class="material-icons m-r-sm">print</span> Imprimir
+		</a>
+	</div>
+	<div class="tableContainer table-responsive">
+		<table class="table table1 hover col-xs-12 no-padder" id="tableExtractions"></table>
+	</div>
+</div>
+
+<script src="scripts/a_report_expenses.js?v=bff1"></script>
