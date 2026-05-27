@@ -5,21 +5,17 @@
  *   GET /bff/reports/summary.php?from=<datetime>&to=<datetime>&view=<vista>
  *
  *   view (default 'kpis'):
- *     kpis  → KPIs del período actual + anterior (tarjetas + tablas Ventas/Medios/Tipos/GiftCards).
- *     chart → datos del gráfico de ingresos (series actual + anterior, egresos, margen,
- *             barras por día de la semana, anotación de promedio). Shape que espera drawChart().
- *     hours → ventas por hora del día (shape que espera chartByHours()).
- *     byday → filas crudas por día (la pestaña "Por Día"; el front arma la tabla).
+ *     kpis  → KPIs del período actual (crudos) + comparación vs período anterior (datos).
+ *     chart → series del gráfico de ingresos (números crudos + fechas ISO + promedio crudo).
+ *     hours → ventas por hora (horas 0-23 crudas + totales).
+ *     byday → filas crudas por día (pestaña "Por Día").
  *
- * Composición sobre la API (NO toca BD): llama GET /API/v1/reports/sales?dataset=… por
- * período y compone los derivados (netSales, margin, byweek, alineación período anterior).
- * Los NÚMEROS van crudos — el front los formatea. Excepción documentada: las labels del eje
- * del gráfico y el texto de la anotación se arman acá (es "formateo" de composición, y
- * mantiene drawChart() intacto = diseño idéntico). Ver context/02-arquitectura.md § BFF.
+ * El BFF compone los DERIVADOS (netSales, totales, deltas, margin, byweek, alineación del
+ * período anterior) y devuelve SOLO datos CRUDOS — el front formatea TODO (números, fechas,
+ * %, textos) y arma el markup. Ver context/02-arquitectura.md § REGLA RAÍZ 2.
  */
 
 require_once __DIR__ . '/../lib/api_client.php';
-require_once __DIR__ . '/../lib/format.php';
 
 if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
@@ -29,8 +25,9 @@ $from = $_GET['from'] ?? date('Y-m-d 00:00:00', strtotime('-7 days'));
 $to   = $_GET['to']   ?? date('Y-m-d 23:59:59');
 $view = $_GET['view'] ?? 'kpis';
 
-/* ───────────────────────── helpers de fecha (puros, sin BD) ─────────────────────────
- * Reimplementados acá porque el BFF no carga functions.php. Espejo fiel de los del panel. */
+/* ───────────── helpers de cálculo de fechas (puros, sin BD, NO presentación) ─────────────
+ * Reimplementados acá porque el BFF no carga functions.php. Son cálculos (período anterior,
+ * relleno de calendario), no formateo de display. */
 
 /** Período inmediatamente anterior, misma duración. (= getPreviousPeriod del panel) */
 function bffPrevPeriod($start, $end)
@@ -60,22 +57,6 @@ function bffWeekday($date)
     return (int) date('N', strtotime($date));
 }
 
-/** Fecha "linda" literal: "Lun 26, May 2026". (= niceDate(...,literal=true) del panel) */
-function bffNiceDate($date)
-{
-    static $dias  = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-    static $meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    if (empty($date) || $date === '0000-00-00 00:00:00') {
-        return 'No date';
-    }
-    $t = strtotime($date);
-    $w = (int) date('w', $t);
-    $d = date('d', $t);
-    $m = (int) date('m', $t);
-    $y = date('Y', $t);
-    return $dias[$w] . ' ' . $d . ', ' . $meses[$m - 1] . ' ' . $y;
-}
-
 /* ───────────────────────── trae datasets crudos de la API ───────────────────────── */
 
 function bffFetchSummary($from, $to)
@@ -99,7 +80,7 @@ function bffNetSales(array $d)
     return (($gross - $discount) - $returns) - $nonAdd;
 }
 
-/** Aplana el dataset crudo de la API a los KPIs en NÚMEROS crudos (uso interno del BFF). */
+/** KPIs en NÚMEROS crudos + cálculos del BFF (paymentsTotal, totalBruto). El front formatea. */
 function bffKpisRaw(array $d)
 {
     $payTotal = 0;
@@ -119,47 +100,21 @@ function bffKpisRaw(array $d)
         'giftcardsCount'    => $d['giftcards']['count'] ?? 0,
         'totalGiftcardUsed' => $d['nonAddingToSales']['totalGiftCards'] ?? 0,
         'creditPays'        => $d['nonAddingToSales']['total'] ?? 0,
-        'paymentsTotal'     => $payTotal,                                            // cálculo en el BFF, no en el front
+        'paymentsTotal'     => $payTotal,                                            // cálculo del BFF
         'totalBruto'        => (($d['byType']['cash']['total'] ?? 0)   - ($d['byType']['cash']['discount'] ?? 0))
                              + (($d['byType']['credit']['total'] ?? 0) - ($d['byType']['credit']['discount'] ?? 0)),
-        'payments'          => $d['payments'] ?? [],
+        // type + name (resueltos por la API) + price crudo; el front formatea el monto.
+        'payments'          => array_map(
+            fn($p) => ['type' => $p['type'] ?? '', 'name' => $p['name'] ?? '', 'price' => $p['price'] ?? 0],
+            $d['payments'] ?? []
+        ),
     ];
 }
 
 /**
- * KPIs ya PRE-FORMATEADOS para el front (strings de display). El front NO formatea:
- * solo coloca estos valores en el markup que él arma. Ver REGLA RAÍZ 2 en 02-arquitectura.md.
- */
-function bffKpisFormatted(array $raw)
-{
-    $payments = array_map(
-        // name (resuelto por la API) + monto ya formateado. Cero markup.
-        fn($p) => ['name' => $p['name'] ?? '', 'amount' => bffFormatNumber($p['price'] ?? 0)],
-        $raw['payments']
-    );
-
-    return [
-        'grossSales'        => bffFormatNumber($raw['grossSales']),
-        'totalDiscounts'    => bffFormatNumber($raw['totalDiscounts']),
-        'totalReturns'      => bffFormatNumber($raw['totalReturns']),
-        'totalTax'          => bffFormatNumber($raw['totalTax']),
-        'netSales'          => bffFormatNumber($raw['netSales']),
-        'cashSales'         => bffFormatNumber($raw['cashSales']),
-        'creditSales'       => bffFormatNumber($raw['creditSales']),
-        'totalBruto'        => bffFormatNumber($raw['totalBruto']),
-        'giftcardsSold'     => bffFormatNumber($raw['giftcardsSold']),
-        'giftcardsCount'    => bffFormatQty($raw['giftcardsCount']),
-        'totalGiftcardUsed' => bffFormatNumber($raw['totalGiftcardUsed']),
-        'creditPays'        => bffFormatNumber($raw['creditPays']),
-        'paymentsTotal'     => bffFormatNumber($raw['paymentsTotal']),
-        'payments'          => $payments,
-    ];
-}
-
-/**
- * Comparación período actual vs anterior. Devuelve los DATOS de la comparación
- * (dirección, %, valor anterior formateado, si es señal positiva) — NO el markup.
- * El front arma el span con icono/clase. (= comparePeriodsArrowsPercent del panel)
+ * Comparación actual vs anterior — DATOS (cálculo del BFF), no presentación:
+ * dirección, % (número), valor anterior CRUDO, y si es señal positiva. El front arma
+ * el span (icono/clase) y formatea el prev. (= comparePeriodsArrowsPercent del panel)
  */
 function bffCompare($now, $past, $inverted = false)
 {
@@ -180,7 +135,7 @@ function bffCompare($now, $past, $inverted = false)
         $positive = null; // neutral
     }
 
-    return ['dir' => $dir, 'pct' => $pct, 'prev' => bffFormatNumber($past), 'positive' => $positive];
+    return ['dir' => $dir, 'pct' => $pct, 'prev' => $past, 'positive' => $positive]; // prev CRUDO
 }
 
 function bffViewKpis($from, $to)
@@ -211,14 +166,15 @@ function bffViewKpis($from, $to)
         'ok'   => true,
         'data' => [
             'period'  => ['from' => $from, 'to' => $to],
-            'current' => bffKpisFormatted($curRaw),
+            'current' => $curRaw,   // números CRUDOS — el front formatea
             'compare' => $compare,
         ],
     ]);
 }
 
 /* ───────────────────────── chart (gráfico de ingresos) ─────────────────────────
- * Port fiel de la composición que vivía en a_report_summary.php (action=getChartSales). */
+ * Compone las series (cálculo: byweek, margin, alineación período anterior) y devuelve
+ * NÚMEROS + FECHAS ISO crudas + promedio crudo. El front arma labels/anotación/markup. */
 
 function bffViewChart($from, $to)
 {
@@ -232,7 +188,6 @@ function bffViewChart($from, $to)
 
     $isDay = !empty($cur['data']['isDay']);
 
-    // Indexar filas crudas por bucket (fecha 'Y-m-d' multi-día / hora int single-day).
     $byBucket = function ($rows) {
         $out = [];
         foreach ($rows as $r) {
@@ -244,24 +199,19 @@ function bffViewChart($from, $to)
     $exps  = $byBucket($cur['data']['expenses'] ?? []);
     $back  = $prev['ok'] ? $byBucket($prev['data']['sales'] ?? []) : [];
 
-    $labels = [];
-    $gross  = [];
-    $grossB = [];
-    $grossE = [];
-    $margin = [];
-    $byweek = array_fill(1, 7, 0); // 1=Lun … 7=Dom
+    $buckets  = [];
+    $bucketsB = [];
+    $gross    = [];
+    $grossB   = [];
+    $grossE   = [];
+    $margin   = [];
+    $byweek   = array_fill(1, 7, 0); // 1=Lun … 7=Dom
 
     $totalSold  = 0;
     $totalCount = 0;
 
-    if ($isDay) {
-        $calendar  = range(0, 23);
-        $calendarB = $calendar;
-        $startB    = $pf;
-    } else {
-        $calendar  = bffDateRange($from, $to);
-        $calendarB = bffDateRange($pf, $pt);
-    }
+    $calendar  = $isDay ? range(0, 23) : bffDateRange($from, $to);
+    $calendarB = $isDay ? range(0, 23) : bffDateRange($pf, $pt);
 
     foreach ($calendar as $z => $current) {
         $currentB = $isDay ? $current : ($calendarB[$z] ?? null);
@@ -277,58 +227,44 @@ function bffViewChart($from, $to)
         $totalSold  += $dayTotal;
         $totalCount++;
 
-        $gross[]  = $dayTotal;
-        $grossB[] = $totalBak;
-        $grossE[] = $totalExp;
-        $tMargin  = $dayTotal - $totalExp;
-        $margin[] = ($tMargin > 0) ? $tMargin : 0;
+        $buckets[]  = $current;                   // fecha ISO (multi) u hora int (single) — CRUDO
+        $bucketsB[] = $currentB;
+        $gross[]    = $dayTotal;
+        $grossB[]   = $totalBak;
+        $grossE[]   = $totalExp;
+        $tMargin    = $dayTotal - $totalExp;
+        $margin[]   = ($tMargin > 0) ? $tMargin : 0;
 
-        if ($isDay) {
-            $labels[] = $current . 'h del ' . bffNiceDate($from) . ' vs ' . bffNiceDate($startB);
-        } else {
+        if (!$isDay) {
             $byweek[bffWeekday($current)] += $dayTotal;
-            $labels[]                      = bffNiceDate($current) . ' vs ' . bffNiceDate($currentB);
         }
     }
 
-    // Barras "Día de la semana" (solo multi-día). Lun→Dom.
-    $dayNames  = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-    $daysLabel = [];
-    $daysData  = [];
+    // Barras "Día de la semana" (solo multi-día): 7 totales Lun→Dom (labels los pone el front).
+    $daysData = [];
     if (!$isDay) {
         for ($i = 1; $i <= 7; $i++) {
-            $daysLabel[] = $dayNames[$i - 1];
-            $daysData[]  = $byweek[$i];
+            $daysData[] = $byweek[$i];
         }
     }
 
-    // Anotación de promedio. El texto se arma acá (mantiene drawChart intacto); el número
-    // se formatea con el config de la company (vía bootstrap de la API).
-    $annotations = [];
-    if ($totalSold && $totalCount) {
-        $average       = $totalSold / $totalCount;
-        $annotations[] = [
-            'value'       => $average,
-            'orientation' => 'horizontal',
-            'text'        => 'Promedio ' . bffFormatNumber($average),
-            'color'       => '#1ab667',
-            'position'    => 'left',
-        ];
-    }
+    $average = ($totalSold && $totalCount) ? ($totalSold / $totalCount) : null;
 
     bffJson([
         'ok'   => true,
         'data' => [
             'chart' => [
-                'sales'       => [
-                    'labels' => $labels,
-                    'gross'  => $gross,
-                    'grossB' => $grossB,
-                    'grossE' => $grossE,
-                    'margin' => $margin,
-                ],
-                'days'        => ['labels' => $daysLabel, 'data' => $daysData],
-                'annotations' => $annotations,
+                'isDay'       => $isDay,
+                'buckets'     => $buckets,         // fechas ISO / horas — CRUDO
+                'bucketsB'    => $bucketsB,
+                'periodFrom'  => $from,            // para el label single-day
+                'periodFromB' => $pf,
+                'gross'       => $gross,
+                'grossB'      => $grossB,
+                'grossE'      => $grossE,
+                'margin'      => $margin,
+                'daysData'    => $daysData,        // 7 valores (multi) — labels en el front
+                'average'     => $average,         // promedio CRUDO — el front arma "Promedio X"
                 'noDayShow'   => $isDay ? 'hidden' : '',
             ],
         ],
@@ -344,21 +280,21 @@ function bffViewHours($from, $to)
         bffFailFromApi($res);
     }
 
-    // Rellenar las 24 horas (0 donde no hubo ventas). Labels '00 h'..'23 h' (presentación
-    // simple, se arma acá para que chartByHours quede intacto).
+    // Rellenar las 24 horas (0 donde no hubo ventas). Devolvemos horas crudas (0-23) +
+    // totales; el front arma las labels "00 h".."23 h".
     $byHour = [];
     foreach ($res['data'] as $r) {
         $byHour[(int) $r['bucket']] = (float) $r['total'];
     }
 
-    $hour  = [];
-    $total = [];
+    $hours  = [];
+    $totals = [];
     for ($h = 0; $h <= 23; $h++) {
-        $hour[]  = ($h < 10 ? '0' . $h : (string) $h) . ' h';
-        $total[] = $byHour[$h] ?? 0;
+        $hours[]  = $h;
+        $totals[] = $byHour[$h] ?? 0;
     }
 
-    bffJson(['ok' => true, 'data' => ['hour' => $hour, 'total' => $total]]);
+    bffJson(['ok' => true, 'data' => ['hours' => $hours, 'totals' => $totals]]);
 }
 
 /* ───────────────────────── byday (pestaña Por Día) ───────────────────────── */
@@ -370,8 +306,7 @@ function bffViewByDay($from, $to)
         bffFailFromApi($res);
     }
 
-    // Derivados por fila + pre-formateo. Mandamos display (string) Y crudo (*Raw):
-    // el front usa el crudo para data-order/sort/footer de DataTables y el display para mostrar.
+    // Derivados por fila (cálculo del BFF) en NÚMEROS crudos. El front formatea y arma la tabla.
     $rows = [];
     foreach ($res['data'] as $r) {
         $total    = ($r['total'] < 1) ? 0 : $r['total'];
@@ -381,18 +316,12 @@ function bffViewByDay($from, $to)
         $tax      = ($r['tax'] < 0) ? 0 : $r['tax'];
 
         $rows[] = [
-            'date'        => bffNiceDateShort($r['date']),
-            'dateRaw'     => $r['date'],
-            'count'       => bffFormatQty($r['count']),
-            'countRaw'    => $r['count'],
-            'discount'    => bffFormatNumber($r['discount']),
-            'discountRaw' => $r['discount'],
-            'tax'         => bffFormatNumber($tax),
-            'taxRaw'      => $tax,
-            'subtotal'    => bffFormatNumber($subtotal),
-            'subtotalRaw' => $subtotal,
-            'total'       => bffFormatNumber($total),
-            'totalRaw'    => $total,
+            'date'     => $r['date'],          // fecha ISO cruda
+            'count'    => $r['count'],
+            'discount' => $r['discount'],
+            'tax'      => $tax,
+            'subtotal' => $subtotal,
+            'total'    => $total,
         ];
     }
 

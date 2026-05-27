@@ -149,25 +149,29 @@ a funciones de `panel/includes/functions.php`. No son módulos independientes.
 > (HTML + JS) a partir del JSON. Esto complementa la REGLA RAÍZ ("PHP nunca sirve HTML"):
 > no solo no sirve la *página*, tampoco emite *fragmentos* de markup dentro de un JSON.
 
-**División de responsabilidades (canónica):**
+**División de responsabilidades (canónica — refinada 2026-05-26):**
+
+> **Todo lo PRESENTACIONAL vive en el front; el PHP (API+BFF) solo sirve DATOS crudos + cálculos.**
+> "Presentacional" = formateo de números (`1395000`→`"1.395.000,00"`), de fechas
+> (`"2026-05-26"`→`"26 May"`), de `%`, textos de display, y el markup.
 
 | Capa | Hace | NO hace |
 |------|------|---------|
 | **API** | auth + CRUD + datasets casi raw (números crudos), multi-tenant | formateo, lógica de App Punto, markup |
-| **BFF** | cálculos extra, cruce de datos, gateway a la API, y **pre-formatea los valores** (números→`"1.000,00"`, fechas→`"26 May"`, deltas/%) → devuelve **JSON con valores listos para mostrar** | **NINGÚN** HTML/CSS/JS. No arma tablas ni spans. |
-| **FRONT** (`.html` + JS) | arma **TODO** el markup/visual colocando los valores pre-formateados del BFF; aplica clases/iconos/colores | cálculos de negocio, formateo de números (ya viene del BFF) |
+| **BFF** | cálculos extra (netSales, totales, deltas), cruce de datos, gateway a la API → devuelve **JSON con datos CRUDOS**: números (`1395000`), fechas ISO (`"2026-05-26"`), comparaciones como datos (`{dir,pct,positive,prev:<número>}`) | **NINGÚN** formateo de display, **NINGÚN** HTML/CSS/JS. No arma `"1.000,00"`, ni `"26 May"`, ni tablas, ni spans. |
+| **FRONT** (`.html` + JS) | arma **TODO** el visual: formatea números (`formatNumber` con currency/decimal/thousand del bootstrap), fechas, `%`, textos; construye el markup | cálculos de negocio (vienen crudos del BFF) |
 
-**Anti-patrón explícito (lo que hacen `a_report_orders.php` y todos los reportes legacy):**
-el BFF arma la `<table>`/`<tr>` con `formatCurrentNumber`/`niceDate` y la devuelve como
-string HTML dentro del JSON (`{table:"<table>…"}`). **Eso está MAL** — mezcla presentación
-en el PHP. Al migrar cada reporte hay que **invertir** esto: el BFF devuelve los datos
-pre-formateados (p. ej. `[{date:"26 May", total:"1.000,00", totalRaw:1000}]`) y el JS arma
-el `<tr>`. Para tablas con sort/sumas client-side (DataTables) el BFF manda ambos: el valor
-de display (string) y el valor crudo (`*Raw`, para `data-order`/footer).
+**Dos anti-patrones a corregir al migrar un reporte:**
+1. **BFF que arma HTML** (lo que hacen `a_report_orders.php` y todos los legacy): devuelve
+   `{table:"<table>…"}`. MAL — presentación en el PHP. El BFF devuelve datos, el front arma el `<tr>`.
+2. **BFF que pre-formatea números/fechas a strings de display** (`"1.395.000,00"`, `"26 May"`).
+   MAL — el formateo es presentación, va en el front. El BFF manda el número/fecha **crudo**.
 
-**Supersede** la nota previa "el formateo se resuelve en el front (JS) / números crudos":
-el formateo de *valores* lo hace el **BFF** (devuelve strings de display); el front solo
-los **coloca** en el markup que él mismo construye.
+Para tablas con sort/sumas client-side (DataTables): el BFF manda el valor crudo y el front
+arma tanto el display (`formatNumber`) como el `data-order` (crudo) en el `<td>`.
+
+**Supersede** la nota previa que decía "el BFF pre-formatea los valores": era incorrecta.
+El BFF NO formatea nada de display; solo datos crudos + cálculos. El front formatea TODO.
 
 ### ⚠️ Constraint que define el diseño: App y API en servidores separados
 

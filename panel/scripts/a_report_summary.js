@@ -8,41 +8,63 @@
  *   - ventas por hora                             ← GET /bff/reports/summary.php?view=hours
  *   - pestaña Por Día                             ← GET /bff/reports/summary.php?view=byday
  *
- * El front NUNCA pega a /API/v1 (siempre al BFF). Los valores vienen YA PRE-FORMATEADOS
- * del BFF (REGLA RAÍZ 2: el PHP no genera markup, solo JSON con datos de display); este JS
- * solo ARMA el markup colocando esos strings + construye los spans de comparación desde el
- * objeto `compare`. drawChart/chartByHours quedan intactos (el BFF emite su shape exacto,
- * con números para Chart.js y labels pre-formateadas). Ver context/02-arquitectura.md § REGLA RAÍZ 2.
+ * El front NUNCA pega a /API/v1 (siempre al BFF). El BFF manda SOLO datos crudos (números,
+ * fechas ISO, comparaciones como datos, promedio crudo); este front formatea TODO lo
+ * presentacional (números, fechas, %, texto de anotación) y arma el markup. REGLA RAÍZ 2
+ * en context/02-arquitectura.md.
  */
 (function () {
 
 	var BFF       = '/bff/reports/summary.php';
 	var BOOTSTRAP = '/bff/bootstrap.php';
 
-	// Config de la company (se hidrata desde el bootstrap del BFF).
 	var RS = { currency: '', decimal: 'no', thousand: 'dot', taxName: 'IVA' };
 
-	// Rango actual del reporte (default: últimos 7 días). El date-picker lo actualiza.
 	var FROM = moment().subtract(7, 'days').format('YYYY-MM-DD 00:00:00');
 	var TO   = moment().endOf('day').format('YYYY-MM-DD HH:mm:ss');
 
-	/* ───────────── markup (el front solo arma visual; los valores vienen pre-formateados del BFF) ───────────── */
+	/* ───────────── formateo (presentación — vive en el front) ───────────── */
 
-	// Escapa texto antes de inyectarlo como contenido de markup (el front es dueño del markup,
-	// así que escapa para su contexto). Los montos/fechas vienen del BFF (numéricos, seguros);
-	// el name del medio de pago viene de la BD → se escapa.
 	function esc(s) {
 		return String(s == null ? '' : s)
 			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 	}
 
-	// Arma el span de comparación desde el objeto {dir,pct,prev,positive} del BFF.
-	// El BFF ya hizo el cálculo y el formateo; acá solo elegimos icono y clase.
+	// Número crudo → string de display (currency/decimal/thousand del bootstrap).
+	function fmt(n) {
+		return formatNumber(n || 0, '', RS.decimal, RS.thousand);
+	}
+
+	// Cantidad: entero sin decimales, con decimales si los tiene (= formatQty del panel).
+	function fmtQty(v) {
+		v = parseFloat(v) || 0;
+		return (v % 1 === 0) ? formatNumber(v, '', 'no', RS.thousand)
+		                     : formatNumber(v, '', 'yes', RS.thousand);
+	}
+
+	var MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+	var DIAS  = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+	// Fecha corta "26 May, 2026" (= niceDate no-literal del panel) — tabla Por Día.
+	function niceDateJs(date) {
+		var d = moment(date);
+		if (!d.isValid()) { return 'No date'; }
+		return d.format('DD') + ' ' + MESES[d.month()] + ', ' + d.format('YYYY');
+	}
+
+	// Fecha literal "Lun 26, May 2026" (= niceDate literal del panel) — labels del gráfico.
+	function niceDateLiteral(date) {
+		var d = moment(date);
+		if (!d.isValid()) { return 'No date'; }
+		return DIAS[d.day()] + ' ' + d.format('DD') + ', ' + MESES[d.month()] + ' ' + d.format('YYYY');
+	}
+
+	// Span de comparación desde el objeto {dir,pct,prev(crudo),positive} del BFF.
 	function buildCmpSpan(c) {
 		if (!c) { return '...'; }
 		var icon  = c.dir === 'up' ? 'trending_up' : (c.dir === 'down' ? 'trending_down' : 'trending_flat');
 		var color = c.positive === true ? 'text-success' : (c.positive === false ? 'text-danger' : 'text-muted');
-		return '<span class="' + color + ' pointer" data-toggle="tooltip" title="Periodo anterior: ' + c.prev + '"><i class="material-icons">' + icon + '</i> ' + c.pct + '%</span>';
+		return '<span class="' + color + ' pointer" data-toggle="tooltip" title="Periodo anterior: ' + fmt(c.prev) + '"><i class="material-icons">' + icon + '</i> ' + c.pct + '%</span>';
 	}
 
 	/* ───────────── carga de datos (BFF) ───────────── */
@@ -65,48 +87,48 @@
 		var cur = d.current || {};
 		var cmp = d.compare || {};
 
-		$('#globalSubtotal').html(cur.grossSales);
+		$('#globalSubtotal').html(fmt(cur.grossSales));
 		$('#globalSubtotalB').html(buildCmpSpan(cmp.grossSales));
 
-		$('#globalCogs').html(cur.totalReturns);
+		$('#globalCogs').html(fmt(cur.totalReturns));
 		$('#globalCogsB').html(buildCmpSpan(cmp.totalReturns));
 
-		$('#globalDiscount').html(cur.totalDiscounts);
+		$('#globalDiscount').html(fmt(cur.totalDiscounts));
 		$('#globalDiscountB').html(buildCmpSpan(cmp.totalDiscounts));
 
-		$('#globalUtility').html(cur.netSales);
+		$('#globalUtility').html(fmt(cur.netSales));
 		$('#globalUtilityB').html(buildCmpSpan(cmp.netSales));
 
-		// Tabla Ventas (valores ya formateados por el BFF)
+		// Tabla Ventas
 		var salesTable =
-			'<tr class="bg-light lter"><td class="font-bold"> Ventas Brutas</td><td class="text-right font-bold">' + cur.grossSales + '</td></tr>' +
-			'<tr><td> <span class="text-u-l pointer" data-toggle="tooltip" title="Pagos realizados con créditos de la empresa, Gift Cards, Crédito Interno o Puntos Loyalty">Pagos con créditos</span></td><td class="text-right">-' + cur.creditPays + '</td></tr>' +
-			'<tr><td> Devoluciones</td><td class="text-right">-' + cur.totalReturns + '</td></tr>' +
-			'<tr><td> Descuentos</td><td class="text-right">-' + cur.totalDiscounts + '</td></tr>' +
-			'<tr class="bg-light lter"><td class="font-bold"> Ventas Netas</td><td class="text-right font-bold">' + cur.netSales + '</td></tr>' +
-			'<tr><td>' + RS.taxName + '</td><td class="text-right">' + cur.totalTax + '</td></tr>';
+			'<tr class="bg-light lter"><td class="font-bold"> Ventas Brutas</td><td class="text-right font-bold">' + fmt(cur.grossSales) + '</td></tr>' +
+			'<tr><td> <span class="text-u-l pointer" data-toggle="tooltip" title="Pagos realizados con créditos de la empresa, Gift Cards, Crédito Interno o Puntos Loyalty">Pagos con créditos</span></td><td class="text-right">-' + fmt(cur.creditPays) + '</td></tr>' +
+			'<tr><td> Devoluciones</td><td class="text-right">-' + fmt(cur.totalReturns) + '</td></tr>' +
+			'<tr><td> Descuentos</td><td class="text-right">-' + fmt(cur.totalDiscounts) + '</td></tr>' +
+			'<tr class="bg-light lter"><td class="font-bold"> Ventas Netas</td><td class="text-right font-bold">' + fmt(cur.netSales) + '</td></tr>' +
+			'<tr><td>' + esc(RS.taxName) + '</td><td class="text-right">' + fmt(cur.totalTax) + '</td></tr>';
 		$('#salesTable').html(salesTable);
 
-		// Tabla Medios de Pago (name + monto pre-formateado; total calculado por el BFF)
+		// Tabla Medios de Pago (name resuelto por la API; monto crudo → fmt; total calculado por el BFF)
 		var payTable = '';
 		$.each(cur.payments || [], function (i, p) {
-			payTable += '<tr><td>' + esc(p.name) + '</td><td class="text-right">' + p.amount + '</td></tr>';
+			payTable += '<tr><td>' + esc(p.name) + '</td><td class="text-right">' + fmt(p.price) + '</td></tr>';
 		});
-		payTable += '<tr class="font-bold text-u-c"><td>Total</td><td class="text-right">' + cur.paymentsTotal + '</td></tr>';
+		payTable += '<tr class="font-bold text-u-c"><td>Total</td><td class="text-right">' + fmt(cur.paymentsTotal) + '</td></tr>';
 		$('#paymentsMethodsTable').html(payTable);
 
-		// Tabla Tipos (totalBruto calculado por el BFF)
+		// Tabla Tipos
 		var typeTable =
-			'<tr><td> Ventas al Contado</td><td class="text-right">' + cur.cashSales + '</td></tr>' +
-			'<tr><td> Ventas a Crédito</td><td class="text-right">' + cur.creditSales + '</td></tr>' +
-			'<tr><td class="font-bold text-u-c"> Total Bruto</td><td class="text-right font-bold">' + cur.totalBruto + '</td></tr>';
+			'<tr><td> Ventas al Contado</td><td class="text-right">' + fmt(cur.cashSales) + '</td></tr>' +
+			'<tr><td> Ventas a Crédito</td><td class="text-right">' + fmt(cur.creditSales) + '</td></tr>' +
+			'<tr><td class="font-bold text-u-c"> Total Bruto</td><td class="text-right font-bold">' + fmt(cur.totalBruto) + '</td></tr>';
 		$('#typeSalesTable').html(typeTable);
 
 		// Tabla Gift Cards
 		var gcTable =
-			'<tr><td class="font-bold text-u-c"> Vendido</td><td class="text-right font-bold">' + cur.giftcardsSold + '</td></tr>' +
-			'<tr><td> Cantidad</td><td class="text-right">' + cur.giftcardsCount + '</td></tr>' +
-			'<tr><td> Canjeado</td><td class="text-right">' + cur.totalGiftcardUsed + '</td></tr>';
+			'<tr><td class="font-bold text-u-c"> Vendido</td><td class="text-right font-bold">' + fmt(cur.giftcardsSold) + '</td></tr>' +
+			'<tr><td> Cantidad</td><td class="text-right">' + fmtQty(cur.giftcardsCount) + '</td></tr>' +
+			'<tr><td> Canjeado</td><td class="text-right">' + fmt(cur.totalGiftcardUsed) + '</td></tr>';
 		$('#giftcardsTabe').html(gcTable);
 
 		$('[data-toggle="tooltip"]').tooltip();
@@ -119,22 +141,22 @@
 			'<th>Fecha</th>' +
 			'<th class="text-center">Nro. de Ventas</th>' +
 			'<th class="text-center">Descuentos</th>' +
-			'<th class="text-center">' + RS.taxName + '</th>' +
+			'<th class="text-center">' + esc(RS.taxName) + '</th>' +
 			'<th class="text-center">Gravado</th>' +
 			'<th class="text-center">Total</th>' +
 			'</tr></thead><tbody>';
 
 		var body = '';
 		$.each(rows, function (i, r) {
-			// display ya formateado por el BFF; *Raw para data-order (sort + footer de DataTables).
+			// data crudo del BFF; el front formatea el display y usa el crudo en data-order.
 			body +=
 				'<tr class="clickrow">' +
-				' <td data-order="' + r.dateRaw + '"> ' + r.date + ' </td>' +
-				' <td class="text-right" data-order="' + r.countRaw + '"> ' + r.count + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.discountRaw + '" data-format="money"> ' + r.discount + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.taxRaw + '" data-format="money"> ' + r.tax + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.subtotalRaw + '" data-format="money"> ' + r.subtotal + ' </td>' +
-				' <td class="text-right bg-light lter" data-order="' + r.totalRaw + '" data-format="money"> ' + r.total + ' </td>' +
+				' <td data-order="' + r.date + '"> ' + niceDateJs(r.date) + ' </td>' +
+				' <td class="text-right" data-order="' + r.count + '"> ' + fmtQty(r.count) + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.discount + '" data-format="money"> ' + fmt(r.discount) + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.tax + '" data-format="money"> ' + fmt(r.tax) + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.subtotal + '" data-format="money"> ' + fmt(r.subtotal) + ' </td>' +
+				' <td class="text-right bg-light lter" data-order="' + r.total + '" data-format="money"> ' + fmt(r.total) + ' </td>' +
 				'</tr>';
 		});
 
@@ -166,17 +188,18 @@
 	function loadAll() {
 		bffLoad('kpis',  renderKpis);
 		bffLoad('chart', function (d) {
-			if (d.chart && d.chart.sales.gross.length) {
+			var ch = d.chart;
+			if (ch && ch.gross && ch.gross.length) {
 				$('#summaryChart').removeClass('hidden');
 				$('#loadingChart').addClass('hidden');
-				drawChart(d);
+				drawChart(ch);
 			} else {
 				$('#summaryChart').addClass('hidden');
 			}
-			$('.noDayHolder').addClass(d.chart ? d.chart.noDayShow : '');
+			$('.noDayHolder').addClass(ch ? ch.noDayShow : '');
 		});
 		bffLoad('hours', function (d) {
-			if (d.total && d.total.length) {
+			if (d.totals && d.totals.length) {
 				chartByHours(d);
 			} else {
 				$('#hours').addClass('hidden');
@@ -188,7 +211,7 @@
 
 	$(document).ready(function () {
 
-		// 1) Config de la company (currency/decimal/thousand/taxName) desde el BFF.
+		// 1) Config de la company desde el BFF (para formatear + chrome).
 		ncmHelpers.load({
 			url         : BOOTSTRAP,
 			httpType    : 'GET',
@@ -201,7 +224,6 @@
 					RS.decimal  = res.data.decimal  || 'no';
 					RS.thousand = res.data.thousand || 'dot';
 					RS.taxName  = res.data.taxName  || 'IVA';
-					// El shell también usa estos globals (ncmDataTables, masks).
 					window.currency          = RS.currency;
 					window.decimal           = RS.decimal;
 					window.thousandSeparator = RS.thousand;
@@ -240,10 +262,23 @@
 		});
 	});
 
-	/* ───────────── gráficos (INTACTOS — el BFF emite su shape exacto) ───────────── */
+	/* ───────────── gráficos (arman labels/anotación desde los datos crudos del BFF) ───────────── */
 
-	function drawChart(result){
-		var charter = result.chart;
+	function drawChart(ch){
+
+		// Labels del eje X (presentación): se arman acá desde las fechas/horas crudas.
+		var labels = ch.buckets.map(function (b, i) {
+			if (ch.isDay) {
+				return b + 'h del ' + niceDateLiteral(ch.periodFrom) + ' vs ' + niceDateLiteral(ch.periodFromB);
+			}
+			return niceDateLiteral(b) + ' vs ' + niceDateLiteral(ch.bucketsB[i]);
+		});
+
+		// Anotación del promedio (texto formateado en el front).
+		var annots = [];
+		if (ch.average != null) {
+			annots.push({ value: ch.average, orientation: 'horizontal', text: 'Promedio ' + fmt(ch.average), color: '#1ab667', position: 'left' });
+		}
 
 		Chart.defaults.global.legend.display 		= true;
 		Chart.defaults.global.responsive 			= true;
@@ -255,9 +290,7 @@
 		gradientStroke.addColorStop(0.5, "#54cfc7");
 		gradientStroke.addColorStop(1, "#54cfc7");
 
-		var annots    = charter.annotations;
 	    var recAnnots = [];
-
 	    if(ncmHelpers.validity(annots)){
 	      recAnnots = annots.map(function(val, index) {
 	        var id        = 'vline' + index;
@@ -271,14 +304,12 @@
 	          scaleId   = "y-axis-0";
 	        }
 
-	        var value = val.value;
-
 	        return {
 	          type      : "line",
 	          id        : id,
 	          mode      : mode,
 	          scaleID   : scaleId,
-	          value     : value.toFixed(2),
+	          value     : val.value.toFixed(2),
 	          borderColor: val.color,
 	          borderWidth: 2,
 	          borderDash : [2, 7],
@@ -288,14 +319,11 @@
 	            enabled: true,
 	            position: position,
 	            content: val.text,
-	            font: {
-		            size: 7
-		        }
+	            font: { size: 7 }
 	          }
 	        };
 	      });
 	    }
-
 
 	    chartBarStackedGraphOptions.annotation = {
 	                                              drawTime    : "afterDatasetsDraw",
@@ -303,14 +331,13 @@
 	                                            };
 
 		var data = {
-		    labels 	: charter.sales.labels,
+		    labels 	: labels,
 		    datasets: [
 		    	{
 	                label                     : "Margen",
-	                data                      : charter.sales.margin,
+	                data                      : ch.margin,
 	                type                      : 'line',
 	                borderColor               : '#FF9469',
-
 	                pointColor                : '#FF9469',
 	                pointHoverRadius          : 8,
 	                pointHoverBorderColor     : "#fff",
@@ -325,12 +352,10 @@
 	                fill                      : false
 	            },
 		        {
-
 		            label 					  	: "Ingreso Anterior",
-		            data 						: charter.sales.grossB,
+		            data 						: ch.grossB,
 		            type                      	: 'line',
 		            borderColor 				: chartSecondColor,
-
 		            pointColor 					: chartSecondColor,
 		            pointHoverRadius 			: 8,
 		            pointHoverBorderColor 		: "#fff",
@@ -349,13 +374,13 @@
 		        	type 						: 'bar',
 		            label 						: "Ingreso Actual",
 		            backgroundColor 			: gradientStroke,
-		            data 						: charter.sales.gross
+		            data 						: ch.gross
 		        },
 		        {
 		        	type 						: 'bar',
 		            label 						: "Egresos",
 		            backgroundColor 			: chartSecondColor,
-		            data 						: charter.sales.grossE
+		            data 						: ch.grossE
 		        }
 		    ]
 		};
@@ -370,50 +395,53 @@
 		    options 	: chartBarStackedGraphOptions
 		});
 
-
 		chart.getDatasetMeta(3).hidden = true;
 		chart.update();
 
 		chartBarStackedGraphOptions.annotation = {};
 
+		// Barras "Día de la semana" (solo multi-día; daysData = 7 totales Lun→Dom).
+		if (ch.daysData && ch.daysData.length) {
+			var days 			= $('#days')[0].getContext("2d");
+			var gradientStroke2 = days.createLinearGradient(300, 0, 100, 0);
+			gradientStroke2.addColorStop(0, "#4cb6cb");
+			gradientStroke2.addColorStop(1, "#54cfc7");
 
-		var days 			= $('#days')[0].getContext("2d");
-		var gradientStroke 	= days.createLinearGradient(300, 0, 100, 0);
-		gradientStroke.addColorStop(0, "#4cb6cb");
-		gradientStroke.addColorStop(1, "#54cfc7");
+			Chart.defaults.global.responsive 			= true;
+			Chart.defaults.global.maintainAspectRatio 	= false;
+			Chart.defaults.global.legend.display       	= false;
 
-		Chart.defaults.global.responsive 			= true;
-		Chart.defaults.global.maintainAspectRatio 	= false;
-		Chart.defaults.global.legend.display       	= false;
+			var dataD = {
+			    labels: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+			    datasets: [
+			        {
+			        	label: "Total " + RS.currency,
+			            data: ch.daysData,
+			            backgroundColor: gradientStroke2
+			        }]
+			};
 
-		var dataD = {
-		    labels: charter.days.labels,
-		    datasets: [
-		        {
-		        	label: "Total " + RS.currency,
-		            data: charter.days.data,
-		            backgroundColor: gradientStroke
-		        }]
-		};
+			chartBarStackedGraphOptions.scales.xAxes[0].display = true;
 
-		chartBarStackedGraphOptions.scales.xAxes[0].display = true;
+			new Chart(days, {
+			    type      : 'bar',
+			    data      : dataD,
+			    animation : true,
+			    options   : chartBarStackedGraphOptions
+			});
 
-		var methods = new Chart(days, {
-		    type      : 'bar',
-		    data      : dataD,
-		    animation : true,
-		    options   : chartBarStackedGraphOptions
-		});
-
-		chartBarStackedGraphOptions.scales.xAxes[0].display = false;
-
+			chartBarStackedGraphOptions.scales.xAxes[0].display = false;
+		}
 	}
 
-	function chartByHours(result){
+	function chartByHours(d){
 
 		Chart.defaults.global.responsive 			= true;
 		Chart.defaults.global.maintainAspectRatio 	= false;
 		Chart.defaults.global.legend.display       	= false;
+
+		// Labels "00 h".."23 h" (presentación) desde las horas crudas del BFF.
+		var labels = d.hours.map(function (h) { return (h < 10 ? '0' + h : '' + h) + ' h'; });
 
 		var hoursChart 		=$('#hours')[0].getContext("2d");
 		var gradientStroke 	= hoursChart.createLinearGradient(300, 0, 100, 0);
@@ -421,14 +449,13 @@
 		gradientStroke.addColorStop(1, "#54cfc7");
 
 		var dataH = {
-		    labels 		: result.hour,
+		    labels 		: labels,
 		    datasets 	: [
 		    				{
 				                label                     : "Ventas",
-				                data                      : result.total,
+				                data                      : d.totals,
 				                type                      : 'line',
 				                borderColor               : '#FF9469',
-
 				                pointColor                : '#FF9469',
 				                pointHoverRadius          : 8,
 				                pointHoverBorderColor     : "#fff",
@@ -447,7 +474,7 @@
 
 		chartLineGraphOptions.scales.xAxes[0].display = true;
 
-		var methods = new Chart(hoursChart, {
+		new Chart(hoursChart, {
 		    type 		: 'line',
 		    data 		: dataH,
 		    animation 	: true,

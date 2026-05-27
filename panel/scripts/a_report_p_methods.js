@@ -3,11 +3,11 @@
  *
  * Diseño IDÉNTICO al legacy; cambia la plomería de datos:
  *   - config (currency/decimal/thousand/tinName) ← GET /bff/bootstrap.php
- *   - datos (detalle + resumen, montos PRE-FORMATEADOS) ← GET /bff/reports/payment-methods.php
+ *   - datos (detalle + resumen, montos CRUDOS) ← GET /bff/reports/payment-methods.php
  *
- * El front NUNCA pega a /API/v1. Los valores vienen ya formateados del BFF (REGLA RAÍZ 2);
- * este JS solo ARMA el markup (2 tablas + chart) y escapa los campos de datos. Ver
- * context/02-arquitectura.md § REGLA RAÍZ 2.
+ * El front NUNCA pega a /API/v1. El BFF manda datos crudos (REGLA RAÍZ 2); este JS
+ * formatea los montos (fmt) y arma el markup (2 tablas + chart), escapando los campos
+ * de datos. Ver context/02-arquitectura.md § REGLA RAÍZ 2.
  */
 (function () {
 
@@ -23,6 +23,11 @@
 	function esc(s) {
 		return String(s == null ? '' : s)
 			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	}
+
+	// Formatea un número crudo del BFF para display (el formateo es del front).
+	function fmt(n) {
+		return formatNumber(n || 0, '', RS.decimal, RS.thousand);
 	}
 
 	/* ───────────── markup ───────────── */
@@ -45,9 +50,9 @@
 				'<td>' + esc(r.methodName) + '</td>' +
 				'<td>' + esc(r.extra) + '</td>' +
 				'<td>' + esc(r.outletName) + '</td>' +
-				'<td class="text-right bg-light lter" data-order="' + r.priceRaw + '" data-format="money">' + r.price + '</td>' +
-				'<td class="text-right bg-light lter" data-order="' + r.totalRaw + '" data-format="money">' + r.total + '</td>' +
-				'<td class="text-right bg-light lter" data-order="' + r.txnTotalRaw + '" data-format="money">' + r.txnTotal + '</td>' +
+				'<td class="text-right bg-light lter" data-order="' + r.price + '" data-format="money">' + fmt(r.price) + '</td>' +
+				'<td class="text-right bg-light lter" data-order="' + r.total + '" data-format="money">' + fmt(r.total) + '</td>' +
+				'<td class="text-right bg-light lter" data-order="' + r.txnTotal + '" data-format="money">' + fmt(r.txnTotal) + '</td>' +
 				'</tr>';
 		});
 
@@ -63,7 +68,7 @@
 		var body = '';
 		$.each(rows, function (i, r) {
 			body += '<tr data-type="' + esc(r.type) + '"><td>' + esc(r.name) + '</td>' +
-				'<td class="text-right bg-light lter" data-order="' + r.priceRaw + '" data-format="money">' + r.price + '</td></tr>';
+				'<td class="text-right bg-light lter" data-order="' + r.price + '" data-format="money">' + fmt(r.price) + '</td></tr>';
 		});
 		var foot = '</tbody><tfoot class="text-u-c"><tr><th>Total</th><th class="text-right"></th></tr></tfoot>';
 		return head + body + foot;
@@ -85,7 +90,7 @@
 
 		var data = {
 			labels: summary.map(function (r) { return r.name; }),
-			datasets: [{ label: 'Total', data: summary.map(function (r) { return r.priceRaw; }), backgroundColor: gradientStroke }]
+			datasets: [{ label: 'Total', data: summary.map(function (r) { return r.price; }), backgroundColor: gradientStroke }]
 		};
 
 		setTimeout(function () {
