@@ -37,6 +37,9 @@ if (preg_match('|^/assets/\d+-\d+/|', $path)) {
 // modelo BFF de 3 niveles se sirven como .html estático (PHP nunca sirve HTML).
 // En prod, replicar con un RewriteRule en .htaccess.
 $bffStaticReports = [
+    // El dashboard del panel (home). Read-only: el único write legacy (?action=tutorial = tour
+    // iguider) queda fuera (seguimiento en 10-roadmap → iguider→driver.js).
+    '/a_dashboard'        => '/reports/dashboard.html',
     '/a_report_summary'   => '/reports/summary.html',
     '/a_report_p_methods' => '/reports/payment-methods.html',
     '/a_report_inventory' => '/reports/inventory.html',
