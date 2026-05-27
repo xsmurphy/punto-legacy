@@ -3,6 +3,19 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (Phase 3.5 reportes BFF + fix main.php + familia god-functions PG cerrada — commits 676fe6a..e3f644d)
+
+- **Reportes migrados al BFF de 3 capas (Phase 3.5 → 12 reportes + 1 alias)**: `stock` (676fe6a, multi-depósito; fixes PG: bool=true, gate outlet por UUID válido, stock por `stockDate DESC`), `recurring` (980f908, 2º WRITE; `data->>'recurringSaleData'` es STRING-de-json por `_routeToJsonb` → `->>'..'` + `json_decode`), `summary_year` (844a436, read-only; BFF deriva net/revenue/margen + promedio; EXTRACT en vez de MONTH()), `customers` núcleo (4c0ad35; extras exploratorios —mapa, recurrentes, comportamiento— diferidos a Phase AI). `by_brands` resultó duplicado huérfano de `brands` → **router alias** (primer "duplicado consolidado vía alias").
+- **Fix `main.php` (pedido del usuario)**: (1) banner "Términos y Condiciones" eliminado de `mainAlerts()` (0102d0f). (2) Listado de empresas para impersonar no rendía → causa: gate `companyList` + `admin@local.test` tenía `data={}` sin `permissions.encom`. **Grant de permisos autorizado explícitamente por el usuario** (dato demo en company 0001, no en git). **Hallazgo**: `main.php` usa la SESIÓN PHP legacy para `COMPANY_ID` (no el JWT) → impersonar hace rebotar; reset password-free vía `?backToSaaS=true`. Refuerza ADR-001 (unificar identidad en JWT).
+- **Familia de god-functions PG CERRADA (100%, sin residuales)** — patrón: nada interpolado, todo bound params + `SELECT *`+`_flattenJsonb` para columnas demotadas:
+  - `getCustomerData`/`getContactData` (cbe22cd): `WHERE contactId = $id` sin comillas (Prepare no quotea UUIDs) → roto en ~72 call-sites incl. el reporte satisfaction (nombres en blanco). Ahora bound param.
+  - `getAllItems`/`getAllItemsRaw` (179208c): `companyId` + `IN($in)` sin comillas → bound params (cierra inyección; widget KPIs inventory daba 0).
+  - `getAllContacts`/`getAllContactsRaw` (1c2af24 + residuales 1a1beb9): companyId/type/IN parametrizados; `getAllContactsRaw` reescrito a `SELECT *`+flatten (seleccionaba columnas demotadas a JSONB → "undefined column"); wrapper ahora `_flattenJsonb` por fila en su loop hand-rolled (forceObj no aplana solo); `get_sales.php:48` ruteado por el wrapper (IN parametrizado).
+  - `lessInternalTotals` (50acccb): quitar `USE INDEX`, `tags`→`meta->>'tags'`, `tTypes` parametrizado (sólo corría con `ignoreInternal=true`).
+- **Verificación**: todos los reportes E2E en browser (cero errores consola); god-functions verificadas vía PDO + E2E (satisfaction resuelve nombres; `get_sales` devuelve `customer_address` desde JSONB). `code-reviewer` en cada commit (P0/P1 limpio). Roadmap + 04-modelo + graphify sincronizados.
+- **Seed demo nuevo (company 0001, no en git)**: 2 filas `recurring`, 4 transacciones con `customerId` "Cliente Prueba SRL", 1 voto satisfaction con cliente, permisos encom a `admin@local.test`.
+- **Pendiente próxima sesión**: seguir migración de reportes — quedan ~11 (pesados: `transactions` 3987, `purchases` 2632, `products` 1754; medianos: `expenses`, `vpayments`, `drawers`, `cashflow`, `open_invoices`, `giftCards`, `schedule`, `production`). Todo pusheado a `main`.
+
 ## 2026-05-26 (course-correction arquitectura + piloto BFF de 3 capas en reportes — commits 5cb9912..24ccbd8)
 
 - **Decisión grande (course-correction del usuario, NORTE de TODO el sistema)**: la estructura canónica es **front.html (estático, HTML+JS, CERO PHP) → bff.php (PHP, NO toca BD, solo llama a la API por HTTP) → api.php (PHP + Postgres, única capa con queries)**. **PHP NUNCA sirve HTML**; auth, chrome (menú/título/currency) y **formateo** se resuelven en el front (JS). Esto **revierte** el diferimiento del boundary HTTP de la sesión previa (BFF in-process). Lockeado en `02-arquitectura.md` (REGLA RAÍZ) + `10-roadmap.md` (Phase 3 reescrita). Commit `f8922b1`.
