@@ -1423,16 +1423,15 @@ function getAllItemsRaw($parents = false, $cache = false)
 						taxId,
 						itemComissionPercent,
 						itemCategory
-				FROM item 
-				WHERE itemStatus = 1" . $parent . " 
-				AND companyId = " . COMPANY_ID;
-
-
+				FROM item
+				WHERE itemStatus = 1" . $parent . "
+				AND companyId = ?";
+	// companyId como bound param: UUID interpolado sin comillas (`= " . COMPANY_ID`) rompe en PG.
 
 	if ($cache) {
-		return $db->CacheGetAssoc('3600', $sql);
+		return $db->CacheGetAssoc('3600', $sql, [COMPANY_ID]);
 	} else {
-		return $db->GetAssoc($sql);
+		return $db->GetAssoc($sql, [COMPANY_ID]);
 	}
 }
 
@@ -3344,14 +3343,21 @@ function getAllItems($parents = false, $cache = false, $in = false, $realKeys = 
 		$parent = ' AND itemIsParent = 0';
 	}
 
+	// companyId y la lista IN como BOUND PARAMS: el UUID y los itemIds interpolados sin comillas
+	// (`= " . COMPANY_ID` y `IN(' . $in . ')` con db_prepare no-op) rompen en PG y eran inyectables.
+	// $in llega como "uuid1,uuid2,..." (implode de los callers) → se splitea y se bindea cada id.
+	$params = [COMPANY_ID];
 	if ($in) {
-		$in 		= db_prepare($in);
-		$inIDs 	= ' AND itemId IN(' . $in . ')';
+		$ids = array_values(array_filter(array_map('trim', explode(',', (string) $in)), fn($v) => $v !== ''));
+		if ($ids) {
+			$inIDs  = ' AND itemId IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+			$params = array_merge($params, $ids);
+		}
 	}
 
-	$sql 	= "SELECT * FROM item WHERE itemId IS NOT NULL " . $parent . " AND companyId = " . COMPANY_ID . $inIDs;
+	$sql 	= "SELECT * FROM item WHERE itemId IS NOT NULL " . $parent . " AND companyId = ?" . $inIDs;
 
-	$result = ncmExecute($sql, [], $cache, true);
+	$result = ncmExecute($sql, $params, $cache, true);
 
 	if ($result) {
 
