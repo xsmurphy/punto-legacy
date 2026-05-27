@@ -1,0 +1,57 @@
+<!--
+  Front del reporte de Compras y Gastos (a_report_purchases) — fragmento estático.
+  Cero PHP. scripts/a_report_purchases.js pide config a /bff/bootstrap.php y las 3 vistas de
+  LECTURA a /bff/reports/purchases.php (crudas), formatea y arma 3 tabs (Compra o Gasto /
+  Detalle / Pagos realizados). El CRUD de edición (edit/paymentForm) y los fiscales
+  (RG90 / Libro Compra) se siguen sirviendo por el PHP legacy vía /a_report_purchases?action=,
+  cargados en los modales globales del shell (#modalXLarge / #modalTiny) o ventanas nuevas.
+  Ver context/02-arquitectura.md § REGLA RAÍZ 2.
+-->
+<div class="col-xs-12 no-padder">
+	<div class="col-xs-12 text-center m-t m-b visible-print">
+		<div class="col-xs-12 font-bold h3 m-t-sm bff-company-name"></div>
+	</div>
+	<div class="col-xs-12 no-padder">
+		<div class="col-sm-5 col-xs-12 m-t-sm m-b">
+			<form action="" class="col-md-9 col-xs-12 no-padder" method="post" id="manualDate" name="manualDate">
+				<input type="text" id="customDateR" class="form-control no-border bg-white pointer font-bold text-center rounded needsclick" name="range" value="" data-max="170" />
+			</form>
+		</div>
+		<div class="col-sm-7 col-xs-12 m-t-sm m-b">
+			<div class="pull-right">
+				<a href="#purchase" class="btn btn-sm btn-info hidden-print m-r-sm">Realizar Compra</a>
+				<h1 class="no-padder hidden-print m-n font-bold inline-block">Reporte de Compras y Gastos</h1>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="col-xs-12 no-padder m-t m-b-lg push-chat-down">
+	<section class="col-sm-12 no-padder" id="reportsTablesAndTabs">
+		<ul class="nav nav-tabs padder hidden-print">
+			<li class="active"><a href="#tab1" data-toggle="tab"><span class="hidden-xs">Compra o Gasto</span><span class="material-icons visible-xs">receipt_long</span></a></li>
+			<li id="detailTabLink"><a href="#tab2" data-toggle="tab"><span class="hidden-xs">Detalle</span><span class="material-icons visible-xs">playlist_add_check</span></a></li>
+			<li id="cobrosTabLink"><a href="#tab3" data-toggle="tab"><span class="hidden-xs">Pagos realizados</span><span class="material-icons visible-xs">payments</span></a></li>
+		</ul>
+		<section class="panel r-24x">
+			<div class="panel-body table-responsive" style="min-height: 500px;">
+				<div class="tab-content m-b-lg">
+					<div class="tab-pane overflow-auto active" id="tab1">
+						<div id="generalTable"><table class="table table1 table-hover col-xs-12 no-padder" id="tableGeneral"></table></div>
+					</div>
+					<div class="tab-pane overflow-auto col-xs-12 no-padder" id="tab2">
+						<div class="col-xs-12 no-padder m-b hidden-print">
+							<input type="text" class="form-control rounded no-border bg-light lter" placeholder="Buscar por Artículo o Código (Enter)" id="detailSearch" />
+						</div>
+						<div id="detailTable"><table class="table table3 table-hover col-xs-12 no-padder" id="tableDetail"></table></div>
+					</div>
+					<div class="tab-pane overflow-auto col-xs-12 no-padder" id="tab3">
+						<div id="cobrosTable"><table class="table table2 table-hover col-xs-12 no-padder" id="tablePayments"></table></div>
+					</div>
+				</div>
+			</div>
+		</section>
+	</section>
+</div>
+
+<script src="scripts/a_report_purchases.js?v=bff1"></script>

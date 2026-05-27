@@ -65,6 +65,19 @@ if (isset($bffStaticReports[$path])) {
     }
 }
 
+// Caso especial — a_report_purchases: migró SÓLO sus 3 vistas de lectura (general/detalle/
+// cobros) al BFF. Sin ?action= se sirve el front estático; CON ?action= (edit/paymentForm/
+// update/delete/addPayment/rg90/libro-compra) cae al PHP legacy por la regla genérica de abajo.
+// En prod, replicar con RewriteCond %{QUERY_STRING} !(^|&)action= en .htaccess.
+if ($path === '/a_report_purchases' && empty($_GET['action'])) {
+    $htmlFile = __DIR__ . '/reports/purchases.html';
+    if (file_exists($htmlFile)) {
+        header('Content-Type: text/html; charset=utf-8');
+        readfile($htmlFile);
+        return true;
+    }
+}
+
 // Regla: URLs sin extension -> .php (incluye API/)
 if ($path !== '/' && !pathinfo($path, PATHINFO_EXTENSION)) {
     $phpFile = __DIR__ . $path . '.php';

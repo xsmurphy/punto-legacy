@@ -23,6 +23,7 @@ $row = ncmExecute(
         config->>'settingThousandSeparator' AS thousand,
         config->>'settingTaxName'           AS taxname,
         config->>'settingTIN'               AS tinname,
+        config->>'settingCountry'           AS country,
         config->>'settingName'              AS companyname
      FROM company
      WHERE companyId = ?",
@@ -43,6 +44,8 @@ apiOk([
     'taxName'     => $row['taxname'] ?: 'IVA',
     // Etiqueta del documento fiscal del cliente (ej. 'RUC'); usada como header de columna.
     'tinName'     => $row['tinname'] ?: 'TIN',
+    // Código de país (ej. 'PY') — usado para gatear reportes fiscales locales (RG90, Libro Compra).
+    'country'     => $row['country'] ?? '',
     'companyName' => $row['companyname'] ?? '',
     'companyId'   => COMPANY_ID,
     // Base de las pantallas standalone (PUBLIC_URL = <host>/screens) — para links del front.
