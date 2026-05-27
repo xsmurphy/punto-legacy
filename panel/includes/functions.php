@@ -1437,26 +1437,8 @@ function getAllItemsRaw($parents = false, $cache = false)
 
 function getAllContactsRaw($type = false, $index = false, $cache = false, $fields = false, $where = '', $test = false)
 {
-	global $db, $startDate, $endDate;
 	//GET ALL CUSTOMERS ARRAY
 	$typeand 	= '';
-	$fieldsAre = 'contactId,
-					contactRealId,
-					contactId,
-					contactName,
-					contactSecondName,
-					contactEmail,
-					contactAddress,
-					contactPhone,
-					contactNote,
-					contactCity,
-					contactCountry,
-					contactTIN,
-					contactDate,
-					role,
-					lockPass,
-					outletId,
-					updated_at';
 
 	/*if((COMPANY_ID == INCOME_COMPANY_ID) && $type > 0){
 		$result = $db->Execute("SELECT * FROM company");
@@ -1465,39 +1447,26 @@ function getAllContactsRaw($type = false, $index = false, $cache = false, $field
 
 		return $db->GetAssoc($sql);
 	}else{*/
+	// companyId/type como BOUND PARAMS (UUID interpolado sin comillas rompía en PG). SELECT * +
+	// _flattenJsonb (vía ncmExecute getAssoc): varias columnas de contact —contactAddress,
+	// contactCity, contactCountry, contactNote, contactRealId— fueron demovidas a `data` JSONB
+	// (migración 06); seleccionarlas explícitas da "undefined column". Se ignora $fields/$index
+	// (lista legacy con esas columnas); se devuelve la fila completa flatten, keyed por contactId.
+	$params = [COMPANY_ID];
 	if ($type > -1) {
-		$typeand = ' AND type = ' . $type;
-	}
-	$indexs = 'contactId';
-
-	if ($index === 0) {
-		$indexs = 'contactId';
-	} else if ($index === 1) {
-		$indexs = 'contactRealId';
+		$typeand  = ' AND type = ?';
+		$params[] = $type;
 	}
 
-	if ($fields) {
-		$fieldsAre = $fields;
-	}
-
-	$sql = "SELECT
-					" . $indexs . ",
-					" . $fieldsAre . "
-				FROM contact 
-				WHERE companyId = " . COMPANY_ID . $where . "
-				" . $typeand;
+	$sql = "SELECT * FROM contact WHERE companyId = ?" . $typeand . $where;
 
 	if ($test) {
 		dai($sql);
 	}
 
-	if ($cache) {
-		$out = $db->CacheGetAssoc('3600', $sql);
-	} else {
-		$out = $db->GetAssoc($sql);
-	}
+	$out = ncmExecute($sql, $params, $cache, false, true);
 
-	return $out;
+	return is_array($out) ? $out : [];
 	//}
 }
 
@@ -3724,16 +3693,25 @@ function getAllContacts($type = false, $cache = true, $fieldId = 'contactId', $i
 	$typeand 	= '';
 	$inIDs 		= '';
 
-	if ($in) {
-		$in 		= db_prepare($in);
-		$inIDs 	= ' AND ' . $fieldId . ' IN(' . $in . ')';
-	}
+	// type e IN como BOUND PARAMS (antes: type interpolado, e IN($in) con db_prepare no-op →
+	// UUIDs sin comillas, roto en PG + inyectable). $in llega como "uuid1,uuid2,.." → split + bind.
+	$params = [COMPANY_ID];
 
 	if ($type > -1) {
-		$typeand = ' AND type = ' . $type;
+		$typeand  = ' AND type = ?';
+		$params[] = $type;
 	}
 
-	$result = ncmExecute("SELECT * FROM contact WHERE companyId = ?" . $typeand . $inIDs, [COMPANY_ID], $cache, true);
+	if ($in) {
+		$ids = array_values(array_filter(array_map('trim', explode(',', (string) $in)), fn($v) => $v !== ''));
+		if ($ids) {
+			// El IN filtra siempre por contactId (la única columna real; contactRealId fue demotada).
+			$inIDs  = ' AND contactId IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+			$params = array_merge($params, $ids);
+		}
+	}
+
+	$result = ncmExecute("SELECT * FROM contact WHERE companyId = ?" . $typeand . $inIDs, $params, $cache, true);
 
 	if ($result) {
 		while (!$result->EOF) {
