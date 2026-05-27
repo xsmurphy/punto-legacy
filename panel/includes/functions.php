@@ -1061,9 +1061,20 @@ function lessInternalTotals($roc, $from, $to, $tTypes = false)
 		return ['total' => 0, 'discount' => 0, 'tax' => 0, 'qty' => 0, 'count' => 0];
 	}
 
-	$tTypes = $tTypes ? db_prepare($tTypes) : '0,3';
+	// tTypes parametrizado (ints de transactionType); sin USE INDEX (idiom MySQL); la columna
+	// `tags` se movió a `meta` JSONB (Phase PG) → se lee como `meta->>'tags' AS tags` (texto que
+	// se json_decode abajo). El interpolado anterior (`IN(' . $tTypes . ')` + `USE INDEX` + `tags`)
+	// rompía en PG; sólo no explotaba porque el guard ignoreInternal hacía short-circuit arriba.
+	$parts = array_filter(array_map('trim', explode(',', (string) $tTypes)), fn($v) => $v !== '');
+	$types = $parts ? array_map('intval', $parts) : [0, 3];
+	$ph    = implode(',', array_fill(0, count($types), '?'));
 
-	$result = ncmExecute('SELECT transactionTotal, tags, transactionDiscount, transactionUnitsSold, transactionTax FROM transaction USE INDEX(transactionType,transactionDate) WHERE transactionDate BETWEEN ? AND ? AND transactionType IN(' . $tTypes . ') ' . $roc . ' LIMIT 5000', [$from, $to], 1200, true);
+	$result = ncmExecute(
+		"SELECT transactionTotal, meta->>'tags' AS tags, transactionDiscount, transactionUnitsSold, transactionTax
+		 FROM transaction
+		 WHERE transactionDate BETWEEN ? AND ? AND transactionType IN (" . $ph . ")" . $roc . " LIMIT 5000",
+		array_merge([$from, $to], $types), 1200, true
+	);
 
 	$total  	= 0;
 	$discount  	= 0;
