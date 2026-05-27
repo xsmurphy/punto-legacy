@@ -5522,16 +5522,7 @@ function topHook()
 
 function mainAlerts()
 {
-	if (ACCEPTED_TERMS < 1 && ROLE_ID == 1) {
-		echo 	'<div class="bg-info lter col-xs-12 wrapper r-24x text-left">' .
-			'	<div class="col-sm-8">Hemos actualizado nuestros <a href="' . ASSETS_URL . '/terminosycondiciones.pdf" class="text-u-l" target="_blank">Términos y Condiciones</a> de uso del sistema. <br>' .
-			'		Para aceptarlos y continuar utilizando el sistema haga click en el botón Acepto ' .
-			'	</div> ' .
-			'	<div class="col-sm-4 text-right">' .
-			'		<a href="?acceptTerms=true" class="btn no-bg font-bold text-u-c btn-s-md btn-rounded">Acepto</a>' .
-			'	</div> ' .
-			'</div>';
-	}
+	// Banner de "Términos y Condiciones actualizados" eliminado (ya no es relevante).
 
 	if (EXPIRED == 1) {
 		echo 	'<div class="bg-danger gradBgRed animateBg col-xs-12 wrapper r-24x text-left">' .
