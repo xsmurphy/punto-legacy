@@ -19,6 +19,7 @@
  */
 
 require_once __DIR__ . '/../lib/api_client.php';
+require_once __DIR__ . '/../lib/format.php';
 
 if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
@@ -396,62 +397,6 @@ function bffViewByDay($from, $to)
     }
 
     bffJson(['ok' => true, 'data' => ['rows' => $rows]]);
-}
-
-/* ───────────────────────── formateo de valores (config de la company) ─────────────────────────
- * El BFF pre-formatea TODOS los valores de display (REGLA RAÍZ 2). Pide el config a la API
- * (bootstrap) — única capa con BD. Espejo de formatCurrentNumber/formatQty/niceDate del panel. */
-
-/** Config de la company (currency/decimal/thousand), cacheado por request. */
-function bffConfig()
-{
-    static $cfg = null;
-    if ($cfg === null) {
-        $b   = bffApiGet('v1/bootstrap.php');
-        $cfg = ($b['ok'] && is_array($b['data'])) ? $b['data'] : [];
-    }
-    return $cfg;
-}
-
-/** Número como string de display, respetando decimal/thousand de la company. */
-function bffFormatNumber($number)
-{
-    $cfg     = bffConfig();
-    $decimal = ($cfg['decimal'] ?? 'no') === 'no' ? 0 : 2;
-    return bffNumber($number, $decimal, $cfg['thousand'] ?? 'dot');
-}
-
-/** Cantidad: enteros sin decimales, con decimales si los tiene (= formatQty del panel). */
-function bffFormatQty($v)
-{
-    $v   = is_numeric($v) ? (float) $v : 0;
-    $cfg = bffConfig();
-    return bffNumber($v, (floor($v) == $v) ? 0 : 2, $cfg['thousand'] ?? 'dot');
-}
-
-/** number_format con el separador de miles de la company. */
-function bffNumber($number, $decimals, $thousand)
-{
-    if (!is_numeric($number)) {
-        $number = 0;
-    }
-    if ($decimals === 0) {
-        $number = round($number);
-    }
-    return ($thousand === 'comma')
-        ? number_format($number, $decimals, '.', ',')
-        : number_format($number, $decimals, ',', '.');
-}
-
-/** Fecha corta de display "26 May, 2026" (= niceDate no-literal del panel). */
-function bffNiceDateShort($date)
-{
-    static $meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    if (empty($date) || $date === '0000-00-00 00:00:00') {
-        return 'No date';
-    }
-    $t = strtotime($date);
-    return date('d', $t) . ' ' . $meses[(int) date('m', $t) - 1] . ', ' . date('Y', $t);
 }
 
 /* ───────────────────────── dispatch ───────────────────────── */

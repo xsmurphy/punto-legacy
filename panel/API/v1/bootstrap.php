@@ -22,6 +22,7 @@ $row = ncmExecute(
         config->>'settingDecimal'           AS decimal,
         config->>'settingThousandSeparator' AS thousand,
         config->>'settingTaxName'           AS taxname,
+        config->>'settingTIN'               AS tinname,
         config->>'settingName'              AS companyname
      FROM company
      WHERE companyId = ?",
@@ -40,6 +41,8 @@ apiOk([
     // Valor crudo 'comma'/'dot' (como lo espera formatNumber del front, no el símbolo).
     'thousand'    => ($row['thousand'] ?? '') === 'comma' ? 'comma' : 'dot',
     'taxName'     => $row['taxname'] ?: 'IVA',
+    // Etiqueta del documento fiscal del cliente (ej. 'RUC'); usada como header de columna.
+    'tinName'     => $row['tinname'] ?: 'TIN',
     'companyName' => $row['companyname'] ?? '',
     'user'        => [
         'id'   => PANEL_AUTHED_USER,

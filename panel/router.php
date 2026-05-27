@@ -37,7 +37,8 @@ if (preg_match('|^/assets/\d+-\d+/|', $path)) {
 // modelo BFF de 3 niveles se sirven como .html estático (PHP nunca sirve HTML).
 // En prod, replicar con un RewriteRule en .htaccess.
 $bffStaticReports = [
-    '/a_report_summary' => '/reports/summary.html',
+    '/a_report_summary'   => '/reports/summary.html',
+    '/a_report_p_methods' => '/reports/payment-methods.html',
 ];
 if (isset($bffStaticReports[$path])) {
     $htmlFile = __DIR__ . $bffStaticReports[$path];
