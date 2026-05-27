@@ -19,6 +19,8 @@
 |-----------|---------|-------|
 | Bootstrap | 3.x | CSS framework (legacy) |
 | jQuery | 3.x | DOM + AJAX |
+| Alpine.js | 3.15.12 | Reactividad declarativa (`x-data`/`x-for`) en el front nuevo (dashboard/CRUD). Reemplaza a Mustache en lo nuevo; convive con jQuery. Vendoreado en `assets/vendor/js/`, en `package.json`, cargado 1× en `@.php`. Items queda en Mustache (no se reescribe). Ver 02-arquitectura.md §3 |
+| Mustache | 4.0.1 | Templating del front legacy (items/contacts editform). NO usar en nuevo → Alpine |
 | ncm-ws.js | custom | Drop-in de Pusher para WebSocket |
 
 ## Build & Tooling
@@ -28,7 +30,16 @@
 | Terser | ^5.46.1 | Minificación JS |
 | csso-cli | ^4.0.2 | Minificación CSS |
 | build.sh | custom | Orquesta build (concat + minify + hash) |
-| npm | — | Solo para devDependencies de build |
+| npm | — | devDependencies de build (terser/csso) + vendor libs (alpinejs) |
+
+**Modelo de assets (no hay "miles de refs" en `@.php`):** `@.php` referencia solo ~4 bundles
+(`initials.js`, `tdp.js`, `ncm.js`, `at.js`) + Alpine. Cada bundle es una **lista de vendor files**
+declarada en `minifyJS([...])` (dev: concatena al vuelo) y en `build.sh` (prod: `terser`/`csso` →
+`app/cach/`, servido por `filesCompiler.php`). Los scripts **por módulo** (`scripts/a_report_*.js`,
+etc.) cargan **lazy por fragmento** (cada `.html` trae su `<script src>`), NO en `@.php` → el shell
+no crece al agregar módulos. Las deps nuevas se gestionan vía `package.json` + se vendorean a
+`assets/vendor/js/`. ⚠️ `minifyJS()` legacy minifica vía API externa (javascript-minifier.com) —
+preferir `npm run build` (terser local).
 
 ## Infraestructura
 
