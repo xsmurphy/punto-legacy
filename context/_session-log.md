@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 5) — `schedule` migrado (19º, mediano): 3 lecturas al BFF + donut/KPIs
+
+- **`a_report_schedule` (Agendamientos, ~907 líneas) migrado al BFF — parcial.** 3 vistas de lectura: `detail` (citas tipo 13 + summary por estado + donut), `stats` (conteos por contacto, usuarios/clientes), `sessions` (paquetes con itemSessions). El modal de sesiones (`detail` por id) y el write (`delete`) quedan legacy vía `?action=`; el click en fila abre el form de TRANSACTIONS legacy (cross-módulo). Router: `schedule` en `$bffPartialReports`.
+- **Hallazgo CRÍTICO (en `10-roadmap.md` §3.5):** `ncmExecute(getAssoc=true)` (ADOdb `GetAssoc`) **keyea por la 1ª columna del SELECT** → en un agregado `GROUP BY contacto, estado` (contacto repetido) cada fila sobrescribe → se pierde data (sólo 1 estado por contacto). Fix: iterar el recordset con `forceObj=true` cuando la 1ª columna se repite; usar getAssoc sólo con 1ª columna única. Detectado porque stats mostraba 1 solo estado por contacto.
+- **Otros hallazgos**: `contactInCalendar` e `itemSessions` demovidos a `data` JSONB (leer `data->>'...'`); `getTotalScheduleByStatus()` interpola contactId sin comillas (roto PG) + N+1 → reemplazado por agregados parametrizados; nombre de contacto = `contactName` a secas (concatenar secondName duplicaba cuando coinciden).
+- **Verificado E2E** (curl + browser harness): seed de 5 citas (estados 0/6/6/4/5) + usuario en calendario + paquete de sesiones (item itemSessions=5, 1 realizada) en company 0001; render correcto (donut Total 5, KPIs Pendientes 1/Finalizados 2/Cancelados 1/No shows 1, 4 tabs, íconos de estado con bordes de color, duración calculada); cero errores de consola. `code-reviewer`: sin P0/P1, 2 P2 (set asociativo para asistencia + esc en ícono) corregidos.
+- **Pendiente — medianos/diferidos**: `production` (~1068, módulo deshabilitado en la company de prueba → difícil verificar E2E); diferidos con wrinkle: `cashflow` (semántica MySQL `itemId=0`), `open_invoices` (WRITE en read + dep purchases), `vpayments` (gateway externo). Todo pusheado a `main`.
+
 ## 2026-05-27 (cont. 4) — `giftcards` migrado (18º, mediano): 1 lectura al BFF + KPIs
 
 - **`a_report_giftcards` (Gift Cards, ~531 líneas) migrado al BFF — parcial.** 1 vista de lectura (`detail` = giftCardSold activadas con beneficiario/sucursal/documento resueltos) + 4 KPIs (vencidas/por-vencer/canjeadas/vigentes + valor vigente). El form de edición (`giftcard`) y los writes (`update`/`delete`) quedan legacy vía `?action=` (modal `#modalSmall`). El BFF computa los KPIs sobre las filas. Router: `giftcards` sumado a `$bffPartialReports`.
