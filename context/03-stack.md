@@ -30,7 +30,8 @@
 | Terser | ^5.46.1 | Minificación JS |
 | csso-cli | ^4.0.2 | Minificación CSS |
 | build.sh | custom | Orquesta build (concat + minify + hash) |
-| npm | — | devDependencies de build (terser/csso) + vendor libs (alpinejs) |
+| vendor-sync.sh | custom | Reproduce vendor JS desde npm; `--check` verifica byte-identidad (CI gate) |
+| npm | — | devDependencies de build (terser/csso) + vendor libs pineadas exactas |
 
 **Modelo de assets (no hay "miles de refs" en `@.php`):** `@.php` referencia solo ~4 bundles
 (`initials.js`, `tdp.js`, `ncm.js`, `at.js`) + Alpine. Cada bundle es una **lista de vendor files**
@@ -40,6 +41,17 @@ etc.) cargan **lazy por fragmento** (cada `.html` trae su `<script src>`), NO en
 no crece al agregar módulos. Las deps nuevas se gestionan vía `package.json` + se vendorean a
 `assets/vendor/js/`. ⚠️ `minifyJS()` legacy minifica vía API externa (javascript-minifier.com) —
 preferir `npm run build` (terser local).
+
+**Vendoring vía npm (`vendor-sync.sh`):** 17 libs vendoreadas en `assets/vendor/js/`
+se gestionan ahora por `package.json` con versiones **EXACTAS** (sin `^`/`~`): jquery 3.6.3,
+chart.js 2.9.4, moment 2.24.0, sweetalert2 7.33.1, mustache 4.0.1, handlebars 4.7.7,
+leaflet 1.7.1, lz-string 1.4.4, mousetrap 1.6.3, xlsx 0.16.2, html2canvas 1.3.2,
+jsbarcode 3.11.0, qrious 4.0.2, jspdf 2.4.0, ismobilejs 0.4.1, jquery-ui-dist 1.12.1,
+jquery.actual 1.0.19. El dist de npm es **byte-idéntico** al archivo vendoreado (verificado
+con `cmp -s`), así que el bundle servido no cambia. ⚠️ NO bumpear estas versiones —
+el front legacy depende de comportamiento congelado. `select2`/`fastclick` y libs no-npmeables
+(bootstrap, daterangepicker, snap, jsrsasign, qz-tray, fingerprintjs, etc.) quedan como archivos
+versionados. Alpine queda con `^` (fuera del freeze legacy).
 
 ## Infraestructura
 
