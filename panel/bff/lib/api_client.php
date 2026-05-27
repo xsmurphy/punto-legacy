@@ -64,6 +64,50 @@ function bffApiGet($path, array $query = [])
     ];
 }
 
+/**
+ * POST a la API (escrituras). Mismo desempaquetado del envelope que bffApiGet y mismo
+ * forward del JWT del usuario. El cuerpo va como form-urlencoded.
+ */
+function bffApiPost($path, array $data = [])
+{
+    $url = bffApiBase() . '/' . ltrim($path, '/');
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => http_build_query($data),
+        CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+    ]);
+
+    $jwt = $_COOKIE['_jwt_panel'] ?? '';
+    if ($jwt !== '') {
+        curl_setopt($ch, CURLOPT_COOKIE, '_jwt_panel=' . rawurlencode($jwt));
+    }
+
+    $body   = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlEr = curl_error($ch);
+    curl_close($ch);
+
+    if ($body === false || $curlEr) {
+        return ['status' => 0, 'ok' => false, 'data' => null, 'error' => $curlEr ?: 'transport error'];
+    }
+
+    $json = json_decode($body, true);
+    if (!is_array($json)) {
+        return ['status' => $status, 'ok' => false, 'data' => null, 'error' => 'respuesta no-JSON de la API'];
+    }
+
+    return [
+        'status' => $status,
+        'ok'     => !empty($json['ok']),
+        'data'   => $json['data'] ?? null,
+        'error'  => $json['error'] ?? null,
+    ];
+}
+
 /** Emite un JSON al front y termina. */
 function bffJson($payload, $httpCode = 200)
 {

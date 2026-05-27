@@ -1,0 +1,61 @@
+<!--
+  Front del reporte Satisfacción (NPS) (a_report_satisfaction) — fragmento estático.
+  Cero PHP. scripts/a_report_satisfaction.js pide config a /bff/bootstrap.php y datos a
+  /bff/reports/satisfaction.php (crudos + NPS), formatea y arma barras + tabla. El borrado
+  postea al BFF (primer write front→BFF→API). Ver context/02-arquitectura.md § REGLA RAÍZ 2.
+-->
+<div class="col-xs-12 no-padder">
+
+	<div class="col-xs-12 text-center m-t m-b visible-print">
+		<div class="col-xs-12 font-bold h3 m-t-sm bff-company-name"></div>
+	</div>
+
+	<div class="col-xs-12 no-padder">
+		<div class="col-sm-5 col-xs-12 m-t-sm m-b">
+			<form action="" class="col-md-9 col-xs-12 no-padder" method="post" id="manualDate" name="manualDate">
+				<label class="visible-print text-u-c font-bold text-xs m-b-n-xs">Fecha</label>
+				<input type="text" id="customDateR" class="form-control no-border bg-white pointer font-bold text-center rounded needsclick" name="range" value="" data-max="31" />
+			</form>
+			<div class="col-xs-12 visible-xs m-b"></div>
+		</div>
+
+		<div class="col-sm-7 col-xs-12 m-t-sm m-b">
+			<div class="pull-right">
+				<h1 class="no-padder hidden-print m-n font-bold"><span id="pageTitle"><div class="text-md text-right font-default">Reporte de</div> Satisfacción (NPS)</span></h1>
+				<h3 class="no-padder visible-print m-n font-bold"><div class="text-md text-right font-default">Reporte de</div> Satisfacción (NPS)</h3>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="col-xs-12 no-padder text-center m-b-lg">
+	<div class="col-xs-12 no-bg no-padder" id="customerSatisfactionLevel">
+		<div class="progress progress-xs dker rounded progress-striped m-n">
+			<div class="progress-bar gradBgRed satisfactionBarDetractors" data-toggle="tooltip" data-original-title="0%" style="width: 0%"></div>
+			<div class="progress-bar gradBgYellow satisfactionBarPassives" data-toggle="tooltip" data-original-title="0%" style="width: 0%"></div>
+			<div class="progress-bar gradBgGreen satisfactionBarPromoters" data-toggle="tooltip" data-original-title="0%" style="width: 0%"></div>
+		</div>
+	</div>
+
+	<div class="col-xs-4 no-padder">
+		<div class="h2 m-t creditoCount font-bold" id="badP">-</div>
+		<span>Malo (Detractores)</span>
+		<div class="m-t h4"><span id="badC">-</span> voto(s)</div>
+	</div>
+	<div class="col-xs-4 no-padder">
+		<div class="h2 m-t creditoCount font-bold" id="medP">-</div>
+		<span>Bueno (Pasivos)</span>
+		<div class="m-t h4"><span id="medC">-</span> voto(s)</div>
+	</div>
+	<div class="col-xs-4 no-padder">
+		<div class="h2 m-t creditoCount font-bold" id="goodP">-</div>
+		<span>Excelente (Promotores)</span>
+		<div class="m-t h4"><span id="goodC">-</span> voto(s)</div>
+	</div>
+</div>
+
+<div class="col-xs-12 wrapper panel push-chat-down r-24x tableContainer">
+	<table class="table table-hover table1 col-xs-12 no-padder" id="tableTransactions"></table>
+</div>
+
+<script src="scripts/a_report_satisfaction.js?v=bff1"></script>
