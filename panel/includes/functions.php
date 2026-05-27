@@ -3487,21 +3487,17 @@ function getDefaultCustomerAddress($id, $cache = false, $company = false)
 
 function getCustomerData($id, $type = false, $cache = false)
 {
-	global $db;
-
 	if (!validity($id)) {
 		return [];
 	}
 
-	$isCustomer = false;
-	$where 			= 'contactId = ' . $db->Prepare($id);
+	// El id (contactId, UUID post-Phase UUID) se pasa como BOUND PARAM, no interpolado:
+	// $db->Prepare() devuelve los UUIDs SIN comillas (son para placeholders `?`), así que
+	// `contactId = ' . $id` generaba un UUID sin quotear → error de sintaxis en PG → 'Sin Nombre'.
+	// El flag $isCustomer (que controla el enriquecimiento de dirección por defecto) se preserva.
+	$isCustomer = ($type == 'uid' || $type == 'contactId');
 
-	if ($type == 'uid' || $type == 'contactId') {
-		$where 			= 'contactId = ' . $id;
-		$isCustomer = true;
-	}
-
-	$obj 			= ncmExecute("SELECT * FROM contact WHERE " . $where . " AND companyId = ? LIMIT 1", [COMPANY_ID], $cache);
+	$obj 			= ncmExecute("SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1", [$id, COMPANY_ID], $cache);
 
 	$name 		= toUTF8($obj['contactName'] ?? "");
 	$sname 		= toUTF8($obj['contactSecondName'] ?? "");
