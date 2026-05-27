@@ -53,6 +53,7 @@ $bffStaticReports = [
     '/a_report_by_brands'    => '/reports/brands.html',
     '/a_report_customers'    => '/reports/customers.html',
     '/a_report_expenses'     => '/reports/expenses.html',
+    '/a_report_drawers'      => '/reports/drawers.html',
 ];
 if (isset($bffStaticReports[$path])) {
     $htmlFile = __DIR__ . $bffStaticReports[$path];
