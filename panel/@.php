@@ -239,6 +239,10 @@ if (!empty($_GET['update'])) {
 	<script src="/scripts/initials.js?<?= date('d.H') ?>"></script>
 	<script src="/scripts/tdp.js?<?= date('d.H') ?>"></script>
 	<script src="/scripts/ncm.js?<?= date('d.h.s') ?>"></script>
+	<!-- Alpine.js (vendoreado, versión en package.json). Carga una sola vez acá; su MutationObserver
+	     auto-inicializa los x-data de los fragmentos inyectados por hash-nav (no requiere un <script>
+	     por fragmento). defer = arranca tras parsear el DOM. Ver context/02-arquitectura.md § Alpine. -->
+	<script defer src="/assets/vendor/js/alpine-3.15.12.min.js?<?= date('d.H') ?>"></script>
 
 	<script type="text/html" id="lockedOut">
 		<div class="col-xs-12 wrapper-lg bg-white">
