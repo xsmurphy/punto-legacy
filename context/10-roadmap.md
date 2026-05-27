@@ -355,12 +355,15 @@ el BFF llamando a `lib/` in-process). Ahora el BFF llama a la API por HTTP desde
 | 3.2 | BFF: llama a la API por HTTP, compone derivados (netSales, margin, byweek, período anterior), helpers de fecha puros (sin `functions.php`) | `panel/bff/reports/summary.php` | ✅ |
 | 3.3 | Front estático + JS recableado al BFF; formateo de números y flechas de comparación client-side; `drawChart`/`chartByHours` intactos | `panel/reports/summary.html` + `panel/scripts/a_report_summary.js` | ✅ |
 | 3.4 | Bootstrap del chrome (`panel/API/v1/bootstrap.php` devuelve `thousand` como `'comma'/'dot'`; `panel/bff/bootstrap.php` lo expone al front) | `panel/API/v1/bootstrap.php` + `panel/bff/bootstrap.php` | ✅ |
-| 3.5 | Replicar a los otros ~27 reportes + demás módulos (patrón YA fijado y verificado E2E) | — | pendiente |
+| 3.5 | Replicar a los demás reportes + módulos (patrón YA fijado y verificado E2E con datos) | — | EN CURSO — 2 hechos: `summary`✅, `p_methods`✅ |
 
 **Notas del piloto (commits 051dd59, 973c9c5)**:
 - **División de labor (canónica, ver 02-arquitectura.md § REGLA RAÍZ 2)**: el PHP (API+BFF) NUNCA genera markup. El **BFF pre-formatea los valores** (números/fechas→strings de display, deltas/%) y hace cálculos/cross-data; el **front solo arma el markup**. Anti-patrón a corregir al migrar: el BFF que arma `<table>` HTML (lo que hacen `a_report_orders` y todos los reportes legacy). Para tablas con sort/sumas (DataTables) el BFF manda display + crudo (`*Raw`). Esto es lo que hay que replicar en 3.5.
-- Verificado E2E en browser (Demo Company, companyId 0010): KPIs, charts, tabs Resumen/Por Día, date-picker con re-fetch sin reload, cero errores de consola.
-- El data-path numérico quedó sin verificar con datos reales (BD demo sin transacciones → empty-state idéntico al legacy; el SQL es PG-válido sin errores).
+- Verificado E2E en browser: KPIs, charts, tabs, date-picker con re-fetch sin reload, cero errores de consola.
+- **Data-path verificado CON datos** (commit `973c9c5`+): se sembraron ~12 transacciones de prueba en company 0001 (tag `meta.seed=bff-pilot-verify`, quedaron como demo) → KPIs, flechas de comparación con color, charts, Medios de Pago y Por Día pueblan correctamente.
+- **2º reporte migrado: `a_report_p_methods`** (commit `e35f8c7`): mismo molde. Helpers de formateo del BFF extraídos a `panel/bff/lib/format.php` (compartidos). Confirma que el patrón es mecánico/replicable.
+- **Hallazgo (impersonalización/JWT)**: al "entrar" a una empresa hija el JWT `_jwt_panel` NO se reemite (solo cambia la sesión PHP), así que el BFF/API scopean por la empresa del LOGIN. Trackeado en `adr/ADR-001` (re-emit del JWT + `franchiser_to_tenant`).
+- **Bugs PG-port arreglados de paso** (al verificar con datos): `getSalesByPayment` y `getAllSalesByDrawerPeriod` leían la columna `tags` (movida a `meta` JSONB) + `USE INDEX` de MySQL (commit `b796b3c`).
 - **Integración**: el front corre como **fragmento dentro del shell existente** (`@.php` inyecta `reports/summary.html` en `#bodyContent` por hash-nav). El shell provee head/menú/jQuery/Chart.js/BS3/globals; el modo "standalone 100% autónomo con auth+chrome propio" queda DIFERIDO.
 - Redirect a `/login` ante 401 del BFF NO implementado todavía (el shell ya gatea auth; se implementa cuando el front sea standalone).
 - **Routing dev**: `panel/router.php` mapea `/a_report_summary` → sirve `reports/summary.html` estático. Prod: replicar con `RewriteRule` en `.htaccess`.
