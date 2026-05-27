@@ -271,6 +271,31 @@ $valor = $row ? ($row['columna'] ?? $default) : $default;
 
 ---
 
+## §15 — Patrón heavy-report: computar financials en el Service
+
+**Regla**: En reportes financieros con múltiples vistas (tabs) o fórmulas por fila, las fórmulas exactas (utilidad por fila, agregados) se calculan en el **Service** (motor ERP — fuente única de verdad). El BFF solo suma/deriva KPIs + gráfico. El front solo formatea.
+
+**Por qué**: Si la fórmula se divide entre capas (BFF + Service), cualquier corrección en un lugar deja la otra capa divergida. Un error de un centavo en utilidad = el dueño decide con datos falsos.
+
+**Reglas derivadas**:
+- Verificar cada fórmula financiera contra la línea legacy original antes de commitear (P0 si diverge).
+- Las fórmulas pueden diferir por vista/modo de filtro — esta asimetría es intencional, no normalizarla.
+- Los branches `cusId`/`usrId` típicamente suman sin `*units`; los branches default/`itmId`/`month` suman con `*units`. Preservar.
+
+**Aplica a**: cualquier reporte con fórmula financiera por fila: products ✅, compras, transacciones, y futuros.
+
+---
+
+## §16 — Self-heal write en GET: eliminar, nunca portar
+
+**Regla**: Si el código legacy ejecuta un `UPDATE`/`INSERT`/`DELETE` dentro de un handler GET (patrón "self-heal"), ese write se **elimina** en la migración. Se recomputa el valor para display en el Service/BFF. **Jamás portar un write a una ruta GET en el API v1.**
+
+**Por qué**: Un endpoint GET que escribe en la BD viola el principio de idempotencia, hace imposible el caching, y puede generar side effects invisibles. En PG el `LIMIT` en DELETE es inválido además.
+
+**Ejemplo**: el legacy de `a_report_products` ejecutaba `ncmUpdate` de `itemSoldTax` sin scope de companyId + `DELETE ... LIMIT 1` (inválido en PG) dentro del handler read-only. Correcto: recomputar `itemSoldTax` en el service para display únicamente.
+
+---
+
 ## §13 — Flujo commit + push con agentes (REGLA OBLIGATORIA)
 
 **Regla**: Toda corrección o mejora pasa por el flujo `edit → code-reviewer → commit → context-updater → push`. El push es inmediato, no se acumulan commits locales.
