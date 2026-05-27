@@ -45,7 +45,11 @@ if($result){
 		$result->MoveNext();
 	}
 
-	$allCustomers 	 		= getAllContactsRaw(1,0,false,'contactName,contactSecondName,contactTIN,contactPhone,contactAddress,contactEmail,contactId',' AND contactId IN(' . implodes(',', $customersIn) . ')');
+	// IN parametrizado vía el wrapper (path $in con bound params) en vez de interpolar el IN en
+	// $where (UUIDs sin comillas → roto en PG + inyectable). realKeys=true → filas crudas (flatten)
+	// keyed por contactId; [0] = el mapa por contactId. Guard: sin customerIds no se traen TODOS.
+	$custIds 				= array_values(array_filter($customersIn, fn($v) => $v !== null && $v !== ''));
+	$allCustomers 	 		= $custIds ? getAllContacts(1, false, 'contactId', implodes(',', $custIds), true)[0] : [];
 
 	$result->MoveFirst();
 

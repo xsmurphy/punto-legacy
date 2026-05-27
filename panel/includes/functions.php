@@ -3726,7 +3726,10 @@ function getAllContacts($type = false, $cache = true, $fieldId = 'contactId', $i
 
 	if ($result) {
 		while (!$result->EOF) {
-			$fields = $result->fields;
+			// _flattenJsonb por fila: con forceObj el loop hand-rolled NO aplana (eso sólo pasa en
+			// ncmWhile), así que sin esto los campos demovidos a `data` JSONB (contactAddress/Note/
+			// City) quedarían null. Aplanar expone esas claves como campos top-level.
+			$fields = _flattenJsonb($result->fields);
 
 			if ($realKeys) {
 				$values = $fields;
