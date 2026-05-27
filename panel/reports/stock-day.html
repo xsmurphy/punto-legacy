@@ -1,0 +1,37 @@
+<!--
+  Front del reporte Niveles de Stock por Día (a_report_stock_day) — fragmento estático.
+  Cero PHP. scripts/a_report_stock_day.js pide config a /bff/bootstrap.php y datos a
+  /bff/reports/stock-day.php (crudos), formatea y arma la tabla.
+  Ver context/02-arquitectura.md § REGLA RAÍZ 2 / BFF de 3 niveles.
+-->
+<div class="col-xs-12 no-padder">
+
+	<div class="col-xs-12 text-center m-t m-b visible-print">
+		<div class="col-xs-12 font-bold h3 m-t-sm bff-company-name"></div>
+	</div>
+
+	<div class="col-xs-12 no-padder">
+		<div class="col-sm-5 col-xs-12 m-t-sm m-b">
+			<form action="" class="col-md-9 col-xs-12 no-padder" method="post" id="manualDate" name="manualDate">
+				<label class="visible-print text-u-c font-bold text-xs m-b-n-xs">Fecha</label>
+				<input type="text" id="customDateR" class="form-control no-border bg-white pointer font-bold text-center rounded needsclick" name="range" value="" data-max="1" />
+			</form>
+			<div class="col-xs-12 visible-xs m-b"></div>
+		</div>
+
+		<div class="col-sm-7 col-xs-12 m-t-sm m-b">
+			<div class="pull-right">
+				<h1 class="no-padder hidden-print m-n font-bold"><span id="pageTitle"><div class="text-md text-right font-default">Niveles de</div> Stock por Día</span></h1>
+				<h3 class="no-padder visible-print m-n font-bold"><div class="text-md text-right font-default">Niveles de</div> Stock por Día</h3>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="col-xs-12 panel wrapper r-24x m-t push-chat-down tableContainer">
+	<div class="table-responsive">
+		<table class="table table-hover table1 col-xs-12 no-padder" id="tableSummary"></table>
+	</div>
+</div>
+
+<script src="scripts/a_report_stock_day.js?v=bff1"></script>
