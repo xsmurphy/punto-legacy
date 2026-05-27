@@ -446,6 +446,32 @@ replicar a los demás es mecánico una vez probado.
 
 ---
 
+## Higiene de assets — vendoring vía npm (EN CURSO 2026-05-27)
+
+**Objetivo**: gestionar los ~55 vendor JS de `assets/vendor/js/` vía `package.json` (provenance,
+versión pineada, `npm audit`) en vez de archivos "misteriosos" commiteados. Alpine ya entró así.
+
+**Plan**: `npm i --save-exact pkg@<versión-vendoreada>` para los npm-ables; `build.sh` (o un
+`vendor-sync`) copia el dist canónico de `node_modules/` a `assets/vendor/js/`. **Pinear EXACTO**
+(no bumpear — jQuery 3.6.3 / Chart 2.9.4 / Bootstrap 3.4.1 están congelados a propósito).
+
+**Quedan como archivo** (no en npm / custom): `iguider`, `jquery.businessHours-1.0.1` (npm
+`business-hours` es otro paquete) + el código propio del proyecto (`ncm.js`, `common.js`,
+`documentPrintBuilder`, `ncmMaps`, etc. — no son vendor).
+
+**Bumps de major a testear** (npm no tiene la versión vieja o difiere): `@fingerprintjs/fingerprintjs`
+v3→v5, `jsrsasign`, `snap` (verificar snap.svg vs el "snap-1.9.3" vendoreado).
+
+### Follow-up: reemplazar iguider (tour de onboarding)
+
+`iguider` (~107 refs en dashboard/purchase/app POS) no está en npm y parece medio abandonado (hay
+un `iguider.stub.js` → puede estar ya stubbeado). **Reemplazo recomendado: `driver.js` 1.4.0 (MIT,
+~5KB, sin deps, vanilla).** Shepherd/intro.js son **AGPL** → descartados para SaaS comercial cerrado.
+**Antes de migrar: verificar si el tour está activo** — si está muerto, ELIMINAR iguider en vez de
+reemplazarlo. Es scope aparte (cambio de comportamiento del tour).
+
+---
+
 # Prioridad BAJA (largo plazo)
 
 ## Phase 6 — Arquitectura moderna (Slim 4)
