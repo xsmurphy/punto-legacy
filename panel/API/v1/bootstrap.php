@@ -44,6 +44,9 @@ apiOk([
     // Etiqueta del documento fiscal del cliente (ej. 'RUC'); usada como header de columna.
     'tinName'     => $row['tinname'] ?: 'TIN',
     'companyName' => $row['companyname'] ?? '',
+    'companyId'   => COMPANY_ID,
+    // Base de las pantallas standalone (PUBLIC_URL = <host>/screens) — para links del front.
+    'publicUrl'   => defined('PUBLIC_URL') ? PUBLIC_URL : '',
     'user'        => [
         'id'   => PANEL_AUTHED_USER,
         'role' => PANEL_AUTHED_ROLE,
