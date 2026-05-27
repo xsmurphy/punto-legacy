@@ -187,6 +187,28 @@ Consecuencias:
 - El cálculo/cross-analysis/formateo vive en el **BFF**, no en la API ni en el front.
 - Cachear en el BFF los paths calientes (para no ser chatty contra la API remota).
 
+### Patrón de ESCRITURA (front → BFF → API) — establecido 2026-05-26 (a_report_satisfaction)
+
+Las mutaciones siguen el mismo flujo de 3 capas que las lecturas:
+
+```
+front: POST /bff/reports/<x>.php  (action=delete&id=…)   ← ncmHelpers.load httpType:'POST'
+  → BFF: bffApiPost('v1/reports/<x>.php', [...])  (reenvía el JWT cookie a la API)
+  → API: if method POST → valida + Service->mutate(...)  scopeado por COMPANY_ID
+```
+
+Reglas del write:
+- **El API valida y scopea por `companyId` del JWT** (ej. `DELETE … WHERE id = ? AND companyId = ?`).
+  El legacy de satisfaction borraba solo por id (IDOR) — al migrar SIEMPRE agregar el scope de tenant.
+- **`$db->Execute` (no `ncmExecute`) para DELETE/UPDATE**: ncmExecute devuelve `false` para
+  sentencias sin filas de retorno aunque ejecuten OK.
+- **Validar el id como UUID** antes de mutar; los params siempre bindeados.
+- **Permiso**: `allowUser('sales','delete')` NO se puede usar en el API v1 (usa `ROLE_ID`, que
+  `apiMiddleware` no define — solo `PANEL_AUTHED_ROLE`). Gate provisional: bloquear el rol
+  read-only (7). **Follow-up**: wirear `ROLE_ID` en `apiMiddleware` → habilita `allowUser` en
+  TODOS los endpoints de escritura.
+- **`bffApiPost`** vive en `panel/bff/lib/api_client.php` (análogo a `bffApiGet`).
+
 ### Estado del piloto (commit 051dd59, 2026-05-26)
 
 El modelo de 3 niveles tiene un **piloto completo verificado E2E** en `a_report_summary`:
