@@ -39,6 +39,7 @@ if (preg_match('|^/assets/\d+-\d+/|', $path)) {
 $bffStaticReports = [
     '/a_report_summary'   => '/reports/summary.html',
     '/a_report_p_methods' => '/reports/payment-methods.html',
+    '/a_report_inventory' => '/reports/inventory.html',
 ];
 if (isset($bffStaticReports[$path])) {
     $htmlFile = __DIR__ . $bffStaticReports[$path];
