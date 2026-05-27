@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 7) — `cashflow` + `open_invoices` + `vpayments` (21º–23º): los 3 "con wrinkle" → MIGRACIÓN DE REPORTES COMPLETA
+
+- **Los 3 reportes diferidos migrados al BFF** (read-only, en `$bffStaticReports`):
+  - **`cashflow`** (Flujo de Caja): wrinkle resuelto — el split mercadería/servicios MySQL `itemId>0`/`=0` → en PG (UUID) es `itemId IS NOT NULL` / `itemId IS NULL`. `getChartSales` legacy era código muerto (`$sql` indefinido + front no lo llamaba) → no migrado. E2E OK (ingresos 1.365.000 / egresos 50.000 / saldo 1.315.000).
+  - **`open_invoices`** (Cuentas por Cobrar/Pagar, state income/outcome): se ELIMINÓ el self-heal write (marcaba `transactionComplete=1` en el GET — §16). Fix PG: `transactionComplete < 1` rompe en boolean → `= false`. `getRowPaid` legacy era branch muerto. E2E OK (cobrar 230.000 / pagar 150.000, tabla anidada contacto→facturas + estado de vencimiento).
+  - **`vpayments`** (Pagos ePOS): GATEWAY — la API hace el `curlContents(API_URL/get_vpayments)` (Bancard/Dinelco). **`api_key` computado en el service** (`sha1(config->>'accountId')`) porque el middleware API no carga `config.php` (donde se define `API_KEY`) → constante indefinida causaba 500. No verificable en dev (sin Bancard) → estructural: devuelve `rows:[]` sin romper, front renderiza vacío.
+- **HITO: TODOS los reportes designados están migrados al BFF de 3 capas (23 + 1 alias).** Quedan sólo módulos NO-reporte (contacts/items ya parcialmente modernizados, POS) y la **Phase AI** (el agente reemplaza los reportes exploratorios). `code-reviewer` sin P0/P1 en los 3 (P2 menores corregidos). Todo pusheado a `main`.
+
 ## 2026-05-27 (cont. 6) — `production` migrado (20º, mediano): 3 lecturas al BFF (módulo deshabilitado → data-layer verificado)
 
 - **`a_report_production` (Producción, ~1068 líneas) migrado al BFF — parcial.** 3 vistas: `general` (producción agregada por ítem + utilidad), `detail` (ventas direct_production por línea), `compound` (compuestos de productionRecipe + stock source=production, toggle día). recipe/export/delete quedan legacy vía `?action=`. Router: `production` en `$bffPartialReports`.

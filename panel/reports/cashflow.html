@@ -1,0 +1,33 @@
+<!--
+  Front del reporte de Flujo de Caja (a_report_cashflow) — fragmento estático.
+  Cero PHP. scripts/a_report_cashflow.js pide config a /bff/bootstrap.php y los totales a
+  /bff/reports/cashflow.php (crudos), formatea y arma 4 KPIs + la tabla de flujo. Read-only.
+  Ver context/02-arquitectura.md § REGLA RAÍZ 2.
+-->
+<div class="col-xs-12 no-padder">
+	<div class="col-xs-12 text-center m-t m-b visible-print"><div class="font-bold h3 bff-company-name"></div></div>
+	<div class="col-xs-12 no-padder m-b">
+		<div class="col-sm-5 m-t-sm">
+			<form action="" class="col-md-9 col-xs-12 no-padder" method="post" id="manualDate" name="manualDate">
+				<input type="text" id="customDateR" class="form-control no-border bg-white pointer font-bold text-center rounded needsclick" name="range" value="" data-max="31" />
+			</form>
+		</div>
+		<div class="col-sm-7 m-t-sm"><div class="pull-right"><h1 class="no-padder m-n font-bold">Flujo de Caja</h1></div></div>
+	</div>
+</div>
+
+<div class="col-xs-12 no-padder text-center hidden-print">
+	<section class="col-md-3 col-sm-6"><div class="b-b text-center wrapper-md"><div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalUtility">0</span></div>Saldo Inicial</div></section>
+	<section class="col-md-3 col-sm-6"><div class="b-b text-center wrapper-md"><div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalSubtotal">0</span></div>Ingresos</div></section>
+	<section class="col-md-3 col-sm-6"><div class="b-b text-center wrapper-md"><div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalCogs">0</span></div>Egresos</div></section>
+	<section class="col-md-3 col-sm-6"><div class="b-b text-center wrapper-md"><div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalDiscount">0</span></div>Saldo Final</div></section>
+</div>
+
+<div class="col-xs-12 no-padder m-t m-b-lg push-chat-down">
+	<section class="col-xs-12 panel r-24x bg-white wrapper">
+		<a class="btn r-3x b b-light font-bold hidden-print" id="export" href="#" title="Exportar listado a Excel"><i class="material-icons">file_download</i></a>
+		<table class="table m-t" id="salesTable"></table>
+	</section>
+</div>
+
+<script src="scripts/a_report_cashflow.js?v=bff1"></script>
