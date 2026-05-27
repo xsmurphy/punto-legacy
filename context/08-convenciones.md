@@ -235,6 +235,42 @@ archivo que se modifica. No introducir Vue/React/Svelte/HTMX en commits aislados
 
 ---
 
+## §14 — Convenciones del middleware API v1 (`panel/API/v1/`)
+
+Reglas que aplican a TODO código nuevo dentro de `panel/API/v1/` y sus services.
+
+### §14.1 — Constante de usuario autenticado
+
+**Usar `PANEL_AUTHED_USER`**, nunca `USER_ID`.
+
+`PANEL_AUTHED_USER` = claim `sub` del JWT (UUID de usuario). En el path de `api_key` legacy vale `0`.
+`USER_ID` no está definida en el contexto de `apiMiddleware()` y genera un error silencioso.
+
+```php
+// MAL
+$userId = USER_ID;
+
+// BIEN
+$userId = PANEL_AUTHED_USER; // UUID o "0"
+// Si se necesita escribir en FK nullable de usuario:
+$userUuid = isValidUuid(PANEL_AUTHED_USER) ? PANEL_AUTHED_USER : null;
+```
+
+### §14.2 — `ncmExecute` single-row: nunca usar `is_array()`
+
+`ncmExecute` para un SELECT de una sola fila (sin `forceObj`, sin `getAssoc=true`) devuelve un **objeto `CaseInsensitiveArray`**, no un array PHP. Entonces `is_array($result) === false` aunque haya un resultado, silenciando el valor.
+
+**Patrón correcto** para single-row:
+```php
+$row = ncmExecute($db, $sql, $params);
+$valor = $row ? ($row['columna'] ?? $default) : $default;
+// NO: if (is_array($row)) { ... }  ← TRAP: siempre falso
+```
+
+`is_array()` **sí** es correcto para resultados de `getAssoc=true` (arrays PHP reales de múltiples filas).
+
+---
+
 ## §13 — Flujo commit + push con agentes (REGLA OBLIGATORIA)
 
 **Regla**: Toda corrección o mejora pasa por el flujo `edit → code-reviewer → commit → context-updater → push`. El push es inmediato, no se acumulan commits locales.
