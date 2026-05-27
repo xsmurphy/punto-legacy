@@ -30,6 +30,9 @@ company (tenant)
 ├── suppliers (proveedores)
 ├── recurring (suscripciones/recurrentes)
 └── tasks (tareas internas)
+
+franchiser_to_tenant (acceso N→N franquiciador→tenant — NO propiedad/billing)
+└── franchiserId, tenantId  → ambos FK a company(companyId)
 ```
 
 ### Columnas JSONB por tabla
@@ -72,6 +75,27 @@ company (tenant)
 5. **Timestamps**: `createdAt` (auto), `updatedAt` (trigger), timezone: `America/Asuncion`
 6. **JSONB vs columna real** — campos indexables, buscados, o usados en cálculos SQL son columnas reales; campos descriptivos/estáticos van a `data` JSONB. Violaciones se corrigen con migraciones. Ejemplos aplicados: `06_contact_jsonb_demote.sql` (6 campos) y `07_item_jsonb_demote.sql` (4 campos: itemImage/itemTaxExcluded/itemDiscount/itemUOM). Criterio de auditoría para decidir: 0 apariciones en WHERE/ORDER/JOIN/GROUP/SUM en todo el repo (grep).
 7. **Columnas BOOLEAN en PG** — comparar con `= true` / `= false`, nunca `= 1` / `= 0`. Error PG: `operator does not exist: boolean = integer`. Sitios pendientes de corregir: `panel/includes/functions.php:3464,3790` y `app/action.php`, `app/load.php`, `app/fetch.php`, `app/fetchs.php`.
+8. **Acceso ≠ propiedad** — la pertenencia de un tenant a un franquiciador (`franchiser_to_tenant`) es solo una capa de acceso/gestión; NO afecta dueño, plan ni facturación, que son siempre per-tenant en `company`. Ver ADR-001.
+
+### Relación franquiciador→tenant (acceso, N→N)
+
+Ver [adr/ADR-001-franchiser-tenant-acceso.md](adr/ADR-001-franchiser-tenant-acceso.md).
+
+- **`franchiser_to_tenant`** (migración 08, 2026-05-26): tabla puente que define qué tenant
+  *franquiciador* puede **gestionar/impersonar** a qué tenant hijo. Columnas: `franchiserTenantId`
+  (pk), `franchiserId` + `tenantId` (FK a `company`, `ON DELETE CASCADE`), `relationType`
+  (default `'manager'`), `status`, `created_at`. `UNIQUE(franchiserId, tenantId)` + `CHECK(franchiserId <> tenantId)`.
+- **Es PURAMENTE acceso, no propiedad ni billing.** Cada `company` (padre o hijo) tiene su
+  propio dueño, plan y facturación, independientes. Un franquiciador con 5 hijos = 6 cuentas
+  facturadas por separado. La pertenencia a un franquiciador no cambia de quién es el tenant.
+- **Reemplaza** a `company.parentId` (1→N), que no soportaba que un hijo tenga varios
+  franquiciadores. `parentId` queda deprecado para acceso (backfilleado a la junction); se
+  eliminará cuando nada lo lea.
+- **Autorización de impersonalización del franquiciador**:
+  `EXISTS(SELECT 1 FROM franchiser_to_tenant WHERE franchiserId = COMPANY_ID AND tenantId = ?)`.
+  El SaaS super-admin (encom, `COMPANY_ID == ENCOM_COMPANY_ID`) entra a cualquiera sin pasar por la tabla.
+- El `ON DELETE CASCADE` aplica solo a esta tabla de *relación* (borrar una company quita sus
+  links de acceso) — no contradice el invariante #4, que es sobre datos de tenant (soft-delete).
 
 ### Extensiones PostgreSQL activas
 
@@ -91,5 +115,6 @@ company (tenant)
 |---|---------|----------|--------|
 | 06 | `06_contact_jsonb_demote.sql` | Demota 6 columnas de `contact` a `contact.data` JSONB | Aplicada local 2026-05-25 |
 | 07 | `07_item_jsonb_demote.sql` | Demota 4 columnas de `item` a `item.data` JSONB (itemImage/itemTaxExcluded/itemDiscount/itemUOM) | Aplicada local 2026-05-25 |
+| 08 | `08_franchiser_to_tenant.sql` | Crea tabla puente de acceso N→N franquiciador→tenant + backfill desde `company.parentId` | Aplicada local 2026-05-26 |
 
 **Patrón atómico de demotion:** backfill UPDATE no-destructivo (NULLIF para no inflar con defaults; booleans como JSON booleans, no strings) + DROP atómico en el mismo script. Requiere ser owner de la tabla en PG (el usuario `punto` de la app no lo es — ver `06-infraestructura.md §Privilegio de owner para DDL`).
