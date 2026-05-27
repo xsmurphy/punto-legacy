@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 8) — fuera de reportes: borrado a_settingsActual + capa de datos BFF del DASHBOARD (17 widgets)
+
+- **Cleanup**: eliminado `panel/a_settingsActual.php` (duplicado huérfano de `a_settings.php`, cero referencias en el repo) — commit `f401c56`.
+- **Dashboard del panel (`a_dashboard`), CAPA DE DATOS migrada al BFF** (commit `bfdece5`): service + API + BFF para los **17 widgets** (`info`, `incomeOutcomeStats`, `paymentStatus`, `customers`, `customersRates`, `topItems`, `topHours`, `topCategories`, `topBrands`, `topPayments`, `satisfaction`, `orders`, `tables`, `schedule`, `notifications`, `notificationsCount`, `getReminders`), cada uno por `?widget=X`. Read-only.
+- **Hallazgo clave — acoplamiento a globals de página**: a diferencia de los reportes, `a_dashboard` depende fuerte de globals que `config.php` define y que el middleware de la API v1 NO carga: `$_modules`, `$_cmpSettings`, `$plansValues`, `PLAN`, `OUTLETS_COUNT`, `$startDate/$endDate`. Resueltos: módulos/settings/plan/outlets vía un lookup cacheado a `company.config` (`companyMeta()`); `$plansValues` global + fallback `getAllPlans()`; `API_KEY` = `sha1(config->>'accountId')` (igual que vpayments); `USER_ID` → `PANEL_AUTHED_USER`. **Patrón para futuros módulos del panel acoplados a globals.**
+- **Fixes PG**: `FORCE INDEX`/`HOUR()`→`EXTRACT`; `contactInCalendar`/columnas demovidas desde `data` JSONB; `customerId>1`→`IS NOT NULL`; `paymentStatus` reimplementado (el `getAllTransactions` legacy usa `global $startDate/$endDate` ausentes → query con from/to explícito); `topCategories`/`topBrands` reimplementados (el helper legacy SELECTea `a.itemId` sin agruparlo → rompe en PG → `GROUP BY categoryId/brandId`); `schedule` itera el recordset (no `getAssoc`, que keyea por `fromDate` y colapsaría citas — code-reviewer P0, mismo trap que ReportScheduleService).
+- **Verificado vía curl** (company 0001): 9 widgets con datos OK (income 2.075.000/revenue 1.755.000/margen 85%; paymentStatus contado 1.26M/crédito 810k/por-cobrar 710k; topItems/topHours/topCategories/topBrands/topPayments). orders/tables/schedule/satisfaction → [] (módulos off en la empresa de prueba). `code-reviewer`: 1 P0 (schedule getAssoc) corregido, sin P1.
+- **PENDIENTE — el FRONT del dashboard** (`dashboard.html` + `a_report_dashboard.js`, ~1550 líneas legacy con templates Mustache + múltiples doughnuts Chart.js + flechas de comparación + sparkline externo de quickchart.io + dark-mode): es el front más grande/intrincado; queda como pieza siguiente. El `a_dashboard.php` legacy sigue intacto y funcionando mientras tanto.
+
 ## 2026-05-27 (cont. 7) — `cashflow` + `open_invoices` + `vpayments` (21º–23º): los 3 "con wrinkle" → MIGRACIÓN DE REPORTES COMPLETA
 
 - **Los 3 reportes diferidos migrados al BFF** (read-only, en `$bffStaticReports`):
