@@ -41,7 +41,7 @@ reportes, configuración de módulos, usuarios.
 **Entry point**: `panel/index.php` (SPA con sesión PHP)
 
 **Páginas** (`panel/a_*.php`, 80+ archivos):
-- `a_dashboard.php` (91KB) — Analytics, resúmenes, datos real-time
+- `a_dashboard.php` (91KB) — Analytics, resúmenes, datos real-time. **Migrado al BFF de 3 capas (2026-05-27)**: front estático `panel/reports/dashboard.html` + `panel/scripts/a_report_dashboard.js` (13 widgets via `/bff/reports/dashboard.php?widget=…`, HTML+Mustache verbatim del legacy); capa de datos: `panel/bff/reports/dashboard.php` + `panel/API/v1/reports/dashboard.php` + `panel/lib/reports/ReportDashboardService.php`. Router: `/a_dashboard → /reports/dashboard.html` (`$bffStaticReports`). Widgets gateados por módulo (satisfaction/tables/schedule). Tour iguider deferido.
 - `a_items.php` (201KB) — Inventario/productos
 - `a_contacts.php` (~140KB) — Clientes y proveedores. Estado de modernización (2026-05-25):
   - **Backend**: `lib/contacts/{ContactRepository,ContactService}.php` + `API/v1/contacts.php` + `scripts/api/contacts.js` (window.contactsApi) — completo.

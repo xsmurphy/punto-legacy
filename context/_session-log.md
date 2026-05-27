@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 9) — npm vendoring (17 libs) + Dashboard del panel FRONT migrado (16º módulo BFF, completa el dashboard)
+
+- **Vendoring npm batch** (commits `310662a`/`78c9930`): 17 libs de `assets/vendor/js/` gestionadas por `package.json` con versiones EXACTAS pineadas. `vendor-sync.sh` copia desde `node_modules/` y verifica byte-identidad (`--check`). El bundle servido no cambia. `03-stack.md` ya actualizado.
+- **Dashboard del panel — FRONT migrado** (commit `bedd81c`): `panel/reports/dashboard.html` (HTML+Mustache verbatim del legacy, cero PHP) + `panel/scripts/a_report_dashboard.js` (recablea 13 widgets a `/bff/reports/dashboard.php?widget=…`, formatea client-side, reutiliza `/bff/reports/summary.php?view=chart` para el gráfico de ingresos + sparkline). Router: `/a_dashboard → /reports/dashboard.html` en `$bffStaticReports`. **Widgets gateados por módulo** (satisfaction/tables/schedule) arrancan ocultos y se revelan si su widget retorna datos. Verificado E2E: 13 endpoints `ok:true` vía BFF con JWT real + render en browser sin errores de consola.
+- **Tour iguider deferido intencionalmente**: el dashboard era el último usuario del tour; queda trackeado en `10-roadmap.md` (iguider→driver.js follow-up).
+- **HITO: Dashboard del panel completamente migrado al modelo Front→BFF→API→Postgres** (capa de datos `bfdece5` + front `bedd81c`). Es el 16º módulo migrado al BFF de 3 capas (1er módulo NO-reporte en el modelo completo).
+
 ## 2026-05-27 (cont. 8) — fuera de reportes: borrado a_settingsActual + capa de datos BFF del DASHBOARD (17 widgets)
 
 - **Cleanup**: eliminado `panel/a_settingsActual.php` (duplicado huérfano de `a_settings.php`, cero referencias en el repo) — commit `f401c56`.
