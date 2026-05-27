@@ -1,0 +1,82 @@
+<!--
+  Front del reporte de Artículos / Productos (a_report_products) — fragmento estático.
+  Cero PHP. scripts/a_report_products.js pide config a /bff/bootstrap.php y datos a
+  /bff/reports/products.php (crudos), formatea y arma KPIs + chart + 3 tabs (Resumen/Detallado/
+  Combos). Ver context/02-arquitectura.md § REGLA RAÍZ 2.
+-->
+<div class="col-xs-12 no-padder">
+	<div class="col-xs-12 text-center m-t m-b visible-print">
+		<div class="col-xs-12 font-bold h3 m-t-sm bff-company-name"></div>
+	</div>
+	<div class="col-xs-12 no-padder">
+		<div class="col-sm-5 col-xs-12 m-t-sm m-b">
+			<form action="" class="col-md-9 col-xs-12 no-padder" method="post" id="manualDate" name="manualDate">
+				<input type="text" id="customDateR" class="form-control no-border bg-white pointer font-bold text-center rounded needsclick" name="range" value="" data-max="31" />
+			</form>
+		</div>
+		<div class="col-sm-7 col-xs-12 m-t-sm m-b">
+			<div class="pull-right"><h1 class="no-padder hidden-print m-n font-bold">Reporte de Artículos</h1></div>
+		</div>
+	</div>
+</div>
+
+<div class="col-xs-12 m-b-lg no-padder text-center hidden-print">
+	<section class="col-md-3 col-sm-6">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalSubtotal"></span></div>
+			Total <span class="text-xs text-muted">(Bruto)</span> <span id="globalSubtotalB"></span>
+		</div>
+	</section>
+	<section class="col-md-3 col-sm-6">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalCogs"></span></div>
+			Costo <span class="text-xs text-muted">(PC)</span> <span id="globalCogsB"></span>
+		</div>
+	</section>
+	<section class="col-md-3 col-sm-6">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalDiscount"></span></div>
+			Otros costos <span id="globalDiscountB"></span>
+		</div>
+	</section>
+	<section class="col-md-3 col-sm-6">
+		<div class="b-b text-center wrapper-md">
+			<div class="h1 m-t m-b-xs total font-bold"><span class="text-muted text-lg bff-currency"></span> <span id="globalUtility"></span></div>
+			Utilidad <span id="globalUtilityB"></span>
+		</div>
+	</section>
+</div>
+
+<div class="col-xs-12 no-padder m-b hidden-print" style="height:240px;">
+	<canvas id="myChart" height="220" style="width:100%; max-height:240px;"></canvas>
+</div>
+
+<div class="col-xs-12 no-padder m-t m-b-lg push-chat-down">
+	<section class="col-sm-12 no-padder" id="reportsTablesAndTabs">
+		<ul class="nav nav-tabs padder hidden-print">
+			<li class="active"><a href="#tab1" data-toggle="tab">Resumen</a></li>
+			<li id="detailTabLink"><a href="#tab2" data-toggle="tab">Detallado</a></li>
+			<li id="combosTabLink"><a href="#tab3" data-toggle="tab">Combos</a></li>
+		</ul>
+		<section class="panel r-24x">
+			<div class="panel-body">
+				<div class="tab-content m-b-lg table-responsive">
+					<div class="tab-pane overflow-auto active" id="tab1" style="min-height:400px">
+						<div id="generalTable"><table class="table table1 table-hover col-xs-12 no-padder" id="tableSummary"></table></div>
+					</div>
+					<div class="tab-pane overflow-auto col-xs-12 no-padder" id="tab2" style="min-height:400px">
+						<div class="col-xs-12 no-padder m-b hidden-print">
+							<input type="text" class="form-control rounded no-border bg-light lter" placeholder="Buscar por Artículo o Código (Enter)" id="detailSearch" />
+						</div>
+						<div id="detailTable"><table class="table table2 table-hover col-xs-12 no-padder" id="tableDetail"></table></div>
+					</div>
+					<div class="tab-pane overflow-auto col-xs-12 no-padder" id="tab3" style="min-height:400px">
+						<div id="combosTable"><table class="table table3 table-hover col-xs-12 no-padder" id="tableCombos"></table></div>
+					</div>
+				</div>
+			</div>
+		</section>
+	</section>
+</div>
+
+<script src="scripts/a_report_products.js?v=bff1"></script>
