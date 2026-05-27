@@ -1,0 +1,54 @@
+<!--
+  Front del reporte de Gift Cards (a_report_giftcards) — fragmento estático.
+  Cero PHP. scripts/a_report_giftcards.js pide config a /bff/bootstrap.php y la vista de lectura
+  a /bff/reports/giftcards.php (cruda + KPIs), formatea y arma la tabla + las 4 tarjetas KPI.
+  El form de edición (giftcard) y los writes (update/delete) se sirven por el PHP legacy vía
+  /a_report_giftcards?action=, en el modal global del shell (#modalSmall). Ver 02-arquitectura.md.
+-->
+<div class="col-xs-12 no-padder">
+	<div class="col-xs-12 no-padder m-b">
+		<div class="col-sm-4 m-t-sm">
+			<div class="col-xs-12 text-center m-t visible-print"><div class="font-bold h3 bff-company-name"></div></div>
+		</div>
+		<div class="col-sm-8 m-t-sm">
+			<div class="pull-right"><h1 class="no-padder m-n font-bold" id="pageTitle">Gift Cards activadas</h1></div>
+		</div>
+	</div>
+</div>
+
+<div class="col-xs-12 no-padder text-left m-b hidden-print">
+	<section class="col-lg-3 col-md-6 col-xs-12">
+		<div class="r-24x wrapper bg-white m-b">
+			<div class="text-u-c">Vencidas</div>
+			<div class="h1 font-bold expired">0</div>
+		</div>
+	</section>
+	<section class="col-lg-3 col-md-6 col-xs-12">
+		<div class="r-24x wrapper bg-white m-b">
+			<div class="text-u-c">Por Vencer</div>
+			<div class="h1 font-bold soon">0</div>
+		</div>
+	</section>
+	<section class="col-lg-3 col-md-6 col-xs-12">
+		<div class="r-24x wrapper bg-white m-b">
+			<div class="text-u-c">Canjeadas</div>
+			<div class="h1 font-bold nocredit">0</div>
+		</div>
+	</section>
+	<section class="col-lg-3 col-md-6 col-xs-12">
+		<div class="r-24x wrapper bg-white m-b">
+			<div class="text-u-c"><span class="available font-bold">0</span> Vigentes por un valor de</div>
+			<div class="h1 font-bold"><span class="text-muted bff-currency"></span> <span class="availableValue">0</span></div>
+		</div>
+	</section>
+</div>
+
+<div class="col-xs-12 wrapper panel r-24x bg-white push-chat-down">
+	<div id="tableContainer">
+		<div class="table-responsive no-border">
+			<table class="table table1 col-xs-12 no-padder table-hover" id="tableGift"></table>
+		</div>
+	</div>
+</div>
+
+<script src="scripts/a_report_giftcards.js?v=bff1"></script>
