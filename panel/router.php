@@ -48,6 +48,10 @@ $bffStaticReports = [
     '/a_report_stock'      => '/reports/stock.html',
     '/a_report_recurring'  => '/reports/recurring.html',
     '/a_report_summary_year' => '/reports/summary-year.html',
+    // by_brands es un duplicado legacy de brands (misma lógica "Ventas por Marca", ya migrada).
+    // Está huérfano (nada lo linkea); se aliasa al front canónico por si queda algún bookmark.
+    '/a_report_by_brands'    => '/reports/brands.html',
+    '/a_report_customers'    => '/reports/customers.html',
 ];
 if (isset($bffStaticReports[$path])) {
     $htmlFile = __DIR__ . $bffStaticReports[$path];
