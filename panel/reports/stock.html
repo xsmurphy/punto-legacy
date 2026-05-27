@@ -1,0 +1,39 @@
+<!--
+  Front del reporte Niveles de Stock (multi-depósito) (a_report_stock) — fragmento estático.
+  Cero PHP. scripts/a_report_stock.js pide config a /bff/bootstrap.php y datos a
+  /bff/reports/stock.php (crudos), formatea, calcula barras y arma la tabla anidada.
+  Ver context/02-arquitectura.md § REGLA RAÍZ 2 / BFF de 3 niveles.
+-->
+<div class="col-xs-12 m-t-sm">
+	<div class="col-xs-12 text-center m-t m-b visible-print">
+		<div class="col-xs-12 font-bold h3 m-t-sm bff-company-name"></div>
+	</div>
+	<div class="pull-left">
+		<a href="/@#report_stock_day" class="btn dropdown-toggle b b-light bg-white font-bold r-3x">Por Día</a>
+	</div>
+	<div class="pull-right">
+		<span class="no-padder h1 m-n font-bold" id="pageTitle"><div class="text-md text-right font-default">Niveles de</div> Stock</span>
+	</div>
+</div>
+
+<div class="col-xs-12 panel wrapper r-24x m-t push-chat-down tableContainer">
+	<div class="table-responsive">
+		<div class="col-xs-12 no-padder m-b hidden-print">
+			<div class="col-sm-9 no-padder">
+				<a href="#" class="btn btn-default exportTable" data-table="tableSummary" data-name="Niveles de Stock">
+					<span class="material-icons m-r-sm">get_app</span> A Excel
+				</a>
+				<a class="btn btn-default" href="javascript:window.print();">
+					<span class="material-icons m-r-sm">print</span> Imprimir
+				</a>
+			</div>
+			<div class="col-sm-3 no-padder">
+				<input type="text" class="form-control no-bg rounded pull-right" placeholder="Filtrar listado" id="textSearch" />
+			</div>
+		</div>
+
+		<table class="table table-hover table1 col-xs-12 no-padder" id="tableSummary"></table>
+	</div>
+</div>
+
+<script src="scripts/a_report_stock.js?v=bff1"></script>
