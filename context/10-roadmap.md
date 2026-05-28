@@ -155,7 +155,13 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 - `closeTable`: **cascada** (borra la mesa + sus órdenes) → slice dedicado con transacción.
 - `moveOrders`/`moveOrderItems`, `transferOrderToOutlet`: mueven órdenes entre mesas/outlets — dominio "órdenes".
 
-**Slices pendientes**: los ~40 concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
+**Slice 4 COMPLETO — calendario (commit 1cae3c4, 2026-05-28)**: `ScheduleService` (`rescheduleTo` → UPDATE toDate preservando fromDate; `unlock` → DELETE) + `API/v1/schedule.php` + `bff/schedule.php` + 2 call-sites. Fixes PG: transactionId/companyId bindeados, DELETE sin LIMIT, validación de formato de hora. **Diferidos**: `updateSchedule`/`scheduleSession` (escriben `transactionDetails` → `meta` JSONB).
+
+**Slice 5 COMPLETO — customerNote (commit 56afb0c, 2026-05-28)**: `CustomerNoteService.add` (INSERT `contactNote`, parametrizado + companyId) + `API/v1/customer_note.php` + `bff/customer_note.php` + 1 call-site. E2E OK.
+
+**Servicios /app creados hasta ahora**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser), `ScheduleService`, `CustomerNoteService`. Plomería: `app/bff/lib/api_client.php` + `app/API/lib/response.php`.
+
+**Slices pendientes**: los ~37 concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
 
 ### ✅ RESUELTO (commit f77b47a) — `app/DB.php` sin `Insert_ID()`
 
