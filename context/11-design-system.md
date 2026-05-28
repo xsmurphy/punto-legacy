@@ -1,107 +1,129 @@
-<!-- Actualizar cuando: se agreguen/cambien tokens o componentes en panel/assets/design/,
-     o cambie la regla de uso del design system. Ver también 08-convenciones.md §21. -->
+<!-- Actualizar cuando: se agregue/cambie un patrón, color, clase o componente del
+     manual de marca, o se documente un componente nuevo del legacy. NO es CSS vivo:
+     es la referencia única para construir UI consistente reutilizando lo existente. -->
 
-# 11 — Design System (identidad visual única)
+# 11 — Manual de Marca (Design System)
 
-La identidad visual del producto está **codificada en tokens + componentes** para
-mantener la misma visual sin importar el framework del front (BS3 legacy, Alpine, futuro).
+**Qué es:** la referencia única de la identidad visual de Punto. **NO es CSS nuevo
+ni un framework** — cataloga los colores, la tipografía y las **clases que el proyecto
+YA usa** (Bootstrap 3 + `panel/css/app.css` + `style.css`) para que cualquier UI nueva
+salga consistente **reutilizando lo existente, sin reinventar ni rediseñar**.
 
-## Por qué existe
+> Regla de oro: al construir/tocar UI, **usá las clases y colores de este manual**.
+> No inventes estilos ad-hoc ni paletas nuevas. Si falta un patrón, agregalo acá.
 
-El realm `/admin` se construyó primero con estilos ad-hoc (azul `#3b82f6` sobre
-near-black, radius 12px, fuente system-ui) — **off-brand** respecto al producto.
-El usuario pidió un design system para no repetir ese drift. Los tokens se
-**derivaron del CSS canónico actual** (`panel/css/app.css` + `style.css`), no se
-inventaron — el objetivo es preservar el look existente, no rediseñar.
+---
 
-## Archivos
+## 1. Paleta de color
 
-| Archivo | Qué es |
-|---------|--------|
-| `panel/assets/design/tokens.css` | CSS custom properties (`--ds-*`): paleta, tipografía, spacing, radios, sombras. Tema light (default) + `.theme-dark`. |
-| `panel/assets/design/base.css` | Componentes con prefijo `.ds-*` que consumen los tokens. |
-| `panel/assets/design/ds.js` | Comportamiento (vanilla, sin deps): estado de carga de botones vía `data-loading-text`. |
+Valores canónicos (extraídos de `panel/css/app.css`). La columna "clase" es cómo se
+aplica hoy en el markup BS3.
 
-Servidos en `/assets/design/tokens.css` y `/assets/design/base.css`.
+| Rol | Hex | Hover | Clase / uso |
+|-----|-----|-------|-------------|
+| **Primario** (indigo) | `#545ca6` | `#4b5395` | `btn-primary`, acción principal |
+| **Éxito** (verde) | `#1ab667` | `#17a05a` | `btn-success`, confirmaciones |
+| **Info** (teal) | `#4cb6cb` | `#39adc4` | `btn-info` — **color del CTA "clásico"** (login, etc.) |
+| **Advertencia** | `#fad733` | — | `btn-warning` |
+| **Peligro** (rojo) | `#f05050` | — | `btn-danger`, destructivo |
+| **Acento verde** | `#6ddc5f` / `#2ad980` | — | estados/badges, highlights |
 
-## Tokens canónicos (fuente: app.css)
+**Neutrales / texto:**
 
-| Token | Valor | Rol |
-|-------|-------|-----|
-| `--ds-primary` | `#545ca6` (indigo) | acción primaria (btn-primary legacy) |
-| `--ds-success` | `#1ab667` | éxito |
-| `--ds-info` | `#4cb6cb` (teal) | info |
-| `--ds-warning` | `#fad733` | advertencia |
-| `--ds-danger` | `#f05050` | peligro/destructivo |
-| `--ds-text` | `#545a5f` | texto principal |
-| `--ds-text-muted` | `#788188` | texto base/secundario (color body de app.css) |
-| `--ds-bg` | `#f7f7f7` | fondo de página |
-| `--ds-surface` | `#ffffff` | cards/modales/tablas |
-| `--ds-border` | `#dae0e3` | bordes |
-| `--ds-font` | `"Source Sans Pro", …` | tipografía |
-| `--ds-radius` | `2px` | radio canónico (flat, era BS3) |
+| Rol | Hex | Uso |
+|-----|-----|-----|
+| Texto principal / headings / links | `#545a5f` | títulos, `<a>` |
+| Texto base (body) / secundario | `#788188` | `body`, texto muted |
+| Texto sutil | `#939aa0` | placeholders, hints |
+| Fondo de página (light) | `#f7f7f7` | `bg-light` |
+| Superficie (cards/modales) | `#ffffff` | `bg-white` |
+| Bordes | `#dae0e3` / `#cbd5dd` | `b-light` / bordes fuertes |
 
-Tema dark (`.theme-dark`): superficies slate del producto (`#232c32` / `#3b464d` / `#5a6a7a`).
+**Dark mode** (`.darkMode` en `<body>`): superficies slate `#232c32` (la más oscura),
+`#3b464d`, `#5a6a7a`; texto `#d9e4e6`. Gradiente del panel oscuro del login:
+`linear-gradient(314deg, #0d1215, #2f3940, #232c32)` (clases `gradBgBlack animateBg`).
 
-## Componentes (base.css)
+---
 
-`.ds-app` (body), `.ds-header` + `.ds-header__brand` + `.ds-header__nav`, `.ds-main`,
-`.ds-toolbar`, `.ds-btn` (+ `--secondary` / `--danger` / `--block`), `.ds-link-btn`
-(+ `--danger`), `.ds-card` (+ `--pad`), `.ds-cards` + `.ds-card-link`, `.ds-table`
-(+ `__empty`) + `.ds-row-actions`, `.ds-pill` (+ `--ok` / `--muted`), `.ds-label` (+ `--strong` = mayúsculas/bold/xs, estilo login) /
-`.ds-input` (boxed; + `--underline` = solo línea inferior, estilo login del producto) /
-`.ds-hint` / `.ds-form-error`,
-`.ds-login` + `.ds-login__aside` (panel oscuro con gradiente animado `ds-grad`) + `.ds-login__main` +
-`.ds-login__form` + `.ds-login__logo` + `.ds-login__brand-tag` (split-screen del login, emula `login.php`),
-`.ds-overlay` (+ `.is-open`) + `.ds-modal`
-+ `.ds-modal-actions`, `.ds-auth` + `.ds-auth__card`, `.ds-toast` (+ `.is-show`), `.ds-hidden`.
+## 2. Tipografía
+
+- **Familia:** `"Source Sans Pro", "Helvetica Neue", Helvetica, Arial, sans-serif`.
+- **Base:** 14px, color `#788188`.
+- **Tamaños/utilidades:** `text-xs` = 12px, `text-md`, `text-lg`. Headings `h1..h6` de BS3.
+- **Énfasis:** `font-bold` (700), `text-u-c` (UPPERCASE), `text-u-l` (underline).
+- Fuentes especiales (recibos): `dotmatrix`, `FontA11`, `fakereceipt` (`panel/css/font.css`).
+
+---
+
+## 3. Radios, sombras, spacing
+
+- **Radio por defecto:** `2px` (flat, era BS3). Pill: `btn-rounded` = `50px`. Cajas
+  redondeadas: `r-3x` = `10px`.
+- **Spacing:** utilidades BS3 del proyecto — `m-t`, `m-b`, `m-l`, `m-r` (+ sufijos
+  `-xs/-sm/-md/-lg`), `padder`, `no-padder` (`padding:0`), `wrapper` / `wrapper-lg`
+  (`padding:30px`) / `wrapper-md`.
+
+---
+
+## 4. Componentes (recetas con clases reales)
 
 ### Botones
 
-- **`.ds-btn`** — botón estándar (indigo). Variantes de color: `--secondary`, `--danger`,
-  `--info` (teal), `--success`. Modificadores: `--lg`, `--rounded`, `--uppercase`, `--block`.
-- **`.ds-cta`** — el botón "clásico" del producto en **UNA clase**: teal pill, mayúsculas,
-  bold, grande. Reproduce exacto el chain legacy `btn btn-info btn-rounded btn-lg text-u-c font-bold`.
-  Para ancho completo, sumar `.ds-block`.
-
+- **CTA principal "clásico"** (login y acciones primarias grandes) — teal, pill, mayúsculas:
   ```html
-  <!-- antes (Bootstrap) -->
   <button class="btn btn-info btn-rounded btn-lg btn-block text-u-c font-bold">Ingresar</button>
-  <!-- ahora (design system) -->
-  <button class="ds-cta ds-block">Ingresar</button>
   ```
+- **Variantes de color:** `btn-primary` (indigo), `btn-success`, `btn-info`, `btn-warning`,
+  `btn-danger`, `btn-default` (blanco/borde).
+- **Tamaños:** `btn-lg`, (default), `btn-sm`, `btn-xs`. **Forma:** `btn-rounded` (pill),
+  `btn-block` (ancho completo), `btn-icon`.
+- **Estado de carga:** patrón legacy `helpers.btnIndicator({ btn, status:'disable', disabledText:'Verificando' })`
+  (ver `panel/login.php` / `app`). Deshabilita + cambia el texto.
 
-### Estado de carga (loading)
+### Inputs y labels
 
-`ds.js` da estado de carga declarativo: poné `data-loading-text` en un botón submit y
-al enviar su form se deshabilita, muestra un spinner (`::before`) y cambia el texto.
-
-- **Form con navegación clásica (POST)**: no hay que hacer nada más.
-- **Flujo fetch (no navega)**: resetear en el `.then`/`.catch` con `window.dsBtn.reset(btn)`
-  (en éxito que navega, no hace falta). API: `window.dsBtn.start(btn)` / `.reset(btn)`.
-
+- **Input underline** (estilo login — sin caja, solo línea inferior):
   ```html
-  <button class="ds-cta" data-loading-text="Procesando…">Ingresar</button>
-  <script src="/assets/design/ds.js"></script>
+  <input class="form-control input-lg no-border no-bg b-b" placeholder="...">
   ```
+  (`no-border` = sin borde, `no-bg` = transparente, `b-b` = solo `border-bottom`,
+  `b-light` = color de borde `#d9e4e6`, `input-lg` = alto 45px).
+- **Input en caja** (forms internos): `form-control` (+ `input-lg`/`input-sm`).
+- **Label:** `<label class="block font-bold text-u-c text-xs">Celular o eMail</label>`.
 
-  Primer uso: `admin/login.html` + `scripts/login.js` (resetea en credenciales inválidas).
+### Cards / paneles
 
-## Regla de uso
+- BS3 `panel` / `panel-body`, o cajas con `bg-white r-3x wrapper`. Fondos: `bg-white`,
+  `bg-light`, `bg-dark`. `no-border` para quitar bordes.
 
-1. Toda UI **net-new** linkea `tokens.css` + `base.css` y usa `.ds-*` / `var(--ds-*)`.
-   **Nunca** estilos ad-hoc ni paletas inventadas.
-2. Si falta un componente, **agregarlo a `base.css`** (no inline en la página).
-3. Módulos tenant migrados: clonar el markup legacy BS3 sigue siendo válido (ya
-   tiene el visual correcto); el design system es obligatorio donde NO hay markup
-   legacy que clonar.
+### Tablas
 
-## Estado / alcance
+- BS3 `table` (+ `table-striped`, `table-hover`). En el panel se usa `ncmDataTables`
+  para listados (jQuery-owned, ver `08-convenciones.md §17.2`).
 
-- **Alcance**: toda la UI (decisión del usuario, 2026-05-28).
-- **Primer consumidor**: realm `/admin` (`login.html` / `home.html` / `users.html` →
-  tema light, indigo, Source Sans Pro, radius 2px). Verificado en browser.
-- **Forma**: cimiento primero (tokens + componentes + esta doc). Sin skill por ahora.
-- **Pendiente**: rollout progresivo a módulos tenant a medida que se tocan (no big-bang).
+### Modales
 
-Ver `08-convenciones.md` §21 y la memoria `feedback-reuse-existing-html`.
+- Infra compartida del proyecto: `adm()` / `#modalTiny` / `#modalNarrow` (jQuery).
+  No construir modales nuevos a mano — reutilizar esa infra.
+
+### Layout de login (split-screen)
+
+Referencia: `panel/login.php`. Columna izquierda `col-md-7` oscura con gradiente
+(`bg-dark gradBgBlack animateBg`, logo + tagline, `hidden-xs`), derecha `col-md-5`
+blanca con el form. Logos: `/images/incomelogo.png` (claro, sobre oscuro),
+`/images/incomeLogoLgDark.png` (oscuro, sobre blanco).
+
+---
+
+## 5. Cómo aplicar (resumen para construir UI)
+
+1. **Reutilizá** las clases de arriba; no inventes CSS ni colores.
+2. Color de acción principal grande = **`btn-info btn-rounded`** (teal pill).
+3. Inputs de auth = **underline** (`form-control no-border no-bg b-b`); forms internos
+   = `form-control` en caja.
+4. Mayúsculas + bold = `text-u-c font-bold`. Spacing = utilidades `m-*`/`wrapper*`.
+5. Modales/tablas = infra existente (`adm()`, `ncmDataTables`), no a mano.
+6. Frontend nuevo sigue **Bootstrap 3 + jQuery** (ver `08-convenciones.md §11`).
+
+> Este manual es la fuente; el **skill `brand-manual`** (`.claude/skills/`) lo aplica
+> automáticamente al tocar/crear UI.

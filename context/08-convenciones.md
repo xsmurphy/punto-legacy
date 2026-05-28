@@ -300,7 +300,7 @@ $valor = $row ? ($row['columna'] ?? $default) : $default;
 
 **Regla**: Al migrar/tocar el front de un módulo, su templating se hace en **Alpine** (no Mustache). "Reusar el HTML" = mantener el resultado VISUAL idéntico (mismas clases BS3/cards/charts), NO la plomería de templating. Migrar Alpine en el momento de tocar el archivo (evita doble trabajo). Charts Chart.js quedan **imperativos** (Alpine no dibuja canvas); Alpine cubre lo declarativo (text/cards/tablas/show-hide).
 
-> **La identidad visual ahora se codifica en el design system** (§21 + `context/11-design-system.md`). "Mantener el visual idéntico" = usar los tokens/componentes del design system, **no importa el framework**. Para UI net-new (ej. realm `/admin`) usar SIEMPRE los tokens — nunca inventar estilos ad-hoc.
+> **La identidad visual está en el manual de marca** (§21 + `context/11-design-system.md` + skill `brand-manual`). "Mantener el visual idéntico" = reutilizar las clases/colores existentes (BS3 + `app.css`), **no importa el framework**. Para UI net-new usar SIEMPRE las clases del manual — nunca inventar estilos ad-hoc ni rediseñar.
 
 **Receta de init determinista** (crítica — el shell inyecta el fragmento lazy y el `<script>` del módulo carga DESPUÉS de que el MutationObserver de Alpine ya "visitó" el subtree):
 1. El markup del fragmento **NO** declara `x-data` (evita la carrera observer-vs-script).
@@ -488,12 +488,24 @@ Los endpoints `app/API/v1/` no tienen el contexto global que carga `head.php`/`d
 
 ---
 
-## §21 — Design system (identidad visual única)
+## §21 — Manual de marca (identidad visual)
 
-**Regla**: La identidad visual del producto está codificada en **`panel/assets/design/tokens.css`** (CSS custom properties) + **`panel/assets/design/base.css`** (componentes base). Toda UI **net-new** consume estos archivos vía `<link>` y usa los tokens/clases — **nunca** estilos ad-hoc ni paletas inventadas. Doc completa: `context/11-design-system.md`.
+**Regla**: La identidad visual es un **manual de referencia** (`context/11-design-system.md`)
++ el **skill `brand-manual`** — **NO un CSS nuevo ni un framework**. Al construir/tocar UI,
+**reutilizar las clases y colores que el proyecto ya usa** (Bootstrap 3 + `panel/css/app.css`):
+`btn-info btn-rounded btn-lg text-u-c font-bold`, `form-control no-border no-bg b-b`, etc.
+**Nunca** inventar estilos ad-hoc, paletas nuevas, ni rediseñar pantallas existentes.
 
-**Por qué**: El realm `/admin` se armó primero con un tema azul (`#3b82f6`) sobre near-black y radius 12px — off-brand respecto al producto (primario indigo `#545ca6`, superficies `#232c32`, radius 2px, Source Sans Pro). El usuario pidió un design system para mantener **la misma visual sin importar el framework**. Los tokens se derivaron del CSS canónico actual (`app.css`/`style.css`), no se inventaron.
+**Por qué**: Un intento previo creó un CSS paralelo (`assets/design/*.css` con tokens `.ds-*`)
+y re-skineó `/admin` — el usuario lo rechazó: el objetivo NO era rediseñar sino tener un
+**manual de marca** que documente lo existente para mantener consistencia. Ese CSS se revirtió
+(commit del revert); la fuente de verdad es el manual + el skill.
 
-**Tokens canónicos** (de `app.css`): primario `#545ca6` (hover `#4b5395`), success `#1ab667`, info/teal `#4cb6cb`, warning `#fad733`, danger `#f05050`, texto `#788188`, links `#545a5f`, bg claro `#f7f7f7`, superficies dark `#232c32`/`#3b464d`/`#5a6a7a`, bordes `#DAE0E3`/`#cbd5dd`, fuente Source Sans Pro 14px, radius 2px. `tokens.css` expone tema light (default) + `.theme-dark`.
+**Colores canónicos** (de `app.css`): primario `#545ca6`, success `#1ab667`, info/teal
+`#4cb6cb` (CTA clásico), warning `#fad733`, danger `#f05050`, texto `#788188`, links `#545a5f`,
+bg `#f7f7f7`, superficies dark `#232c32`/`#3b464d`/`#5a6a7a`, fuente Source Sans Pro 14px.
 
-**Cómo aplicar**: (1) En cualquier `.html` nuevo, linkear `/assets/design/tokens.css` y `/assets/design/base.css` antes de cualquier `<style>` propio. (2) Usar las clases de `base.css` (`.ds-btn`, `.ds-card`, `.ds-table`, `.ds-pill`, `.ds-input`, `.ds-modal`, etc.) y los `var(--ds-*)`. (3) Si falta un componente, agregarlo a `base.css` (no inline). (4) Para módulos tenant migrados, clonar el markup legacy BS3 sigue siendo válido (ya tiene el visual correcto); el design system es obligatorio donde NO hay markup legacy que clonar. **Primer consumidor**: realm `/admin` (login/home/users).
+**Cómo aplicar**: (1) Antes de UI no trivial, leer `context/11-design-system.md` (el skill
+`brand-manual` lo dispara). (2) Clonar el markup del componente legacy si existe. (3) Usar las
+clases BS3/app.css del manual; si falta un patrón, **documentarlo en el manual**, no inline.
+(4) Frontend nuevo = Bootstrap 3 + jQuery (§11).

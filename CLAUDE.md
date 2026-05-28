@@ -19,7 +19,7 @@ Antes de cualquier trabajo, leer `context/README.md` para el índice y luego los
 | 08 | [context/08-convenciones.md](context/08-convenciones.md) | **Crítico** — reglas de colaboración |
 | 09 | [context/09-costos-y-creditos.md](context/09-costos-y-creditos.md) | Para APIs pagas y modelo de créditos IA |
 | 10 | [context/10-roadmap.md](context/10-roadmap.md) | **Crítico** — backlog priorizado, fuente única de verdad del roadmap |
-| 11 | [context/11-design-system.md](context/11-design-system.md) | UI net-new: usar tokens/componentes de `panel/assets/design/`, nunca estilos ad-hoc |
+| 11 | [context/11-design-system.md](context/11-design-system.md) | Manual de marca — reutilizar clases/colores existentes (BS3+app.css); skill `brand-manual`. Nunca inventar estilos ni rediseñar |
 
 ## Mantenimiento del vault
 

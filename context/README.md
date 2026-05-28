@@ -17,7 +17,7 @@ Documentación viva del proyecto Punto POS. Se mantiene actualizada sesión a se
 | 08 | [08-convenciones.md](08-convenciones.md) | Reglas de colaboración detalladas |
 | 09 | [09-costos-y-creditos.md](09-costos-y-creditos.md) | APIs pagas, modelo de créditos IA |
 | 10 | [10-roadmap.md](10-roadmap.md) | Backlog técnico priorizado |
-| 11 | [11-design-system.md](11-design-system.md) | Tokens + componentes de la identidad visual única |
+| 11 | [11-design-system.md](11-design-system.md) | Manual de marca: colores, tipografía y clases existentes (BS3 + app.css) |
 
 ## Reglas de mantenimiento
 
