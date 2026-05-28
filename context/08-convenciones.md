@@ -300,6 +300,8 @@ $valor = $row ? ($row['columna'] ?? $default) : $default;
 
 **Regla**: Al migrar/tocar el front de un módulo, su templating se hace en **Alpine** (no Mustache). "Reusar el HTML" = mantener el resultado VISUAL idéntico (mismas clases BS3/cards/charts), NO la plomería de templating. Migrar Alpine en el momento de tocar el archivo (evita doble trabajo). Charts Chart.js quedan **imperativos** (Alpine no dibuja canvas); Alpine cubre lo declarativo (text/cards/tablas/show-hide).
 
+> **La identidad visual ahora se codifica en el design system** (§21 + `context/11-design-system.md`). "Mantener el visual idéntico" = usar los tokens/componentes del design system, **no importa el framework**. Para UI net-new (ej. realm `/admin`) usar SIEMPRE los tokens — nunca inventar estilos ad-hoc.
+
 **Receta de init determinista** (crítica — el shell inyecta el fragmento lazy y el `<script>` del módulo carga DESPUÉS de que el MutationObserver de Alpine ya "visitó" el subtree):
 1. El markup del fragmento **NO** declara `x-data` (evita la carrera observer-vs-script).
 2. El `<script>` define `window.<componente> = function(){...}` y en `$(ready)`: **clonar** `#root` a un nodo fresco (los expandos internos `_x_` no se clonan), `setAttribute('x-data','<componente>()')`, `Alpine.initTree(fresh)` **mientras está DETACHED**, luego `replaceChild` (el observer saltea el nodo ya marcado → init exactamente 1×), y por último `Alpine.$data(fresh).mountUI()`.
@@ -430,3 +432,15 @@ git push                                  ← INMEDIATAMENTE después del commit
 **Sobre `code-reviewer`**: acepta 3 modos de diff según contexto — working tree (`git diff`), staged (`git diff --cached`), o post-commit (`git diff HEAD~1`). Por defecto revisa lo que esté pendiente; en post-commit (este flujo lo invoca después de `git commit`) usa `HEAD~1`.
 
 **Fuente canónica corta**: REGLA OBLIGATORIA #3 de `CLAUDE.md`. Este §13 es la versión detallada.
+
+---
+
+## §21 — Design system (identidad visual única)
+
+**Regla**: La identidad visual del producto está codificada en **`panel/assets/design/tokens.css`** (CSS custom properties) + **`panel/assets/design/base.css`** (componentes base). Toda UI **net-new** consume estos archivos vía `<link>` y usa los tokens/clases — **nunca** estilos ad-hoc ni paletas inventadas. Doc completa: `context/11-design-system.md`.
+
+**Por qué**: El realm `/admin` se armó primero con un tema azul (`#3b82f6`) sobre near-black y radius 12px — off-brand respecto al producto (primario indigo `#545ca6`, superficies `#232c32`, radius 2px, Source Sans Pro). El usuario pidió un design system para mantener **la misma visual sin importar el framework**. Los tokens se derivaron del CSS canónico actual (`app.css`/`style.css`), no se inventaron.
+
+**Tokens canónicos** (de `app.css`): primario `#545ca6` (hover `#4b5395`), success `#1ab667`, info/teal `#4cb6cb`, warning `#fad733`, danger `#f05050`, texto `#788188`, links `#545a5f`, bg claro `#f7f7f7`, superficies dark `#232c32`/`#3b464d`/`#5a6a7a`, bordes `#DAE0E3`/`#cbd5dd`, fuente Source Sans Pro 14px, radius 2px. `tokens.css` expone tema light (default) + `.theme-dark`.
+
+**Cómo aplicar**: (1) En cualquier `.html` nuevo, linkear `/assets/design/tokens.css` y `/assets/design/base.css` antes de cualquier `<style>` propio. (2) Usar las clases de `base.css` (`.ds-btn`, `.ds-card`, `.ds-table`, `.ds-pill`, `.ds-input`, `.ds-modal`, etc.) y los `var(--ds-*)`. (3) Si falta un componente, agregarlo a `base.css` (no inline). (4) Para módulos tenant migrados, clonar el markup legacy BS3 sigue siendo válido (ya tiene el visual correcto); el design system es obligatorio donde NO hay markup legacy que clonar. **Primer consumidor**: realm `/admin` (login/home/users).
