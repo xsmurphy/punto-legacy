@@ -3,7 +3,8 @@
  * /bff/orders.php — BFF de órdenes del POS (Slice 7).
  *
  * Reemplaza el dispatch de action.php:
- *   acceptOrder (L1286) — aceptar una orden (status 2 + notificaciones)
+ *   acceptOrder          (L1286) — aceptar una orden (status 2 + notificaciones)
+ *   transferOrderToOutlet (L575) — mover una orden a otro outlet
  *
  * setUserToOrder (L1354) se difirió: escribe transactionDetails (meta jsonb). Va al
  * slice dedicado de meta-JSONB.
@@ -22,19 +23,24 @@ $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
 $opMap = [
-    'acceptOrder' => 'accept',
+    'acceptOrder'           => 'accept',
+    'transferOrderToOutlet' => 'transfer',
 ];
 
 if (!isset($opMap[$action])) {
     bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
-$op = $opMap[$action];
+$op      = $opMap[$action];
+$payload = ['op' => $op];
 
-$payload = [
-    'op'            => $op,
-    'transactionId' => (string) ($get['id'] ?? ''),
-];
+if ($op === 'transfer') {
+    // Legacy: outletFromId = outlet DESTINO; orderId = la orden a mover.
+    $payload['transactionId'] = (string) ($get['orderId'] ?? '');
+    $payload['outletId']      = (string) ($get['outletFromId'] ?? '');
+} else {
+    $payload['transactionId'] = (string) ($get['id'] ?? '');
+}
 
 $res = bffApiPost('v1/orders.php', $payload, '_jwt');
 if (!$res['ok']) {

@@ -2,7 +2,8 @@
 /**
  * /api/v1/orders.php — aceptación de órdenes (Slice 7).
  *
- *   POST op=accept   { transactionId }   → acepta orden (status 2) + notifica cliente
+ *   POST op=accept    { transactionId }              → acepta orden (status 2) + notifica cliente
+ *   POST op=transfer  { transactionId, outletId }    → mueve la orden a otro outlet
  *
  * NOTA — op=assignUser (setUserToOrder) se difirió: escribe transactionDetails, que
  * en PG vive en `meta` (jsonb). Va al slice dedicado de meta-JSONB. Ver OrderService.
@@ -96,5 +97,26 @@ if ($op === 'accept') {
     apiOk(['accepted' => true]);
 }
 
-// --- assignUser -----------------------------------------------------------
+// --- transfer (transferOrderToOutlet) -------------------------------------
+if ($op === 'transfer') {
+    $transactionId  = trim((string) ($_POST['transactionId'] ?? ''));
+    $targetOutletId = trim((string) ($_POST['outletId'] ?? ''));
+    if ($transactionId === '' || $targetOutletId === '') {
+        apiError('Faltan campos requeridos (transactionId, outletId)', 422);
+    }
+
+    $result = $svc->transferToOutlet($transactionId, $targetOutletId, $companyId);
+    if (!$result['ok']) {
+        $map = [
+            'order_not_found'  => ['Orden no encontrada', 404],
+            'outlet_not_found' => ['Outlet no encontrado', 404],
+            'update_failed'    => ['No se pudo transferir la orden', 500],
+        ];
+        [$msg, $code] = $map[$result['reason']] ?? ['No se pudo transferir la orden', 500];
+        apiError($msg, $code);
+    }
+
+    apiOk(['transferred' => true]);
+}
+
 apiError('Operación no reconocida', 400);

@@ -67,4 +67,45 @@ class OrderService
             'invoiceNo'  => $row['invoiceNo']  ?? null,
         ];
     }
+
+    /**
+     * Transfiere una orden a otro outlet (transferOrderToOutlet, action.php L575).
+     * Sólo toca la columna real `outletId` (sin transactionDetails).
+     *
+     * Valida que la orden y el outlet destino existan y pertenezcan al tenant antes
+     * de mover, para no dejar la orden en un outlet inexistente.
+     *
+     * @return array{ok:bool, reason:string|null}
+     *   reason ∈ {null, 'order_not_found', 'outlet_not_found', 'update_failed'}
+     */
+    public function transferToOutlet(string $orderId, string $targetOutletId, string $companyId): array
+    {
+        global $db;
+
+        $order = ncmExecute(
+            'SELECT transactionId FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+            [$orderId, $companyId]
+        );
+        if (!$order) {
+            return ['ok' => false, 'reason' => 'order_not_found'];
+        }
+
+        $outlet = ncmExecute(
+            'SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1',
+            [$targetOutletId, $companyId]
+        );
+        if (!$outlet) {
+            return ['ok' => false, 'reason' => 'outlet_not_found'];
+        }
+
+        $res = $db->Execute(
+            'UPDATE transaction SET outletId = ? WHERE transactionId = ? AND companyId = ?',
+            [$targetOutletId, $orderId, $companyId]
+        );
+        if ($res === false) {
+            return ['ok' => false, 'reason' => 'update_failed'];
+        }
+
+        return ['ok' => true, 'reason' => null];
+    }
 }
