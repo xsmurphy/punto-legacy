@@ -48,8 +48,12 @@ Tema dark (`.theme-dark`): superficies slate del producto (`#232c32` / `#3b464d`
 `.ds-app` (body), `.ds-header` + `.ds-header__brand` + `.ds-header__nav`, `.ds-main`,
 `.ds-toolbar`, `.ds-btn` (+ `--secondary` / `--danger` / `--block`), `.ds-link-btn`
 (+ `--danger`), `.ds-card` (+ `--pad`), `.ds-cards` + `.ds-card-link`, `.ds-table`
-(+ `__empty`) + `.ds-row-actions`, `.ds-pill` (+ `--ok` / `--muted`), `.ds-label` /
-`.ds-input` / `.ds-hint` / `.ds-form-error`, `.ds-overlay` (+ `.is-open`) + `.ds-modal`
+(+ `__empty`) + `.ds-row-actions`, `.ds-pill` (+ `--ok` / `--muted`), `.ds-label` (+ `--strong` = mayúsculas/bold/xs, estilo login) /
+`.ds-input` (boxed; + `--underline` = solo línea inferior, estilo login del producto) /
+`.ds-hint` / `.ds-form-error`,
+`.ds-login` + `.ds-login__aside` (panel oscuro con gradiente animado `ds-grad`) + `.ds-login__main` +
+`.ds-login__form` + `.ds-login__logo` + `.ds-login__brand-tag` (split-screen del login, emula `login.php`),
+`.ds-overlay` (+ `.is-open`) + `.ds-modal`
 + `.ds-modal-actions`, `.ds-auth` + `.ds-auth__card`, `.ds-toast` (+ `.is-show`), `.ds-hidden`.
 
 ### Botones

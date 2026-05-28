@@ -3,34 +3,41 @@
   Login del ADMIN REALM (/admin/login) — estático, standalone (NO carga el shell del tenant @.php).
   Postea a /bff/admin/login.php (que verifica vía API y setea la cookie HttpOnly _jwt_admin).
   Realm separado del tenant: nada de esto toca _jwt_panel.
-  Estilos vía design system (assets/design/*) — ver context/11-design-system.md.
+  Look = login del producto (split-screen, inputs underline, botón teal) vía design system.
+  Admin es email-only → sin selector de código de país. Ver context/11-design-system.md.
 -->
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin · Punto</title>
-  <link rel="stylesheet" href="/assets/design/tokens.css?v=2">
-  <link rel="stylesheet" href="/assets/design/base.css?v=2">
+  <link rel="stylesheet" href="/assets/design/tokens.css?v=3">
+  <link rel="stylesheet" href="/assets/design/base.css?v=3">
 </head>
 <body class="ds-app">
-  <div class="ds-auth">
-    <form class="ds-card ds-card--pad ds-auth__card" id="adminLoginForm" autocomplete="off">
-      <h1 class="ds-h1">Panel de administración</h1>
-      <p class="ds-sub">Acceso de plataforma</p>
+  <div class="ds-login">
+    <aside class="ds-login__aside">
+      <img src="/images/incomelogo.png" height="30" alt="Punto">
+      <div class="ds-login__brand-tag">Tu negocio en tus manos</div>
+    </aside>
 
-      <label class="ds-label" for="email">Email</label>
-      <input class="ds-input" type="email" id="email" name="email" required autocomplete="username">
+    <main class="ds-login__main">
+      <form class="ds-login__form" id="adminLoginForm" autocomplete="off">
+        <img class="ds-login__logo" src="/images/incomeLogoLgDark.png" alt="Punto">
 
-      <label class="ds-label" for="password">Contraseña</label>
-      <input class="ds-input" type="password" id="password" name="password" required autocomplete="current-password">
+        <label class="ds-label--strong" for="email">Email</label>
+        <input class="ds-input ds-input--underline" type="email" id="email" name="email" placeholder="correo@empresa.com" required autocomplete="username">
 
-      <button class="ds-cta ds-block" type="submit" id="submitBtn" data-loading-text="Procesando…" style="margin-top:var(--ds-space-5)">Ingresar</button>
-      <div class="ds-form-error" id="msg" style="text-align:center"></div>
-    </form>
+        <label class="ds-label--strong" for="password">Contraseña</label>
+        <input class="ds-input ds-input--underline" type="password" id="password" name="password" placeholder="••••••" required autocomplete="current-password">
+
+        <button class="ds-cta ds-block" type="submit" id="submitBtn" data-loading-text="Procesando…" style="margin-top:var(--ds-space-6)">Ingresar</button>
+        <div class="ds-form-error" id="msg" style="text-align:center"></div>
+      </form>
+    </main>
   </div>
 
   <script src="/assets/design/ds.js?v=2"></script>
-  <script src="scripts/login.js?v=3"></script>
+  <script src="scripts/login.js?v=4"></script>
 </body>
 </html>

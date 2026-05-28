@@ -239,6 +239,31 @@
 .ds-hint { font-size: var(--ds-fs-sm); color: var(--ds-text-muted); margin-top: var(--ds-space-1); }
 .ds-form-error { color: var(--ds-danger); font-size: var(--ds-fs-sm); margin-top: var(--ds-space-3); min-height: 18px; }
 
+/*
+ * Input underline (estilo del login del producto): sin borde ni fondo, solo
+ * línea inferior. Emula `form-control input-lg no-border no-bg b-b b-light`.
+ */
+.ds-input--underline {
+  height: 45px;
+  padding: 6px 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--ds-border-strong);
+  border-radius: 0;
+  font-size: 18px;
+}
+.ds-input--underline:focus { box-shadow: none; border-bottom-color: var(--ds-info); }
+
+/* Label del login: bloque, mayúsculas, bold, chico (emula `block font-bold text-u-c text-xs`). */
+.ds-label--strong {
+  display: block;
+  text-transform: uppercase;
+  font-weight: var(--ds-fw-bold);
+  font-size: var(--ds-fs-sm);
+  color: var(--ds-text);
+  margin: var(--ds-space-4) 0 var(--ds-space-1);
+}
+
 /* --- Modal / overlay ------------------------------------------------ */
 .ds-overlay {
   position: fixed;
@@ -271,6 +296,45 @@
   padding: var(--ds-space-5);
 }
 .ds-auth__card { max-width: 360px; width: 100%; padding: var(--ds-space-6); }
+
+/*
+ * Login split-screen (estilo del login del producto): panel izq. oscuro con
+ * gradiente animado + logo, panel der. blanco con el form. Emula login.php.
+ */
+.ds-login { display: flex; min-height: 100vh; background: #fff; }
+.ds-login__aside {
+  flex: 0 0 58.33%;            /* col-md-7 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  text-align: center;
+  background: linear-gradient(314deg, #0d1215, #2f3940, #232c32);
+  background-size: 200% 200%;
+  animation: ds-grad 15s ease infinite;
+}
+.ds-login__brand-tag { margin-top: var(--ds-space-3); font-weight: var(--ds-fw-bold); text-transform: uppercase; letter-spacing: .04em; }
+.ds-login__main {
+  flex: 1 1 41.66%;            /* col-md-5 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ds-space-6);
+}
+.ds-login__form { width: 100%; max-width: 320px; }
+.ds-login__logo { display: block; margin: 0 auto var(--ds-space-6); height: 30px; }
+
+@keyframes ds-grad {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@media (max-width: 767px) {
+  .ds-login__aside { display: none; }     /* hidden-xs */
+  .ds-login__main { flex-basis: 100%; }
+}
 
 /* --- Toast ---------------------------------------------------------- */
 .ds-toast {
