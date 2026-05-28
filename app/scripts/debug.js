@@ -9616,7 +9616,7 @@ var ncmNotify = {
                 $notify.toggleClass('hidden');
             }, 100)
             ncmMenu.hideMenu();
-            $.get('/action?l=' + btoa(JSON.stringify(data)), function (result) {
+            $.get('/bff/notifications?l=' + btoa(JSON.stringify(data)), function (result) {
                 var list = ncmNotify.buildNotifyLists(result);
                 if (list) {
                     $notifyList.html(list);
@@ -9629,7 +9629,7 @@ var ncmNotify = {
             $notifyList = $('#newsTab .list-group');
             var displayed = false;
 
-            $.get('/action?l=' + btoa(JSON.stringify(data)), function (result) {
+            $.get('/bff/notifications?l=' + btoa(JSON.stringify(data)), function (result) {
                 var list = ncmNotify.buildNotifyLists(result);
                 if (list) {
                     $notifyList.html(list);
@@ -9648,7 +9648,7 @@ var ncmNotify = {
                 roleId: ncmAuth.activeUser.role,
                 registerId: window.appConfigObj[0].registerId
             }
-            $.get('/action?l=' + btoa(JSON.stringify(data)), function (result) {
+            $.get('/bff/notifications?l=' + btoa(JSON.stringify(data)), function (result) {
                 if (ncmHelpers.valid(result.count) > 0) {
                     $('.notifybtncount').removeClass('hidden').text(result.count);
                 } else {

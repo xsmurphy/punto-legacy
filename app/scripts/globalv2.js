@@ -6786,7 +6786,7 @@ var ncmEvents = {
 
                 ncmSpaces.action('hide');
                 //unreservo la mesa
-                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'unReserveTable', t: index });
+                var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'unReserveTable', t: index });
                 ncmHttp.get({
                     url: url,
                     hideLoader: true
@@ -6975,7 +6975,7 @@ var ncmEvents = {
             focusIt($('#promptInputText'));
             ncmAlerts.prompt(options, function (prompt) {
                 if (ncmHelpers.validity(prompt)) {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'renameTable', t: index, note: prompt });
+                    var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'renameTable', t: index, note: prompt });
                     ncmHttp.getit(url);
                     ncmSpaces.action('show', function () {
                         ncmEvents.a();
@@ -9198,7 +9198,7 @@ var ncmCalendar = {
             if (tis.hasClass('blockedBlock')) {
                 ncmAlerts.alert({ title: "¿Desea desbloquear?" }, function (result) {
                     if (result) {
-                        var url = window.masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'unlockCalendar', lock: id });
+                        var url = window.masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'unlockCalendar', lock: id });
                         tis.remove();
                         ncmHttp.getit(url);
                     }
@@ -9372,7 +9372,7 @@ var ncmCalendar = {
                     var blockStartTime = ncmCalendar.cache[ncmCalendar.currentDate + 'days'].data[index].start;
                     var newDate = moment(blockStartTime, "YYYY-MM-DD H:mm:ss").add(parseFloat($block.height()), 'minutes').format('H:mm:ss');
 
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'updateScheduleTo', id: transId, t: newDate });
+                    var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'updateScheduleTo', id: transId, t: newDate });
                     ncmHttp.get({
                         url: url,
                         hideLoader: true,
@@ -9616,7 +9616,7 @@ var ncmNotify = {
                 $notify.toggleClass('hidden');
             }, 100)
             ncmMenu.hideMenu();
-            $.get('/action?l=' + btoa(JSON.stringify(data)), function (result) {
+            $.get('/bff/notifications?l=' + btoa(JSON.stringify(data)), function (result) {
                 var list = ncmNotify.buildNotifyLists(result);
                 if (list) {
                     $notifyList.html(list);
@@ -9629,7 +9629,7 @@ var ncmNotify = {
             $notifyList = $('#newsTab .list-group');
             var displayed = false;
 
-            $.get('/action?l=' + btoa(JSON.stringify(data)), function (result) {
+            $.get('/bff/notifications?l=' + btoa(JSON.stringify(data)), function (result) {
                 var list = ncmNotify.buildNotifyLists(result);
                 if (list) {
                     $notifyList.html(list);
@@ -9648,7 +9648,7 @@ var ncmNotify = {
                 roleId: ncmAuth.activeUser.role,
                 registerId: window.appConfigObj[0].registerId
             }
-            $.get('/action?l=' + btoa(JSON.stringify(data)), function (result) {
+            $.get('/bff/notifications?l=' + btoa(JSON.stringify(data)), function (result) {
                 if (ncmHelpers.valid(result.count) > 0) {
                     $('.notifybtncount').removeClass('hidden').text(result.count);
                 } else {
@@ -20362,7 +20362,7 @@ var ncmCustomer = {
 
         ncmAlerts.prompt(options, function (prompt) {
             if (ncmHelpers.validity(prompt)) {
-                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerNote', i: id, n: prompt });
+                var url = masterUrl + 'bff/customer_note?l=' + ncmHttp.masterUrlParams({ action: 'customerNote', i: id, n: prompt });
                 ncmHttp.getit(url, function () {
                     ncmAlerts.toast('Nota guardada', 'success');
                 });
@@ -20423,7 +20423,7 @@ var ncmCustomer = {
 
             var modalId = '#modalNarrow';
 
-            var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'customerAddress', id: ncmCustomer.address.customerId });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ load: 'customerAddress', id: ncmCustomer.address.customerId });
 
             if ($(modalId).is(':visible')) {
                 ncmHttp.getit(url, function (result) {
@@ -20477,7 +20477,7 @@ var ncmCustomer = {
 
             ncmCustomer.address.setDefault('Add', ncmCustomer.address.customerId, false, true);
 
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressAdd', i: ncmCustomer.address.customerId, name: name, address: address, location: location, latLng: latLng, city: city });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressAdd', i: ncmCustomer.address.customerId, name: name, address: address, location: location, latLng: latLng, city: city });
             ncmHttp.getit(url, function () {
                 callback && callback();
             }, function () {
@@ -20500,7 +20500,7 @@ var ncmCustomer = {
                 return false;
             }
 
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressUpdate', i: ncmCustomer.address.customerId, id: id, name: name, address: address, location: location, latLng: latLng, city: city });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressUpdate', i: ncmCustomer.address.customerId, id: id, name: name, address: address, location: location, latLng: latLng, city: city });
             ncmHttp.getit(url, function () {
                 callback && callback();
             }, function () {
@@ -20508,7 +20508,7 @@ var ncmCustomer = {
             });
         },
         delete: function (id, callback) {
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressDelete', i: ncmCustomer.address.customerId, id: id });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressDelete', i: ncmCustomer.address.customerId, id: id });
             ncmHttp.getit(url, function () {
                 callback && callback();
             }, function () {
@@ -20551,7 +20551,7 @@ var ncmCustomer = {
 
             ncmStorage.idb.add('customersObj', ncmGlobals.customers, function () {
                 if (!half) {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressSetDefault', i: ncmCustomer.address.customerId, id: id });
+                    var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressSetDefault', i: ncmCustomer.address.customerId, id: id });
                     ncmHttp.getit(url, function () {
                         callback && callback();
                     });
@@ -21357,7 +21357,7 @@ var ncmUser = {
                     } else if (ncmSpaces.userToSpace) {
                         var spaceID = ncmSpaces.userToSpace;
 
-                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'setUserToSpace', id: spaceID, uid: id });
+                        var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'setUserToSpace', id: spaceID, uid: id });
 
                         ncmHttp.get({
                             url: url,
