@@ -161,7 +161,32 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 
 **Slice 5 COMPLETO — customerNote (commit 56afb0c, luego movido en d75dd0b)**: `api/lib/services/CustomerNoteService.add` (INSERT `contactNote`, parametrizado + companyId) + `api/v1/customer_note.php` + `app/bff/customer_note.php` + 1 call-site. E2E OK.
 
-**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser), `ScheduleService`, `CustomerNoteService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
+**Slice 6 COMPLETO — TransactionService (commit 866052b, 2026-05-28)**: `deleteTransaction` + `deleteInPrintServer` + `rejectOrder` (+ sendWS best-effort) + `deleteItemHistory` (markupt2HTML preservado). `api/lib/services/TransactionService.php` + `api/v1/transactions.php` + `app/bff/transactions.php`.
+
+**Slice 7 COMPLETO — OrderService.accept (commits be998d5 + fix 3b81914)**: `acceptOrder` → status 2 + push/WS/email/SMS al cliente. Bug del legacy corregido: enviaba `enc($id)` al WS con `$id` indefinido → se usa `$transactionId`. `setUserToOrder` se **revirtió/difirió** (escribe transactionDetails → meta jsonb).
+
+**Slice 8 COMPLETO — SyncService (commit e85bfdb)**: `chkDeletedItems` + `chkDeletedCustomers` (checks de sync offline). Mejora: `IN(...)` parametrizado (chunked 20000) en vez de traer 50k filas y diffear en PHP. Verificado contra DB real + tenant-isolation.
+
+**Slice 9 COMPLETO — OrderService.transferToOutlet (commit 31e2396)**: `transferOrderToOutlet` → UPDATE outletId con validación de orden+outlet existentes (reasons order_not_found/outlet_not_found/update_failed → 404/500).
+
+**Slice 10 COMPLETO — RegisterService.setSession (commit e8cd12c)**: `setSession` → UPDATE register.sessionId + broadcast WS best-effort. `checkSession` NO portado: dead code (front usa WS bind, no HTTP).
+
+**Slice 11 COMPLETO — TableService.closeTable (commit 22ac0eb)**: `closeTable` → 3 ops (borra mesa type 11 según kind any/customer/table + borra unidas sólo kind=any + finaliza órdenes type 12 a status 4). match column vía `match($kind)` (literal interno, no input).
+
+**Slice 12 COMPLETO — CurrencyService (commit e107bf8)**: `setCurrencies` → lista de monedas extranjeras con tasa (config compute sobre $_fullSettings/$_COUNTRIES_H, sin DB). GET endpoint.
+
+**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable), `ScheduleService`, `CustomerNoteService`, `TransactionService`, `OrderService` (accept/transferToOutlet), `SyncService`, `RegisterService`, `CurrencyService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
+
+### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
+
+Los **handlers limpios están agotados**. Lo restante son clusters con dependencias:
+
+- **Cluster meta-JSONB (8 handlers, ACOPLADO a processData)**: `removeItemfromOrder`, `processOrderItems`, `processOrderItemsUpdate`, `moveOrderItems`, `setUserToOrder`, `updateSchedule`, `scheduleSession`, `checkIfUserOccupied`. Todos leen/escriben `transactionDetails`, que en PG vive dentro de `meta` (jsonb). El **formato de storage lo define `processData`** (el writer principal, un monstruo) → el cluster debe hacerse junto con/después de processData. Tanto action.php COMO load.php tienen esta rotura generalizada (load.php lee `transactionDetails` por doquier). Ver §22.6 de convenciones.
+- **Cluster ENCOM→Punto (7 handlers, necesita análisis KDS)**: `clockIn`, `notifications`, `notificationsCount`, `verifyQRPaymentCode`, `ePOSAddCardTransaction`, `cajaPOSAddCardAndQrTransaction`, `PixAddTransaction`. NO son código muerto — "ENCOM" es el nombre viejo del sistema (ahora "Punto"). Son proxies a `API_ENCOM_URL` (= localhost:8002/API = el propio /app) hacia endpoints internos (set_attendance, get_notifications, add_vpayment, send_webSocket, get_vpayment_verification). El KDS consume varios de estos mismos endpoints → migrarlos a la `/api` compartida requiere mapear ese overlap primero.
+- **Mesa-merge (2 handlers, ROTOS int→UUID)**: `joinSpaces`, `moveOrders` — usan números de mesa (int) contra `transactionParentId` (uuid) / `transactionName` (varchar). Necesitan fix semántico de "unir/mover espacios" con el schema nuevo.
+- **MONSTRUOS (al final, por decisión del usuario)**: `sale` (~525 líneas, renderiza listas HTML), `processData` (~1540 líneas, el guardado de ventas — define el formato de `meta`).
+- **HTML/especial**: `chkGiftCard` (gift cards, devuelve HTML/JSON), `consultStatusElectronicInvoice` (factura electrónica).
+- **DEAD (borrar al vaciar action.php)**: `checkoutScreen` (`return false` al inicio), `checkSession` (front usa WS, no HTTP), `encode` (front no lo llama; enc() es identity → no-op).
 
 ### Migración de panel/API → /api (gradual, pendiente)
 
@@ -171,7 +196,7 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 
 `api/bootstrap.php` actualmente hace `chdir(/app)` y reutiliza los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. Esta dependencia de /app es transitoria; debe eliminarse antes de que /api pueda moverse a su propio server. La tarea: crear `/api/includes/` con los archivos mínimos (db, functions subset, jwt_middleware, response) independientes de /panel y /app.
 
-**Slices pendientes**: los ~37 concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
+**Slices pendientes**: ver "action.php — mapa de lo que queda" arriba (clusters meta-JSONB, ENCOM→Punto, mesa-merge, monstruos, HTML/especial, dead) + los concerns de `load.php` (igualmente con rotura generalizada de `transactionDetails`→`meta`).
 
 ### ✅ RESUELTO (commit f77b47a) — `app/DB.php` sin `Insert_ID()`
 
