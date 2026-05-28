@@ -312,6 +312,25 @@ $valor = $row ? ($row['columna'] ?? $default) : $default;
 
 **Aplica a**: dashboard ✅ (1er fragmento Alpine). Los reportes ya migrados con jQuery+Mustache se reescriben a Alpine cuando se vuelvan a tocar, no de forma preventiva.
 
+### §17.1 — Alpine es más que un reemplazo de Mustache
+
+Alpine no se usa solo para templating; conviene aprovecharlo donde el estado reactivo elimina jQuery propenso a bugs:
+
+- **Formularios CRUD / modales de edición** (items, contacts, settings, editSale): `x-model` (two-way binding) reemplaza el leer/escribir campos a mano. **Mayor ahorro** vs. el patrón actual.
+- **POS (`/app`)**: `Alpine.store()` para el carrito (líneas, totales, medio de pago) — estado compartido reactivo; totales/descuentos se recalculan con getters.
+- **UI**: `x-show`/`x-if` para gates y secciones condicionales, `@click`/`@submit` en vez de `onClickWrap`, `x-transition` para animaciones.
+- **Filtros/búsqueda client-side** en listados (sin re-fetch).
+
+**NO migrar a Alpine (seguir jQuery)**: DataTables (`ncmDataTables`, jQuery-nativo + el bug de `<template>` en `<tbody>`), Chart.js, select2, datetimepicker. Son imperativos; Alpine los **orquesta** (los invoca desde un método), no los reemplaza.
+
+### §17.2 — Frontera de ownership Alpine ↔ jQuery (REGLA)
+
+**Regla**: Alpine y jQuery **nunca** mutan el mismo nodo. Alpine es dueño del **estado reactivo y la visibilidad** (`x-text`/`x-html`/`x-show`/`x-model`/`:attr`); los plugins jQuery (DataTables, select2, Chart.js, datetimepicker) son dueños del **DOM de su widget** y se inicializan imperativamente en `$nextTick`/`mountUI()`, **nunca** sobre nodos que Alpine bindea.
+
+**Por qué**: si ambos tocan el mismo nodo, jQuery muta el DOM y Alpine no se entera (desync), o el próximo render de Alpine pisa lo que hizo jQuery. Ejemplo rozado: `drawSparkline` reescribe el `style` de `#totalIncome` por jQuery — funciona sólo porque ningún `:style` de Alpine bindea ese nodo. Si en el futuro algo bindea ese atributo, se pisan.
+
+**Cómo aplicar**: el canvas/tabla/select que maneja un plugin va en un nodo SIN directivas Alpine (a lo sumo un `x-show` en un wrapper contenedor, no en el nodo del plugin). El método imperativo (drawChart, ncmDataTables, select2Ajax) corre tras el `$nextTick` que sigue a prender el `x-show`.
+
 ---
 
 ## §13 — Flujo commit + push con agentes (REGLA OBLIGATORIA)
