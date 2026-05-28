@@ -132,21 +132,23 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 
 El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher monolítico `action.php`/`load.php` (con ~43+ concerns) se migra concern-por-concern. `action.php`/`load.php` siguen sirviendo los concerns no migrados (migración incremental, no big-bang).
 
-**Slice 1 COMPLETO — `customerAddress` (commit d79cfa4, 2026-05-28)**:
-- Front: 5 call-sites de `ncmCustomer.address.*` en `app/scripts/debug.js` repuntados a `/bff/customer_address?l=` (solo cambia el path; el payload `?l=` base64 es idéntico).
-- BFF: `app/bff/customer_address.php` (decodifica `?l=`, rutea a la API, traduce al shape legacy del front) + `app/bff/lib/api_client.php` (cliente curl, reenvía `_jwt`).
-- API: `app/API/v1/customer_address.php` (JWT-gated, bootstrapea contexto POS) + `app/API/lib/response.php` (envelope canónico de /app).
-- Service: `app/lib/CustomerAddressService.php` (list/add/update/delete/setDefault; tenant-scoped; transacciones atómicas).
-- Verificado E2E (curl, server :8002, JWT real): list/add/update/delete/setDefault OK; default correcto en clear-then-insert; inyección rechazada.
+**IMPORTANTE (commit d75dd0b, 2026-05-28):** Los endpoints y servicios de los 5 slices YA NO viven en `/app/API/v1/` ni en `/app/lib/`. Fueron extraídos a la **API compartida `/api` top-level** (hermano de /panel y /app). Los BFFs de /app apuntan a `/api` vía `PUNTO_API_BASE`.
 
-**Slice 2 COMPLETO — mesas `rename`/`unreserve` (commit e9f694c, 2026-05-28)**:
-- `app/lib/TableService.php` (UPDATE sobre `transaction` type 11, por companyId+outletId+transactionName, parametrizado) + `app/API/v1/tables.php` + `app/bff/tables.php` + 2 call-sites en `debug.js`.
-- Fixes PG del legacy: OUTLET_ID bindeado (UUID sin comillas), `transactionName` (VARCHAR) comparado como string (el legacy comparaba int sin comillas → error de tipos), + scope por companyId.
+**Slice 1 COMPLETO — `customerAddress` (commit d79cfa4, luego movido en d75dd0b)**:
+- Front: 5 call-sites de `ncmCustomer.address.*` en `app/scripts/debug.js` repuntados a `/bff/customer_address?l=` (solo cambia el path; el payload `?l=` base64 es idéntico).
+- BFF: `app/bff/customer_address.php` (decodifica `?l=`, rutea a `/api`, traduce al shape legacy del front) + `app/bff/lib/api_client.php` (cliente curl, reenvía `_jwt`, apunta a `PUNTO_API_BASE`).
+- API: `api/v1/customer_address.php` (JWT-gated vía `apiAuthTenant()`) + `api/lib/response.php` (envelope canónico).
+- Service: `api/lib/services/CustomerAddressService.php` (list/add/update/delete/setDefault; tenant-scoped; transacciones atómicas).
+- Verificado E2E (curl, server :8002→:8000, JWT real): list/add/update/delete/setDefault OK; default correcto en clear-then-insert; inyección rechazada.
+
+**Slice 2 COMPLETO — mesas `rename`/`unreserve` (commit e9f694c, luego movido en d75dd0b)**:
+- `api/lib/services/TableService.php` (UPDATE sobre `transaction` type 11, por companyId+outletId+transactionName, parametrizado) + `api/v1/tables.php` + `app/bff/tables.php` + 2 call-sites en `debug.js`.
+- Fixes PG del legacy: OUTLET_ID bindeado (UUID sin comillas), `transactionName` (VARCHAR) comparado como string, + scope por companyId.
 - Verificado E2E: rename (note) + unreserve (status=1) confirmados en BD.
 
-**Slice 3 COMPLETO — `setUserToSpace` (commit 2b9b437, 2026-05-28)**:
-- `TableService::assignUser` (UPDATE userId type 11, parametrizado + companyId/outletId) + op en `tables.php` + 1 call-site.
-- El push al usuario asignado va **best-effort** (`try/catch \Throwable`): una falla de push (ej. `NCM_SECRET` ausente en el contexto del API) NO rompe la asignación. El legacy llamaba `sendPush` sin guardar → fatal.
+**Slice 3 COMPLETO — `setUserToSpace` (commit 2b9b437, luego movido en d75dd0b)**:
+- `TableService::assignUser` (UPDATE userId type 11, parametrizado + companyId/outletId) + op en `api/v1/tables.php` + 1 call-site.
+- El push al usuario asignado va **best-effort** (`try/catch \Throwable`).
 - Verificado E2E: assign con FK válida → 200; FK inválida rechazada (502).
 
 **Pendiente en mesas/órdenes — DIFERIDOS por estar ROTOS en PG (necesitan fix semántico, no solo port):**
@@ -155,11 +157,19 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 - `closeTable`: **cascada** (borra la mesa + sus órdenes) → slice dedicado con transacción.
 - `moveOrders`/`moveOrderItems`, `transferOrderToOutlet`: mueven órdenes entre mesas/outlets — dominio "órdenes".
 
-**Slice 4 COMPLETO — calendario (commit 1cae3c4, 2026-05-28)**: `ScheduleService` (`rescheduleTo` → UPDATE toDate preservando fromDate; `unlock` → DELETE) + `API/v1/schedule.php` + `bff/schedule.php` + 2 call-sites. Fixes PG: transactionId/companyId bindeados, DELETE sin LIMIT, validación de formato de hora. **Diferidos**: `updateSchedule`/`scheduleSession` (escriben `transactionDetails` → `meta` JSONB).
+**Slice 4 COMPLETO — calendario (commit 1cae3c4, luego movido en d75dd0b)**: `api/lib/services/ScheduleService.php` (`rescheduleTo` → UPDATE toDate preservando fromDate; `unlock` → DELETE) + `api/v1/schedule.php` + `app/bff/schedule.php` + 2 call-sites. Fixes PG: transactionId/companyId bindeados, DELETE sin LIMIT, validación de formato de hora. **Diferidos**: `updateSchedule`/`scheduleSession` (escriben `transactionDetails` → `meta` JSONB).
 
-**Slice 5 COMPLETO — customerNote (commit 56afb0c, 2026-05-28)**: `CustomerNoteService.add` (INSERT `contactNote`, parametrizado + companyId) + `API/v1/customer_note.php` + `bff/customer_note.php` + 1 call-site. E2E OK.
+**Slice 5 COMPLETO — customerNote (commit 56afb0c, luego movido en d75dd0b)**: `api/lib/services/CustomerNoteService.add` (INSERT `contactNote`, parametrizado + companyId) + `api/v1/customer_note.php` + `app/bff/customer_note.php` + 1 call-site. E2E OK.
 
-**Servicios /app creados hasta ahora**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser), `ScheduleService`, `CustomerNoteService`. Plomería: `app/bff/lib/api_client.php` + `app/API/lib/response.php`.
+**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser), `ScheduleService`, `CustomerNoteService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
+
+### Migración de panel/API → /api (gradual, pendiente)
+
+`panel/API/*` (~93 endpoints) permanece en su lugar y funciona. Se migra gradualmente a `/api/v1/` conforme se tocan módulos. No hay timeline definido — se hace concern-por-concern.
+
+### Consolidar /api/includes canónico (deuda transitoria, pendiente)
+
+`api/bootstrap.php` actualmente hace `chdir(/app)` y reutiliza los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. Esta dependencia de /app es transitoria; debe eliminarse antes de que /api pueda moverse a su propio server. La tarea: crear `/api/includes/` con los archivos mínimos (db, functions subset, jwt_middleware, response) independientes de /panel y /app.
 
 **Slices pendientes**: los ~37 concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
 

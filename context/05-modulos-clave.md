@@ -25,12 +25,12 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 
 | Capa | Archivo | Responsabilidad |
 |------|---------|----------------|
-| BFF | `app/bff/customer_address.php` | Decodifica `?l=` base64 (payload existente sin cambios), rutea a la API, traduce al shape legacy del front (`{addresses}` / `{success}`) |
-| BFF lib | `app/bff/lib/api_client.php` | Cliente curl BFF→API; reenvía cookie `_jwt` |
-| API | `app/API/v1/customer_address.php` | Gateado por JWT; bootstrapea contexto POS vía `chdir+head.php+data.php`; envelope canónico |
-| API lib | `app/API/lib/response.php` | `apiOk()`/`apiError()` — envelope canónico (análogo al del panel) |
-| Service | `app/lib/CustomerAddressService.php` | list/add/update/delete/setDefault; tenant-scoped por companyId; transacciones atómicas |
-| Front | `app/scripts/debug.js` | 5 call-sites de `ncmCustomer.address.*` repuntados de `action?l=`/`load?l=` a `/bff/customer_address?l=`; el payload `?l=` base64 no cambia |
+| BFF | `app/bff/customer_address.php` | Decodifica `?l=` base64, rutea a `/api`, traduce al shape legacy del front |
+| BFF lib | `app/bff/lib/api_client.php` | Cliente curl BFF→API compartida (`PUNTO_API_BASE`); reenvía cookie `_jwt` |
+| API | `api/v1/customer_address.php` | Gateado por `apiAuthTenant()`; envelope canónico (movido a /api en d75dd0b) |
+| API lib | `api/lib/response.php` | `apiOk()`/`apiError()` — envelope canónico compartido |
+| Service | `api/lib/services/CustomerAddressService.php` | list/add/update/delete/setDefault; tenant-scoped; transacciones atómicas (movido a /api en d75dd0b) |
+| Front | `app/scripts/debug.js` | 5 call-sites de `ncmCustomer.address.*` repuntados a `/bff/customer_address?l=` |
 
 **Gotcha crítico para TODOS los futuros slices de /app — `app/DB.php` sin `Insert_ID()`**:
 `app/includes/lib/DB.php` (usado por /app) **divergió del panel** y NO tiene el método `Insert_ID()`. Por eso `ncmInsert()` y `ncmUpdate()` son **FATALES en /app** (llaman a `$db->Insert_ID()`). Reglas para slices /app:
@@ -48,20 +48,55 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 - `auth.php` — Login, emite JWT
 - `config.php` — Configuración del tenant para el POS
 - `refresh.php` — Refresh token
-- `v1/customer_address.php` — CRUD de direcciones de cliente (slice 1 migrado)
+- ~~`v1/customer_address.php`~~ — **movido a `/api/v1/customer_address.php` (commit d75dd0b)**
+
+**Nota (2026-05-28):** Los endpoints de los slices de desacople YA NO ESTÁN en `/app/API/v1/`. Fueron movidos a la API compartida `/api/v1/` (commit d75dd0b). `/app/API/` conserva solo `auth.php`, `config.php`, `refresh.php`.
 
 **Archivos clave**:
 - `app/includes/functions.php` — Utilidades (pagos, formateo, roles)
 - `app/includes/jwt.php` — JWT HS256 encode/decode
-- `app/includes/jwt_middleware.php` — Validación de JWT
+- `app/includes/jwt_middleware.php` — Validación de JWT (también usada por `/api/bootstrap.php` vía chdir)
 - `app/includes/ws_publish.php` — Publica eventos a Redis
 - `app/includes/db.postgres.php` — Conexión a PostgreSQL
 - `app/scripts/ncm-ws.js` — Cliente WebSocket
-- `app/lib/CustomerAddressService.php` — Service de direcciones (slice 1)
-- `app/bff/lib/api_client.php` — Cliente HTTP BFF→API (reenvía `_jwt`)
-- `app/API/lib/response.php` — Envelope canónico de /app
+- `app/bff/lib/api_client.php` — Cliente HTTP BFF→API compartida (reenvía `_jwt`; apunta a `PUNTO_API_BASE`)
 
 **Frontend**: Bootstrap 3 + jQuery, service worker para offline.
+
+---
+
+## /api — API compartida (backend único del sistema, añadido 2026-05-28)
+
+**Propósito**: Backend único del sistema. /panel y /app lo consumen como clientes vía HTTP.
+Destinado a correr en un server dedicado separado de /panel y /app.
+
+**Dev server**: `php -S localhost:8000 api/router.php` (port :8000, ver `.claude/launch.json`)
+
+**Superficie pública**: Solo `/v1/*` endpoints. `bootstrap.php`, `lib/` y el router NO son web-accesibles (anti-traversal por realpath confinado a `/api/v1`).
+
+**Auth**: `apiAuthTenant()` en `api/bootstrap.php` — JWT de tenant (cookie `_jwt` | `Authorization: Bearer` | POST `_jwt`; secret `JWT_SECRET`; claim `cid`). El mismo secret/claims que /panel y /app ya validan → una sola API autentica ambos clientes.
+
+**Estructura**:
+
+| Directorio/Archivo | Responsabilidad |
+|-------------------|----------------|
+| `api/router.php` | Dev server router — confina al path `/api/v1/` |
+| `api/bootstrap.php` | Bootstrap + `apiAuthTenant()` — autentica JWT tenant, prepara contexto POS |
+| `api/lib/response.php` | `apiOk()` / `apiError()` — envelope canónico |
+| `api/lib/services/CustomerAddressService.php` | CRUD de direcciones de cliente |
+| `api/lib/services/TableService.php` | rename / unreserve / assignUser de mesas |
+| `api/lib/services/ScheduleService.php` | rescheduleTo / unlock de agendamientos |
+| `api/lib/services/CustomerNoteService.php` | add de notas de cliente |
+| `api/v1/customer_address.php` | Endpoint CRUD customerAddress (slice 1) |
+| `api/v1/tables.php` | Endpoint mesas (slices 2–3) |
+| `api/v1/schedule.php` | Endpoint agendamientos (slice 4) |
+| `api/v1/customer_note.php` | Endpoint notas de cliente (slice 5) |
+
+**Clientes actuales**: `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`). `/panel/bff/*` aún no consume /api (usa panel/API/ in-process); la migración es gradual.
+
+**Deuda transitoria**: `api/bootstrap.php` hace `chdir(/app)` y reusa los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. La consolidación de un `/api/includes` canónico es la tarea pendiente antes de que /api pueda vivir en su propio server.
+
+**REGLA**: Todo nuevo endpoint de desacople (de /app o de /panel) va en `/api/v1/` + `/api/lib/services/`, NO en `/app/API/v1/` (que quedó vacío de slices) ni directo en `panel/API/`.
 
 ---
 

@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-28 — Extracción de la API compartida a /api top-level (commit d75dd0b)
+
+- **Decisión arquitectónica clave (corrección del usuario):** los endpoints de los 5 slices de desacople estaban mal en `/app/API/v1/`. La API no es "parte de /app" — es el **backend único del sistema**, destinado a correr en un server dedicado que /panel y /app consuman remotamente. Se creó `/api` top-level (hermano de /panel y /app).
+- **Qué se movió:** `api/router.php` (dev server :8000, anti-traversal confinado a `/api/v1/`) · `api/bootstrap.php` + `apiAuthTenant()` (JWT tenant: cookie `_jwt` | Bearer | POST; `JWT_SECRET`; claim `cid`) · `api/lib/response.php` · `api/lib/services/{CustomerAddress,Table,Schedule,CustomerNote}Service.php` · `api/v1/{customer_address,tables,schedule,customer_note}.php`. Borrados los viejos `/app/API/v1/*` de los slices.
+- **Clientes:** `app/bff/lib/api_client.php` ahora apunta a `PUNTO_API_BASE` (dev fallback `http://localhost:8000`); los BFFs de /app reenvían cookie `_jwt`. `.claude/launch.json` tiene nuevo server "Punto API (compartida)" en :8000.
+- **Deuda transitoria documentada:** `api/bootstrap.php` hace `chdir(/app)` y reutiliza includes de /app (db/functions/jwt_middleware/head/data) vía rutas absolutas — acoplamiento a /app que impide el split a server dedicado. La consolidación de `/api/includes` canónico queda como tarea gradual (ver `10-roadmap.md § Consolidar /api/includes`).
+- **Vault actualizado:** `02-arquitectura.md` (diagrama + nuevo § API compartida + decisiones) · `05-modulos-clave.md` (nuevo § /api + paths corregidos en slices) · `10-roadmap.md` (paths de slices → /api + tareas de migración gradual) · `06-infraestructura.md` (dev server :8000 + `PUNTO_API_BASE`) · `08-convenciones.md` (nuevo §23 home canónico de endpoints) · `ADR-003` creado.
+- **E2E verificado:** /app BFF (:8002) → /api (:8000) → service → Postgres para customerAddress + customerNote (DB-confirmados); tables/schedule cableados (200); /api sin JWT → 401; traversal → 404.
+
 ## 2026-05-28 — /app desacople slice 1: customerAddress al patrón Front→BFF→API→Service
 
 - **Pivote de sesión**: design system (11-design-system.md) pausado por el usuario; sesión reconducida al desacople del monolito `/app`.

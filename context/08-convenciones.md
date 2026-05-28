@@ -435,6 +435,18 @@ git push                                  ← INMEDIATAMENTE después del commit
 
 ---
 
+## §23 — Home canónico para nuevos endpoints de desacople (establecido 2026-05-28, commit d75dd0b)
+
+**Regla**: Todo endpoint nuevo del desacople (de /app o de /panel) va en `/api/v1/<x>.php` y su service en `/api/lib/services/<x>Service.php`. **NUNCA en `/app/API/v1/`** (quedó vacío de slices tras d75dd0b) ni directo en `panel/API/` (migra gradualmente).
+
+**El BFF cliente** (en `/app/bff/<x>.php` o `/panel/bff/<x>.php`) apunta a la API compartida vía `PUNTO_API_BASE`. Reenviar la cookie `_jwt` al hacer la llamada (ver `app/bff/lib/api_client.php`).
+
+**Auth en /api**: usar `apiAuthTenant()` de `api/bootstrap.php` — valida JWT de tenant (cookie `_jwt` | Bearer | POST, `JWT_SECRET`, claim `cid`). No usar `apiMiddleware()` del panel (es para `_jwt_panel`).
+
+**Por qué**: /api es el backend único del sistema y se moverá a un server dedicado. Poner endpoints en /app o /panel los acopla al módulo cliente, impidiendo el split de servers.
+
+---
+
 ## §22 — Slices de desacople /app (POS): gotchas obligatorios (establecido 2026-05-28)
 
 Al migrar cualquier concern de `app/action.php`/`app/load.php` al patrón Front→BFF→API→Service, aplicar SIEMPRE estas reglas derivadas de slice 1 (`customerAddress`):
@@ -482,9 +494,9 @@ El legacy de /app tenía bugs latentes generalizados que DEBEN corregirse al mig
 | Booleano seteado con `1` (INSERT/UPDATE `flag = 1`) | `flag = true` (o `null` para default) |
 | Escritura sin scope de `companyId` | Agregar `AND companyId = ?` en UPDATE/DELETE siempre |
 
-### §22.4 — Bootstrap del contexto POS en la API de /app
+### §22.4 — Bootstrap del contexto POS en los endpoints de /api
 
-Los endpoints `app/API/v1/` no tienen el contexto global que carga `head.php`/`data.php` en el flujo legacy. El workaround adoptado en slice 1: hacer `chdir(__DIR__ . '/../../..')` y luego `require_once 'head.php'` + `require_once 'data.php'` para bootstrapear el contexto POS (constantes, DB, companyId del JWT) antes de llamar al service.
+Los endpoints en `api/v1/` no tienen el contexto global que carga `head.php`/`data.php` en el flujo legacy. El bootstrap adoptado: `api/bootstrap.php` hace `chdir(/app)` y requiere `head.php` + `data.php` vía rutas absolutas (`API_APP_DIR`). Los endpoints llaman `apiAuthTenant()` (que internamente hace ese bootstrap). Este es el approach transitorio — la deuda es consolidar un `/api/includes` propio (ver `10-roadmap.md § Consolidar /api/includes`).
 
 ---
 

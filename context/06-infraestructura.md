@@ -76,11 +76,20 @@ Archivo: `.env` (no commiteado). Template: `.env.example`
 | `WS_PORT` | Puerto del ws-server (6001) |
 | `REDIS_URL` | URL completa para ioredis (`redis://redis:6379` en Docker) |
 
+### API compartida /api (desde 2026-05-28)
+
+| Variable | Descripción | Ejemplo |
+|----------|-------------|---------|
+| `PUNTO_API_BASE` | URL base de la API compartida; los BFFs de /app y /panel apuntan acá | `http://localhost:8000` (dev) / `https://api.punto.com` (prod) |
+
+**Dirección futura**: la API compartida (`/api`) se moverá a un server dedicado. En ese momento cambiar `PUNTO_API_BASE` en /app y /panel es suficiente — sin cambios de código. Los BFFs de /app ya usan `PUNTO_API_BASE` desde `app/bff/lib/api_client.php`.
+
 ## Desarrollo local
 
 **Servidores PHP** (via `.claude/launch.json`):
-- App: `php -S localhost:8000 router.php` (cwd: /app)
+- App: `php -S localhost:8002 router.php` (cwd: /app)
 - Panel: `php -S localhost:8001 router.php` (cwd: /panel)
+- **API compartida (nueva, commit d75dd0b)**: `PHP_CLI_SERVER_WORKERS=8 php -S localhost:8000 router.php` (cwd: /api) — "Punto API (compartida)" en `launch.json`
 
 **Docker**: `docker compose up -d` levanta PG + Redis + pgAdmin + ws-server
 

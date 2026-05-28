@@ -6,20 +6,29 @@
 ## Vista de 30 segundos
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        BROWSER                               │
-│  ┌──────────┐    ┌──────────┐    ┌──────────────────────┐  │
-│  │  /app    │    │  /panel  │    │  standalone (KDS,CDS) │  │
-│  └────┬─────┘    └────┬─────┘    └──────────┬───────────┘  │
-└───────┼────────────────┼─────────────────────┼──────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                             BROWSER                                   │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────────────┐            │
+│  │  /app    │    │  /panel  │    │  standalone (KDS,CDS) │            │
+│  └────┬─────┘    └────┬─────┘    └──────────┬───────────┘            │
+└───────┼────────────────┼─────────────────────┼────────────────────────┘
         │ HTTP           │ HTTP                │ WebSocket
         ▼                ▼                     ▼
 ┌───────────────┐  ┌───────────────┐  ┌──────────────────┐
 │  PHP /app     │  │  PHP /panel   │  │  ws-server       │
-│  (action.php) │  │  (API/*.php)  │  │  (Node.js:6001)  │
+│  (BFF/action) │  │  (BFF/panel)  │  │  (Node.js:6001)  │
 └───────┬───────┘  └───────┬───────┘  └────────┬─────────┘
-        │                  │                    │
-        ▼                  ▼                    ▼
+        │ HTTP (BFF→API)   │ HTTP (BFF→API)     │
+        └────────┬─────────┘                    │
+                 ▼                              │
+┌────────────────────────────────────┐          │
+│  PHP /api  (API compartida :8000)  │          │
+│  backend ÚNICO del sistema         │          │
+│  (futuro: server dedicado)         │          │
+│  /api/v1/* — superficie pública    │          │
+└────────────────┬───────────────────┘          │
+                 │                              │
+                 ▼                              ▼
 ┌──────────────────────────────────────┐  ┌─────────┐
 │         PostgreSQL 16                 │  │  Redis  │
 │  (puntoDB — multi-tenant por         │  │  7      │
@@ -35,9 +44,15 @@
 
 ## Flujo de datos principal
 
-1. **Request HTTP** → PHP valida JWT (cookie `_jwt` o `_jwt_panel`) → ejecuta lógica → responde JSON
+1. **Request HTTP (patrón BFF)** → Browser → BFF (/app o /panel) → API compartida (/api :8000) → Service → PostgreSQL → responde JSON
 2. **Evento real-time** → PHP `wsPublish()` → Redis PUBLISH → ws-server → broadcast a clientes suscritos
 3. **Facturación electrónica** → PHP → EFATech/TaxPro API → respuesta → guarda en BD
+
+**Flujo BFF 3 capas (canónico desde 2026-05-28):**
+```
+Front (HTML+JS) → BFF (/app/bff/ o /panel/bff/) → /api/v1/* (API compartida) → Service → Postgres
+                   reenvía cookie _jwt               apiAuthTenant()
+```
 
 ## Admin realm — dos realms de autenticación (decisión 2026-05-28)
 
@@ -111,7 +126,8 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 | `app/includes/functions.php` | Duplicado parcial — cambios al panel suelen requerir sync acá |
 | `app/action.php` (143KB) | Dispatcher de ~43+ acciones del POS; se vacía concern-por-concern |
 | `panel/API/lib/api_middleware.php` | Auth de los endpoints migrados del panel |
-| `app/includes/jwt_middleware.php` | Auth de /app (también usada por los nuevos endpoints `/app/API/v1/`) |
+| `app/includes/jwt_middleware.php` | Auth de /app — también usada por el bootstrap de `/api` vía `chdir+require` (transitorio) |
+| `api/bootstrap.php` | Bootstrap de la API compartida; `apiAuthTenant()` — JWT tenant (cookie `_jwt` \| Bearer \| POST, claim `cid`, `JWT_SECRET`) |
 | `ws-server/index.js` | Único archivo del WS |
 
 **Nota /app DB.php (2026-05-28):** `app/includes/lib/DB.php` divergió del panel y **no tiene `Insert_ID()`**. `ncmInsert`/`ncmUpdate` son fatales en /app. Ver `05-modulos-clave.md § Desacople /app` para el patrón de escritura correcto.
@@ -119,11 +135,33 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 **Cross-coupling observado**: muchas funciones de `app/includes/functions.php` llaman
 a funciones de `panel/includes/functions.php`. No son módulos independientes.
 
+## API compartida (/api) — módulo top-level (decisión 2026-05-28)
+
+> Ver [ADR-003-api-compartida-top-level.md](context/adr/ADR-003-api-compartida-top-level.md) si existe, o leer el commit d75dd0b.
+
+**El `/api` es el backend ÚNICO del sistema.** /panel y /app son clientes que lo consumen.
+La API está destinada a moverse a un server dedicado; los BFFs apuntarán a esa URL remota.
+
+| Dimensión | Detalle |
+|-----------|---------|
+| Ubicación | `/api/` — hermano de `/panel` y `/app` |
+| Dev server | `php -S localhost:8000 api/router.php` (port :8000) |
+| Env var cliente | `PUNTO_API_BASE` (BFFs apuntan ahí; dev fallback `http://localhost:8000`) |
+| Superficie pública | Solo `/v1/*` endpoints; `bootstrap.php`, `lib/`, `services/` NO son web-accesibles (anti-traversal vía realpath confinado a `/api/v1`) |
+| Auth | `apiAuthTenant()` en `api/bootstrap.php` — JWT de tenant: cookie `_jwt` \| `Authorization: Bearer` \| POST `_jwt`; secret `JWT_SECRET`; claim `cid`. Mismo secret/claims que /panel y /app ya validan → una API autentica ambos clientes. |
+| Envelope | `apiOk()` / `apiError()` — `api/lib/response.php` (canónico) |
+| Servicios | `api/lib/services/*Service.php` (los 5 slices del desacople de /app) |
+| Endpoints | `api/v1/{customer_address,tables,schedule,customer_note}.php` |
+| Clientes actuales | `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`) |
+
+**Deuda transitoria (documentada):** `api/bootstrap.php` actualmente hace `chdir(/app)` y reusa los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. La consolidación de un `/api/includes` canónico (independiente de /panel y /app) es la migración gradual pendiente antes de que /api pueda moverse a su propio server. También: `panel/API/*` (~93 endpoints) migra gradualmente hacia /api.
+
 ## Comunicación entre módulos
 
 | De → A | Mecanismo | Ejemplo |
 |--------|-----------|---------|
 | Browser → PHP | HTTP (fetch/AJAX) | Login, CRUD, queries |
+| BFF (/app o /panel) → /api | HTTP curl (reenvía cookie `_jwt`) | CRUD de addresses, mesas, agendamientos |
 | PHP → Browser (real-time) | Redis Pub/Sub → ws-server → WebSocket | Orden nueva en KDS |
 | PHP → API externa | HTTP client (curl) | Facturación electrónica, SMS |
 | App ↔ Panel | Comparten BD directamente | Misma PostgreSQL, mismo schema |
@@ -132,7 +170,7 @@ a funciones de `panel/includes/functions.php`. No son módulos independientes.
 
 - **No microservicios** (excepto ws-server) — el monolito funciona y se moderniza in-place
 - **No ORM moderno** — ADOdb es legacy pero funcional; las queries son explícitas
-- **API dentro de panel/** — no se separa en repo aparte (no vale la pena aún)
+- **API compartida en `/api` top-level (2026-05-28)** — hermano de /panel y /app; destinada a correr en un server dedicado que /panel y /app consuman remotamente. Los endpoints nuevos del desacople van en `/api/v1/` + `/api/lib/services/`. `panel/API/*` (~93 endpoints) migra gradualmente a /api.
 - **Agente IA como microservicio Python separado** — no toca el monolito PHP
 
 ## Arquitectura objetivo: BFF de 3 niveles (canónico — decisión 2026-05-26, refinada 2026-05-26)
@@ -273,10 +311,16 @@ El modelo de 3 niveles tiene un **piloto completo verificado E2E** en `a_report_
 ```
 FRONT   panel/reports/<x>.html    (reportes — estático, cero PHP)    +  panel/scripts/<x>.js
         panel/views/<x>.html      (módulos CRUD — estático, cero PHP) +  panel/scripts/<x>.js
-BFF     panel/bff/<area>/<x>.php   → JWT + llama a la API + JSON   (NO BD, NO HTML)
-API     panel/API/v1/<area>/<x>.php  → apiMiddleware + apiOk()/apiError() (envelope) — RAW
-DOMINIO panel/lib/<x>/{Repository,Service}.php  (SQL + reglas de escritura)  — vive con la API
+        app/scripts/<x>.js        (POS — habla solo con el BFF de /app)
+BFF     panel/bff/<area>/<x>.php  → JWT + llama a la API + JSON   (NO BD, NO HTML)
+        app/bff/<x>.php           → decodifica ?l=, reenvía _jwt a /api, traduce al shape legacy
+API     panel/API/v1/<area>/<x>.php  → (legacy panel; migra gradualmente a /api)
+        api/v1/<x>.php              → apiAuthTenant() + apiOk()/apiError() — NUEVO home canónico
+DOMINIO panel/lib/<x>/{Repository,Service}.php  (SQL + reglas panel)
+        api/lib/services/<x>Service.php         (SQL + reglas de los slices /app — NUEVO home canónico)
 ```
+
+**REGLA (desde 2026-05-28):** Los nuevos endpoints del desacople van en `/api/v1/` + `/api/lib/services/`, NO en `/app/API/` (que quedó vacío). Los BFFs de /app consumen `/api`. El `panel/API/` migra gradualmente a `/api`.
 
 **Router (`panel/router.php`) — tres mapas**:
 - `$bffStaticReports` — reportes 100% migrados (front sirve siempre)
