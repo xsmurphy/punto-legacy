@@ -6,10 +6,11 @@
     /bff/settings.php (action=update&type=setting) → company.config (ARREGLA el guardado roto en PG).
   - Selects país/timezone/categoría/separador/idioma: opciones desde /bff/settings.php?view=options.
   - Dropdowns adm (impuestos/plan de cuentas/categorías/etiquetas/medios/bancos): se muestran desde
-    ?view=taxonomies; su CRUD inline + "Ordenar categorías" + "Monedas/Configurar" quedan en el PHP
-    legacy vía /a_settings?action=…|?tableExtra=… (partial — funcionan con la sesión del shell).
-  - Logo: form a upload.php (igual que legacy). Tab "Plantillas de Impresión" + ecommerce/monedas
-    se agregan en el incremento 3.
+    ?view=taxonomies; su CRUD inline + "Ordenar categorías" quedan en el PHP legacy vía
+    /a_settings?action=…|?tableExtra=… (partial — funcionan con la sesión del shell).
+  - Monedas: matriz en #modalTiny con datos del BFF (?view=currencies, save type=currencies) — incr. 3a.
+  - Logo: la URL viene del BFF (general.logo) y el upload va a upload.php?id={companyId} vía
+    logoUpload() (común) — incr. 3b. Tab "Plantillas de Impresión" + ecommerce se agregan luego.
 
   Init determinista §17: sin x-data en el markup; a_settings.js clona el root, le pone x-data,
   Alpine.initTree DETACHED y reinserta; mountUI() corre el setup que toca el DOM (tabs/select2/adm).
@@ -24,7 +25,7 @@
         <input type="file" name="image" id="image" style="display:none"/>
       </form>
       <a href="#" class="m-b" id="uploadImgBtn" data-toggle="tooltip" data-placement="bottom" title="Click para añadir o cambiar el logo">
-        <img :src="logo" class="img-circle itemImg" style="width:60%; max-width: 130px;">
+        <img :src="logo" @error="if (logo.indexOf('add.png') < 0) logo = 'images/add.png'" class="img-circle itemImg" style="width:60%; max-width: 130px;">
       </a>
     </div>
     <div class="col-sm-8 col-xs-12 text-white">
@@ -266,4 +267,4 @@
 
 </div>
 
-<script src="scripts/a_settings.js?v=bff4"></script>
+<script src="scripts/a_settings.js?v=bff5"></script>

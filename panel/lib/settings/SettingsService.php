@@ -32,8 +32,15 @@ class SettingsService
         $obj = json_decode((string) ($r['settingObj'] ?? ''), true);
         if (!is_array($obj)) { $obj = []; }
 
+        // Logo: URL del endpoint de resize (igual patrón que companyLogo()); el front cae a
+        // images/add.png con @error si la empresa aún no subió logo. uploadUrl = destino del POST
+        // multipart a upload.php (que guarda en SYSIMGS_FOLDER/{companyId}.jpg). enc() = identity.
+        $assets = defined('ASSETS_URL') ? rtrim((string) ASSETS_URL, '/') : '/assets';
+
         return [
             // Perfil
+            'logo'            => $assets . '/150-150/0/' . $companyId . '.jpg',
+            'uploadUrl'       => 'upload.php?id=' . $companyId,
             'name'            => (string) ($r['settingName'] ?? ''),
             'address'         => (string) ($r['settingAddress'] ?? ''),
             'email'           => (string) ($r['settingEmail'] ?? ''),

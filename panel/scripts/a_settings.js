@@ -47,6 +47,7 @@
 			options: { countries: [], categories: {}, timezones: [], languages: [], thousandSeparator: [] },
 			tax: { tax: [], transactionCategory: [], tag: [], paymentMethod: [], bankName: [] },
 			logo: '',
+			uploadUrl: '',
 			saving: false,
 			loaded: false,   // recién true cuando `general` cargó: guarda contra save() sobre cfg en blanco
 
@@ -64,9 +65,19 @@
 					self.options = d;
 					self._get('?view=general', function (g) {
 						self.cfg = $.extend(true, blankCfg(), g);
+						self.logo = g.logo || 'images/add.png';
+						self.uploadUrl = g.uploadUrl || '';
+						$('#image').attr('data-url', self.uploadUrl);   // logoUpload() lee data-url al cambiar
 						self.loaded = true;
 					});
 				});
+
+				// Upload de logo: logoUpload() (común) wirea el change de #image → POST multipart a
+				// data-url (upload.php?id={companyId}) y actualiza .itemImg con la imagen guardada.
+				// Es un handler DELEGADO en document sin .off() propio → limpiar antes para no apilar
+				// duplicados si el shell SPA re-monta esta vista sin recargar (POSTs duplicados).
+				$(document).off('change', '#image');
+				if (typeof logoUpload === 'function') { logoUpload(); }
 
 				// Dropdowns adm (jQuery-owned): poblar + wirear el CRUD legacy.
 				TAX_TYPES.forEach(function (t) {
