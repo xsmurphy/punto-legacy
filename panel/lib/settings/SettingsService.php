@@ -1,0 +1,243 @@
+<?php
+/**
+ * Dominio de Ajustes (Settings) — capa API, motor ERP.
+ *
+ *   GET  general   → ajustes de la empresa (perfil + parámetros), CRUDOS
+ *   GET  options   → listas para los selects (países, categorías, timezones, idiomas, separadores)
+ *   GET  taxonomies→ items de taxonomía para los dropdowns adm (tax/category/tag/payment/bank)
+ *   POST general   → guarda los ajustes en company.config JSONB
+ *
+ * FIX PG CRÍTICO: el legacy `a_settings.php?action=update&type=setting` hace
+ * `AutoExecute('setting', …)` pero la tabla `setting` fue ELIMINADA en Phase PG (todo vive en
+ * `company.config` JSONB) → el guardado de ajustes está ROTO en PG. Acá se rutea a `company.config`
+ * vía `ncmUpdate` (que enruta claves desconocidas al JSONB con merge `||` no-destructivo).
+ *
+ * Los flags "extra" (ignoreInternal/stockCountBlind/blockUsedDocNo/autoSendDocs/taxPy/
+ * weightBarcodes/deletedItemsHistory) + las monedas viven en `config.settingObj` (un JSON
+ * anidado). El write hace MERGE no-destructivo de settingObj (preserva currencies y claves
+ * desconocidas) — a diferencia del legacy que hacía `settingObj = json_encode($_POST)` (clobber).
+ *
+ * Tenant: companyId bound en cada query. Datos CRUDOS (el front formatea). Ver REGLA RAÍZ 2.
+ */
+class SettingsService
+{
+    /** Ajustes de la empresa (perfil + parámetros) para el form. */
+    public function general($companyId)
+    {
+        $r = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1", [$companyId]);
+        if (!$r) { return null; }
+
+        $social = json_decode((string) ($r['settingSocialMedia'] ?? ''), true);
+        if (!is_array($social)) { $social = []; }
+        $obj = json_decode((string) ($r['settingObj'] ?? ''), true);
+        if (!is_array($obj)) { $obj = []; }
+
+        return [
+            // Perfil
+            'name'            => (string) ($r['settingName'] ?? ''),
+            'address'         => (string) ($r['settingAddress'] ?? ''),
+            'email'           => (string) ($r['settingEmail'] ?? ''),
+            'billingName'     => (string) ($r['settingBillingName'] ?? ''),
+            'ruc'             => (string) ($r['settingRUC'] ?? ''),
+            'billDetail'      => (string) ($r['settingBillDetail'] ?? ''),
+            'website'         => (string) ($r['settingWebSite'] ?? ''),
+            'social'          => [
+                'facebook'  => (string) ($social['facebook'] ?? ''),
+                'instagram' => (string) ($social['instagram'] ?? ''),
+                'youtube'   => (string) ($social['youtube'] ?? ''),
+                'twitter'   => (string) ($social['twitter'] ?? ''),
+            ],
+            'category'        => (string) ($r['settingCompanyCategoryId'] ?? ''),
+            'phone'           => (string) ($r['settingPhone'] ?? ''),
+            'city'            => (string) ($r['settingCity'] ?? ''),
+            'country'         => (string) ($r['settingCountry'] ?? ''),
+            'language'        => (string) ($r['settingLanguage'] ?? 'es'),
+            'timeZone'        => (string) ($r['settingTimeZone'] ?? ''),
+            // Parámetros (app)
+            'currency'        => (string) ($r['settingCurrency'] ?? ''),
+            'thousandSeparator' => (string) ($r['settingThousandSeparator'] ?? 'dot'),
+            'taxName'         => (string) ($r['settingTaxName'] ?? 'IVA'),
+            'tin'             => (string) ($r['settingTIN'] ?? ''),
+            'itemsSaleLimit'  => (string) ($r['settingItemsSaleLimit'] ?? ''),
+            // Toggles (settingX)
+            'decimal'         => ((string) ($r['settingDecimal'] ?? '') === 'yes'),
+            'sellsoldout'     => ((string) ($r['settingSellSoldOut'] ?? '') === 'yes'),
+            'itemSerialized'  => $this->truthy($r['settingItemSerialized'] ?? null),
+            'drawerEmail'     => $this->truthy($r['settingDrawerEmail'] ?? null),
+            'drawerBlind'     => $this->truthy($r['settingDrawerBlind'] ?? null),
+            'settingRemoveTaxes' => $this->truthy($r['settingRemoveTaxes'] ?? null),
+            'paymentId'       => $this->truthy($r['settingPaymentMethodId'] ?? null),
+            'creditLine'      => $this->truthy($r['settingForceCreditLine'] ?? null),
+            'storeCredit'     => $this->truthy($r['settingStoreCredit'] ?? null),
+            // Toggles (settingObj / _fullSettings)
+            'ignoreInternal'      => $this->truthy($obj['ignoreInternal'] ?? null),
+            'stockCountBlind'     => $this->truthy($obj['stockCountBlind'] ?? null),
+            'blockUsedDocNo'      => $this->truthy($obj['blockUsedDocNo'] ?? null),
+            'autoSendDocs'        => $this->truthy($obj['autoSendDocs'] ?? null),
+            'taxPy'               => $this->truthy($obj['taxPy'] ?? null),
+            'weightBarcodes'      => $this->truthy($obj['weightBarcodes'] ?? null),
+            'deletedItemsHistory' => $this->truthy($obj['deletedItemsHistory'] ?? null),
+        ];
+    }
+
+    /**
+     * Guarda los ajustes en company.config. SCOPEADO por companyId.
+     * @param array $f campos validados (booleans ya como bool, strings limpios). @return bool
+     */
+    public function updateGeneral($companyId, array $f)
+    {
+        // settingObj: leer el blob anidado actual y MERGEAR (preserva currencies + claves desconocidas).
+        // Si la lectura FALLA (null, no [] vacío legítimo), abortar: escribir un settingObj con solo
+        // los 7 flags borraría currencies. [] vacío (company nueva) sí procede.
+        $obj = $this->readSettingObj($companyId);
+        if ($obj === null) {
+            return false;
+        }
+        foreach (['ignoreInternal', 'stockCountBlind', 'blockUsedDocNo', 'autoSendDocs', 'taxPy', 'weightBarcodes', 'deletedItemsHistory'] as $k) {
+            $obj[$k] = !empty($f[$k]) ? 1 : 0;
+        }
+
+        $record = [
+            'settingAddress'           => $f['address'],
+            'settingWebSite'           => $f['website'],
+            'settingEmail'             => $f['email'],
+            'settingRUC'               => $f['ruc'],
+            'settingPhone'             => $f['phone'],
+            'settingCity'              => $f['city'],
+            'settingCountry'           => $f['country'],
+            'settingLanguage'          => $f['language'] !== '' ? $f['language'] : 'es',
+            'settingTimeZone'          => $f['timeZone'],
+            'settingCurrency'          => $f['currency'],
+            'settingTaxName'           => $f['taxName'],
+            'settingBillingName'       => $f['billingName'],
+            'settingTIN'               => $f['tin'],
+            'settingBillDetail'        => $f['billDetail'],
+            'settingCompanyCategoryId' => $f['category'],
+            'settingThousandSeparator' => $f['thousandSeparator'],
+            'settingItemsSaleLimit'    => $f['itemsSaleLimit'],
+            'settingDecimal'           => !empty($f['decimal']) ? 'yes' : 'no',
+            'settingSellSoldOut'       => !empty($f['sellsoldout']) ? 'yes' : 'no',
+            'settingItemSerialized'    => !empty($f['itemSerialized']) ? 1 : 0,
+            'settingDrawerEmail'       => !empty($f['drawerEmail']) ? 1 : 0,
+            'settingDrawerBlind'       => !empty($f['drawerBlind']) ? 1 : 0,
+            'settingRemoveTaxes'       => !empty($f['settingRemoveTaxes']) ? 1 : 0,
+            'settingPaymentMethodId'   => !empty($f['paymentId']) ? 1 : 0,
+            'settingForceCreditLine'   => !empty($f['creditLine']) ? 1 : 0,
+            'settingStoreCredit'       => !empty($f['storeCredit']) ? 1 : 0,
+            'settingSocialMedia'       => json_encode([
+                'facebook'  => $f['social']['facebook'] ?? '',
+                'instagram' => $f['social']['instagram'] ?? '',
+                'youtube'   => $f['social']['youtube'] ?? '',
+                'twitter'   => $f['social']['twitter'] ?? '',
+            ]),
+            'settingObj'               => json_encode($obj),
+        ];
+
+        $res = ncmUpdate([
+            'records'     => $record,
+            'table'       => 'company',
+            'where'       => 'companyId = ?',
+            'whereParams' => [$companyId],
+        ]);
+        return is_array($res) && ($res['error'] === false);
+    }
+
+    /**
+     * Lee el blob settingObj (JSON anidado dentro de config) crudo.
+     * @return array|null  array con el contenido (o [] si la fila no tiene settingObj);
+     *                     NULL si la lectura falló (no hay fila) → el caller debe abortar el write.
+     */
+    private function readSettingObj($companyId)
+    {
+        $r = ncmExecute("SELECT config FROM company WHERE companyId = ? LIMIT 1", [$companyId], false, true);
+        if (!$r || !is_object($r) || $r->EOF) {
+            return null;   // lectura fallida → no arriesgar clobber de currencies
+        }
+        $cfg = $r->fields['config'] ?? null;
+        $cfg = is_array($cfg) ? $cfg : json_decode((string) $cfg, true);
+        $r->Close();
+        if (is_array($cfg) && !empty($cfg['settingObj'])) {
+            $obj = is_array($cfg['settingObj']) ? $cfg['settingObj'] : json_decode((string) $cfg['settingObj'], true);
+            if (is_array($obj)) { return $obj; }
+        }
+        return [];
+    }
+
+    /** Listas para los selects del form. */
+    public function options()
+    {
+        $countries = [];
+        $cFile = __DIR__ . '/../../libraries/countries.php';
+        if (is_file($cFile)) {
+            require $cFile;   // countries.php asigna $countries (no return) en este scope
+        }
+        $countryOpts = [];
+        foreach ((is_array($countries) ? $countries : []) as $code => $v) {
+            $countryOpts[] = ['code' => (string) $code, 'name' => (string) ($v['name'] ?? $code)];
+        }
+
+        $catFile = __DIR__ . '/../../libraries/company_categories.php';
+        $categories = is_file($catFile) ? require $catFile : [];
+
+        return [
+            'countries'         => $countryOpts,
+            'categories'        => $categories,                 // { grupo: { label: code } }
+            'timezones'         => $this->timezones(),          // { region: [ {value,label} ] }
+            'languages'         => [['code' => 'es', 'name' => 'Español'], ['code' => 'en', 'name' => 'English'], ['code' => 'pt', 'name' => 'Portugues']],
+            'thousandSeparator' => [['value' => 'comma', 'name' => 'Coma'], ['value' => 'dot', 'name' => 'Punto']],
+        ];
+    }
+
+    /** Zonas horarias agrupadas por región (sin la hora actual — el front no la necesita). */
+    private function timezones()
+    {
+        $regions = [
+            'America'    => DateTimeZone::AMERICA,
+            'Europe'     => DateTimeZone::EUROPE,
+            'Asia'       => DateTimeZone::ASIA,
+            'Atlantic'   => DateTimeZone::ATLANTIC,
+            'Pacific'    => DateTimeZone::PACIFIC,
+            'Africa'     => DateTimeZone::AFRICA,
+            'Australia'  => DateTimeZone::AUSTRALIA,
+            'Indian'     => DateTimeZone::INDIAN,
+            'Antarctica' => DateTimeZone::ANTARCTICA,
+            'Arctic'     => DateTimeZone::ARCTIC,
+        ];
+        $out = [];
+        foreach ($regions as $name => $mask) {
+            $zones = DateTimeZone::listIdentifiers($mask);
+            $list  = [];
+            foreach ($zones as $tz) {
+                $list[] = ['value' => $tz, 'label' => substr($tz, strlen($name) + 1)];
+            }
+            if ($list) { $out[] = ['region' => $name, 'zones' => $list]; }
+        }
+        return $out;
+    }
+
+    /** Items de una taxonomía de la company (para los dropdowns adm del app tab). */
+    public function taxonomies($companyId, $type)
+    {
+        $res = ncmExecute(
+            "SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = ? AND companyId = ? ORDER BY taxonomyName ASC",
+            [$type, $companyId], false, true
+        );
+        $out = [];
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $out[] = ['id' => (string) $res->fields['taxonomyId'], 'name' => (string) $res->fields['taxonomyName']];
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+        return $out;
+    }
+
+    /** Normaliza un valor PG (1/0, 't'/'f', '1', true, 'yes') a bool. */
+    private function truthy($v)
+    {
+        if (is_bool($v)) { return $v; }
+        $s = strtolower((string) $v);
+        return in_array($s, ['1', 't', 'true', 'yes', 'on'], true) || (is_numeric($s) && (float) $s > 0);
+    }
+}
