@@ -39,6 +39,38 @@
 2. **Evento real-time** → PHP `wsPublish()` → Redis PUBLISH → ws-server → broadcast a clientes suscritos
 3. **Facturación electrónica** → PHP → EFATech/TaxPro API → respuesta → guarda en BD
 
+## Admin realm — dos realms de autenticación (decisión 2026-05-28)
+
+> Ver [adr/ADR-002-admin-realm-separado.md](context/adr/ADR-002-admin-realm-separado.md) para el razonamiento completo.
+
+El sistema tiene **dos realms de autenticación criptográficamente aislados**:
+
+| Dimensión | Realm tenant (panel) | Realm admin (/admin) |
+|-----------|---------------------|---------------------|
+| Ruta de login | `/panel/API/auth.php` | `/admin/login` (F1 — pendiente) |
+| Cookie JWT | `_jwt_panel` | `_jwt_admin` |
+| Secret env | `JWT_SECRET` | `ADMIN_JWT_SECRET` |
+| Claim `aud` | — (no seteado hoy) | `"admin"` |
+| Tabla de usuarios | `contact` (tenant employees) | `admin_user` (plataforma) |
+| Password scheme | sha256 + salt + HASH\_TIMES | bcrypt (`password_hash`) |
+| `companyId` | Siempre presente (scope tenant) | Ausente (admin no pertenece a empresa) |
+| Accede a | Datos de UN tenant | Cross-tenant (todas las companies) |
+
+**Regla de aislamiento (no-negociable):** un `_jwt_panel` de tenant nunca valida en `/admin` y viceversa — secrets, cookies y `aud` distintos garantizan esto. No existe código compartido de validación de JWT entre los dos realms.
+
+### Estado del admin realm (2026-05-28)
+
+- **F0 HECHA (commit 01a8929):** tabla `admin_user` + `bootstrap_seed.php` + vars `.env`. La tabla existe pero nada del runtime actual la usa.
+- **F1–F6 pendientes:** ver `10-roadmap.md § Admin realm`.
+
+### MASTER\_COMPANY\_ID — rol post-F0
+
+`MASTER_COMPANY_ID` (env var) **deja de ser gate de IDENTIDAD** para los super-admins. Su rol futuro es scope de billing/datos de plataforma. El flag `SAAS_ADM` + el redirect de `@.php:11` (que hoy gatean como "super-admin = empresa MASTER") **siguen intactos hasta F4**, que los desacopla. No tocar esa lógica hasta entonces.
+
+### Realm franchiser — NO es /admin
+
+El franchiser (`panel/franchiser.php`, gateado por `isParent`) es un **realm tenant** que opera sobre `/` (el mismo panel), no sobre `/admin`. Un franquiciador es un tenant con acceso cross-tenant acotado a sus hijos (via `franchiser_to_tenant`). No mezclar con el admin realm de plataforma.
+
 ## Patrones arquitectónicos
 
 | Patrón | Dónde |

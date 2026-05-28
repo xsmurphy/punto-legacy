@@ -101,6 +101,34 @@ Ver [adr/ADR-001-franchiser-tenant-acceso.md](adr/ADR-001-franchiser-tenant-acce
 - El `ON DELETE CASCADE` aplica solo a esta tabla de *relación* (borrar una company quita sus
   links de acceso) — no contradice el invariante #4, que es sobre datos de tenant (soft-delete).
 
+### Tabla `admin_user` — super-admins de plataforma (admin realm)
+
+Ver [adr/ADR-002-admin-realm-separado.md](adr/ADR-002-admin-realm-separado.md) para el razonamiento completo.
+
+Creada en **migración 09** (`09_admin_user.sql`, 2026-05-28). Es la base del *admin realm*: los super-admins de plataforma dejan de ser un tenant especial (flag `SAAS_ADM` sobre `MASTER_COMPANY_ID`) y pasan a tener identidad propia en esta tabla.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `adminId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `email` | TEXT NOT NULL | único case-insensitive (índice sobre `lower(email)`) |
+| `passwordHash` | TEXT NOT NULL | bcrypt (`password_hash` / `PASSWORD_DEFAULT`) — **distinto** al sha256+salt+HASH\_TIMES de la tabla `contact` |
+| `name` | TEXT NOT NULL | default `''` |
+| `status` | SMALLINT NOT NULL | 1 activo, 0 desactivado (soft-disable — no borrar físicamente para auditoría) |
+| `createdBy` | UUID NULL | self-FK → `admin_user(adminId) ON DELETE SET NULL` — auditoría de quién creó a quién |
+| `lastLoginAt` | TIMESTAMPTZ NULL | — |
+| `created_at` / `updated_at` | TIMESTAMPTZ | — |
+
+**CHECKs:** `length(trim(email)) > 0` + `status IN (0, 1)`.
+**Índices:** `idx_admin_user_email` UNIQUE sobre `lower(email)` + `idx_admin_user_status`.
+
+**Invariantes clave:**
+- `admin_user` **no tiene `companyId`**: un admin de plataforma no pertenece a ninguna empresa.
+- El password usa bcrypt — no el esquema sha256+salt+HASH\_TIMES que usan los users de tenant en `contact`. No son intercambiables.
+- El admin inicial se siembra desde `.env` vía `panel/admin/bootstrap_seed.php` (CLI idempotente — no-op si ya existe, no pisa password cambiado).
+- Env vars: `ADMIN_BOOTSTRAP_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD`, `ADMIN_JWT_SECRET`, `ADMIN_JWT_TTL`.
+
+**Qué NO hace esta tabla todavía (F0):** el login `/admin`, el BFF, el CRUD de admins y la auth JWT del realm están en fases F1–F2 (ver `10-roadmap.md § Admin realm`).
+
 ### Extensiones PostgreSQL activas
 
 - `pgcrypto` — gen_random_uuid()
@@ -120,5 +148,6 @@ Ver [adr/ADR-001-franchiser-tenant-acceso.md](adr/ADR-001-franchiser-tenant-acce
 | 06 | `06_contact_jsonb_demote.sql` | Demota 6 columnas de `contact` a `contact.data` JSONB | Aplicada local 2026-05-25 |
 | 07 | `07_item_jsonb_demote.sql` | Demota 4 columnas de `item` a `item.data` JSONB (itemImage/itemTaxExcluded/itemDiscount/itemUOM) | Aplicada local 2026-05-25 |
 | 08 | `08_franchiser_to_tenant.sql` | Crea tabla puente de acceso N→N franquiciador→tenant + backfill desde `company.parentId` | Aplicada local 2026-05-26 |
+| 09 | `09_admin_user.sql` | Crea tabla `admin_user` para super-admins de plataforma (admin realm separado, bcrypt, sin companyId) | Aplicada local 2026-05-28 |
 
 **Patrón atómico de demotion:** backfill UPDATE no-destructivo (NULLIF para no inflar con defaults; booleans como JSON booleans, no strings) + DROP atómico en el mismo script. Requiere ser owner de la tabla en PG (el usuario `punto` de la app no lo es — ver `06-infraestructura.md §Privilegio de owner para DDL`).

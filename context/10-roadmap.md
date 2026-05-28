@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-05-27
+> **Última actualización:** 2026-05-28
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -91,6 +91,35 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 **Esfuerzo total**: ~12-15 horas (sin B5)
 
 **Riesgos**: Estos endpoints son API pública para integraciones externas. Cualquier cambio de comportamiento puede romper apps cliente. Mitigar: tests con curl + payloads ejemplo antes/después.
+
+---
+
+## Admin realm — super-admins de plataforma separados (iniciado 2026-05-28)
+
+**Decisión**: los super-admins de plataforma dejan de ser un "tenant especial" (flag `SAAS_ADM` sobre `MASTER_COMPANY_ID`) y pasan a ser usuarios propios en `admin_user`, con login en `/admin` y JWT criptográficamente separado del realm tenant. Ver [ADR-002](context/adr/ADR-002-admin-realm-separado.md) y `02-arquitectura.md § Admin realm`.
+
+**Dos realms aislados:** `_jwt_panel` (tenant, `JWT_SECRET`) nunca valida en `/admin`; `_jwt_admin` (`ADMIN_JWT_SECRET`, `aud:"admin"`) nunca valida en el panel tenant. Secrets + cookies + audience distintos.
+
+**Login de tenant:** los tenants mantienen su login pero por **TELÉFONO** (no email). `findEmailOrPhoneLogin` ya tiene el branch de phone. El login de tenant NO se depreca, solo cambia el identificador.
+
+**Franchiser:** sigue como realm tenant (`/panel/franchiser.php`, gateado por `isParent`) — NO va a `/admin`.
+
+### Plan de fases (6 fases, no big-bang — cada una deployable)
+
+| Fase | Qué | Estado |
+|------|-----|--------|
+| **F0** | Tabla `admin_user` (migración 09) + `bootstrap_seed.php` (CLI idempotente, bcrypt) + vars `.env` (`ADMIN_JWT_SECRET/TTL`, `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`). Verificado E2E en DB local. | ✅ HECHA (commit 01a8929, 2026-05-28) |
+| **F1** | Auth del realm `/admin`: login email+pass, JWT propio (`_jwt_admin`, `aud:"admin"`), `adminMiddleware`, `login.html` estático + BFF, rate-limit. | Pendiente |
+| **F2** | CRUD de admins en `/admin` (modelo BFF 3 capas). No permitir desactivar el último admin activo. | Pendiente |
+| **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | Pendiente |
+| **F4** | ⚠️ RIESGO ALTO — desacoplar `SAAS_ADM`/`MASTER_COMPANY_ID` del panel tenant (quitar redirect `@.php:11`, limpiar `config.php`). Va ÚLTIMO porque rompe el gate de identidad legacy. | Pendiente |
+| **F5** | Login de tenant por teléfono (no email) — independiente de F1–F4. | Pendiente |
+| **F6** | Decommission de `main.php` como admin + hardening + verificar aislamiento de realms E2E. | Pendiente |
+
+**Notas técnicas F0:**
+- `admin_user`: UUID PK, email único case-insensitive (`lower(email)`), `passwordHash` bcrypt, `status` 1/0, `createdBy` self-FK, `lastLoginAt`, timestamps. Sin `companyId`.
+- `bootstrap_seed.php`: CLI-only (`PHP_SAPI === 'cli'`), no loguea el password, no-op si el admin ya existe.
+- `MASTER_COMPANY_ID` **no es más gate de identidad** post-F4, pero sigue intacto hasta entonces. No tocar el redirect de `@.php:11` ni `SAAS_ADM` hasta F4.
 
 ---
 

@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-28 — Admin realm F0 + a_settings COMPLETO + ENCOM→MASTER rename + módulos/functions PG fixes
+
+- **Admin realm — F0 (commit 01a8929):** decisión de arquitectura confirmada: los super-admins de plataforma pasan a tabla propia `admin_user` (bcrypt, sin companyId, email único case-insensitive). Creada `database/migrations/postgres/09_admin_user.sql` + `panel/admin/bootstrap_seed.php` (CLI idempotente, no loguea password, no-op si ya existe). Vars `.env.example` actualizadas (`ADMIN_JWT_SECRET/TTL`, `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`). Verificado E2E en DB local: migración aplica, seed crea admin ($2y$ bcrypt), re-corrida = no-op. Ver `ADR-002` + `02-arquitectura.md § Admin realm` + `10-roadmap.md § Admin realm`.
+- **Dos realms criptográficamente aislados (decisión):** `_jwt_panel` (tenants, `JWT_SECRET`) ≠ `_jwt_admin` (admins, `ADMIN_JWT_SECRET`, `aud:"admin"`). Ningún JWT cruza realms. Franchiser = realm tenant (no /admin). Login de tenant: pasa a **teléfono** (no email) en F5. `MASTER_COMPANY_ID` deja de ser gate de identidad en F4 (intacto hasta entonces — no tocar `@.php:11`).
+- **ENCOM→MASTER rename + fixes PG en `a_modules` y `functions`** (sesión previa al commit F0): renombrado `ENCOM_COMPANY_ID` → `MASTER_COMPANY_ID` en toda la base de código. Fixes PG en `a_modules` (queries con schema viejo) y en `panel/includes/functions.php` (boolean comparisons, columnas demotadas). Detalles exactos en los commits intermedios de la sesión.
+- **`a_settings` — migración COMPLETA (commits 1d8fd03..63435b0):** ver entry siguiente para detalle. HITO: 2º módulo CRUD del panel completo en el modelo BFF/Alpine.
+
 ## 2026-05-28 — `a_settings` (Ajustes): migración COMPLETA al BFF de 3 capas (incr. 3a–3d)
 
 - **Hecho — incr. 3a (commit `1d8fd03`)**: Monedas (`currencies`) al BFF. `SettingsService.currencies()/updateCurrencies()` sobre `config.settingObj.currencies`. API `view=currencies` + POST `type=currencies`. Front: matriz de monedas en `#modalTiny` (Alpine). FIX PG adicional: el save legacy interpolaba `companyId` sin comillas → corregido.
