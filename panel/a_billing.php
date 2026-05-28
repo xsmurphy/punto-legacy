@@ -66,7 +66,7 @@ if(validateHttp('action') == 'addPayment'){
         $record['customerId']       = ENCOM_UID;
         $record['userId']           = INCOME_USER_ID;
         $record['outletId']         = INCOME_OUTLET_ID;
-        $record['companyId']        = ENCOM_COMPANY_ID;
+        $record['companyId']        = MASTER_COMPANY_ID;
 
         $record['transactionNote']  = COMPANY_NAME . ' plan seleccionado desde su propio panel de control';
         
@@ -337,18 +337,18 @@ if(validateHttp('action') == 'makePayment'){
 //veo si debe
 $totalC  = ncmExecute(' SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, STRING_AGG(transactionId::text, \',\') as ids 
                         FROM transaction 
-                        WHERE companyId = ' . ENCOM_COMPANY_ID . '
+                        WHERE companyId = ' . MASTER_COMPANY_ID . '
                         AND customerId IN(' . ENCOM_UID . ')
                         AND transactionType = 3 AND transactionStatus = 1', []);
 
 $payedC  = ncmExecute(' SELECT SUM(transactionTotal) as payed 
                         FROM transaction 
-                        WHERE companyId = ' . ENCOM_COMPANY_ID . '
+                        WHERE companyId = ' . MASTER_COMPANY_ID . '
                         AND customerId IN(' . ENCOM_UID . ')
                         AND transactionType = 5', []);
 
 //obtengo su credito a favor
-$balance  = ncmExecute(' SELECT contactStoreCredit FROM contact WHERE companyId = ' . ENCOM_COMPANY_ID . ' AND contactId IN(' . ENCOM_UID . ')', []);
+$balance  = ncmExecute(' SELECT contactStoreCredit FROM contact WHERE companyId = ' . MASTER_COMPANY_ID . ' AND contactId IN(' . ENCOM_UID . ')', []);
 
 $BALANCE        = formatCurrentNumber($balance['contactStoreCredit']);
 
@@ -488,7 +488,7 @@ $deudaTotal     = ($deudaTotal < 0.01) ? '0.00' : $deudaTotal;
 
         <tbody>
           <?php
-          $result = ncmExecute("SELECT * FROM transaction WHERE companyId = " . ENCOM_COMPANY_ID . " AND customerId IN(" . ENCOM_UID . ") AND transactionType IN(0,3) AND transactionStatus = 1 ORDER BY transactionDate DESC",[],false,true);
+          $result = ncmExecute("SELECT * FROM transaction WHERE companyId = " . MASTER_COMPANY_ID . " AND customerId IN(" . ENCOM_UID . ") AND transactionType IN(0,3) AND transactionStatus = 1 ORDER BY transactionDate DESC",[],false,true);
 
           $expires = false;
           if($result){

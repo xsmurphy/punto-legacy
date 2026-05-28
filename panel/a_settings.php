@@ -278,7 +278,7 @@ if(validateHttp('action') == 'sortCategories' || (!empty($_POST['action']) && $_
       if($val['id']){
         $sort = (int)$val['sort'];
         $id   = dec($val['id']);
-        ncmUpdate(['records' => ['taxonomyExtra' => $sort], 'table' => 'taxonomy', 'where' => 'taxonomyId = ' . $id . ' AND companyId = ' . COMPANY_ID ]);
+        ncmUpdate(['records' => ['taxonomyExtra' => $sort], 'table' => 'taxonomy', 'where' => "taxonomyId = '" . $id . "' AND companyId = '" . COMPANY_ID . "'" ]);
       }
     }
 
@@ -325,7 +325,7 @@ if(validateHttp('action') == 'setCurrencies'){
 
     $_fullSettings['currencies'] = $updt;
     $settUpdt = json_encode($_fullSettings);
-    ncmUpdate(['records' => ['settingObj' => $settUpdt], 'table' => 'company', 'where' => 'companyId = ' . COMPANY_ID ]);
+    ncmUpdate(['records' => ['settingObj' => $settUpdt], 'table' => 'company', 'where' => "companyId = '" . COMPANY_ID . "'" ]);
 
     dai();
   }

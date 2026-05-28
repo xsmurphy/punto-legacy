@@ -8,7 +8,7 @@ include_once("languages/" . LANGUAGE . ".php");
 include_once("includes/functions.php");
 theErrorHandler(); //error handler
 
-if (SAAS_ADM && COMPANY_ID == ENCOM_COMPANY_ID) {
+if (SAAS_ADM && COMPANY_ID == MASTER_COMPANY_ID) {
 	echo '<script>window.location.replace("/main")</script>';
 	dai();
 }

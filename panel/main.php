@@ -9,7 +9,7 @@ include_once("includes/functions.php");
 include_once("libraries/countries.php");
 theErrorHandler(); //error handler
 
-if (COMPANY_ID != ENCOM_COMPANY_ID) {
+if (COMPANY_ID != MASTER_COMPANY_ID) {
   header('location:/login');
   dai();
 }

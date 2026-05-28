@@ -91,7 +91,7 @@ if(validateHttp('recovery')){
 				$meta['data']    = [
 				                    "message"     => 'Su nueva contraseña es <strong>' . $newPass . '</strong>, una vez que haya ingresado a su cuenta vuelva a cambiarla ingresando a Contactos > Usuarios',
 				                    "companyname" => APP_NAME,
-				                    "companylogo" => '/assets/150-150/0/' . enc(ENCOM_COMPANY_ID) . '.jpg'
+				                    "companylogo" => '/assets/150-150/0/' . enc(MASTER_COMPANY_ID) . '.jpg'
 				                	];
 
 				$sent = sendEmails($meta);

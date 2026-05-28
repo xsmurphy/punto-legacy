@@ -51,7 +51,7 @@ if (validateHttp('action') == 'addPayment') {
         $record['customerId']       = ENCOM_UID;
         $record['userId']           = INCOME_USER_ID;
         $record['outletId']         = INCOME_OUTLET_ID;
-        $record['companyId']        = ENCOM_COMPANY_ID;
+        $record['companyId']        = MASTER_COMPANY_ID;
 
         $record['transactionNote']  = COMPANY_NAME . ' plan seleccionado desde su propio panel de control';
 
@@ -320,13 +320,13 @@ if (validateBool('action') == 'makePayment') {
 // //veo si debe
 // $totalC  = ncmExecute(' SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, GROUP_CONCAT(transactionId) as ids 
 //                         FROM transaction 
-//                         WHERE companyId = ' . ENCOM_COMPANY_ID . '
+//                         WHERE companyId = ' . MASTER_COMPANY_ID . '
 //                         AND customerId IN(' . ENCOM_UID . ')
 //                         AND transactionType = 3 AND transactionStatus = 1', []);
 
 // $payedC  = ncmExecute(' SELECT SUM(transactionTotal) as payed 
 //                         FROM transaction 
-//                         WHERE companyId = ' . ENCOM_COMPANY_ID . '
+//                         WHERE companyId = ' . MASTER_COMPANY_ID . '
 //                         AND customerId IN(' . ENCOM_UID . ')
 //                         AND transactionType = 5', []);
 

@@ -25,7 +25,6 @@ if(validateHttp('action') == 'update'){
 
 	$record 				= [];
 	$record[$field] 		= $value;
-	$record['companyId'] 	= COMPANY_ID;
 
 	$exists = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
 
@@ -40,13 +39,11 @@ if(validateHttp('action') == 'update'){
 							]);
 
 
-	$db->AutoExecute('module', ['moduleData' => json_encode($__modules)], 'UPDATE', 'companyId = ' . COMPANY_ID);
+	ncmUpdate(['table' => 'company', 'records' => ['moduleData' => json_encode($__modules)], 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 
-	if($exists){
-		$add = $db->AutoExecute('module', $record, 'UPDATE', 'companyId = ' . COMPANY_ID);
-	}else{
-		$add = $db->AutoExecute('module', $record, 'INSERT');
-	}
+	// La fila de company siempre existe → siempre UPDATE (config JSONB). La tabla `module` ya no
+	// existe en PG; el flag individual ($field) se rutea a company.config vía ncmUpdate.
+	$add = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 
 	if($add !== false){
 		dai('true');
@@ -72,7 +69,7 @@ if(validateHttp('action') == 'loyalty'){
 								'min' 				=> formatNumberToInsertDB(validateHttp('loyaltyMin'))
 								]);
 
-	$update = $db->AutoExecute('module', $record, 'UPDATE', 'companyId = ' . COMPANY_ID);
+	$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 	dai();
 }
 
@@ -81,7 +78,7 @@ if(validateHttp('action') == 'tablesCount'){
 
 	if(validateHttp('count')){
 		$record['tablesCount'] 	= intval(validateHttp('count'));
-		$update = $db->AutoExecute('module', $record, 'UPDATE', 'companyId = ' . COMPANY_ID);
+		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 	}
 	
 	dai();
@@ -101,7 +98,7 @@ if(validateHttp('action') == 'mcal'){
 											  	]
 							]);
 
-	$update = ncmUpdate(['table' => 'company', 'records' => ['moduleData' => json_encode($__modules)], 'where' => 'companyId = ' . COMPANY_ID]);
+	$update = ncmUpdate(['table' => 'company', 'records' => ['moduleData' => json_encode($__modules)], 'where' => "companyId = '" . COMPANY_ID . "'"]);
 	
 	dai();
 }
@@ -111,7 +108,7 @@ if(validateHttp('action') == 'orderAverageTime'){
 
 	if(validateHttp('count')){
 		$record['orderAverageTime'] 	= intval(validateHttp('count'));
-		$update = $db->AutoExecute('module', $record, 'UPDATE', 'companyId = ' . COMPANY_ID);
+		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 	}
 	
 	dai();
@@ -122,7 +119,7 @@ if(validateHttp('action') == 'feedbackQuestion'){
 
 	if(validateHttp('text')){
 		$record['feedbackQuestion'] 	= validateHttp('text');
-		$update = $db->AutoExecute('module', $record, 'UPDATE', 'companyId = ' . COMPANY_ID);
+		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 	}
 	
 	dai();
@@ -133,7 +130,7 @@ if(validateHttp('action') == 'spotify'){
 
 	if(validateHttp('spotifyUrl')){
 		$record['spotifyUrl'] 	= validateHttp('spotifyUrl');
-		$update = $db->AutoExecute('module', $record, 'UPDATE', 'companyId = ' . COMPANY_ID);
+		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 	}
 	
 	dai();
@@ -143,14 +140,14 @@ if(validateHttp('action') == 'digitalInvoice'){
 	$record 				= [];
 
 	if(validateHttp('template')){
-		$old 					= ncmExecute('SELECT digitalInvoiceData FROM company WHERE COMPANY_ID = ?',[COMPANY_ID]);
+		$old 					= ncmExecute("SELECT config->>'digitalInvoiceData' AS digitalInvoiceData FROM company WHERE companyId = ?",[COMPANY_ID]);
 		$data 					= json_decode($old['digitalInvoiceData'],true);
 		$text 					= substr(validateHttp('template'),0,200);
 		$text 					= markupt2HTML(['text' => $text, 'type' => 'HtM']);
 		$data['template'] 		= $text;
 
 		$record['digitalInvoiceData'] 	= json_encode($data);
-		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ' . COMPANY_ID]);
+		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => "companyId = '" . COMPANY_ID . "'"]);
 	}
 	
 	dai();
@@ -171,7 +168,7 @@ if(validateHttp('action') == 'crm'){
 			$__modules[] = ['crm' => ['crmDontAutoSendDocsToCustomer' => $data['crmDontAutoSendDocsToCustomer']]];
 		}
 				
-		$update = ncmUpdate(['table' => 'company', 'records' => ['moduleData' => json_encode($__modules)], 'where' => 'companyId = ' . COMPANY_ID]);
+		$update = ncmUpdate(['table' => 'company', 'records' => ['moduleData' => json_encode($__modules)], 'where' => "companyId = '" . COMPANY_ID . "'"]);
 
 		if($update !== false){
 			jsonDieResult(['success'=>'updated']);
@@ -188,7 +185,7 @@ if(validateHttp('action') == 'ecom'){
 
 	if(validateHttp('ecomSet','post')){
 		$record['ecom_data'] 	= validateHttp('ecomSet','post');
-		$update = $db->AutoExecute('module', $record, 'UPDATE', 'companyId = ' . COMPANY_ID);
+		$update = ncmUpdate(['table' => 'company', 'records' => $record, 'where' => 'companyId = ?', 'whereParams' => [COMPANY_ID]]);
 
 		if($update !== false){
 			jsonDieResult(['success'=>'updated']);

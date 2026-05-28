@@ -4226,9 +4226,9 @@ function selectInputUser($match = '', $multi = false, $class = '', $name = 'user
 {
 	global $db;
 
-	$sql = 'SELECT contactId, contactRealId, contactName FROM contact WHERE type = 0 AND companyId = ' . COMPANY_ID;
+	$sql = 'SELECT contactId, contactRealId, contactName FROM contact WHERE type = 0 AND companyId = ?';
 
-	$result = ncmExecute($sql, [], $cache, true);
+	$result = ncmExecute($sql, [COMPANY_ID], $cache, true);
 
 	if ($multi) {
 		$name = $name . '[]';

@@ -684,7 +684,7 @@ if(validateHttp('action') == 'form'){
 
 					<?php
 					if($isCustomer){
-						if(ENCOM_COMPANY_ID == COMPANY_ID){
+						if(MASTER_COMPANY_ID == COMPANY_ID){
 					?>
 						<div class="m-b-xs">
 							<i class="material-icons md-14 m-r-sm">person</i> 

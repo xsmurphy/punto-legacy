@@ -20,7 +20,7 @@ die('Email enviado a drahgster@gmail.com');
 
 //empresas que su fecha de vencimiento sea igual o menor que hoy, si el dia de prueba no exitosa es igual a la fecha de vencimiento + 5 dias, rebajoj al free, anulo la venta
 
-$result = ncmExecute("SELECT * FROM transaction WHERE transactionDueDate <= ? AND transactionType = 3 AND transactionComplete = 0 AND companyId = ?", [date('Y-m-d 23:00:00'),ENCOM_COMPANY_ID], false, true);
+$result = ncmExecute("SELECT * FROM transaction WHERE transactionDueDate <= ? AND transactionType = 3 AND transactionComplete = 0 AND companyId = ?", [date('Y-m-d 23:00:00'),MASTER_COMPANY_ID], false, true);
 
 $expires 	= [];
 $email 		= [];
