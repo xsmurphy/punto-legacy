@@ -143,7 +143,17 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 - `app/lib/TableService.php` (UPDATE sobre `transaction` type 11, por companyId+outletId+transactionName, parametrizado) + `app/API/v1/tables.php` + `app/bff/tables.php` + 2 call-sites en `debug.js`.
 - Fixes PG del legacy: OUTLET_ID bindeado (UUID sin comillas), `transactionName` (VARCHAR) comparado como string (el legacy comparaba int sin comillas → error de tipos), + scope por companyId.
 - Verificado E2E: rename (note) + unreserve (status=1) confirmados en BD.
-- **Pendiente en mesas** (slice futuro): `closeTable` (cascada), `moveOrders`/`moveOrderItems`, `joinSpaces`, `setUserToSpace`/`setUserToOrder`, `transferOrderToOutlet`.
+
+**Slice 3 COMPLETO — `setUserToSpace` (commit 2b9b437, 2026-05-28)**:
+- `TableService::assignUser` (UPDATE userId type 11, parametrizado + companyId/outletId) + op en `tables.php` + 1 call-site.
+- El push al usuario asignado va **best-effort** (`try/catch \Throwable`): una falla de push (ej. `NCM_SECRET` ausente en el contexto del API) NO rompe la asignación. El legacy llamaba `sendPush` sin guardar → fatal.
+- Verificado E2E: assign con FK válida → 200; FK inválida rechazada (502).
+
+**Pendiente en mesas/órdenes — DIFERIDOS por estar ROTOS en PG (necesitan fix semántico, no solo port):**
+- `joinSpaces`: escribe un número de mesa (int) en `transactionParentId`, que es **UUID FK** → hay que resolver el `transactionId` de la mesa destino primero. Entender la semántica de "unir espacios" antes de migrar.
+- `setUserToOrder`: reescribe `transactionDetails`, columna **absorbida a `meta` JSONB** (ya no existe como columna) → requiere `jsonb_set` sobre `meta`. Va en un slice de "órdenes" (type 12) con el manejo correcto de `meta`.
+- `closeTable`: **cascada** (borra la mesa + sus órdenes) → slice dedicado con transacción.
+- `moveOrders`/`moveOrderItems`, `transferOrderToOutlet`: mueven órdenes entre mesas/outlets — dominio "órdenes".
 
 **Slices pendientes**: los ~40 concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
 
