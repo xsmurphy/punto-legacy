@@ -139,7 +139,13 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 - Service: `app/lib/CustomerAddressService.php` (list/add/update/delete/setDefault; tenant-scoped; transacciones atómicas).
 - Verificado E2E (curl, server :8002, JWT real): list/add/update/delete/setDefault OK; default correcto en clear-then-insert; inyección rechazada.
 
-**Slices pendientes**: los ~42+ concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
+**Slice 2 COMPLETO — mesas `rename`/`unreserve` (commit e9f694c, 2026-05-28)**:
+- `app/lib/TableService.php` (UPDATE sobre `transaction` type 11, por companyId+outletId+transactionName, parametrizado) + `app/API/v1/tables.php` + `app/bff/tables.php` + 2 call-sites en `debug.js`.
+- Fixes PG del legacy: OUTLET_ID bindeado (UUID sin comillas), `transactionName` (VARCHAR) comparado como string (el legacy comparaba int sin comillas → error de tipos), + scope por companyId.
+- Verificado E2E: rename (note) + unreserve (status=1) confirmados en BD.
+- **Pendiente en mesas** (slice futuro): `closeTable` (cascada), `moveOrders`/`moveOrderItems`, `joinSpaces`, `setUserToSpace`/`setUserToOrder`, `transferOrderToOutlet`.
+
+**Slices pendientes**: los ~40 concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
 
 ### ✅ RESUELTO (commit f77b47a) — `app/DB.php` sin `Insert_ID()`
 
