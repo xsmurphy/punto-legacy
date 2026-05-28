@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 10) — Dashboard front: templating migrado de Mustache → Alpine (1er fragmento Alpine)
+
+- **`dashboard.html` + `a_report_dashboard.js` refactorizados** (commit `a7790f9`): bindings Mustache+jQuery reemplazados por Alpine (`x-text`/`x-html`/`x-show`/`x-for`/:src/:style) sobre el componente `dashboard()`. Charts Chart.js siguen imperativos (canvas por id, instancias trackeadas + destroy en re-fetch). Diseño visual idéntico.
+- **Receta de init determinista documentada en convenciones §17**: el markup NO trae `x-data` → el script clona `#dashboardRoot`, le pone `x-data`, hace `Alpine.initTree` DETACHED (evita doble-fire del MutationObserver), reinserta y ejecuta `mountUI()` para date-picker/tooltips. Sin esta receta, Alpine procesa el nodo antes de que el script module esté listo.
+- **Footgun `<template>` en `<tbody>` documentado**: el parser foster-parentea las `<tr>` fuera del `<tbody>` → Top 5 Artículos usa `x-html` + `esc()` en vez de `x-for` dentro de `<tbody>`.
+- **Gates de módulo** se resetean en `loadAll()` para evitar datos viejos en un re-fetch sin datos. Verificado E2E: render idéntico, filas escapadas, date-picker, sin errores de consola.
+
 ## 2026-05-27 (cont. 9) — npm vendoring (17 libs) + Dashboard del panel FRONT migrado (16º módulo BFF, completa el dashboard)
 
 - **Vendoring npm batch** (commits `310662a`/`78c9930`): 17 libs de `assets/vendor/js/` gestionadas por `package.json` con versiones EXACTAS pineadas. `vendor-sync.sh` copia desde `node_modules/` y verifica byte-identidad (`--check`). El bundle servido no cambia. `03-stack.md` ya actualizado.
