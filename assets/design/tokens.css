@@ -17,7 +17,9 @@
 
   --ds-success:          #1ab667;
   --ds-success-hover:    #17a05a;
-  --ds-info:             #4cb6cb;   /* teal */
+  --ds-info:             #4cb6cb;   /* teal — color de CTA "clásico" del producto */
+  --ds-info-hover:       #39adc4;
+  --ds-on-info:          #ffffff;
   --ds-warning:          #fad733;
   --ds-danger:           #f05050;
   --ds-danger-hover:     #e23d3d;

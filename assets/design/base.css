@@ -86,6 +86,57 @@
 .ds-btn--danger { background: var(--ds-danger); color: var(--ds-on-danger); }
 .ds-btn--danger:hover { background: var(--ds-danger-hover); }
 
+.ds-btn--info { background: var(--ds-info); color: var(--ds-on-info); }
+.ds-btn--info:hover { background: var(--ds-info-hover); }
+.ds-btn--success { background: var(--ds-success); color: #fff; }
+.ds-btn--success:hover { background: var(--ds-success-hover); }
+
+/* Modificadores de forma/tamaño (emulan btn-rounded / btn-lg / text-u-c del legacy) */
+.ds-btn--rounded { border-radius: var(--ds-radius-pill); padding-left: 15px; padding-right: 15px; }
+.ds-btn--lg { height: auto; padding: 10px 25px; font-size: 18px; }
+.ds-btn--uppercase { text-transform: uppercase; font-weight: var(--ds-fw-bold); letter-spacing: .02em; }
+.ds-btn--block, .ds-block { display: flex; width: 100%; }
+
+/*
+ * .ds-cta — botón "clásico" del producto en UNA clase. Reproduce exacto el chain
+ * legacy `btn btn-info btn-rounded btn-lg text-u-c font-bold` (teal pill, mayúsculas,
+ * grande). Para ancho completo agregar .ds-block. Ver context/11-design-system.md.
+ */
+.ds-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  padding: 10px 25px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-info);
+  color: var(--ds-on-info);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: var(--ds-fw-bold);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: background var(--ds-transition);
+}
+.ds-cta:hover { background: var(--ds-info-hover); }
+.ds-cta:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ds-focus-ring); }
+.ds-cta:disabled, .ds-btn:disabled { opacity: .65; cursor: not-allowed; }
+
+/* Estado de carga: aplicado por ds.js (data-loading-text). Spinner antes del texto. */
+.ds-cta.is-loading, .ds-btn.is-loading { cursor: progress; }
+.ds-cta.is-loading::before, .ds-btn.is-loading::before {
+  content: "";
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ds-spin .6s linear infinite;
+}
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+
 /* Acción inline tipo link (filas de tabla) */
 .ds-link-btn {
   background: none;

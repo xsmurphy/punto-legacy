@@ -20,6 +20,7 @@ inventaron — el objetivo es preservar el look existente, no rediseñar.
 |---------|--------|
 | `panel/assets/design/tokens.css` | CSS custom properties (`--ds-*`): paleta, tipografía, spacing, radios, sombras. Tema light (default) + `.theme-dark`. |
 | `panel/assets/design/base.css` | Componentes con prefijo `.ds-*` que consumen los tokens. |
+| `panel/assets/design/ds.js` | Comportamiento (vanilla, sin deps): estado de carga de botones vía `data-loading-text`. |
 
 Servidos en `/assets/design/tokens.css` y `/assets/design/base.css`.
 
@@ -50,6 +51,37 @@ Tema dark (`.theme-dark`): superficies slate del producto (`#232c32` / `#3b464d`
 (+ `__empty`) + `.ds-row-actions`, `.ds-pill` (+ `--ok` / `--muted`), `.ds-label` /
 `.ds-input` / `.ds-hint` / `.ds-form-error`, `.ds-overlay` (+ `.is-open`) + `.ds-modal`
 + `.ds-modal-actions`, `.ds-auth` + `.ds-auth__card`, `.ds-toast` (+ `.is-show`), `.ds-hidden`.
+
+### Botones
+
+- **`.ds-btn`** — botón estándar (indigo). Variantes de color: `--secondary`, `--danger`,
+  `--info` (teal), `--success`. Modificadores: `--lg`, `--rounded`, `--uppercase`, `--block`.
+- **`.ds-cta`** — el botón "clásico" del producto en **UNA clase**: teal pill, mayúsculas,
+  bold, grande. Reproduce exacto el chain legacy `btn btn-info btn-rounded btn-lg text-u-c font-bold`.
+  Para ancho completo, sumar `.ds-block`.
+
+  ```html
+  <!-- antes (Bootstrap) -->
+  <button class="btn btn-info btn-rounded btn-lg btn-block text-u-c font-bold">Ingresar</button>
+  <!-- ahora (design system) -->
+  <button class="ds-cta ds-block">Ingresar</button>
+  ```
+
+### Estado de carga (loading)
+
+`ds.js` da estado de carga declarativo: poné `data-loading-text` en un botón submit y
+al enviar su form se deshabilita, muestra un spinner (`::before`) y cambia el texto.
+
+- **Form con navegación clásica (POST)**: no hay que hacer nada más.
+- **Flujo fetch (no navega)**: resetear en el `.then`/`.catch` con `window.dsBtn.reset(btn)`
+  (en éxito que navega, no hace falta). API: `window.dsBtn.start(btn)` / `.reset(btn)`.
+
+  ```html
+  <button class="ds-cta" data-loading-text="Procesando…">Ingresar</button>
+  <script src="/assets/design/ds.js"></script>
+  ```
+
+  Primer uso: `admin/login.html` + `scripts/login.js` (resetea en credenciales inválidas).
 
 ## Regla de uso
 
