@@ -296,6 +296,24 @@ $valor = $row ? ($row['columna'] ?? $default) : $default;
 
 ---
 
+## §17 — Migración de fragmentos a Alpine (reemplazo de Mustache)
+
+**Regla**: Al migrar/tocar el front de un módulo, su templating se hace en **Alpine** (no Mustache). "Reusar el HTML" = mantener el resultado VISUAL idéntico (mismas clases BS3/cards/charts), NO la plomería de templating. Migrar Alpine en el momento de tocar el archivo (evita doble trabajo). Charts Chart.js quedan **imperativos** (Alpine no dibuja canvas); Alpine cubre lo declarativo (text/cards/tablas/show-hide).
+
+**Receta de init determinista** (crítica — el shell inyecta el fragmento lazy y el `<script>` del módulo carga DESPUÉS de que el MutationObserver de Alpine ya "visitó" el subtree):
+1. El markup del fragmento **NO** declara `x-data` (evita la carrera observer-vs-script).
+2. El `<script>` define `window.<componente> = function(){...}` y en `$(ready)`: **clonar** `#root` a un nodo fresco (los expandos internos `_x_` no se clonan), `setAttribute('x-data','<componente>()')`, `Alpine.initTree(fresh)` **mientras está DETACHED**, luego `replaceChild` (el observer saltea el nodo ya marcado → init exactamente 1×), y por último `Alpine.$data(fresh).mountUI()`.
+3. **`init()` (que Alpine llama solo) NUNCA toca el DOM del documento** (corre detached) — date-picker, tooltips y demás setup que requiere el nodo en el documento van en `mountUI()`.
+
+**Footguns**:
+- **`<template x-for>`/`x-if` directo dentro de `<tbody>`**: el parser HTML foster-parentea las filas fuera del `<template>` al inyectar por innerHTML → filas fantasma. Solución: hidratar el `<tbody x-html="filas()">` con un método que arma el string (escapar SIEMPRE el dato de BD con un `esc()` local — XSS).
+- **Charts**: dibujar en `$nextTick` después de prender el `x-show` (el canvas necesita estar visible/dimensionado), trackear instancias y `destroy()` antes de redibujar (date re-fetch).
+- **Gates de módulo** (`showX`): resetear a `false` al inicio de `loadAll()` y revelar sólo al traer datos — si no, un re-fetch sin datos deja visible el dato viejo.
+
+**Aplica a**: dashboard ✅ (1er fragmento Alpine). Los reportes ya migrados con jQuery+Mustache se reescriben a Alpine cuando se vuelvan a tocar, no de forma preventiva.
+
+---
+
 ## §13 — Flujo commit + push con agentes (REGLA OBLIGATORIA)
 
 **Regla**: Toda corrección o mejora pasa por el flujo `edit → code-reviewer → commit → context-updater → push`. El push es inmediato, no se acumulan commits locales.
