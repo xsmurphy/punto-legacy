@@ -5,6 +5,7 @@
  *   POST op=rename         { tableName, note }
  *   POST op=unreserve      { tableName }
  *   POST op=setUserToSpace { tableName, userId }
+ *   POST op=closeTable     { kind, del }   (kind: any|customer|table)
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }.
  */
@@ -20,8 +21,23 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
 }
 
-$svc       = new TableService();
-$op        = (string) ($_POST['op'] ?? '');
+$svc = new TableService();
+$op  = (string) ($_POST['op'] ?? '');
+
+// closeTable no usa tableName (matchea por kind/del) → se maneja antes del check.
+if ($op === 'closeTable') {
+    $kind = (string) ($_POST['kind'] ?? 'table');
+    $del  = trim((string) ($_POST['del'] ?? ''));
+    if ($del === '') {
+        apiError('Falta del', 422);
+    }
+    $res = $svc->closeTable($companyId, $outletId, $kind, $del);
+    if (empty($res['ok'])) {
+        apiError('No se pudo cerrar la mesa', 500);
+    }
+    apiOk($res);
+}
+
 $tableName = trim((string) ($_POST['tableName'] ?? ''));
 
 if ($tableName === '') {

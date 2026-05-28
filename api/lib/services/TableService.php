@@ -17,6 +17,7 @@
 class TableService
 {
     const TYPE_TABLE = 11;
+    const TYPE_ORDER = 12;
 
     /** Renombra (setea la nota visible) de una mesa. */
     public function rename(string $companyId, string $outletId, string $tableName, string $note): array
@@ -52,5 +53,60 @@ class TableService
             [$userId, $companyId, $outletId, self::TYPE_TABLE, $tableName]
         );
         return ['ok' => $res !== false];
+    }
+
+    /**
+     * Cierra una mesa/espacio (closeTable, action.php L225). Tres operaciones:
+     *   1. Borra la mesa abierta (type 11) que matchea $del según $kind.
+     *   2. Borra mesas unidas (type 11 con transactionParentId = $del) — SÓLO kind='any'
+     *      (donde $del es un transactionId/uuid). El legacy lo corría para todos los kinds,
+     *      pero el efecto neto es idéntico restringiéndolo a 'any':
+     *        - kind='customer': $del (uuid) vs columna uuid → type-válido pero matchea 0 filas
+     *          (un customerId nunca es FK de transactionParentId).
+     *        - kind='table': $del (nombre varchar) vs columna uuid → type-error PG → no-op.
+     *      Restringir a 'any' borra exactamente las mismas filas, sin el error PG.
+     *   3. Finaliza las órdenes asociadas (type 12) → transactionStatus = 4.
+     *
+     * El handler legacy devuelve success incondicionalmente (ignora los resultados de los
+     * DELETE), así que esta función también retorna ok=true salvo error duro de conexión.
+     *
+     * @param string $kind 'any' (transactionId) | 'customer' (customerId) | 'table' (transactionName)
+     * @param string $del  el identificador a matchear, según $kind.
+     */
+    public function closeTable(string $companyId, string $outletId, string $kind, string $del): array
+    {
+        global $db;
+
+        // Columna de match según kind (literal interno, no input → seguro interpolar).
+        $matchCol = match ($kind) {
+            'any'      => 'transactionId',
+            'customer' => 'customerId',
+            default    => 'transactionName', // 'table'
+        };
+
+        // 1. Borrar la mesa abierta (type 11).
+        $db->Execute(
+            "DELETE FROM transaction
+              WHERE transactionType = ? AND $matchCol = ? AND outletId = ? AND companyId = ?",
+            [self::TYPE_TABLE, $del, $outletId, $companyId]
+        );
+
+        // 2. Borrar mesas unidas — sólo cuando $del es un transactionId (kind='any').
+        if ($kind === 'any') {
+            $db->Execute(
+                'DELETE FROM transaction
+                  WHERE transactionType = ? AND transactionParentId = ? AND outletId = ? AND companyId = ?',
+                [self::TYPE_TABLE, $del, $outletId, $companyId]
+            );
+        }
+
+        // 3. Finalizar las órdenes asociadas (type 12) → status 4.
+        $db->Execute(
+            "UPDATE transaction SET transactionStatus = 4, updated_at = ?
+              WHERE $matchCol = ? AND transactionType = ? AND outletId = ? AND companyId = ?",
+            [TODAY, $del, self::TYPE_ORDER, $outletId, $companyId]
+        );
+
+        return ['ok' => true];
     }
 }
