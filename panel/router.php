@@ -115,6 +115,7 @@ if (isset($bffPartialModules[$path]) && empty($_GET['action'])) {
 $adminStatic = [
     '/admin'       => '/admin/home.html',
     '/admin/login' => '/admin/login.html',
+    '/admin/users' => '/admin/users.html',
 ];
 if (isset($adminStatic[$path])) {
     $htmlFile = __DIR__ . $adminStatic[$path];

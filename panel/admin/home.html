@@ -20,6 +20,12 @@
     .who { color:var(--muted); font-size:.85rem; }
     button { padding:.45rem .9rem; border:0; border-radius:8px; background:#334155; color:var(--fg); cursor:pointer; font-size:.85rem; }
     main { padding:2rem 1.5rem; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1rem; max-width:720px; }
+    .card { display:block; padding:1.25rem; background:var(--card); border:1px solid #334155; border-radius:12px;
+            color:var(--fg); text-decoration:none; }
+    .card:hover { border-color:var(--accent); }
+    .card h3 { margin:0 0 .35rem; font-size:1rem; }
+    .card p { margin:0; color:var(--muted); font-size:.82rem; }
     .hidden { display:none; }
   </style>
 </head>
@@ -33,7 +39,12 @@
       </span>
     </header>
     <main>
-      <p>Sesión admin activa. (F1) — acá se montan el CRUD de admins (F2) y la gestión de companies/billing (F3).</p>
+      <div class="cards">
+        <a class="card" href="/admin/users">
+          <h3>Administradores</h3>
+          <p>Crear, editar y activar/desactivar super-admins de la plataforma.</p>
+        </a>
+      </div>
     </main>
   </div>
 
