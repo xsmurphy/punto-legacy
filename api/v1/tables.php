@@ -2,12 +2,13 @@
 /**
  * /api/v1/tables.php — mesas/espacios del POS (API compartida del sistema).
  *
- *   POST op=rename         { tableName, note }
- *   POST op=unreserve      { tableName }
- *   POST op=setUserToSpace { tableName, userId }
- *   POST op=closeTable     { kind, del }   (kind: any|customer|table)
+ *   PUT    ?tableName=<n>                      { note }   → renombra (nota)
+ *   PUT    ?tableName=<n>&resource=reservation            → libera reserva (status 1)
+ *   PUT    ?tableName=<n>&resource=user        { userId } → asigna usuario al espacio
+ *   DELETE ?kind=<any|customer|table>&del=<v>             → cierra la mesa
  *
- * Auth: JWT de tenant. Envelope canónico { ok, data }.
+ * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7) — la mesa se
+ * identifica por ?tableName= (no es un UUID, es el nro/nombre de mesa).
  */
 
 require_once dirname(__DIR__) . '/bootstrap.php';
@@ -17,17 +18,14 @@ $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-    apiError('Método no permitido', 405);
-}
+$svc      = new TableService();
+$method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$resource = (string) ($_GET['resource'] ?? '');
 
-$svc = new TableService();
-$op  = (string) ($_POST['op'] ?? '');
-
-// closeTable no usa tableName (matchea por kind/del) → se maneja antes del check.
-if ($op === 'closeTable') {
-    $kind = (string) ($_POST['kind'] ?? 'table');
-    $del  = trim((string) ($_POST['del'] ?? ''));
+// --- DELETE: cerrar mesa (matchea por kind/del, no por tableName) ---------
+if ($method === 'DELETE') {
+    $kind = (string) ($_GET['kind'] ?? 'table');
+    $del  = trim((string) ($_GET['del'] ?? ''));
     if ($del === '') {
         apiError('Falta del', 422);
     }
@@ -38,20 +36,23 @@ if ($op === 'closeTable') {
     apiOk($res);
 }
 
-$tableName = trim((string) ($_POST['tableName'] ?? ''));
+if ($method !== 'PUT') {
+    apiError('Método no permitido', 405);
+}
 
+$tableName = trim((string) ($_GET['tableName'] ?? ''));
 if ($tableName === '') {
     apiError('Falta tableName', 422);
 }
 
-switch ($op) {
-    case 'rename':
+switch ($resource) {
+    case '': // rename (nota)
         $res = $svc->rename($companyId, $outletId, $tableName, (string) ($_POST['note'] ?? ''));
         break;
-    case 'unreserve':
+    case 'reservation': // liberar reserva
         $res = $svc->unreserve($companyId, $outletId, $tableName);
         break;
-    case 'setUserToSpace':
+    case 'user': // asignar usuario
         $assignUserId = trim((string) ($_POST['userId'] ?? ''));
         if ($assignUserId === '') {
             apiError('Falta userId', 422);
@@ -76,7 +77,7 @@ switch ($op) {
         }
         break;
     default:
-        apiError('Operación no soportada', 400);
+        apiError('Sub-recurso no soportado', 400);
 }
 
 if (empty($res['ok'])) {

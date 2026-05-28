@@ -20,44 +20,31 @@ if (empty($_COOKIE['_jwt'])) {
 
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
+$id     = (string) ($get['id'] ?? '');
+$ep     = 'v1/transactions.php';
 
-// Mapa de action.php → op en /api/v1/transactions.php
-$opMap = [
-    'deleteTransaction'   => 'delete',
-    'deleteInPrintServer' => 'deletePrintJob',
-    'rejectOrder'         => 'reject',
-    'deleteItemHistory'   => 'recordItemDeletion',
-];
-
-if (!isset($opMap[$action])) {
-    bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
+// action.php → verbo REST (§22.7)
+switch ($action) {
+    case 'deleteTransaction':   // DELETE ?id=
+        $res = bffApiDelete($ep, ['id' => $id], [], '_jwt');
+        break;
+    case 'deleteInPrintServer': // DELETE ?id=&resource=printjob
+        $res = bffApiDelete($ep, ['id' => $id, 'resource' => 'printjob'], [], '_jwt');
+        break;
+    case 'rejectOrder':         // PUT ?id=&resource=reject { motive }
+        $body = !empty($get['motive']) ? ['motive' => (string) $get['motive']] : [];
+        $res  = bffApiPut($ep, ['id' => $id, 'resource' => 'reject'], $body, '_jwt');
+        break;
+    case 'deleteItemHistory':   // POST ?resource=itemDeletion { itemId, motive }
+        $res = bffApiPost($ep . '?resource=itemDeletion', [
+            'itemId' => $id,
+            'motive' => (string) ($get['motive'] ?? ''),
+        ], '_jwt');
+        break;
+    default:
+        bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
-$op = $opMap[$action];
-
-// Construir payload según operación
-$payload = ['op' => $op];
-
-switch ($op) {
-    case 'delete':
-    case 'deletePrintJob':
-        $payload['transactionId'] = (string) ($get['id'] ?? '');
-        break;
-
-    case 'reject':
-        $payload['transactionId'] = (string) ($get['id'] ?? '');
-        if (!empty($get['motive'])) {
-            $payload['motive'] = (string) $get['motive'];
-        }
-        break;
-
-    case 'recordItemDeletion':
-        $payload['itemId']  = (string) ($get['id'] ?? '');
-        $payload['motive']  = (string) ($get['motive'] ?? '');
-        break;
-}
-
-$res = bffApiPost('v1/transactions.php', $payload, '_jwt');
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

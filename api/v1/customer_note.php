@@ -2,9 +2,9 @@
 /**
  * /api/v1/customer_note.php — notas de cliente (API compartida del sistema).
  *
- *   POST op=add { customerId, text }
+ *   POST { customerId, text }  → crea una nota
  *
- * Auth: JWT de tenant. Envelope canónico { ok, data }.
+ * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
  */
 
 require_once dirname(__DIR__) . '/bootstrap.php';
@@ -17,13 +17,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
 }
 
-$op         = (string) ($_POST['op'] ?? '');
 $customerId = trim((string) ($_POST['customerId'] ?? ''));
 $text       = (string) ($_POST['text'] ?? '');
 
-if ($op !== 'add') {
-    apiError('Operación no soportada', 400);
-}
 if ($customerId === '' || trim($text) === '') {
     apiError('Faltan customerId/text', 422);
 }

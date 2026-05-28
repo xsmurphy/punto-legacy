@@ -2,12 +2,12 @@
 /**
  * /api/v1/transactions.php — operaciones sobre transacciones/órdenes (Slice 6).
  *
- *   POST op=delete           { transactionId }       → elimina la transacción
- *   POST op=deletePrintJob   { transactionId }       → elimina de la cola de impresión
- *   POST op=reject           { transactionId[, motive] } → rechaza orden (status 6)
- *   POST op=recordItemDeletion { itemId, motive }    → inserta en itemDeleted
+ *   DELETE ?id=<txId>                      → elimina la transacción
+ *   DELETE ?id=<txId>&resource=printjob    → elimina de la cola de impresión
+ *   PUT    ?id=<txId>&resource=reject { motive } → rechaza orden (status 6) + WS
+ *   POST   ?resource=itemDeletion { itemId, motive } → inserta en itemDeleted
  *
- * Auth: JWT de tenant. Envelope canónico { ok, data }.
+ * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
  * Side-effects (sendWS, updateLastTimeEdit) van aquí, no en el Service.
  */
 
@@ -20,48 +20,36 @@ $outletId   = $ctx['outletId'];
 $userId     = $ctx['userId'];
 $registerId = $ctx['registerId'];
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-    apiError('Método no permitido', 405);
-}
+$svc      = new TransactionService();
+$method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$resource = (string) ($_GET['resource'] ?? '');
 
-$svc = new TransactionService();
-$op  = (string) ($_POST['op'] ?? '');
-
-// --- delete ---------------------------------------------------------------
-if ($op === 'delete') {
-    $transactionId = trim((string) ($_POST['transactionId'] ?? ''));
+// --- DELETE: eliminar transacción o job de impresión ----------------------
+if ($method === 'DELETE') {
+    $transactionId = trim((string) ($_GET['id'] ?? ''));
     if ($transactionId === '') {
-        apiError('Falta transactionId', 422);
+        apiError('Falta id', 422);
     }
-    $ok = $svc->delete($transactionId, $companyId);
-    if (!$ok) {
+    if ($resource === 'printjob') {
+        if (!$svc->deletePrintJob($transactionId, $companyId)) {
+            apiError('No se pudo eliminar el job de impresión', 500);
+        }
+        apiOk(['deleted' => true]);
+    }
+    if (!$svc->delete($transactionId, $companyId)) {
         apiError('No se pudo eliminar la transacción', 500);
     }
     apiOk(['deleted' => true]);
 }
 
-// --- deletePrintJob -------------------------------------------------------
-if ($op === 'deletePrintJob') {
-    $transactionId = trim((string) ($_POST['transactionId'] ?? ''));
+// --- PUT ?resource=reject: rechazar orden (transición de estado) -----------
+if ($method === 'PUT' && $resource === 'reject') {
+    $transactionId = trim((string) ($_GET['id'] ?? ''));
     if ($transactionId === '') {
-        apiError('Falta transactionId', 422);
-    }
-    $ok = $svc->deletePrintJob($transactionId, $companyId);
-    if (!$ok) {
-        apiError('No se pudo eliminar el job de impresión', 500);
-    }
-    apiOk(['deleted' => true]);
-}
-
-// --- reject ---------------------------------------------------------------
-if ($op === 'reject') {
-    $transactionId = trim((string) ($_POST['transactionId'] ?? ''));
-    if ($transactionId === '') {
-        apiError('Falta transactionId', 422);
+        apiError('Falta id', 422);
     }
     $motive = ($_POST['motive'] ?? '') ?: null;
-    $ok     = $svc->reject($transactionId, $companyId, $motive);
-    if (!$ok) {
+    if (!$svc->reject($transactionId, $companyId, $motive)) {
         apiError('No se pudo rechazar la orden', 500);
     }
 
@@ -80,15 +68,14 @@ if ($op === 'reject') {
     apiOk(['rejected' => true]);
 }
 
-// --- recordItemDeletion ---------------------------------------------------
-if ($op === 'recordItemDeletion') {
+// --- POST ?resource=itemDeletion: registrar borrado de ítem ---------------
+if ($method === 'POST' && $resource === 'itemDeletion') {
     $itemId = trim((string) ($_POST['itemId'] ?? ''));
     if ($itemId === '') {
         apiError('Falta itemId', 422);
     }
     $motive = (string) ($_POST['motive'] ?? '');
-    $ok     = $svc->recordItemDeletion($itemId, $motive, $userId, $companyId, $outletId);
-    if (!$ok) {
+    if (!$svc->recordItemDeletion($itemId, $motive, $userId, $companyId, $outletId)) {
         apiError('No se pudo registrar la eliminación', 500);
     }
     apiOk(['recorded' => true]);

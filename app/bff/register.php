@@ -24,8 +24,8 @@ if ($action !== 'setSession') {
     bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
-$res = bffApiPost('v1/register.php', [
-    'op'        => 'setSession',
+// PUT = actualiza el sessionId de la caja (§22.7).
+$res = bffApiPut('v1/register.php', [], [
     'sessionId' => (string) ($get['id'] ?? ''),
 ], '_jwt');
 

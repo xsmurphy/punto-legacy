@@ -2,9 +2,9 @@
 /**
  * /api/v1/vpayments.php — pagos electrónicos del POS (Slice 15, cluster ENCOM→Punto).
  *
- *   POST op=add    { source, authCode, amount, saleAmount, UID, operationNo[, data, status] }
- *                  → registra un vPayment (port fiel de panel/API/add_vpayment.php)
- *   POST op=verify { code }  → verifica un authCode APPROVED (lectura)
+ *   POST { source, authCode, amount, saleAmount, UID, operationNo[, data, status] }
+ *        → registra un vPayment (port fiel de panel/API/add_vpayment.php)
+ *   GET  ?code=  → verifica un authCode APPROVED (lectura)
  *
  * companyId/outletId/userId SIEMPRE del JWT. PATH DE DINERO — ver VPaymentService para
  * las salvedades de eposData y el branch 4456 omitido. Respuesta canónica { ok, data };
@@ -19,14 +19,21 @@ $companyId   = $ctx['companyId'];
 $outletId    = $ctx['outletId'];
 $userId      = $ctx['userId'];
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-    apiError('Método no permitido', 405);
+$svc    = new VPaymentService();
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// GET ?code= → verifica un authCode APPROVED (lectura pura). Verbos REST (§22.7).
+if ($method === 'GET') {
+    $code     = (string) ($_GET['code'] ?? '');
+    $authCode = $svc->verify($companyId, $code);
+    if ($authCode !== null) {
+        apiOk(['success' => $authCode]);
+    }
+    apiError('Código no encontrado', 401);
 }
 
-$svc = new VPaymentService();
-$op  = (string) ($_POST['op'] ?? '');
-
-if ($op === 'add') {
+// POST → registra un vPayment (crea recurso).
+if ($method === 'POST') {
     // nroOperacion (orderNo) se computa server-side, igual que los handlers legacy.
     $order = substr((string) strtotime(date('Y-m-d H:i:s')), -6);
 
@@ -45,13 +52,4 @@ if ($op === 'add') {
     apiOk($svc->add($companyId, $outletId, $userId, $in));
 }
 
-if ($op === 'verify') {
-    $code     = (string) ($_POST['code'] ?? '');
-    $authCode = $svc->verify($companyId, $code);
-    if ($authCode !== null) {
-        apiOk(['success' => $authCode]);
-    }
-    apiError('Código no encontrado', 401);
-}
-
-apiError('Operación no reconocida', 400);
+apiError('Método no permitido', 405);

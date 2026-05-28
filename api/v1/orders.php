@@ -2,13 +2,14 @@
 /**
  * /api/v1/orders.php — aceptación de órdenes (Slice 7).
  *
- *   POST op=accept    { transactionId }              → acepta orden (status 2) + notifica cliente
- *   POST op=transfer  { transactionId, outletId }    → mueve la orden a otro outlet
+ *   PUT ?id=<txId>&resource=accept              → acepta orden (status 2) + notifica cliente
+ *   PUT ?id=<txId>&resource=outlet { outletId }  → mueve la orden a otro outlet
  *
- * NOTA — op=assignUser (setUserToOrder) se difirió: escribe transactionDetails, que
- * en PG vive en `meta` (jsonb). Va al slice dedicado de meta-JSONB. Ver OrderService.
+ * NOTA — setUserToOrder se difirió: escribe transactionDetails, que en PG vive en `meta`
+ * (jsonb). Va al slice dedicado de meta-JSONB. Ver OrderService.
  *
- * Auth: JWT de tenant. Envelope canónico { ok, data }.
+ * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7) — accept/transfer
+ * son transiciones de estado → PUT con ?resource=.
  * Side-effects (push, WS, email, SMS) van aquí; el Service es puro de BD.
  */
 
@@ -20,18 +21,19 @@ $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 $registerId = $ctx['registerId'];
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+$svc      = new OrderService();
+$method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$resource = (string) ($_GET['resource'] ?? '');
+
+if ($method !== 'PUT') {
     apiError('Método no permitido', 405);
 }
 
-$svc = new OrderService();
-$op  = (string) ($_POST['op'] ?? '');
-
-// --- accept ---------------------------------------------------------------
-if ($op === 'accept') {
-    $transactionId = trim((string) ($_POST['transactionId'] ?? ''));
+// --- accept (PUT ?resource=accept) ----------------------------------------
+if ($resource === 'accept') {
+    $transactionId = trim((string) ($_GET['id'] ?? ''));
     if ($transactionId === '') {
-        apiError('Falta transactionId', 422);
+        apiError('Falta id', 422);
     }
 
     $result = $svc->accept($transactionId, $companyId);
@@ -97,12 +99,12 @@ if ($op === 'accept') {
     apiOk(['accepted' => true]);
 }
 
-// --- transfer (transferOrderToOutlet) -------------------------------------
-if ($op === 'transfer') {
-    $transactionId  = trim((string) ($_POST['transactionId'] ?? ''));
+// --- transfer (PUT ?resource=outlet) --------------------------------------
+if ($resource === 'outlet') {
+    $transactionId  = trim((string) ($_GET['id'] ?? ''));
     $targetOutletId = trim((string) ($_POST['outletId'] ?? ''));
     if ($transactionId === '' || $targetOutletId === '') {
-        apiError('Faltan campos requeridos (transactionId, outletId)', 422);
+        apiError('Faltan campos requeridos (id, outletId)', 422);
     }
 
     $result = $svc->transferToOutlet($transactionId, $targetOutletId, $companyId);

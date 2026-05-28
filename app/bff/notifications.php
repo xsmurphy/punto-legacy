@@ -21,17 +21,17 @@ $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 $parts  = explode(',', $action);
 
-// --- list: action = "notifications[,type]" --------------------------------
+// --- list: action = "notifications[,type]" → POST (mutación: marca visto) --
 if (($parts[0] ?? '') === 'notifications') {
-    $res = bffApiPost('v1/notifications.php', ['op' => 'list'], '_jwt');
+    $res = bffApiPost('v1/notifications.php', [], '_jwt');
     // Degradación segura: ante fallo, lista vacía (el front itera el resultado).
     bffJson(($res['ok'] && is_array($res['data'])) ? $res['data'] : []);
 }
 
-// --- count: action = "notificationsCount[,type]" --------------------------
+// --- count: action = "notificationsCount[,type]" → GET ?type= -------------
 if ($action === 'notificationsCount' || ($parts[0] ?? '') === 'notificationsCount') {
     $type = $parts[1] ?? 'notes';
-    $res  = bffApiPost('v1/notifications.php', ['op' => 'count', 'type' => $type], '_jwt');
+    $res  = bffApiGet('v1/notifications.php', ['type' => $type], '_jwt');
     // Degradación segura: ante fallo, count 0 (el front lee result.count).
     bffJson(($res['ok'] && is_array($res['data'])) ? $res['data'] : ['count' => 0]);
 }

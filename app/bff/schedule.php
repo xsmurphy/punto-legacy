@@ -16,19 +16,20 @@ if (empty($_COOKIE['_jwt'])) {
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
-$opMap = ['updateScheduleTo' => 'rescheduleTo', 'unlockCalendar' => 'unlock'];
-if (!isset($opMap[$action])) {
-    bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
+// transId viene como `id` (updateScheduleTo) o `lock` (unlockCalendar). Verbos REST (§22.7).
+$transId = (string) ($get['id'] ?? $get['lock'] ?? '');
+
+switch ($action) {
+    case 'updateScheduleTo': // PUT ?id= { time }
+        $res = bffApiPut('v1/schedule.php', ['id' => $transId], ['time' => (string) ($get['t'] ?? '')], '_jwt');
+        break;
+    case 'unlockCalendar':   // DELETE ?id=
+        $res = bffApiDelete('v1/schedule.php', ['id' => $transId], [], '_jwt');
+        break;
+    default:
+        bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
-// transId viene como `id` (updateScheduleTo) o `lock` (unlockCalendar).
-$payload = [
-    'op'      => $opMap[$action],
-    'transId' => (string) ($get['id'] ?? $get['lock'] ?? ''),
-    'time'    => (string) ($get['t'] ?? ''),
-];
-
-$res = bffApiPost('v1/schedule.php', $payload, '_jwt');
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

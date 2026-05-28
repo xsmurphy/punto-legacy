@@ -22,27 +22,24 @@ if (empty($_COOKIE['_jwt'])) {
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
-$opMap = [
-    'acceptOrder'           => 'accept',
-    'transferOrderToOutlet' => 'transfer',
-];
-
-if (!isset($opMap[$action])) {
-    bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
+// action.php → PUT con ?resource= (transiciones de estado, §22.7)
+switch ($action) {
+    case 'acceptOrder': // PUT ?id=&resource=accept
+        $res = bffApiPut('v1/orders.php', ['id' => (string) ($get['id'] ?? ''), 'resource' => 'accept'], [], '_jwt');
+        break;
+    case 'transferOrderToOutlet': // PUT ?id=&resource=outlet { outletId }
+        // Legacy: outletFromId = outlet DESTINO; orderId = la orden a mover.
+        $res = bffApiPut(
+            'v1/orders.php',
+            ['id' => (string) ($get['orderId'] ?? ''), 'resource' => 'outlet'],
+            ['outletId' => (string) ($get['outletFromId'] ?? '')],
+            '_jwt'
+        );
+        break;
+    default:
+        bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
-$op      = $opMap[$action];
-$payload = ['op' => $op];
-
-if ($op === 'transfer') {
-    // Legacy: outletFromId = outlet DESTINO; orderId = la orden a mover.
-    $payload['transactionId'] = (string) ($get['orderId'] ?? '');
-    $payload['outletId']      = (string) ($get['outletFromId'] ?? '');
-} else {
-    $payload['transactionId'] = (string) ($get['id'] ?? '');
-}
-
-$res = bffApiPost('v1/orders.php', $payload, '_jwt');
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

@@ -19,7 +19,6 @@ if (($get['action'] ?? '') !== 'customerNote') {
 }
 
 $res = bffApiPost('v1/customer_note.php', [
-    'op'         => 'add',
     'customerId' => (string) ($get['i'] ?? ''),
     'text'       => (string) ($get['n'] ?? ''),
 ], '_jwt');

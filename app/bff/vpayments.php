@@ -35,7 +35,6 @@ if (!isset($sourceMap[$action])) {
 
 $source  = $sourceMap[$action];
 $payload = [
-    'op'          => 'add',
     'source'      => $source,
     'status'      => 'REVIEW',
     'authCode'    => (string) ($get['authCode'] ?? ''),

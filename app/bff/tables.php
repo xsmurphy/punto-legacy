@@ -16,34 +16,27 @@ if (empty($_COOKIE['_jwt'])) {
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
-$opMap = [
-    'renameTable'    => 'rename',
-    'unReserveTable' => 'unreserve',
-    'setUserToSpace' => 'setUserToSpace',
-    'closeTable'     => 'closeTable',
-];
-if (!isset($opMap[$action])) {
-    bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
+// El nombre de mesa viene como `t` (rename/unreserve) o `id` (setUserToSpace).
+$tableName = (string) ($get['t'] ?? $get['id'] ?? '');
+$ep        = 'v1/tables.php';
+
+switch ($action) {
+    case 'renameTable':    // PUT ?tableName= { note }
+        $res = bffApiPut($ep, ['tableName' => $tableName], ['note' => (string) ($get['note'] ?? '')], '_jwt');
+        break;
+    case 'unReserveTable': // PUT ?tableName=&resource=reservation
+        $res = bffApiPut($ep, ['tableName' => $tableName, 'resource' => 'reservation'], [], '_jwt');
+        break;
+    case 'setUserToSpace': // PUT ?tableName=&resource=user { userId }
+        $res = bffApiPut($ep, ['tableName' => $tableName, 'resource' => 'user'], ['userId' => (string) ($get['uid'] ?? '')], '_jwt');
+        break;
+    case 'closeTable':     // DELETE ?kind=&del=
+        $res = bffApiDelete($ep, ['kind' => (string) ($get['kind'] ?? 'table'), 'del' => (string) ($get['del'] ?? '')], [], '_jwt');
+        break;
+    default:
+        bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
-if ($action === 'closeTable') {
-    // closeTable matchea por kind/del (any|customer|table), no por nombre de mesa.
-    $payload = [
-        'op'   => 'closeTable',
-        'kind' => (string) ($get['kind'] ?? 'table'),
-        'del'  => (string) ($get['del'] ?? ''),
-    ];
-} else {
-    // El nombre de mesa viene como `t` (rename/unreserve) o `id` (setUserToSpace).
-    $payload = [
-        'op'        => $opMap[$action],
-        'tableName' => (string) ($get['t'] ?? $get['id'] ?? ''),
-        'note'      => $get['note'] ?? '',
-        'userId'    => (string) ($get['uid'] ?? ''),
-    ];
-}
-
-$res = bffApiPost('v1/tables.php', $payload, '_jwt');
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

@@ -24,7 +24,6 @@ if ($action !== 'clockIn') {
 }
 
 $res = bffApiPost('v1/attendance.php', [
-    'op'       => 'toggle',
     'outletId' => (string) ($get['o'] ?? ''),
     'userId'   => (string) ($get['u'] ?? ''),
     'token'    => (string) ($get['t'] ?? ''),

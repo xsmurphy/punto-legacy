@@ -33,27 +33,37 @@ if (($get['load'] ?? '') === 'customerAddress') {
     bffJson(['addresses' => $res['data'] ?? []]);
 }
 
-// --- Escritura: action=customerAddress{Add,Update,Delete,SetDefault} --------
-$action = (string) ($get['action'] ?? '');
-if (strpos($action, 'customerAddress') === 0) {
-    $op = lcfirst(substr($action, strlen('customerAddress'))); // add|update|delete|setDefault
+// --- Escritura: action=customerAddress{Add,Update,Delete,SetDefault} (verbos REST §22.7) ---
+$action     = (string) ($get['action'] ?? '');
+$customerId = (string) ($get['i'] ?? '');
+$addressId  = (string) ($get['id'] ?? '');
+$fields     = [
+    'customerId' => $customerId,
+    'name'       => $get['name']     ?? '',
+    'address'    => $get['address']  ?? '',
+    'location'   => $get['location'] ?? '',
+    'city'       => $get['city']     ?? '',
+    'latLng'     => $get['latLng']   ?? '',
+];
 
-    $payload = [
-        'op'         => $op,
-        'customerId' => (string) ($get['i'] ?? ''),
-        'addressId'  => (string) ($get['id'] ?? ''),
-        'name'       => $get['name']     ?? '',
-        'address'    => $get['address']  ?? '',
-        'location'   => $get['location'] ?? '',
-        'city'       => $get['city']     ?? '',
-        'latLng'     => $get['latLng']   ?? '',
-    ];
-
-    $res = bffApiPost('v1/customer_address.php', $payload, '_jwt');
-    if (!$res['ok']) {
-        bffFailFromApi($res);
-    }
-    bffJson(['success' => 'true']);
+switch ($action) {
+    case 'customerAddressAdd':
+        $res = bffApiPost('v1/customer_address.php', $fields, '_jwt');
+        break;
+    case 'customerAddressUpdate':
+        $res = bffApiPut('v1/customer_address.php', ['id' => $addressId], $fields, '_jwt');
+        break;
+    case 'customerAddressSetDefault':
+        $res = bffApiPut('v1/customer_address.php', ['id' => $addressId, 'resource' => 'default'], ['customerId' => $customerId], '_jwt');
+        break;
+    case 'customerAddressDelete':
+        $res = bffApiDelete('v1/customer_address.php', ['id' => $addressId, 'customerId' => $customerId], [], '_jwt');
+        break;
+    default:
+        bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
-bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
+if (!$res['ok']) {
+    bffFailFromApi($res);
+}
+bffJson(['success' => 'true']);

@@ -21,12 +21,12 @@ if (empty($_COOKIE['_jwt'])) {
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
-$opMap = [
-    'chkDeletedItems'     => 'deletedItems',
-    'chkDeletedCustomers' => 'deletedCustomers',
+$resourceMap = [
+    'chkDeletedItems'     => 'items',
+    'chkDeletedCustomers' => 'customers',
 ];
 
-if (!isset($opMap[$action])) {
+if (!isset($resourceMap[$action])) {
     bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
@@ -36,7 +36,8 @@ if (!is_array($ids)) {
     $ids = [];
 }
 
-$res = bffApiPost('v1/sync.php', ['op' => $opMap[$action], 'ids' => $ids], '_jwt');
+// POST con ?resource= (lectura con payload grande, §22.7).
+$res = bffApiPost('v1/sync.php?resource=' . $resourceMap[$action], ['ids' => $ids], '_jwt');
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

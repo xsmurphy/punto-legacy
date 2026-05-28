@@ -2,7 +2,7 @@
 /**
  * /api/v1/attendance.php — fichaje de asistencia (Slice 13, cluster ENCOM→Punto).
  *
- *   POST op=toggle { outletId, userId, token }  → abre/cierra turno
+ *   POST { outletId, userId, token }  → abre/cierra turno (toggle)
  *
  * companyId SIEMPRE del JWT. El `token` es el QR del outlet = md5(companyId . outletId);
  * se verifica para garantizar presencia física (mismo check que panel/API/set_attendance).
@@ -15,13 +15,9 @@ require_once __DIR__ . '/../lib/services/AttendanceService.php';
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
 
+// POST = registrar un fichaje (crea o cierra un turno). Verbos REST (§22.7).
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
-}
-
-$op = (string) ($_POST['op'] ?? '');
-if ($op !== 'toggle') {
-    apiError('Operación no reconocida', 400);
 }
 
 $outletId = trim((string) ($_POST['outletId'] ?? ''));
