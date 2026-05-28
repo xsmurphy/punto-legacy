@@ -109,9 +109,9 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 | Fase | Qué | Estado |
 |------|-----|--------|
 | **F0** | Tabla `admin_user` (migración 09) + `bootstrap_seed.php` (CLI idempotente, bcrypt) + vars `.env` (`ADMIN_JWT_SECRET/TTL`, `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`). Verificado E2E en DB local. | ✅ HECHA (commit 01a8929, 2026-05-28) |
-| **F1** | Auth del realm `/admin`: login email+pass, JWT propio (`_jwt_admin`, `aud:"admin"`), `adminMiddleware`, `login.html` estático + BFF, rate-limit. | Pendiente |
-| **F2** | CRUD de admins en `/admin` (modelo BFF 3 capas). No permitir desactivar el último admin activo. | Pendiente |
-| **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | Pendiente |
+| **F1** | Auth del realm `/admin`: login email+pass, JWT propio (`_jwt_admin`, `aud:"admin"`), `adminMiddleware`, `login.html` estático + BFF, rate-limit. | ✅ HECHA (commit 96f8b8f, 2026-05-28) |
+| **F2** | CRUD de admins en `/admin` (modelo BFF 3 capas). No permitir desactivar el último admin activo. | ✅ HECHA (commit 89e7388, 2026-05-28) |
+| **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | **SIGUIENTE** |
 | **F4** | ⚠️ RIESGO ALTO — desacoplar `SAAS_ADM`/`MASTER_COMPANY_ID` del panel tenant (quitar redirect `@.php:11`, limpiar `config.php`). Va ÚLTIMO porque rompe el gate de identidad legacy. | Pendiente |
 | **F5** | Login de tenant por teléfono (no email) — independiente de F1–F4. | Pendiente |
 | **F6** | Decommission de `main.php` como admin + hardening + verificar aislamiento de realms E2E. | Pendiente |
@@ -120,6 +120,11 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 - `admin_user`: UUID PK, email único case-insensitive (`lower(email)`), `passwordHash` bcrypt, `status` 1/0, `createdBy` self-FK, `lastLoginAt`, timestamps. Sin `companyId`.
 - `bootstrap_seed.php`: CLI-only (`PHP_SAPI === 'cli'`), no loguea el password, no-op si el admin ya existe.
 - `MASTER_COMPANY_ID` **no es más gate de identidad** post-F4, pero sigue intacto hasta entonces. No tocar el redirect de `@.php:11` ni `SAAS_ADM` hasta F4.
+
+**Notas técnicas F2:**
+- Stack BFF 3 capas completo: `panel/lib/admin/AdminUserService.php` (data layer — list/get/create/update/setStatus) + `panel/API/v1/admin/users.php` (gateado por `adminMiddleware()`, `_jwt_admin`, `aud:"admin"`) + `panel/bff/admin/users.php` (proxy cookie) + `panel/admin/users.html` + `panel/admin/scripts/users.js` (front standalone, todo escapado con `esc()`). Router: `/admin/users → /admin/users.html`. `home.html` linkea al CRUD.
+- **Gotcha DB::Execute / INSERT…RETURNING**: `create()` usa `$db->Insert() + Insert_ID()` en vez de `INSERT…RETURNING` porque `DB::Execute()` solo materializa filas para sentencias que empiezan con `SELECT` o `WITH`. Un `INSERT…RETURNING` devuelve recordset vacío aunque inserte la fila, causando falso fallo. Aplica a todo insert que necesite el UUID generado.
+- **Follow-up P1 (no bloqueante, diferido a F3+):** `bffFailFromApi()` en `panel/bff/lib/api_client.php` colapsa todo status !=401/403 a 502 — los 422 de negocio del service llegan al browser como 502 (el texto del error sí surface). Afecta toda la infra BFF compartida del realm tenant; recablear 422/404/409 verbatim queda fuera de scope de F2 para no arriesgar regresión.
 
 ---
 

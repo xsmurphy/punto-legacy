@@ -61,7 +61,9 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 ### Estado del admin realm (2026-05-28)
 
 - **F0 HECHA (commit 01a8929):** tabla `admin_user` + `bootstrap_seed.php` + vars `.env`. La tabla existe pero nada del runtime actual la usa.
-- **F1–F6 pendientes:** ver `10-roadmap.md § Admin realm`.
+- **F1 HECHA (commit 96f8b8f):** auth propia `/admin` — `v1/admin/login.php` (público, rate-limit) + `v1/admin/me.php` (gated) + `adminMiddleware()` + BFF `bff/admin/{login,me,logout}.php` + front estático standalone `admin/login.html` + `admin/home.html`. Cookie `_jwt_admin` HttpOnly, token no llega al browser como JSON. Aislamiento verificado E2E (token cruzado → 401 en ambas direcciones).
+- **F2 HECHA (commit 89e7388):** CRUD de super-admins — stack 3 capas: `panel/lib/admin/AdminUserService.php` (list/get/create/update/setStatus; reglas: email único case-insensitive, password >=8, no desactivar el último admin activo ni a uno mismo) + `panel/API/v1/admin/users.php` (gateado por `adminMiddleware()`) + `panel/bff/admin/users.php` + `panel/admin/users.html` + `panel/admin/scripts/users.js` (standalone, todo con `esc()`). Router `/admin/users`. `home.html` linkea al CRUD. Verificado E2E (list/create/dup-email 422/pass-corto 422/update/setStatus/auto-desactivación 422/get single).
+- **F3 = SIGUIENTE; F4–F6 pendientes:** ver `10-roadmap.md § Admin realm`.
 
 ### MASTER\_COMPANY\_ID — rol post-F0
 

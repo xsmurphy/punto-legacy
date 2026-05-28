@@ -75,6 +75,34 @@ reportes, configuración de módulos, usuarios.
 
 ---
 
+## /admin — Realm de super-admins de plataforma (iniciado 2026-05-28)
+
+**Propósito**: gestión de la plataforma multi-tenant. Aislado criptográficamente del realm tenant (`/panel`). Los super-admins de plataforma usan tabla propia `admin_user`, JWT propio (`_jwt_admin`, `aud:"admin"`, secret `ADMIN_JWT_SECRET`) y cookie distinta de la del panel.
+
+**Regla de aislamiento (no-negociable):** `_jwt_panel` nunca valida en `/admin` y viceversa.
+
+**Archivos del realm (F0–F2, 2026-05-28):**
+
+| Capa | Archivo | Responsabilidad |
+|------|---------|----------------|
+| Migración | `database/migrations/postgres/09_admin_user.sql` | Tabla `admin_user` (UUID PK, email único case-insensitive, bcrypt, status, self-FK createdBy) |
+| CLI seed | `panel/admin/bootstrap_seed.php` | Crea el primer admin de plataforma (idempotente, CLI-only) |
+| Middleware | `panel/API/v1/admin/admin_middleware.php` | Valida `_jwt_admin` + `aud:"admin"` — gatea TODOS los endpoints `/admin` |
+| Auth API | `panel/API/v1/admin/login.php` | Login público con rate-limit email+IP |
+| Auth API | `panel/API/v1/admin/me.php` | Datos del admin autenticado (gated) |
+| Auth BFF | `panel/bff/admin/login.php`, `me.php`, `logout.php` | Proxy BFF — setea/limpia cookie `_jwt_admin` HttpOnly |
+| Users API | `panel/API/v1/admin/users.php` | CRUD de super-admins (list/get/create/update/setStatus) gateado |
+| Users BFF | `panel/bff/admin/users.php` | Proxy BFF reenvía cookie `_jwt_admin` |
+| Users domain | `panel/lib/admin/AdminUserService.php` | Reglas de negocio: email único case-insensitive, password >=8, no desactivar el último admin activo ni a uno mismo. Usa `$db->Insert()+Insert_ID()` (no `INSERT…RETURNING` — ver gotcha en `10-roadmap.md § Notas técnicas F2`) |
+| Front | `panel/admin/login.html`, `panel/admin/home.html`, `panel/admin/users.html` | Fronts estáticos standalone (sin shell tenant) |
+| Front scripts | `panel/admin/scripts/login.js`, `panel/admin/scripts/users.js` | JS del realm admin — todo output escapado con `esc()` |
+
+**Router** (`panel/router.php`): `/admin` + `/admin/login` → `panel/admin/home.html` / `panel/admin/login.html`; `/admin/users` → `panel/admin/users.html`.
+
+**Estado**: F0 (tabla+seed) ✅, F1 (auth) ✅, F2 (CRUD super-admins) ✅ — F3 siguiente (companies+billing desde `main.php`). Ver plan completo en `10-roadmap.md § Admin realm`.
+
+---
+
 ## /panel/standalone — Pantallas independientes
 
 **Propósito**: Vistas que corren en dispositivos dedicados (cocina, mostrador).

@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-28 — Admin realm F2: CRUD de super-admins en /admin (realm aislado)
+
+- **F2 HECHA (commit 89e7388):** CRUD completo de admins de plataforma en el realm `/admin`. Stack BFF 3 capas gateado por `adminMiddleware()` (`_jwt_admin`, `aud:"admin"`): `panel/lib/admin/AdminUserService.php` (data layer + reglas de negocio) + `panel/API/v1/admin/users.php` + `panel/bff/admin/users.php` + front estático standalone `panel/admin/users.html` + `panel/admin/scripts/users.js`. Router: `/admin/users → /admin/users.html`. `home.html` ahora linkea al CRUD.
+- **Reglas de negocio (fuente única en AdminUserService):** email único case-insensitive, password >=8, no desactivar el último admin activo, no desactivarse a uno mismo. Verificado E2E: list/create/dup-email 422/pass-corto 422/update/setStatus/auto-desactivación 422/get single. Aislamiento de realms intacto.
+- **Gotcha DB::Execute / INSERT…RETURNING (reutilizable):** `create()` usa `$db->Insert()+Insert_ID()` en vez de `INSERT…RETURNING`. `DB::Execute()` solo materializa filas para sentencias que arrancan con `SELECT` o `WITH` — un `INSERT…RETURNING` devuelve recordset vacío aunque inserte la fila, causando falso fallo. Aplica a cualquier insert que necesite el UUID generado en toda la codebase.
+- **Follow-up P1 (diferido, no bloqueante):** `bffFailFromApi()` en `panel/bff/lib/api_client.php` colapsa todo status !=401/403 a 502 — los 422 de negocio del service llegan al browser como HTTP 502 (el texto del error sí surface). Afecta toda la infra BFF compartida del realm tenant; recablear 422/404/409 verbatim queda fuera de scope de F2 para no arriesgar regresión. Registrado en `10-roadmap.md § Notas técnicas F2`.
+- **Próximo: F3** — home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`).
+
 ## 2026-05-28 — Admin realm F0+F1 + a_settings COMPLETO + ENCOM→MASTER rename + upload IDOR + PG fixes
 
 - **Admin realm — F0 (commit 01a8929):** decisión de arquitectura confirmada: los super-admins de plataforma pasan a tabla propia `admin_user` (bcrypt, sin companyId, email único case-insensitive). Creada `database/migrations/postgres/09_admin_user.sql` + `panel/admin/bootstrap_seed.php` (CLI idempotente, no loguea password, no-op si ya existe). Vars `.env.example` (`ADMIN_JWT_SECRET/TTL`, `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`). Verificado E2E. Ver `ADR-002` + `02-arquitectura.md § Admin realm` + `10-roadmap.md § Admin realm`.
