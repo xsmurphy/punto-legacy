@@ -233,6 +233,71 @@ class SettingsService
         return $out;
     }
 
+    /**
+     * Matriz de monedas: lista de monedas del mundo (LatAm) con su cotización configurada.
+     * Las cotizaciones viven en config.settingObj.currencies = [ {CODE: monto}, ... ].
+     * @return array{rows: array<int, array{ccode:string, code:string, value:float}>}
+     */
+    public function currencies($companyId)
+    {
+        $cFile     = __DIR__ . '/../../libraries/countries_hispanic.json';
+        $countries = is_file($cFile) ? json_decode((string) file_get_contents($cFile), true) : [];
+        if (!is_array($countries)) { $countries = []; }
+
+        // Cotizaciones guardadas → mapa CODE => monto.
+        $obj   = $this->readSettingObj($companyId);
+        $saved = [];
+        if (is_array($obj) && !empty($obj['currencies']) && is_array($obj['currencies'])) {
+            foreach ($obj['currencies'] as $pair) {
+                if (is_array($pair)) {
+                    foreach ($pair as $code => $amt) {
+                        if ((float) $amt > 0) { $saved[(string) $code] = (float) $amt; }
+                    }
+                }
+            }
+        }
+
+        $rows = [];
+        foreach ($countries as $ccode => $v) {
+            $code = $v['currency']['code'] ?? null;
+            if ($code === null || $code === '') { continue; }
+            $rows[] = ['ccode' => (string) $ccode, 'code' => (string) $code, 'value' => $saved[(string) $code] ?? 0];
+        }
+        return ['rows' => $rows];
+    }
+
+    /**
+     * Guarda las cotizaciones de monedas en config.settingObj.currencies (MERGE no-destructivo:
+     * lee el settingObj completo, reemplaza solo `currencies`, reescribe — preserva los 7 flags).
+     * Bound params (el legacy interpolaba COMPANY_ID sin comillas → ROTO en PG). SCOPEADO por companyId.
+     * @param array $list  [{code, value}, ...] del front. @return bool
+     */
+    public function updateCurrencies($companyId, array $list)
+    {
+        $obj = $this->readSettingObj($companyId);
+        if ($obj === null) {
+            return false;   // lectura fallida → no arriesgar clobber de settingObj
+        }
+
+        $updt = [];
+        foreach ($list as $val) {
+            if (!is_array($val)) { continue; }
+            $amount   = (float) ($val['value'] ?? 0);
+            $currency = preg_replace('/[^a-z]/i', '', (string) ($val['code'] ?? ''));
+            if ($currency === '' || strlen($currency) > 3) { continue; }
+            if ($amount > 0) { $updt[] = [$currency => $amount]; }
+        }
+        $obj['currencies'] = $updt;
+
+        $res = ncmUpdate([
+            'records'     => ['settingObj' => json_encode($obj)],
+            'table'       => 'company',
+            'where'       => 'companyId = ?',
+            'whereParams' => [$companyId],
+        ]);
+        return is_array($res) && ($res['error'] === false);
+    }
+
     /** Normaliza un valor PG (1/0, 't'/'f', '1', true, 'yes') a bool. */
     private function truthy($v)
     {

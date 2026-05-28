@@ -5,11 +5,14 @@
  *   GET  /API/v1/settings?view=general                 → ajustes (perfil + parámetros), CRUDO.
  *   GET  /API/v1/settings?view=options                  → listas para selects.
  *   GET  /API/v1/settings?view=taxonomies&type=<t>       → items de taxonomía (tax/category/tag/...).
- *   POST /API/v1/settings (action=update&type=setting + campos) → guarda en company.config.
+ *   GET  /API/v1/settings?view=currencies                → matriz de monedas (cotizaciones).
+ *   POST /API/v1/settings (action=update&type=setting + campos)        → guarda en company.config.
+ *   POST /API/v1/settings (action=update&type=currencies&currencies=…) → guarda cotizaciones (settingObj).
  *
- * Arregla el guardado roto en PG (tabla `setting` eliminada → company.config). Escritura scopeada
- * por COMPANY_ID del JWT. Auth: JWT. Las demás vistas (templates/ecommerce/monedas) se agregan en
- * incrementos siguientes; por ahora siguen sirviéndose por el PHP legacy vía `?action=`.
+ * Arregla el guardado roto en PG (tabla `setting` eliminada → company.config; y el save de monedas
+ * legacy interpolaba COMPANY_ID sin comillas). Escritura scopeada por COMPANY_ID del JWT. Auth: JWT.
+ * Las demás vistas (templates/ecommerce) se agregan en incrementos siguientes; por ahora siguen
+ * sirviéndose por el PHP legacy vía `?action=`.
  */
 
 require_once __DIR__ . '/../lib/api_middleware.php';
@@ -26,8 +29,18 @@ if ($method === 'POST') {
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
     $type   = (string) (validateHttp('type', 'post') ?: '');
-    if ($action !== 'update' || $type !== 'setting') {
+    if ($action !== 'update' || !in_array($type, ['setting', 'currencies'], true)) {
         apiError('Acción no soportada', 422);
+    }
+
+    if ($type === 'currencies') {
+        $raw  = (string) (validateHttp('currencies', 'post') ?: '');
+        $list = json_decode($raw, true);
+        if (!is_array($list)) { $list = []; }
+        if (!$svc->updateCurrencies(COMPANY_ID, $list)) {
+            apiError('No se pudo guardar', 500);
+        }
+        apiOk(['action' => 'update', 'type' => 'currencies']);
     }
 
     $b = fn($k) => (bool) validateHttp($k, 'post');
@@ -89,6 +102,10 @@ $view = (string) (validateHttp('view') ?: 'general');
 
 if ($view === 'options') {
     apiOk($svc->options());
+}
+
+if ($view === 'currencies') {
+    apiOk($svc->currencies(COMPANY_ID));
 }
 
 if ($view === 'taxonomies') {

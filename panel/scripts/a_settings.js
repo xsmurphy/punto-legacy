@@ -9,9 +9,10 @@
  * §17.2: Alpine es dueño de los campos/toggles del form (x-model); los 5 dropdowns adm
  * (impuestos/plan de cuentas/etiquetas/medios/bancos) los maneja jQuery — `adm()` (común) muta
  * el <select> (prepend <option>) y postea su CRUD al PHP legacy vía `/a_settings?tableExtra=…`.
- * Por eso esos selects NO usan x-for (evita que Alpine pise lo que mete jQuery). "Ordenar
- * categorías" y "Monedas/Configurar" también van al legacy `?action=`. El upload de logo va a
- * upload.php. (Todo lo legacy requiere la sesión del shell; el save general anda con el JWT.)
+ * Por eso esos selects NO usan x-for (evita que Alpine pise lo que mete jQuery). "Monedas" abre
+ * una matriz en #modalTiny (jQuery-owned) cuyos datos vienen del BFF (?view=currencies, save
+ * type=currencies). "Ordenar categorías" aún va al legacy `?action=`. El upload de logo va a
+ * upload.php. (Lo legacy requiere la sesión del shell; los saves del BFF andan con el JWT.)
  *
  * Init determinista §17: clon DETACHED + Alpine.initTree (1×) + mountUI() para lo que toca el DOM.
  */
@@ -76,9 +77,10 @@
 				});
 				if (typeof adm === 'function') { adm(); }   // wirea .addItemPart/.editItemPart/.deleteItemPart
 
-				// Botones legacy (sesión del shell): ordenar categorías, monedas, logo.
+				// Monedas: matriz en #modalTiny (jQuery-owned §17.2), datos via BFF.
+				ncmHelpers.onClickWrap('a.setCurrenciesBtn', function () { self.openCurrencies(); });
+				// Botones que aún van al legacy (sesión del shell): ordenar categorías, logo.
 				ncmHelpers.onClickWrap('a.sortCategoriesBtn', function () { window.location.href = LEGACY + '?action=sortCategories'; });
-				ncmHelpers.onClickWrap('a.setCurrenciesBtn', function () { window.location.href = LEGACY + '?action=setCurrencies'; });
 				ncmHelpers.onClickWrap('#uploadImgBtn', function () { $('#image').trigger('click'); });
 
 				$('[data-toggle="tooltip"]').tooltip();
@@ -116,6 +118,56 @@
 				var self = this;
 				var c = (this.options.countries || []).find(function (x) { return x.code === self.cfg.country; });
 				return c ? c.name : 'Ningún País';
+			},
+
+			/* ───────────── monedas (matriz, modal jQuery §17.2) ───────────── */
+			openCurrencies: function () {
+				var self = this;
+				var sym  = self.cfg.currency || '';
+				var flagsCDN = 'https://cdnjs.cloudflare.com/ajax/libs/flag-icon-css/3.4.3/flags/1x1/';
+
+				self._get('?view=currencies', function (d) {
+					var rows = (d && d.rows) || [];
+					var html = '<div class="col-xs-12 wrapper panel m-n" id="setCurrenciesList">' +
+						'<div class="col-xs-12 text-center text-u-c font-bold m-b">Monedas</div>' +
+						'<table class="table bg-white m-n"><tbody>';
+					rows.forEach(function (val) {
+						html += '<tr><td class="font-bold"><div class="m-t-xs">' +
+							'<img src="' + flagsCDN + esc(String(val.ccode).toLowerCase()) + '.svg" class="m-r-sm" width="20">' + esc(val.code) +
+							'</div></td><td>' +
+							'<input class="form-control text-right" data-code="' + esc(val.code) + '" value="' + esc(val.value) + '">';
+						if (Number(val.value) > 0) {
+							html += '<div class="text-xs text-right currencyExp' + esc(val.code) + '">1 ' + esc(val.code) + ' = ' + esc(val.value) + ' ' + esc(sym) + '</div>';
+						}
+						html += '</td></tr>';
+					});
+					html += '</tbody></table></div>';
+
+					$('#modalTiny').modal('show');
+					$('#modalTiny .modal-content').html(html);
+
+					$('#setCurrenciesList input').off('change').on('change', function () {
+						var allCur = [];
+						$('#setCurrenciesList input').each(function () {
+							var tis = $(this), value = tis.val(), code = tis.data('code');
+							if (Number(value) > 0) { allCur.push({ code: code, value: value }); }
+						});
+						var xhr = ncmHelpers.load({
+							url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+							data: { action: 'update', type: 'currencies', currencies: JSON.stringify(allCur) },
+							success: function (res) {
+								if (res && res.ok) { ncmDialogs.toast('Guardado', 'success'); }
+								else if (typeof message === 'function') { message('No se pudo guardar', 'danger'); }
+							}
+						});
+						window.xhrs.push(xhr);
+					});
+
+					$('#setCurrenciesList input').off('keyup').on('keyup', function () {
+						var tis = $(this), value = tis.val(), code = tis.data('code');
+						$('.currencyExp' + code).text('1 ' + code + ' = ' + value + ' ' + sym);
+					});
+				});
 			},
 
 			/* ───────────── guardar ───────────── */
