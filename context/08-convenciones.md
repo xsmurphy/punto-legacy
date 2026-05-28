@@ -333,6 +333,48 @@ Alpine no se usa solo para templating; conviene aprovecharlo donde el estado rea
 
 ---
 
+## §18 — TRAP: JSONB partial-update (preservar keys no gestionadas por el form)
+
+**Regla**: Cuando un `update()` en el Service hace un UPDATE parcial sobre una tabla que tiene una columna `data` JSONB con keys que el form NO gestiona (businessHours, customFields, etc.), se debe leer el `data` JSONB raw ANTES de mergear y guardar, preservando esas keys.
+
+**El trap**: `ncmExecute` single-row aplana el resultado via `_flattenJsonb` Y hace `unset($row['data'])` internamente → si intentás leer `$cur['data']` después de un `ncmExecute` sin flags, obtenés `null`/vacío → al hacer `ncmUpdate` con el nuevo `data = {}` + campos del form, se **wipe** el blob completo, destruyendo silenciosamente todas las keys diferidas.
+
+**Fix correcto**:
+```php
+// MAL — _flattenJsonb hace unset($row['data']), se pierde el blob
+$cur = ncmExecute($db, "SELECT * FROM outlet WHERE outletId=?", [$id]);
+$existingData = $cur['data']; // siempre null/vacío
+
+// BIEN — forceObj devuelve objeto ADOdb sin aplanar; fields['data'] es el JSON string crudo
+$res = ncmExecute($db, "SELECT data FROM outlet WHERE outletId=?", [$id], forceObj: true);
+$existingData = json_decode($res->fields['data'] ?? '{}', true) ?: [];
+// merge: $newData = array_merge($existingData, $formFields)
+// luego ncmUpdate con $newData
+```
+
+**Aplica a**: cualquier módulo que haga un UPDATE parcial sobre una tabla con `data` JSONB que contiene keys no enviadas por el form actual (outlets ✅ — pilot; aplica también a items, contacts, company config, y cualquier entidad futura con `data`/`meta` JSONB extensible).
+
+**Detectado en**: `a_outlets` update (commit 99d1286). P0 identificado por code-reviewer, verificado E2E: key `outletBusinessHours` + custom key semilladas sobreviven un save del form que no las envía.
+
+---
+
+## §19 — Router pattern para módulos CRUD no-reporte (`$bffPartialModules`)
+
+**Regla**: Los módulos CRUD del panel que se migran parcialmente al BFF (lecturas + update, pero writes pesados/legacy aún en PHP) usan el mapa `$bffPartialModules` en `panel/router.php`. Los fronts estáticos de estos módulos viven en `panel/views/` (no en `panel/reports/`).
+
+**Comportamiento del router**:
+- `empty($_GET['action'])` → sirve el `.html` estático desde `panel/views/`
+- `?action=algo` presente → cae al PHP legacy `a_<modulo>.php`
+
+**Distinción con reportes**:
+- `$bffStaticReports` → reportes completamente migrados, sin legacy PHP
+- `$bffPartialReports` → reportes parcialmente migrados (algunas acciones legacy)
+- `$bffPartialModules` → módulos CRUD no-reporte (outlets ✅ — pilot; pendientes: contacts, items, registers, settings, …)
+
+**Directorio de fronts**: `panel/views/<modulo>.html` (módulos CRUD) vs. `panel/reports/<modulo>.html` (reportes). Ambos son `.html` estáticos, cero PHP, per la REGLA RAÍZ de `02-arquitectura.md`.
+
+---
+
 ## §13 — Flujo commit + push con agentes (REGLA OBLIGATORIA)
 
 **Regla**: Toda corrección o mejora pasa por el flujo `edit → code-reviewer → commit → context-updater → push`. El push es inmediato, no se acumulan commits locales.

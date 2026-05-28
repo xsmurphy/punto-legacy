@@ -52,7 +52,10 @@ reportes, configuración de módulos, usuarios.
 - `a_billing.php` (23KB) — Facturación
 - `a_modules.php` — Feature toggles por rubro
 - `a_reports.php` — Reportes
-- Otros: purchase, registers, outlets, users, settings...
+- Otros: purchase, registers, users, settings...
+
+**Módulos CRUD migrados al BFF de 3 capas** (primer CRUD no-reporte, 2026-05-27):
+- **`a_outlets` (Sucursales)** — **1er módulo CRUD del panel en el modelo BFF/Alpine** (commit 99d1286). Migración PARCIAL: list + get-single + update al BFF; create (cascada register+inventory vía god-helpers) y delete (deleteOutlet cascadeante) quedan legacy vía `?action=`. businessHours (jQuery widget) y depósitos (adm() infra compartida) diferidos. Archivos: `panel/lib/outlets/OutletsService.php` (list/get/update) · `panel/API/v1/outlets.php` (GET list|single + POST update, gate rol 7) · `panel/bff/outlets.php` (proxy GET/POST) · `panel/views/outlets.html` (lista ncmDataTables + form Alpine x-model en modal) · `panel/scripts/a_outlets.js` (Alpine §17 detached-initTree). Router: `$bffPartialModules` en `panel/router.php` (nuevo mapa para módulos CRUD, paralelo a `$bffPartialReports`). Fronts de módulos CRUD viven en `panel/views/` (distinto de `panel/reports/` para reportes).
 
 **API** (`panel/API/`, ~93 endpoints):
 - Lib: `panel/API/lib/response.php` (envelope canónico)

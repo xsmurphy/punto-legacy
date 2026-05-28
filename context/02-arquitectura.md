@@ -234,11 +234,17 @@ El modelo de 3 niveles tiene un **piloto completo verificado E2E** en `a_report_
 ### Dónde vive cada cosa
 
 ```
-FRONT   panel/reports/<x>.html  (estático, cero PHP)  +  panel/scripts/<x>.js   (pinta + auth + chrome)
-BFF     panel/bff/<area>/<x>.php   → JWT + llama a la API + formatea + JSON   (NO BD, NO HTML)
+FRONT   panel/reports/<x>.html    (reportes — estático, cero PHP)    +  panel/scripts/<x>.js
+        panel/views/<x>.html      (módulos CRUD — estático, cero PHP) +  panel/scripts/<x>.js
+BFF     panel/bff/<area>/<x>.php   → JWT + llama a la API + JSON   (NO BD, NO HTML)
 API     panel/API/v1/<area>/<x>.php  → apiMiddleware + apiOk()/apiError() (envelope) — RAW
 DOMINIO panel/lib/<x>/{Repository,Service}.php  (SQL + reglas de escritura)  — vive con la API
 ```
+
+**Router (`panel/router.php`) — tres mapas**:
+- `$bffStaticReports` — reportes 100% migrados (front sirve siempre)
+- `$bffPartialReports` — reportes con acciones legacy aún en PHP (sirve front cuando `empty($_GET['action'])`)
+- `$bffPartialModules` — módulos CRUD no-reporte (outlets ✅ — pilot 2026-05-27; mismo patrón que `$bffPartialReports`, fronts en `panel/views/`)
 
 ### Envelope canónico (API)
 

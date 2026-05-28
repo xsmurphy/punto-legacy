@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 11) — `a_outlets` (Sucursales): 1er CRUD del panel migrado al BFF/Alpine
+
+- **`a_outlets` migrado al modelo Front→BFF→API→Postgres** (commit 99d1286): `OutletsService.php` (list/get/update) + `API/v1/outlets.php` (GET list|single, POST action=update, gate rol 7) + `bff/outlets.php` (proxy GET/POST) + `views/outlets.html` (lista via ncmDataTables + form Alpine x-model en modal) + `scripts/a_outlets.js` (componente Alpine, receta §17 detached-initTree). **HITO: 1er módulo CRUD no-reporte del panel en el BFF**.
+- **Migración PARCIAL**: list/get/update van al BFF. Create (cascada register+inventory vía god-helpers) y delete (deleteOutlet cascadeante) **quedan legacy** vía `?action=`. businessHours (jQuery widget) y depósitos (adm() infra compartida) **diferidos**.
+- **Nuevo router pattern `$bffPartialModules`**: en `panel/router.php`, paralelo a `$bffPartialReports`, para módulos CRUD no-reporte. Sirve el front estático cuando `empty($_GET['action'])`; cae al PHP legacy si hay `?action=`. Fronts viven en `panel/views/` (no `panel/reports/`).
+- **TRAP crítico — JSONB partial-update**: `update()` DEBE leer el `data` JSONB raw para preservar keys no gestionadas por el form (ej. `outletBusinessHours`). `ncmExecute` single-row aplana Y hace `unset($row['data'])` (`_flattenJsonb`) → leer `$cur['data']` devuelve vacío → wipe del blob a `{}` en cada save. Fix: usar `ncmExecute(..., forceObj=true)` y leer `$res->fields['data']` (forceObj NO aplana). Verificado E2E: key `outletBusinessHours` + custom key semilladas sobreviven save del form nuevo. Aplica a CUALQUIER módulo con partial-field UPDATE sobre tabla con `data` JSONB que gestiona keys fuera del form.
+- **1er uso del componente Alpine §17 en CRUD con modal**: x-model two-way binding + jQuery-owned ncmDataTables/modal-plugin per §17.2.
+
 ## 2026-05-27 (cont. 10) — Dashboard front: templating migrado de Mustache → Alpine (1er fragmento Alpine)
 
 - **`dashboard.html` + `a_report_dashboard.js` refactorizados** (commit `a7790f9`): bindings Mustache+jQuery reemplazados por Alpine (`x-text`/`x-html`/`x-show`/`x-for`/:src/:style) sobre el componente `dashboard()`. Charts Chart.js siguen imperativos (canvas por id, instancias trackeadas + destroy en re-fetch). Diseño visual idéntico.
