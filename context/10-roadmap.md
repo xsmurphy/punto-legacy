@@ -128,6 +128,34 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 
 ---
 
+## Desacople del monolito /app (POS) — patrón Front→BFF→API→Service (iniciado 2026-05-28)
+
+El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher monolítico `action.php`/`load.php` (con ~43+ concerns) se migra concern-por-concern. `action.php`/`load.php` siguen sirviendo los concerns no migrados (migración incremental, no big-bang).
+
+**Slice 1 COMPLETO — `customerAddress` (commit d79cfa4, 2026-05-28)**:
+- Front: 5 call-sites de `ncmCustomer.address.*` en `app/scripts/debug.js` repuntados a `/bff/customer_address?l=` (solo cambia el path; el payload `?l=` base64 es idéntico).
+- BFF: `app/bff/customer_address.php` (decodifica `?l=`, rutea a la API, traduce al shape legacy del front) + `app/bff/lib/api_client.php` (cliente curl, reenvía `_jwt`).
+- API: `app/API/v1/customer_address.php` (JWT-gated, bootstrapea contexto POS) + `app/API/lib/response.php` (envelope canónico de /app).
+- Service: `app/lib/CustomerAddressService.php` (list/add/update/delete/setDefault; tenant-scoped; transacciones atómicas).
+- Verificado E2E (curl, server :8002, JWT real): list/add/update/delete/setDefault OK; default correcto en clear-then-insert; inyección rechazada.
+
+**Slices pendientes**: los ~42+ concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
+
+### Conocimiento issue crítico — `app/DB.php` sin `Insert_ID()` (afecta TODOS los slices futuros)
+
+`app/includes/lib/DB.php` **divergió del panel** y no tiene el método `Insert_ID()`. Consecuencia: `ncmInsert()` y `ncmUpdate()` son **FATALES en /app** (llaman a `$db->Insert_ID()` que no existe → PHP fatal error).
+
+**Impacto latente**: todo el legacy de /app que usa `ncmInsert`/`ncmUpdate` (para escrituras) está silenciosamente roto en PG. El runtime no explota porque la mayoría de los handlers de `action.php` probablemente nunca ejecutaron contra PG en producción, o fallaron silenciosamente.
+
+**Regla para cada slice de /app que incluya escrituras**:
+- `ncmExecute` (lecturas) → sigue funcionando, OK.
+- `ncmInsert`/`ncmUpdate` → **PROHIBIDOS en /app**. Usar `$db->Execute($sql, $params)` parametrizados.
+- Multi-step → `$db->StartTrans()` / `$db->CompleteTrans()` para atomicidad.
+
+**Follow-up recomendado (no bloqueante)**: sincronizar `app/includes/lib/DB.php` con el panel agregando `Insert_ID()`. Eliminaría la divergencia y habilitaría `ncmInsert` en /app en el futuro.
+
+---
+
 ## Phase 2.A — Retrofit envelope canónico ✅ COMPLETO
 
 **68/68 endpoints** ahora usan `apiMiddleware()` con envelope canónico. Incluye `auth.php` (ruta legacy migrada 2026-05-16).

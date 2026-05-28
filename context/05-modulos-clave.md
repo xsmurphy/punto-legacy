@@ -13,13 +13,42 @@ delivery, calendario de citas, agendamientos.
 **Dispatcher principal**: `app/action.php` (~143KB)
 - Decodifica parámetro `l=` (base64) para extraer acción + metadata
 - Valida JWT (cookie `_jwt`), fallback a legacy Hashids
-- 80+ acciones: clockIn, setCurrencies, addSale, getItems, etc.
+- ~43+ acciones aún aquí: clockIn, setCurrencies, addSale, getItems, etc.
 - Rate limiting: 80 requests/minuto por register
+- **`customerAddress.*` ya NO está aquí** — migrado al BFF/API/Service (slice 1, commit d79cfa4)
+
+**Desacople progresivo de /app al patrón Front→BFF→API→Service (iniciado 2026-05-28)**
+
+El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patrón de 3 capas que el panel. `action.php`/`load.php` siguen sirviendo los concerns no migrados.
+
+**Slice 1 COMPLETO — `customerAddress` (commit d79cfa4, 2026-05-28)**:
+
+| Capa | Archivo | Responsabilidad |
+|------|---------|----------------|
+| BFF | `app/bff/customer_address.php` | Decodifica `?l=` base64 (payload existente sin cambios), rutea a la API, traduce al shape legacy del front (`{addresses}` / `{success}`) |
+| BFF lib | `app/bff/lib/api_client.php` | Cliente curl BFF→API; reenvía cookie `_jwt` |
+| API | `app/API/v1/customer_address.php` | Gateado por JWT; bootstrapea contexto POS vía `chdir+head.php+data.php`; envelope canónico |
+| API lib | `app/API/lib/response.php` | `apiOk()`/`apiError()` — envelope canónico (análogo al del panel) |
+| Service | `app/lib/CustomerAddressService.php` | list/add/update/delete/setDefault; tenant-scoped por companyId; transacciones atómicas |
+| Front | `app/scripts/debug.js` | 5 call-sites de `ncmCustomer.address.*` repuntados de `action?l=`/`load?l=` a `/bff/customer_address?l=`; el payload `?l=` base64 no cambia |
+
+**Gotcha crítico para TODOS los futuros slices de /app — `app/DB.php` sin `Insert_ID()`**:
+`app/includes/lib/DB.php` (usado por /app) **divergió del panel** y NO tiene el método `Insert_ID()`. Por eso `ncmInsert()` y `ncmUpdate()` son **FATALES en /app** (llaman a `$db->Insert_ID()`). Reglas para slices /app:
+- **Lecturas**: `ncmExecute` sigue funcionando bien.
+- **Escrituras**: usar `$db->Execute($sql, $params)` / `$db->Insert($table, $params)` directamente, parametrizados — NUNCA `ncmInsert`/`ncmUpdate` en /app.
+- **Multi-step**: envolver en `$db->StartTrans()` / `$db->CompleteTrans()` para atomicidad.
+
+**Bugs PG que el legacy de /app tenía (corregidos en cada slice migrado)**:
+- UUIDs interpolados sin comillas en WHERE (PG rechaza UUID sin quotes cuando `db_prepare` es no-op en /app)
+- `DELETE ... LIMIT 1` (inválido en PG)
+- Booleanos comparados/seteados con `1` en vez de `true`/`null` (ej. `customerAddressDefault` es columna BOOLEAN)
+- Queries sin scope de `companyId` (violación §1 de aislamiento de tenant)
 
 **API endpoints** (`app/API/`):
 - `auth.php` — Login, emite JWT
 - `config.php` — Configuración del tenant para el POS
 - `refresh.php` — Refresh token
+- `v1/customer_address.php` — CRUD de direcciones de cliente (slice 1 migrado)
 
 **Archivos clave**:
 - `app/includes/functions.php` — Utilidades (pagos, formateo, roles)
@@ -28,6 +57,9 @@ delivery, calendario de citas, agendamientos.
 - `app/includes/ws_publish.php` — Publica eventos a Redis
 - `app/includes/db.postgres.php` — Conexión a PostgreSQL
 - `app/scripts/ncm-ws.js` — Cliente WebSocket
+- `app/lib/CustomerAddressService.php` — Service de direcciones (slice 1)
+- `app/bff/lib/api_client.php` — Cliente HTTP BFF→API (reenvía `_jwt`)
+- `app/API/lib/response.php` — Envelope canónico de /app
 
 **Frontend**: Bootstrap 3 + jQuery, service worker para offline.
 

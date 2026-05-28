@@ -78,7 +78,8 @@ El franchiser (`panel/franchiser.php`, gateado por `isParent`) es un **realm ten
 | Patrón | Dónde |
 |--------|-------|
 | Monolito con API REST emergente | `/panel/API/*.php` (93 endpoints) |
-| Action dispatcher | `/app/action.php` (80+ acciones vía param `l=`) |
+| Action dispatcher | `/app/action.php` (~43+ acciones vía param `l=`) — en desacople progresivo |
+| BFF 3 capas (Front→BFF→API→Service) | `/panel/` (completo) + **`/app/` en desacople progresivo** (slice 1: customerAddress ✅, 2026-05-28) |
 | Pub/Sub bridge | PHP → Redis → Node.js WS → Browser |
 | JSONB extensible | Columnas `config`, `data`, `meta` en tablas principales |
 | UUID v7 como PK | Todas las tablas (via `ncmInsert()`) |
@@ -108,10 +109,12 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 |---------|---------------|
 | `panel/includes/functions.php` (282KB) | Host de `ncmExecute()`, `validity()`, `iftn()`, `toUTF8()` |
 | `app/includes/functions.php` | Duplicado parcial — cambios al panel suelen requerir sync acá |
-| `app/action.php` (143KB) | Dispatcher de 80+ acciones del POS |
-| `panel/API/lib/api_middleware.php` | Auth de los endpoints migrados |
-| `app/includes/jwt_middleware.php` | Auth de /app |
+| `app/action.php` (143KB) | Dispatcher de ~43+ acciones del POS; se vacía concern-por-concern |
+| `panel/API/lib/api_middleware.php` | Auth de los endpoints migrados del panel |
+| `app/includes/jwt_middleware.php` | Auth de /app (también usada por los nuevos endpoints `/app/API/v1/`) |
 | `ws-server/index.js` | Único archivo del WS |
+
+**Nota /app DB.php (2026-05-28):** `app/includes/lib/DB.php` divergió del panel y **no tiene `Insert_ID()`**. `ncmInsert`/`ncmUpdate` son fatales en /app. Ver `05-modulos-clave.md § Desacople /app` para el patrón de escritura correcto.
 
 **Cross-coupling observado**: muchas funciones de `app/includes/functions.php` llaman
 a funciones de `panel/includes/functions.php`. No son módulos independientes.

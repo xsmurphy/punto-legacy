@@ -435,6 +435,59 @@ git push                                  ← INMEDIATAMENTE después del commit
 
 ---
 
+## §22 — Slices de desacople /app (POS): gotchas obligatorios (establecido 2026-05-28)
+
+Al migrar cualquier concern de `app/action.php`/`app/load.php` al patrón Front→BFF→API→Service, aplicar SIEMPRE estas reglas derivadas de slice 1 (`customerAddress`):
+
+### §22.1 — `ncmInsert`/`ncmUpdate` PROHIBIDOS en /app
+
+`app/includes/lib/DB.php` no tiene `Insert_ID()` → `ncmInsert`/`ncmUpdate` son PHP fatal errors en /app. **Para escrituras**:
+
+```php
+// MAL — fatal en /app (ncmInsert llama $db->Insert_ID() que no existe)
+ncmInsert($db, 'customer_address', $data);
+
+// BIEN — escritura directa parametrizada
+$db->Execute("INSERT INTO customer_address (...) VALUES (?,?,?,?)", [...]);
+
+// BIEN — multi-step atómico
+$db->StartTrans();
+$db->Execute($sql1, $p1);
+$db->Execute($sql2, $p2);
+$db->CompleteTrans();
+```
+
+`ncmExecute` (lecturas) sigue OK en /app.
+
+### §22.2 — El payload `?l=` se decodifica en el BFF, no en el front
+
+El front de /app ya construye y envía el `?l=` base64 (con acción + metadata) sin cambios. El BFF es el responsable de decodificar ese payload y extraer la acción + los IDs de contexto (companyId, outletId, etc.). El payload llega idéntico al BFF; el BFF lo decodifica y rutea.
+
+```php
+// En el BFF de /app:
+$payload = json_decode(base64_decode($_GET['l'] ?? ''), true);
+$action  = $payload['action'] ?? '';
+// ... rutear a la API
+```
+
+### §22.3 — Fixes PG obligatorios en cada slice /app
+
+El legacy de /app tenía bugs latentes generalizados que DEBEN corregirse al migrar cada concern:
+
+| Bug legacy | Fix correcto |
+|-----------|-------------|
+| UUID interpolado sin comillas en WHERE (`WHERE id = $uuid`) | Bound param: `WHERE id = ?`, bind `[$uuid]` |
+| `DELETE ... LIMIT 1` | `DELETE ... WHERE id = ? AND companyId = ?` (sin LIMIT, con scope) |
+| Booleano comparado con `1` (`WHERE flag = 1`) | `WHERE flag = true` |
+| Booleano seteado con `1` (INSERT/UPDATE `flag = 1`) | `flag = true` (o `null` para default) |
+| Escritura sin scope de `companyId` | Agregar `AND companyId = ?` en UPDATE/DELETE siempre |
+
+### §22.4 — Bootstrap del contexto POS en la API de /app
+
+Los endpoints `app/API/v1/` no tienen el contexto global que carga `head.php`/`data.php` en el flujo legacy. El workaround adoptado en slice 1: hacer `chdir(__DIR__ . '/../../..')` y luego `require_once 'head.php'` + `require_once 'data.php'` para bootstrapear el contexto POS (constantes, DB, companyId del JWT) antes de llamar al service.
+
+---
+
 ## §21 — Design system (identidad visual única)
 
 **Regla**: La identidad visual del producto está codificada en **`panel/assets/design/tokens.css`** (CSS custom properties) + **`panel/assets/design/base.css`** (componentes base). Toda UI **net-new** consume estos archivos vía `<link>` y usa los tokens/clases — **nunca** estilos ad-hoc ni paletas inventadas. Doc completa: `context/11-design-system.md`.

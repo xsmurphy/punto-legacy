@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-28 — /app desacople slice 1: customerAddress al patrón Front→BFF→API→Service
+
+- **Pivote de sesión**: design system (11-design-system.md) pausado por el usuario; sesión reconducida al desacople del monolito `/app`.
+- **Slice 1 HECHO (commit d79cfa4):** `customerAddress` es el primer concern migrado de `action.php`/`load.php` al patrón de 3 capas. Nuevos archivos: `app/bff/customer_address.php` (decodifica `?l=`, rutea a API, traduce al shape legacy) · `app/bff/lib/api_client.php` (curl BFF→API, reenvía `_jwt`) · `app/API/lib/response.php` (envelope canónico de /app) · `app/API/v1/customer_address.php` (JWT-gated, bootstrapea contexto POS) · `app/lib/CustomerAddressService.php` (list/add/update/delete/setDefault, tenant-scoped, StartTrans/CompleteTrans). Front: 5 call-sites de `ncmCustomer.address.*` en `app/scripts/debug.js` repuntados a `/bff/customer_address?l=` (solo el path; payload `?l=` base64 sin cambios). Verificado E2E (list/add/update/delete/setDefault OK, inyección rechazada).
+- **Hallazgo clave — `app/DB.php` sin `Insert_ID()`:** `app/includes/lib/DB.php` divergió del panel y no tiene `Insert_ID()` → `ncmInsert`/`ncmUpdate` son PHP fatal errors en /app. Todos los futuros slices con escrituras deben usar `$db->Execute/$db->Insert` parametrizados directamente. Documentado en `10-roadmap.md § Desacople /app` + `08-convenciones.md §22`. `ncmExecute` (lecturas) sigue OK.
+- **Bugs PG corregidos en el legacy de customerAddress:** UUIDs interpolados sin comillas · `DELETE LIMIT 1` inválido · `customerAddressDefault` comparado/seteado con `1` (es BOOLEAN → usar `true`/`null`) · writes sin scope de `companyId` (IDOR). Patrón documentado en §22.3 — aplica a todos los slices futuros.
+- **Próximo:** definir qué concern de `action.php` migrar como slice 2 (ordenar por valor/riesgo).
+
 ## 2026-05-28 — Admin realm F2: CRUD de super-admins en /admin (realm aislado)
 
 - **F2 HECHA (commit 89e7388):** CRUD completo de admins de plataforma en el realm `/admin`. Stack BFF 3 capas gateado por `adminMiddleware()` (`_jwt_admin`, `aud:"admin"`): `panel/lib/admin/AdminUserService.php` (data layer + reglas de negocio) + `panel/API/v1/admin/users.php` + `panel/bff/admin/users.php` + front estático standalone `panel/admin/users.html` + `panel/admin/scripts/users.js`. Router: `/admin/users → /admin/users.html`. `home.html` ahora linkea al CRUD.
