@@ -16,15 +16,17 @@ if (empty($_COOKIE['_jwt'])) {
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
-$opMap = ['renameTable' => 'rename', 'unReserveTable' => 'unreserve'];
+$opMap = ['renameTable' => 'rename', 'unReserveTable' => 'unreserve', 'setUserToSpace' => 'setUserToSpace'];
 if (!isset($opMap[$action])) {
     bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
 
+// El nombre de mesa viene como `t` (rename/unreserve) o `id` (setUserToSpace).
 $payload = [
     'op'        => $opMap[$action],
-    'tableName' => (string) ($get['t'] ?? ''),
+    'tableName' => (string) ($get['t'] ?? $get['id'] ?? ''),
     'note'      => $get['note'] ?? '',
+    'userId'    => (string) ($get['uid'] ?? ''),
 ];
 
 $res = bffApiPost('v1/tables.php', $payload, '_jwt');

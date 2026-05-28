@@ -41,4 +41,16 @@ class TableService
         );
         return ['ok' => $res !== false];
     }
+
+    /** Asigna un usuario (mozo/responsable) a una mesa/espacio. */
+    public function assignUser(string $companyId, string $outletId, string $tableName, string $userId): array
+    {
+        global $db;
+        $res = $db->Execute(
+            'UPDATE transaction SET userId = ?
+              WHERE companyId = ? AND outletId = ? AND transactionType = ? AND transactionName = ?',
+            [$userId, $companyId, $outletId, self::TYPE_TABLE, $tableName]
+        );
+        return ['ok' => $res !== false];
+    }
 }

@@ -21357,7 +21357,7 @@ var ncmUser = {
                     } else if (ncmSpaces.userToSpace) {
                         var spaceID = ncmSpaces.userToSpace;
 
-                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'setUserToSpace', id: spaceID, uid: id });
+                        var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'setUserToSpace', id: spaceID, uid: id });
 
                         ncmHttp.get({
                             url: url,

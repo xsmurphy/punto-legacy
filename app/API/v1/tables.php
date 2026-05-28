@@ -5,8 +5,9 @@
  * Reemplaza los handlers renameTable/unReserveTable del monolito action.php.
  * Gateado por JWT (_jwt); outletId/companyId SIEMPRE del token.
  *
- *   POST op=rename    { tableName, note }
- *   POST op=unreserve { tableName }
+ *   POST op=rename         { tableName, note }
+ *   POST op=unreserve      { tableName }
+ *   POST op=setUserToSpace { tableName, userId }
  *
  * Envelope canónico { ok, data } / { ok:false, error }.
  */
@@ -58,6 +59,31 @@ switch ($op) {
         break;
     case 'unreserve':
         $res = $svc->unreserve($companyId, $outletId, $tableName);
+        break;
+    case 'setUserToSpace':
+        $assignUserId = trim((string) ($_POST['userId'] ?? ''));
+        if ($assignUserId === '') {
+            apiError('Falta userId', 422);
+        }
+        $res = $svc->assignUser($companyId, $outletId, $tableName, $assignUserId);
+        if (!empty($res['ok'])) {
+            // Notificación al usuario asignado — best-effort: una falla del push
+            // (config de push ausente, red, etc.) NO debe romper la asignación.
+            try {
+                sendPush([
+                    'ids'     => COMPANY_ID,
+                    'message' => 'El espacio ' . $tableName . ' le fue asignado',
+                    'title'   => COMPANY_NAME,
+                    'where'   => 'caja',
+                    'filters' => [
+                        ['key' => 'userId',     'value' => $assignUserId],
+                        ['key' => 'isResource', 'value' => 'true'],
+                    ],
+                ]);
+            } catch (\Throwable $e) {
+                error_log('[tables.setUserToSpace] push falló (ignorado): ' . $e->getMessage());
+            }
+        }
         break;
     default:
         apiError('Operación no soportada', 400);
