@@ -91,6 +91,22 @@ if (isset($bffPartialReports[$path]) && empty($_GET['action'])) {
     }
 }
 
+// Módulos NO-reporte (CRUD) con MIGRACIÓN PARCIAL al modelo BFF + Alpine. Sin ?action= se sirve
+// el front estático (lista + form de edición Alpine); CON ?action= (insert/delete/tableExtra/etc.)
+// cae al PHP legacy por la regla genérica de abajo. Fronts en /views/ (no son reportes).
+// En prod, replicar con RewriteCond %{QUERY_STRING} !(^|&)action= en .htaccess.
+$bffPartialModules = [
+    '/a_outlets' => '/views/outlets.html',
+];
+if (isset($bffPartialModules[$path]) && empty($_GET['action'])) {
+    $htmlFile = __DIR__ . $bffPartialModules[$path];
+    if (file_exists($htmlFile)) {
+        header('Content-Type: text/html; charset=utf-8');
+        readfile($htmlFile);
+        return true;
+    }
+}
+
 // Regla: URLs sin extension -> .php (incluye API/)
 if ($path !== '/' && !pathinfo($path, PATHINFO_EXTENSION)) {
     $phpFile = __DIR__ . $path . '.php';
