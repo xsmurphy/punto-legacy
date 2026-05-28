@@ -1,10 +1,9 @@
 <?php
 /**
- * OrderService — aceptación y asignación de órdenes del POS (Slice 7).
+ * OrderService — aceptación de órdenes del POS (Slice 7).
  *
  * Lógica portada de app/action.php:
- *   acceptOrder    (L1286) — cambia status a 2 ("aceptada")
- *   setUserToOrder (L1354) — asigna userId y actualiza transactionDetails
+ *   acceptOrder (L1286) — cambia status a 2 ("aceptada")
  *
  * Los side-effects (sendPush, sendWS, sendEmails, sendSMS) quedan en el caller
  * (api/v1/orders.php) para mantener el servicio puro de BD.
@@ -12,9 +11,15 @@
  * Bug corregido en acceptOrder: el legacy enviaba enc($id) al WS pero $id no estaba
  * definido en ese scope → el WS recibía null. Se usa $transactionId directamente.
  *
+ * NOTA — setUserToOrder (action.php L1354) NO está aquí: escribe transactionDetails,
+ * que en PG vive dentro de la columna `meta` (jsonb). El write-path legacy (AutoExecute)
+ * no mapea columnas virtuales → meta, así que ese handler está roto post-migración.
+ * Se difiere al slice dedicado de meta-JSONB (junto a removeItemfromOrder,
+ * processOrderItems*, moveOrderItems, updateSchedule, scheduleSession).
+ *
  * Bugs PG corregidos:
- *   - COMPANY_ID, OUTLET_ID interpolados sin comillas en WHERE → bindeados.
- *   - transactionDetails leído y reescrito con JSON válido (no asume tipo TEXT).
+ *   - identificadores SIN comillas (PG pliega a lowercase; las columnas reales son lowercase).
+ *   - COMPANY_ID interpolado sin comillas en WHERE → bindeado.
  */
 
 class OrderService
@@ -32,8 +37,8 @@ class OrderService
 
         $res = $db->Execute(
             'UPDATE transaction
-                SET "transactionStatus" = 2, "updated_at" = NOW()
-              WHERE "transactionId" = ? AND "companyId" = ?',
+                SET transactionStatus = 2, updated_at = NOW()
+              WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
 
@@ -42,71 +47,24 @@ class OrderService
         }
 
         // Leer datos del cliente e invoiceNo para los side-effects del caller.
+        // Si la fila no existe (transactionId foráneo o de otro tenant), retorna ok:false
+        // para evitar disparar notificaciones sobre datos inexistentes.
         $row = ncmExecute(
-            'SELECT "customerId", "invoiceNo"
+            'SELECT customerId, invoiceNo
                FROM transaction
-              WHERE "transactionId" = ? AND "companyId" = ?
+              WHERE transactionId = ? AND companyId = ?
               LIMIT 1',
             [$transactionId, $companyId]
         );
+
+        if (!$row) {
+            return ['ok' => false, 'customerId' => null, 'invoiceNo' => null];
+        }
 
         return [
             'ok'         => true,
             'customerId' => $row['customerId'] ?? null,
             'invoiceNo'  => $row['invoiceNo']  ?? null,
         ];
-    }
-
-    /**
-     * Asigna un usuario (mozo/responsable) a una orden (transactionType=12).
-     * Además actualiza el campo ['user'] dentro de cada item de transactionDetails.
-     *
-     * @return array{ok:bool, invoiceNo:string|null}
-     *   invoiceNo se retorna para el mensaje del push.
-     */
-    public function assignUser(string $transactionId, string $companyId, string $userId): array
-    {
-        global $db;
-
-        // 1. Actualizar userId en la orden.
-        $res = $db->Execute(
-            'UPDATE transaction
-                SET "userId" = ?
-              WHERE "transactionId" = ? AND "transactionType" = 12 AND "companyId" = ?',
-            [$userId, $transactionId, $companyId]
-        );
-
-        if ($res === false) {
-            return ['ok' => false, 'invoiceNo' => null];
-        }
-
-        // 2. Leer transactionDetails e invoiceNo.
-        $row = ncmExecute(
-            'SELECT "transactionDetails", "invoiceNo"
-               FROM transaction
-              WHERE "transactionId" = ? AND "companyId" = ?
-              LIMIT 1',
-            [$transactionId, $companyId]
-        );
-
-        if (!$row) {
-            return ['ok' => true, 'invoiceNo' => null]; // UPDATE OK pero sin fila (raro)
-        }
-
-        // 3. Actualizar ['user'] en cada item de transactionDetails y persistir.
-        $details = json_decode((string) ($row['transactionDetails'] ?? '[]'), true);
-        if (is_array($details) && !empty($details)) {
-            foreach ($details as $k => $_) {
-                $details[$k]['user'] = $userId; // enc() = identity, UUID directo
-            }
-            $db->Execute(
-                'UPDATE transaction
-                    SET "transactionDetails" = ?
-                  WHERE "transactionId" = ? AND "transactionType" = 12 AND "companyId" = ?',
-                [json_encode($details), $transactionId, $companyId]
-            );
-        }
-
-        return ['ok' => true, 'invoiceNo' => $row['invoiceNo'] ?? null];
     }
 }

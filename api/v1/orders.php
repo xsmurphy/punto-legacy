@@ -1,9 +1,11 @@
 <?php
 /**
- * /api/v1/orders.php — aceptación y asignación de órdenes (Slice 7).
+ * /api/v1/orders.php — aceptación de órdenes (Slice 7).
  *
- *   POST op=accept       { transactionId }          → acepta orden (status 2) + notifica cliente
- *   POST op=assignUser   { transactionId, userId }  → asigna mozo a orden + push al usuario
+ *   POST op=accept   { transactionId }   → acepta orden (status 2) + notifica cliente
+ *
+ * NOTA — op=assignUser (setUserToOrder) se difirió: escribe transactionDetails, que
+ * en PG vive en `meta` (jsonb). Va al slice dedicado de meta-JSONB. Ver OrderService.
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }.
  * Side-effects (push, WS, email, SMS) van aquí; el Service es puro de BD.
@@ -95,36 +97,4 @@ if ($op === 'accept') {
 }
 
 // --- assignUser -----------------------------------------------------------
-if ($op === 'assignUser') {
-    $transactionId = trim((string) ($_POST['transactionId'] ?? ''));
-    $userId        = trim((string) ($_POST['userId'] ?? ''));
-    if ($transactionId === '' || $userId === '') {
-        apiError('Faltan campos requeridos (transactionId, userId)', 422);
-    }
-
-    $result = $svc->assignUser($transactionId, $companyId, $userId);
-    if (!$result['ok']) {
-        apiError('No se pudo asignar el usuario a la orden', 500);
-    }
-
-    // Push best-effort al usuario asignado.
-    try {
-        updateLastTimeEdit($companyId, 'order');
-        sendPush([
-            'ids'     => $companyId,
-            'message' => 'La orden # ' . ($result['invoiceNo'] ?? '') . ' le fue asignada',
-            'title'   => defined('COMPANY_NAME') ? COMPANY_NAME : 'Punto',
-            'where'   => 'caja',
-            'filters' => [
-                ['key' => 'userId',     'value' => $userId],
-                ['key' => 'isResource', 'value' => 'true'],
-            ],
-        ]);
-    } catch (\Throwable $e) {
-        error_log('[orders.assignUser] push falló (ignorado): ' . $e->getMessage());
-    }
-
-    apiOk(['assigned' => true]);
-}
-
 apiError('Operación no reconocida', 400);

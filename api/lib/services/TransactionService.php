@@ -27,7 +27,7 @@ class TransactionService
     {
         global $db;
         $res = $db->Execute(
-            'DELETE FROM transaction WHERE "transactionId" = ? AND "companyId" = ?',
+            'DELETE FROM transaction WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
         return $res !== false;
@@ -40,7 +40,7 @@ class TransactionService
     {
         global $db;
         $res = $db->Execute(
-            'DELETE FROM "printServer" WHERE "transactionId" = ? AND "companyId" = ?',
+            'DELETE FROM printServer WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
         return $res !== false;
@@ -59,18 +59,18 @@ class TransactionService
     {
         global $db;
 
-        $setCols = '"transactionStatus" = ?, "updated_at" = NOW()';
+        $setCols = 'transactionStatus = ?, updated_at = NOW()';
         $params  = [6];
 
         if ($motive !== null && $motive !== '') {
-            $setCols  .= ', "transactionNote" = ?';
+            $setCols  .= ', transactionNote = ?';
             $params[]  = strip_tags($motive);
         }
         $params[] = $transactionId;
         $params[] = $companyId;
 
         $res = $db->Execute(
-            "UPDATE transaction SET $setCols WHERE \"transactionId\" = ? AND \"companyId\" = ?",
+            "UPDATE transaction SET $setCols WHERE transactionId = ? AND companyId = ?",
             $params
         );
         return $res !== false;
@@ -96,7 +96,7 @@ class TransactionService
         global $db;
         $data = json_encode(['motive' => markupt2HTML(['text' => $motive, 'type' => 'HtM']), 'user' => $userId]);
         $res  = $db->Execute(
-            'INSERT INTO "itemDeleted" ("itemId", "date", "data", "companyId", "outletId")
+            'INSERT INTO itemDeleted (itemId, date, data, companyId, outletId)
              VALUES (?, NOW(), ?, ?, ?)',
             [$itemId, $data, $companyId, $outletId]
         );
