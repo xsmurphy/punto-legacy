@@ -1,0 +1,16 @@
+<?php
+/**
+ * /api/v1/currencies.php — tasas de cambio del tenant (Slice 12).
+ *
+ *   GET  → lista de monedas extranjeras con su tasa configurada
+ *
+ * Auth: JWT de tenant. Envelope canónico { ok, data }. data = lista (puede ser []).
+ */
+
+require_once dirname(__DIR__) . '/bootstrap.php';
+require_once __DIR__ . '/../lib/services/CurrencyService.php';
+
+apiAuthTenant(); // identidad/contexto del tenant (carga settings/countries globals)
+
+$svc = new CurrencyService();
+apiOk($svc->exchangeList());
