@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!--
+  Home del ADMIN REALM (/admin) — estático, gated client-side: al cargar pide /bff/admin/me.php;
+  si 401 (sin sesión admin válida) redirige a /admin/login. Placeholder de F1 — el CRUD de admins
+  (F2) y la gestión de companies/billing (F3) se montan acá.
+-->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · Punto</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#3b82f6; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
+           font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    header { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.5rem;
+             background:var(--card); border-bottom:1px solid #334155; }
+    header b { font-size:1rem; }
+    .who { color:var(--muted); font-size:.85rem; }
+    button { padding:.45rem .9rem; border:0; border-radius:8px; background:#334155; color:var(--fg); cursor:pointer; font-size:.85rem; }
+    main { padding:2rem 1.5rem; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+  <div id="app" class="hidden">
+    <header>
+      <b>Panel de administración</b>
+      <span>
+        <span class="who" id="who"></span>
+        <button id="logoutBtn">Salir</button>
+      </span>
+    </header>
+    <main>
+      <p>Sesión admin activa. (F1) — acá se montan el CRUD de admins (F2) y la gestión de companies/billing (F3).</p>
+    </main>
+  </div>
+
+  <script>
+  (function () {
+    fetch('/bff/admin/me.php', { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) { throw new Error('401'); } return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok) { throw new Error('401'); }
+        document.getElementById('who').textContent = (res.data && (res.data.name || res.data.email)) || '';
+        document.getElementById('app').classList.remove('hidden');
+      })
+      .catch(function () { window.location.href = '/admin/login'; });
+
+    document.addEventListener('click', function (e) {
+      if (e.target && e.target.id === 'logoutBtn') {
+        fetch('/bff/admin/logout.php', { method: 'POST', credentials: 'same-origin' })
+          .then(function () { window.location.href = '/admin/login'; });
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -19,9 +19,10 @@ header('Referrer-Policy: strict-origin-when-cross-origin');
 $uri = $_SERVER['REQUEST_URI'];
 $path = parse_url($uri, PHP_URL_PATH);
 
-// Servir archivos estaticos que existen (css, js, images, fonts)
-// Incluye /assets/ que es un symlink a ../assets/
-if ($path !== '/' && file_exists(__DIR__ . $path)) {
+// Servir archivos estaticos que existen (css, js, images, fonts).
+// Incluye /assets/ que es un symlink a ../assets/. is_file (no file_exists) para que un path que
+// coincide con un DIRECTORIO (ej. /admin ↔ panel/admin/) no corte acá y siga al routing de abajo.
+if ($path !== '/' && is_file(__DIR__ . $path)) {
     return false; // PHP built-in server sirve el archivo directamente
 }
 
@@ -101,6 +102,22 @@ $bffPartialModules = [
 ];
 if (isset($bffPartialModules[$path]) && empty($_GET['action'])) {
     $htmlFile = __DIR__ . $bffPartialModules[$path];
+    if (file_exists($htmlFile)) {
+        header('Content-Type: text/html; charset=utf-8');
+        readfile($htmlFile);
+        return true;
+    }
+}
+
+// Admin realm (/admin) — front estático standalone (NO el shell del tenant). Su auth es propia
+// (cookie _jwt_admin); el gate es client-side (home.html pide /bff/admin/me.php → 401 redirige a login).
+// En prod, replicar con RewriteRule (/admin → admin/home.html, /admin/login → admin/login.html).
+$adminStatic = [
+    '/admin'       => '/admin/home.html',
+    '/admin/login' => '/admin/login.html',
+];
+if (isset($adminStatic[$path])) {
+    $htmlFile = __DIR__ . $adminStatic[$path];
     if (file_exists($htmlFile)) {
         header('Content-Type: text/html; charset=utf-8');
         readfile($htmlFile);

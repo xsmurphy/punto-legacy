@@ -23,7 +23,7 @@ function bffApiBase()
  * GET a la API. Devuelve ['status'=>int, 'ok'=>bool, 'data'=>mixed, 'error'=>mixed].
  * Desempaqueta el envelope canónico { ok, data } / { ok:false, error }.
  */
-function bffApiGet($path, array $query = [])
+function bffApiGet($path, array $query = [], $cookieName = '_jwt_panel')
 {
     $url = bffApiBase() . '/' . ltrim($path, '/');
     if ($query) {
@@ -37,9 +37,10 @@ function bffApiGet($path, array $query = [])
         CURLOPT_HTTPHEADER     => ['Accept: application/json'],
     ]);
 
-    $jwt = $_COOKIE['_jwt_panel'] ?? '';
+    // Reenvía el JWT del realm correspondiente (_jwt_panel tenant | _jwt_admin admin).
+    $jwt = $_COOKIE[$cookieName] ?? '';
     if ($jwt !== '') {
-        curl_setopt($ch, CURLOPT_COOKIE, '_jwt_panel=' . rawurlencode($jwt));
+        curl_setopt($ch, CURLOPT_COOKIE, $cookieName . '=' . rawurlencode($jwt));
     }
 
     $body   = curl_exec($ch);
@@ -68,7 +69,7 @@ function bffApiGet($path, array $query = [])
  * POST a la API (escrituras). Mismo desempaquetado del envelope que bffApiGet y mismo
  * forward del JWT del usuario. El cuerpo va como form-urlencoded.
  */
-function bffApiPost($path, array $data = [])
+function bffApiPost($path, array $data = [], $cookieName = '_jwt_panel')
 {
     $url = bffApiBase() . '/' . ltrim($path, '/');
 
@@ -81,9 +82,10 @@ function bffApiPost($path, array $data = [])
         CURLOPT_HTTPHEADER     => ['Accept: application/json'],
     ]);
 
-    $jwt = $_COOKIE['_jwt_panel'] ?? '';
+    // Reenvía el JWT del realm correspondiente (_jwt_panel tenant | _jwt_admin admin).
+    $jwt = $_COOKIE[$cookieName] ?? '';
     if ($jwt !== '') {
-        curl_setopt($ch, CURLOPT_COOKIE, '_jwt_panel=' . rawurlencode($jwt));
+        curl_setopt($ch, CURLOPT_COOKIE, $cookieName . '=' . rawurlencode($jwt));
     }
 
     $body   = curl_exec($ch);
