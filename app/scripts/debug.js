@@ -20423,7 +20423,7 @@ var ncmCustomer = {
 
             var modalId = '#modalNarrow';
 
-            var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'customerAddress', id: ncmCustomer.address.customerId });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ load: 'customerAddress', id: ncmCustomer.address.customerId });
 
             if ($(modalId).is(':visible')) {
                 ncmHttp.getit(url, function (result) {
@@ -20477,7 +20477,7 @@ var ncmCustomer = {
 
             ncmCustomer.address.setDefault('Add', ncmCustomer.address.customerId, false, true);
 
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressAdd', i: ncmCustomer.address.customerId, name: name, address: address, location: location, latLng: latLng, city: city });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressAdd', i: ncmCustomer.address.customerId, name: name, address: address, location: location, latLng: latLng, city: city });
             ncmHttp.getit(url, function () {
                 callback && callback();
             }, function () {
@@ -20500,7 +20500,7 @@ var ncmCustomer = {
                 return false;
             }
 
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressUpdate', i: ncmCustomer.address.customerId, id: id, name: name, address: address, location: location, latLng: latLng, city: city });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressUpdate', i: ncmCustomer.address.customerId, id: id, name: name, address: address, location: location, latLng: latLng, city: city });
             ncmHttp.getit(url, function () {
                 callback && callback();
             }, function () {
@@ -20508,7 +20508,7 @@ var ncmCustomer = {
             });
         },
         delete: function (id, callback) {
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressDelete', i: ncmCustomer.address.customerId, id: id });
+            var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressDelete', i: ncmCustomer.address.customerId, id: id });
             ncmHttp.getit(url, function () {
                 callback && callback();
             }, function () {
@@ -20551,7 +20551,7 @@ var ncmCustomer = {
 
             ncmStorage.idb.add('customersObj', ncmGlobals.customers, function () {
                 if (!half) {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressSetDefault', i: ncmCustomer.address.customerId, id: id });
+                    var url = masterUrl + 'bff/customer_address?l=' + ncmHttp.masterUrlParams({ action: 'customerAddressSetDefault', i: ncmCustomer.address.customerId, id: id });
                     ncmHttp.getit(url, function () {
                         callback && callback();
                     });
