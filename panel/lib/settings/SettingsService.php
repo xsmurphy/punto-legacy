@@ -305,6 +305,79 @@ class SettingsService
         return is_array($res) && ($res['error'] === false);
     }
 
+    /**
+     * Plantillas de impresión de la empresa (taxonomy type=printTemplate).
+     * `json` = taxonomyExtra (el diseño serializado que rinde el templateBuilder en el front).
+     * NOTA PG: el legacy incluía `OR companyId = 1` (plantillas globales) — eso ROMPE contra una
+     * columna UUID (invalid input syntax for type uuid: "1") → se consultan solo las propias.
+     * @return array{rows: array<int, array{id:string, name:string, json:string}>}
+     */
+    public function templates($companyId)
+    {
+        $res = ncmExecute(
+            "SELECT taxonomyId, taxonomyName, taxonomyExtra
+             FROM taxonomy
+             WHERE taxonomyType = 'printTemplate' AND companyId = ?
+             ORDER BY taxonomyName ASC",
+            [$companyId], false, true
+        );
+        $out = [];
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $out[] = [
+                    'id'   => (string) $res->fields['taxonomyId'],
+                    'name' => (string) $res->fields['taxonomyName'],
+                    'json' => (string) ($res->fields['taxonomyExtra'] ?? ''),
+                ];
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+        return ['rows' => $out];
+    }
+
+    /**
+     * Crea o actualiza una plantilla de impresión. SCOPEADO por companyId (el UPDATE legacy
+     * filtraba solo por taxonomyId → IDOR; acá se agrega companyId). El nombre sale del propio
+     * diseño (page_name). @param string $id  vacío = insert. @return string|bool  id nuevo | true | false
+     */
+    public function saveTemplate($companyId, $id, $dataJson)
+    {
+        $jdata = json_decode((string) $dataJson, true);
+        $name  = (is_array($jdata) && !empty($jdata['page_name'])) ? (string) $jdata['page_name'] : 'Nueva Plantilla';
+
+        if ($id !== '' && $id !== null) {
+            $res = ncmUpdate([
+                'records'     => ['taxonomyName' => $name, 'taxonomyExtra' => (string) $dataJson],
+                'table'       => 'taxonomy',
+                'where'       => 'taxonomyId = ? AND companyId = ?',
+                'whereParams' => [$id, $companyId],
+            ]);
+            return is_array($res) && ($res['error'] === false);
+        }
+
+        $newId = ncmInsert(['table' => 'taxonomy', 'records' => [
+            'taxonomyName'  => $name,
+            'taxonomyExtra' => (string) $dataJson,
+            'taxonomyType'  => 'printTemplate',
+            'companyId'     => $companyId,
+        ]]);
+        return $newId !== false ? $newId : false;
+    }
+
+    /**
+     * Elimina una plantilla. SCOPEADO por companyId + type (defensa). Sin LIMIT (inválido en PG).
+     * @return bool
+     */
+    public function removeTemplate($companyId, $id)
+    {
+        $res = ncmDelete(
+            "DELETE FROM taxonomy WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = 'printTemplate'",
+            [$id, $companyId]
+        );
+        return $res !== false;
+    }
+
     /** Normaliza un valor PG (1/0, 't'/'f', '1', true, 'yes') a bool. */
     private function truthy($v)
     {

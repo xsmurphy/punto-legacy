@@ -6,13 +6,16 @@
  *   GET  /API/v1/settings?view=options                  → listas para selects.
  *   GET  /API/v1/settings?view=taxonomies&type=<t>       → items de taxonomía (tax/category/tag/...).
  *   GET  /API/v1/settings?view=currencies                → matriz de monedas (cotizaciones).
+ *   GET  /API/v1/settings?view=templates                 → plantillas de impresión (taxonomy).
  *   POST /API/v1/settings (action=update&type=setting + campos)        → guarda en company.config.
  *   POST /API/v1/settings (action=update&type=currencies&currencies=…) → guarda cotizaciones (settingObj).
+ *   POST /API/v1/settings (action=saveTemplate&data=…[&i=id])          → crea/actualiza plantilla.
+ *   POST /API/v1/settings (action=removeTemplate&id=…)                 → elimina plantilla.
  *
- * Arregla el guardado roto en PG (tabla `setting` eliminada → company.config; y el save de monedas
- * legacy interpolaba COMPANY_ID sin comillas). Escritura scopeada por COMPANY_ID del JWT. Auth: JWT.
- * Las demás vistas (templates/ecommerce) se agregan en incrementos siguientes; por ahora siguen
- * sirviéndose por el PHP legacy vía `?action=`.
+ * Arregla el guardado roto en PG (tabla `setting` eliminada → company.config; el save de monedas
+ * legacy interpolaba COMPANY_ID sin comillas; el delete de plantillas usaba LIMIT 1 inválido en PG y
+ * el update no scopeaba companyId → IDOR). Escritura scopeada por COMPANY_ID del JWT. Auth: JWT.
+ * El front del template builder (widget jQuery) se recablea en un incremento siguiente.
  */
 
 require_once __DIR__ . '/../lib/api_middleware.php';
@@ -28,6 +31,31 @@ if ($method === 'POST') {
         apiError('Sin permiso para esta acción', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
+
+    // Plantillas de impresión (taxonomy printTemplate).
+    if ($action === 'saveTemplate') {
+        $data = (string) (validateHttp('data', 'post') ?: '');
+        $id   = (string) (validateHttp('i', 'post') ?: '');
+        if ($data === '') {
+            apiError('Falta el diseño de la plantilla', 422);
+        }
+        $r = $svc->saveTemplate(COMPANY_ID, $id, $data);
+        if ($r === false) {
+            apiError('No se pudo guardar la plantilla', 500);
+        }
+        apiOk(['action' => 'saveTemplate', 'id' => is_string($r) ? $r : $id]);
+    }
+    if ($action === 'removeTemplate') {
+        $id = (string) (validateHttp('id', 'post') ?: '');
+        if ($id === '') {
+            apiError('Falta el id de la plantilla', 422);
+        }
+        if (!$svc->removeTemplate(COMPANY_ID, $id)) {
+            apiError('No se pudo eliminar la plantilla', 500);
+        }
+        apiOk(['action' => 'removeTemplate', 'id' => $id]);
+    }
+
     $type   = (string) (validateHttp('type', 'post') ?: '');
     if ($action !== 'update' || !in_array($type, ['setting', 'currencies'], true)) {
         apiError('Acción no soportada', 422);
@@ -106,6 +134,10 @@ if ($view === 'options') {
 
 if ($view === 'currencies') {
     apiOk($svc->currencies(COMPANY_ID));
+}
+
+if ($view === 'templates') {
+    apiOk($svc->templates(COMPANY_ID));
 }
 
 if ($view === 'taxonomies') {
