@@ -1,30 +1,46 @@
 <!DOCTYPE html>
 <!--
   Home del ADMIN REALM (/admin) — estático, gated client-side: al cargar pide /bff/admin/me.php;
-  si 401 (sin sesión admin válida) redirige a /admin/login. Acá se montan el CRUD de admins
-  (F2, /admin/users) y la gestión de companies/billing (F3).
-  Estilos vía design system (assets/design/*) — ver context/11-design-system.md.
+  si 401 (sin sesión admin válida) redirige a /admin/login. Placeholder de F1 — el CRUD de admins
+  (F2) y la gestión de companies/billing (F3) se montan acá.
 -->
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin · Punto</title>
-  <link rel="stylesheet" href="/assets/design/tokens.css?v=3">
-  <link rel="stylesheet" href="/assets/design/base.css?v=3">
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#3b82f6; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
+           font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    header { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.5rem;
+             background:var(--card); border-bottom:1px solid #334155; }
+    header b { font-size:1rem; }
+    .who { color:var(--muted); font-size:.85rem; }
+    button { padding:.45rem .9rem; border:0; border-radius:8px; background:#334155; color:var(--fg); cursor:pointer; font-size:.85rem; }
+    main { padding:2rem 1.5rem; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1rem; max-width:720px; }
+    .card { display:block; padding:1.25rem; background:var(--card); border:1px solid #334155; border-radius:12px;
+            color:var(--fg); text-decoration:none; }
+    .card:hover { border-color:var(--accent); }
+    .card h3 { margin:0 0 .35rem; font-size:1rem; }
+    .card p { margin:0; color:var(--muted); font-size:.82rem; }
+    .hidden { display:none; }
+  </style>
 </head>
-<body class="ds-app">
-  <div id="app" class="ds-hidden">
-    <header class="ds-header">
-      <span class="ds-header__brand">Panel de administración</span>
-      <span class="ds-header__nav">
-        <span class="ds-muted" id="who"></span>
-        <a href="#" id="logoutBtn">Salir</a>
+<body>
+  <div id="app" class="hidden">
+    <header>
+      <b>Panel de administración</b>
+      <span>
+        <span class="who" id="who"></span>
+        <button id="logoutBtn">Salir</button>
       </span>
     </header>
-    <main class="ds-main">
-      <div class="ds-cards">
-        <a class="ds-card-link" href="/admin/users">
+    <main>
+      <div class="cards">
+        <a class="card" href="/admin/users">
           <h3>Administradores</h3>
           <p>Crear, editar y activar/desactivar super-admins de la plataforma.</p>
         </a>
@@ -39,13 +55,12 @@
       .then(function (res) {
         if (!res || !res.ok) { throw new Error('401'); }
         document.getElementById('who').textContent = (res.data && (res.data.name || res.data.email)) || '';
-        document.getElementById('app').classList.remove('ds-hidden');
+        document.getElementById('app').classList.remove('hidden');
       })
       .catch(function () { window.location.href = '/admin/login'; });
 
     document.addEventListener('click', function (e) {
       if (e.target && e.target.id === 'logoutBtn') {
-        e.preventDefault();
         fetch('/bff/admin/logout.php', { method: 'POST', credentials: 'same-origin' })
           .then(function () { window.location.href = '/admin/login'; });
       }

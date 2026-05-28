@@ -27,8 +27,8 @@
 
     function toast(msg) {
         toastEl.textContent = msg;
-        toastEl.classList.add('is-show');
-        setTimeout(function () { toastEl.classList.remove('is-show'); }, 2500);
+        toastEl.classList.add('show');
+        setTimeout(function () { toastEl.classList.remove('show'); }, 2500);
     }
 
     function fmtDate(s) {
@@ -52,29 +52,29 @@
 
     function load() {
         api('GET').then(function (res) {
-            if (!res.body.ok) { rowsEl.innerHTML = '<tr><td colspan="5" class="ds-table__empty">Error al cargar</td></tr>'; return; }
+            if (!res.body.ok) { rowsEl.innerHTML = '<tr><td colspan="5" class="empty">Error al cargar</td></tr>'; return; }
             render(res.body.data.rows || []);
         }).catch(function () {});
     }
 
     function render(rows) {
         if (!rows.length) {
-            rowsEl.innerHTML = '<tr><td colspan="5" class="ds-table__empty">No hay administradores</td></tr>';
+            rowsEl.innerHTML = '<tr><td colspan="5" class="empty">No hay administradores</td></tr>';
             return;
         }
         rowsEl.innerHTML = rows.map(function (a) {
             var pill = a.status === 1
-                ? '<span class="ds-pill ds-pill--ok">Activo</span>'
-                : '<span class="ds-pill ds-pill--muted">Inactivo</span>';
+                ? '<span class="pill active">Activo</span>'
+                : '<span class="pill inactive">Inactivo</span>';
             var toggleLabel = a.status === 1 ? 'Desactivar' : 'Activar';
-            var toggleClass = a.status === 1 ? 'ds-link-btn ds-link-btn--danger' : 'ds-link-btn';
+            var toggleClass = a.status === 1 ? 'link danger' : 'link';
             return '<tr>' +
                 '<td>' + esc(a.name || '—') + '</td>' +
                 '<td>' + esc(a.email) + '</td>' +
                 '<td>' + pill + '</td>' +
                 '<td>' + esc(fmtDate(a.lastLoginAt)) + '</td>' +
-                '<td><div class="ds-row-actions">' +
-                '<button class="ds-link-btn" data-edit="' + esc(a.id) + '">Editar</button>' +
+                '<td><div class="row-actions">' +
+                '<button class="link" data-edit="' + esc(a.id) + '">Editar</button>' +
                 '<button class="' + toggleClass + '" data-toggle="' + esc(a.id) + '" data-next="' + (a.status === 1 ? 0 : 1) + '">' + toggleLabel + '</button>' +
                 '</div></td>' +
                 '</tr>';
@@ -98,12 +98,12 @@
             fPassword.value = '';
             passHint.textContent = 'Mínimo 8 caracteres.';
         }
-        overlay.classList.add('is-open');
+        overlay.classList.add('open');
         fName.focus();
     }
 
     function closeModal() {
-        overlay.classList.remove('is-open');
+        overlay.classList.remove('open');
     }
 
     // --- eventos ------------------------------------------------------------
