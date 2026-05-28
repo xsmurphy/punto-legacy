@@ -482,6 +482,22 @@ $action  = $payload['action'] ?? '';
 // ... rutear a la API
 ```
 
+### §22.2b — El front a repuntar es `globalv2.js` (producción), NO sólo `debug.js`
+
+**REGLA**: al repuntar el front de /app de `/action?l=` (o `/load?l=`) a `/bff/<concern>?l=`,
+hay que editar **`app/scripts/globalv2.js`** — es el source de **producción** (lo sirve
+`app/includes/assets.php` por defecto). `app/scripts/debug.js` es una copia casi idéntica
+que SÓLO se sirve en modo debug/mobile (para pruebas). Editar sólo debug.js deja
+producción corriendo sobre `action.php` legacy → al vaciar action.php, **producción se
+rompe**.
+
+**Por qué importa**: los slices 1-13 repuntaron sólo debug.js; producción quedó 100% en
+legacy hasta el backfill del commit `5f1b367` (que copió los 11 repoints a globalv2.js).
+Ambos archivos son sources hand-maintained (NO buildeados con terser); manténgalos en sync.
+Verificar con `node --check` ambos tras editar. El router (`app/router.php`) mapea
+`/bff/<x>` → `app/bff/<x>.php` (URL sin extensión → `.php`), así que basta con que el BFF
+exista.
+
 ### §22.3 — Fixes PG obligatorios en cada slice /app
 
 El legacy de /app tenía bugs latentes generalizados que DEBEN corregirse al migrar cada concern:
