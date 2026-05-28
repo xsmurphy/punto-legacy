@@ -183,7 +183,9 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 
 **Producción repuntada (commit 5f1b367)**: descubierto que `globalv2.js` es el front de PRODUCCIÓN (debug.js era sólo para pruebas) y los slices 1-13 sólo habían tocado debug.js → producción seguía en legacy. Backfill de globalv2.js con los 11 repoints + notifications + vpayments. Ver convención §22.2b.
 
-**Retrofit REST de /api/v1 (en curso, 2026-05-28)**: los slices 6-15 usaron POST+`op` (RPC, espejo del `?l=` legacy), divergente del REST de `panel/API/v1`. Decisión del usuario: **REST + retrofit**. Infra lista (commit pendiente): shim `php://input`→`$_POST` en `api/bootstrap.php` + `bffApiPut/bffApiDelete` en `app/bff/lib/api_client.php`. Convención §22.7. Falta retrofitear los 11 endpoints + sus BFFs a GET/POST/PUT/DELETE.
+**Retrofit REST de /api/v1 ✅ COMPLETO (2026-05-28)**: los slices 6-15 usaban POST+`op` (RPC), divergente del REST de `panel/API/v1`. Retrofiteados los 11 endpoints + BFFs a GET/POST/PUT/DELETE (commit `6b8082a`), convención §22.7. Infra: shim `php://input`→`$_POST` en `api/bootstrap.php` + `bffApiPut/bffApiDelete` (commit `d7b34cb`). El service layer NO cambió. Recursos por `?id=`, sub-recursos/sub-acciones por `?resource=`.
+
+**Gap de producción cerrado (commit `84be19f`)**: los slices 6-13 habían construido BFF+API pero NO repuntado el front → producción seguía en `action?l=` (legacy). Repuntados los 11 call-sites de slices 6-13 a sus BFFs en globalv2.js + debug.js. Quedan en `action?l=` SÓLO los handlers no migrados (sale, processData, cluster meta-JSONB, joinSpaces/moveOrders, chkGiftCard, consultStatusElectronicInvoice).
 
 ### Reestructura + vendoreo de /app (FUTURO — "cuando convenga", pedido por el usuario)
 
