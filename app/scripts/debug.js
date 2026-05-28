@@ -9198,7 +9198,7 @@ var ncmCalendar = {
             if (tis.hasClass('blockedBlock')) {
                 ncmAlerts.alert({ title: "¿Desea desbloquear?" }, function (result) {
                     if (result) {
-                        var url = window.masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'unlockCalendar', lock: id });
+                        var url = window.masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'unlockCalendar', lock: id });
                         tis.remove();
                         ncmHttp.getit(url);
                     }
@@ -9372,7 +9372,7 @@ var ncmCalendar = {
                     var blockStartTime = ncmCalendar.cache[ncmCalendar.currentDate + 'days'].data[index].start;
                     var newDate = moment(blockStartTime, "YYYY-MM-DD H:mm:ss").add(parseFloat($block.height()), 'minutes').format('H:mm:ss');
 
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'updateScheduleTo', id: transId, t: newDate });
+                    var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'updateScheduleTo', id: transId, t: newDate });
                     ncmHttp.get({
                         url: url,
                         hideLoader: true,
