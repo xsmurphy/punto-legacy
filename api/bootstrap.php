@@ -23,6 +23,25 @@ require_once __DIR__ . '/lib/response.php';
 $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 require_once API_APP_DIR . '/head.php'; // db, functions (ncm*, sendPush, checkCompanyStatus), config, enc/dec
 
+// Normaliza el body de PUT/DELETE/PATCH → $_POST. PHP sólo puebla $_POST en POST
+// form-encoded; en los demás verbos el body queda en php://input. Así los endpoints REST
+// leen $_POST uniformemente sin importar el verbo. (Mismo enfoque que panel api_middleware.)
+// El BFF de /app manda form-encoded (http_build_query); soportamos también JSON por las dudas.
+if (empty($_POST) && in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['PUT', 'DELETE', 'PATCH'], true)) {
+    $rawBody = file_get_contents('php://input');
+    if ($rawBody !== '' && $rawBody !== false) {
+        $jsonBody = json_decode($rawBody, true);
+        if (is_array($jsonBody)) {
+            $_POST = $jsonBody;
+        } else {
+            parse_str($rawBody, $parsedBody);
+            if (!empty($parsedBody)) {
+                $_POST = $parsedBody;
+            }
+        }
+    }
+}
+
 /**
  * Autentica el JWT de tenant y prepara el contexto POS (COMPANY_ID, OUTLET_ID, TODAY,
  * settings, COMPANY_NAME…). Corta 401/403 si falla. Devuelve los ids del token.

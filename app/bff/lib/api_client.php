@@ -28,11 +28,31 @@ function bffApiGet(string $path, array $query = [], string $cookieName = '_jwt')
 function bffApiPost(string $path, array $data = [], string $cookieName = '_jwt'): array
 {
     $url = bffApiBase() . '/' . ltrim($path, '/');
-    return bffApiSend($url, http_build_query($data), $cookieName);
+    return bffApiSend($url, http_build_query($data), $cookieName, 'POST');
+}
+
+/** PUT a la API (updates / transiciones de estado). Body form-encoded; lo parsea el shim de bootstrap. */
+function bffApiPut(string $path, array $query = [], array $data = [], string $cookieName = '_jwt'): array
+{
+    $url = bffApiBase() . '/' . ltrim($path, '/');
+    if ($query) {
+        $url .= '?' . http_build_query($query);
+    }
+    return bffApiSend($url, http_build_query($data), $cookieName, 'PUT');
+}
+
+/** DELETE a la API (borrados). El id/scope va en query; body opcional. */
+function bffApiDelete(string $path, array $query = [], array $data = [], string $cookieName = '_jwt'): array
+{
+    $url = bffApiBase() . '/' . ltrim($path, '/');
+    if ($query) {
+        $url .= '?' . http_build_query($query);
+    }
+    return bffApiSend($url, $data ? http_build_query($data) : null, $cookieName, 'DELETE');
 }
 
 /** Hace la request curl y desempaqueta el envelope { ok, data } / { ok:false, error }. */
-function bffApiSend(string $url, ?string $postBody, string $cookieName): array
+function bffApiSend(string $url, ?string $body, string $cookieName, string $method = 'POST'): array
 {
     $ch = curl_init($url);
     $opts = [
@@ -40,9 +60,16 @@ function bffApiSend(string $url, ?string $postBody, string $cookieName): array
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_HTTPHEADER     => ['Accept: application/json'],
     ];
-    if ($postBody !== null) {
-        $opts[CURLOPT_POST]       = true;
-        $opts[CURLOPT_POSTFIELDS] = $postBody;
+    if ($method === 'POST') {
+        $opts[CURLOPT_POST] = true;
+        if ($body !== null) {
+            $opts[CURLOPT_POSTFIELDS] = $body;
+        }
+    } elseif (in_array($method, ['PUT', 'DELETE', 'PATCH'], true)) {
+        $opts[CURLOPT_CUSTOMREQUEST] = $method;
+        if ($body !== null) {
+            $opts[CURLOPT_POSTFIELDS] = $body;
+        }
     }
     curl_setopt_array($ch, $opts);
 

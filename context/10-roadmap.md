@@ -183,6 +183,16 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 
 **Producción repuntada (commit 5f1b367)**: descubierto que `globalv2.js` es el front de PRODUCCIÓN (debug.js era sólo para pruebas) y los slices 1-13 sólo habían tocado debug.js → producción seguía en legacy. Backfill de globalv2.js con los 11 repoints + notifications + vpayments. Ver convención §22.2b.
 
+**Retrofit REST de /api/v1 (en curso, 2026-05-28)**: los slices 6-15 usaron POST+`op` (RPC, espejo del `?l=` legacy), divergente del REST de `panel/API/v1`. Decisión del usuario: **REST + retrofit**. Infra lista (commit pendiente): shim `php://input`→`$_POST` en `api/bootstrap.php` + `bffApiPut/bffApiDelete` en `app/bff/lib/api_client.php`. Convención §22.7. Falta retrofitear los 11 endpoints + sus BFFs a GET/POST/PUT/DELETE.
+
+### Reestructura + vendoreo de /app (FUTURO — "cuando convenga", pedido por el usuario)
+
+Tarea estructural diferida (ortogonal al desacople): reestructurar `/app` con mejores nombres de archivo y vendoreo npm. Puntos:
+- `globalv2.js` (front de producción) tiene nombre sin sentido → renombrar (ej. `pos.js`/`app.js`).
+- `debug.js` y `globalv2.js` son copias casi idénticas (smell de duplicación) → unificar fuente y generar la variante debug por build (ya hay `terser` + `build.sh` + `filesCompiler.php`).
+- Vendorear deps JS vía npm en vez de copias manuales.
+- Revisar nombres de archivos PHP de /app (action.php/load.php/fetch.php) una vez vaciados.
+
 **Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable), `ScheduleService`, `CustomerNoteService`, `TransactionService`, `OrderService` (accept/transferToOutlet), `SyncService`, `RegisterService`, `CurrencyService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
 
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)

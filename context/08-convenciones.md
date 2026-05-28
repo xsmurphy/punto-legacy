@@ -548,6 +548,33 @@ type-12, (3) patrón `jsonb_set` para el write. No portar estos handlers "como e
 
 Los endpoints en `api/v1/` no tienen el contexto global que carga `head.php`/`data.php` en el flujo legacy. El bootstrap adoptado: `api/bootstrap.php` hace `chdir(/app)` y requiere `head.php` + `data.php` vía rutas absolutas (`API_APP_DIR`). Los endpoints llaman `apiAuthTenant()` (que internamente hace ese bootstrap). Este es el approach transitorio — la deuda es consolidar un `/api/includes` propio (ver `10-roadmap.md § Consolidar /api/includes`).
 
+### §22.7 — Verbos REST en `/api/v1` (alineado con panel/API/v1)
+
+**REGLA**: los endpoints de `/api/v1` usan **verbos HTTP REST** vía `switch($_SERVER['REQUEST_METHOD'])`,
+igual que `panel/API/v1/` (contacts/items/outlets). NO usar el patrón POST+`op` (RPC) — fue un
+error de los slices 6-15 (estilo espejo del sobre `?l=` legacy), retrofiteado al estándar REST.
+
+Convención de verbos:
+| Verbo | Uso | Recurso |
+|-------|-----|---------|
+| `GET` | lectura pura (sin mutación) | filtros/ids por query (`?id=`, `?customerId=`) |
+| `POST` | crear recurso nuevo · acción no-idempotente · lectura-con-payload-grande (search) | body |
+| `PUT` | update idempotente, **incluye transiciones de estado** (accept/reject/reschedule/rename/setSession) | `?id=` + body |
+| `DELETE` | eliminar recurso | `?id=` |
+| Sub-recurso / sub-acción | calificar con `?resource=<nombre>` | (panel convention) |
+
+- **Recursos por `?id=` query param**, NO path params (`/v1/orders/123/accept`): el router mapea
+  path→archivo, no parsea segmentos. Sub-recursos vía `?resource=` (ej: `?id=X&resource=default`).
+- **Body de PUT/DELETE**: PHP NO puebla `$_POST` salvo en POST form-encoded. `api/bootstrap.php`
+  tiene un shim que parsea `php://input` (JSON o form-encoded) → `$_POST` para PUT/DELETE/PATCH,
+  así los endpoints leen `$_POST` uniforme.
+- **BFF**: usa `bffApiGet/bffApiPost/bffApiPut/bffApiDelete` (`app/bff/lib/api_client.php`). El BFF
+  traduce el `action`/`load` del sobre `?l=` legacy al verbo + query correctos; el front no cambia.
+- **Acciones POS que no son CRUD puro** (accept/reject/toggle/closeTable): se modelan como `PUT`
+  (transición de estado del recurso) o `DELETE` (si el efecto neto es borrar), con `?resource=` si
+  hace falta distinguir la sub-acción. Sólo usar `POST` para crear o para reads con payload grande
+  (ej: `sync` recibe una lista de IDs).
+
 ---
 
 ## §21 — Manual de marca (identidad visual)
