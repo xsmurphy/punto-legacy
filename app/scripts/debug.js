@@ -20362,7 +20362,7 @@ var ncmCustomer = {
 
         ncmAlerts.prompt(options, function (prompt) {
             if (ncmHelpers.validity(prompt)) {
-                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'customerNote', i: id, n: prompt });
+                var url = masterUrl + 'bff/customer_note?l=' + ncmHttp.masterUrlParams({ action: 'customerNote', i: id, n: prompt });
                 ncmHttp.getit(url, function () {
                     ncmAlerts.toast('Nota guardada', 'success');
                 });
