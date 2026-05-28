@@ -96,7 +96,8 @@ if (isset($bffPartialReports[$path]) && empty($_GET['action'])) {
 // cae al PHP legacy por la regla genérica de abajo. Fronts en /views/ (no son reportes).
 // En prod, replicar con RewriteCond %{QUERY_STRING} !(^|&)action= en .htaccess.
 $bffPartialModules = [
-    '/a_outlets' => '/views/outlets.html',
+    '/a_outlets'  => '/views/outlets.html',
+    '/a_settings' => '/views/settings.html',
 ];
 if (isset($bffPartialModules[$path]) && empty($_GET['action'])) {
     $htmlFile = __DIR__ . $bffPartialModules[$path];

@@ -1,0 +1,269 @@
+<!--
+  Front del módulo Ajustes (a_settings) — fragmento estático, BFF + Alpine (incr. 2: tabs
+  General + App). Cero PHP: el shell inyecta este HTML en #bodyContent.
+
+  - Campos + toggles: Alpine x-model contra `cfg` (el estado del componente). Save → POST
+    /bff/settings.php (action=update&type=setting) → company.config (ARREGLA el guardado roto en PG).
+  - Selects país/timezone/categoría/separador/idioma: opciones desde /bff/settings.php?view=options.
+  - Dropdowns adm (impuestos/plan de cuentas/categorías/etiquetas/medios/bancos): se muestran desde
+    ?view=taxonomies; su CRUD inline + "Ordenar categorías" + "Monedas/Configurar" quedan en el PHP
+    legacy vía /a_settings?action=…|?tableExtra=… (partial — funcionan con la sesión del shell).
+  - Logo: form a upload.php (igual que legacy). Tab "Plantillas de Impresión" + ecommerce/monedas
+    se agregan en el incremento 3.
+
+  Init determinista §17: sin x-data en el markup; a_settings.js clona el root, le pone x-data,
+  Alpine.initTree DETACHED y reinserta; mountUI() corre el setup que toca el DOM (tabs/select2/adm).
+-->
+<div class="col-xs-12 no-padder" id="settingsRoot">
+
+  <input type="hidden" class="flagSave" value="no-active">
+
+  <div class="col-xs-12 wrapper r-24x bg-info gradBgGray m-b-md">
+    <div class="col-sm-2 col-xs-12 no-padder text-center">
+      <form method="post" enctype="multipart/form-data" id="logoUploadForm">
+        <input type="file" name="image" id="image" style="display:none"/>
+      </form>
+      <a href="#" class="m-b" id="uploadImgBtn" data-toggle="tooltip" data-placement="bottom" title="Click para añadir o cambiar el logo">
+        <img :src="logo" class="img-circle itemImg" style="width:60%; max-width: 130px;">
+      </a>
+    </div>
+    <div class="col-sm-8 col-xs-12 text-white">
+      <span class="h1 font-bold m-b" x-text="cfg.name"></span>
+      <div class="text-sm font-bold" x-text="categoryLabel()"></div>
+      <span x-text="cfg.address || 'Sin dirección'"></span>
+      <p><span x-text="cfg.city || 'Ninguna ciudad'"></span> - <span x-text="countryName()"></span></p>
+      <p>
+        <span x-text="cfg.phone || 'Sin teléfono'"></span> - <span x-text="cfg.email || 'Sin email'"></span>
+        <br>
+        <span x-text="cfg.website || 'Sin sitio web'"></span>
+      </p>
+    </div>
+  </div>
+
+  <section class="col-xs-12 no-padder m-b-lg push-chat-down">
+    <section class="col-xs-12 no-padder">
+      <ul class="nav nav-tabs padder hidden-print wrap-l-md">
+        <li class="active"><a href="#general" data-toggle="tab"><span class="hidden-xs">Perfil</span><span class="material-icons visible-xs">list_alt</span></a></li>
+        <li><a href="#app" data-toggle="tab"><span class="hidden-xs">Visualización y parámetros</span><span class="material-icons visible-xs">settings</span></a></li>
+        <li><a href="/@#outlets" class="navigate"><span class="hidden-xs">Editar sucursales</span><span class="material-icons visible-xs">store</span></a></li>
+      </ul>
+
+      <section class="panel r-24x">
+        <div class="panel-body table-responsive">
+          <div class="tab-content bg-white">
+
+            <!-- ───────────── Perfil (general) ───────────── -->
+            <div class="tab-pane active wrapper" id="general">
+              <div class="h2 font-bold m-b-lg"><div class="text-sm font-default">Perfil de la</div>Empresa</div>
+              <div class="row">
+
+                <div class="col-sm-6">
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Dirección Física</label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.address" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Email de la empresa</label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.email" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Nombre, Razón Social o Razón Comercial</label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.billingName" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold" x-text="cfg.tin || 'RUC'"></label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.ruc" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Información Extra (actividad comercial y datos tributarios)</label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.billDetail" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Sitio Web</label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.website" autocomplete="off">
+                  </div>
+
+                  <div class="col-xs-12 no-padder">
+                    <div class="col-xs-6"><div class="input-group m-b"><span class="input-group-addon"><img src="https://cdnjs.cloudflare.com/ajax/libs/simple-icons/3.0.1/facebook.svg" height="15" class="img-circle"></span><input type="text" class="form-control" placeholder="@perfil" x-model="cfg.social.facebook"></div></div>
+                    <div class="col-xs-6"><div class="input-group m-b"><span class="input-group-addon"><img src="https://cdnjs.cloudflare.com/ajax/libs/simple-icons/3.0.1/instagram.svg" height="15"></span><input type="text" class="form-control" placeholder="@perfil" x-model="cfg.social.instagram"></div></div>
+                    <div class="col-xs-6"><div class="input-group m-b"><span class="input-group-addon"><img src="https://cdnjs.cloudflare.com/ajax/libs/simple-icons/3.0.1/youtube.svg" height="15"></span><input type="text" class="form-control" placeholder="@perfil" x-model="cfg.social.youtube"></div></div>
+                    <div class="col-xs-6"><div class="input-group m-b"><span class="input-group-addon"><img src="https://cdnjs.cloudflare.com/ajax/libs/simple-icons/3.0.1/twitter.svg" height="15"></span><input type="text" class="form-control" placeholder="@perfil" x-model="cfg.social.twitter"></div></div>
+                  </div>
+                </div>
+
+                <div class="col-sm-6">
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Categoría</label>
+                    <select class="form-control no-bg no-border b-b b-light" x-model="cfg.category">
+                      <template x-for="(group, gname) in options.categories" :key="gname">
+                        <optgroup :label="gname">
+                          <template x-for="(code, label) in group" :key="code">
+                            <option :value="code" x-text="label"></option>
+                          </template>
+                        </optgroup>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Teléfonos</label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.phone" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Ciudad</label>
+                    <input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.city" autocomplete="off">
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">País</label>
+                    <select class="form-control no-bg no-border b-b b-light" x-model="cfg.country">
+                      <template x-for="c in options.countries" :key="c.code">
+                        <option :value="c.code" x-text="c.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Idioma</label>
+                    <select class="form-control no-bg no-border b-b b-light" x-model="cfg.language" disabled="disabled">
+                      <template x-for="l in options.languages" :key="l.code">
+                        <option :value="l.code" x-text="l.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="text-xs text-u-c font-bold">Zona Horaria</label>
+                    <select class="form-control no-bg no-border b-b b-light" x-model="cfg.timeZone">
+                      <template x-for="tzg in options.timezones" :key="tzg.region">
+                        <optgroup :label="tzg.region">
+                          <template x-for="z in tzg.zones" :key="z.value">
+                            <option :value="z.value" x-text="z.label"></option>
+                          </template>
+                        </optgroup>
+                      </template>
+                    </select>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- ───────────── Visualización y parámetros (app) ───────────── -->
+            <div class="tab-pane wrapper" id="app">
+              <div class="row clear">
+                <div class="h1 font-bold m-b-lg m-l"><div class="text-sm font-default">Visualización y</div> parámetros</div>
+
+                <div class="col-xs-12 m-b m-t-md font-bold text-u-c">
+
+                  <div class="col-xs-12 h4 m-b font-bold text-u-c">General</div>
+                  <div class="col-xs-12 no-padder">
+
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Utilizar decimales</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.decimal"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Ignorar ventas internas en reportes</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.ignoreInternal"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Forzar conteo de stock a ciegas</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.stockCountBlind"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Moneda</div><div class="col-sm-4 col-xs-12 no-padder text-right"><input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.currency" autocomplete="off"></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Separador de miles</div><div class="col-sm-4 col-xs-12 no-padder text-right"><select class="form-control no-bg no-border b-b b-light" x-model="cfg.thousandSeparator"><template x-for="t in options.thousandSeparator" :key="t.value"><option :value="t.value" x-text="t.name"></option></template></select></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Nombre del Impuesto (IVA, VAT, TAX, etc)</div><div class="col-sm-4 col-xs-12 no-padder text-right"><input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.taxName" autocomplete="off"></div></div>
+
+                    <div class="col-xs-12 wrapper b-b">
+                      <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Valores de impuestos Ej: 5%, 10%, 12.5%, 21%</div>
+                      <div class="col-sm-4 col-xs-12 no-padder text-right">
+                        <select id="taxAdd" class="form-control no-bg no-border b-b b-light tax"></select>
+                        <div class="col-xs-12 no-padder m-t-xs">
+                          <a href="#" class="addItemPart btn btn-sm bg-light lter" data-table="tax" data-valtype="num" title="Agregar"><i class="material-icons">add</i></a>
+                          <a href="#" class="editItemPart btn btn-sm bg-light lter" data-table="tax" data-valtype="num" data-select="taxAdd" title="Editar"><i class="material-icons">create</i></a>
+                          <a href="#" class="deleteItemPart btn btn-sm bg-light lter" data-table="tax" data-valtype="num" data-select="taxAdd" title="Remover"><i class="material-icons text-danger">close</i></a>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="col-xs-12 wrapper b-b">
+                      <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Nombre del código de identificación tributaria (RUT,TIN,RUC,CUIT,etc)</div>
+                      <div class="col-sm-4 col-xs-12 no-padder text-right"><input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.tin" autocomplete="off"></div>
+                    </div>
+
+                    <div class="col-xs-12 wrapper b-b">
+                      <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Plan de cuentas (Egresos)</div>
+                      <div class="col-sm-4 col-xs-12 no-padder text-right">
+                        <select id="transactionCategory" class="form-control no-bg no-border b-b b-light transactionCategory"></select>
+                        <div class="col-xs-12 no-padder m-t-xs">
+                          <a href="#" class="addItemPart btn btn-sm bg-light lter" data-table="transactionCategory" title="Agregar"><i class="material-icons">add</i></a>
+                          <a href="#" class="editItemPart btn btn-sm bg-light lter" data-table="transactionCategory" data-select="transactionCategory" title="Editar"><i class="material-icons">create</i></a>
+                          <a href="#" class="deleteItemPart btn btn-sm bg-light lter" data-table="transactionCategory" data-select="transactionCategory" title="Remover"><i class="material-icons text-danger">close</i></a>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="col-xs-12 wrapper b-b">
+                      <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Monedas</div>
+                      <div class="col-sm-4 col-xs-12 no-padder text-right"><a href="#" class="setCurrenciesBtn btn btn-block btn-rounded bg-light lter text-u-c font-bold">Configurar</a></div>
+                    </div>
+                  </div>
+
+                  <div class="col-xs-12 h4 m-b m-t-lg font-bold text-u-c">Caja</div>
+                  <div class="col-xs-12 no-padder">
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Vender artículos fuera de stock</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.sellsoldout"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Agrupar artículos</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.itemSerialized"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Apertura y cierre de cajas por email</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.drawerEmail"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Control de caja a ciegas</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.drawerBlind"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Eliminar impuestos</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.settingRemoveTaxes"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Identificadores de métodos de pago</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.paymentId"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Líneas de crédito</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.creditLine"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Crédito Interno</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.storeCredit"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Bloquear numeraciones repetidas</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.blockUsedDocNo"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Enviar comprobantes al cliente automáticamente</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.autoSendDocs"><i></i></label></div></div>
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Lector de códigos de balanza</div><div class="col-sm-4 col-xs-12 no-padder text-right"><label class="i-switch i-switch-md bg-info"><input type="checkbox" x-model="cfg.weightBarcodes"><i></i></label></div></div>
+
+                    <div class="col-xs-12 wrapper b-b"><div class="col-sm-8 col-xs-12 no-padder m-t-sm">Límite de artículos por venta</div><div class="col-sm-4 col-xs-12 no-padder text-right"><input type="text" class="form-control no-bg no-border b-b b-light" x-model="cfg.itemsSaleLimit" autocomplete="off"></div></div>
+
+                    <div class="col-xs-12 wrapper b-b">
+                      <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Etiquetas</div>
+                      <div class="col-sm-4 col-xs-12 no-padder text-right">
+                        <select id="tagAdd" class="form-control no-bg no-border b-b b-light tag"></select>
+                        <div class="col-xs-12 no-padder m-t-xs">
+                          <a href="#" class="addItemPart btn btn-sm bg-light lter" data-table="tag" title="Agregar"><i class="material-icons">add</i></a>
+                          <a href="#" class="editItemPart btn btn-sm bg-light lter" data-table="tag" data-select="tagAdd" title="Editar"><i class="material-icons">create</i></a>
+                          <a href="#" class="deleteItemPart btn btn-sm bg-light lter" data-table="tag" data-select="tagAdd" title="Remover"><i class="material-icons text-danger">close</i></a>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="col-xs-12 wrapper b-b">
+                      <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Métodos de Pago</div>
+                      <div class="col-sm-4 col-xs-12 no-padder text-right">
+                        <select id="paymentMAdd" class="form-control no-bg no-border b-b b-light paymentMethod"></select>
+                        <div class="col-xs-12 no-padder m-t-xs">
+                          <a href="#" class="addItemPart btn btn-sm bg-light lter" data-table="paymentMethod" title="Agregar"><i class="material-icons">add</i></a>
+                          <a href="#" class="editItemPart btn btn-sm bg-light lter" data-table="paymentMethod" data-select="paymentMAdd" title="Editar"><i class="material-icons">create</i></a>
+                          <a href="#" class="deleteItemPart btn btn-sm bg-light lter" data-table="paymentMethod" data-select="paymentMAdd" title="Remover"><i class="material-icons text-danger">close</i></a>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="col-xs-12 wrapper b-b">
+                      <div class="col-sm-8 col-xs-12 no-padder m-t-sm">Bancos (Recepción de cheques)</div>
+                      <div class="col-sm-4 col-xs-12 no-padder text-right">
+                        <select id="bankCAdd" class="form-control no-bg no-border b-b b-light bankName"></select>
+                        <div class="col-xs-12 no-padder m-t-xs">
+                          <a href="#" class="addItemPart btn btn-sm bg-light lter" data-table="bankName" title="Agregar"><i class="material-icons">add</i></a>
+                          <a href="#" class="editItemPart btn btn-sm bg-light lter" data-table="bankName" data-select="bankCAdd" title="Editar"><i class="material-icons">create</i></a>
+                          <a href="#" class="deleteItemPart btn btn-sm bg-light lter" data-table="bankName" data-select="bankCAdd" title="Remover"><i class="material-icons text-danger">close</i></a>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="col-xs-12 wrapper bg-light lter text-right m-t">
+            <input class="btn btn-info btn-lg btn-rounded text-u-c font-bold" type="button" :value="saving ? 'Guardando…' : 'Guardar'" :disabled="saving" @click="save()">
+          </div>
+        </div>
+      </section>
+    </section>
+  </section>
+
+</div>
+
+<script src="scripts/a_settings.js?v=bff3"></script>
