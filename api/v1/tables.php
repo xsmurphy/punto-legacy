@@ -1,45 +1,20 @@
 <?php
 /**
- * /API/v1/tables.php — mesas/espacios del POS (slice 2 del desacople de /app).
- *
- * Reemplaza los handlers renameTable/unReserveTable del monolito action.php.
- * Gateado por JWT (_jwt); outletId/companyId SIEMPRE del token.
+ * /api/v1/tables.php — mesas/espacios del POS (API compartida del sistema).
  *
  *   POST op=rename         { tableName, note }
  *   POST op=unreserve      { tableName }
  *   POST op=setUserToSpace { tableName, userId }
  *
- * Envelope canónico { ok, data } / { ok:false, error }.
+ * Auth: JWT de tenant. Envelope canónico { ok, data }.
  */
 
-session_start();
+require_once dirname(__DIR__) . '/bootstrap.php';
+require_once __DIR__ . '/../lib/services/TableService.php';
 
-$appDir = dirname(__DIR__, 2);
-chdir($appDir);
-
-require_once $appDir . '/includes/cors.php';
-require_once $appDir . '/includes/jwt_middleware.php';
-require_once __DIR__ . '/../lib/response.php';
-
-$rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-require_once $appDir . '/head.php';
-
-if (!jwtAuthenticate()) {
-    apiError('Autenticación requerida', 401);
-}
-
-$companyId  = AUTHED_COMPANY_ID;
-$outletId   = AUTHED_OUTLET_ID;
-$userId     = AUTHED_USER_ID;
-$registerId = AUTHED_REGISTER_ID;
-$roleId     = AUTHED_ROLE_ID;
-
-if (!checkCompanyStatus($companyId)) {
-    apiError('Company Blocked', 403);
-}
-
-require_once $appDir . '/data.php';
-require_once $appDir . '/lib/TableService.php';
+$ctx       = apiAuthTenant();
+$companyId  = $ctx['companyId'];
+$outletId   = $ctx['outletId'];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
@@ -67,13 +42,12 @@ switch ($op) {
         }
         $res = $svc->assignUser($companyId, $outletId, $tableName, $assignUserId);
         if (!empty($res['ok'])) {
-            // Notificación al usuario asignado — best-effort: una falla del push
-            // (config de push ausente, red, etc.) NO debe romper la asignación.
+            // Notificación best-effort: una falla del push NO rompe la asignación.
             try {
                 sendPush([
-                    'ids'     => COMPANY_ID,
+                    'ids'     => $companyId,
                     'message' => 'El espacio ' . $tableName . ' le fue asignado',
-                    'title'   => COMPANY_NAME,
+                    'title'   => defined('COMPANY_NAME') ? COMPANY_NAME : 'Punto',
                     'where'   => 'caja',
                     'filters' => [
                         ['key' => 'userId',     'value' => $assignUserId],

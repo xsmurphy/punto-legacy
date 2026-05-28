@@ -9,14 +9,10 @@
 
 function bffApiBase(): string
 {
-    $base = getenv('PUNTO_APP_API_BASE');
-    if (!$base) {
-        // Mismo host que el BFF (dev :8002 / prod). El server corre con
-        // PHP_CLI_SERVER_WORKERS>1, así que el self-HTTP no deadlockea.
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost:8002';
-        $base   = $scheme . '://' . $host . '/API';
-    }
+    // API compartida del sistema (/api), backend único que /panel y /app consumen.
+    // Hoy en dev corre en :8000 (ver .claude/launch.json "Punto API"); mañana en un
+    // server dedicado → sólo cambia PUNTO_API_BASE. Ver context/02-arquitectura.md.
+    $base = getenv('PUNTO_API_BASE') ?: 'http://localhost:8000';
     return rtrim($base, '/');
 }
 

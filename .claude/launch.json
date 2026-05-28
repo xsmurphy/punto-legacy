@@ -22,6 +22,16 @@
       }
     },
     {
+      "name": "Punto API (compartida)",
+      "runtimeExecutable": "/opt/homebrew/bin/php",
+      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8000", "-t", "api", "api/router.php"],
+      "cwd": ".",
+      "port": 8000,
+      "env": {
+        "PHP_CLI_SERVER_WORKERS": "8"
+      }
+    },
+    {
       "name": "Punto Panel Preview (8011)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
       "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8011", "-t", "panel", "panel/router.php"],

@@ -1,50 +1,18 @@
 <?php
 /**
- * /API/v1/customer_address.php — direcciones de cliente del POS (slice 1 del desacople de /app).
- *
- * Reemplaza los handlers customerAddress* del monolito action.php/load.php.
- * Gateado por JWT (_jwt). Identidad SIEMPRE del token; nada de client-supplied.
+ * /api/v1/customer_address.php — direcciones de cliente (API compartida del sistema).
  *
  *   GET  ?customerId=<uuid>[&addressId=<uuid>]  → lista (o una) dirección
- *   POST op=add        { customerId, name, address, location, city, latLng }
- *   POST op=update     { customerId, addressId, name, address, location, city, latLng }
- *   POST op=delete     { customerId, addressId }
- *   POST op=setDefault { customerId, addressId }
+ *   POST op=add|update|delete|setDefault        → ver CustomerAddressService
  *
- * Envelope canónico { ok, data } / { ok:false, error }. Ver context/05-modulos-clave.md.
+ * Auth: JWT de tenant (identidad SIEMPRE del token). Envelope canónico { ok, data }.
  */
 
-session_start();
+require_once dirname(__DIR__) . '/bootstrap.php';
+require_once __DIR__ . '/../lib/services/CustomerAddressService.php';
 
-// Los includes de head.php/data.php son relativos al cwd → fijarlo en /app.
-$appDir = dirname(__DIR__, 2);
-chdir($appDir);
-
-require_once $appDir . '/includes/cors.php';
-require_once $appDir . '/includes/jwt_middleware.php';
-require_once __DIR__ . '/../lib/response.php';
-
-// head.php carga simple.config.php (que puebla $_ENV['JWT_SECRET']), db, helpers
-// ncm*, enc/dec. DEBE ir ANTES de jwtAuthenticate() — igual orden que action.php.
-$rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-require_once $appDir . '/head.php';
-
-if (!jwtAuthenticate()) {
-    apiError('Autenticación requerida', 401);
-}
-
-$companyId  = AUTHED_COMPANY_ID;
-$outletId   = AUTHED_OUTLET_ID;
-$userId     = AUTHED_USER_ID;
-$registerId = AUTHED_REGISTER_ID;
-$roleId     = AUTHED_ROLE_ID;
-
-if (!checkCompanyStatus($companyId)) {
-    apiError('Company Blocked', 403);
-}
-
-require_once $appDir . '/data.php';
-require_once $appDir . '/lib/CustomerAddressService.php';
+$ctx       = apiAuthTenant();
+$companyId  = $ctx['companyId'];
 
 $svc    = new CustomerAddressService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
