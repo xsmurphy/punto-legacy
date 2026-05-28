@@ -47,6 +47,7 @@
         <li class="active"><a href="#general" data-toggle="tab"><span class="hidden-xs">Perfil</span><span class="material-icons visible-xs">list_alt</span></a></li>
         <li><a href="#app" data-toggle="tab"><span class="hidden-xs">Visualización y parámetros</span><span class="material-icons visible-xs">settings</span></a></li>
         <li><a href="/@#outlets" class="navigate"><span class="hidden-xs">Editar sucursales</span><span class="material-icons visible-xs">store</span></a></li>
+        <li><a href="#printTemplates" data-toggle="tab" id="printTemplatesBtn"><span class="hidden-xs">Plantillas de Impresión</span><span class="material-icons visible-xs">print</span></a></li>
       </ul>
 
       <section class="panel r-24x">
@@ -255,6 +256,262 @@
               </div>
             </div>
 
+                        <div class="tab-pane no-padder col-xs-12" id="printTemplates">
+              <div class="col-xs-12 m-b-md">
+
+                <div class="col-sm-2 no-padder">
+                  <div class="btn-group">
+                    <button class="btn b bg-white btn-block btn-rounded text-u-c font-bold dropdown-toggle" data-toggle="dropdown"><span class="m-r-sm">Plantillas</span><span class="caret"></span></button>
+                    <ul class="dropdown-menu" id="loadTemplatesList"></ul>
+                  </div>
+                </div>
+
+                <div class="col-sm-4">
+                  <input type="text" id="templateName" class="form-control text-left no-border b-b b-light no-bg font-bold" name="name" placeholder="Nombre de la Plantilla" value="" autocomplete="off">
+                </div>
+
+                <div class="col-sm-6 text-left no-padder">
+                  <a id="viewTemplate" class="btn m-r" href="#">Probar</a>
+                  <a id="" class="btn btn-info btn-rounded saveTemplate text-u-c font-bold" href="#">Guardar Plantilla</a>
+                  <a data-dupli="true" class="btn btn-default saveTemplate hidden" id="duplicateTemplate" href="#">Duplicar Plantilla</a>
+                  <input type="hidden" value="" id="templateId">
+
+                  <a id="deleteTemplate" class="m-t pull-right hidden" href="#"><span class="text-danger">Eliminar Plantilla</span></a>
+                </div>
+
+              </div>
+              
+              <div id="templateBuilderTools" class="col-sm-2 col-xs-12 no-padder">
+
+                  <div class="col-xs-12 wrap-l-n wrap-r">
+                    <section class="panel panel-default">
+                      <header class="panel-heading bg-light no-border text-u-c">
+                        Herramientas 
+                        <ul class="nav nav-pills pull-right">  <li><a href="#" data-type="toggle" class="clicker" data-target="#collapseOtros"><i class="material-icons">keyboard_arrow_down</i></a></li> </ul>
+                      </header>
+                      <div class="list-group no-radius alt collapse" id="collapseOtros">
+                        <a class="addField list-group-item" data-type="custom" data-default="" href="#" data-toggle="tooltip" data-placement="right" title="Puede ingresar un texto personalizado, especialmente útil para títulos">Texto Personalizado</a>
+                        <a class="addField list-group-item receiptableN" data-type="hor_line" data-default="" href="#" data-toggle="tooltip" data-placement="right" title="Inserte una línea horizontal">Línea Horizontal</a>
+                        <a class="addField list-group-item receiptableN" data-type="ver_line" data-default="" href="#" data-toggle="tooltip" data-placement="right" title="Inserte una línea vertical">Línea Vertical</a>
+
+                        <span class="list-group-item">
+                          <div class="btn-group">
+                            <button class="btn btn-default dropdown-toggle" data-toggle="dropdown"><span class="m-r-sm" id="pageSizeTitle">Formato: A4 <span class="text-muted text-sm">(Vertical)</span></span><span class="caret"></span></button>
+                            <ul class="dropdown-menu">
+                              <li class="pFormat" data-size="a4page"><a href="#"><b>A4</b> <span class="pull-right text-muted"><i class="material-icons">screen_rotation</i></span></a></li>
+                              <li class="pFormat" data-size="legalpage"><a href="#"><b>Legal</b> <span class="pull-right text-muted hidden"><i class="material-icons">screen_rotation</i></a></li>
+                              <li class="pFormat" data-size="letterpage"><a href="#"><b>Carta</b> <span class="pull-right text-muted hidden"><i class="material-icons">screen_rotation</i></a></li>
+                              <li class="pFormat" data-size="receipt80"><a href="#"><b>Roll 80mm</b></a></li>
+                              <li class="pFormat" data-size="receipt76"><a href="#"><b>Roll 76mm</b></a></li>
+                              <li class="pFormat" data-size="receipt57"><a href="#"><b>Roll 57mm</b></a></li>
+                            </ul>
+                          </div>
+                        </span>
+                        <span class="list-group-item">
+                          <div class="btn-group hiddenTicket">
+                            <button class="btn btn-default dropdown-toggle" data-toggle="dropdown">Fuente <span class="caret"></span></button>
+                            <ul class="dropdown-menu">
+                              <li class="pFamily" data-size="Arial"><a href="#!"><span style="font-family: Arial;">Arial</span></a></li>
+                              <li class="pFamily" data-size="Courier New"><a href="#!"><span style="font-family: Courier New;">Courier New</span></a></li>
+                              <li class="pFamily" data-size="Times New Roman"><a href="#!"><span style="font-family: Times New Roman;">Times New Roman</span></a></li>
+                              <li class="pFamily" data-size="Comic Sans MS"><a href="#!"><span style="font-family: Comic Sans MS;">Comic Sans MS</span></a></li>
+                              <li class="pFamily" data-size="Trebuchet MS"><a href="#!"><span style="font-family: Trebuchet MS;">Trebuchet MS</span></a></li>
+                              <li class="pFamily" data-size="Verdana"><a href="#!"><span style="font-family: Verdana;">Verdana</span></a></li>
+                              <li class="pFamily" data-size="dotmatrix"><a href="#!"><span style="font-family: dotmatrix;">Dot Matrix</span></a></li>
+                              <li class="pFamily" data-size="FakeReceipt-Regular"><a href="#!"><span style="font-family: 'fakereceipt', 'dotmatrix', monospace;">Fake Receipt</span></a></li>
+                            </ul>
+                          </div>
+                          <div class="btn-group">
+                            <button class="btn btn-default dropdown-toggle" data-toggle="dropdown">Tamaño <span class="caret"></span></button>
+                            <ul class="dropdown-menu">
+                              <li class="pSize" data-size="4pt"><a href="#!"><span style="font-size: 4pt;">4pt</span></a></li>
+                              <li class="pSize" data-size="5pt"><a href="#!"><span style="font-size: 5pt;">5pt</span></a></li>
+                              <li class="pSize" data-size="6pt"><a href="#!"><span style="font-size: 6pt;">6pt</span></a></li>
+                              <li class="pSize" data-size="7pt"><a href="#!"><span style="font-size: 7pt;">7pt</span></a></li>
+                              <li class="pSize" data-size="8pt"><a href="#!"><span style="font-size: 8pt;">8pt</span></a></li>
+                              <li class="pSize" data-size="10pt"><a href="#!"><span style="font-size: 10pt;">10pt</span></a></li>
+                              <li class="pSize hiddenTicket" data-size="12pt"><a href="#!"><span style="font-size: 12pt;">12pt</span></a></li>
+                              <li class="pSize hiddenTicket" data-size="14pt"><a href="#!"><span style="font-size: 14pt;">14pt</span></a></li>
+                              <li class="pSize hiddenTicket" data-size="16pt"><a href="#!"><span style="font-size: 16pt;">16pt</span></a></li>
+                              <li class="pSize hiddenTicket" data-size="18pt"><a href="#!"><span style="font-size: 18pt;">18pt</span></a></li>
+                              <li class="pSize hiddenTicket" data-size="20pt"><a href="#!"><span style="font-size: 20pt;">20pt</span></a></li>
+                              <li class="pSize hiddenTicket" data-size="24pt"><a href="#!"><span style="font-size: 24pt;">24pt</span></a></li>
+                              <li class="pSize hiddenTicket" data-size="30pt"><a href="#!"><span style="font-size: 30pt;">30pt</span></a></li>
+                            </ul>
+                          </div>
+                          <a href="#!" class="btn btn-default pUpper" data-size="uppercase"><i class="material-icons">format_size</i></a>
+                        </span>
+
+                        <textarea id="jsonTemplateField" class="form-control"></textarea>
+                        
+                        <div id="preview" class="hidden"></div>
+
+                        <span class="list-group-item hidden">
+                          <div class="input-group m-b"> <input type="text" id="ticketLeftMargin" class="form-control maskInteger receiptableY" placeholder="Margen izquierdo"> <span class="input-group-addon">mm</span> </div>
+                        </span>
+                        
+                      </div>
+                    </section>
+
+                    <section class="panel panel-default">
+                      <header class="panel-heading bg-light no-border text-u-c">
+                        Empresa 
+                        <ul class="nav nav-pills pull-right">  <li><a href="#!" data-type="toggle" class="clicker" data-target="#collapseEmpresa"><i class="material-icons">keyboard_arrow_down</i></a></li> </ul>
+                      </header>
+                      <div class="list-group no-radius alt collapse" id="collapseEmpresa">
+                        <a class="addField list-group-item" data-type="company_logo" data-default="" data-cf="logo" href="#">Logo</a>
+                        <a class="addField list-group-item" data-type="company_logo" data-default="" data-cf="logoBw" href="#">Logo (B&W)</a>
+                        <a class="addField list-group-item" data-type="company_name" data-default="" data-cf="name" href="#">Nombre</a>
+                        <a class="addField list-group-item" data-type="company_billing_name" data-default="" data-cf="billingName" href="#">Razón Social</a>
+                        <a class="addField list-group-item" data-type="company_tin" data-default="" data-cf="tin" href="#">__TIN__ de la empresa</a>
+                        <a class="addField list-group-item" data-type="company_address" data-default="" data-cf="address" href="#">Dirección</a>
+                        <a class="addField list-group-item" data-type="company_email" data-default="" data-cf="email" href="#">Email</a>
+                        <a class="addField list-group-item" data-type="company_website" data-default="" data-cf="website" href="#">Sitio Web</a>
+
+                        <a class="addField list-group-item" data-type="outlet_name" data-default="Nombre - Sucursal" href="#">Nombre - Sucursal</a>
+                        <a class="addField list-group-item" data-type="outlet_billing_name" data-default="Razón social - Sucursal" href="#">Razón social - Sucursal</a>
+                        <a class="addField list-group-item" data-type="outlet_tin" data-default="__TIN__ - Sucursal" href="#">__TIN__ - Sucursal</a>
+                        <a class="addField list-group-item" data-type="outlet_address" data-default="Dirección - Sucursal" href="#">Dirección - Sucursal</a>
+                        <a class="addField list-group-item" data-type="outlet_phone" data-default="Teléfono de Sucursal" href="#">Teléfono - Sucursal</a>
+
+                        <a class="addField list-group-item" data-type="register_name" data-default="Caja Registradora" href="#">Caja Registradora</a>
+                        <a class="addField list-group-item" data-type="printer_name" data-default="Impresora" href="#">Impresora</a>
+
+                        <a class="addField list-group-item" data-type="auth_number" data-default="######" href="#">No. Timbrado o Autorización</a>
+                        <a class="addField list-group-item" data-type="auth_start_date" data-default="####-##-##" href="#">Inicio de Timbrado</a>
+                        <a class="addField list-group-item" data-type="auth_expiration" data-default="####-##-##" href="#">Fin de Timbrado</a>
+
+                        <a class="addField list-group-item" data-type="user_name" data-default="Usuario" href="#">Usuario</a>
+                      </div>
+                    </section>
+
+                    <section class="panel panel-default">
+                      <header class="panel-heading bg-light no-border text-u-c">
+                          Cliente
+                        <ul class="nav nav-pills pull-right">  <li><a href="#!" data-type="toggle" class="clicker" data-target="#collapseCliente"><i class="material-icons">keyboard_arrow_down</i></a></li> </ul>
+                      </header>
+                      <div class="list-group no-radius alt collapse" id="collapseCliente">
+                        <a class="addField list-group-item" data-type="customer_name" data-default="Razón Social" href="#">Razón Social</a>
+                        <a class="addField list-group-item" data-type="customer_full_name" data-default="Nombre y Apellido" href="#">Nombre y Apellido</a>
+                        <a class="addField list-group-item" data-type="customer_tin" data-default="__TIN__" href="#">__TIN__</a>
+                        <a class="addField list-group-item" data-type="customer_ci" data-default="#######" href="#">Doc. de Identidad</a>
+                        <a class="addField list-group-item" data-type="customer_address" data-default="Dirección 1 del cliente" href="#">Dirección 1</a>
+                        <a class="addField list-group-item" data-type="customer_address_2" data-default="Dirección 2 del cliente" href="#">Dirección 2</a>
+                        <a class="addField list-group-item" data-type="customer_location" data-default="Localidad" href="#">Localidad</a>
+                        <a class="addField list-group-item" data-type="customer_city" data-default="Ciudad" href="#">Ciudad</a>
+                        <a class="addField list-group-item" data-type="customer_country" data-default="País" href="#">País</a>
+                        <a class="addField list-group-item" data-type="customer_phone" data-default="Teléfono 1 del Cliente" href="#">Teléfono 1</a>
+                        <a class="addField list-group-item" data-type="customer_phone_2" data-default="Teléfono 2 del Cliente" href="#">Teléfono 2</a>
+                        <a class="addField list-group-item" data-type="customer_note" data-default="Nota del Cliente" href="#">Nota</a>
+                        <a class="addField list-group-item" data-type="customer_loyalty" data-default="Loyalty Acumulado" href="#">Loyalty</a>
+                        <a class="addField list-group-item" data-type="table_number" data-default="Mesa: ###" href="#">Nro. de Mesa</a>
+                      </div>
+                    </section>
+
+                    <section class="panel panel-default">
+                      <header class="panel-heading bg-light no-border text-u-c">
+                          Transacción
+                        <ul class="nav nav-pills pull-right">  <li><a href="#!" data-type="toggle" class="clicker" data-target="#collapseTransaccion"><i class="material-icons">keyboard_arrow_down</i></a></li> </ul>
+                      </header>
+                      <div class="list-group no-radius alt collapse" id="collapseTransaccion">
+                        <a class="addField list-group-item" data-type="document_number" data-default="######" href="#">Documento No.</a>
+                        <a class="addField list-group-item" data-type="document_prefix" data-default="######" href="#">Prefijo</a>
+                        <a class="addField list-group-item" data-type="document_sufix" data-default="######" href="#">Sufijo</a>
+                        <a class="addField list-group-item" data-type="document_type" data-default="Tipo de Documento" href="#">Tipo de Documento</a>
+                        <a class="addField list-group-item" data-type="date" data-default="__TODAY__" href="#">Fecha y Hora</a>
+                        <a class="addField list-group-item" data-type="duedate" data-default="__TODAY__" href="#">Fecha de Vencimiento</a>
+                        <a class="addField list-group-item" data-type="discount" data-default="Descuento" href="#">Descuento</a>
+                        <a class="addField list-group-item" data-type="subtotal" data-default="Subtotal" href="#">Subtotal</a>
+                        <a class="addField list-group-item" data-type="tax_total" data-default="Total __TAX__" href="#">Total __TAX__</a>
+                        <a class="addField list-group-item" data-type="total" data-default="Total" href="#">Total</a>
+                        <a class="addField list-group-item" data-type="nums_to_words" data-default="Total en letras" href="#">Total en letras</a>
+                        <a class="addField list-group-item" data-type="sale_type" data-default="Contado/Crédito" href="#">Contado/Crédito texto</a>
+                        <a class="addField list-group-item" data-type="sale_type_contado" data-default="✕" href="#">✕ Venta al Contado</a>
+                        <a class="addField list-group-item" data-type="sale_type_credit" data-default="✕" href="#">✕ Venta a Crédito</a>
+                        <a class="addField list-group-item" data-type="payment_methods" data-default="Métodos de pago" href="#">Métodos de pago</a>
+                        <a class="addField list-group-item" data-type="tags" data-default="Etiquetas" href="#">Etiquetas</a>
+                        <a class="addField list-group-item" data-type="note" data-default="Nota" href="#">Nota</a>
+                        <a class="addField list-group-item" data-type="transaction_id" data-default="ID" href="#">ID de transacción</a>
+                        <a class="addField list-group-item hidden" data-type="transaction_id_barcode" data-default="#######" href="#">Código de Barras</a>
+                        <a class="addField list-group-item" data-type="associated_document" data-default="######" href="#">Documento Asociado</a>
+                        <span class="taxSingleRows"></span>
+                      </div>
+                    </section>
+
+                    <section class="panel panel-default">
+                      <header class="panel-heading bg-light no-border text-u-c">
+                          Artículos
+                        <ul class="nav nav-pills pull-right">  <li><a href="#!" data-type="toggle" class="clicker" data-target="#collapseProductos"><i class="material-icons">keyboard_arrow_down</i></a></li> </ul>
+                      </header>
+                      <div class="list-group no-radius alt collapse" id="collapseProductos">
+                        <a class="addField list-group-item hidden receiptableY" data-type="item_receipt" data-default="Listado de Venta" href="#">Listado de Venta</a>
+                        <a class="addField list-group-item hidden receiptableY" data-type="item_receipt_5" data-default="Listado de Venta 2" href="#">List. de Venta 2</a>
+                        <a class="addField list-group-item hidden receiptableY" data-type="item_receipt_4" data-default="Listado de Venta Sin __TAX__" href="#">List. de Venta sin __TAX__</a>
+
+                        <a class="addField list-group-item hidden receiptableY" data-type="item_receipt_2" data-default="Listado sin Precios" href="#">Listado sin Precios</a>
+                        <a class="addField list-group-item hidden receiptableY" data-type="item_receipt_3" data-default="Listado Simple" href="#">Listado Simple</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_units" data-default="#####" href="#">Cantidad</a>
+                        <a class="addField list-group-item receiptableN" data-type="item" data-default="Producto" href="#">Articulo</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_id" data-default="Código Interno" href="#">Código Interno</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_note" data-default="Nota del Artículo" href="#">Nota</a>
+                        
+                        <a class="addField list-group-item receiptableN" data-type="item_uid" data-default="SKU" href="#">SKU</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_tags" data-default="Etiquetas" href="#">Etiquetas</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_tax" data-default="__TAX__ %" href="#">__TAX__ %</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_taxAmount" data-default="__TAX__" href="#">__TAX__</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_discount" data-default="##.###" href="#">Descuento</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_price" data-default="Precio" href="#">Precio</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_uni_price" data-default="Precio de lista" href="#">Precio de lista</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_price_notax" data-default="Precio sin __TAX__" href="#">Precio sin __TAX__</a>
+                        <a class="addField list-group-item receiptableN" data-type="item_total" data-default="Total" href="#">Total</a>
+                        <span class="taxItemRows"></span>
+                      </div>
+                    </section>
+
+
+                    <section id="boxOpsWrap" class="hidden">
+                      <div class="font-bold text-u-c">
+                        Opciones
+                      </div>
+                      <div>
+                        <span class="font-bold text-xs">Izquierda</span>
+                        <input type="text" name="" class="form-control m-b-sm boxOpsLeft">
+
+                        <span class="font-bold text-xs">Arriba</span>
+                        <input type="text" name="" class="form-control m-b-sm boxOpsTop">
+
+                        <span class="font-bold text-xs">Ancho</span>
+                        <input type="text" name="" class="form-control m-b-sm boxOpsWidth">
+
+                        <span class="font-bold text-xs">Alto</span>
+                        <input type="text" name="" class="form-control m-b-sm boxOpsHeight">
+                      </div>
+                    </section>
+
+
+                  </div>
+              </div>
+              
+              <div class="col-xs-12 col-sm-10 no-padder">
+                <div id="wrapit" class="">
+                  <div id="contentIt" class="a4page" style="">
+                  </div>
+                </div>
+              
+
+                <input type="hidden" id="pageType" value="a4page">
+                <div id="my_mm" style="height:1mm;display:none"></div>
+                <div id="guide-h" class="guide"></div>
+                <div id="guide-v" class="guide"></div>
+                <div id="guide2-h" class="guide"></div>
+                <div id="guide2-v" class="guide"></div>
+                <div id="guide3-h" class="guide"></div>
+                <div id="guide3-v" class="guide"></div>
+              </div>
+
+            </div>
+
+
           </div>
 
           <div class="col-xs-12 wrapper bg-light lter text-right m-t">
@@ -267,4 +524,103 @@
 
 </div>
 
-<script src="scripts/a_settings.js?v=bff5"></script>
+<style>
+  .box {
+    position: absolute;
+    cursor: move;
+    /*height:5mm;*/
+    /*word-break: break-all;*/
+  }
+
+  .boxOps{
+    position: absolute;
+    left: 0;
+    /*top:8;*/
+    width: 180px;
+    display: none;
+  }
+
+  #wrapit {
+    width: 100%;
+    height: 360mm;
+    /*margin: 0 auto;*/
+    padding:21px 0 0 21px;
+    background:url("/images/theGrid.png") no-repeat top left;
+  }
+
+  #contentIt {
+    border:1px dashed #55f;
+    position:absolute;/*super important*/
+    overflow: auto;
+    background-size:100%;
+    background-repeat: no-repeat;
+    background-position: top left;
+  }
+
+  .legalpage{
+    width: 215.9mm;
+    height: 355.6mm;
+  }
+  .legalpage-h{
+    height: 215.9mm;
+    width: 355.6mm;
+  }
+  .letterpage{
+    width: 215.9mm;
+    height: 279.4mm;
+  }
+  .letterpage-h{
+    height: 215.9mm;
+    width: 279.4mm;
+  }
+  .a4page{
+    width: 210mm;
+    height: 297mm;
+  }
+  .a4page-h{
+    height: 210mm;
+    width: 297mm;
+  }
+
+  .receipt80{
+    width: 80mm;
+    height: 279mm;
+  }
+  .receipt76{
+    width: 76mm;
+    height: 279mm;
+  }
+  .receipt57{
+    width: 57mm;
+    height: 279mm;
+  }
+ 
+  .guide{
+      display: none; 
+      position: absolute; 
+      left: 0; 
+      top: 0; 
+  }
+
+  .ui-resizable-helper { 
+    border: 1px dashed #55f; 
+  }
+
+  #guide-h,#guide2-h,#guide3-h{
+      border-top: 1px dashed #55f; 
+      width: 100%; 
+  }
+
+  #guide-v,#guide2-v,#guide3-v{
+      border-left: 1px dashed #55f; 
+      height: 100%; 
+  }
+  div.ui-selected{
+    background-color: #fff;
+  }
+  div.ui-selecting{
+    background-color: #fff;
+  }
+</style>
+<script src="scripts/a_settings.js?v=bff6"></script>
+<script src="scripts/a_settings_templates.js?v=bff1"></script>

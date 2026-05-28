@@ -95,6 +95,62 @@
 				ncmHelpers.onClickWrap('#uploadImgBtn', function () { $('#image').trigger('click'); });
 
 				$('[data-toggle="tooltip"]').tooltip();
+
+				// Plantillas de impresión (incr. 3d): hidratar la paleta (campos que dependen de la
+				// empresa) con templateFields, y arrancar el widget jQuery (a_settings_templates.js)
+				// la 1ª vez que se abre la tab. El builder es jQuery-owned (§17.2); ver ese archivo.
+				self._get('?view=templateFields', function (tf) { self.hydratePalette(tf); });
+
+				ncmHelpers.onClickWrap('#printTemplatesBtn', function () {});   // no-op: el tab lo maneja bootstrap
+				$('#printTemplatesBtn').off('shown.bs.tab.tpl').on('shown.bs.tab.tpl', function () {
+					if (self._tplStarted) { return; }
+					window.mm = $('#my_mm').height();          // px por mm (el ruler #my_mm vive en la tab)
+					window.minHeight = window.mm * 5;
+					if (typeof spinner === 'function') { spinner('body', 'show'); }
+					if (window.templateBuilder) { window.templateBuilder.init(); }
+					self._tplStarted = true;
+				});
+			},
+
+			/* ───────────── plantillas: hidratar paleta (campos dinámicos por empresa) ───────────── */
+			hydratePalette: function (tf) {
+				tf = tf || {};
+				window.tinName = tf.tinName || 'RUC';
+				var tools = document.getElementById('templateBuilderTools');
+				if (!tools) { return; }
+
+				var taxName = tf.taxName || 'IVA';
+				var tinName = tf.tinName || 'RUC';
+				var now = new Date();
+				var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+				var today = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes());
+
+				// Filas por-impuesto (reemplazan los loops PHP del legacy).
+				var single = '', item = '';
+				(tf.taxes || []).forEach(function (t) {
+					var nm = (t.name === '' || t.name == null) ? '0' : String(t.name);
+					single += '<a class="addField list-group-item" data-type="tax_single" data-default="Total ' + esc(taxName) + ' ' + esc(nm) + '%" href="#">Total ' + esc(taxName) + ' ' + esc(nm) + '%</a>';
+					item   += '<a class="addField list-group-item receiptableN" data-type="item_taxAmount_single" data-default="{{TAX_SINGLE_' + esc(nm) + '%}}" href="#">Artículo ' + esc(taxName) + ' ' + esc(nm) + '%</a>';
+					item   += '<a class="addField list-group-item" data-type="item_subtotal" data-default="{{TAX_SUBTOTAL_' + esc(nm) + '%}}" href="#">Suma ' + esc(taxName) + ' ' + esc(nm) + '%</a>';
+				});
+
+				var html = tools.innerHTML
+					.split('__TAX__').join(esc(taxName))
+					.split('__TIN__').join(esc(tinName))
+					.split('__TODAY__').join(esc(today))
+					.replace('<span class="taxSingleRows"></span>', single)
+					.replace('<span class="taxItemRows"></span>', item);
+				tools.innerHTML = html;
+
+				// Defaults de los campos de empresa (data-cf marca cuál) — se setean tras reconstruir el HTML.
+				var co = tf.company || {};
+				$('#templateBuilderTools .addField[data-cf]').each(function () {
+					var k = this.getAttribute('data-cf');
+					this.setAttribute('data-default', (co[k] != null) ? co[k] : '');
+				});
+
+				// El rebuild de innerHTML borró los tooltips de la paleta → re-inicializarlos.
+				$('#templateBuilderTools [data-toggle="tooltip"]').tooltip();
 			},
 
 			_get: function (qs, cb) {
