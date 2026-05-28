@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-27 (cont. 12) — `a_settings` (Ajustes): migración parcial al BFF/Alpine + FIX de guardado roto en PG
+
+- **Hecho — incr. 1 backend** (commit `cadc338`): `SettingsService` (general read/write + options + taxonomies) + `API/v1/settings.php` + `bff/settings.php`. **Incr. 2 front** (commit `2896f82`): tabs Perfil + Visualización con Alpine x-model (~20 campos + ~15 toggles), selects país/categoría/timezone desde `?view=options`, dropdowns adm jQuery-owned (§17.2), save → company.config. Router `/a_settings → /views/settings.html`.
+- **Hallazgo crítico (bug de prod arreglado)**: el guardado de Ajustes estaba **ROTO en PG** — el legacy `?action=update&type=setting` hace `AutoExecute('setting', …)` pero la tabla `setting` fue eliminada en Phase PG (todo vive en `company.config` JSONB). Ahora se rutea a `company.config` vía `ncmUpdate` (merge `||` no-destructivo). Los flags extra + monedas viven en `config.settingObj` (JSON anidado): `updateGeneral` lee y MERGEA settingObj (preserva `currencies` + keys desconocidas), a diferencia del legacy que hacía `json_encode($_POST)` (clobber). `readSettingObj` devuelve null si la lectura falla → el write aborta.
+- **Decisión**: `companyCategories` extraído de `config.php` a `libraries/company_categories.php` (include-able por la API, de-dup). `configOL.php` conserva su copia → **follow-up: apuntarla al archivo compartido**.
+- **Pendiente — incr. 3** (lo más pesado): diseñador de plantillas de impresión (widget jQuery ~500 líneas, se mantiene jQuery por §17.2, recablear load/save/remove al BFF) + ecommerce (form) + monedas (matriz) + upload de logo, con su backend (templates CRUD / ecommerce / currencies / register-list).
+- **Atención**: el save de settings hace "replace" de los campos `settingX` que el form gestiona (un campo enviado vacío se sobrescribe; el form completo manda todos los suyos). Campos NO enviados (ej. `settingName`) se preservan por el `||` merge. `enc()/dec()` son identity → ids raw funcionan en el adm CRUD legacy. Guard `loaded` en el front: `save()` no postea si `general` no cargó.
+
 ## 2026-05-27 (cont. 11) — `a_outlets` (Sucursales): 1er CRUD del panel migrado al BFF/Alpine
 
 - **`a_outlets` migrado al modelo Front→BFF→API→Postgres** (commit 99d1286): `OutletsService.php` (list/get/update) + `API/v1/outlets.php` (GET list|single, POST action=update, gate rol 7) + `bff/outlets.php` (proxy GET/POST) + `views/outlets.html` (lista via ncmDataTables + form Alpine x-model en modal) + `scripts/a_outlets.js` (componente Alpine, receta §17 detached-initTree). **HITO: 1er módulo CRUD no-reporte del panel en el BFF**.
@@ -124,77 +132,4 @@
 - **Fix aplicado a Contacts (editform)**: el front (`form.js`/`contactFormV2`) ahora habla SOLO con el **BFF** (`a_contacts.php?action=getContact/saveContact/archiveContact&format=json`), que usa `ContactService` **in-process**. Verificado en browser (GET/POST al BFF 200, ninguno toca `/API/v1`). El listado ya era BFF (`generalTable&format=json`).
 - **Decisión de secuenciamiento**: el **boundary HTTP real** (cliente `PuntoApi`, adelgazar `/API/v1` a raw, separación de servidores) se **difiere** a una fase explícita futura. Por ahora el BFF usa `lib/` in-process. Prioridad: ir **a lo ancho** (extraer front/back en más módulos) antes que profundizar.
 - **Pendientes**: PuntoApi + adelgazar API (fase boundary HTTP); editform v2 para user/supplier; replicar el split front/back en otros módulos (reportes read-only = bajo esfuerzo; purchase = CRUD pesado).
-
-## 2026-05-25 (contacts: front/back split completo — listado 3 roles + editform v2 — commit bae21fa)
-
-- **Listado data-driven para los 3 roles**: `a_contacts.php` handler `generalTable`, el bloque `&format=json` ahora cubre user (10 cols), supplier (9 cols) y customer (19 cols, ya existente), todos bajo el mismo gate `$allow`. El path HTML legacy queda intacto como fallback.
-- **`render.js` ampliado**: `renderUserRow` / `renderSupplierRow` + `table(contacts, rol)` con thead/tfoot por rol — todo escapado con `esc()`. `a_contacts.js` quitó el gate `_rol=='customer'`: los 3 roles usan `&format=json`.
-- **`contactFormV2` (nuevo `scripts/contacts/form.js`)**: form Mustache hidratado desde `contactsApi.get(id)` (API v1), submit/archive vía `contactsApi.create/update/archive`, modo crear (`id=null`). Tabs: básico, dirección, nota. Templates en `panel/contacts/templates/`: `shell.html`, `header.html`, `basicTab.html`, `addressTab.html`, `notesTab.html`. Cableado desde `a_contacts.js`: editar/crear customer → `contactFormV2` con fallback `onError` al form legacy; `reloadList()` re-fetchea JSON y redibuja DataTable tras guardar.
-- **ContactService**: round-trip de `address2` agregado en `mapToColumns` + `presentRow` (completaba el campo que faltaba en el commit dc9ce01).
-- **Scope del v2**: cubre SOLO rol **customer** (API v1 type=1). user/supplier siguen con form legacy. Tabs "fichas/custom records" e "historial detallado" diferidos.
-- **Pendiente conocido (NO bug nuevo)**: listado customer muestra note/address/city/location vacíos porque `ncmExecute(...,forceObj=true)` NO aplana JSONB en el loop de `generalTable`. El v1 API (get/presentRow) sí trae esos campos via `_flattenJsonb`. Pre-existente de dc9ce01.
-- **Entorno local**: `$plansValues`/`PLAN` no definidos en ningún .php → gate `$allow` deja listados user/supplier vacíos. No es regresión — afecta legacy y JSON por igual.
-- **Verificado E2E**: create/update vía v1 API persisten a data JSONB; get(id) hidrata el form; render.js produce columnas 1:1 con cada thead; templates Mustache compilan en modo crear/editar; Cliente Prueba SRL (id 019e6018-…) y supplier de prueba creados en company 0001.
-
-## 2026-05-25 (contacts: listado rol customer data-driven — commit dc9ce01)
-
-- **Front/back separados en el listado de clientes** (patrón Items): `a_contacts.php` handler `generalTable` ahora soporta `&format=json` para rol `customer` — emite un array de objetos JSON (reusando cómputos existentes: `lastTransaction`, `scoring`, `distance`, `color`, mapa de direcciones) en vez de concatenar `<tr>`. El camino legacy HTML (roles user/supplier + fallback) queda intacto.
-- **`scripts/contacts/render.js` (nuevo)**: `window.contactsRender.table()` pinta thead+tbody+tfoot (19 cols) desde el JSON, espejo de `scripts/items/render.js`. Escapa todo con `esc()` (el path legacy NO escapaba → más seguro).
-- **`a_contacts.js`**: rol customer hace `fetch &format=json` y usa `contactsRender` como `iniData` de `ncmDataTables`; user/supplier siguen legacy. Búsqueda confirmada client-side (`ncmDataTables.feedData` usa iniData sin re-fetch cuando se le pasa data).
-- **Verificado E2E**: endpoint `format=json` → HTTP 200 shape correcto; `render.js` corrido en node sobre data real → tabla 19 cols bien formada; `a_contacts.php` acepta cookie `_jwt_panel`.
-- **Pendiente (mismo patrón)**: portar roles **user/supplier** del listado + el **editform** (`scripts/contacts/form.js` + `panel/contacts/templates/`) como se hizo con Items.
-
-## 2026-05-25 (items: JSONB demotion migración 07 + writers ncm + readers flatten — commit ea48a32)
-
-- **Schema**: 4 columnas demotadas de `item` a `item.data` JSONB vía migración `07_item_jsonb_demote.sql` (atómica: backfill UPDATE + DROP). Columnas: `itemImage` (bool → JSON boolean), `itemTaxExcluded` (era columna fantasma: 0 lecturas/escrituras en todo el repo), `itemDiscount`, `itemUOM`. Criterio: 0 apariciones en WHERE/ORDER/JOIN/GROUP/SUM (auditado por grep). `itemPrice`/`itemCost` NO se movieron (usados en SUM/AVG). `itemName`/`itemSKU`/`itemSort`/`itemStatus`/`itemType` NO se movieron (indexados).
-- **Whitelist actualizada**: 4 columnas quitadas de `_getTableSchema()['item']['columns']` en el mismo commit del DROP (regla: si se hace después, `_flattenJsonb` hace que la columna real gane sobre JSONB y se producen lecturas stale).
-- **Writers migrados**: `a_items.php:2986` (bulkUpdate de hijos) de AutoExecute crudo → `ncmUpdate`. Seed de signup en `app/includes/functions.php` dejó de escribir `itemImage` (CRÍTICO: el `ncm` de `app/` no tiene `_routeToJsonb` — no rutea a JSONB; writers de app/ no pueden pasar columnas demotadas).
-- **Readers arreglados**: (a) Explícitos con hard SQL error post-DROP: `a_items.php:23,67` (búsqueda), `:457` (compound), `a_bulk_production.php:108`, `ItemRepository::searchByName`, `get_items.php:116` → alias `data->>'col' AS col` o + columna `data`. (b) SELECT*/forceObj/raw-Execute sin flatten: `a_items.php:3752` (render lista), `inventory.php:51` (editform), loop principal de `get_items.php`, `app/fetch.php:584`, `app/fetchs.php:725` → ahora aplican `_flattenJsonb()`. Insight: readers via `ncmExecute` single-row (incl. `getItemData()`) YA aplanaban — no requirieron cambio.
-- **Verificado E2E**: migración aplicada local (1 fila backfilleada, 4 columnas dropeadas); round-trip v1 PUT/GET confirmó itemUOM/itemDiscount/itemImage escritos a `data` y leídos vía flatten; `itemImage` devuelto como boolean PHP (no string 'true'); search y showTable del panel renderizan UOM desde data sin error SQL.
-- **Bug legacy descubierto (fuera de scope, NO arreglado)**: `panel/API/get_items.php` devuelve 404 porque su query tiene `itemIsParent > 0` (boolean vs int → PG error) y `itemParentId = 0` (UUID vs int). Los cambios de flatten en ese endpoint son correctos pero inalcanzables. Mismo patrón de bugs legacy ya trackeado en invariante #7.
-
-## 2026-05-25 (contacts: JSONB demotion migración 06 + writers ncm + PG fixes — commits 53c5dae, 01d6eba)
-
-- **Schema**: 6 columnas descriptivas eliminadas de `contact` y movidas a `contact.data` JSONB (migración `06_contact_jsonb_demote.sql`, atómica: backfill UPDATE + DROP). Columnas demotadas: `contactNote`, `contactCity`, `contactLocation`, `contactCountry`, `contactAddress`, `contactAddress2`. Keys en camelCase consistente con convención existente.
-- **Regla de diseño establecida**: solo van como columnas reales los campos indexables o calculados por SQL; todo lo descriptivo/estático va a `data` JSONB. Aplica a `contact` ahora y a `item` (diferido). Documentado como invariante #6 en `04-modelo-de-dominio.md`.
-- **Writers migrados a ncm**: `add_customer.php`, `add_customers.php`, `edit_customer.php`, `edit_customers.php`, `a_contacts.php` — de `$db->AutoExecute` / bulk INSERT raw a `ncmInsert`/`ncmUpdate` (ADOdb AutoExecute hace hard-crash en columna inexistente; ncm rutea a JSONB automáticamente).
-- **`customerAddress` registrada en `_getTableSchema()`**: su ausencia inyectaba una columna `id` espuria y fallaba silenciosamente en cada INSERT de dirección.
-- **PG bugs corregidos**: (a) `generateUID()` devuelve INT — inválido para UUID PK; ahora `ncmInsert` genera UUID v7. (b) `customerAddressDefault = 1` crasheaba PG (`operator does not exist: boolean = integer`); corregido a `= true` en `ContactRepository` y `edit_customer.php`.
-- **Pendientes — 5 sitios `= 1` legacy** (rutas `/app` sin verificar): `panel/includes/functions.php:3464,3790`, `app/action.php`, `app/load.php`, `app/fetch.php`, `app/fetchs.php`. Documentado en invariante #7 de `04-modelo-de-dominio.md`.
-- **Pendiente — reader de descarga en `a_contacts.php`**: el CSV export lee columnas que ya no existen como columnas reales; necesita actualización para leer desde `data` JSONB.
-- **Pendiente — JSONB demotion para `item`**: mismo patrón, diferido para próxima sesión.
-- **Infra**: DDL (`ALTER TABLE DROP COLUMN`) requiere ser owner de la tabla; el usuario `punto` de la app no lo es. Documentado en `06-infraestructura.md §Privilegio de owner para DDL`.
-
-## 2026-05-25 (backend-first módulo Contacts — commit e0d3fbd)
-
-- **Hecho — backend Contacts implementado** (4 archivos, 696 inserciones): `panel/lib/contacts/ContactRepository.php` (SQL parametrizado sobre `contact` + `customerAddress`), `panel/lib/contacts/ContactService.php` (mapeo de API pública → columnas, validación, sync de dirección por defecto), `panel/API/v1/contacts.php` (REST GET/POST/PUT/DELETE + sub-recurso `?resource=addresses`), `panel/scripts/api/contacts.js` (`window.contactsApi`: list/get/create/update/archive/unarchive/bulkArchive + addresses.list).
-- **Additive, no destructivo**: los endpoints legacy (`get_customers.php`, `get_customer.php`, `add_customer.php`, `edit_customer.php`, `delete_customers.php`, `get_customer_addresses.php`) NO se tocaron; quedan como fallback.
-- **Bugs corregidos en el código nuevo** (no afectan legacy): `ncmUpdate` devuelve `['error'=>false,...]` en éxito, nunca bare `false` → el repo verifica `is_array($ok) && empty($ok['error'])`; `ci` ahora se escribe en `contactCI` (legacy `edit_customer.php` lo escribía erróneamente en `contactTIN`); UUIDs siempre bound como param, nunca concatenados (legacy `get_customers.php` concatenaba `COMPANY_ID` sin comillas).
-- **Diferido para follow-up**: custom records (`customerRecord`/`cRecordField`/`cRecordValue`), matriz de roles/permisos, y CSV import — todavía solo en `panel/a_contacts.php` (3.787 líneas).
-- **Próximo paso**: cablear `a_contacts.php` (listado + form) para consumir `contactsApi`; luego abordar los sub-dominios diferidos. Contacts es el 2º CRUD pesado del molde backend-first confirmado.
-
-## 2026-05-24 (refactor completo módulo Items + estrategia de modernización)
-
-- **Hecho — módulo Items refactorizado punta a punta** (commits `d4e5a49`..`886abcd`): Fase 0 (dedup ~8K líneas, fix SQLi, `itemImage`→bool) · Fase 1 (extracción de dominio: `ItemRepository` + `ItemService`/`Compound`/`Stock`/`Upsell`/`Location` en `lib/items/`) · Fase 1D multi-depósito (tabla `itemLocation` + `LocationService` + `resolveItemLocation()` en venta/producción) · Fase 2 (API REST `/API/v1/items/*` con envelope `apiOk`, `apiMiddleware` ahora acepta sesión PHP) · Fase 4 (listado **data-driven** backend→JSON→render JS, y **editform-v2** reconstruido con templates Mustache: shell + 6 tabs + 3 shells por tipo, cableado al click/crear con fallback al legacy, **guardando OK**).
-- **Decisión — frontend**: se probó React+shadcn (scaffold `69cb299`) y se **revirtió** (`8b2563b`). Stack se queda jQuery+BS3+CSS. El editform-v2 usa Mustache + hidratación JSON (`scripts/items/form.js` + `panel/items/templates/`).
-- **Decisión estratégica (`08ed731`) — modernización del monolito**: con 48 módulos/~45K líneas, modernizar todo como Items tomaría meses. Rumbo aprobado: **(1) backend primero en TODOS los módulos** (Services+API = el desacople de mayor valor), **(2) frontend = vista PHP pura por defecto**, **(3) Alpine.js (no Mustache) solo donde la UX lo amerite**. Molde backend replicable + priorización por tipo documentados en `02-arquitectura.md § Estrategia de modernización`.
-- **Pendiente**: aplicar el molde a **Contacts** (2º CRUD más grande, 3.787 líneas; ya tiene endpoints sueltos `get_customers`/`edit_customer` para consolidar). Luego reportes (backend→API + listado data-driven) y POS (`app/action.php`, análisis aparte). Recomendado arrancar Contacts en sesión fresca.
-- **Atención**: el editform PHP legacy de items sigue como **fallback** (no se eliminó) hasta validar el v2 en uso real. `productionTab` portado pero NO verificado (módulo `production` deshabilitado en la company de prueba). Bugs PG recurrentes en otros módulos: `id > 0`/`= 0` sobre UUID, `db_prepare(dec())` en WHERE, máscaras con separador de miles en columnas INTEGER (`itemSort`).
-
-## 2026-05-19 (martes, smoke test E2E del refactor)
-
-- **Decisión clave**: antes de arrancar Phase AI hay que validar que la modernización (PG, JWT, screens, no-ADOdb) funciona end-to-end. El usuario lo planteó: "no sabemos ni si la refactorización funciona". Phase AI quedó **pospuesto** hasta cerrar el smoke test.
-- **Hallazgo crítico**: hay **2 postgres conviviendo en localhost:5432**. Uno del host (xstian, corriendo desde 15-abr) y otro de docker. PHP tomaba el del host (con seed completo: 5 outlets, 2 registers, 3 companies). Decisión del usuario: **usar el host postgres, detener el de docker** (`docker compose stop postgres pgadmin`). Stack actual = host PG + docker (redis + ws-server).
-- **6 smoke tests ejecutados, 6 bugs reales encontrados y arreglados** (commit `c485eae`):
-  1. `app/API/auth.php` — falta `rtrim()` en password compare (CHAR(68) padded). Login `/app` daba 401 silencioso
-  2. `app/API/auth.php` — resolución de outlet usaba `ORDER BY outletId ASC LIMIT 1` ignorando `contact.outletId`. Si el primer outlet no tenía register → 500. Fix: respetar `contact.outletId` (mismo patrón que `loginPart()` del panel)
-  3. `app/includes/functions.php` — `ncmExecute()` del /app **no aplicaba** `_flattenJsonb()`. Por eso `SELECT * FROM company` devolvía `settingTimeZone = NULL` (vive en `config` JSONB tras Phase PG). `data.php:52` crasheaba. Fix: agregar `_flattenJsonb` copia del panel + invocarla en ncmExecute
-  4. `app/includes/functions.php::getCustomTemplates()` — SQL injection (concat), comparación legacy `companyId = 1` (ahora UUID), y while sin nil check. Crasheaba con `MoveNext on false` cuando `taxonomy` vacía. Fix: parametrizar + `IS NULL` para templates globales + guard
-  5. `panel/API/kds.php` y `panel/API/cds.php` — llamaban `validateHttp('s')` ANTES de `apiMiddlewarePublic()` (que es donde se carga `functions.php`). Fatal "Call to undefined function". Fix: leer raw `$_GET['s']`
-- **WebSocket bridge E2E confirmado**: `wsPublish()` desde PHP → Redis pub → ws-server → cliente recibe `{event, channel, data}` con payload correcto. Protocolo: cliente envía `{action: subscribe, channel: ...}`, server responde con `{event: ...}`.
-- **Estado final**: login panel ✅, login app ✅, fetch settings ✅, KDS/CDS HTML + API ✅, WS ✅. **La base del refactor funciona**.
-- **Pendiente próxima sesión**:
-  - Notar que `fetch.php` devuelve `outlets:[], registers:[], users:[]` vacíos para admin@local.test → puede ser filtro `outletStatus = 1` (verificar) o un bug en queries específicas. NO crítico para el agente pero hay que entenderlo
-  - Cuando tengamos confianza de que la base es estable: arrancar Phase AI.1 (el design doc ya está en mi memoria, falta volcarlo a `punto-agent/README.md` cuando arranquemos)
-  - Migración endpoints legacy MySQL (B2-B5) sigue pendiente
 
