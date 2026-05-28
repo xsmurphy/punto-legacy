@@ -141,18 +141,16 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 
 **Slices pendientes**: los ~42+ concerns restantes de `action.php` + los de `load.php`. Orden a definir por prioridad de negocio.
 
-### Conocimiento issue crítico — `app/DB.php` sin `Insert_ID()` (afecta TODOS los slices futuros)
+### ✅ RESUELTO (commit f77b47a) — `app/DB.php` sin `Insert_ID()`
 
-`app/includes/lib/DB.php` **divergió del panel** y no tiene el método `Insert_ID()`. Consecuencia: `ncmInsert()` y `ncmUpdate()` son **FATALES en /app** (llaman a `$db->Insert_ID()` que no existe → PHP fatal error).
+`app/includes/lib/DB.php` había **divergido del panel** y no tenía `Insert_ID()`, por lo que `ncmInsert()`/`ncmUpdate()` eran **FATALES en /app** (todo el legacy de escritura de `action.php` estaba latentemente roto en PG post-Phase-PG).
 
-**Impacto latente**: todo el legacy de /app que usa `ncmInsert`/`ncmUpdate` (para escrituras) está silenciosamente roto en PG. El runtime no explota porque la mayoría de los handlers de `action.php` probablemente nunca ejecutaron contra PG en producción, o fallaron silenciosamente.
+**Fix (f77b47a)**: se sincronizó con el panel — `AutoExecute` INSERT usa `RETURNING *` y captura el PK (1ª columna) en `$_lastInsertId`; nuevo `Insert_ID()`; el branch UPDATE limpia `$_lastInsertId` (no devolver id stale). Verificado: `ncmInsert` devuelve el UUID, `ncmUpdate` `error=false`. **`ncmInsert`/`ncmUpdate` vuelven a funcionar en /app.**
 
-**Regla para cada slice de /app que incluya escrituras**:
-- `ncmExecute` (lecturas) → sigue funcionando, OK.
-- `ncmInsert`/`ncmUpdate` → **PROHIBIDOS en /app**. Usar `$db->Execute($sql, $params)` parametrizados.
+**Regla para slices de /app con escrituras** (sigue vigente por preferencia, aunque ncm* ya no rompe):
+- Preferir `$db->Execute($sql, $params)` **parametrizado** (evita el bug de UUID-sin-comillas que arrastran los `where` string de ncmUpdate + es a prueba de inyección).
 - Multi-step → `$db->StartTrans()` / `$db->CompleteTrans()` para atomicidad.
-
-**Follow-up recomendado (no bloqueante)**: sincronizar `app/includes/lib/DB.php` con el panel agregando `Insert_ID()`. Eliminaría la divergencia y habilitaría `ncmInsert` en /app en el futuro.
+- Booleans PG: `true`/`false`/`null`, nunca `1`/`0` en literales SQL.
 
 ---
 
