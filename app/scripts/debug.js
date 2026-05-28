@@ -6786,7 +6786,7 @@ var ncmEvents = {
 
                 ncmSpaces.action('hide');
                 //unreservo la mesa
-                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'unReserveTable', t: index });
+                var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'unReserveTable', t: index });
                 ncmHttp.get({
                     url: url,
                     hideLoader: true
@@ -6975,7 +6975,7 @@ var ncmEvents = {
             focusIt($('#promptInputText'));
             ncmAlerts.prompt(options, function (prompt) {
                 if (ncmHelpers.validity(prompt)) {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'renameTable', t: index, note: prompt });
+                    var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'renameTable', t: index, note: prompt });
                     ncmHttp.getit(url);
                     ncmSpaces.action('show', function () {
                         ncmEvents.a();

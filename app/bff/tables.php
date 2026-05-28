@@ -1,0 +1,34 @@
+<?php
+/**
+ * /bff/tables.php — BFF de las mesas del POS (slice 2 del desacople de /app).
+ *
+ * Reemplaza el dispatch de renameTable/unReserveTable de action.php. NO toca BD:
+ * decodifica el sobre `?l=` que ya manda el front, reenvía a la API v1 (cookie _jwt)
+ * y devuelve el shape legacy ({success:"true"}). El front sólo mira éxito/error.
+ */
+
+require_once __DIR__ . '/lib/api_client.php';
+
+if (empty($_COOKIE['_jwt'])) {
+    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
+}
+
+$get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
+$action = (string) ($get['action'] ?? '');
+
+$opMap = ['renameTable' => 'rename', 'unReserveTable' => 'unreserve'];
+if (!isset($opMap[$action])) {
+    bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
+}
+
+$payload = [
+    'op'        => $opMap[$action],
+    'tableName' => (string) ($get['t'] ?? ''),
+    'note'      => $get['note'] ?? '',
+];
+
+$res = bffApiPost('v1/tables.php', $payload, '_jwt');
+if (!$res['ok']) {
+    bffFailFromApi($res);
+}
+bffJson(['success' => 'true']);
