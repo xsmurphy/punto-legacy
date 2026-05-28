@@ -137,6 +137,7 @@ class DB
     private string $lastError = '';
     private int    $lastErrNo = 0;
     private bool   $transOk  = true;
+    private ?string $_lastInsertId = null; // PK auto-generado por el último INSERT (UUID en PG)
 
     // Propiedades públicas de compatibilidad ADOdb
     public int    $port         = 5432;
@@ -222,17 +223,25 @@ class DB
         if ($mode === 'INSERT') {
             $cols         = implode(', ', array_keys($data));
             $placeholders = implode(', ', array_fill(0, count($data), '?'));
-            $sql          = "INSERT INTO {$table} ({$cols}) VALUES ({$placeholders})";
-            $params       = array_values($data);
+            // RETURNING * permite capturar el PK auto-generado (UUID en PG) para Insert_ID().
+            $sql          = "INSERT INTO {$table} ({$cols}) VALUES ({$placeholders}) RETURNING *";
+            $res          = $this->Execute($sql, array_values($data));
+            if ($res === false) {
+                $this->_lastInsertId = null;
+                return false;
+            }
+            // PK = primera columna del row devuelto (convención de los CREATE TABLE del schema).
+            $rows = $res->GetRows();
+            $this->_lastInsertId = $rows ? (string) array_values($rows[0])[0] : null;
+            return true;
         } elseif ($mode === 'UPDATE') {
+            $this->_lastInsertId = null; // un UPDATE no genera PK → no devolver un id stale del INSERT previo
             $sets   = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
             $sql    = "UPDATE {$table} SET {$sets}" . ($where !== '' ? " WHERE {$where}" : '');
-            $params = array_values($data);
-        } else {
-            return false;
+            return $this->Execute($sql, array_values($data)) !== false;
         }
 
-        return $this->Execute($sql, $params) !== false;
+        return false;
     }
 
     /**
@@ -241,6 +250,15 @@ class DB
     public function Insert(string $table, array $data): bool
     {
         return $this->AutoExecute($table, $data, 'INSERT');
+    }
+
+    /**
+     * Retorna el PK auto-generado por el último AutoExecute/Insert INSERT.
+     * Equivale a ADOdb->Insert_ID(). En PG con UUIDs se captura vía RETURNING *.
+     */
+    public function Insert_ID(): ?string
+    {
+        return $this->_lastInsertId;
     }
 
     /**
