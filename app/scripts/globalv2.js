@@ -2324,7 +2324,7 @@ var ncmPayments = {
 
                 authCode = authCode.toUpperCase(); //paso a mayus en caso de que sea alfa
 
-                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({
+                var url = masterUrl + 'bff/vpayments?l=' + ncmHttp.masterUrlParams({
                     action: 'ePOSAddCardTransaction',
                     authCode: authCode,
                     total: saleData.total,
@@ -2625,7 +2625,7 @@ var ncmPayments = {
 
             authCode = authCode.toUpperCase(); //paso a mayus en caso de que sea alfa
 
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({
+            var url = masterUrl + 'bff/vpayments?l=' + ncmHttp.masterUrlParams({
                 action: 'cajaPOSAddCardAndQrTransaction',
                 authCode: authCode,
                 total: saleData.total,
@@ -2868,7 +2868,7 @@ var ncmPayments = {
             var authCode = data.reference_id;
             var saleData = ncmPayments.ePOS.toPay();
 
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({
+            var url = masterUrl + 'bff/vpayments?l=' + ncmHttp.masterUrlParams({
                 action: 'PixAddTransaction',
                 authCode: authCode,
                 total: saleData.total,
