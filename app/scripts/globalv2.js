@@ -4234,7 +4234,7 @@ var ncmEvents = {
 
             if (ncmHelpers.valid(ncmGlobals.settings[0].fullSettings, 'currencies')) {
                 ncmHttp.get({
-                    url: masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'setCurrencies' }),
+                    url: masterUrl + 'bff/currencies?l=' + ncmHttp.masterUrlParams({ action: 'setCurrencies' }),
                     type: 'json',
                     onSuccess: (result) => {
                         var data = result.success;
@@ -5094,7 +5094,7 @@ var ncmEvents = {
                 ncmAlerts.prompt({ title: 'Motivo' }, (motive) => {
                     if (ncmHelpers.valid(motive)) {
                         ncmHttp.get({
-                            url: masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'deleteItemHistory', motive: motive, id: itemId }),
+                            url: masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'deleteItemHistory', motive: motive, id: itemId }),
                             onSuccess: () => {
                                 doDeleteItemInList();
                             }
@@ -6454,7 +6454,7 @@ var ncmEvents = {
                 transaction: orderId,
                 onSubmit: (ops) => {
                     //aqui hago el request al server para procesar
-                    ncmHttp.getit(masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'transferOrderToOutlet', orderId: orderId, outletFromId: ops.outletId }), (data) => {
+                    ncmHttp.getit(masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'transferOrderToOutlet', orderId: orderId, outletFromId: ops.outletId }), (data) => {
                         ncmAlerts.toast('Orden transferida', 'success');
                     },
                         () => {
@@ -6617,7 +6617,7 @@ var ncmEvents = {
 
                                     if (find && find == ncmTransactions.cOutletData().attendanceToken) {
                                         var now = moment().format('HH:mm');
-                                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({
+                                        var url = masterUrl + 'bff/attendance?l=' + ncmHttp.masterUrlParams({
                                             action: 'clockIn',
                                             o: ncmTransactions.cOutletData().outletId,
                                             u: ncmAuth.activeUser.activeUserId,
@@ -6904,7 +6904,7 @@ var ncmEvents = {
                     else {
                         ncmAlerts.toast('No posee órdenes', 'warning');
 
-                        ncmHttp.getit(masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'closeTable', 'del': index, 'kind': kind }));//elimino opened table
+                        ncmHttp.getit(masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'closeTable', 'del': index, 'kind': kind }));//elimino opened table
                         ncmTransactions.orderClose = {};
                         ncmTransactions.orderItemsClose = [];
 
@@ -7251,7 +7251,7 @@ var ncmEvents = {
 
                     ncmAlerts.prompt({ title: 'Motivo' }, function (motives) {
                         motives = iftn(motives, '');
-                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'rejectOrder', id: trsId, motive: motives });
+                        var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'rejectOrder', id: trsId, motive: motives });
                         ncmHttp.getit(url, function () {
                             $('tr#tr' + id).remove();
                         });
@@ -7261,7 +7261,7 @@ var ncmEvents = {
             });
         } else if (type == 'acceptOrder') {
             var trsId = tis.data('id');
-            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'acceptOrder', id: trsId });
+            var url = masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'acceptOrder', id: trsId });
             var table = tis.data('table');
 
             ncmHttp.getit(url, function () {
@@ -12122,7 +12122,7 @@ var ncmTransactions = {
                 if (ncmHelpers.validity(result)) {
 
                     if (ncmTransactions.editId) {
-                        ncmHttp.getit(masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'deleteTransaction', id: ncmTransactions.editId }));
+                        ncmHttp.getit(masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'deleteTransaction', id: ncmTransactions.editId }));
                         ncmTransactions.editId = false;
                     }
 
@@ -12155,7 +12155,7 @@ var ncmTransactions = {
                 if (result) {
 
                     if (ncmTransactions.editId) {
-                        ncmHttp.getit(masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'deleteTransaction', id: ncmTransactions.editId }));
+                        ncmHttp.getit(masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'deleteTransaction', id: ncmTransactions.editId }));
                         ncmTransactions.editId = false;
                     }
 
@@ -12347,7 +12347,7 @@ var ncmTransactions = {
                     callback && callback(result);
 
                     if (ncmHelpers.valid(ncmTransactions, 'orderClose')) {
-                        ncmHttp.getit(masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'closeTable', del: ncmTransactions.orderClose.id, kind: ncmTransactions.orderClose.type }));//elimino opened table
+                        ncmHttp.getit(masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'closeTable', del: ncmTransactions.orderClose.id, kind: ncmTransactions.orderClose.type }));//elimino opened table
                         ncmTransactions.orderClose = {};
                         ncmTransactions.orderItemsClose = [];
                     } else if (ncmHelpers.valid(ncmTransactions.orderItemsClose)) {
@@ -17841,7 +17841,7 @@ var ncmAuth = {
             return false;
         }
 
-        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'setSession', id: ncmAuth.sessionId });
+        var url = masterUrl + 'bff/register?l=' + ncmHttp.masterUrlParams({ action: 'setSession', id: ncmAuth.sessionId });
 
         ncmHttp.get({
             url: url,
@@ -20794,7 +20794,7 @@ var ncmCustomer = {
         });
         //
         ncmHttp.get({
-            url: masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'chkDeletedCustomers' }),
+            url: masterUrl + 'bff/sync?l=' + ncmHttp.masterUrlParams({ action: 'chkDeletedCustomers' }),
             onSuccess: function (result) {
 
                 if (ncmHelpers.validInObject(result, 'success')) {
@@ -22344,7 +22344,7 @@ var ncmItems = {
         });
         //
         ncmHttp.get({
-            url: masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'chkDeletedItems' }),
+            url: masterUrl + 'bff/sync?l=' + ncmHttp.masterUrlParams({ action: 'chkDeletedItems' }),
             onSuccess: function (result) {
 
                 if (ncmHelpers.validInObject(result, 'success')) {
