@@ -493,6 +493,40 @@ El legacy de /app tenía bugs latentes generalizados que DEBEN corregirse al mig
 | Booleano comparado con `1` (`WHERE flag = 1`) | `WHERE flag = true` |
 | Booleano seteado con `1` (INSERT/UPDATE `flag = 1`) | `flag = true` (o `null` para default) |
 | Escritura sin scope de `companyId` | Agregar `AND companyId = ?` en UPDATE/DELETE siempre |
+| Identificadores SQL **entre comillas dobles** (`"transactionId"`, `"printServer"`) | **SIN comillas** (`transactionId`, `printServer`). Ver §22.5 |
+| Escribir `transactionDetails`/`tags` como columna | Esas columnas viven en `meta` (jsonb) post-migración. Ver §22.6 |
+
+### §22.5 — Identificadores SQL: SIEMPRE sin comillas (las columnas reales son lowercase)
+
+**REGLA**: Nunca poner identificadores (tablas/columnas) entre comillas dobles en SQL.
+Las migraciones PG definieron las columnas en camelCase **sin comillas**, y PostgreSQL
+**pliega a lowercase** todo identificador sin comillas. Las columnas reales en la DB son
+`transactionid`, `companyid`, `transactiondetails`, etc. (todo minúscula).
+
+- ✅ `SELECT customerId, invoiceNo FROM transaction WHERE transactionId = ?` — el camelCase
+  se pliega a lowercase y matchea la columna real. Legible y correcto.
+- ❌ `SELECT "customerId" FROM transaction WHERE "transactionId" = ?` — busca una columna
+  literal `customerId` (mixed-case) que **NO existe** → error en runtime.
+
+**Por qué importa**: los slices 6/7 se commitearon con identificadores entre comillas y
+fallaban en runtime (commit fix `3b81914`). El lint PHP NO lo detecta; sólo se ve al correr
+contra la DB. Verificar cada service con un UUID falso antes de commitear:
+`php -r 'require "includes/db.php"; ...$svc->metodo($fakeId,$fakeCo);'` (cwd `/app`).
+
+### §22.6 — `transactionDetails`/`tags` viven en `meta` (jsonb), no como columna
+
+La migración PG movió `transactionDetails`, `tags`, `transactionLocation` y otros campos
+extensibles de `transaction` dentro de la columna **`meta` (jsonb)**. En **lectura**,
+`_flattenJsonb` (en `ncmExecute`) mergea las keys de `meta` en la fila → `$row['transactionDetails']`
+funciona, **pero el SELECT debe pedir `meta`** (no `transactionDetails`). En **escritura**,
+`AutoExecute`/`ncmUpdate` **NO mapean** columnas virtuales → `meta`: hay que usar
+`jsonb_set(COALESCE(meta,'{}'::jsonb), '{transactionDetails}', ?::jsonb)`.
+
+**Consecuencia**: todos los handlers legacy que escriben `transactionDetails` están **rotos
+post-migración** (setUserToOrder, removeItemfromOrder, processOrderItems*, moveOrderItems,
+updateSchedule, scheduleSession, processData). Se difieren a un **slice dedicado de meta-JSONB**
+que necesita: (1) entender el formato de storage (string vs objeto anidado), (2) datos de prueba
+type-12, (3) patrón `jsonb_set` para el write. No portar estos handlers "como están".
 
 ### §22.4 — Bootstrap del contexto POS en los endpoints de /api
 
