@@ -140,6 +140,10 @@ if ($view === 'templates') {
     apiOk($svc->templates(COMPANY_ID));
 }
 
+if ($view === 'templateFields') {
+    apiOk($svc->templateFields(COMPANY_ID));
+}
+
 if ($view === 'taxonomies') {
     $allowed = ['tax', 'category', 'tag', 'paymentMethod', 'bank', 'transactionCategory'];
     $type = (string) (validateHttp('type') ?: '');

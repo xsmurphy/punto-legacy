@@ -337,6 +337,37 @@ class SettingsService
     }
 
     /**
+     * Datos dinámicos de la PALETA del template builder (los campos arrastrables que dependen de la
+     * empresa): defaults de los campos de empresa + lista de impuestos (para los campos por-impuesto)
+     * + taxName/tinName. El resto de la paleta (labels fijos) lo rinde el front estático.
+     * El default del logo es la URL del resize (el widget rinde <img src=default>); el legacy
+     * embebía base64 vía curl — innecesario para el diseñador.
+     */
+    public function templateFields($companyId)
+    {
+        $r = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1", [$companyId]);
+        if (!$r) { $r = []; }
+
+        $assets = defined('ASSETS_URL') ? rtrim((string) ASSETS_URL, '/') : '/assets';
+
+        return [
+            'taxName' => (string) ($r['settingTaxName'] ?? 'IVA'),
+            'tinName' => (string) ($r['settingTIN'] ?? 'TIN'),
+            'company' => [
+                'logo'        => $assets . '/200-200/0/' . $companyId . '.jpg',
+                'logoBw'      => $assets . '/200-200/&f=2%7C4,-50/' . $companyId . '.jpg',
+                'name'        => (string) ($r['settingName'] ?? ''),
+                'billingName' => (string) ($r['settingBillingName'] ?? ''),
+                'tin'         => (string) ($r['settingRUC'] ?? ''),
+                'address'     => (string) ($r['settingAddress'] ?? ''),
+                'email'       => (string) ($r['settingEmail'] ?? ''),
+                'website'     => (string) ($r['settingWebSite'] ?? ''),
+            ],
+            'taxes' => $this->taxonomies($companyId, 'tax'),   // [{id, name}] para los campos por-impuesto
+        ];
+    }
+
+    /**
      * Crea o actualiza una plantilla de impresión. SCOPEADO por companyId (el UPDATE legacy
      * filtraba solo por taxonomyId → IDOR; acá se agrega companyId). El nombre sale del propio
      * diseño (page_name). @param string $id  vacío = insert. @return string|bool  id nuevo | true | false
