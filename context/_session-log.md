@@ -3,6 +3,18 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-28 — `a_settings` (Ajustes): migración COMPLETA al BFF de 3 capas (incr. 3a–3d)
+
+- **Hecho — incr. 3a (commit `1d8fd03`)**: Monedas (`currencies`) al BFF. `SettingsService.currencies()/updateCurrencies()` sobre `config.settingObj.currencies`. API `view=currencies` + POST `type=currencies`. Front: matriz de monedas en `#modalTiny` (Alpine). FIX PG adicional: el save legacy interpolaba `companyId` sin comillas → corregido.
+- **Hecho — incr. 3b (commit `b1d6cc7`)**: Logo (display + upload). `general()` devuelve `logo URL` + `uploadUrl`; front `:src` con `@error` fallback + `logoUpload()` con `.off()` defensivo. NO verificable en dev (resize/sysimages en infra prod).
+- **Hecho — incr. 3d-back (commit `9277017`)**: capa de datos de Plantillas de Impresión (`taxonomy printTemplate`). `templates()/saveTemplate()/removeTemplate()` + API `view=templates` + POST `saveTemplate/removeTemplate`. Fixes PG: quitado `OR companyId=1` (rompe con UUID), `LIMIT 1` en DELETE (inválido PG), agregado `AND companyId=?` en UPDATE (era IDOR).
+- **Hecho — incr. 3d-front-A (commit `63051ad`)**: API `view=templateFields` (datos dinámicos de la paleta del builder: defaults de empresa + impuestos + taxName/tinName).
+- **Hecho — incr. 3d-front (commit `63435b0`)**: front del template builder. Widget jQuery `templateBuilder` portado VERBATIM del legacy (`a_settings.php:1610-2428`) a `scripts/a_settings_templates.js` (nuevo §20 — port verbatim de widget jQuery pesado). Solo las 3 llamadas de datos recableadas al BFF. `settings.html`: tab `#printTemplates` + paleta + canvas. Paleta hidratada client-side desde `templateFields` (`hydratePalette` en `a_settings.js`). Init en `shown.bs.tab`.
+- **Decisión — ecommerce N/A**: el form de ecommerce en Ajustes es UI MUERTA. El legacy solo tiene 4 tabs reales (Perfil/App/Sucursales-link/Plantillas); no existe tab ecommerce. Handler backend `type=ecommerce` y `a_settings2.js` huérfano quedan como están. La tabla `ecommerce` la consume `franchiser.php` (otro módulo).
+- **Gap de verificación**: drag/drop visual del builder NO verificado en browser (shell `@.php` requiere sesión PHP legacy, no JWT — refuerza ADR-001). Pendiente smoke test visual.
+- **Follow-up de seguridad**: `upload.php` confía en `?id=` del cliente (IDOR preexistente) → gatear `companyId` server-side.
+- **HITO**: `a_settings` = **2º módulo CRUD del panel COMPLETO en el modelo BFF/Alpine** (tras `a_outlets`). Convención §20 nueva en `08-convenciones.md`. Vault sincronizado + graphify regenerado.
+
 ## 2026-05-27 (cont. 12) — `a_settings` (Ajustes): migración parcial al BFF/Alpine + FIX de guardado roto en PG
 
 - **Hecho — incr. 1 backend** (commit `cadc338`): `SettingsService` (general read/write + options + taxonomies) + `API/v1/settings.php` + `bff/settings.php`. **Incr. 2 front** (commit `2896f82`): tabs Perfil + Visualización con Alpine x-model (~20 campos + ~15 toggles), selects país/categoría/timezone desde `?view=options`, dropdowns adm jQuery-owned (§17.2), save → company.config. Router `/a_settings → /views/settings.html`.

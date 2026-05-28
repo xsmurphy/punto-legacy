@@ -375,6 +375,27 @@ $existingData = json_decode($res->fields['data'] ?? '{}', true) ?: [];
 
 ---
 
+## §20 — Port verbatim de widget jQuery pesado
+
+**Regla**: Para widgets jQuery grandes y autónomos (canvas drag/drop, builders, etc.) que sería arriesgado transcribir manualmente, el widget se extrae VERBATIM al motor de la sesión (ej. `sed -n '1610,2428p'`), se mueve a su propio archivo `scripts/<modulo>_<widget>.js`, y se recablean SOLO sus llamadas de datos al BFF. La lógica interna del widget NO se toca.
+
+**Por qué**: La transcripción manual de 800+ líneas de widget jQuery introduce errores de transcripción difíciles de detectar. La extracción verbatim elimina ese riesgo y hace que el diff sea mínimo y auditable.
+
+**Cómo aplicar**:
+1. Extraer el bloque del widget del `.php` legacy con `sed -n '<línea-inicio>,<línea-fin>p'` → `scripts/<modulo>_<widget>.js`.
+2. En el nuevo archivo, identificar y recablear SOLO las llamadas de datos que iban al backend legacy (cambiar URLs o `action=` por endpoints del BFF).
+3. Los datos server-rendered del legacy (ej. paletas, listas de opciones) se hidratan client-side desde un endpoint dedicado de la API (ej. `?view=templateFields`) — el front llama ese endpoint y pasa los datos al widget.
+4. El widget jQuery sigue siendo dueño de su DOM (§17.2 aplica: Alpine y jQuery nunca mutan el mismo nodo).
+5. La inicialización del widget se dispara en `shown.bs.tab` (o evento equivalente) del tab que lo contiene — no en `$(ready)`, porque el DOM del tab puede no estar visible aún.
+
+**Detectar recableado necesario**: buscar en el widget extraído cualquier llamada a `?action=`, `$.ajax/$.post/$.get` con rutas PHP legacy, o variables globales PHP interpoladas (`<?= $var ?>`). Cada una debe resolverse a un endpoint BFF o a un valor del array de hidratación.
+
+**Primer uso**: `a_settings_templates.js` (templateBuilder de Plantillas de Impresión, ~820 líneas), portado verbatim de `a_settings.php:1610-2428`. 3 llamadas de datos recableadas al BFF (`?view=templates`, `?view=templateFields`, BFF POST `saveTemplate`/`removeTemplate`). Paleta hidratada client-side desde `templateFields` en `a_settings.js:hydratePalette()`. Init en `shown.bs.tab '#printTemplates'`.
+
+**Aplica a**: cualquier widget jQuery de canvas / drag-drop / builder embebido en un `.php` legacy que supere ~200 líneas y tenga lógica de interacción visual no trivial.
+
+---
+
 ## §13 — Flujo commit + push con agentes (REGLA OBLIGATORIA)
 
 **Regla**: Toda corrección o mejora pasa por el flujo `edit → code-reviewer → commit → context-updater → push`. El push es inmediato, no se acumulan commits locales.
