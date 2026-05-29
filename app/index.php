@@ -3002,153 +3002,169 @@ include_once("libraries/countries.php");
       </div>
   </script>
 
-  <script id="customerRecordTpl" type="text/html">
-    <a href="#" class="thumb-md">
-      <img src="/assets/150-150/0/{{companyLogo}}.jpg" class="img-circle">
-    </a>
+  <template id="customerRecordTpl">
+    <div x-data="customerRecord()" x-init="load($root.dataset.cid)">
+      <div x-show="loaded">
+        <a href="#" class="thumb-md">
+          <img :src="'/assets/150-150/0/' + rec.companyLogo + '.jpg'" class="img-circle">
+        </a>
 
-    <div class="text-center m-t">Fichas de</div>
-    <div class="h2 font-bold">{{customerName}}</div>
-    <div class="text-center m-b">{{today}}</div>
+        <div class="text-center m-t">Fichas de</div>
+        <div class="h2 font-bold" x-text="rec.customerName"></div>
+        <div class="text-center m-b" x-text="rec.today"></div>
 
-    <section class="col-xs-12 text-left wrapper b no-bg m-b r-3x">
-      <span class="col-xs-12 no-padder text-dark font-bold text-u-c m-b">Datos personales</span>
-      {{#personal}}
-        {{#ci}}<div class="col-xs-4 m-b"><div class="font-bold">Documento Nro.</div>{{ci}}</div>{{/ci}}
-        {{#gender}}<div class="col-xs-4 m-b"><div class="font-bold">Sexo</div>{{gender}}</div>{{/gender}}
-        {{#age}}<div class="col-xs-4 m-b"><div class="font-bold">Edad</div>{{age}}</div>{{/age}}
-        {{#bDay}}<div class="col-xs-4 m-b"><div class="font-bold">Fecha de Nacimiento</div>{{bDay}}</div>{{/bDay}}
-        {{#phone}}<div class="col-xs-4 m-b"><div class="font-bold">Teléfono</div>{{phone}}</div>{{/phone}}
-        {{#email}}<div class="col-xs-4 m-b"><div class="font-bold">Email</div>{{email}}</div>{{/email}}
-        {{#countryName}}<div class="col-xs-4 m-b"><div class="font-bold">País</div>{{countryName}}</div>{{/countryName}}
-        {{#city}}<div class="col-xs-4 m-b"><div class="font-bold">Ciudad</div>{{city}}</div>{{/city}}
-        {{#location}}<div class="col-xs-4 m-b"><div class="font-bold">Localidad</div>{{location}}</div>{{/location}}
-        {{#address}}<div class="col-xs-6 m-b"><div class="font-bold">Dirección</div>{{address}}</div>{{/address}}
-      {{/personal}}
-    </section>
+        <section class="col-xs-12 text-left wrapper b no-bg m-b r-3x">
+          <span class="col-xs-12 no-padder text-dark font-bold text-u-c m-b">Datos personales</span>
+          <template x-if="rec.personal.ci"><div class="col-xs-4 m-b"><div class="font-bold">Documento Nro.</div><span x-text="rec.personal.ci"></span></div></template>
+          <template x-if="rec.personal.gender"><div class="col-xs-4 m-b"><div class="font-bold">Sexo</div><span x-text="rec.personal.gender"></span></div></template>
+          <template x-if="rec.personal.age"><div class="col-xs-4 m-b"><div class="font-bold">Edad</div><span x-text="rec.personal.age"></span></div></template>
+          <template x-if="rec.personal.bDay"><div class="col-xs-4 m-b"><div class="font-bold">Fecha de Nacimiento</div><span x-text="rec.personal.bDay"></span></div></template>
+          <template x-if="rec.personal.phone"><div class="col-xs-4 m-b"><div class="font-bold">Teléfono</div><span x-text="rec.personal.phone"></span></div></template>
+          <template x-if="rec.personal.email"><div class="col-xs-4 m-b"><div class="font-bold">Email</div><span x-text="rec.personal.email"></span></div></template>
+          <template x-if="rec.personal.countryName"><div class="col-xs-4 m-b"><div class="font-bold">País</div><span x-text="rec.personal.countryName"></span></div></template>
+          <template x-if="rec.personal.city"><div class="col-xs-4 m-b"><div class="font-bold">Ciudad</div><span x-text="rec.personal.city"></span></div></template>
+          <template x-if="rec.personal.location"><div class="col-xs-4 m-b"><div class="font-bold">Localidad</div><span x-text="rec.personal.location"></span></div></template>
+          <template x-if="rec.personal.address"><div class="col-xs-6 m-b"><div class="font-bold">Dirección</div><span x-text="rec.personal.address"></span></div></template>
+        </section>
 
-    {{#hasRecords}}
-      {{#records}}
-      <section class="col-xs-12 no-padder text-left b no-bg m-b r-3x pagebreak">
-        <div class="col-xs-12 no-padder hidden-print">
-          <span id="name{{id}}" class="text-dark font-bold text-u-c pull-left wrapper">{{name}}</span>
-          <a href="#" data-type="toggleView" data-target="#collapse{{id}}" class="wrapper clickeable pull-right">
-            <i class="material-icons">keyboard_arrow_down</i>
-          </a>
-        </div>
-        <div class="col-xs-12 no-padder" id="collapse{{id}}" style="display:none;">
-          <div class="col-xs-12 wrapper font-bold text-u-c visible-print">{{name}}</div>
-          <div class="col-xs-12 no-padder" id="options{{id}}">
-            {{#fields}}
-              {{#isText}}
-              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
-                <div class="col-sm-5 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
-                <div class="col-sm-7 col-xs-12 hidden-print">
-                  <input type="text" class="form-control no-bg no-border b-b customerRecordValue" name="" value="{{value}}" id="{{id}}">
+        <template x-if="rec.hasRecords">
+          <div>
+            <template x-for="record in rec.records" :key="record.id">
+              <section class="col-xs-12 no-padder text-left b no-bg m-b r-3x pagebreak">
+                <div class="col-xs-12 no-padder hidden-print">
+                  <span class="text-dark font-bold text-u-c pull-left wrapper" :id="'name' + record.id" x-text="record.name"></span>
+                  <a href="#" data-type="toggleView" :data-target="'#collapse' + record.id" class="wrapper clickeable pull-right">
+                    <i class="material-icons">keyboard_arrow_down</i>
+                  </a>
                 </div>
-              </div>
-              <div class="col-xs-4 m-b-sm visible-print">
-                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
-                {{value}}
-              </div>
-              {{/isText}}
+                <div class="col-xs-12 no-padder" :id="'collapse' + record.id" style="display:none;">
+                  <div class="col-xs-12 wrapper font-bold text-u-c visible-print" x-text="record.name"></div>
+                  <div class="col-xs-12 no-padder" :id="'options' + record.id">
+                    <template x-for="field in record.fields" :key="field.id">
+                      <div style="display:contents">
+                        <template x-if="field.isText">
+                          <div style="display:contents">
+                            <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                              <div class="col-sm-5 col-xs-12 m-t-sm no-padder font-bold"><template x-if="field.hasProgress"><span class="material-icons text-info">show_chart</span></template> <span x-text="field.name"></span></div>
+                              <div class="col-sm-7 col-xs-12 hidden-print">
+                                <input type="text" class="form-control no-bg no-border b-b customerRecordValue" name="" :value="field.value" :id="field.id">
+                              </div>
+                            </div>
+                            <div class="col-xs-4 m-b-sm visible-print">
+                              <div class="col-xs-12 no-padder font-bold" x-text="field.name"></div>
+                              <span x-text="field.value"></span>
+                            </div>
+                          </div>
+                        </template>
 
-              {{#isLong}}
-              <div class="col-xs-12 wrapper text-left">
-                <div class="col-xs-4 no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
-                <div class="col-xs-8 text-right hidden-print">
-                  <div class="btn-group">
-                    <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="heading" data-tag="h4"><i class="material-icons">title</i></a>
-                    <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="insertUnorderedList"><i class="material-icons">list</i></a>
-                    <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="bold"><i class="material-icons">format_bold</i></a>
-                    <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="italic"><i class="material-icons">format_italic</i></a>
-                    <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="underline"><i class="material-icons">format_underlined</i></a>
+                        <template x-if="field.isLong">
+                          <div class="col-xs-12 wrapper text-left">
+                            <div class="col-xs-4 no-padder font-bold"><template x-if="field.hasProgress"><span class="material-icons text-info">show_chart</span></template> <span x-text="field.name"></span></div>
+                            <div class="col-xs-8 text-right hidden-print">
+                              <div class="btn-group">
+                                <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="heading" data-tag="h4"><i class="material-icons">title</i></a>
+                                <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="insertUnorderedList"><i class="material-icons">list</i></a>
+                                <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="bold"><i class="material-icons">format_bold</i></a>
+                                <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="italic"><i class="material-icons">format_italic</i></a>
+                                <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="underline"><i class="material-icons">format_underlined</i></a>
+                              </div>
+                            </div>
+                            <div class="b-b col-xs-12 wrapper customerRecordValue contenteditable" :id="field.id" contenteditable x-html="field.valueHtml"></div>
+                          </div>
+                        </template>
+
+                        <template x-if="field.isNumber">
+                          <div style="display:contents">
+                            <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                              <div class="col-sm-7 col-xs-12 m-t-sm no-padder font-bold"><template x-if="field.hasProgress"><span class="material-icons text-info">show_chart</span></template> <span x-text="field.name"></span></div>
+                              <div class="col-sm-5 col-xs-12 hidden-print">
+                                <input type="tel" pattern="\\d*" class="form-control no-bg no-border b-b customerRecordValue text-right" name="" :value="field.value" :id="field.id" autocomplete="off">
+                              </div>
+                            </div>
+                            <div class="col-xs-4 m-b-sm visible-print">
+                              <div class="col-xs-12 no-padder font-bold" x-text="field.name"></div>
+                              <span x-text="field.value"></span>
+                            </div>
+                          </div>
+                        </template>
+
+                        <template x-if="field.isSwitch">
+                          <div style="display:contents">
+                            <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                              <div class="col-sm-8 col-xs-12 m-t-sm no-padder font-bold"><template x-if="field.hasProgress"><span class="material-icons text-info">show_chart</span></template> <span x-text="field.name"></span></div>
+                              <div class="col-sm-4 col-xs-12 text-right hidden-print">
+                                <div class="switch-select switch customerRecordValue" :class="field.switchOn ? 'selected' : ''" :id="field.id">
+                                  <div class="swinner">
+                                    <template x-if="field.switchOn"><input type="checkbox" :name="field.id" :class="field.id + 'Class'" value="1" checked /></template>
+                                    <template x-if="!field.switchOn"><input type="checkbox" :name="field.id" :class="field.id + 'Class'" value="1" /></template>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <div class="col-xs-4 m-b-sm visible-print">
+                              <div class="col-xs-12 no-padder font-bold" x-text="field.name"></div>
+                              <span x-text="field.switchOn ? '✓' : ''"></span>
+                            </div>
+                          </div>
+                        </template>
+
+                        <template x-if="field.isDate">
+                          <div style="display:contents">
+                            <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                              <div class="col-sm-6 col-xs-12 m-t-sm no-padder font-bold"><template x-if="field.hasProgress"><span class="material-icons text-info">show_chart</span></template> <span x-text="field.name"></span></div>
+                              <div class="col-sm-6 col-xs-12 hidden-print">
+                                <div class="bg-light no-bg">
+                                  <input type="text" :id="field.id" class="form-control no-bg datePicker pointer customerRecordValue no-border b-b b-light">
+                                </div>
+                              </div>
+                            </div>
+                            <div class="col-xs-4 m-b-sm visible-print">
+                              <div class="col-xs-12 no-padder font-bold" x-text="field.name"></div>
+                              <span x-text="field.valueDate"></span>
+                            </div>
+                          </div>
+                        </template>
+
+                        <template x-if="field.isImage">
+                          <div class="col-xs-12 wrapper">
+                            <div class="col-xs-12 m-t-sm no-padder font-bold"><template x-if="field.hasProgress"><span class="material-icons text-info">show_chart</span></template> <span x-text="field.name"></span></div>
+                            <div class="col-xs-12 wrapper r-3x customerRecordImage" :data-dropbox-folder="field.imageFolder"></div>
+                          </div>
+                        </template>
+
+                        <template x-if="field.isTitle">
+                          <div class="col-xs-12 wrapper">
+                            <div class="col-xs-12 h4 m-t-sm no-padder font-bold" x-text="field.name"></div>
+                          </div>
+                        </template>
+
+                        <input type="hidden" :id="'progress' + field.id" :value="field.progress">
+                      </div>
+                    </template>
                   </div>
                 </div>
-                <div class="b-b col-xs-12 wrapper customerRecordValue contenteditable" id="{{id}}" contenteditable>{{{valueHtml}}}</div>
-              </div>
-              {{/isLong}}
+              </section>
+            </template>
 
-              {{#isNumber}}
-              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
-                <div class="col-sm-7 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
-                <div class="col-sm-5 col-xs-12 hidden-print">
-                  <input type="tel" pattern="\d*" class="form-control no-bg no-border b-b customerRecordValue text-right" name="" value="{{value}}" id="{{id}}" autocomplete="off">
-                </div>
-              </div>
-              <div class="col-xs-4 m-b-sm visible-print">
-                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
-                {{value}}
-              </div>
-              {{/isNumber}}
-
-              {{#isSwitch}}
-              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
-                <div class="col-sm-8 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
-                <div class="col-sm-4 col-xs-12 text-right hidden-print">
-                  <div class="switch-select switch {{#switchOn}}selected{{/switchOn}} customerRecordValue" id="{{id}}">
-                    <div class="swinner">
-                      <input type="checkbox" name="{{id}}" class="{{id}}Class" value="1" {{#switchOn}}checked{{/switchOn}} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="col-xs-4 m-b-sm visible-print">
-                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
-                {{#switchOn}}✓{{/switchOn}}
-              </div>
-              {{/isSwitch}}
-
-              {{#isDate}}
-              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
-                <div class="col-sm-6 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
-                <div class="col-sm-6 col-xs-12 hidden-print">
-                  <div class="bg-light no-bg">
-                    <input type="text" id="{{id}}" class="form-control no-bg datePicker pointer customerRecordValue no-border b-b b-light">
-                  </div>
-                </div>
-              </div>
-              <div class="col-xs-4 m-b-sm visible-print">
-                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
-                {{valueDate}}
-              </div>
-              {{/isDate}}
-
-              {{#isImage}}
-              <div class="col-xs-12 wrapper">
-                <div class="col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
-                <div class="col-xs-12 wrapper r-3x customerRecordImage" data-dropbox-folder="{{imageFolder}}"></div>
-              </div>
-              {{/isImage}}
-
-              {{#isTitle}}
-              <div class="col-xs-12 wrapper">
-                <div class="col-xs-12 h4 m-t-sm no-padder font-bold">{{name}}</div>
-              </div>
-              {{/isTitle}}
-
-              <input type="hidden" id="progress{{id}}" value="{{progress}}">
-            {{/fields}}
+            <div class="col-xs-12 no-padder m-t hidden-print">
+              <a href="#" class="m-t pull-left clickeable" data-type="printPage">Imprimir</a>
+              <a href="#" class="btn btn-info btn-rounded btn-lg text-u-c font-bold clickeable pull-right" data-type="modifyCustomerRecord" :data-id="rec.cId">Guardar</a>
+            </div>
           </div>
-        </div>
-      </section>
-      {{/records}}
+        </template>
 
-      <div class="col-xs-12 no-padder m-t hidden-print">
-        <a href="#" class="m-t pull-left clickeable" data-type="printPage">Imprimir</a>
-        <a href="#" class="btn btn-info btn-rounded btn-lg text-u-c font-bold clickeable pull-right" data-type="modifyCustomerRecord" data-id="{{cId}}">Guardar</a>
+        <template x-if="!rec.hasRecords">
+          <div class="text-center col-xs-12 wrapper noDataMessage">
+            <img src="/assets/images/emptystate7.png" height="120">
+            <h2 class="font-bold">No ha creado fichas</h2>
+            <div class="text-muted m-t">
+              <p>Puede crear fichas personalizadas en la sección Contactos del Panel de Control</p>
+            </div>
+          </div>
+        </template>
       </div>
-    {{/hasRecords}}
-    {{^hasRecords}}
-      <div class="text-center col-xs-12 wrapper noDataMessage">
-        <img src="/assets/images/emptystate7.png" height="120">
-        <h2 class="font-bold">No ha creado fichas</h2>
-        <div class="text-muted m-t">
-          <p>Puede crear fichas personalizadas en la sección Contactos del Panel de Control</p>
-        </div>
-      </div>
-    {{/hasRecords}}
-  </script>
+    </div>
+  </template>
 
   <script id="ordersMapTooltipTpl" type="text/html">
     <div class="text-dark text-left text-sm" style="min-width:200px;max-width:300px;font-family:'Source Sans Pro';">

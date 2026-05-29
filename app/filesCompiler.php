@@ -135,6 +135,7 @@ $files_js = [
 	"$_v/js/sweetalert2-7.33.1.min.js",
 	"$_v/js/push-1.0.8.min.js",
 	"$_v/js/mustache-4.0.1.min.js",
+	"$_v/js/alpinejs-3.14.1.min.js",
 	'/app/scripts/iguider.stub.js',
 	"$_v/js/jquery.fullscreen-1.1.5.min.js",
 	'/assets/panel/js/fileReader.min.js',

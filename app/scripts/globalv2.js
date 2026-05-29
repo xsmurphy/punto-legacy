@@ -19933,6 +19933,47 @@ var ncmMaps = {
 
 };
 
+document.addEventListener('alpine:init', function () {
+    Alpine.data('customerRecord', function () {
+        return {
+            loaded: false,
+            rec: { customerName: '', companyLogo: '', today: '', cId: '', personal: {}, hasRecords: false, records: [] },
+            load: function (id) {
+                var self = this;
+                var url = masterUrl + 'bff/customers?l=' + ncmHttp.masterUrlParams({ action: 'customerRecord', id: id });
+                ncmHttp.getit(url, function (result) {
+                    if (!ncmHelpers.validity(result)) { return; }
+                    self.rec = result;
+                    self.loaded = true;
+                    self.$nextTick(function () {
+                        switchit();
+                        ncmEvents.a();
+                        ncmDatePicker.input({
+                            element: 'input.datePicker',
+                            showClear: true,
+                            startEmpty: true,
+                            position: { horizontal: 'right' }
+                        });
+                        // Uploaders Dropbox para los campos de tipo imagen.
+                        if (ncmGlobals.settings[0].dropbox) {
+                            $('#modalEmpty .customerRecordImage').each(function (i) {
+                                var cls = 'customerRecordImage' + i;
+                                $(this).addClass(cls);
+                                ncmDropbox({
+                                    loadEl: '.' + cls,
+                                    listEl: '.' + cls,
+                                    token: ncmGlobals.settings[0].dropbox,
+                                    folder: $(this).attr('data-dropbox-folder')
+                                });
+                            });
+                        }
+                    });
+                }, false, true, 'json');
+            }
+        };
+    });
+});
+
 var ncmCustomer = {
     agendaSessionsModal: function (cId, limit) {
         var toLoad = (type == 'openAgenda') ? 'agendaList' : 'sessionsList';
@@ -20212,39 +20253,21 @@ var ncmCustomer = {
         $('#modalEmpty .imodal-body').html('');//vacio
         $('#modalEmpty').imodal('show');//muestro y luego cargo data
 
-        var url = masterUrl + 'bff/customers?l=' + ncmHttp.masterUrlParams({ action: 'customerRecord', id: id });
+        // Render Alpine: clona el template, fija el customerId y deja que el
+        // componente (x-init → load) haga el fetch a bff/customers y renderice.
+        var tpl = document.getElementById('customerRecordTpl');
+        if (!tpl) { return; }
+        var node = tpl.content.cloneNode(true);
+        var root = node.querySelector('[x-data]');
+        root.dataset.cid = id;
 
-        ncmHttp.getit(url, function (result) {
-            if (!ncmHelpers.validity(result)) { return; }
+        var body = document.querySelector('#modalEmpty .imodal-body');
+        body.innerHTML = '';
+        body.appendChild(node);
 
-            ncmUIX.mustache($('#modalEmpty .imodal-body'), result, $('#customerRecordTpl'));
-
-            switchit();
-            ncmEvents.a();
-
-            ncmDatePicker.input({
-                element: 'input.datePicker',
-                showClear: true,
-                startEmpty: true,
-                position: {
-                    horizontal: 'right'
-                }
-            });
-
-            // Uploaders Dropbox para los campos de tipo imagen.
-            if (ncmGlobals.settings[0].dropbox) {
-                $('#modalEmpty .customerRecordImage').each(function (i) {
-                    var cls = 'customerRecordImage' + i;
-                    $(this).addClass(cls);
-                    ncmDropbox({
-                        loadEl: '.' + cls,
-                        listEl: '.' + cls,
-                        token: ncmGlobals.settings[0].dropbox,
-                        folder: $(this).attr('data-dropbox-folder')
-                    });
-                });
-            }
-        }, false, true, 'json');
+        if (window.Alpine && Alpine.initTree) {
+            Alpine.initTree(body);
+        }
     },
     recordsEdit: function (cId) {
         var array = [];

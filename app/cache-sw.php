@@ -20,6 +20,7 @@ var offlineFundamentals = [
   '/assets/vendor/js/sweetalert2-7.33.1.min.js',
   '/assets/vendor/css/sweetalert2-7.33.1.min.css',
   '/assets/vendor/js/simpleStorage-0.2.1.min.js',
+  '/assets/vendor/js/alpinejs-3.14.1.min.js',
   '/assets/vendor/css/animate-4.0.0.compat.min.css',
   // App scripts
   '/scripts/globalv2.js',
