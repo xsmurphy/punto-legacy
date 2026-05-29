@@ -84,7 +84,7 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/bootstrap.php` | Bootstrap + `apiAuthTenant()` — autentica JWT tenant, prepara contexto POS |
 | `api/lib/response.php` | `apiOk()` / `apiError()` — envelope canónico |
 | `api/lib/services/CustomerAddressService.php` | CRUD de direcciones de cliente |
-| `api/lib/services/TableService.php` | rename / unreserve / assignUser de mesas |
+| `api/lib/services/TableService.php` | rename / unreserve / assignUser / closeTable / **listTables** de mesas |
 | `api/lib/services/ScheduleService.php` | rescheduleTo / unlock de agendamientos |
 | `api/lib/services/CustomerNoteService.php` | add de notas de cliente |
 | `api/v1/customer_address.php` | Endpoint CRUD customerAddress (slice 1) |

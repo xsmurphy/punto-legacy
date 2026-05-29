@@ -2,6 +2,28 @@
 
 # Bitácora de Sesiones — Archivo 2026-05
 
+## 2026-05-26 (arquitectura: modelo BFF canónico + editform de contacts por el BFF — commits 8bacb5a, cd736f2)
+
+- **Course-correction del usuario**: el roadmap real es **HTML+JS → PHP (BFF) → API → BD**, donde la **API es un motor ERP genérico/raw** reusable por otras apps (ecommerce, billetera) y el **BFF (PHP)** procesa para la App Punto (push, WS, cálculos, cross-analysis, formateo). El front solo pinta. **Constraint clave: App y API irán a servidores separados** → el BFF nunca toca BD/`lib/` directo; pide todo a la API; la API expone datasets crudos y el BFF los cruza.
+- **Desvío identificado y documentado** (`02-arquitectura.md` reescrito): el modelo previo (4 capas, front→API directo) hizo que el editform pegara a `/API/v1` y que la API devolviera data formateada (`presentRow`) — acoplándola a Punto. Items y Contacts quedaron con ese desvío.
+- **Fix aplicado a Contacts (editform)**: el front (`form.js`/`contactFormV2`) ahora habla SOLO con el **BFF** (`a_contacts.php?action=getContact/saveContact/archiveContact&format=json`), que usa `ContactService` **in-process**. Verificado en browser (GET/POST al BFF 200, ninguno toca `/API/v1`). El listado ya era BFF (`generalTable&format=json`).
+- **Decisión de secuenciamiento**: el **boundary HTTP real** (cliente `PuntoApi`, adelgazar `/API/v1` a raw, separación de servidores) se **difiere** a una fase explícita futura. Por ahora el BFF usa `lib/` in-process. Prioridad: ir **a lo ancho** (extraer front/back en más módulos) antes que profundizar.
+- **Pendientes**: PuntoApi + adelgazar API (fase boundary HTTP); editform v2 para user/supplier; replicar el split front/back en otros módulos (reportes read-only = bajo esfuerzo; purchase = CRUD pesado).
+
+## 2026-05-26 (reportes: piloto a_report_summary + estrategia del módulo — commit d6bcfef)
+
+- **Hecho**: piloto del módulo Reportes — split front/back en `a_report_summary`. Se extrajo el `<script>` inline (~487 líneas) a `scripts/a_report_summary.js` (IIFE); las 7 vars que se inyectaban con tags PHP (startDate/endDate/baseUrl/TAX_NAME/CURRENCY/offset/limit) pasan por `window.reportSummary` en un shell chico. El back (`action=getSales/getTypeSales/getGiftcards/getChartSales/topHours/salesListByDay`) ya devolvía JSON y quedó intacto. `a_report_summary.php` 1376 → 900 líneas. Verificado en browser (date-picker, chart, KPIs; cero errores de consola).
+- **Patrón establecido (repetible para reportes)**: si el back ya devuelve JSON → extraer JS inline a `scripts/<reporte>.js` + shell `window.<reporte>` con las vars PHP. El `.php` queda como back (handlers `action=`) + shell.
+- **Hallazgo (corrige supuesto del roadmap)**: "Reportes = read-only fácil" es solo parcial. Los 5 grandes (`a_report_transactions`/`purchases`/`products`/`production`) tienen **escrituras enterradas** (update/delete/insert) → su split es tipo CRUD (front→BFF lectura *y* escritura), no el fácil. Los genuinamente limpios: `summary`✓, `p_methods`, `inventory`.
+- **Pendiente**: replicar el patrón a `a_report_p_methods`/`a_report_inventory` y demás chicos; **fix `a_report_customers`** (lee columnas de contact ya degradadas a JSONB → probablemente roto); los reportes grandes con escritura = fase aparte. Siguen diferidos: `PuntoApi` + adelgazar `/API/v1` (fase servidores separados).
+
+## 2026-05-26 (course-correction arquitectura + piloto BFF de 3 capas en reportes — commits 5cb9912..24ccbd8)
+
+- **Decisión grande (course-correction del usuario, NORTE de TODO el sistema)**: la estructura canónica es **front.html (estático, HTML+JS, CERO PHP) → bff.php (PHP, NO toca BD, solo llama a la API por HTTP) → api.php (PHP + Postgres, única capa con queries)**. **PHP NUNCA sirve HTML**; auth, chrome (menú/título/currency) y **formateo** se resuelven en el front (JS). Esto **revierte** el diferimiento del boundary HTTP de la sesión previa (BFF in-process). Lockeado en `02-arquitectura.md` (REGLA RAÍZ) + `10-roadmap.md` (Phase 3 reescrita). Commit `f8922b1`.
+- **Hecho — piloto backend de `a_report_summary` (slices 1+2, verificado E2E)**: **API** `API/v1/reports/sales.php` + `lib/reports/ReportSalesService` devuelve datos CRUDOS (sin formatear); **BFF** `bff/reports/summary.php` + `bff/bootstrap.php` + cliente HTTP `bff/lib/api_client.php` compone KPIs llamando a la API por HTTP (forward del JWT), **sin tocar BD**. Cadena front→BFF→API→Postgres confirmada en browser (config PYG/Demo Company, KPIs, auth 401→login). Commits `7fdb97f`, `64787c4`.
+- **Corrección clave (regla durable, guardada en memoria)**: mi primer front estático inventó un **diseño nuevo** → RECHAZADO. El front DEBE usar **exactamente el HTML/diseño actual** del reporte (BS3, sus cards/charts/tabs/tablas); el refactor cambia solo la plomería de datos. Los archivos del diseño nuevo se eliminaron (no commiteados).
+- **Infra/atención**: el push HTTPS se rompió a mitad de sesión (credencial osxkeychain dejó de resolverse en shell no-interactivo). **Solución permanente: remote cambiado a SSH** (`git@github.com:xsmurphy/punto-legacy.git`) — push automático OK de acá en más.
+
 ## 2026-05-25 (contacts: front/back split completo — listado 3 roles + editform v2 — commit bae21fa)
 
 - **Listado data-driven para los 3 roles**: `a_contacts.php` handler `generalTable`, el bloque `&format=json` ahora cubre user (10 cols), supplier (9 cols) y customer (19 cols, ya existente), todos bajo el mismo gate `$allow`. El path HTML legacy queda intacto como fallback.
