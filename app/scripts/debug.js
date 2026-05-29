@@ -6803,7 +6803,7 @@ var ncmEvents = {
             var kind = tis.data('kind');
             var index = tis.data('position');
 
-            ncmHttp.getit(masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'ordersList', t: index, json: 'true', kind: kind }), function (data) {//obtengo orders json
+            ncmHttp.getit(masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'ordersTableList', t: index, json: 'true', kind: kind }), function (data) {//obtengo orders json
                 ncmOrders.listBuilder({ 'action': 'hide' });
 
                 ncmTransactions.clearSale({ loadInterface: true }, function () {//clear sale
@@ -6832,7 +6832,7 @@ var ncmEvents = {
             // // }
 
             var doClose = (ops) => {
-                ncmHttp.getit(masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ 'load': 'ordersList', 't': ops.index, 'json': 'true', 'kind': ops.kind }), (data) => {//obtengo orders json
+                ncmHttp.getit(masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ 'action': 'ordersTableList', 't': ops.index, 'json': 'true', 'kind': ops.kind }), (data) => {//obtengo orders json
 
                     console.log('close order', ops);
 
@@ -7492,7 +7492,7 @@ var ncmOrders = {
                 element: $('#modalOrders'),
                 onBefore: ncmUIX.setLoadingPlaceHolder({ el: $('#modalOrders  .imodal-body'), lg: 'bg_transactions.png', xs: 'bg_transactions_xs.png' }),
                 onAfter: () => {
-                    var url = window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'ordersList', t: id, kind: type, active: true });
+                    var url = window.masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'ordersTableList', t: id, kind: type, active: true });
                     ncmHttp.getit(url, function (result) {
                         var orderTotal = 0,
                             json = result.list;
@@ -11688,7 +11688,9 @@ var ncmTransactions = {
 
         if (window.isServerOnline) {//sirve para mantener la cached list cuando no hay internet
             var load = (options.load) ? options.load : 'transactions';
-            var url = window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: load, limit: options.limit, customerId: options.cId, date: options.date, json: 1 });
+            var url = (load === 'ordersList')
+                ? window.masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'ordersList', limit: options.limit, customerId: options.cId, date: options.date })
+                : window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: load, limit: options.limit, customerId: options.cId, date: options.date, json: 1 });
 
             ncmHttp.getit(url, function (result) {
                 var txtDetails = [];

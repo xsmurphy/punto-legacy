@@ -33,6 +33,30 @@ if ($method === 'GET' && $resource === 'customerHasOrders') {
     apiOk(['hasOrders' => $svc->customerHasOpenOrders($companyId, $outletId, $customerId)]);
 }
 
+// --- GET ?resource=tableClose: ítems agrupados para cierre de mesa/orden -
+if ($method === 'GET' && $resource === 'tableClose') {
+    $t    = trim((string) ($_GET['t'] ?? ''));
+    $kind = trim((string) ($_GET['kind'] ?? 'table'));
+    if ($t === '') apiError('Falta t', 422);
+    apiOk($svc->getTableClose($t, $kind, $outletId, $companyId));
+}
+
+// --- GET ?resource=tableDetail: vista detalle de ítems para modal ---------
+if ($method === 'GET' && $resource === 'tableDetail') {
+    $t    = trim((string) ($_GET['t'] ?? ''));
+    $kind = trim((string) ($_GET['kind'] ?? 'table'));
+    if ($t === '') apiError('Falta t', 422);
+    apiOk($svc->getTableDetail($t, $kind, $outletId, $companyId));
+}
+
+// --- GET ?resource=list: lista paginada de órdenes (buildList) ------------
+if ($method === 'GET' && $resource === 'list') {
+    $encCid = trim((string) ($_GET['customerId'] ?? '')) ?: null;
+    $date   = trim((string) ($_GET['date'] ?? '')) ?: null;
+    $limit  = max(1, (int) ($_GET['limit'] ?? 30));
+    apiOk($svc->getList($outletId, $companyId, $encCid, $date, $limit));
+}
+
 if ($method !== 'PUT') {
     apiError('Método no permitido', 405);
 }

@@ -162,4 +162,326 @@ class OrderService
 
         return ['ok' => true, 'invoiceNo' => $row['invoiceNo'] ?? null];
     }
+
+    // -------------------------------------------------------------------------
+    // Slice 27 — ordersList (load.php L1396 + L3097)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Carga las filas de transacción para una mesa/cliente/orden (shared core).
+     * Devuelve el DBResult y el identificador de tabla (string vacío para customer/any).
+     *
+     * @return array{0: DBResult|false, 1: string}
+     */
+    private function queryOrderRows(string $t, string $kind, string $outletId): array
+    {
+        global $db;
+
+        if ($kind === 'customer') {
+            $rs    = $db->Execute(
+                'SELECT * FROM transaction
+                  WHERE outletId = ? AND transactionType = 12
+                    AND transactionStatus IN (0,1,2,3,5) AND customerId = ?
+                  LIMIT 500',
+                [$outletId, $t]
+            );
+            $table = '';
+        } elseif ($kind === 'any') {
+            $rs    = $db->Execute(
+                'SELECT * FROM transaction WHERE outletId = ? AND transactionId = ? LIMIT 1',
+                [$outletId, $t]
+            );
+            $table = '';
+        } else {
+            $rs    = $db->Execute(
+                'SELECT * FROM transaction
+                  WHERE outletId = ? AND transactionType = 12
+                    AND transactionStatus IN (0,1,2,3,5) AND transactionName = ?
+                  LIMIT 500',
+                [$outletId, $t]
+            );
+            $table = $t;
+        }
+
+        return [$rs, $table];
+    }
+
+    /**
+     * Ítems de una mesa/orden agrupados para cierre (json mode, callsites L6806/L6835).
+     * Retorna { items, tags, ids }.
+     */
+    public function getTableClose(string $t, string $kind, string $outletId, string $companyId): array
+    {
+        [$rs, $table] = $this->queryOrderRows($t, $kind, $outletId);
+
+        $orderAsoc = [];
+        $tags      = [];
+        $ids       = [];
+
+        if ($rs && !$rs->EOF) {
+            while (!$rs->EOF) {
+                $f    = $rs->fields;
+                $name = (string) ($f['transactionName'] ?? '');
+
+                if (in_array($name, [$table, 'ecom'])) {
+                    $meta    = json_decode($f['meta'] ?? '{}', true) ?: [];
+                    $unJson  = json_decode($meta['transactionDetails'] ?? '[]', true) ?: [];
+                    $tags[]  = json_decode($meta['tags'] ?? '[]', true) ?: [];
+                    $ids[]   = enc($f['transactionId']);
+
+                    foreach (array_keys($unJson) as $k) {
+                        $unJson[$k]['date'] = $f['transactionDate'];
+                    }
+                    $orderAsoc[$f['transactionId']] = json_encode($unJson);
+                }
+
+                $rs->MoveNext();
+            }
+        }
+
+        $orders = groupOrdersItems($orderAsoc);
+        $items  = [];
+
+        foreach ($orders as $val) {
+            foreach ($val as $v) {
+                if (arrKey($v, 'status', 1) == 1 && validity($v)) {
+                    $items[] = $v;
+                }
+            }
+        }
+
+        $ttags = array_flatten($tags);
+
+        if ($kind === 'table' || $kind === 'customer') {
+            $merged = [];
+            foreach ($items as $item) {
+                $pos = array_search($item['itemId'], array_column($merged, 'itemId'));
+                if ($pos > -1) {
+                    if (in_array($item['type'], ['product','production','direct_production','dynamic'])
+                        && $merged[$pos]['type'] !== 'inCombo') {
+                        $merged[$pos]['count'] += $item['count'];
+                        $merged[$pos]['oQty']  += $item['oQty'];
+                        $merged[$pos]['total'] += $item['total'];
+                    } else {
+                        $merged[] = $item;
+                    }
+                } else {
+                    $merged[] = $item;
+                }
+            }
+            $items = $merged;
+        }
+
+        return ['items' => $items, 'tags' => $ttags, 'ids' => $ids];
+    }
+
+    /**
+     * Detalle de ítems de una mesa/orden para vista modal (non-json mode, callsite L7495).
+     * Retorna { data, title, subTitle, orderId, type }.
+     */
+    public function getTableDetail(string $t, string $kind, string $outletId, string $companyId): array
+    {
+        global $dec, $ts;
+
+        [$rs, $table] = $this->queryOrderRows($t, $kind, $outletId);
+
+        $orderAsoc = [];
+        $orderNo   = null;
+
+        if ($rs && !$rs->EOF) {
+            while (!$rs->EOF) {
+                $f    = $rs->fields;
+                $name = (string) ($f['transactionName'] ?? '');
+
+                if (in_array($name, [$table, 'ecom'])) {
+                    $orderNo = $f['invoiceNo'];
+                    $meta    = json_decode($f['meta'] ?? '{}', true) ?: [];
+                    $unJson  = json_decode($meta['transactionDetails'] ?? '[]', true) ?: [];
+
+                    foreach (array_keys($unJson) as $k) {
+                        $unJson[$k]['date'] = $f['transactionDate'];
+                    }
+                    $orderAsoc[$f['transactionId']] = json_encode($unJson);
+                }
+
+                $rs->MoveNext();
+            }
+        }
+
+        $orders = groupOrdersItems($orderAsoc);
+
+        if (!$orders) {
+            return ['type' => $kind];
+        }
+
+        $allUsers = getAllContacts(0);
+        $allUsers = $allUsers[1];
+
+        $title    = '';
+        $subTitle = '';
+        $orderId  = $t;
+
+        if ($kind === 'customer') {
+            $customerData = getContactData($t, 'uid');
+            $title        = getCustomerName($customerData);
+            $subTitle     = '';
+            $orderId      = enc($t);
+        } elseif ($kind === 'any') {
+            $title    = 'Orden #' . $orderNo;
+            $subTitle = '';
+        } else {
+            $tableOp     = ncmExecute(
+                'SELECT * FROM transaction WHERE outletId = ? AND transactionType = 11 AND transactionName = ? LIMIT 1',
+                [$outletId, $table]
+            );
+            $usrOpenName = $tableOp ? ($allUsers[$tableOp['userId']]['name'] ?? '') : '';
+            $running     = $tableOp ? niceDate2($tableOp['transactionDate'], 'small') : '';
+            $title       = $tableOp ? iftn($tableOp['transactionNote'], 'Espacio ' . $table) : 'Espacio ' . $table;
+            $subTitle    = 'Por ' . $usrOpenName . ' hace ' . $running;
+            $orderId     = $table;
+        }
+
+        $data = [];
+        $i    = 0;
+
+        foreach ($orders as $trsId => $order) {
+            $oi = 0;
+            foreach ($order as $item) {
+                $strike = '';
+                $hideX  = '';
+
+                if (($item['type'] ?? '') === 'inCombo') {
+                    $hideX = 'hidden';
+                }
+
+                if (array_key_exists('status', $item)) {
+                    $strike = ($item['status'] == 2) ? 'text-muted' : 'text-l-t text-muted';
+                    $hideX  = 'hidden';
+                }
+
+                $rawPrice = ($item['price'] ?? 0) * ($item['count'] ?? 1);
+                if ($strike) {
+                    $rawPrice = 0;
+                }
+
+                $itemRow = ncmExecute(
+                    'SELECT itemName FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                    [dec($item['itemId'] ?? ''), $companyId]
+                );
+
+                $data[] = [
+                    'index'         => $i,
+                    'oindex'        => $oi,
+                    'strike'        => $strike,
+                    'hideX'         => $hideX,
+                    'itemId'        => $item['itemId'] ?? '',
+                    'count'         => $item['count'] ?? 0,
+                    'note'          => iftn($item['note'] ?? false),
+                    'unitPrice'     => formatCurrentNumber($item['price'] ?? 0, $dec, $ts),
+                    'price'         => formatCurrentNumber($rawPrice, $dec, $ts),
+                    'rawPrice'      => $rawPrice,
+                    'name'          => toUTF8($itemRow ? ($itemRow['itemName'] ?? '') : ''),
+                    'tagsList'      => iftn(printOutTags($item['tags'] ?? [], 'bg-light'), ''),
+                    'userName'      => $allUsers[dec($item['user'] ?? '')] ['name'] ?? '',
+                    'date'          => niceDate2($item['date'] ?? '', 'small'),
+                    'type'          => $item['type'] ?? '',
+                    'orderNo'       => $orderNo,
+                    'transactionId' => enc($trsId),
+                ];
+                $i++;
+                $oi++;
+            }
+        }
+
+        return [
+            'data'     => $data,
+            'title'    => $title,
+            'subTitle' => $subTitle,
+            'orderId'  => $orderId,
+            'type'     => $kind,
+        ];
+    }
+
+    /**
+     * Lista paginada de órdenes (load.php L3097, buildList callsite L11691).
+     * Retorna { date, listName, transactionsList, footBtn }.
+     */
+    public function getList(
+        string  $outletId,
+        string  $companyId,
+        ?string $encCustomerId,
+        ?string $date,
+        int     $limit
+    ): array {
+        global $db, $dec, $ts;
+
+        $where  = ['transactionType = 12', 'companyId = ?'];
+        $params = [$companyId];
+
+        if ($encCustomerId) {
+            $where[]  = 'customerId = ?';
+            $params[] = dec($encCustomerId);
+        } else {
+            $where[]  = 'outletId = ?';
+            $params[] = $outletId;
+        }
+
+        if ($date) {
+            $where[]  = 'transactionDate BETWEEN ? AND ?';
+            $params[] = $date . ' 00:00:00';
+            $params[] = $date . ' 23:59:59';
+            $limit    = 1500;
+        }
+
+        $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
+             . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
+        $rs  = $db->Execute($sql, $params);
+
+        $out = [
+            'date'             => $date,
+            'listName'         => 'Órdenes',
+            'transactionsList' => [],
+            'footBtn'          => '',
+        ];
+
+        if ($rs && !$rs->EOF) {
+            while (!$rs->EOF) {
+                $f       = $rs->fields;
+                $status  = (string) ($f['transactionStatus'] ?? '');
+                $cusData = getCustomerData($f['customerId'] ?? null, 'uid');
+                $cusName = iftn(getCustomerName($cusData), 'Sin Nombre');
+
+                $stat = 'b-5x b-l ';
+                switch ($status) {
+                    case '0': case '1': $stat .= 'b-light';   break;
+                    case '2':           $stat .= 'b-warning';  break;
+                    case '3':           $stat .= 'b-info';     break;
+                    case '4':           $stat .= 'b-success';  break;
+                    case '5':           $stat .= 'b-dark';     break;
+                    case '6':           $stat .= 'b-danger';   break;
+                }
+
+                $out['transactionsList'][] = [
+                    'id'          => enc($f['transactionId']),
+                    'title'       => ' ' . $cusName,
+                    'date'        => niceDate($f['transactionDate']),
+                    'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    'amount'      => formatCurrentNumber($f['transactionTotal'], $dec, $ts),
+                    'label'       => '<span class="label bg-success text-xs">Orden</span>',
+                    'type'        => $f['transactionType'],
+                    'borderColor' => $stat,
+                ];
+
+                $rs->MoveNext();
+            }
+
+            $out['footBtn'] = $date
+                ? '<a href="#openOrders&c=' . $encCustomerId . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Atrás</span>'
+                : '<a href="#openOrders&l=' . ($limit + 50) . '&c=' . $encCustomerId . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Cargar más</span>';
+        } else {
+            $out['footBtn'] = '<a href="#openOrders&c=' . $encCustomerId . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Atrás</span>';
+        }
+
+        return $out;
+    }
 }

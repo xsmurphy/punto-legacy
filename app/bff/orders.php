@@ -21,6 +21,41 @@ if (empty($_COOKIE['_jwt'])) {
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
+// load.php → ordersTableList (Slice 27): ítems de una mesa/orden.
+// Dos sub-modos según flag `json`:
+//   json=truthy → tableClose → { list:[items], tags:[...], ids:[...] }
+//   (sin json)  → tableDetail → { list: {data, title, subTitle, orderId, type} }
+if ($action === 'ordersTableList') {
+    $t    = (string) ($get['t'] ?? '');
+    $kind = (string) ($get['kind'] ?? 'table');
+    $json = !empty($get['json']);
+    $ep   = 'v1/orders.php';
+
+    if ($json) {
+        $res = bffApiGet($ep, ['resource' => 'tableClose', 't' => $t, 'kind' => $kind], '_jwt');
+        if (!$res['ok']) bffFailFromApi($res);
+        $d = $res['data'];
+        bffJson(['list' => $d['items'] ?? [], 'tags' => $d['tags'] ?? [], 'ids' => $d['ids'] ?? []]);
+    } else {
+        $res = bffApiGet($ep, ['resource' => 'tableDetail', 't' => $t, 'kind' => $kind], '_jwt');
+        if (!$res['ok']) bffFailFromApi($res);
+        bffJson(['list' => $res['data']]);
+    }
+}
+
+// load.php → ordersList sin `t` (Slice 27): lista paginada de órdenes.
+// BFF retorna el objeto plano que Mustache consume directamente.
+if ($action === 'ordersList') {
+    $res = bffApiGet('v1/orders.php', [
+        'resource'   => 'list',
+        'customerId' => (string) ($get['customerId'] ?? ''),
+        'date'       => (string) ($get['date'] ?? ''),
+        'limit'      => (string) ($get['limit'] ?? '30'),
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson($res['data']);
+}
+
 // GET customerHasOrders: el front consume el objeto plano { hasOrders: bool }.
 if ($action === 'customerHasOrders') {
     $res = bffApiGet(
