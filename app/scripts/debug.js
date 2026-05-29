@@ -21038,7 +21038,7 @@ var ncmGiftCards = {
         });
     },
     checkForGiftCard: function (prompt, ops) {
-        var url = window.masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'chkGiftCard', id: prompt, type: 'data', json: 1 });
+        var url = window.masterUrl + 'bff/giftcards?l=' + ncmHttp.masterUrlParams({ action: 'chkGiftCard', id: prompt, type: 'data', json: 1 });
         ncmHttp.getit(url, function (result) {
 
             imodaler({
@@ -22898,7 +22898,7 @@ var paymentMethodFn = function (coin, name, price) {
 
             numberPad(options, function (prompt) {
                 if (ncmHelpers.validity(prompt)) {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'chkGiftCard', id: prompt, type: 'bool', amount: price });
+                    var url = masterUrl + 'bff/giftcards?l=' + ncmHttp.masterUrlParams({ action: 'chkGiftCard', id: prompt, type: 'bool', amount: price });
                     ncmHttp.getit(url, function (result) {
                         if (result.success == 'deactivated') {
                             ncmAlerts.nativeAlert('Gift Card inhabilitada', 'danger', function () {
