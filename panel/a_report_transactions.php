@@ -987,14 +987,14 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 		$record['invoiceNo'] 		= validateHttp('invoiceNo', 'post');
 	}
 
+	// tags vive en meta JSONB — no como columna; se actualiza vía jsonb_set por separado (ver §22.6).
+	$trTagsJson = NULL;
 	if (validateHttp('trTags', 'post')) {
 		$tag = '';
 		foreach (validateHttp('trTags', 'post') as $tid) {
 			$tag .= dec($tid) . ',';
 		}
-		$record['tags'] 		= json_encode(explodes(',', $tag));
-	} else {
-		$record['tags'] 		= NULL;
+		$trTagsJson = json_encode(explodes(',', $tag));
 	}
 
 	$hasItems 	= validateHttp('itemTrsId', 'post');
@@ -1085,6 +1085,12 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 	//dai();
 
 	$update = $db->AutoExecute('transaction', $record, 'UPDATE', 'transactionId = ' . $dId . ' AND companyId = ' . COMPANY_ID);
+	if ($trTagsJson !== NULL) {
+		$db->Execute(
+			"UPDATE transaction SET meta = jsonb_set(COALESCE(meta,'{}'), '{tags}', ?::jsonb) WHERE transactionId = ? AND companyId = ?",
+			[$trTagsJson, $dId, COMPANY_ID]
+		);
+	}
 	if ($update === false) {
 		echo 'false';
 	} else {

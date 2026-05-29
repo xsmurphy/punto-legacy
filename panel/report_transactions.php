@@ -542,14 +542,14 @@ if(validateHttp('action') == 'update' && validateHttp('id','post')){
 		$record['invoiceNo'] 		= $_POST['invoiceNo'];
 	}
 
+	// tags vive en meta JSONB — no como columna; se actualiza vía jsonb_set por separado (ver §22.6).
+	$trTagsJson = NULL;
 	if(validateHttp('trTags','post')){
 		$tag = '';
 		foreach (validateHttp('trTags','post') as $id) {
 			$tag .= dec($id) . ',';
 		}
-		$record['tags'] 		= json_encode(explodes(',',$tag));
-	}else{
-		$record['tags'] 		= NULL;
+		$trTagsJson = json_encode(explodes(',',$tag));
 	}
 
 	if(validateHttp('trtype','post')){
@@ -579,7 +579,13 @@ if(validateHttp('action') == 'update' && validateHttp('id','post')){
 		$record['transactionPaymentType'] = json_encode($pmethod);
 	}
 
-	$update = $db->AutoExecute('transaction', $record, 'UPDATE', 'transactionId = '.$db->Prepare(dec($_POST['id']))); 
+	$update = $db->AutoExecute('transaction', $record, 'UPDATE', 'transactionId = '.$db->Prepare(dec($_POST['id'])));
+	if ($trTagsJson !== NULL) {
+		$db->Execute(
+			"UPDATE transaction SET meta = jsonb_set(COALESCE(meta,'{}'), '{tags}', ?::jsonb) WHERE transactionId = ?",
+			[$trTagsJson, dec($_POST['id'])]
+		);
+	}
 	if($update === false){
 		echo 'false';
 	}else{

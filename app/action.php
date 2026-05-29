@@ -53,15 +53,6 @@ if ($action) {
 
   include_once('data.php');
 
-  if ($action == 'encode') {
-    $id = $get['id'];
-    if (is_numeric($id)) {
-      $id = enc($id);
-    }
-
-    jsonDieMsg($id, 200, 'success');
-  }
-
   if ($action == 'clockIn' && $get['o'] && $get['u'] && $get['t']) {
     $data = [
       'api_key'       => API_KEY,
@@ -97,21 +88,6 @@ if ($action) {
     }
 
     jsonDieMsg($out, 200, 'success');
-  }
-
-  if ($action == 'checkoutScreen' && $get['d']) {
-    return false;
-    $data = [
-      'api_key'       => API_KEY,
-      'company_id'    => enc(COMPANY_ID),
-      'channel'       => enc(COMPANY_ID) . '-' . enc(REGISTER_ID) . '-register',
-      'event'         => 'checkoutScreen',
-      'message'       => json_encode($get['d'])
-    ];
-
-    $result = json_decode(curlContents(API_ENCOM_URL . '/send_webSocket.php', 'POST', $data));
-
-    jsonDieResult($result, 200);
   }
 
   if (!empty($action) && (strpos($action, "notifications") !== false)) {
@@ -612,18 +588,6 @@ if ($action) {
     } else {
       jsonDieMsg('true', 200, 'success');
     }
-  }
-
-  if ($action == 'verifyQRPaymentCode') {
-    $data = [
-      'api_key'       => API_KEY,
-      'company_id'    => enc(COMPANY_ID),
-      'code'          => $get['c']
-    ];
-
-    $result = json_decode(curlContents(API_ENCOM_URL . '/get_vpayment_verification.php', 'POST', $data));
-
-    jsonDieResult($result, 200);
   }
 
   if ($action == 'ePOSAddCardTransaction') {
@@ -1971,46 +1935,6 @@ if ($action) {
 
       dai($table);
     }
-  }
-
-  if ($action == 'setSession' && $get['id']) {
-
-    $data = [
-      'api_key'       => API_KEY,
-      'company_id'    => enc(COMPANY_ID),
-      'channel'       => enc(COMPANY_ID) . '-' . enc(REGISTER_ID) . '-registerSession',
-      'event'         => 'checkSession',
-      'message'       => (int) $get['id']
-    ];
-
-    curlContents(API_ENCOM_URL . '/send_webSocket.php', 'POST', $data);
-
-    $record['sessionId'] = (int) $get['id'];
-    $set = ncmUpdate(['records' => $record, 'table' => 'register', 'where' => "registerId = " . REGISTER_ID . " AND companyId = " . COMPANY_ID]);
-
-    if (!$set['error']) {
-      echo $get['id'];
-    } else {
-      echo false;
-    }
-
-    dai();
-  }
-
-  if ($action == 'checkSession' && $get['id']) {
-
-    $result = ncmExecute('SELECT sessionId FROM register WHERE registerId = ? AND companyId = ?', [REGISTER_ID, COMPANY_ID]);
-    if ($result) {
-      if ($result['sessionId'] == $get['id']) {
-        echo '1';
-      } else {
-        echo '0';
-      }
-    } else {
-      echo '1';
-    }
-
-    dai();
   }
 
   if ($action == 'processData') {

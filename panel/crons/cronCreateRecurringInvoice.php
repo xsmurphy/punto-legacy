@@ -38,13 +38,15 @@ if($company){
 
 $rangeDate 	= ($dateDecided) ? date('Y-m-d 00:00:00',strtotime($dateDecided)) : TODAY_START;
 
-$sql = 'SELECT 	*
+// PG: quote each UUID for IN clause; recurringSaleData vive en data JSONB → extraer via SQL alias.
+$inQ = implode(',', array_map(fn($id) => "'" . $id . "'", explode(',', $in)));
+$sql = "SELECT *, data->>'recurringSaleData' AS recurringSaleData
 		FROM recurring
-		WHERE companyId IN(' . $in . ')
+		WHERE companyId IN({$inQ})
 			AND recurringNextDate = ?
 			AND recurringEndDate != ?
 			AND recurringStatus = 1
-		LIMIT 50000';
+		LIMIT 50000";
 
 $result = ncmExecute($sql,[$rangeDate,$rangeDate],false,true);
 
@@ -97,12 +99,17 @@ if($result){
 			$status = 0;
 		}
 
-		$recurring                        = [];
-		$recurring['recurringNextDate']   = getNextDatePeriod($frecuency,'1',$fields['recurringNextDate']);
-		$recurring['recurringStatus']     = $status;
-		$recurring['recurringSaleData']   = json_encode($sale);
-
-		$db->AutoExecute('recurring', $recurring, 'UPDATE', 'recurringId = ' . $fields['recurringId'] . ' AND companyId = ' . $companyId);
+		// recurringSaleData vive en la columna data (jsonb) — no en una columna propia.
+		$db->Execute(
+			'UPDATE recurring SET recurringNextDate = ?, recurringStatus = ?, data = ? WHERE recurringId = ? AND companyId = ?',
+			[
+				getNextDatePeriod($frecuency, '1', $fields['recurringNextDate']),
+				$status,
+				json_encode(['recurringSaleData' => json_encode($sale)]),
+				$fields['recurringId'],
+				$companyId,
+			]
+		);
 
 		if (!in_array($companyId, $createdInCompanies)){
 		    $createdInCompanies[] = $companyId; 

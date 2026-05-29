@@ -135,9 +135,12 @@ Ejemplo: migración `06_contact_jsonb_demote.sql` (backfill → DROP de 6 column
 
 Las libs front se sirven desde `assets/vendor/js/*.min.js` (las concatena el build). El origen es **híbrido**:
 
-- **Sourceadas desde npm** (11 libs, `npm run vendor` / `scripts/vendor-sync.sh`): jquery, moment, ismobilejs, mousetrap, jquery.actual, lz-string, chart.js, sweetalert2, mustache, leaflet, qrious. `package.json` pinea la versión; el script copia el dist oficial al nombre versionado. Verificadas **byte-idénticas** al archivo que ya estaba commiteado → migración sin riesgo. Tras `npm update`, correr `npm run vendor` para refrescar. `build.sh` lo corre automáticamente.
-- **Copias manuales commiteadas** (sin npm limpio / versiones viejas / plugins jQuery custom): bootstrap-3.4.1, pouchdb, datatables, chosen, offline, simpleStorage, rsvp, jsrsasign, qz-tray, libphonenumber, push, fingerprintjs, fastclick, datetimepicker, leaflet-routing-machine, jquery.{number,geolocation,toast,fullscreen}, moment-locale-es. Quedan versionadas en el repo; NO las toca vendor-sync.
-- **Pendiente (Fase B)**: las que SÍ están en npm pero aún no se vendorean (bootstrap, pouchdb, datatables.net, fastclick, push.js, leaflet-routing-machine, google-libphonenumber, @fingerprintjs/fingerprintjs, eonasdan-bootstrap-datetimepicker, offline-js) — agregarlas a package.json + al mapa de vendor-sync tras verificar que el dist coincide.
+- **Sourceadas desde npm** (19 libs, `npm run vendor` / `scripts/vendor-sync.sh`):
+  - Fase A (2026-05-28): jquery, moment, ismobilejs, mousetrap, jquery.actual, lz-string, chart.js, sweetalert2, mustache, leaflet, qrious.
+  - Fase B (2026-05-29): bootstrap@3.4.1 (alias `bootstrap3`), bootstrap@4.5.2 (alias `bootstrap4`), eonasdan-bootstrap-datetimepicker@4.17.47, leaflet-routing-machine@3.2.12, libphonenumber-js@1.6.8, offline-js@0.7.19, pouchdb@7.2.1, push.js@1.0.8.
+  - `package.json` pinea la versión; el script copia el dist oficial al nombre versionado. Todas verificadas **byte-idénticas** al archivo ya commiteado → migración sin riesgo. Tras `npm update`, correr `npm run vendor` para refrescar. `build.sh` lo corre automáticamente.
+  - **Nota pouchdb**: si `npm install` falla en sistemas donde Dropbox strips execute bits (leveldown), usar `npm install --ignore-scripts` — el dist browser no requiere compilación nativa.
+- **Manuales permanentes** (dist difiere del npm o no tiene paquete limpio): fastclick, datatables.net, fingerprintjs. Más plugins jQuery custom (chosen, jquery.number, jquery.geolocation, jquery.toast, jquery.fullscreen, simpleStorage, rsvp, jsrsasign, qz-tray, moment-locale-es, select2, snap, chartjs-chart-treemap, chartjs-plugin-annotation y otros). Quedan versionados en el repo; NO los toca vendor-sync.
 
 ## Seeds (datos iniciales)
 
