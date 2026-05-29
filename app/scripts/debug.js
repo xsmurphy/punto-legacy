@@ -9100,7 +9100,7 @@ var ncmCalendar = {
 
                         if (window.appConfigObj[0].appOverlap && user) {
                             var cantSet = 'waiting';
-                            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({
+                            var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({
                                 action: 'checkIfUserOccupied',
                                 users: [user],
                                 from: startDate,
@@ -9125,7 +9125,7 @@ var ncmCalendar = {
 
 
 
-                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'scheduleSession', f: startDate, t: endDate, id: id, c: cust, u: user });
+                        var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'scheduleSession', f: startDate, t: endDate, id: id, c: cust, u: user });
 
                         if (from && to && cust && user) {
                             ncmHttp.get({
@@ -9296,7 +9296,7 @@ var ncmCalendar = {
                 ncmCalendar.draggedBlock.css('background-color', '#' + blockColor);
                 var updateDate = ncmCalendar.currentDate;
 
-                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'updateSchedule', id: transId, ui: ncmGlobals.users[index].userId, d: ncmCalendar.currentDate, f: hour });
+                var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'updateSchedule', id: transId, ui: ncmGlobals.users[index].userId, d: ncmCalendar.currentDate, f: hour });
                 ncmHttp.get({
                     url: url,
                     hideLoader: true,
@@ -23192,7 +23192,7 @@ var justPay = async function () {
             if (window.appConfigObj[0].appOverlap && usrs.length > 0) {
                 usrs = [...new Set(usrs)]; //elimino duplicados
                 var cantSet = 'waiting';
-                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'checkIfUserOccupied', users: usrs, from: window.fromDate, to: window.toDate });
+                var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'checkIfUserOccupied', users: usrs, from: window.fromDate, to: window.toDate });
                 cantSet = await loadWait({ url: url, type: 'GET', hideloader: true });
                 cantSet = ncmHelpers.getValidObjectStr(cantSet);//JSON.parse(cantSet);
                 cantSet = Object.assign({}, cantSet);
