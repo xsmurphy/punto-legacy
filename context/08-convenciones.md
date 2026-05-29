@@ -577,6 +577,34 @@ Convención de verbos:
 
 ---
 
+## §24 — Migración de handlers HTML server-rendered: datos + template Mustache (establecido Slice 33, 2026-05-29)
+
+**Problema**: algunos handlers legacy de `load.php`/`action.php` no devuelven JSON — generan HTML directamente en PHP (~300 líneas de markup con lógica de tipos de campo embebida). Portarlos tal cual al BFF violaría la REGLA RAÍZ 2 ("PHP nunca genera front visual").
+
+**Contrato acordado (no-negociable para estos casos)**:
+
+```
+API  →  datos ESTRUCTURADOS (array de campos tipados, valores crudos)
+BFF  →  proxy + traducción al shape que el template espera (JSON plano)
+Front → renderiza con template Mustache estático en index.php/index.html
+         conecta comportamiento (datePicker, uploaders, widgets) post-render
+```
+
+**Por qué Mustache y no Alpine para este patrón**: el guardado legacy (`recordsEdit`) lee los valores directamente del DOM (por `id`/clase específicos). Reescribir el guardado junto con el render sería un cambio de scope mayor. Mustache reproduce el DOM exacto (mismas clases/ids) sin cambiar el guardado. Cuando el módulo se toque en profundidad, migrar a Alpine per §17.
+
+**Reglas derivadas**:
+1. El template Mustache va en `app/index.php` (PHP-rendered, para consistencia con el shell) **y** en `app/index.html` (para el modo estático). Mantener ambos en sync — son idénticos.
+2. El template reproduce EXACTAMENTE las clases/ids que el guardado (o cualquier otro código JS que lea del DOM) espera. No renombrar atributos.
+3. La API devuelve datos crudos tipados (el tipo de campo como string, el valor sin markup). El BFF puede formatear levemente (ej. poner el nombre del tipo en el shape del template) pero nunca genera HTML.
+4. El front conecta comportamientos post-render (datePicker, uploaders Dropbox por campo imagen, etc.) en el callback del `renderTemplate` — no en `$(ready)`.
+5. La SQL injection se corrige en el Service (queries parametrizadas), no se porta el bug legacy.
+
+**Primer uso**: `customerRecord` (Slice 33, `CustomerService::getRecords()` + `#customerRecordTpl`). 7 tipos de campo: text, number, date, phone, switch, progress, image.
+
+**Aplica a**: cualquier handler que el legacy renderizaba como HTML server-rendered y cuyo guardado/comportamiento JS lee el DOM por ids/clases específicos (fichas, formularios embebidos con DOM-coupling fuerte).
+
+---
+
 ## §21 — Manual de marca (identidad visual)
 
 **Regla**: La identidad visual es un **manual de referencia** (`context/11-design-system.md`)

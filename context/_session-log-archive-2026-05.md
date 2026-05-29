@@ -177,3 +177,22 @@
 - **Slice 23 (customerHasOrders)**: `OrderService::customerHasOpenOrders(): bool` — type 12 status!=4, multi-tenant. Patrón HTTP-401-as-signal → booleano limpio.
 - **Slice 27 (ordersList)**: `OrderService::getTableClose/getTableDetail/getList/queryOrderRows`. SQL injection cerrada (cuid/COMPANY_ID/fechas concatenados → params). Meta JSONB leído correctamente.
 - **Slice 28 (quotesList+savedList)**: `TransactionService::getTransactionList(listType=quotes|saved)`. `_bffListMap` en globalv2.js + debug.js reemplaza el condicional simple de slice 27.
+
+## 2026-05-27 (cont. 2) — `purchases` migrado (16º): 1ª MIGRACIÓN PARCIAL (3 lecturas al BFF, CRUD+fiscales legacy)
+
+- **`a_report_purchases` (Compras y Gastos, ~2632 líneas) migrado al BFF — pero PARCIAL.** Es un CRUD pesado + 2 fiscales, no un reporte limpio. Se migraron al BFF de 3 capas SOLO las **3 vistas de lectura**: `general` (cabeceras tipo 1,4 + proveedor/usuario/medios de pago resueltos + **deuda** batch), `cobros` (pagos tipo 5 + comprobante padre tipo 4), `detail` (transaction⋈itemSold + costo unitario + búsqueda `src`). El CRUD de edición (`edit`/`update`/`paymentForm`/`addPayment`/`delete`) y los fiscales (`rg90`, `libro-compra`) **quedan en el PHP legacy** `a_report_purchases.php`.
+- **Patrón NUEVO — migración parcial vía router** (reutilizable para transactions/giftCards): `panel/router.php` sirve el front estático cuando NO hay `?action=`, y cae al PHP legacy cuando SÍ lo hay. El front (`scripts/a_report_purchases.js`) recablea las 3 lecturas al BFF y carga los writes/fiscales en los modales del shell (`#modalXLarge`/`#modalTiny`) o ventanas nuevas vía `/a_report_purchases?action=…`. En prod: `RewriteCond %{QUERY_STRING} !(^|&)action=`.
+- **Hallazgos** (en `10-roadmap.md` §3.5): (1) `transaction.transactionDetails` absorbido a `meta` JSONB → leer con `meta->>'transactionDetails'` + json_decode. (2) BOOLEAN PG `transactionComplete`: ADOdb devuelve 1/0 (cast int OK) pero se blindó con helper `isComplete()` robusto al driver ('t'/'f'/true). (3) `country` agregado al bootstrap (`config->>'settingCountry'`) para gatear fiscales PY. (4) Fixes PG: typo `transagction`, `AND transactionDate` colgante en cobros/supId, deuda con un solo `SUM ... GROUP BY` (legacy N+1).
+- **Verificado E2E**: API+BFF de las 3 vistas vía curl con JWT minteado (company 0001); seed de demo (1 compra a crédito con 2 líneas + 1 pago, tag `meta.seed=bff-purchases-verify`, outlet ...002); render en browser vía harness → 3 tabs OK, badge Crédito/Contado, deuda 150000 + botón de pago, total al pie PYG 320.000, RG90/Libro Compra (PY), cero errores de consola.
+
+## 2026-05-27 (cont. 3) — `transactions` migrado (17º, EL MÁS GRANDE ~3987 líneas): 2ª migración parcial
+
+- **`a_report_transactions` (Pagos y Transacciones) migrado al BFF — parcial.** 3 vistas de lectura de BD: `detail` (ventas tipos 0,3,6,7,8 + deuda + tags + totales), `cobros` (pagos tipo 5 + comprobante padre), `quotes` (cotizaciones tipo 9 + estado). `feTable` NO migrada (gateway FE externa). CRUD/export/fiscales quedan legacy. Router: `transactions` sumado al mapa `$bffPartialReports`.
+- **TRAP**: `array_map(fn($r)=>$r['col'], $res)` sobre filas getAssoc de `ncmExecute` (CaseInsensitiveArray) lee mal algunas columnas cuando el SELECT tiene computadas (`meta->>'x' AS x`). Solución: recolectar ids con `foreach`, no `array_map`.
+- **Otros hallazgos**: `transaction.tags` en `meta` JSONB; `register.registerReturnPrefix` en `data` JSONB de la caja; datos de caja N+1 → `registerInfo()` batch.
+- **Verificado E2E**: seed ventas en company 0001; 3 vistas BFF correctas; render de 4 tabs, badges con color, RG90/Libro Ventas; cero errores de consola.
+
+## 2026-05-27 (cont. 4) — `giftcards` migrado (18º, mediano): 1 lectura al BFF + KPIs
+
+- **`a_report_giftcards` (Gift Cards, ~531 líneas) migrado al BFF — parcial.** 1 vista de lectura (`detail` = giftCardSold activadas) + 4 KPIs (vencidas/por-vencer/canjeadas/vigentes + valor vigente). Form de edición y writes quedan legacy vía `?action=`.
+- **Verificado E2E**: seed de 2 gift cards (1 vigente 150k / 1 vencida saldo 0) en company 0001; render correcto (4 KPIs, íconos coloreados, código único en badges, TOTALES); cero errores de consola.
