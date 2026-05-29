@@ -19981,7 +19981,7 @@ var ncmCustomer = {
         }
     },
     infoModal: function (id) {
-        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'customerInfo', id: id, json: 1 });
+        var url = masterUrl + 'bff/customers?l=' + ncmHttp.masterUrlParams({ action: 'customerInfo', id: id });
         var $modal = $('#modalNarrow');
 
         imodaler({
