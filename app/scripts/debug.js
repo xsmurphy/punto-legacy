@@ -21865,15 +21865,16 @@ var customerToTable = function (callback) {
     var transType = ncmTransactions.finalType();
 
     if ((transType == 0 || transType == 3) && id) {
-        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'customerHasOrders', id: id });
+        var url = masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'customerHasOrders', id: id });
         ncmHttp.get({
             url: url,
             onSuccess: function (data) {
-                if (data) {
+                if (data && data.hasOrders) {
                     $('.customerHasOrdersMsg').text('Tiene órdenes');
                 }
             },
-            hideLoader: true
+            hideLoader: true,
+            type: 'json'
         });
         if (ncmHelpers.validInObject(ncmTransactions.customer, 'discount')) {
             var id = mt_rand();

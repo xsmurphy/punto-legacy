@@ -24,6 +24,22 @@ require_once __DIR__ . '/../meta_transaction.php';
 class OrderService
 {
     /**
+     * ¿El cliente tiene órdenes abiertas en este outlet? (customerHasOrders, load.php L1634).
+     * Orden = transaction type 12 con status != 4 (no finalizada). Sólo chequea existencia.
+     */
+    public function customerHasOpenOrders(string $companyId, string $outletId, string $customerId): bool
+    {
+        $row = ncmExecute(
+            'SELECT transactionId FROM transaction
+              WHERE companyId = ? AND outletId = ? AND transactionType = 12
+                AND transactionStatus != 4 AND customerId = ?
+              LIMIT 1',
+            [$companyId, $outletId, $customerId]
+        );
+        return (bool) $row;
+    }
+
+    /**
      * Acepta una orden: transactionStatus → 2.
      *
      * @return array{ok:bool, customerId:string|null, invoiceNo:string|null}

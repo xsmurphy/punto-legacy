@@ -1631,30 +1631,6 @@ if (!empty($load)) {
     jsonDieMsg($out,200,'list');
   }
 
-  if($load == 'customerHasOrders' && $get['id']){
-    if(is_numeric($get['id'])){
-      $id             = $get['id'];
-    }else{
-      $id             = dec($get['id']);  
-    }
-    
-    $order        = ncmExecute('  SELECT transactionId
-                                  FROM transaction 
-                                  WHERE companyId = ?
-                                  AND outletId = ?
-                                  AND transactionType = 12
-                                  AND transactionStatus != 4
-                                  AND customerId = ? 
-                                  ORDER BY transactionId DESC
-                                  LIMIT 1',
-                                  [COMPANY_ID, OUTLET_ID,$id]);
-    if($order){
-      jsonDieMsg('true',200,'true');
-    }else{
-      jsonDieMsg();
-    }
-  }
-
   if($load == 'printServer'){
     $out          = [];
     $result       = ncmExecute('  SELECT *

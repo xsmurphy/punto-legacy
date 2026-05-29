@@ -2,6 +2,7 @@
 /**
  * /api/v1/orders.php — aceptación de órdenes (Slice 7).
  *
+ *   GET ?resource=customerHasOrders&customerId=<id> → ¿el cliente tiene órdenes abiertas?
  *   PUT ?id=<txId>&resource=accept              → acepta orden (status 2) + notifica cliente
  *   PUT ?id=<txId>&resource=outlet { outletId }  → mueve la orden a otro outlet
  *   PUT ?id=<txId>&resource=user   { userId }    → asigna usuario (mozo) + push
@@ -22,6 +23,15 @@ $registerId = $ctx['registerId'];
 $svc      = new OrderService();
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
+
+// --- GET: ¿el cliente tiene órdenes abiertas? (customerHasOrders) ----------
+if ($method === 'GET' && $resource === 'customerHasOrders') {
+    $customerId = trim((string) ($_GET['customerId'] ?? ''));
+    if ($customerId === '') {
+        apiError('Falta customerId', 422);
+    }
+    apiOk(['hasOrders' => $svc->customerHasOpenOrders($companyId, $outletId, $customerId)]);
+}
 
 if ($method !== 'PUT') {
     apiError('Método no permitido', 405);
