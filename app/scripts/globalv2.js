@@ -11688,8 +11688,10 @@ var ncmTransactions = {
 
         if (window.isServerOnline) {//sirve para mantener la cached list cuando no hay internet
             var load = (options.load) ? options.load : 'transactions';
-            var url = (load === 'ordersList')
-                ? window.masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'ordersList', limit: options.limit, customerId: options.cId, date: options.date })
+            var _bffListMap = { ordersList: 'orders', quotesList: 'transactions', savedList: 'transactions' };
+            var _bffListTarget = _bffListMap[load];
+            var url = _bffListTarget
+                ? window.masterUrl + 'bff/' + _bffListTarget + '?l=' + ncmHttp.masterUrlParams({ action: load, limit: options.limit, customerId: options.cId, date: options.date })
                 : window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: load, limit: options.limit, customerId: options.cId, date: options.date, json: 1 });
 
             ncmHttp.getit(url, function (result) {

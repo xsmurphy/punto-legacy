@@ -237,4 +237,116 @@ class TransactionService
         );
         return $res !== false;
     }
+
+    // -------------------------------------------------------------------------
+    // Slice 28 — quotesList + savedList (load.php L2863 + L2979)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Lista paginada de transacciones para el panel de ventas (buildList).
+     * Cubre listType = 'quotes' (type 9) y 'saved' (type 2).
+     *
+     * Retorna { date, listName, transactionsList[], footBtn } — mismo shape
+     * que OrderService::getList (orders), compatible con #transactionsListTpl.
+     *
+     * Fija el SQL injection del legacy (concatenación de COMPANY_ID / outletId /
+     * customerId / dates directamente en la cadena SQL).
+     */
+    public function getTransactionList(
+        string  $listType,
+        string  $outletId,
+        string  $companyId,
+        ?string $encCustomerId,
+        ?string $date,
+        int     $limit
+    ): array {
+        global $db, $dec, $ts;
+
+        static $configs = [
+            'quotes' => [
+                'txType'   => 9,
+                'listName' => 'Cotizaciones',
+                'label'    => '<span class="label bg-warning dk text-xs">Cotización</span>',
+                'anchor'   => 'openQuotes',
+                'colors'   => ['0'=>'b-light','1'=>'b-light','2'=>'b-info','3'=>'b-primary',
+                               '4'=>'b-success','5'=>'b-danger','6'=>'b-3x b-l b-dark'],
+            ],
+            'saved' => [
+                'txType'   => 2,
+                'listName' => 'Guardado',
+                'label'    => '<span class="label text-dark b b-light text-xs">Guardado</span>',
+                'anchor'   => 'openSaved',
+                'colors'   => ['0'=>'b-light','1'=>'b-light','2'=>'b-info','3'=>'b-primary',
+                               '4'=>'b-success','5'=>'b-danger','6'=>'b-3x b-l b-dark'],
+            ],
+        ];
+
+        $cfg = $configs[$listType] ?? $configs['quotes'];
+
+        $where  = ['transactionType = ?', 'companyId = ?'];
+        $params = [(int) $cfg['txType'], $companyId];
+
+        if ($encCustomerId) {
+            $where[]  = 'customerId = ?';
+            $params[] = dec($encCustomerId);
+        } else {
+            $where[]  = 'outletId = ?';
+            $params[] = $outletId;
+        }
+
+        if ($date) {
+            $where[]  = 'transactionDate BETWEEN ? AND ?';
+            $params[] = $date . ' 00:00:00';
+            $params[] = $date . ' 23:59:59';
+            $limit    = 1500;
+        }
+
+        $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
+             . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
+        $rs  = $db->Execute($sql, $params);
+
+        $anchor = $cfg['anchor'];
+        $out = [
+            'date'             => $date,
+            'listName'         => $cfg['listName'],
+            'transactionsList' => [],
+            'footBtn'          => '',
+        ];
+
+        if ($rs && !$rs->EOF) {
+            while (!$rs->EOF) {
+                $f      = $rs->fields;
+                $status = (string) ($f['transactionStatus'] ?? '');
+                $cusData = getCustomerData($f['customerId'] ?? null, 'uid');
+                $cusName = iftn(getCustomerName($cusData), 'Sin Nombre');
+
+                $txName = ($listType === 'saved')
+                    ? '<span class="text-info">' . ($f['transactionName'] ?? '') . '</span>'
+                    : '';
+
+                $stat = 'b-5x b-l ' . ($cfg['colors'][$status] ?? '');
+
+                $out['transactionsList'][] = [
+                    'id'          => enc($f['transactionId']),
+                    'title'       => $txName . ' ' . $cusName,
+                    'date'        => niceDate($f['transactionDate']),
+                    'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    'amount'      => formatCurrentNumber($f['transactionTotal'], $dec, $ts),
+                    'label'       => $cfg['label'],
+                    'type'        => $f['transactionType'],
+                    'borderColor' => $stat,
+                ];
+
+                $rs->MoveNext();
+            }
+
+            $out['footBtn'] = $date
+                ? '<a href="#' . $anchor . '&c=' . $encCustomerId . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Atrás</span>'
+                : '<a href="#' . $anchor . '&l=' . ($limit + 50) . '&c=' . $encCustomerId . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Cargar más</span>';
+        } else {
+            $out['footBtn'] = '<a href="#' . $anchor . '&c=' . $encCustomerId . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Atrás</span>';
+        }
+
+        return $out;
+    }
 }

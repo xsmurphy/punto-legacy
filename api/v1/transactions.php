@@ -37,6 +37,18 @@ if ($method === 'GET' && $resource === 'single') {
     apiOk($data);
 }
 
+// --- GET ?resource=list: lista paginada de cotizaciones/guardados (Slice 28)
+if ($method === 'GET' && $resource === 'list') {
+    $listType  = trim((string) ($_GET['listType'] ?? ''));
+    if (!in_array($listType, ['quotes', 'saved'], true)) {
+        apiError('listType debe ser quotes o saved', 422);
+    }
+    $encCid = trim((string) ($_GET['customerId'] ?? '')) ?: null;
+    $date   = trim((string) ($_GET['date'] ?? '')) ?: null;
+    $limit  = max(1, (int) ($_GET['limit'] ?? 30));
+    apiOk($svc->getTransactionList($listType, $outletId, $companyId, $encCid, $date, $limit));
+}
+
 // --- DELETE: eliminar transacción o job de impresión ----------------------
 if ($method === 'DELETE') {
     $transactionId = trim((string) ($_GET['id'] ?? ''));
