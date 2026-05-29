@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-28 (tarde/noche) — Desacople /app: 15 slices + fix crítico de ventas (commits 866052b..53ccd6e)
+
+- **Hecho (slices 6-20):** migrados ~24 handlers de `action.php` a BFF→API→Service. Servicios nuevos en `api/lib/services/`: Transaction, Order (accept/transfer/assignUser), Sync, Register, Table.closeTable, Currency, Attendance, Notification, VPayment (money path, port fiel de add_vpayment), ElectronicInvoice, GiftCard, OrderItems, + Schedule extendido. Clusters **ENCOM→Punto** (attendance/notifications/vpayments — "ENCOM" es el nombre viejo del sistema, no dead code) y **meta-JSONB** (8 handlers) COMPLETOS. Front (globalv2.js + debug.js) repuntado a `/bff/*`.
+- **🔴 CRÍTICO — guardado de ventas estaba ROTO:** `processData` escribía `transactionDetails`/`tags` como columnas que la migración PG movió a `meta` (jsonb) → el INSERT fallaba ("column transactiondetails does not exist"). Toda venta moría; no explotó por ser pre-producción. **Fix quirúrgico (commit e7c04fb):** guardar como JSON-strings dentro de `meta`; `recurringSaleData`→columna `data`. Verificado contra DB real.
+- **Decisión — retrofit REST:** los slices usaban POST+`op` (RPC); se alinearon a los verbos GET/POST/PUT/DELETE de `panel/API/v1` (commit 6b8082a, convención §22.7). Infra: shim `php://input`→`$_POST` en `api/bootstrap.php` + `bffApiPut/bffApiDelete`. Recursos por `?id=`, sub-acciones por `?resource=`.
+- **Gap de producción cerrado:** `globalv2.js` es el front de PRODUCCIÓN (`debug.js` era sólo para pruebas); los slices 1-13 sólo habían tocado debug.js → producción seguía en legacy. Backfill + cutover (commit 5f1b367, convención §22.2b).
+- **Convenciones/gotchas PG nuevos:** §22.5 (identificadores SQL SIN comillas — las columnas son lowercase; rompió slices 6/7), §22.6 (`transactionDetails`/`tags` viven en `meta` jsonb), §22.7 (verbos REST). Helper `api/lib/meta_transaction.php` (read-modify-write de `transactionDetails` en meta preservando otras keys; usa `$db->Execute` directo porque ncmExecute aplica `_flattenJsonb` y borra la key `meta`).
+- **Pendiente:** `mesa-merge` (joinSpaces/moveOrders) — rotos, necesitan DECISIÓN DE DOMINIO (transactionParentId uuid vs nro de mesa int; moveOrders usa `USE INDEX` de MySQL). Monstruos: `sale` (~525 líneas HTML) y `processData` full→SaleService (~25 helpers). Dead code a borrar: checkoutScreen/checkSession/encode/verifyQRPaymentCode. **Spawn task:** breakages preexistentes del panel (columna `tags` en report_transactions; `recurringSaleData` multi-row en cronCreateRecurringInvoice). Diferido: reestructura+vendoreo npm de /app (renombrar globalv2.js, unificar con debug.js).
+- **Dev-flow (no producto, gitignored):** MemPalace recableado a un palacio dedicado `~/.mempalace-punto` (MCP + hooks consistentes; re-mina convos+projects). Nada commiteado.
+
 ## 2026-05-28 — Extracción de la API compartida a /api top-level (commit d75dd0b)
 
 - **Decisión arquitectónica clave (corrección del usuario):** los endpoints de los 5 slices de desacople estaban mal en `/app/API/v1/`. La API no es "parte de /app" — es el **backend único del sistema**, destinado a correr en un server dedicado que /panel y /app consuman remotamente. Se creó `/api` top-level (hermano de /panel y /app).
