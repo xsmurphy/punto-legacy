@@ -31,7 +31,6 @@ define('HASH_TIMES',65646);
 $_isLocal = (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'localhost') !== false);
 
 define('API_URL',       $_isLocal ? 'http://localhost:8002/API'     : ($_ENV['API_URL']    ?? ''));
-define('API_ENCOM_URL', $_isLocal ? 'http://localhost:8002/API'     : ($_ENV['API_URL']    ?? ''));
 define('PUBLIC_URL',    $_isLocal ? 'http://localhost:8002/screens' : ($_ENV['PUBLIC_URL'] ?? ''));
 define('POS_URL',       $_isLocal ? 'http://localhost:8000'         : ($_ENV['POS_URL']    ?? ''));
 define('APP_URL',       $_isLocal ? 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost:8000') : ($_ENV['APP_URL'] ?? ''));

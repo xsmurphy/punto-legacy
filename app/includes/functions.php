@@ -3814,7 +3814,7 @@ function sendPush($options){
 					  "filters"   		=> json_encode($options['filters'])
 					];
 
-	return json_decode( curlContents(API_ENCOM_URL.'/send_push', 'POST', $data) );
+	return json_decode( curlContents(API_URL.'/send_push', 'POST', $data) );
 }
 
 function sendNCMSMS($number,$msg,$country,$companyId=''){

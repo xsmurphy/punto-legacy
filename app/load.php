@@ -265,7 +265,7 @@ if (!empty($load)) {
                         'company_id'    => enc(COMPANY_ID)
                       ];
 
-    $result         = json_decode(curlContents(API_ENCOM_URL .'/get_vpayments','POST',$data), true);
+    $result         = json_decode(curlContents(API_URL .'/get_vpayments','POST',$data), true);
     $returns        = [];
 
     if(validity($result['success'])){
@@ -287,7 +287,7 @@ if (!empty($load)) {
                         'UID'           => $get['uid']
                       ];
 
-    $result         = json_decode(curlContents(API_ENCOM_URL .'/get_vpayments','POST',$data), true);
+    $result         = json_decode(curlContents(API_URL .'/get_vpayments','POST',$data), true);
     if(isset($result['error'])){
       jsonDieResult(['error' => $result['error']], 400);
     } else {
@@ -1317,7 +1317,7 @@ if (!empty($load)) {
 
     if($timestamp){
       //consulto las updated order
-      $updated = json_decode(curlContents(API_ENCOM_URL . '/get_last_update.php','POST',$data),true);
+      $updated = json_decode(curlContents(API_URL . '/get_last_update.php','POST',$data),true);
       if( strtotime( $updated['orders'] ) < strtotime( $timestamp ) ){
         $getList          = false;
       }
@@ -1339,7 +1339,7 @@ if (!empty($load)) {
         $data['ID']     = $oID;
       }
 
-      $result           = json_decode(curlContents(API_ENCOM_URL . '/get_orders.php','POST',$data),true);
+      $result           = json_decode(curlContents(API_URL . '/get_orders.php','POST',$data),true);
       //$array['orders']  = $result;
       if(isset($_GET['debug'])){
         echo '<pre>';
@@ -1653,7 +1653,7 @@ if (!empty($load)) {
                       'customerdata'  => 1
                     ];
 
-        $order           = json_decode(curlContents(API_ENCOM_URL . '/get_orders.php','POST',$orderD),true);
+        $order           = json_decode(curlContents(API_URL . '/get_orders.php','POST',$orderD),true);
 
         //print_r($orderD);
         
@@ -1698,7 +1698,7 @@ if (!empty($load)) {
   // quotesList + savedList → migrado a bff/transactions (Slice 28)
 
   if($load == 'tin'){
-    echo curlContents(API_ENCOM_URL . '/get_tin?id=' . $get['id'] . '&country=' . $get['country'],'POST',['company_id'=>enc(COMPANY_ID),'api_key'=>API_KEY]);
+    echo curlContents(API_URL . '/get_tin?id=' . $get['id'] . '&country=' . $get['country'],'POST',['company_id'=>enc(COMPANY_ID),'api_key'=>API_KEY]);
   }
 
   checkExecTime($load);

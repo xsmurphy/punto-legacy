@@ -62,7 +62,7 @@ if ($action) {
       'token'         => $get['t']
     ];
 
-    $result = json_decode(curlContents(API_ENCOM_URL . '/set_attendance.php', 'POST', $data));
+    $result = json_decode(curlContents(API_URL . '/set_attendance.php', 'POST', $data));
 
     jsonDieResult($result, 200);
   }
@@ -101,7 +101,7 @@ if ($action) {
         'type'        => $type,
         'outlet'      => enc(OUTLET_ID)
       ];
-      $result = curlContents(API_ENCOM_URL . '/get_notifications', 'POST', $data);
+      $result = curlContents(API_URL . '/get_notifications', 'POST', $data);
       //error_log(print_r($result,true));
       if ($result) {
         header('Content-Type: application/json;');
@@ -118,7 +118,7 @@ if ($action) {
         'type'        => $type,
         'outlet'      => enc(OUTLET_ID)
       ];
-      $result = curlContents(API_ENCOM_URL . '/get_notifications_count', 'POST', $data);
+      $result = curlContents(API_URL . '/get_notifications_count', 'POST', $data);
       if ($result) {
         header('Content-Type: application/json;');
         echo $result;
@@ -622,7 +622,7 @@ if ($action) {
 
 
 
-    $result         = json_decode(curlContents(API_ENCOM_URL . '/add_vpayment', 'POST', $data));
+    $result         = json_decode(curlContents(API_URL . '/add_vpayment', 'POST', $data));
 
     jsonDieResult($result, 200);
   }
@@ -660,7 +660,7 @@ if ($action) {
 
 
 
-    $result         = json_decode(curlContents(API_ENCOM_URL . '/add_vpayment', 'POST', $data));
+    $result         = json_decode(curlContents(API_URL . '/add_vpayment', 'POST', $data));
 
     jsonDieResult($result, 200);
   }
@@ -692,7 +692,7 @@ if ($action) {
       'authCode'      => $authCode,
       'operationNo'   => $operationNo
     ];
-    $result         = json_decode(curlContents(API_ENCOM_URL . '/add_vpayment', 'POST', $data));
+    $result         = json_decode(curlContents(API_URL . '/add_vpayment', 'POST', $data));
 
     jsonDieResult($result, 200);
   }

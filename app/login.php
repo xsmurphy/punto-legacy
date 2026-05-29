@@ -116,7 +116,7 @@ if($email && $pass){
 
       $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
       $new     = ($get['new']) ? '&new=1' : '';
-      $newpin  = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?phone=' . $phone . $new),true);
+      $newpin  = json_decode(getFileContent(API_URL . '/2fapin.php?phone=' . $phone . $new),true);
 
       if((isset($newpin['error']) && $newpin['error'])){
         jsonDieResult($newpin,500);
@@ -145,7 +145,7 @@ if($email && $pass){
         // En debug mode el código siempre es 0000
         $valid = ($pin === '0000');
       }else{
-        $oldpin = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?phone=' . $phone),true);
+        $oldpin = json_decode(getFileContent(API_URL . '/2fapin.php?phone=' . $phone),true);
         $valid  = ($pin == $oldpin['code']);
       }
 
@@ -159,7 +159,7 @@ if($email && $pass){
     include_once('head.php');
 
     if($get['chk']){
-      $newpin = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?checkCompany=1&code=' . base64_decode($get['chk']) . '&qr=1'),true);
+      $newpin = json_decode(getFileContent(API_URL . '/2fapin.php?checkCompany=1&code=' . base64_decode($get['chk']) . '&qr=1'),true);
       jsonDieResult([
                             'success'   => true,
                             'company'   => $newpin['company']
@@ -170,7 +170,7 @@ if($email && $pass){
       $outlet   = $get['outlet'];
       $code     = $get['code'];
 
-      $newpin   = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?scan=1&company=' . $company . '&outlet=' . $outlet . '&code=' . $code . '&qr=1'),true);
+      $newpin   = json_decode(getFileContent(API_URL . '/2fapin.php?scan=1&company=' . $company . '&outlet=' . $outlet . '&code=' . $code . '&qr=1'),true);
 
       jsonDieResult([
                             'success'   => $newpin['success']
@@ -178,7 +178,7 @@ if($email && $pass){
     }else{
       $new    = ($get['new']) ? '&new=1' : '';
       $dui    = $get['dui'];
-      $newpin = json_decode(getFileContent(API_ENCOM_URL . '/2fapin.php?phone=' . $dui . $new . '&qr=1'),true);
+      $newpin = json_decode(getFileContent(API_URL . '/2fapin.php?phone=' . $dui . $new . '&qr=1'),true);
 
       $newpin = $newpin['code'];
 
