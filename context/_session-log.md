@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-29 — Slice 33 reescrito en Alpine.js + vendoreo alpinejs-3.14.1 en /app (commit 3d62191)
+
+- **Decisión de convención**: los templates nuevos en `/app` van en **Alpine.js**, NO en Mustache. Migración incremental — Mustache sigue cargado para los ~22 templates existentes pero no se crean templates Mustache nuevos. Convención §24 en `08-convenciones.md` actualizada (antes documentaba Mustache, ahora documenta Alpine + el patrón de integración completo).
+- **customerRecord reescrito**: el template Mustache `#customerRecordTpl` del Slice 33 (commit b0fbec3, mismo día) fue reemplazado por markup Alpine (`x-data`/`x-for`/`x-if`/`x-text`/`x-html`). Primer componente Alpine del POS `/app`. Componente `customerRecord` registrado con `Alpine.data()` en `alpine:init` en `globalv2.js` + `debug.js`. Render: clonar `<template>`, `Alpine.initTree(el)` detached, luego insertar. Switch: dos ramas `x-if` (con `checked` / sin) para alinear con `switchit()`/`recordsEdit`. `x-for` con wrapper `display:contents` por la restricción de raíz única de Alpine.
+- **INFRA**: `assets/vendor/js/alpinejs-3.14.1.min.js` vendoreado (local — POS es offline). Agregado a `app/index.html` (script defer), `app/cache-sw.php` (precache), `app/filesCompiler.php` (bundle vendor; inserción en medio del array para sobrevivir el `array_slice(1,-1)` del bundle debug). `APP_VERSION` 2.0.9.3 → 2.0.9.4 para invalidar el SW cache.
+- **Vault actualizado**: `08-convenciones.md` §24 (reemplaza Mustache por Alpine + patrón de integración) + §11 (agrega Alpine como parte del stack vigente). `03-stack.md` (Alpine 3.14.1 en /app + estado de Mustache como legacy en deprecación). `02-arquitectura.md` (nota Slice 33 corregida de Mustache a Alpine). `10-roadmap.md` (Slice 33 actualizado + nota de deuda de migración ~22 templates).
+- **Nota QA pendiente**: verificación manual en browser del modal de fichas (render de los 7 tipos de campo, guardado, switch toggle, subida de imagen Dropbox).
+
 ## 2026-05-29 — Slice 33: customerRecord migrado a BFF/API/CustomerService — CIERRE desacople load.php (commit b0fbec3)
 
 - **Hecho**: el handler `customerRecord` de `app/load.php` (~300 líneas de HTML server-rendered, el ÚLTIMO del desacople de listas/fichas) extraído al patrón BFF→API→Service con contrato JSON + Mustache.

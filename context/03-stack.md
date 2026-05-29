@@ -19,8 +19,8 @@
 |-----------|---------|-------|
 | Bootstrap | 3.x | CSS framework (legacy) |
 | jQuery | 3.x | DOM + AJAX |
-| Alpine.js | 3.15.12 | Reactividad declarativa (`x-data`/`x-for`) en el front nuevo (dashboard/CRUD). Reemplaza a Mustache en lo nuevo; convive con jQuery. Vendoreado en `assets/vendor/js/`, en `package.json`, cargado 1× en `@.php`. Items queda en Mustache (no se reescribe). Ver 02-arquitectura.md §3 |
-| Mustache | 4.0.1 | Templating del front legacy (items/contacts editform). NO usar en nuevo → Alpine |
+| Alpine.js | 3.15.12 (panel) / 3.14.1 (POS /app) | Reactividad declarativa (`x-data`/`x-for`/`x-if`/`x-text`/`x-html`) en el front nuevo. Reemplaza a Mustache en lo nuevo; convive con jQuery. Panel: vendoreado en `assets/vendor/js/`, en `package.json`, cargado en `@.php`. POS /app: vendoreado como `assets/vendor/js/alpinejs-3.14.1.min.js` (local — el POS es offline), cargado en `app/index.html` (defer), en `app/cache-sw.php` (precache) y en `app/filesCompiler.php` (bundle vendor). Componentes Alpine del POS se registran con `Alpine.data()` dentro de `alpine:init` en `globalv2.js` + `debug.js`. Ver §24 en `08-convenciones.md` para el patrón completo. |
+| Mustache | 4.0.1 | Templating legacy (/app POS: ~22 templates existentes; panel: items/contacts editform). **Deprecación incremental** — NO crear templates Mustache nuevos. Los existentes migran a Alpine cuando se toquen. |
 | ncm-ws.js | custom | Drop-in de Pusher para WebSocket |
 
 ## Build & Tooling

@@ -193,20 +193,18 @@ usa camelCase). Solo las clases en PascalCase como manda PSR.
 
 ## §11 — Frontend
 
-**Regla actual**: Bootstrap 3 + jQuery. No agregar otro framework en runtime sin decisión explícita.
+**Regla actual**: Bootstrap 3 + jQuery + Alpine.js. No agregar otro framework en runtime sin decisión explícita.
 
 **Observaciones**:
 - No hay build step para JS del frontend (solo concat + minify)
-- Los `a_*.php` del panel mezclan HTML + PHP + JS inline
-- Se está migrando a separar: data vía API, presentación en template
+- Los `a_*.php` del panel mezclan HTML + PHP + JS inline (legado; se migra al modelo BFF)
+- Se está migrando a separar: data vía API, presentación en Alpine/template
 
-**Decisión sobre framework moderno**: pendiente. No decidir hasta que:
-1. Phase 2 esté completa (API limpia, predecible)
-2. Phase AI.1 haya validado el widget conversacional (si el agente termina siendo
-   la interfaz principal, puede reducir la urgencia de modernizar el panel)
+**Alpine.js (decisión tomada — vigente)**: Alpine 3.14.1 está vendoreado en `/app` (offline POS) y en el panel. Es la dirección para templates nuevos y componentes reactivos en ambos entornos. Ver §17 para el patrón de integración completo.
 
-**Mientras tanto**: cambios en frontend siguen el estilo de Bootstrap 3 + jQuery del
-archivo que se modifica. No introducir Vue/React/Svelte/HTMX en commits aislados.
+**Mustache**: legacy en deprecación incremental en `/app`. Los templates existentes se migran a Alpine cuando se toquen. No crear templates Mustache nuevos.
+
+**Frameworks no-bienvenidos**: Vue, React, Svelte, HTMX — no introducir en commits aislados. La decisión de modernizar más allá de Alpine se toma cuando se reemplacen DataTables y Bootstrap 3 (proyecto aparte).
 
 ---
 
@@ -577,31 +575,49 @@ Convención de verbos:
 
 ---
 
-## §24 — Migración de handlers HTML server-rendered: datos + template Mustache (establecido Slice 33, 2026-05-29)
+## §24 — Migración de handlers HTML server-rendered a Alpine (decisión definitiva 2026-05-29, commit 3d62191)
 
-**Problema**: algunos handlers legacy de `load.php`/`action.php` no devuelven JSON — generan HTML directamente en PHP (~300 líneas de markup con lógica de tipos de campo embebida). Portarlos tal cual al BFF violaría la REGLA RAÍZ 2 ("PHP nunca genera front visual").
+**Contexto histórico**: en el Slice 33 original (commit b0fbec3) se estableció un patrón intermedio con Mustache para `customerRecord`, argumentando que el guardado legacy (`recordsEdit`) lee el DOM por ids/clases y reescribirlo junto con el render era de scope mayor. Ese patrón fue **reemplazado** en el mismo ciclo (commit 3d62191): el template Mustache `#customerRecordTpl` se reescribió con Alpine.
 
-**Contrato acordado (no-negociable para estos casos)**:
+> **§24 ya NO recomienda Mustache para handlers HTML server-rendered. La convención vigente es Alpine (§17).**
+
+**Por qué se migró a Alpine y no se quedó en Mustache**:
+- El guardado (`recordsEdit`, `switchit()`) opera sobre atributos del DOM (`checked`, `contenteditable`). Alpine reproduce esos mismos atributos con `x-if` de dos ramas (una con `checked` literal, una sin), alineándose con `switchit()` que lee/escribe el atributo (no la propiedad).
+- Alpine elimina la fase de `renderTemplate()` + callback post-render: `x-init` / `$nextTick` hace el setup de datePicker/Dropbox declarativamente.
+- Mustache cargado como legacy sigue presente para los ~22 templates que aún no se migraron, pero **no se crean templates Mustache nuevos**.
+
+**Patrón de integración Alpine para `/app` (POS offline) — receta canónica**:
 
 ```
-API  →  datos ESTRUCTURADOS (array de campos tipados, valores crudos)
-BFF  →  proxy + traducción al shape que el template espera (JSON plano)
-Front → renderiza con template Mustache estático en index.php/index.html
-         conecta comportamiento (datePicker, uploaders, widgets) post-render
+Template markup  →  <template id="<nombre>"> con x-data/x-for/x-if/x-text/x-html
+Registro         →  Alpine.data('<nombre>', fn) dentro de document.addEventListener('alpine:init', ...)
+                    en globalv2.js Y en debug.js (ambos deben estar en sync — §22.2b)
+Fetch            →  ncmHttp.getit() (cliente HTTP del POS) — NO fetch nativo, preserva auth/plumbing offline
+Render dinámico  →  clonar el <template>, fijar data-attrs (ej. cid), Alpine.initTree(el) con el nodo
+                    DETACHED, luego insertar en el DOM
+x-for            →  exige raíz única → usar wrapper <div style="display:contents"> cuando hay
+                    columnas Bootstrap múltiples side-by-side dentro del loop
+Switch           →  dos ramas x-if (con checked / sin checked) para reproducir el atributo literal
+                    que switchit() y recordsEdit leen del DOM
+Orden de carga   →  globalv2.js (no-defer) corre antes de que Alpine (auto-start en DOMContentLoaded)
+                    dispare alpine:init → el listener queda registrado en tiempo
 ```
 
-**Por qué Mustache y no Alpine para este patrón**: el guardado legacy (`recordsEdit`) lee los valores directamente del DOM (por `id`/clase específicos). Reescribir el guardado junto con el render sería un cambio de scope mayor. Mustache reproduce el DOM exacto (mismas clases/ids) sin cambiar el guardado. Cuando el módulo se toque en profundidad, migrar a Alpine per §17.
-
-**Reglas derivadas**:
-1. El template Mustache va en `app/index.php` (PHP-rendered, para consistencia con el shell) **y** en `app/index.html` (para el modo estático). Mantener ambos en sync — son idénticos.
-2. El template reproduce EXACTAMENTE las clases/ids que el guardado (o cualquier otro código JS que lea del DOM) espera. No renombrar atributos.
-3. La API devuelve datos crudos tipados (el tipo de campo como string, el valor sin markup). El BFF puede formatear levemente (ej. poner el nombre del tipo en el shape del template) pero nunca genera HTML.
-4. El front conecta comportamientos post-render (datePicker, uploaders Dropbox por campo imagen, etc.) en el callback del `renderTemplate` — no en `$(ready)`.
+**Reglas vigentes (reemplaza la receta Mustache anterior)**:
+1. El template vive en `<template id="...">` en `app/index.php` **y** en `app/index.html`. Mantener ambos en sync.
+2. El template reproduce EXACTAMENTE las clases/ids que el guardado espera. No renombrar atributos.
+3. La API devuelve datos crudos tipados. El BFF traduce al shape que el componente Alpine consume — nunca genera HTML.
+4. Los comportamientos que requieren el nodo en el documento (datePicker, uploaders Dropbox) van en `$nextTick` o en el callback posterior a `Alpine.initTree`, no en el `init()` del componente (que corre detached).
 5. La SQL injection se corrige en el Service (queries parametrizadas), no se porta el bug legacy.
 
-**Primer uso**: `customerRecord` (Slice 33, `CustomerService::getRecords()` + `#customerRecordTpl`). 7 tipos de campo: text, number, date, phone, switch, progress, image.
+**Estado de Mustache en /app (2026-05-29)**:
+- Alpine.js 3.14.1 vendoreado en `assets/vendor/js/alpinejs-3.14.1.min.js` (local — el POS es offline). Cargado en `app/index.html` (script defer), `app/cache-sw.php` (precache), `app/filesCompiler.php` (bundle vendor). `APP_VERSION` 2.0.9.3 → 2.0.9.4 para invalidar el SW cache.
+- Mustache 4.0.1 sigue cargado (los demás templates existentes lo usan). Es legacy en deprecación incremental.
+- **No crear templates Mustache nuevos en `/app`**. Los existentes se migran a Alpine cuando se toquen (migración incremental, no preventiva).
 
-**Aplica a**: cualquier handler que el legacy renderizaba como HTML server-rendered y cuyo guardado/comportamiento JS lee el DOM por ids/clases específicos (fichas, formularios embebidos con DOM-coupling fuerte).
+**Primer uso de Alpine en /app**: `customerRecord` (Slice 33 reescrito, commit 3d62191). 7 tipos de campo: text, number, date, phone, switch, progress, image.
+
+**Aplica a**: cualquier handler que el legacy renderizaba como HTML server-rendered en `/app`.
 
 ---
 
