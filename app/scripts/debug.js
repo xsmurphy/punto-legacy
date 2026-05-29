@@ -7089,7 +7089,7 @@ var ncmEvents = {
                     ncmAlerts.prompt({ title: 'Motivo' }, (motive) => {
                         if (ncmHelpers.valid(motive)) {
                             ncmHttp.get({
-                                url: masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'moveOrderItems', items: chkIds, from: tFrom, to: spaceNo }),
+                                url: masterUrl + 'bff/order_items?l=' + ncmHttp.masterUrlParams({ action: 'moveOrderItems', items: chkIds, from: tFrom, to: spaceNo }),
                                 type: 'json',
                                 onSuccess: (data) => {
                                     ncmTransactions.clearSale({ loadInterface: true }); //elimino la venta anterior
@@ -7142,7 +7142,7 @@ var ncmEvents = {
 
                 if (confirmed) {
                     ncmHttp.get({
-                        url: masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'processOrderItems', items: chkIds }),
+                        url: masterUrl + 'bff/order_items?l=' + ncmHttp.masterUrlParams({ action: 'processOrderItems', items: chkIds }),
                         type: 'json',
                         onSuccess: (data) => {
 
@@ -7217,7 +7217,7 @@ var ncmEvents = {
                         autoPrint = true;
                     }
 
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'removeItemfromOrder', id: id, oid: trsId, oPosition: oPosition, motive: motive, autoPrint: autoPrint });
+                    var url = masterUrl + 'bff/order_items?l=' + ncmHttp.masterUrlParams({ action: 'removeItemfromOrder', id: id, oid: trsId, oPosition: oPosition, motive: motive, autoPrint: autoPrint });
 
                     ncmHttp.getit(url, () => {
                         $('#modalOrders tr.' + id + '-' + index).addClass('text-l-t');
@@ -12352,7 +12352,7 @@ var ncmTransactions = {
                         ncmTransactions.orderItemsClose = [];
                     } else if (ncmHelpers.valid(ncmTransactions.orderItemsClose)) {
                         ncmHttp.get({
-                            url: masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'processOrderItemsUpdate', items: ncmTransactions.orderItemsClose }),
+                            url: masterUrl + 'bff/order_items?l=' + ncmHttp.masterUrlParams({ action: 'processOrderItemsUpdate', items: ncmTransactions.orderItemsClose }),
                             type: 'json',
                             onSuccess: (data) => {
                                 ncmTransactions.orderItemsClose = [];
