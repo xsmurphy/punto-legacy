@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-29 — Slice 30: sessionsList migrado a BFF/API/ScheduleService (commit 1d02620)
+
+- **Hecho**: el handler `sessionsList` de `app/load.php` (~89 líneas con SQL injection) extraído a `ScheduleService::getSessionsList(companyId, outletId, customerId, date)`. Lista read-only: paquetes de sesiones (items con `itemSessions > 0`) y sus sesiones agendadas (transaction type 13) del cliente en el outlet.
+- **Nuevos archivos/handlers**: `api/lib/services/ScheduleService.php::getSessionsList()` + `api/v1/schedule.php` GET `?resource=sessions&customerId=&date=` + `app/bff/schedule.php` handler `action=sessionsList`.
+- **JS**: `_bffListMap` en `globalv2.js` + `debug.js` ahora incluye `sessionsList: 'schedule'` — el POS rutea este list al BFF.
+- **SQL injection corregida**: el legacy concatenaba `customerId`/`companyId`/fechas directamente en el SQL (incluso el filtro de hora quedaba fuera del string citado vía `$db->Prepare`); el nuevo código bindea todos los params. La salida filtrada por fecha puede diferir del legacy por el bug de hora.
+- **ScheduleService** ahora cubre: rescheduleTo/unlock (slice 4), updateSchedule/scheduleSession/checkIfUserOccupied (slice 20), getSessionsList (slice 30).
+- **Pendientes en load.php**: agendaList, customerRecord, customerInfo (sessionsList fue el último de los handlers "simples" — los restantes tienen dependencias de transactionDetails→meta JSONB).
+
 ## 2026-05-29 — Slice 29: transactions migrado a BFF/API/TransactionService (commit 66da236)
 
 - **Hecho**: el handler `transactions` de `app/load.php` (~320 líneas con SQL injection — variables concatenadas en el WHERE) extraído a `TransactionService::getMainList()`. Roles 4/5 ven solo transactionType 2/10 filtrados por userId; el resto ve todos los tipos del tenant. Batch credit query con `IN(?)`.
