@@ -1139,58 +1139,6 @@ if (!empty($load)) {
     echo $out;
   }
 
-  if($load == 'tablesJson'){
-    $sql =      'SELECT 
-                  transactionName,
-                  transactionId,
-                  transactionDate,
-                  transactionStatus,
-                  transactionNote,
-                  transactionParentId,
-                  userId
-                FROM transaction 
-                WHERE transactionType = 11
-                AND transactionName > 0
-                AND outletId = ? LIMIT 150';
-
-    $result = ncmExecute($sql,[OUTLET_ID],false,true);
-    $table  = [];
-    if($result){
-      $userData   = getContactData(USER_ID,false,true);
-      $rolName    = getTheRolName($userData['rol']);
-
-      while (!$result->EOF) {
-        $fields     = $result->fields;
-        $running    = niceDate2($fields['transactionDate'], 'small');
-        $editable   = true;
-        $cnt        = 6;
-
-        //conteo de cantidad de ordenes inabilitado porque es muy lento
-        //$orders     = ncmExecute('SELECT COUNT(transactionId) as count FROM transaction WHERE transactionType = 12 AND transactionStatus IN(0,1,2,3,5) AND transactionName = ? AND companyId = ? LIMIT 1', [$fields['transactionName'],COMPANY_ID]);
-        
-        if(USER_ID != $fields['userId'] && $rolName == 'Seller'){
-          $editable   = false;
-        }
-
-        $table[$fields['transactionName']] = [
-                                                'id'      => enc($fields['transactionId']),
-                                                'no'      => $fields['transactionName'],
-                                                'since'   => $running,
-                                                'status'  => $fields['transactionStatus'],
-                                                'note'    => $fields['transactionNote'],
-                                                'userId'  => enc($fields['userId']),
-                                                'orders'  => $cnt,
-                                                'editable'=> $editable,
-                                                'joined'  => intval( $fields['transactionParentId'] )
-                                              ];
-
-        $result->MoveNext();
-      }
-    }
-
-    jsonDieMsg($table,200,'table');
-  }
-
   if($load == 'ordersPanel'){
 
     $lastChk = '';

@@ -22,6 +22,11 @@ $svc      = new TableService();
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 
+// --- GET: listar mesas abiertas del outlet (tablesJson) -------------------
+if ($method === 'GET') {
+    apiOk($svc->listTables($companyId, $outletId));
+}
+
 // --- DELETE: cerrar mesa (matchea por kind/del, no por tableName) ---------
 if ($method === 'DELETE') {
     $kind = (string) ($_GET['kind'] ?? 'table');

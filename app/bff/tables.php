@@ -16,6 +16,15 @@ if (empty($_COOKIE['_jwt'])) {
 $get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
 $action = (string) ($get['action'] ?? '');
 
+// Sin action = listado de mesas (GET tablesJson).
+if ($action === '') {
+    $res = bffApiGet('v1/tables.php');
+    if (!$res['ok']) {
+        bffFailFromApi($res);
+    }
+    bffJson(['table' => $res['data'] ?? []]);
+}
+
 // El nombre de mesa viene como `t` (rename/unreserve) o `id` (setUserToSpace).
 $tableName = (string) ($get['t'] ?? $get['id'] ?? '');
 $ep        = 'v1/tables.php';

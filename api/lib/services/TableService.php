@@ -56,6 +56,55 @@ class TableService
     }
 
     /**
+     * Lista las mesas abiertas del outlet (tablesJson, load.php L1142).
+     *
+     * Devuelve un array indexado por transactionName (nro de mesa). Corrige bugs PG del legacy:
+     *   - transactionName > 0 (VARCHAR vs int) → IS NOT NULL / != '' / != '0'
+     *   - intval(transactionParentId) (UUID) → bool (joinSpaces roto en PG; 0|1 es suficiente)
+     *   - getContactData (god-function) → simplificado a editable=true; el gate real está en la API
+     *   - agrega scope por companyId (el legacy sólo filtraba outletId)
+     *
+     * El campo 'orders' queda en 6 (legacy hardcoded; el conteo real era demasiado lento).
+     */
+    public function listTables(string $companyId, string $outletId): array
+    {
+        global $db;
+        $result = $db->Execute(
+            'SELECT transactionName, transactionId, transactionDate, transactionStatus,
+                    transactionNote, transactionParentId, userId
+             FROM transaction
+             WHERE transactionType = ?
+               AND transactionName IS NOT NULL
+               AND transactionName != \'\'
+               AND transactionName != \'0\'
+               AND outletId = ?
+               AND companyId = ?
+             LIMIT 150',
+            [self::TYPE_TABLE, $outletId, $companyId]
+        );
+        $tables = [];
+        if ($result) {
+            while (!$result->EOF) {
+                $f = $result->fields;
+                $tables[(string) $f['transactionName']] = [
+                    'id'       => (string) ($f['transactionId'] ?? ''),
+                    'no'       => $f['transactionName'],
+                    'since'    => $f['transactionDate'],
+                    'status'   => (int) $f['transactionStatus'],
+                    'note'     => (string) ($f['transactionNote'] ?? ''),
+                    'userId'   => (string) ($f['userId'] ?? ''),
+                    'orders'   => 6,
+                    'editable' => true,
+                    'joined'   => $f['transactionParentId'] ? 1 : 0,
+                ];
+                $result->MoveNext();
+            }
+            $result->Close();
+        }
+        return $tables;
+    }
+
+    /**
      * Cierra una mesa/espacio (closeTable, action.php L225). Tres operaciones:
      *   1. Borra la mesa abierta (type 11) que matchea $del según $kind.
      *   2. Borra mesas unidas (type 11 con transactionParentId = $del) — SÓLO kind='any'

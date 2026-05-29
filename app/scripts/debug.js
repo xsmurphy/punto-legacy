@@ -1371,7 +1371,7 @@ var ncmSpaces = {
     },
     view: ($container, callback) => {
 
-        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'tablesJson' });
+        var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({});
         ncmHttp.getit(url, function (data) {
             ncmSpaces.cache = data;
             var grid = ncmSpaces.builder();
