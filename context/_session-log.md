@@ -3,6 +3,12 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-28 (cierre) — Vendoreo npm de /app, Fase A (commit 2bac879)
+
+- **Hecho**: `scripts/vendor-sync.sh` + `npm run vendor` (corre en `build.sh`) — 11 libs JS ahora se sourcean desde `node_modules` (fuente de verdad): jquery, moment, ismobilejs, mousetrap, jquery.actual, lz-string, chart.js, sweetalert2, mustache, leaflet, qrious. Verificadas **byte-idénticas** al `.min` ya commiteado → cero cambio en lo servido, cero riesgo.
+- **Diagnóstico previo**: el vendoreo estaba en modelo híbrido roto — `assets/vendor/js/*` son copias manuales commiteadas y `package.json`/`node_modules` existían pero NO alimentaban el bundle (filesCompiler/build concatenan los archivos del repo, no node_modules). Documentado en `06-infraestructura.md § Vendoreo`.
+- **Pendiente — Fase B** (decisión del usuario, NO arrancada): agregar a npm las ~10 libs que están en npm pero siguen como copia manual (bootstrap, pouchdb, datatables.net, fastclick, push.js, leaflet-routing-machine, google-libphonenumber, fingerprintjs, datetimepicker, offline-js). Friccionada: instalar + comparar; muchas probablemente difieran del `.min` commiteado → quedarían manuales igual (sólo ganan pin de versión). **Manual permanente** (sin npm limpio): chosen, jquery.{number,geolocation,toast,fullscreen}, simpleStorage, rsvp, jsrsasign, qz-tray, moment-locale-es.
+
 ## 2026-05-28 (tarde/noche) — Desacople /app: 15 slices + fix crítico de ventas (commits 866052b..53ccd6e)
 
 - **Hecho (slices 6-20):** migrados ~24 handlers de `action.php` a BFF→API→Service. Servicios nuevos en `api/lib/services/`: Transaction, Order (accept/transfer/assignUser), Sync, Register, Table.closeTable, Currency, Attendance, Notification, VPayment (money path, port fiel de add_vpayment), ElectronicInvoice, GiftCard, OrderItems, + Schedule extendido. Clusters **ENCOM→Punto** (attendance/notifications/vpayments — "ENCOM" es el nombre viejo del sistema, no dead code) y **meta-JSONB** (8 handlers) COMPLETOS. Front (globalv2.js + debug.js) repuntado a `/bff/*`.
