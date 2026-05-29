@@ -20212,29 +20212,39 @@ var ncmCustomer = {
         $('#modalEmpty .imodal-body').html('');//vacio
         $('#modalEmpty').imodal('show');//muestro y luego cargo data
 
-        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'customerRecord', id: id });
+        var url = masterUrl + 'bff/customers?l=' + ncmHttp.masterUrlParams({ action: 'customerRecord', id: id });
 
-        //reseteo el href para que sea compatible con versión anterior
+        ncmHttp.getit(url, function (result) {
+            if (!ncmHelpers.validity(result)) { return; }
 
-        ncmHttp.loadPage({
-            page: url,
-            container: '#modalEmpty .imodal-body',
-            hideloader: true,
-            callback: function (data) {
+            ncmUIX.mustache($('#modalEmpty .imodal-body'), result, $('#customerRecordTpl'));
 
-                switchit();
-                ncmEvents.a();
+            switchit();
+            ncmEvents.a();
 
-                ncmDatePicker.input({
-                    element: 'input.datePicker',
-                    showClear: true,
-                    startEmpty: true,
-                    position: {
-                        horizontal: 'right'
-                    }
+            ncmDatePicker.input({
+                element: 'input.datePicker',
+                showClear: true,
+                startEmpty: true,
+                position: {
+                    horizontal: 'right'
+                }
+            });
+
+            // Uploaders Dropbox para los campos de tipo imagen.
+            if (ncmGlobals.settings[0].dropbox) {
+                $('#modalEmpty .customerRecordImage').each(function (i) {
+                    var cls = 'customerRecordImage' + i;
+                    $(this).addClass(cls);
+                    ncmDropbox({
+                        loadEl: '.' + cls,
+                        listEl: '.' + cls,
+                        token: ncmGlobals.settings[0].dropbox,
+                        folder: $(this).attr('data-dropbox-folder')
+                    });
                 });
             }
-        });
+        }, false, true, 'json');
     },
     recordsEdit: function (cId) {
         var array = [];

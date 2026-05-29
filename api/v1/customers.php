@@ -27,4 +27,12 @@ if ($method === 'GET' && $resource === 'info') {
     apiOk($svc->getInfo($companyId, $rawId) ?? []);
 }
 
+if ($method === 'GET' && $resource === 'records') {
+    $encId = trim((string) ($_GET['id'] ?? ''));
+    if ($encId === '') {
+        apiError('Falta id', 422);
+    }
+    apiOk($svc->getRecords($companyId, $encId));
+}
+
 apiError('Operación no reconocida', 400);

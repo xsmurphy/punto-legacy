@@ -2972,6 +2972,154 @@
       </div>
   </script>
 
+  <script id="customerRecordTpl" type="text/html">
+    <a href="#" class="thumb-md">
+      <img src="/assets/150-150/0/{{companyLogo}}.jpg" class="img-circle">
+    </a>
+
+    <div class="text-center m-t">Fichas de</div>
+    <div class="h2 font-bold">{{customerName}}</div>
+    <div class="text-center m-b">{{today}}</div>
+
+    <section class="col-xs-12 text-left wrapper b no-bg m-b r-3x">
+      <span class="col-xs-12 no-padder text-dark font-bold text-u-c m-b">Datos personales</span>
+      {{#personal}}
+        {{#ci}}<div class="col-xs-4 m-b"><div class="font-bold">Documento Nro.</div>{{ci}}</div>{{/ci}}
+        {{#gender}}<div class="col-xs-4 m-b"><div class="font-bold">Sexo</div>{{gender}}</div>{{/gender}}
+        {{#age}}<div class="col-xs-4 m-b"><div class="font-bold">Edad</div>{{age}}</div>{{/age}}
+        {{#bDay}}<div class="col-xs-4 m-b"><div class="font-bold">Fecha de Nacimiento</div>{{bDay}}</div>{{/bDay}}
+        {{#phone}}<div class="col-xs-4 m-b"><div class="font-bold">Teléfono</div>{{phone}}</div>{{/phone}}
+        {{#email}}<div class="col-xs-4 m-b"><div class="font-bold">Email</div>{{email}}</div>{{/email}}
+        {{#countryName}}<div class="col-xs-4 m-b"><div class="font-bold">País</div>{{countryName}}</div>{{/countryName}}
+        {{#city}}<div class="col-xs-4 m-b"><div class="font-bold">Ciudad</div>{{city}}</div>{{/city}}
+        {{#location}}<div class="col-xs-4 m-b"><div class="font-bold">Localidad</div>{{location}}</div>{{/location}}
+        {{#address}}<div class="col-xs-6 m-b"><div class="font-bold">Dirección</div>{{address}}</div>{{/address}}
+      {{/personal}}
+    </section>
+
+    {{#hasRecords}}
+      {{#records}}
+      <section class="col-xs-12 no-padder text-left b no-bg m-b r-3x pagebreak">
+        <div class="col-xs-12 no-padder hidden-print">
+          <span id="name{{id}}" class="text-dark font-bold text-u-c pull-left wrapper">{{name}}</span>
+          <a href="#" data-type="toggleView" data-target="#collapse{{id}}" class="wrapper clickeable pull-right">
+            <i class="material-icons">keyboard_arrow_down</i>
+          </a>
+        </div>
+        <div class="col-xs-12 no-padder" id="collapse{{id}}" style="display:none;">
+          <div class="col-xs-12 wrapper font-bold text-u-c visible-print">{{name}}</div>
+          <div class="col-xs-12 no-padder" id="options{{id}}">
+            {{#fields}}
+              {{#isText}}
+              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                <div class="col-sm-5 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
+                <div class="col-sm-7 col-xs-12 hidden-print">
+                  <input type="text" class="form-control no-bg no-border b-b customerRecordValue" name="" value="{{value}}" id="{{id}}">
+                </div>
+              </div>
+              <div class="col-xs-4 m-b-sm visible-print">
+                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
+                {{value}}
+              </div>
+              {{/isText}}
+
+              {{#isLong}}
+              <div class="col-xs-12 wrapper text-left">
+                <div class="col-xs-4 no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
+                <div class="col-xs-8 text-right hidden-print">
+                  <div class="btn-group">
+                    <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="heading" data-tag="h4"><i class="material-icons">title</i></a>
+                    <a href="#" class="clickeable btn hidden" data-type="wysiwyg" data-role="insertUnorderedList"><i class="material-icons">list</i></a>
+                    <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="bold"><i class="material-icons">format_bold</i></a>
+                    <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="italic"><i class="material-icons">format_italic</i></a>
+                    <a href="#" class="clickeable btn" data-type="wysiwyg" data-role="underline"><i class="material-icons">format_underlined</i></a>
+                  </div>
+                </div>
+                <div class="b-b col-xs-12 wrapper customerRecordValue contenteditable" id="{{id}}" contenteditable>{{{valueHtml}}}</div>
+              </div>
+              {{/isLong}}
+
+              {{#isNumber}}
+              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                <div class="col-sm-7 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
+                <div class="col-sm-5 col-xs-12 hidden-print">
+                  <input type="tel" pattern="\d*" class="form-control no-bg no-border b-b customerRecordValue text-right" name="" value="{{value}}" id="{{id}}" autocomplete="off">
+                </div>
+              </div>
+              <div class="col-xs-4 m-b-sm visible-print">
+                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
+                {{value}}
+              </div>
+              {{/isNumber}}
+
+              {{#isSwitch}}
+              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                <div class="col-sm-8 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
+                <div class="col-sm-4 col-xs-12 text-right hidden-print">
+                  <div class="switch-select switch {{#switchOn}}selected{{/switchOn}} customerRecordValue" id="{{id}}">
+                    <div class="swinner">
+                      <input type="checkbox" name="{{id}}" class="{{id}}Class" value="1" {{#switchOn}}checked{{/switchOn}} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-xs-4 m-b-sm visible-print">
+                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
+                {{#switchOn}}✓{{/switchOn}}
+              </div>
+              {{/isSwitch}}
+
+              {{#isDate}}
+              <div class="col-xs-12 col-sm-6 wrapper hidden-print">
+                <div class="col-sm-6 col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
+                <div class="col-sm-6 col-xs-12 hidden-print">
+                  <div class="bg-light no-bg">
+                    <input type="text" id="{{id}}" class="form-control no-bg datePicker pointer customerRecordValue no-border b-b b-light">
+                  </div>
+                </div>
+              </div>
+              <div class="col-xs-4 m-b-sm visible-print">
+                <div class="col-xs-12 no-padder font-bold">{{name}}</div>
+                {{valueDate}}
+              </div>
+              {{/isDate}}
+
+              {{#isImage}}
+              <div class="col-xs-12 wrapper">
+                <div class="col-xs-12 m-t-sm no-padder font-bold">{{#hasProgress}}<span class="material-icons text-info">show_chart</span>{{/hasProgress}} {{name}}</div>
+                <div class="col-xs-12 wrapper r-3x customerRecordImage" data-dropbox-folder="{{imageFolder}}"></div>
+              </div>
+              {{/isImage}}
+
+              {{#isTitle}}
+              <div class="col-xs-12 wrapper">
+                <div class="col-xs-12 h4 m-t-sm no-padder font-bold">{{name}}</div>
+              </div>
+              {{/isTitle}}
+
+              <input type="hidden" id="progress{{id}}" value="{{progress}}">
+            {{/fields}}
+          </div>
+        </div>
+      </section>
+      {{/records}}
+
+      <div class="col-xs-12 no-padder m-t hidden-print">
+        <a href="#" class="m-t pull-left clickeable" data-type="printPage">Imprimir</a>
+        <a href="#" class="btn btn-info btn-rounded btn-lg text-u-c font-bold clickeable pull-right" data-type="modifyCustomerRecord" data-id="{{cId}}">Guardar</a>
+      </div>
+    {{/hasRecords}}
+    {{^hasRecords}}
+      <div class="text-center col-xs-12 wrapper noDataMessage">
+        <img src="/assets/images/emptystate7.png" height="120">
+        <h2 class="font-bold">No ha creado fichas</h2>
+        <div class="text-muted m-t">
+          <p>Puede crear fichas personalizadas en la sección Contactos del Panel de Control</p>
+        </div>
+      </div>
+    {{/hasRecords}}
+  </script>
+
   <script id="ordersMapTooltipTpl" type="text/html">
     <div class="text-dark text-left text-sm" style="min-width:200px;max-width:300px;font-family:'Source Sans Pro';">
      <div class="h3 font-bold m-b-sm m-n"> 

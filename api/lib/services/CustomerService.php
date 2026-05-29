@@ -184,6 +184,116 @@ class CustomerService
         ];
     }
 
+    /**
+     * customerRecord (load.php L1430): fichas personalizadas del cliente.
+     *
+     * Devuelve datos ESTRUCTURADOS (el front renderiza con #customerRecordTpl); el
+     * legacy renderizaba HTML server-side. Cada campo trae flags por tipo (isText…isTitle)
+     * para las secciones del template logic-less (Mustache). valueHtml = markup→HTML
+     * para texto largo (type 1); valueDate = niceDate para la vista de impresión (type 4).
+     *
+     * Fija el SQL injection del legacy: getValue() concatenaba cRecordFieldId/customerId
+     * en el WHERE → acá se usan queries parametrizadas. Scope companyId en customerRecord.
+     *
+     * @return array  Shape para #customerRecordTpl (records vacío si no hay fichas).
+     */
+    public function getRecords(string $companyId, string $encId): array
+    {
+        $customerId = dec($encId);
+        $customer   = getContactData($customerId, 'uid');
+
+        $recRs = ncmExecute(
+            'SELECT * FROM customerRecord WHERE companyId = ? ORDER BY customerRecordSort ASC LIMIT 10000',
+            [$companyId],
+            false,
+            true
+        );
+
+        $records = [];
+        if ($recRs) {
+            while (!$recRs->EOF) {
+                $r        = $recRs->fields;
+                $recordId = $r['customerRecordId'];
+
+                $fieldRs = ncmExecute(
+                    'SELECT * FROM cRecordField WHERE customerRecordId = ? ORDER BY cRecordFieldSort ASC',
+                    [$recordId],
+                    false,
+                    true
+                );
+
+                $fields = [];
+                if ($fieldRs) {
+                    while (!$fieldRs->EOF) {
+                        $fld   = $fieldRs->fields;
+                        $fId   = $fld['cRecordFieldId'];
+                        $fType = (int) $fld['cRecordFieldType'];
+
+                        // Último valor del campo para este cliente (parametrizado).
+                        $valRow = ncmExecute(
+                            'SELECT cRecordValueName FROM cRecordValue
+                              WHERE cRecordFieldId = ? AND customerId = ?
+                              ORDER BY cRecordValueDate DESC LIMIT 1',
+                            [$fId, $customerId]
+                        );
+                        $value = $valRow ? (string) $valRow['cRecordValueName'] : '';
+                        $value = html_entity_decode(str_replace(['<!--', '-->'], '', $value));
+
+                        $encFId = enc($fId);
+                        $fields[] = [
+                            'id'          => $encFId,
+                            'name'        => $fld['cRecordFieldName'],
+                            'type'        => $fType,
+                            'progress'    => $fld['cRecordFieldProgress'],
+                            'hasProgress' => (bool) $fld['cRecordFieldProgress'],
+                            'value'       => $value,
+                            'valueHtml'   => ($fType === 1) ? markupt2HTML(['text' => $value, 'type' => 'MtH']) : '',
+                            'valueDate'   => ($fType === 4) ? niceDate($value, false, false, true, true) : '',
+                            'switchOn'    => ($value > 0),
+                            'imageFolder' => ($fType === 5) ? ('/customer/' . $encId . '/records/' . $encFId) : '',
+                            'isText'      => $fType === 0,
+                            'isLong'      => $fType === 1,
+                            'isNumber'    => $fType === 2,
+                            'isSwitch'    => $fType === 3,
+                            'isDate'      => $fType === 4,
+                            'isImage'     => $fType === 5,
+                            'isTitle'     => $fType === 6,
+                        ];
+                        $fieldRs->MoveNext();
+                    }
+                }
+
+                $records[] = [
+                    'id'     => enc($recordId),
+                    'name'   => $r['customerRecordName'],
+                    'fields' => $fields,
+                ];
+                $recRs->MoveNext();
+            }
+        }
+
+        return [
+            'cId'          => $encId,
+            'customerName' => getCustomerName($customer),
+            'companyLogo'  => enc($companyId),
+            'today'        => niceDate(TODAY, false, false, false, true),
+            'personal'     => [
+                'ci'          => $customer['ci'] ?? '',
+                'gender'      => $customer['gender'] ?? '',
+                'age'         => $customer['age'] ?? '',
+                'bDay'        => $customer['bDay'] ?? '',
+                'phone'       => $customer['phone'] ?? '',
+                'email'       => $customer['email'] ?? '',
+                'countryName' => $customer['countryName'] ?? '',
+                'city'        => $customer['city'] ?? '',
+                'location'    => $customer['location'] ?? '',
+                'address'     => $customer['address'] ?? '',
+            ],
+            'hasRecords'   => !empty($records),
+            'records'      => $records,
+        ];
+    }
+
     // --- internos -----------------------------------------------------------
 
     /**

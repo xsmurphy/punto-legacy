@@ -25,4 +25,13 @@ if ($action === 'customerInfo') {
     bffJson($res['data']);
 }
 
+if ($action === 'customerRecord') {
+    $res = bffApiGet('v1/customers.php', [
+        'resource' => 'records',
+        'id'       => (string) ($get['id'] ?? ''),
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson($res['data']);
+}
+
 bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
