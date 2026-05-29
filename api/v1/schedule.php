@@ -40,6 +40,16 @@ if ($method === 'POST' && $resource === 'occupied') {
     ));
 }
 
+// --- GET ?resource=sessions: lista de paquetes de sesiones de un cliente (Slice 30)
+if ($method === 'GET' && $resource === 'sessions') {
+    $encCid = trim((string) ($_GET['customerId'] ?? ''));
+    if ($encCid === '') {
+        apiError('Falta customerId', 422);
+    }
+    $date = trim((string) ($_GET['date'] ?? '')) ?: null;
+    apiOk($svc->getSessionsList($companyId, $encCid, $date));
+}
+
 $transId = trim((string) ($_GET['id'] ?? ''));
 if ($transId === '') {
     apiError('Falta id', 422);

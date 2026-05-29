@@ -181,4 +181,95 @@ class ScheduleService
 
         return array_values(array_unique($dUsers));
     }
+
+    /**
+     * sessionsList (load.php L2262): paquetes de sesiones comprados por un cliente
+     * (items con itemSessions > 0) y sus sesiones agendadas (type 13, packageId).
+     *
+     * Read-only. Fija el SQL injection del legacy (customerId/companyId/dates
+     * concatenados). El limit que envía buildList se ignora — el legacy no aplicaba
+     * LIMIT a la query principal (sólo LIMIT 50 al sub-query de sesiones).
+     *
+     * Retorna { date, listName?, transactionsList[] } — compatible con
+     * #transactionsListTpl. `dataList` es el JSON de sesiones por paquete.
+     */
+    public function getSessionsList(string $companyId, string $encCustomerId, ?string $date): array
+    {
+        global $db, $dec, $ts;
+
+        $customerId = dec($encCustomerId);
+
+        $where  = 'a.customerId = ? AND a.companyId = ?';
+        $params = [$customerId, $companyId];
+        if ($date) {
+            $where   .= ' AND a.fromDate > ? AND a.toDate < ?';
+            $params[] = $date . ' 00:00:00';
+            $params[] = $date . ' 23:59:59';
+        }
+
+        $rs = $db->Execute(
+            'SELECT a.transactionId, a.invoicePrefix, a.invoiceNo, b.itemSoldId, b.itemSoldDate, c.itemName, c.itemPrice
+               FROM transaction a, itemSold b, item c
+              WHERE ' . $where . '
+                AND a.transactionId = b.transactionId
+                AND b.itemId = c.itemId
+                AND c.itemSessions > 0
+              ORDER BY b.itemSoldDate DESC',
+            $params
+        );
+
+        $out = ['date' => $date, 'transactionsList' => []];
+
+        if ($rs && !$rs->EOF) {
+            $cusData         = getContactData($customerId, 'uid');
+            $out['listName'] = 'Sesiones de ' . toUTF8(iftn($cusData['secondName'], $cusData['name']));
+
+            while (!$rs->EOF) {
+                $f          = $rs->fields;
+                $itemSoldId = (string) $f['itemSoldId'];
+
+                // Sub-query de sesiones agendadas para este paquete (type 13).
+                $sessions = [];
+                $sRs      = $db->Execute(
+                    'SELECT * FROM transaction
+                      WHERE transactionType = 13 AND customerId = ? AND companyId = ? AND packageId = ?
+                      LIMIT 50',
+                    [$customerId, $companyId, $itemSoldId]
+                );
+                if ($sRs && !$sRs->EOF) {
+                    while (!$sRs->EOF) {
+                        $sf = $sRs->fields;
+                        [$dateS, $startH, $endH] = dateStartEndTime($sf['fromDate'], $sf['toDate']);
+                        $sessions[] = [
+                            'id'         => enc($sf['transactionId']),
+                            'status'     => $sf['transactionStatus'],
+                            'startH'     => counts($startH) > 2 ? $startH : '',
+                            'endH'       => counts($endH) > 2 ? $endH : '',
+                            'date'       => $dateS,
+                            'userId'     => enc($sf['userId']),
+                            'customerId' => enc($sf['customerId']),
+                            'session'    => $sf['invoiceNo'],
+                            'prefix'     => $sf['invoicePrefix'],
+                        ];
+                        $sRs->MoveNext();
+                    }
+                }
+
+                $out['transactionsList'][] = [
+                    'id'        => enc($f['transactionId']),
+                    'title'     => $f['itemName'],
+                    'date'      => niceDate($f['itemSoldDate']),
+                    'docNumber' => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    'amount'    => formatCurrentNumber($f['itemPrice'], $dec, $ts),
+                    'label'     => '<span class="label bg-primary text-xs">Sesiones</span>',
+                    'type'      => 13,
+                    'dataList'  => json_encode($sessions),
+                ];
+
+                $rs->MoveNext();
+            }
+        }
+
+        return $out;
+    }
 }

@@ -29,6 +29,17 @@ if ($action === 'checkIfUserOccupied') {
     bffJson(($res['ok'] && is_array($res['data'])) ? $res['data'] : []);
 }
 
+// load.php → sessionsList (Slice 30): lista de paquetes de sesiones, objeto plano.
+if ($action === 'sessionsList') {
+    $res = bffApiGet('v1/schedule.php', [
+        'resource'   => 'sessions',
+        'customerId' => (string) ($get['customerId'] ?? ''),
+        'date'       => (string) ($get['date'] ?? ''),
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson($res['data']);
+}
+
 // transId viene como `id` (la mayoría) o `lock` (unlockCalendar).
 $transId = (string) ($get['id'] ?? $get['lock'] ?? '');
 
