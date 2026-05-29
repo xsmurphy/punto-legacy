@@ -12253,7 +12253,7 @@ var ncmTransactions = {
                                 }
                                 ncmTransactions.cdc = "";
 
-                                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'consultStatusElectronicInvoice' });
+                                var url = masterUrl + 'bff/electronic_invoice?l=' + ncmHttp.masterUrlParams({ action: 'consultStatusElectronicInvoice' });
                                 try {
                                     await ncmHttp.get({
                                         url: url, onSuccess: function (data) {
