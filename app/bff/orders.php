@@ -5,9 +5,7 @@
  * Reemplaza el dispatch de action.php:
  *   acceptOrder          (L1286) — aceptar una orden (status 2 + notificaciones)
  *   transferOrderToOutlet (L575) — mover una orden a otro outlet
- *
- * setUserToOrder (L1354) se difirió: escribe transactionDetails (meta jsonb). Va al
- * slice dedicado de meta-JSONB.
+ *   setUserToOrder       (L1354) — asignar usuario (escribe transactionDetails en meta jsonb)
  *
  * NO toca BD. Decodifica el sobre `?l=`, mapea a la op correspondiente, reenvía a
  * /api/v1/orders.php (con cookie _jwt) y devuelve el shape legacy { success:"true" }.
@@ -33,6 +31,14 @@ switch ($action) {
             'v1/orders.php',
             ['id' => (string) ($get['orderId'] ?? ''), 'resource' => 'outlet'],
             ['outletId' => (string) ($get['outletFromId'] ?? '')],
+            '_jwt'
+        );
+        break;
+    case 'setUserToOrder': // PUT ?id=&resource=user { userId }
+        $res = bffApiPut(
+            'v1/orders.php',
+            ['id' => (string) ($get['id'] ?? ''), 'resource' => 'user'],
+            ['userId' => (string) ($get['uid'] ?? '')],
             '_jwt'
         );
         break;

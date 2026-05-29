@@ -4,9 +4,7 @@
  *
  *   PUT ?id=<txId>&resource=accept              → acepta orden (status 2) + notifica cliente
  *   PUT ?id=<txId>&resource=outlet { outletId }  → mueve la orden a otro outlet
- *
- * NOTA — setUserToOrder se difirió: escribe transactionDetails, que en PG vive en `meta`
- * (jsonb). Va al slice dedicado de meta-JSONB. Ver OrderService.
+ *   PUT ?id=<txId>&resource=user   { userId }    → asigna usuario (mozo) + push
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7) — accept/transfer
  * son transiciones de estado → PUT con ?resource=.
@@ -119,6 +117,39 @@ if ($resource === 'outlet') {
     }
 
     apiOk(['transferred' => true]);
+}
+
+// --- assignUser (PUT ?resource=user) --------------------------------------
+if ($resource === 'user') {
+    $transactionId = trim((string) ($_GET['id'] ?? ''));
+    $assignUserId  = trim((string) ($_POST['userId'] ?? ''));
+    if ($transactionId === '' || $assignUserId === '') {
+        apiError('Faltan campos requeridos (id, userId)', 422);
+    }
+
+    $result = $svc->assignUser($transactionId, $companyId, $assignUserId);
+    if (!$result['ok']) {
+        apiError('No se pudo asignar el usuario a la orden', 500);
+    }
+
+    // Push best-effort al usuario asignado.
+    try {
+        updateLastTimeEdit($companyId, 'order');
+        sendPush([
+            'ids'     => $companyId,
+            'message' => 'La orden # ' . ($result['invoiceNo'] ?? '') . ' le fue asignada',
+            'title'   => defined('COMPANY_NAME') ? COMPANY_NAME : 'Punto',
+            'where'   => 'caja',
+            'filters' => [
+                ['key' => 'userId',     'value' => $assignUserId],
+                ['key' => 'isResource', 'value' => 'true'],
+            ],
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[orders.assignUser] push falló (ignorado): ' . $e->getMessage());
+    }
+
+    apiOk(['assigned' => true]);
 }
 
 apiError('Operación no reconocida', 400);

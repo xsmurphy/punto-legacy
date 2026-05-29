@@ -21341,7 +21341,7 @@ var ncmUser = {
                     } else if (ncmOrders.panel.addUserToOrder) {
                         var orderId = ncmOrders.panel.addUserToOrder;
 
-                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'setUserToOrder', id: orderId, uid: id });
+                        var url = masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'setUserToOrder', id: orderId, uid: id });
 
                         ncmHttp.get({
                             url: url,
