@@ -21,6 +21,29 @@ Antes de cualquier trabajo, leer `context/README.md` para el índice y luego los
 | 10 | [context/10-roadmap.md](context/10-roadmap.md) | **Crítico** — backlog priorizado, fuente única de verdad del roadmap |
 | 11 | [context/11-design-system.md](context/11-design-system.md) | Manual de marca — reutilizar clases/colores existentes (BS3+app.css); skill `brand-manual`. Nunca inventar estilos ni rediseñar |
 
+## Reglas del proyecto (críticas)
+
+1. **Templating: Alpine.js, NO Mustache.js.** Todo template/UI nuevo se hace con
+   Alpine (`x-data`/`x-for`/`x-if`/`x-text`/`x-html`). Está PROHIBIDO crear nuevos
+   templates Mustache (`<script type="text/html">` + `Mustache.render`/`ncmUIX.mustache`).
+   Mustache sigue cargado solo porque quedan ~22 templates legacy en `/app`; se migran
+   a Alpine de forma incremental. Patrón de integración Alpine: ver `context/08-convenciones.md` §24.
+
+2. **Marca: "Punto", NO "ENCOM".** "ENCOM" es el nombre viejo del sistema; el actual es
+   "Punto". No introducir "ENCOM" en código, UI, nombres ni datos nuevos. Renombrar las
+   ocurrencias existentes a "Punto" cuando se toque el código, con cuidado por categoría:
+   el nombre de BD (`encomdb`), las claves de permisos en BD (`permissions.encom.*`) y los
+   archivos de imagen (`encom_app.png`) requieren coordinación de infra/datos (no es un
+   find-replace ciego). Ver el cluster ENCOM→Punto en `context/10-roadmap.md`.
+
+3. **No hardcodear dominios/URLs.** Ningún dominio (`*.encom.app`, `*.punto.app`, etc.) debe
+   estar hardcodeado en el código — deben venir de config/env (`simple.config.php` →
+   `$_ENV[...]`: `APP_URL`, `API_URL`, `PUBLIC_URL`, `POS_URL`, `WS_URL`, …). Así el rename
+   de marca (ENCOM→Punto) en dominios es solo cambiar un valor de env, no editar código.
+   Hoy quedan dominios hardcodeados (cors.php allowlists, páginas `*.shtml`, `manifest.json`,
+   `.htaccess`) — centralizarlos es deuda registrada en `context/10-roadmap.md`. CORS es
+   security-sensitive: cualquier cambio debe preservar la allowlist actual como fallback.
+
 ## Mantenimiento del vault
 
 Al terminar cualquier sesión con cambios significativos, actualizar el archivo correspondiente del vault.
