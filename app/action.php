@@ -2118,7 +2118,15 @@ if ($action) {
         $record['transactionTotal']       = flipOnReturn($data['type'], $totalAmount); //total sale amount
         $record['transactionUnitsSold']   = flipOnReturn($data['type'], $totalUnits);
 
-        $record['transactionDetails']     = json_encode($saleDetail);
+        // transactionDetails y tags se movieron a la columna meta (jsonb) en la migración PG
+        // (ya no son columnas). Se guardan como JSON-strings dentro de meta → _flattenJsonb
+        // los re-expone y los json_decode($row['transactionDetails']) de las lecturas siguen
+        // funcionando (ver §22.6). Sin esto el INSERT falla: "column transactiondetails does
+        // not exist" → el guardado de ventas estaba ROTO post-migración.
+        $record['meta']                   = json_encode([
+            'transactionDetails' => json_encode($saleDetail),
+            'tags'               => $data['tags'],
+        ]);
         $record['transactionPaymentType'] = json_encode($data['payment']);
 
         $record['transactionParentId']    = $saleParentId;
@@ -2132,7 +2140,7 @@ if ($action) {
         $record['transactionName']        = iftn(array_key_exists("ident", $data) ? $data['ident'] : null, null, strip_tags(array_key_exists("ident", $data) ? $data['ident'] : ""));
         $record['transactionNote']        = isset($data['note']) ? strip_tags($data['note']) : null;
         $record['invoiceNo']              = iftn($data['invoiceno'] ?? null, null);
-        $record['tags']                   = $data['tags'];
+        // tags → meta (ver arriba, junto a transactionDetails); ya no es columna.
         $record['timestamp']              = $data['timestamp'];
         $record['transactionUID']         = $data['uid'];
         $record['transactionCurrency']    = iftn($data['currency'], null);
@@ -2499,7 +2507,8 @@ if ($action) {
               $recurring['recurringEndDate']          = $endRec;
               $recurring['recurringFrecuency']        = $data['repeatF'];
               $recurring['recurringStatus']           = 1;
-              $recurring['recurringSaleData']         = json_encode($data);
+              // recurringSaleData se demotó a la columna data (jsonb) en la migración PG.
+              $recurring['data']                      = json_encode(['recurringSaleData' => json_encode($data)]);
               $recurring['recurringTransactionData']  = $transData;
               $recurring['companyId']                 = COMPANY_ID;
 
