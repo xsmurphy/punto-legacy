@@ -85,11 +85,13 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/lib/response.php` | `apiOk()` / `apiError()` — envelope canónico |
 | `api/lib/services/CustomerAddressService.php` | CRUD de direcciones de cliente |
 | `api/lib/services/TableService.php` | rename / unreserve / assignUser / closeTable / **listTables** de mesas |
+| `api/lib/services/OrderService.php` | accept / transferToOutlet / assignUser / **customerHasOpenOrders** (slice 23 — bool, type 12 status!=4, parametrizado, multi-tenant) |
 | `api/lib/services/RegisterService.php` | setSession (slice 10) / **docNumbers** (slice 22 — 7 contadores de doc por registro, bug PG de UUID sin comillas corregido) |
 | `api/lib/services/ScheduleService.php` | rescheduleTo / unlock de agendamientos |
 | `api/lib/services/CustomerNoteService.php` | add de notas de cliente |
 | `api/v1/customer_address.php` | Endpoint CRUD customerAddress (slice 1) |
 | `api/v1/tables.php` | Endpoint mesas (slices 2–3, 21) |
+| `api/v1/orders.php` | Endpoint órdenes: GET `?resource=customerHasOrders&customerId=<id>` → bool (slice 23) |
 | `api/v1/schedule.php` | Endpoint agendamientos (slice 4) |
 | `api/v1/customer_note.php` | Endpoint notas de cliente (slice 5) |
 | `api/v1/register.php` | Endpoint de registro: GET sin acción → docNumbers (slice 22); POST setSession (slice 10) |
