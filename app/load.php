@@ -3779,47 +3779,6 @@ if (!empty($load)) {
     echo curlContents(API_ENCOM_URL . '/get_tin?id=' . $get['id'] . '&country=' . $get['country'],'POST',['company_id'=>enc(COMPANY_ID),'api_key'=>API_KEY]);
   }
 
-  if($load == 'chkInvoiceNo' && $get['no']){
-    $no       = $get['no'];
-    $from     = date('Y-m-d 00:00:00',strtotime('-30 days'));
-    $result   = ncmExecute('SELECT transactionId FROM transaction WHERE companyId = ? AND registerId = ? AND transactionType IN(0,3) AND invoiceNo = ? AND transactionDate BETWEEN "' . $from . '" AND "' . TODAY_END . '" LIMIT 1',[COMPANY_ID,REGISTER_ID,$no]);
-
-    if($result){
-      echo '1';
-    }else{
-      echo '0';
-    }
-
-    dai();
-  }
-
-  if($load == 'docsNum'){
-
-    $register = ncmExecute("SELECT * FROM register WHERE registerStatus = 1 AND registerId = ? AND companyId = ? LIMIT 1", [dec($get['id']),COMPANY_ID]);
-
-    $docsNumArray   = [];
-
-    if($register){
-      $invoiceNo  = $register['registerInvoiceNumber'];
-      $returnNo   = getNextDocNumber($register['registerReturnNumber'],'6',COMPANY_ID,$register['registerId']);
-      $scheduleNo = getNextDocNumber($register['registerScheduleNumber'],'13',COMPANY_ID,$register['registerId']);
-      $pedidoNo   = getNextDocNumber($register['registerPedidoNumber'],'12',COMPANY_ID,$register['registerId']);
-      $quoteNo    = getNextDocNumber($register['registerQuoteNumber'],'9',COMPANY_ID,$register['registerId']);
-
-      $docsNumArray = [
-                          'registerId'              => enc($register['registerId']),
-                          'invoiceNo'               => iftn($invoiceNo,0),
-                          'ticketNo'                => iftn($register['registerTicketNumber'],0),
-                          'returnNo'                => iftn($returnNo,0),
-                          'scheduleNo'              => iftn($scheduleNo,0),
-                          'orderNo'                 => iftn($pedidoNo,0),
-                          'quoteNo'                 => iftn($quoteNo,0)
-                        ];
-    }
-
-    jsonDieResult($docsNumArray);
-  }
-
   checkExecTime($load);
 
   print_gzipped_page();

@@ -12378,14 +12378,11 @@ var ncmTransactions = {
         setTimeout(function () {
             console.log("Estoy obteniendo la numeracion del servidor");
             var rIndex = ncmTransactions.cRegisterIndex();
-            var id = window.appConfigObj[0].registerId;
-            ncmHttp.load({
-                params: { load: 'docsNum', id: id },
-                onSuccess: function (result) {
-                    console.log(result)
-                    window.docsNum[rIndex] = result;
-                }
-            });
+            var url = masterUrl + 'bff/register?l=' + ncmHttp.masterUrlParams({ action: 'docsNum' });
+            ncmHttp.getit(url, function (result) {
+                console.log(result)
+                window.docsNum[rIndex] = result;
+            }, null, false, 'json');
         }, 2000);
     },
     cRegisterIndex: function () {

@@ -34,4 +34,55 @@ class RegisterService
         );
         return $res !== false;
     }
+
+    /**
+     * Numeración de documentos de la caja (docsNum, load.php L3796).
+     *
+     * invoiceNo/ticketNo salen directo del contador guardado en la caja. Los demás
+     * (return, schedule, order, quote) usan nextDocNumber(): el mayor entre el contador
+     * guardado y el último invoiceNo realmente usado para ese tipo de documento.
+     *
+     * @return array shape legacy {registerId, invoiceNo, ticketNo, returnNo, scheduleNo, orderNo, quoteNo} o [] si la caja no existe.
+     */
+    public function docNumbers(string $registerId, string $companyId): array
+    {
+        $register = ncmExecute(
+            'SELECT * FROM register WHERE registerStatus = 1 AND registerId = ? AND companyId = ? LIMIT 1',
+            [$registerId, $companyId],
+            false
+        );
+        if (!$register) {
+            return [];
+        }
+
+        return [
+            'registerId' => $register['registerId'],
+            'invoiceNo'  => (int) ($register['registerInvoiceNumber'] ?? 0),
+            'ticketNo'   => (int) ($register['registerTicketNumber'] ?? 0),
+            'returnNo'   => $this->nextDocNumber((int) ($register['registerReturnNumber'] ?? 0), 6, $companyId, $registerId),
+            'scheduleNo' => $this->nextDocNumber((int) ($register['registerScheduleNumber'] ?? 0), 13, $companyId, $registerId),
+            'orderNo'    => $this->nextDocNumber((int) ($register['registerPedidoNumber'] ?? 0), 12, $companyId, $registerId),
+            'quoteNo'    => $this->nextDocNumber((int) ($register['registerQuoteNumber'] ?? 0), 9, $companyId, $registerId),
+        ];
+    }
+
+    /**
+     * Mayor entre el contador guardado en la caja y el último invoiceNo realmente usado
+     * para $type. Corrige el bug PG del legacy getNextDocNumber()/getValue(): interpolaban
+     * companyId (UUID) sin comillas en el WHERE → roto en PG. Acá va todo bindeado.
+     */
+    private function nextDocNumber(int $number, int $type, string $companyId, string $registerId): int
+    {
+        $row = ncmExecute(
+            'SELECT invoiceNo FROM transaction
+              WHERE companyId = ? AND registerId = ?
+                AND invoiceNo IS NOT NULL AND invoiceNo > 0
+                AND transactionType = ?
+              ORDER BY transactionDate DESC LIMIT 1',
+            [$companyId, $registerId, $type],
+            false
+        );
+        $lastUsed = $row ? (int) $row['invoiceNo'] : 0;
+        return $lastUsed > $number ? $lastUsed : $number;
+    }
 }
