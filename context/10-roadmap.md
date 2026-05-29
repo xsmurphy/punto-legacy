@@ -195,7 +195,7 @@ Tarea estructural diferida (ortogonal al desacople): reestructurar `/app` con me
 - Vendorear deps JS vía npm en vez de copias manuales.
 - Revisar nombres de archivos PHP de /app (action.php/load.php/fetch.php) una vez vaciados.
 
-**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21), `ScheduleService`, `CustomerNoteService`, `TransactionService`, `OrderService` (accept/transferToOutlet), `SyncService`, `RegisterService`, `CurrencyService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
+**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21), `ScheduleService`, `CustomerNoteService`, `TransactionService`, `OrderService` (accept/transferToOutlet), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
 
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
 
@@ -219,6 +219,8 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 `api/bootstrap.php` actualmente hace `chdir(/app)` y reutiliza los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. Esta dependencia de /app es transitoria; debe eliminarse antes de que /api pueda moverse a su propio server. La tarea: crear `/api/includes/` con los archivos mínimos (db, functions subset, jwt_middleware, response) independientes de /panel y /app.
 
 **Slice 21 COMPLETO — `tablesJson` de load.php (commit dd1dee1, 2026-05-29)**: `TableService::listTables(companyId, outletId)` — consulta mesas abiertas (type 11), retorna array keyed por `transactionName`. `api/v1/tables.php` GET sin acción → `apiOk($tables)`. `app/bff/tables.php` handler `action===''` → `bffApiGet`. `app/load.php`: eliminadas las 52 líneas del handler `tablesJson` (dead code con 4 bugs PG: VARCHAR/int, UUID intval, god-function, sin companyId scope). `globalv2.js` + `debug.js` repuntados a `bff/tables`.
+
+**Slice 22 COMPLETO — `docsNum` de load.php (commit 3d222b9, 2026-05-29)**: `RegisterService::docNumbers(registerId, companyId)` — retorna los 7 contadores de documento del registro (registerId, invoiceNo, ticketNo, returnNo, scheduleNo, orderNo, quoteNo). Bug PG corregido: el legacy `getNextDocNumber()`/`getValue()` en `app/includes/functions.php` interpolaba el `companyId` UUID sin comillas en el WHERE → siempre fallaba en PG; el nuevo código bindea todos los params. `api/v1/register.php` GET sin acción → `apiOk($svc->docNumbers(registerId, companyId))` (registerId del JWT). `app/bff/register.php` handler `action==='docsNum'` → `bffApiGet('v1/register.php')` → objeto plano (el front lo consume directamente sin wrap). `app/load.php`: eliminado handler `docsNum` + eliminado handler muerto `chkInvoiceNo` (sin callsites en todo el repo). `globalv2.js` + `debug.js`: `updateDocs` repuntado a `ncmHttp.getit(bff/register?l=<action:docsNum>, ..., 'json')`. `RegisterService` pasa a tener dos métodos: `setSession` (slice 10) + `docNumbers` (slice 22).
 
 **Slices pendientes**: ver "action.php — mapa de lo que queda" arriba (clusters meta-JSONB, ENCOM→Punto, mesa-merge, monstruos, HTML/especial, dead) + los concerns restantes de `load.php` (igualmente con rotura generalizada de `transactionDetails`→`meta`).
 
