@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-29 — Slice 31: agendaList migrado a BFF/API/ScheduleService (commit 74fed79)
+
+- **Hecho**: el handler `agendaList` de `app/load.php` (~189 líneas con SQL injection) extraído a `ScheduleService::getAgendaList(companyId, outletId, customerId, date, limit)`. Lista read-only de citas/turnos (transactionType=13, status!=7, fromDate/toDate no nulos).
+- **Nuevos archivos/handlers**: `api/lib/services/ScheduleService.php::getAgendaList()` + `api/v1/schedule.php` GET `?resource=agenda&customerId=&date=&limit=` + `app/bff/schedule.php` handler `action=agendaList`.
+- **JS**: `_bffListMap` en `globalv2.js` + `debug.js` ahora incluye `agendaList: 'schedule'`.
+- **SQL injection corregida**: customerId/companyId/outletId/dates → params. Lee `transactionDetails` desde `meta` JSONB (§22.6). `footBtn` replica comportamiento legacy (Cargar más sin fecha, Atrás con fecha/query fallida).
+- **ScheduleService** ahora tiene: rescheduleTo/unlock (slice 4), updateSchedule/scheduleSession/checkIfUserOccupied (slice 20), getSessionsList (slice 30), getAgendaList (slice 31).
+- **Pendientes en load.php**: customerRecord, customerInfo (las dos restantes del kit /app desacople; ambas con rotura transactionDetails→meta esperada).
+
 ## 2026-05-29 — Slice 30: sessionsList migrado a BFF/API/ScheduleService (commit 1d02620)
 
 - **Hecho**: el handler `sessionsList` de `app/load.php` (~89 líneas con SQL injection) extraído a `ScheduleService::getSessionsList(companyId, outletId, customerId, date)`. Lista read-only: paquetes de sesiones (items con `itemSessions > 0`) y sus sesiones agendadas (transaction type 13) del cliente en el outlet.
