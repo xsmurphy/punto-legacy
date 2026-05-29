@@ -50,6 +50,14 @@ if ($method === 'GET' && $resource === 'sessions') {
     apiOk($svc->getSessionsList($companyId, $encCid, $date));
 }
 
+// --- GET ?resource=agenda: lista de citas/turnos (type 13) (Slice 31)
+if ($method === 'GET' && $resource === 'agenda') {
+    $encCid = trim((string) ($_GET['customerId'] ?? '')) ?: null;
+    $date   = trim((string) ($_GET['date'] ?? '')) ?: null;
+    $limit  = max(1, (int) ($_GET['limit'] ?? 30));
+    apiOk($svc->getAgendaList($companyId, $outletId, $encCid, $date, $limit));
+}
+
 $transId = trim((string) ($_GET['id'] ?? ''));
 if ($transId === '') {
     apiError('Falta id', 422);

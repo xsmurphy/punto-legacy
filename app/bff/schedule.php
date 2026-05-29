@@ -40,6 +40,18 @@ if ($action === 'sessionsList') {
     bffJson($res['data']);
 }
 
+// load.php → agendaList (Slice 31): lista de citas/turnos (type 13), objeto plano.
+if ($action === 'agendaList') {
+    $res = bffApiGet('v1/schedule.php', [
+        'resource'   => 'agenda',
+        'customerId' => (string) ($get['customerId'] ?? ''),
+        'date'       => (string) ($get['date'] ?? ''),
+        'limit'      => (string) ($get['limit'] ?? '30'),
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson($res['data']);
+}
+
 // transId viene como `id` (la mayoría) o `lock` (unlockCalendar).
 $transId = (string) ($get['id'] ?? $get['lock'] ?? '');
 

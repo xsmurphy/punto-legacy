@@ -11688,7 +11688,7 @@ var ncmTransactions = {
 
         if (window.isServerOnline) {//sirve para mantener la cached list cuando no hay internet
             var load = (options.load) ? options.load : 'transactions';
-            var _bffListMap = { ordersList: 'orders', quotesList: 'transactions', savedList: 'transactions', transactions: 'transactions', sessionsList: 'schedule' };
+            var _bffListMap = { ordersList: 'orders', quotesList: 'transactions', savedList: 'transactions', transactions: 'transactions', sessionsList: 'schedule', agendaList: 'schedule' };
             var _bffListTarget = _bffListMap[load];
             var url = _bffListTarget
                 ? window.masterUrl + 'bff/' + _bffListTarget + '?l=' + ncmHttp.masterUrlParams({ action: load, limit: options.limit, customerId: options.cId, date: options.date })

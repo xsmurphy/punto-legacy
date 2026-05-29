@@ -272,4 +272,107 @@ class ScheduleService
 
         return $out;
     }
+
+    /**
+     * agendaList (load.php L2264): citas/turnos (type 13) de un cliente o del outlet,
+     * con fromDate/toDate definidos y status != 7 (no anuladas).
+     *
+     * Read-only. Fija el SQL injection del legacy (customerId/companyId/outletId/dates
+     * concatenados). `transactionDetails` se lee de `meta` (jsonb, §22.6) vía
+     * txDetailsFromMeta — el legacy aún leía la columna `transactionDetails` (rota en PG).
+     *
+     * Retorna { date, listName, transactionsList[], footBtn } — compatible con
+     * #transactionsListTpl. `details` es el array de items para txtDetails del front.
+     */
+    public function getAgendaList(string $companyId, string $outletId, ?string $encCustomerId, ?string $date, int $limit): array
+    {
+        global $db;
+
+        $where  = [];
+        $params = [];
+        if ($encCustomerId) {
+            $where[]  = 'customerId = ?';
+            $params[] = dec($encCustomerId);
+        } else {
+            $where[]  = 'outletId = ?';
+            $params[] = $outletId;
+        }
+        $where[] = 'transactionType = 13';
+        if ($date) {
+            $where[]  = 'fromDate BETWEEN ? AND ?';
+            $params[] = $date . ' 00:00:00';
+            $params[] = $date . ' 23:59:59';
+            $limit    = 1500;
+        }
+        $where[]  = 'fromDate IS NOT NULL';
+        $where[]  = 'toDate IS NOT NULL';
+        $where[]  = 'companyId = ?';
+        $params[] = $companyId;
+        $where[]  = 'transactionStatus != 7';
+
+        $rs = $db->Execute(
+            'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
+            . ' ORDER BY fromDate DESC LIMIT ' . (int) $limit,
+            $params
+        );
+
+        $out = ['date' => $date, 'listName' => 'Agenda', 'transactionsList' => [], 'footBtn' => ''];
+
+        if ($rs && !$rs->EOF) {
+            while (!$rs->EOF) {
+                $f      = $rs->fields;
+                $status = (string) ($f['transactionStatus'] ?? '');
+
+                $cusData    = getCustomerData($f['customerId'], 'uid');
+                $cusName    = iftn(getCustomerName($cusData), 'Sin Nombre');
+                $typeOfSale = '<span class="label bg-primary text-xs">Agenda</span>';
+                $details    = txDetailsFromMeta(json_decode($f['meta'] ?? '{}', true) ?: []);
+
+                [$scDate, $scStart, $scEnd] = dateStartEndTime($f['fromDate'], $f['toDate']);
+                $timeFrame = $scStart . ' - ' . $scEnd;
+
+                $stat = 'b-5x b-l ';
+                $icon = '';
+                switch ($status) {
+                    case '0': $stat .= ($f['transactionComplete'] == 1) ? 'b-primary' : 'b-light'; break;
+                    case '1': $stat .= 'b-info';    break;
+                    case '2': $stat .= 'b-warning'; break;
+                    case '3': $stat .= 'b-success'; break;
+                    case '4': $stat .= 'b-danger';  break;
+                    case '5': $stat .= 'b-dark';    break;
+                    case '6': $stat  = ''; $icon = '<i class="material-icons text-success m-r">check</i>'; break;
+                }
+
+                $txName = (string) ($f['transactionName'] ?? '');
+                $name   = ($txName !== 'Sale' && $txName !== 'Quote' && $txName !== '')
+                    ? '<span class="text-info">' . $txName . '</span>'
+                    : '';
+
+                $out['transactionsList'][] = [
+                    'id'          => enc($f['transactionId']),
+                    'title'       => $name . ' ' . $cusName,
+                    'date'        => niceDate($f['fromDate']),
+                    'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    'amount'      => $icon . $timeFrame,
+                    'label'       => $typeOfSale,
+                    'type'        => $f['transactionType'],
+                    'borderColor' => $stat,
+                    'details'     => $details,
+                ];
+
+                $rs->MoveNext();
+            }
+        }
+
+        // footBtn: legacy mostraba "Cargar más" para cualquier resultado sin fecha
+        // (el recordset es truthy aun con 0 filas); "Atrás" sólo con fecha o query fallida.
+        $cuid = $encCustomerId ?? '';
+        if ($rs !== false && !$date) {
+            $out['footBtn'] = '<a href="#openAgenda&l=' . ($limit + 50) . '&c=' . $cuid . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Cargar más</a>';
+        } else {
+            $out['footBtn'] = '<a href="#openAgenda&c=' . $cuid . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Atrás</a>';
+        }
+
+        return $out;
+    }
 }
