@@ -151,7 +151,7 @@ La API está destinada a moverse a un server dedicado; los BFFs apuntarán a esa
 | Auth | `apiAuthTenant()` en `api/bootstrap.php` — JWT de tenant: cookie `_jwt` \| `Authorization: Bearer` \| POST `_jwt`; secret `JWT_SECRET`; claim `cid`. Mismo secret/claims que /panel y /app ya validan → una API autentica ambos clientes. |
 | Envelope | `apiOk()` / `apiError()` — `api/lib/response.php` (canónico) |
 | Servicios | `api/lib/services/*Service.php` (slices del desacople de /app; ver lista completa en `10-roadmap.md § Servicios`) |
-| Endpoints | `api/v1/{customer_address,tables,schedule,customer_note,orders,register,transactions,…}.php` |
+| Endpoints | `api/v1/{customer_address,tables,schedule,customer_note,orders,register,transactions,customers,…}.php` |
 | Clientes actuales | `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`) |
 
 **Deuda transitoria (documentada):** `api/bootstrap.php` actualmente hace `chdir(/app)` y reusa los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. La consolidación de un `/api/includes` canónico (independiente de /panel y /app) es la migración gradual pendiente antes de que /api pueda moverse a su propio server. También: `panel/API/*` (~93 endpoints) migra gradualmente hacia /api.

@@ -154,3 +154,26 @@
   - Después de B2-B5: arrancar Phase 2.A (envelope canónico, 54 endpoints) — ver `10-roadmap.md` sección "Phase 2.A"
   - Revisar hallazgos separados: IDOR en `scheduleConfirm.php`, query rota en `app/includes/functions.php:4568`
 - **Estado para push/merge**: 8 commits sin pushear. Branch `claude/keen-wilson-f801e3`. Listo para merge a `main` para que el kit esté disponible globalmente
+
+## 2026-05-27 (cont.) — reportes BFF: expenses + drawers + products (1er pesado) — commits 9b55d70..9da9f2a
+
+- **3 reportes migrados al modelo BFF de 3 capas** (13º–15º): `expenses` (Movimientos de Caja, 9b55d70 — 3er WRITE: edit+delete), `drawers` (Cierres de Caja, 27b6452 — 4º WRITE: cerrar/corregir/eliminar + detalle por id), `products` (Reporte de Artículos, f7ff2de — **1er PESADO**, ~1750 líneas, 3 tabs general/detail/combos + KPIs + chart). Todos verificados E2E (data vía curl + render en browser) con `code-reviewer` P0/P1 limpio.
+- **Decisión arquitectónica (convención §15)**: en reportes pesados/financieros, los números exactos (utilidad por fila + agregados) se computan en el **Service** (motor ERP = fuente única), el BFF solo agrega KPIs/chart, el front formatea.
+- **Convenciones nuevas**: §14 (`PANEL_AUTHED_USER` no `USER_ID` en contexto API; `ncmExecute` single-row devuelve `CaseInsensitiveArray` → nunca `is_array()`, usar truthy+`['col']??`), §16 (self-heal write durante un GET → eliminar, nunca portar).
+- **Endurecimientos de seguridad** (drawers): detalle re-consultado por id (no blob base64 del cliente), `delete` con scope companyId (era IDOR + LIMIT inválido en PG), sumas de expenses por companyId.
+- **Diferidos con wrinkle**: `cashflow` (semántica financiera MySQL `itemId=0`), `open_invoices` (WRITE en read + dep purchases), `vpayments` (gateway externo Bancard/Dinelco, no verificable en dev).
+
+## 2026-05-27 (Phase 3.5 reportes BFF + fix main.php + familia god-functions PG cerrada — commits 676fe6a..e3f644d)
+
+- **Reportes migrados al BFF de 3 capas (Phase 3.5 → 12 reportes + 1 alias)**: `stock`, `recurring` (2º WRITE), `summary_year`, `customers` núcleo (extras diferidos a Phase AI). `by_brands` = alias de `brands`.
+- **Fix `main.php`**: banner T&C eliminado; listado de empresas reparado (permisos encom en demo). `main.php` usa SESIÓN PHP legacy para `COMPANY_ID` — refuerza ADR-001.
+- **Familia de god-functions PG CERRADA (100%)**: `getCustomerData`/`getContactData`/`getAllItems`/`getAllItemsRaw`/`getAllContacts`/`getAllContactsRaw`/`lessInternalTotals` — todos con bound params + `_flattenJsonb` para columnas demotadas a JSONB.
+- **Verificación**: todos los reportes E2E en browser; `code-reviewer` P0/P1 limpio en cada commit. Roadmap + 04-modelo + graphify sincronizados.
+
+## 2026-05-29 — Slices 21-28: tablesJson / docsNum / customerHasOrders / ordersList / quotesList+savedList migrados a BFF/API/Services (commits dd1dee1, 3d222b9, 3fd615b, cdd7483, 57b9bcf)
+
+- **Slice 21 (tablesJson)**: `TableService::listTables()` + `api/v1/tables.php` GET sin acción + `app/bff/tables.php` handler no-action. 4 bugs PG del legacy corregidos (VARCHAR/int, UUID intval, god-function, sin companyId scope).
+- **Slice 22 (docsNum)**: `RegisterService::docNumbers()` — 7 contadores de doc por registro. Bug PG corregido: `companyId` UUID sin comillas en WHERE → bindeado. Handler muerto `chkInvoiceNo` eliminado.
+- **Slice 23 (customerHasOrders)**: `OrderService::customerHasOpenOrders(): bool` — type 12 status!=4, multi-tenant. Patrón HTTP-401-as-signal → booleano limpio.
+- **Slice 27 (ordersList)**: `OrderService::getTableClose/getTableDetail/getList/queryOrderRows`. SQL injection cerrada (cuid/COMPANY_ID/fechas concatenados → params). Meta JSONB leído correctamente.
+- **Slice 28 (quotesList+savedList)**: `TransactionService::getTransactionList(listType=quotes|saved)`. `_bffListMap` en globalv2.js + debug.js reemplaza el condicional simple de slice 27.
