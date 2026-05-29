@@ -24183,7 +24183,7 @@ var ncmHotKeys = {
                     forceOutlet = forceOutlet ? forceOutlet.outlet : false;
 
                     ncmHttp.get({
-                        url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'itemInfo', i: id, o: forceOutlet }),
+                        url: masterUrl + 'bff/items?l=' + ncmHttp.masterUrlParams({ action: 'itemInfo', i: id, o: forceOutlet }),
                         type: 'json',
                         onSuccess: function (data) {
                             ncmUIX.mustache($('#modalEmpty .imodal-body'), data, $('#itemInfoTpl'));
