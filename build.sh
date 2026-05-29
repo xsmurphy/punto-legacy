@@ -15,6 +15,10 @@ if [ ! -f "$TERSER" ] || [ ! -f "$CSSO" ]; then
   cd "$ROOT" && npm install --save-dev terser csso-cli --silent
 fi
 
+# Sincroniza las libs vendoreables desde node_modules (fuente de verdad) antes de concatenar.
+# Las libs sin npm limpio siguen como copias manuales en assets/vendor/js. Ver scripts/vendor-sync.sh.
+bash "$ROOT/scripts/vendor-sync.sh"
+
 concat() {
   # concat file1 file2 ... > output
   local out="$1"; shift

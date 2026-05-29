@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "vendor": "bash scripts/vendor-sync.sh",
     "build": "./build.sh",
     "build:app": "./build.sh app",
     "build:panel": "./build.sh panel"

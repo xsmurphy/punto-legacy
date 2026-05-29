@@ -125,10 +125,19 @@ Ejemplo: migración `06_contact_jsonb_demote.sql` (backfill → DROP de 6 column
 ```
 
 **Qué hace**:
-1. Concatena archivos JS/CSS según manifesto
-2. Minifica con Terser (JS) y CSSO (CSS)
-3. Genera nombres con hash SHA-1 para cache-busting
-4. Output en directorios de cache (`app/cach/`, panel equivalente)
+1. `scripts/vendor-sync.sh` — sincroniza las libs vendoreables desde `node_modules` (fuente de verdad) → `assets/vendor/js/`
+2. Concatena archivos JS/CSS según manifesto (lista en `app/filesCompiler.php` / `build.sh`)
+3. Minifica con Terser (JS) y CSSO (CSS)
+4. Genera nombres con hash SHA-1 para cache-busting
+5. Output en directorios de cache (`app/cach/`, panel equivalente)
+
+### Vendoreo de libs JS (modelo híbrido, establecido 2026-05-28)
+
+Las libs front se sirven desde `assets/vendor/js/*.min.js` (las concatena el build). El origen es **híbrido**:
+
+- **Sourceadas desde npm** (11 libs, `npm run vendor` / `scripts/vendor-sync.sh`): jquery, moment, ismobilejs, mousetrap, jquery.actual, lz-string, chart.js, sweetalert2, mustache, leaflet, qrious. `package.json` pinea la versión; el script copia el dist oficial al nombre versionado. Verificadas **byte-idénticas** al archivo que ya estaba commiteado → migración sin riesgo. Tras `npm update`, correr `npm run vendor` para refrescar. `build.sh` lo corre automáticamente.
+- **Copias manuales commiteadas** (sin npm limpio / versiones viejas / plugins jQuery custom): bootstrap-3.4.1, pouchdb, datatables, chosen, offline, simpleStorage, rsvp, jsrsasign, qz-tray, libphonenumber, push, fingerprintjs, fastclick, datetimepicker, leaflet-routing-machine, jquery.{number,geolocation,toast,fullscreen}, moment-locale-es. Quedan versionadas en el repo; NO las toca vendor-sync.
+- **Pendiente (Fase B)**: las que SÍ están en npm pero aún no se vendorean (bootstrap, pouchdb, datatables.net, fastclick, push.js, leaflet-routing-machine, google-libphonenumber, @fingerprintjs/fingerprintjs, eonasdan-bootstrap-datetimepicker, offline-js) — agregarlas a package.json + al mapa de vendor-sync tras verificar que el dist coincide.
 
 ## Seeds (datos iniciales)
 
