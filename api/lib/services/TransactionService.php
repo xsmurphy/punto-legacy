@@ -252,6 +252,195 @@ class TransactionService
      * Fija el SQL injection del legacy (concatenación de COMPANY_ID / outletId /
      * customerId / dates directamente en la cadena SQL).
      */
+    // -------------------------------------------------------------------------
+    // Slice 29 — transactions (load.php L2260) — lista principal de ventas
+    // -------------------------------------------------------------------------
+
+    /**
+     * Lista principal de transacciones para el panel de ventas (buildList default).
+     *
+     * Tipos: 0 (contado), 3 (crédito), 6 (devolución), 7 (anulado), 9 (cotización),
+     *        10 (delivery). Roles 4/5: solo tipos 2 y 10, filtrado por userId.
+     *
+     * Fija el SQL injection del legacy (COMPANY_ID/OUTLET_ID/userId/dates/ids
+     * concatenados en strings). Los IDs de crédito batched via IN(?) son UUIDs
+     * provenientes de nuestra propia query — no vienen del usuario.
+     *
+     * Retorna { date, listName, transactionsList[], footBtn } — compatible con
+     * #transactionsListTpl. La ruta HTML nunca se usa vía buildList (json:1 siempre).
+     */
+    public function getMainList(
+        string  $outletId,
+        string  $companyId,
+        string  $userId,
+        string  $roleId,
+        ?string $encCustomerId,
+        ?string $date,
+        int     $limit
+    ): array {
+        global $db, $dec, $ts;
+
+        $where  = ['companyId = ?'];
+        $params = [$companyId];
+
+        if (in_array((string) $roleId, ['4', '5'])) {
+            $where[]  = 'transactionType IN (2, 10)';
+            $where[]  = 'userId = ?';
+            $params[] = $userId;
+        } else {
+            $where[] = 'transactionType IN (0, 3, 6, 7, 9, 10)';
+        }
+
+        if ($encCustomerId) {
+            $where[]  = 'customerId = ?';
+            $params[] = dec($encCustomerId);
+        } else {
+            $where[]  = 'outletId = ?';
+            $params[] = $outletId;
+        }
+
+        if ($date) {
+            $where[]  = 'transactionDate BETWEEN ? AND ?';
+            $params[] = $date . ' 00:00:00';
+            $params[] = $date . ' 23:59:59';
+            $limit    = 2000;
+        }
+
+        $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
+             . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
+        $rs  = $db->Execute($sql, $params);
+
+        // First pass: collect IDs and row references for batch subquery
+        $trsIds = [];
+        $rows   = [];
+        if ($rs && !$rs->EOF) {
+            while (!$rs->EOF) {
+                $f        = $rs->fields;   // CaseInsensitiveArray — each MoveNext() creates a new one
+                $trsIds[] = (string) $f['transactionId'];
+                $rows[]   = $f;
+                $rs->MoveNext();
+            }
+        }
+
+        // Batch: paid/returned amounts for credit transactions (type 3)
+        $toPaidMap = [];
+        if (!empty($trsIds)) {
+            $ph     = implode(',', array_fill(0, count($trsIds), '?'));
+            $paidRs = $db->Execute(
+                "SELECT SUM(ABS(transactionTotal)) AS payed, transactionParentId
+                   FROM transaction
+                  WHERE transactionType IN (5, 6) AND companyId = ?
+                    AND transactionParentId IN ($ph)
+                  GROUP BY transactionParentId",
+                array_merge([$companyId], $trsIds)
+            );
+            if ($paidRs && !$paidRs->EOF) {
+                while (!$paidRs->EOF) {
+                    $pf = $paidRs->fields;
+                    $toPaidMap[(string) $pf['transactionParentId']] = (float) ($pf['payed'] ?? 0);
+                    $paidRs->MoveNext();
+                }
+            }
+        }
+
+        $out = [
+            'date'             => $date,
+            'listName'         => 'Transacciones',
+            'transactionsList' => [],
+            'footBtn'          => '',
+        ];
+
+        foreach ($rows as $f) {
+            $type   = (string) ($f['transactionType']   ?? '');
+            $status = (string) ($f['transactionStatus'] ?? '');
+            $trsId  = (string) $f['transactionId'];
+            $tTotal = (float) ($f['transactionTotal']  ?? 0) - (float) ($f['transactionDiscount'] ?? 0);
+            $topay  = 0;
+
+            if ($type === '3') {
+                $topay = $tTotal - ($toPaidMap[$trsId] ?? 0);
+            }
+
+            // --- borderColor (type 13 has different scheme) ---
+            $stat = 'b-5x b-l ';
+            if ($type === '13') {
+                switch ($status) {
+                    case '0': $stat .= ($f['transactionComplete'] == 1) ? 'b-primary' : 'b-light'; break;
+                    case '1': $stat .= 'b-info';    break;
+                    case '2': $stat .= 'b-warning'; break;
+                    case '3': $stat .= 'b-success'; break;
+                    case '4': $stat .= 'b-danger';  break;
+                    case '5': $stat .= 'b-dark';    break;
+                    case '6': $stat  = '';           break;
+                }
+            } else {
+                switch ($status) {
+                    case '0': case '1': $stat .= 'b-light';          break;
+                    case '2':           $stat .= 'b-info';            break;
+                    case '3':           $stat .= 'b-primary';         break;
+                    case '4':           $stat .= 'b-success';         break;
+                    case '5':           $stat .= 'b-danger';          break;
+                    case '6':           $stat  = 'b-3x b-l b-dark';   break;
+                }
+            }
+
+            // --- typeOfSale label ---
+            if ($type === '3') {
+                if ($topay > ($tTotal / 2))     { $typeText = 'bg-light text-danger'; }
+                elseif ($topay <= ($tTotal / 2)){ $typeText = 'bg-light text-warning-dker'; }
+                if ($topay < 1)                 { $typeText = 'bg-light text-success'; }
+                $typeOfSale = '<span class="label ' . ($typeText ?? '') . ' text-xs">Crédito</span>';
+            } elseif ($type === '2')  { $typeOfSale = '<span class="label text-dark b b-light text-xs">Guardado</span>';    }
+            elseif  ($type === '6')   { $typeOfSale = '<span class="label bg-danger lter text-xs">Devolución</span>';       }
+            elseif  ($type === '7')   { $typeOfSale = '<span class="label bg-dark text-xs">Anulado</span>';                }
+            elseif  ($type === '9')   { $typeOfSale = '<span class="label bg-warning dk text-xs">Cotización</span>';       }
+            elseif  ($type === '10')  { $typeOfSale = '<span class="label text-info b b-light text-xs">Envío</span>';      }
+            elseif  ($type === '11')  { $typeOfSale = '<span class="label bg-success text-xs">Orden</span>';               }
+            elseif  ($type === '13')  { $typeOfSale = '<span class="label bg-primary text-xs">Agenda</span>';              }
+            else                      { $typeOfSale = '<span class="label bg-light text-xs">Contado</span>';               }
+
+            // --- name prefix (non-default transactionNames) ---
+            $txName = (string) ($f['transactionName'] ?? '');
+            $name   = ($txName !== 'Sale' && $txName !== 'Quote' && $txName !== '')
+                ? '<span class="text-info">' . $txName . '</span>'
+                : '';
+
+            // --- customer name (per-row lookup; N+1 preserved for fidelity) ---
+            $cusRow    = ncmExecute(
+                'SELECT contactName, contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                [(string) ($f['customerId'] ?? ''), $companyId]
+            );
+            $customerD = $cusRow
+                ? ($cusRow['contactName'] ? toUTF8($cusRow['contactName']) : toUTF8($cusRow['contactSecondName'] ?? ''))
+                : 'Sin Nombre';
+
+            $inTotal = formatCurrentNumber($tTotal, $dec, $ts);
+            $dateStr = niceDate($f['transactionDate'] ?? '', true);
+
+            $out['transactionsList'][] = [
+                'id'          => enc($trsId),
+                'title'       => $name . ' ' . $customerD,
+                'date'        => $dateStr,
+                'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                'amount'      => $inTotal,
+                'label'       => $typeOfSale,
+                'type'        => $f['transactionType'],
+                'borderColor' => $stat,
+            ];
+        }
+
+        $ecuid = $encCustomerId ?? '';
+        if (!empty($out['transactionsList'])) {
+            $out['footBtn'] = $date
+                ? '<a href="#transactions&c=' . $ecuid . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Atrás</a>'
+                : '<a href="#transactions&l=' . ($limit + 50) . '&c=' . $ecuid . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Cargar más</a>';
+        } else {
+            $out['footBtn'] = '<a href="#transactions&c=' . $ecuid . '" class="btn btn-info btn-lg btn-rounded all-shadows hide-basic font-bold text-u-c navigate">Atrás</a>';
+        }
+
+        return $out;
+    }
+
     public function getTransactionList(
         string  $listType,
         string  $outletId,

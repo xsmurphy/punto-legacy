@@ -23,6 +23,18 @@ $action = (string) ($get['action'] ?? '');
 $id     = (string) ($get['id'] ?? '');
 $ep     = 'v1/transactions.php';
 
+// load.php → transactions (Slice 29): lista principal de transacciones.
+if ($action === 'transactions') {
+    $res = bffApiGet($ep, [
+        'resource'   => 'mainList',
+        'customerId' => (string) ($get['customerId'] ?? ''),
+        'date'       => (string) ($get['date'] ?? ''),
+        'limit'      => (string) ($get['limit'] ?? '30'),
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson($res['data']);
+}
+
 // load.php → quotesList / savedList (Slice 28): lista paginada, retorna objeto plano.
 if ($action === 'quotesList' || $action === 'savedList') {
     $listType = ($action === 'quotesList') ? 'quotes' : 'saved';

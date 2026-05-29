@@ -37,6 +37,14 @@ if ($method === 'GET' && $resource === 'single') {
     apiOk($data);
 }
 
+// --- GET ?resource=mainList: lista principal de transacciones (Slice 29)
+if ($method === 'GET' && $resource === 'mainList') {
+    $encCid = trim((string) ($_GET['customerId'] ?? '')) ?: null;
+    $date   = trim((string) ($_GET['date'] ?? '')) ?: null;
+    $limit  = max(1, (int) ($_GET['limit'] ?? 30));
+    apiOk($svc->getMainList($outletId, $companyId, $ctx['userId'], $ctx['roleId'], $encCid, $date, $limit));
+}
+
 // --- GET ?resource=list: lista paginada de cotizaciones/guardados (Slice 28)
 if ($method === 'GET' && $resource === 'list') {
     $listType  = trim((string) ($_GET['listType'] ?? ''));
