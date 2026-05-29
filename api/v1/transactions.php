@@ -24,6 +24,19 @@ $svc      = new TransactionService();
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 
+// --- GET ?resource=single: obtener una transacción por ID -----------------
+if ($method === 'GET' && $resource === 'single') {
+    $transactionId = trim((string) dec($_GET['id'] ?? ''));
+    if ($transactionId === '') {
+        apiError('Falta id', 422);
+    }
+    $data = $svc->getSingle($transactionId, $companyId);
+    if ($data === null) {
+        apiError('Transacción no encontrada', 404);
+    }
+    apiOk($data);
+}
+
 // --- DELETE: eliminar transacción o job de impresión ----------------------
 if ($method === 'DELETE') {
     $transactionId = trim((string) ($_GET['id'] ?? ''));

@@ -20,6 +20,141 @@
 class TransactionService
 {
     /**
+     * Lee una transacción por ID y devuelve el shape que espera el POS front.
+     * tags y transactionDetails viven en meta JSONB (§22.6); ncmExecute/_flattenJsonb
+     * los expone como strings en $fields antes de json_decode.
+     *
+     * @return array|null null si la transacción no existe.
+     */
+    public function getSingle(string $transactionId, string $companyId): ?array
+    {
+        $fields = ncmExecute(
+            'SELECT * FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+            [$transactionId, $companyId]
+        );
+        if (!$fields) {
+            return null;
+        }
+
+        // tags en meta → _flattenJsonb expone como JSON string
+        $rawTags = $fields['tags'] ?? null;
+        $tags    = $rawTags ? (implodes(',', json_decode($rawTags, true)) ?: '') : '';
+
+        $paymentType  = json_decode($fields['transactionPaymentType'] ?? '', true);
+        $paymentTypes = [];
+        if ($paymentType) {
+            foreach ($paymentType as $v) {
+                $paymentTypes[] = [
+                    'amount' => $v['price'],
+                    'name'   => getPaymentMethodName($v['type']),
+                    'type'   => $v['type'],
+                    'extra'  => $v['extra'],
+                    'UID'    => $v['UID'] ?? '',
+                ];
+            }
+        }
+
+        $payedData = [];
+        $payed     = 0;
+        if ((string) $fields['transactionType'] === '3') {
+            $payedData = $this->getTypePayments($transactionId, $companyId);
+            $payedRow  = ncmExecute(
+                'SELECT SUM(ABS(transactionTotal)) as payed FROM transaction WHERE transactionType IN(5,6) AND transactionParentId = ? AND companyId = ?',
+                [$transactionId, $companyId]
+            );
+            $payed = (float) ($payedRow['payed'] ?? 0);
+        }
+
+        $address = null;
+        if ((string) $fields['transactionType'] === '12') {
+            $address = getCustomerTransactionAddress($transactionId, true);
+        }
+
+        $startDate = false;
+        $startH    = false;
+        $endH      = false;
+        if (!empty($fields['fromDate']) && !empty($fields['toDate'])) {
+            [$startDate, $startH, $endH] = dateStartEndTime($fields['fromDate'], $fields['toDate']);
+        }
+
+        $isSession = $fields['transactionParentId'] ? enc($fields['transactionParentId']) : false;
+        $discount  = (float) ($fields['transactionDiscount'] ?? 0);
+        $total     = (float) ($fields['transactionTotal'] ?? 0) - $discount;
+
+        // transactionDetails en meta → _flattenJsonb expone como JSON string
+        $rawDetails       = $fields['transactionDetails'] ?? null;
+        $transactionDatas = $rawDetails ? json_decode($rawDetails, true) : null;
+
+        return [
+            'transactionId'   => enc($fields['transactionId']),
+            'customerId'      => enc($fields['customerId']),
+            'customerUnd'     => $fields['customerId'],
+            'userId'          => enc($fields['userId']),
+            'note'            => $fields['transactionNote'],
+            'tags'            => $tags,
+            'documentNo'      => $fields['invoiceNo'],
+            'invoicePrefix'   => $fields['invoicePrefix'] ?? '',
+            'name'            => $fields['transactionName'],
+            'type'            => $fields['transactionType'],
+            'status'          => $fields['transactionStatus'],
+            'date'            => $fields['transactionDate'],
+            'dueDate'         => $fields['transactionDueDate'],
+            'startDate'       => $startDate,
+            'endDate'         => $fields['toDate'],
+            'startHour'       => $startH,
+            'endHour'         => $endH,
+            'hasSession'      => $isSession,
+            'isSession'       => $isSession,
+            'parentID'        => $isSession,
+            'UID'             => $fields['timestamp'],
+            'pMethods'        => $paymentTypes,
+            'toPay'           => $total - $payed,
+            'total'           => number_format($total, 2, '.', ''),
+            'discount'        => number_format($discount, 2, '.', ''),
+            'payedData'       => $payedData,
+            'transactionData' => $rawDetails,
+            'transactionDatas'=> $transactionDatas,
+            'address'         => $address,
+        ];
+    }
+
+    /**
+     * Pagos de crédito/deuda (tipo 5) de una transacción padre.
+     * Versión corregida de getAllTransactionPayments: parametriza el UUID (la versión
+     * legacy lo interpolaba sin comillas → siempre falla en PG).
+     */
+    private function getTypePayments(string $transactionId, string $companyId): array
+    {
+        global $db;
+        $result = $db->Execute(
+            'SELECT transactionId, transactionTotal, userId, transactionDate, transactionPaymentType, invoiceNo
+             FROM transaction
+             WHERE transactionType = 5 AND transactionParentId = ? AND companyId = ?
+             LIMIT 100',
+            [$transactionId, $companyId]
+        );
+        if (!$result || $result->EOF) {
+            return [];
+        }
+        $a = [];
+        while (!$result->EOF) {
+            $f   = $result->fields;
+            $a[] = [
+                'id'        => enc($f['transactionId']),
+                'total'     => abs($f['transactionTotal']),
+                'userid'    => $f['userId'],
+                'date'      => $f['transactionDate'],
+                'methods'   => $f['transactionPaymentType'],
+                'receiptNo' => $f['invoiceNo'],
+            ];
+            $result->MoveNext();
+        }
+        $result->Close();
+        return $a;
+    }
+
+
+    /**
      * Elimina una transacción. Requiere scope companyId (tenant).
      * LIMIT 1 omitido: transactionId es PRIMARY KEY → único por definición.
      */

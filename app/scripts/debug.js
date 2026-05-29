@@ -8287,7 +8287,7 @@ var ncmOrders = {
     },
     printServer: {
         print: (orderID, ops) => {
-            ncmHttp.getit(masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'singleTransaction', id: orderID }), function (datas) {
+            ncmHttp.getit(masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'singleTransaction', id: orderID }), function (datas) {
                 datas = ncmHelpers.getValidObjectStr(datas);
                 var result = datas.data;
 
@@ -10849,7 +10849,7 @@ var ncmTransactions = {
 
         $('#salesPrimaryTable tr').removeClass('bg-black bg-light lter');
 
-        ncmHttp.getit(masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'singleTransaction', id: id }), function (data) {
+        ncmHttp.getit(masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'singleTransaction', id: id }), function (data) {
             var result = data.data;
 
             if (ncmUIX.isDarkMode) {

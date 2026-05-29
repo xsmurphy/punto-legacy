@@ -23,6 +23,15 @@ $action = (string) ($get['action'] ?? '');
 $id     = (string) ($get['id'] ?? '');
 $ep     = 'v1/transactions.php';
 
+// load.php → GET single (lectura, sin efecto secundario)
+if ($action === 'singleTransaction') {
+    $res = bffApiGet($ep, ['id' => $id, 'resource' => 'single'], '_jwt');
+    if (!$res['ok']) {
+        bffFailFromApi($res);
+    }
+    bffJson(['data' => $res['data']]);
+}
+
 // action.php → verbo REST (§22.7)
 switch ($action) {
     case 'deleteTransaction':   // DELETE ?id=
