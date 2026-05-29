@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-29 — Slice 29: transactions migrado a BFF/API/TransactionService (commit 66da236)
+
+- **Hecho**: el handler `transactions` de `app/load.php` (~320 líneas con SQL injection — variables concatenadas en el WHERE) extraído a `TransactionService::getMainList()`. Roles 4/5 ven solo transactionType 2/10 filtrados por userId; el resto ve todos los tipos del tenant. Batch credit query con `IN(?)`.
+- **Nuevos archivos**: `api/lib/services/TransactionService.php::getMainList()` (método público) + `api/v1/transactions.php` GET `?resource=mainList` + `app/bff/transactions.php` handler `action=transactions`.
+- **JS**: `_bffListMap` en `globalv2.js` + `debug.js` ahora incluye `transactions: 'transactions'` → el `buildList` por defecto del POS (lista de ventas) ya va por BFF en lugar del legacy `load?l=`.
+- **SQL injection cerrada**: el legacy concatenaba variables directamente en el SQL; el nuevo código bindea todos los params.
+- **Pendientes en load.php**: sessionsList, agendaList, customerRecord, customerInfo (y dead code handlers aún presentes).
+
 ## 2026-05-28 (cierre) — Vendoreo npm de /app, Fase A (commit 2bac879)
 
 - **Hecho**: `scripts/vendor-sync.sh` + `npm run vendor` (corre en `build.sh`) — 11 libs JS ahora se sourcean desde `node_modules` (fuente de verdad): jquery, moment, ismobilejs, mousetrap, jquery.actual, lz-string, chart.js, sweetalert2, mustache, leaflet, qrious. Verificadas **byte-idénticas** al `.min` ya commiteado → cero cambio en lo servido, cero riesgo.
@@ -172,6 +180,21 @@
 - **Verificación**: todos los reportes E2E en browser (cero errores consola); god-functions verificadas vía PDO + E2E (satisfaction resuelve nombres; `get_sales` devuelve `customer_address` desde JSONB). `code-reviewer` en cada commit (P0/P1 limpio). Roadmap + 04-modelo + graphify sincronizados.
 - **Seed demo nuevo (company 0001, no en git)**: 2 filas `recurring`, 4 transacciones con `customerId` "Cliente Prueba SRL", 1 voto satisfaction con cliente, permisos encom a `admin@local.test`.
 - **Pendiente próxima sesión**: seguir migración de reportes — quedan ~11 (pesados: `transactions` 3987, `purchases` 2632, `products` 1754; medianos: `expenses`, `vpayments`, `drawers`, `cashflow`, `open_invoices`, `giftCards`, `schedule`, `production`). Todo pusheado a `main`.
+
+## 2026-05-29 — Slice 28: quotesList + savedList migrados a BFF/API/TransactionService (commit 57b9bcf)
+
+- **Hecho**: los dos handlers legacy de `quotesList` (~115 líneas, type 9) y `savedList` (~117 líneas, type 2) extraídos de `app/load.php` a `TransactionService::getTransactionList(listType, outletId, companyId, encCustomerId, date, limit)`. Config por tipo: label HTML, colores de estado, anchor hash. Queries parametrizadas (cierra SQL injection del legacy — cuid/COMPANY_ID/fechas concatenados en string).
+- **Nuevos endpoints**: `api/v1/transactions.php` GET `?resource=list&listType=quotes|saved`. BFF: `app/bff/transactions.php` con `action=quotesList` y `action=savedList`.
+- **JS — routing map**: el condicional simple de Slice 27 (solo `ordersList`) reemplazado por `_bffListMap = {ordersList:'orders', quotesList:'transactions', savedList:'transactions'}` en `globalv2.js` + `debug.js`. Cualquier load mapeado rutea al BFF; los no mapeados siguen al legacy `load?l=`.
+- **TransactionService** ahora tiene `getTransactionList` como método principal de lectura de listas (slices 6/7 cubrían mutaciones de estado: delete/reject/accept).
+
+## 2026-05-29 — Slice 27: ordersList migrado a BFF/API/OrderService (commit cdd7483)
+
+- **Hecho**: los dos handlers legacy `ordersList` de `load.php` (~357 líneas) extraídos a `OrderService` con 4 métodos nuevos: `queryOrderRows` (privado, SQL base), `getTableClose` (json mode — items agrupados para cierre de mesa), `getTableDetail` (non-json mode — detalle de orden), `getList` (historial paginado). Tres endpoints nuevos en `api/v1/orders.php` (`?resource=tableClose|tableDetail|list`). BFF: `app/bff/orders.php` con `action=ordersTableList` (routing json/non-json) y `action=ordersList`.
+- **JS repuntado**: 3 callsites fijos (6806/6835/7495) → `bff/orders?action=ordersTableList`; `buildList` dinámico (11691) → condicional `load==='ordersList'` → `bff/orders?action=ordersList`.
+- **Bug crítico corregido**: handler B legacy concatenaba `$cuid`/`COMPANY_ID`/fechas directamente en el SQL → SQL injection cerrada con queries parametrizadas.
+- **Meta JSONB**: `transactionDetails` y `tags` leídos correctamente desde `meta` JSONB en resultados multi-fila.
+- **OrderService** ahora cubre tanto mutaciones de estado (accept/transfer/assignUser, slices 7/9/18) como operaciones de consulta (customerHasOpenOrders — slice 23; getTableClose/getTableDetail/getList — slice 27).
 
 ## 2026-05-29 — Slices 21-23: tablesJson / docsNum / customerHasOrders migrados a BFF/API/Services (commits dd1dee1, 3d222b9, 3fd615b)
 

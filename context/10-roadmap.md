@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-05-28
+> **Última actualización:** 2026-05-29
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -195,7 +195,7 @@ Tarea estructural diferida (ortogonal al desacople): reestructurar `/app` con me
 - Vendorear deps JS vía npm en vez de copias manuales.
 - Revisar nombres de archivos PHP de /app (action.php/load.php/fetch.php) una vez vaciados.
 
-**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21), `ScheduleService`, `CustomerNoteService`, `TransactionService`, `OrderService` (accept/transferToOutlet/assignUser + **customerHasOpenOrders** — slice 23), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
+**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21), `ScheduleService`, `CustomerNoteService`, `TransactionService` (**getTransactionList(listType,…)** — slice 28: quotes/saved + **getMainList()** — slice 29: transactions panel de ventas), `OrderService` (accept/transferToOutlet/assignUser + **customerHasOpenOrders** — slice 23 + **queryOrderRows/getTableClose/getTableDetail/getList** — slice 27), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`. Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
 
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
 
@@ -224,7 +224,23 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 **Slice 23 COMPLETO — `customerHasOrders` de load.php (commit 3fd615b, 2026-05-29)**: `OrderService::customerHasOpenOrders(companyId, outletId, customerId): bool` — consulta si el cliente tiene órdenes abiertas (transaction type 12, status != 4) en el outlet; multi-tenant, parametrizado. `api/v1/orders.php` GET `?resource=customerHasOrders&customerId=<id>` → `apiOk(['hasOrders'=>bool])`; companyId/outletId del JWT. `app/bff/orders.php` handler `action==='customerHasOrders'` → `bffApiGet` → retorna `{hasOrders:bool}` plano. `app/load.php`: eliminado handler legacy (patrón HTTP-401-as-signal → booleano limpio). `globalv2.js` + `debug.js`: repuntados a `bff/orders?l=<action:customerHasOrders>`, verifican `data.hasOrders` con `type:'json'`.
 
-**Slices pendientes**: ver "action.php — mapa de lo que queda" arriba (clusters meta-JSONB, ENCOM→Punto, mesa-merge, monstruos, HTML/especial, dead) + los concerns restantes de `load.php` (igualmente con rotura generalizada de `transactionDetails`→`meta`).
+**Slice 27 COMPLETO — `ordersList` de load.php (commit cdd7483, 2026-05-29)**: los dos handlers legacy de `ordersList` (~357 líneas en total) migrados a `OrderService` + `api/v1/orders.php` + `app/bff/orders.php`.
+- `OrderService::queryOrderRows(t, kind, outletId)` — privado; ejecuta el SQL base para queries de mesa/cliente/cualquiera.
+- `OrderService::getTableClose(t, kind, outletId, companyId)` → items agrupados para el cierre/carga de mesa (json mode); retorna `{items, tags, ids}`. Endpoint: `GET ?resource=tableClose&t=&kind=`.
+- `OrderService::getTableDetail(t, kind, outletId, companyId)` → vista de detalle de orden (non-json mode); retorna `{data[], title, subTitle, orderId, type}`. Endpoint: `GET ?resource=tableDetail&t=&kind=`.
+- `OrderService::getList(outletId, companyId, encCustomerId, date, limit)` → historial paginado de órdenes; retorna `{date, listName, transactionsList[], footBtn}`. Endpoint: `GET ?resource=list&customerId=&date=&limit=`.
+- BFF: `action=ordersTableList` (json flag → tableClose, else → tableDetail) + `action=ordersList` (list mode).
+- `app/load.php`: eliminados handler A (~237 líneas, t-based) + handler B (~120 líneas, buildList).
+- JS: 3 callsites (6806/6835/7495) en `globalv2.js` + `debug.js` repuntados a `bff/orders?action=ordersTableList`; `buildList` dinámico (línea 11691) condicional — cuando `load==='ordersList'` → `bff/orders?action=ordersList`.
+- **Bug corregido**: handler B legacy concatenaba `$cuid`/`COMPANY_ID`/fechas directamente en el SQL (SQL injection) → reemplazado con queries parametrizadas.
+- **Meta JSONB**: `transactionDetails` y `tags` leídos desde `meta` JSONB en resultados multi-fila de ADOdb.
+- `OrderService` ahora cubre tanto mutaciones de estado (accept/transfer/assignUser) como operaciones de query (customerHasOpenOrders/getTableClose/getTableDetail/getList).
+
+**Slice 28 COMPLETO — `quotesList` + `savedList` de load.php (commit 57b9bcf, 2026-05-29)**: `TransactionService::getTransactionList(listType, outletId, companyId, encCustomerId, date, limit)` — cubre `listType='quotes'` (transactionType=9) y `listType='saved'` (transactionType=2). Config por tipo: label HTML, colores de estado, anchor hash. Queries parametrizadas (cierra SQL injection del legacy — `$cuid`/`COMPANY_ID`/fechas concatenados en string). Endpoint: `api/v1/transactions.php` GET `?resource=list&listType=quotes|saved&customerId=&date=&limit=`. BFF: `app/bff/transactions.php` con `action=quotesList` y `action=savedList`. `app/load.php`: eliminados los dos handlers legacy (~115 líneas `quotesList` type-9 + ~117 líneas `savedList` type-2). `globalv2.js` + `debug.js`: condicional de Slice 27 (solo `ordersList`) reemplazado por `_bffListMap = {ordersList:'orders', quotesList:'transactions', savedList:'transactions'}` — cualquier load mapeado rutea al BFF correspondiente; los no mapeados siguen al legacy `load?l=`.
+
+**Slice 29 COMPLETO — `transactions` de load.php (commit 66da236, 2026-05-29)**: `TransactionService::getMainList()` — lista principal de transacciones para el panel de ventas. Roles 4/5 ven solo tipos 2/10 filtrados por `userId`; el resto ve todos los tipos del tenant. Batch credit query con `IN(?)`. Endpoint: `api/v1/transactions.php` GET `?resource=mainList`. BFF: `app/bff/transactions.php` con `action=transactions`. `app/load.php`: eliminado el handler `transactions` (~320 líneas con SQL injection de variables concatenadas → reemplazado por queries parametrizadas). `globalv2.js` + `debug.js`: `_bffListMap` ahora incluye `transactions: 'transactions'` — la lista por defecto de `buildList` ya va por BFF.
+
+**Slices pendientes**: ver "action.php — mapa de lo que queda" arriba (clusters meta-JSONB, ENCOM→Punto, mesa-merge, monstruos, HTML/especial, dead) + los concerns restantes de `load.php` (sessionsList, agendaList, customerRecord, customerInfo; igualmente con rotura generalizada de `transactionDetails`→`meta`).
 
 ### ✅ RESUELTO (commit f77b47a) — `app/DB.php` sin `Insert_ID()`
 
