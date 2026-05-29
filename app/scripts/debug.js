@@ -24387,7 +24387,7 @@ var ncmDrawerManager = {
         });
     },
     list: function (callback) {
-        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'loadDrawerList', json: 1 });
+        var url = masterUrl + 'bff/drawer?l=' + ncmHttp.masterUrlParams({ action: 'loadDrawerList', json: 1 });
 
         ncmHttp.get({
             url: url,
@@ -24454,7 +24454,7 @@ var ncmDrawerManager = {
         }
     },
     isOpenClose: function (callback) {
-        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'loadDrawerList', chk: 1 });
+        var url = masterUrl + 'bff/drawer?l=' + ncmHttp.masterUrlParams({ action: 'loadDrawerList', chk: 1 });
 
         ncmHttp.get({
             url: url,
