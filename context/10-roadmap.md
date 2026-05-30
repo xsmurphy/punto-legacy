@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-05-29
+> **Última actualización:** 2026-05-30
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -152,10 +152,11 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 - Verificado E2E: assign con FK válida → 200; FK inválida rechazada (502).
 
 **Pendiente en mesas/órdenes — DIFERIDOS por estar ROTOS en PG (necesitan fix semántico, no solo port):**
-- `joinSpaces`: escribe un número de mesa (int) en `transactionParentId`, que es **UUID FK** → hay que resolver el `transactionId` de la mesa destino primero. Entender la semántica de "unir espacios" antes de migrar.
+- ✅ `joinSpaces` — **RESUELTO (commit 5642a1c, 2026-05-30)**: `TableService::joinSpaces(companyId, outletId, tFrom, tTo)` — resuelve el `transactionId` (UUID) de la mesa destino, marca la mesa origen como hija (`transactionParentId = ese UUID`, consumido por `closeTable`/`listTables`), reasigna sus órdenes (type 12) de tFrom a tTo. Devuelve 404 si la mesa destino no existe. `api/v1/tables.php` PUT `?resource=join` body `{from,to}`. `app/bff/tables.php` action `joinSpaces`. `globalv2.js` + `debug.js` repuntados a `bff/tables`.
+- ✅ `moveOrders` — **RESUELTO (commit 5642a1c, 2026-05-30)**: `TableService::moveOrders(companyId, outletId, registerId, userId, tFrom, tTo)` — mueve las órdenes (ítems) de una mesa a otra y ABRE la mesa destino si estaba cerrada (INSERT type 11; PK por DEFAULT `gen_random_uuid()`). No es fusión: no marca `transactionParentId`. Guard "Debe abrir el espacio" eliminado del front (ahora el backend abre la mesa destino); chequeo `joined` null-safe. `api/v1/tables.php` PUT `?resource=move`. `app/bff/tables.php` action `moveOrders`.
 - `setUserToOrder`: reescribe `transactionDetails`, columna **absorbida a `meta` JSONB** (ya no existe como columna) → requiere `jsonb_set` sobre `meta`. Va en un slice de "órdenes" (type 12) con el manejo correcto de `meta`.
 - `closeTable`: **cascada** (borra la mesa + sus órdenes) → slice dedicado con transacción.
-- `moveOrders`/`moveOrderItems`, `transferOrderToOutlet`: mueven órdenes entre mesas/outlets — dominio "órdenes".
+- `moveOrderItems`, `transferOrderToOutlet`: mueven ítems/órdenes entre mesas/outlets — dominio "órdenes".
 
 **Slice 4 COMPLETO — calendario (commit 1cae3c4, luego movido en d75dd0b)**: `api/lib/services/ScheduleService.php` (`rescheduleTo` → UPDATE toDate preservando fromDate; `unlock` → DELETE) + `api/v1/schedule.php` + `app/bff/schedule.php` + 2 call-sites. Fixes PG: transactionId/companyId bindeados, DELETE sin LIMIT, validación de formato de hora. **Diferidos**: `updateSchedule`/`scheduleSession` (escriben `transactionDetails` → `meta` JSONB).
 
@@ -195,7 +196,7 @@ Tarea estructural diferida (ortogonal al desacople): reestructurar `/app` con me
 - Vendorear deps JS vía npm en vez de copias manuales.
 - Revisar nombres de archivos PHP de /app (action.php/load.php/fetch.php) una vez vaciados.
 
-**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21), `ScheduleService` (rescheduleTo/unlock — slice 4; updateSchedule/scheduleSession/checkIfUserOccupied — slice 20; **getSessionsList** — slice 30; **getAgendaList** — slice 31), `CustomerNoteService`, `TransactionService` (**getTransactionList(listType,…)** — slice 28: quotes/saved + **getMainList()** — slice 29: transactions panel de ventas), `OrderService` (accept/transferToOutlet/assignUser + **customerHasOpenOrders** — slice 23 + **queryOrderRows/getTableClose/getTableDetail/getList** — slice 27), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`, **`CustomerService`** (**getInfo()** — slice 32: resumen del cliente, read-only salvo backfill lazy de customerAddress + **getRecords()** — slice 33: fichas personalizadas, datos estructurados). Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
+**Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21; **joinSpaces**/**moveOrders** — commit 5642a1c), `ScheduleService` (rescheduleTo/unlock — slice 4; updateSchedule/scheduleSession/checkIfUserOccupied — slice 20; **getSessionsList** — slice 30; **getAgendaList** — slice 31), `CustomerNoteService`, `TransactionService` (**getTransactionList(listType,…)** — slice 28: quotes/saved + **getMainList()** — slice 29: transactions panel de ventas), `OrderService` (accept/transferToOutlet/assignUser + **customerHasOpenOrders** — slice 23 + **queryOrderRows/getTableClose/getTableDetail/getList** — slice 27), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`, **`CustomerService`** (**getInfo()** — slice 32: resumen del cliente, read-only salvo backfill lazy de customerAddress + **getRecords()** — slice 33: fichas personalizadas, datos estructurados). Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
 
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
 
@@ -203,7 +204,7 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 - **Cluster meta-JSONB (8 handlers) — ✅ COMPLETO (slices 18-20, 2026-05-28)**: `setUserToOrder` (slice 18, OrderService.assignUser), `removeItemfromOrder`/`processOrderItems`/`processOrderItemsUpdate`/`moveOrderItems` (slice 19, OrderItemsService), `updateSchedule`/`scheduleSession`/`checkIfUserOccupied` (slice 20, ScheduleService). Helper `api/lib/meta_transaction.php` (`txMetaRead`/`txDetailsFromMeta`/`txDetailsWrite`): read-modify-write de `transactionDetails` dentro de `meta` (jsonb) preservando otras keys (tags); usa `$db->Execute` directo (no ncmExecute, que aplica `_flattenJsonb` y elimina la key `meta`). Lecturas multi-fila (checkIfUserOccupied) hacen `SELECT meta` + decode por fila. Lógica de matching (itemId/oPosition/parent) y quirks (keys userId vs user) portados verbatim. Todo verificado contra DB real.
 - **Cluster ENCOM→Punto ✅ HECHO (slices 13-15)**: `clockIn`✅ `notifications`✅ `notificationsCount`✅ `ePOSAddCardTransaction`✅ `cajaPOSAddCardAndQrTransaction`✅ `PixAddTransaction`✅. `verifyQRPaymentCode`=dead (borrar). Análisis KDS hecho: los endpoints canónicos viven en `panel/API/`; el verdadero nodo compartido /app↔KDS↔CDS es `get_orders.php` (type 12) — va con la migración de load.php (lectura de órdenes), NO con este cluster. panel/screens siguen en panel/API por ahora. `send_webSocket` ya cubierto vía `sendWS()`.
-- **Mesa-merge (2 handlers, ROTOS int→UUID)**: `joinSpaces`, `moveOrders` — usan números de mesa (int) contra `transactionParentId` (uuid) / `transactionName` (varchar). Necesitan fix semántico de "unir/mover espacios" con el schema nuevo.
+- **Mesa-merge (2 handlers) — ✅ RESUELTO (commit 5642a1c, 2026-05-30)**: `joinSpaces` → `TableService::joinSpaces` (une mesa origen en destino via UUID); `moveOrders` → `TableService::moveOrders` (mueve órdenes + abre destino si cerrada). Los bugs int→UUID del legacy corregidos: nº de mesa en columna UUID, varchar vs int sin comillas, UUIDs sin comillas, `USE INDEX` (MySQL), params desalineados. Todo parametrizado + scope companyId+outletId del JWT. Ver sección "Pendiente en mesas/órdenes" arriba para detalles de la semántica.
 - **`processData` (~1540 líneas)**: el guardado de ventas. **Su INSERT roto YA fue arreglado quirúrgicamente** (commit `e7c04fb`: transactionDetails/tags→meta, recurringSaleData→data) → las ventas vuelven a guardar. Falta la **migración full a SaleService** (BFF→API): pipeline completo de itemSold/comisiones/COGS/manageStock/giftcards/sesiones/recurring/loyalty/facturas/factura-electrónica + bloques separados de cliente/cRecordValue/drawer (~25 helpers). Trabajo grande, incremental, alto riesgo (money+inventario).
 - **`sale` (~525 líneas)**: renderiza listas HTML de transacciones (monstruo de lectura).
 - **Breakages preexistentes del panel (mismo tipo de migración, follow-up)**: `panel/crons/cronCreateRecurringInvoice.php` lee `recurringSaleData` de multi-row sin flatten → NULL; `panel/report_transactions.php` + `panel/a_report_transactions.php` hacen UPDATE de la columna `tags` (ya no existe) → falla.
@@ -255,6 +256,14 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 - **APIs externas diferidas** (requieren integraciones externas para testear): `bancardQR`, `pixQR`, `verifyTransactionPix`, `ePOSPending`, `verifyTransactionEPOS`, `userLocation`, `tin`.
 
 Los clusters restantes de `action.php` (mesa-merge, monstruos processData/sale, HTML/especial, dead) no son de `load.php`.
+
+**Slice 34 COMPLETO — `joinSpaces` + `moveOrders` de action.php (commit 5642a1c, 2026-05-30)**: los dos handlers del cluster "Mesa-merge", diferidos por estar ROTOS en PG (int→UUID), migrados a `TableService` con la semántica correcta:
+- `TableService::joinSpaces(companyId, outletId, tFrom, tTo)` — une la mesa origen en la destino: resuelve el `transactionId` (UUID) de la mesa destino, marca la origen como hija (`transactionParentId = ese UUID`, que `closeTable`/`listTables` ya consumen), reasigna sus órdenes (type 12). Devuelve 404 si la mesa destino no existe.
+- `TableService::moveOrders(companyId, outletId, registerId, userId, tFrom, tTo)` — mueve las órdenes (ítems) de una mesa a otra y ABRE la mesa destino si estaba cerrada (INSERT type 11; PK por DEFAULT `gen_random_uuid()`). No es fusión: no marca `transactionParentId`.
+- `api/v1/tables.php`: PUT `?resource=join` body `{from,to}` / PUT `?resource=move` body `{from,to}`. `app/bff/tables.php`: actions `joinSpaces` y `moveOrders`. `globalv2.js` + `debug.js` repuntados de `action?l=` a `bff/tables`; guard "Debe abrir el espacio" eliminado del front (backend ahora abre la mesa destino); chequeo `joined` null-safe.
+- `app/action.php`: eliminados los dos handlers legacy (~51 líneas).
+- **Fixes PG del legacy**: nº de mesa guardado en columna UUID, varchar vs int sin comillas, UUIDs sin comillas, `USE INDEX` (MySQL), params desalineados (2 placeholders/3 args). Todo parametrizado + scope companyId+outletId del JWT.
+- `TableService` ahora tiene: rename / unreserve / assignUser / closeTable / listTables / **joinSpaces** / **moveOrders**.
 
 **PATRÓN VIGENTE — datos estructurados + Alpine (establecido Slice 33, reescrito commit 3d62191):** para handlers HTML server-rendered, la API devuelve datos estructurados (campos tipados) y el front renderiza con un template Alpine en `app/index.php`/`app/index.html`. El patrón Mustache que documentaba b0fbec3 fue reemplazado en la misma jornada. Ver convención §24 en `08-convenciones.md`.
 

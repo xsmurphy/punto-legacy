@@ -84,14 +84,14 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/bootstrap.php` | Bootstrap + `apiAuthTenant()` — autentica JWT tenant, prepara contexto POS |
 | `api/lib/response.php` | `apiOk()` / `apiError()` — envelope canónico |
 | `api/lib/services/CustomerAddressService.php` | CRUD de direcciones de cliente |
-| `api/lib/services/TableService.php` | rename / unreserve / assignUser / closeTable / **listTables** de mesas |
+| `api/lib/services/TableService.php` | rename / unreserve / assignUser / closeTable / **listTables** / **joinSpaces** / **moveOrders** de mesas |
 | `api/lib/services/OrderService.php` | accept / transferToOutlet / assignUser / **customerHasOpenOrders** (slice 23 — bool, type 12 status!=4, parametrizado, multi-tenant) |
 | `api/lib/services/RegisterService.php` | setSession (slice 10) / **docNumbers** (slice 22 — 7 contadores de doc por registro, bug PG de UUID sin comillas corregido) |
 | `api/lib/services/ScheduleService.php` | rescheduleTo / unlock de agendamientos |
 | `api/lib/services/CustomerNoteService.php` | add de notas de cliente |
 | `api/lib/services/CustomerService.php` | **getInfo()** (slice 32 — resumen de cliente: contacto + últimos ítems vendidos + deuda corriente/vencida + gift cards activas + dirección default). Read-only salvo backfill lazy de customerAddress. Corrige SQL injection del legacy (STRING_AGG(ids) concatenado en IN() → IN(?) parametrizado). Scope companyId en todas las queries de transaction/itemSold/giftCardSold. |
 | `api/v1/customer_address.php` | Endpoint CRUD customerAddress (slice 1) |
-| `api/v1/tables.php` | Endpoint mesas (slices 2–3, 21) |
+| `api/v1/tables.php` | Endpoint mesas (slices 2–3, 21, 34) — GET listTables; PUT `?resource=join` (joinSpaces), PUT `?resource=move` (moveOrders) |
 | `api/v1/orders.php` | Endpoint órdenes: GET `?resource=customerHasOrders&customerId=<id>` → bool (slice 23) |
 | `api/v1/schedule.php` | Endpoint agendamientos (slice 4) |
 | `api/v1/customer_note.php` | Endpoint notas de cliente (slice 5) |

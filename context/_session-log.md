@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-30 — Slice 34: joinSpaces + moveOrders migrados a TableService (commit 5642a1c)
+
+- **Hecho**: los dos handlers del cluster "Mesa-merge" de `action.php`, diferidos por estar ROTOS en PG (int→UUID), resueltos e integrados al patrón BFF→API→Service.
+- **`TableService::joinSpaces`**: resuelve el `transactionId` (UUID) de la mesa destino, marca la origen como hija (`transactionParentId = ese UUID`), reasigna sus órdenes (type 12). Devuelve 404 si la destino no existe. `PUT api/v1/tables.php?resource=join`.
+- **`TableService::moveOrders`**: mueve órdenes de una mesa a otra y ABRE la destino si estaba cerrada (INSERT type 11, PK por DEFAULT `gen_random_uuid()`). No es fusión (no marca parentId). `PUT api/v1/tables.php?resource=move`.
+- **Front**: `globalv2.js` + `debug.js` repuntados de `action?l=` a `bff/tables`. Guard "Debe abrir el espacio" eliminado del front (backend abre la destino ahora). `action.php`: ~51 líneas eliminadas.
+- **Fixes PG del legacy**: nº de mesa en columna UUID, varchar vs int sin comillas, UUIDs sin comillas, `USE INDEX` (MySQL), params desalineados (2 placeholders/3 args). Todo parametrizado + scope companyId+outletId del JWT.
+- **TableService** queda con: rename / unreserve / assignUser / closeTable / listTables / joinSpaces / moveOrders.
+- **Nota**: `_session-log.md` supera el cap de 200 líneas — considerar archivar entradas antiguas a `_session-log-archive-2026-05.md` en la próxima sesión.
+
 ## 2026-05-29 — Slice 33 reescrito en Alpine.js + vendoreo alpinejs-3.14.1 en /app (commit 3d62191)
 
 - **Decisión de convención**: los templates nuevos en `/app` van en **Alpine.js**, NO en Mustache. Migración incremental — Mustache sigue cargado para los ~22 templates existentes pero no se crean templates Mustache nuevos. Convención §24 en `08-convenciones.md` actualizada (antes documentaba Mustache, ahora documenta Alpine + el patrón de integración completo).
