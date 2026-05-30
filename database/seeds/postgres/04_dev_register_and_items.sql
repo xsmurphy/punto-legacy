@@ -5,20 +5,26 @@
 -- =============================================================
 
 -- Register principal en el outlet demo
+-- registerHotkeys: precargado en data JSONB con los 5 ítems del seed para
+-- saltar el wizard de primer arranque del POS (sino el cajero queda en
+-- modo "edit hotkeys"). La columna registerHotkeys fue demoted a data JSONB.
 INSERT INTO register (
     registerid, registername, registerstatus,
     registerinvoicenumber, registerticketnumber, registerreturnnumber,
     registerschedulenumber, registerpedidonumber, registerquotenumber,
+    data,
     outletid, companyid
 ) VALUES (
     '00000000-0000-0000-0000-000000000020',
     'Caja Principal', TRUE,
     1, 1, 1, 1, 1, 1,
+    '{"registerHotkeys":"[{\"color\":\"\",\"itemId\":\"00000000-0000-0000-0000-000000000031\",\"position\":0},{\"color\":\"\",\"itemId\":\"00000000-0000-0000-0000-000000000032\",\"position\":1},{\"color\":\"\",\"itemId\":\"00000000-0000-0000-0000-000000000033\",\"position\":2},{\"color\":\"\",\"itemId\":\"00000000-0000-0000-0000-000000000034\",\"position\":3},{\"color\":\"\",\"itemId\":\"00000000-0000-0000-0000-000000000035\",\"position\":4}]"}'::jsonb,
     '00000000-0000-0000-0000-000000000011',
     '00000000-0000-0000-0000-000000000010'
 ) ON CONFLICT (registerid) DO UPDATE
     SET registername   = EXCLUDED.registername,
-        registerstatus = EXCLUDED.registerstatus;
+        registerstatus = EXCLUDED.registerstatus,
+        data           = EXCLUDED.data;
 
 -- 5 ítems de prueba (sin tracking de inventario para venta directa)
 INSERT INTO item (

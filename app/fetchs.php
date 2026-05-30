@@ -239,7 +239,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
       if($registersIds){
         while (!$registersIds->EOF) {
-          $rFields        = $registersIds->fields;
+          $rFields        = _flattenJsonb($registersIds->fields);
           $jrFields       = json_decode($rFields['data'] ?? "",true);
 
           $activeOutlet   = ncmExecute('SELECT outletStatus FROM outlet WHERE outletId = ? AND outletStatus = 1 AND companyId = ? LIMIT 1',[$rFields['outletId'],COMPANY_ID]);
