@@ -3544,7 +3544,7 @@ function getAllItemCategories($companyId){
 		while (!$result->EOF) {
 		    $a[enc($result->fields['taxonomyId'])] = 	[
 															"name" => $result->fields['taxonomyName'],
-															"sort" => (int) !array_key_exists("taxonomyExtra",$result->fields) ? 0 : $result->fields['taxonomyExtra']
+															"sort" => (int) (!isset($result->fields['taxonomyExtra']) ? 0 : $result->fields['taxonomyExtra'])
 														];
 		    $result->MoveNext(); 
 		}
