@@ -2,13 +2,20 @@
 -- SEED PostgreSQL: Empresa cliente de prueba
 -- Usuario: demo@local.test / admin123
 -- =============================================================
+-- UUIDs fijos pero NO-secuenciales para reproducibilidad del seed
+-- (los UUIDs raw pueden filtrarse a APIs/URLs públicas — no usar
+-- formatos enumerables tipo 0..1, 0..2).
+--   Demo Company  : 2cffe736-f5dc-4876-9752-ea5f0db24757
+--   Demo Outlet   : ff8470f8-5952-4297-9ce0-fda08c701c21
+--   Demo Admin    : cb9afd35-a374-4080-873c-6d141070b92e
+-- =============================================================
 
 -- Empresa demo
 INSERT INTO company (
     companyId, status, plan, balance, isParent,
     config
 ) VALUES (
-    '00000000-0000-0000-0000-000000000010',
+    '2cffe736-f5dc-4876-9752-ea5f0db24757',
     'Active',
     1,
     0.00,
@@ -53,10 +60,10 @@ INSERT INTO company (
 INSERT INTO outlet (
     outletId, outletName, outletStatus, companyId
 ) VALUES (
-    '00000000-0000-0000-0000-000000000011',
+    'ff8470f8-5952-4297-9ce0-fda08c701c21',
     'Sucursal Principal',
     1,
-    '00000000-0000-0000-0000-000000000010'
+    '2cffe736-f5dc-4876-9752-ea5f0db24757'
 ) ON CONFLICT (outletId) DO UPDATE
     SET outletName = EXCLUDED.outletName;
 
@@ -67,14 +74,14 @@ INSERT INTO contact (
     contactStatus, type, main, role,
     outletId, companyId
 ) VALUES (
-    '00000000-0000-0000-0000-000000000012',
+    'cb9afd35-a374-4080-873c-6d141070b92e',
     'Demo Admin',
     'demo@local.test',
     'd1e425ce2c0b4f5f4bbead2ab72bba98e5764600864c3cfb54f69491c1625bfa',
     '18d31afc38712036',
     1, 0, 'admin', 1,
-    '00000000-0000-0000-0000-000000000011',
-    '00000000-0000-0000-0000-000000000010'
+    'ff8470f8-5952-4297-9ce0-fda08c701c21',
+    '2cffe736-f5dc-4876-9752-ea5f0db24757'
 ) ON CONFLICT (contactId) DO UPDATE
     SET contactEmail    = EXCLUDED.contactEmail,
         contactPassword = EXCLUDED.contactPassword,
