@@ -2801,39 +2801,53 @@ if ($action) {
       jsonDieMsg('true', 200, 'success');
     } else if (array_key_exists('newClient', $data)) {
       $customerData = $data['newClient'];
+      $record       = [];
 
-      $record['contactId']      = $customerData['customerId'];
-      $record['contactName']     = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['name']);
-      $record['contactSecondName'] = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['fullName']);
-      $record['contactTIN']      = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['ruc']);
-      $record['contactCI']       = (int)$customerData['ci'];
-      $record['contactNote']     = $customerData['description'];
-      $record['contactDate']     = $customerData['date'];
-      $record['contactBirthDay'] = $customerData['birthday']; //birthday es date, no tiene time
-      $record['contactPhone']    = $customerData['phone'];
-      $record['contactPhone2']   = $customerData['phone2'];
-      $record['contactEmail']    = strtolower(preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['email']));
-      $record['userId']          = USER_ID;
-      $record['outletId']        = OUTLET_ID;
-      $record['companyId']       = COMPANY_ID;
-      $record['updated_at']      = TODAY;
-      $record['type']            = 1; //customer
-
-      //Si es diplomatico agrego para guardar en el json del campo data en contacts
-      if(isset($customerData['diplomatic']) && $customerData['diplomatic'] === 1){
-        $record['diplomatic']    = $customerData['diplomatic']; 
-        $allData 													=	json_encode($record);
-        $record['data'] 									= $allData;
+      // contactNote, contactCity, contactLocation, contactCountry, contactAddress, contactAddress2
+      // están demoted a data JSONB (migración 06). Se persisten via el campo `data`.
+      $jsonbData = [];
+      if (!empty($customerData['description'])) { $jsonbData['contactNote']     = $customerData['description']; }
+      if (!empty($customerData['city']))        { $jsonbData['contactCity']     = $customerData['city']; }
+      if (!empty($customerData['location']))    { $jsonbData['contactLocation'] = $customerData['location']; }
+      if (!empty($customerData['country']))     { $jsonbData['contactCountry']  = $customerData['country']; }
+      if (isset($customerData['diplomatic']) && $customerData['diplomatic'] === 1) {
+        $jsonbData['diplomatic'] = 1;
       }
 
-      $insert = $db->AutoExecute('contact', $record, 'INSERT');
+      // El frontend genera customerId como timestamp local (ej "1780160080001") para tracking
+      // en la cache antes del sync. PG no acepta eso como UUID → dejar que la columna se
+      // autogenere con gen_random_uuid() y devolver el UUID real al front (campo customerUnd).
+      $frontTempId                 = $customerData['customerId'] ?? null;
+      $record['contactName']       = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['name'] ?? '');
+      $record['contactSecondName'] = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['fullName'] ?? '');
+      $record['contactTIN']        = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['ruc'] ?? '');
+      $record['contactCI']         = !empty($customerData['ci']) ? (string)$customerData['ci'] : null;
+      // contactDate (timestamptz NOT NULL DEFAULT now()): omitir si vacío deja el default.
+      if (!empty($customerData['date']))     { $record['contactDate']     = $customerData['date']; }
+      // contactBirthDay (date): "" rompe PG → NULL.
+      $record['contactBirthDay']   = !empty($customerData['birthday']) ? $customerData['birthday'] : null;
+      $record['contactPhone']      = $customerData['phone']  ?? null;
+      $record['contactPhone2']     = $customerData['phone2'] ?? null;
+      $record['contactEmail']      = !empty($customerData['email']) ? strtolower(preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['email'])) : null;
+      $record['userId']            = USER_ID;
+      $record['outletId']          = OUTLET_ID;
+      $record['companyId']         = COMPANY_ID;
+      $record['updated_at']        = TODAY;
+      $record['type']              = 1; //customer
+      if (!empty($jsonbData)) {
+        $record['data']            = json_encode($jsonbData);
+      }
 
-      if (validity($customerData['address'])) {
+      $insert     = $db->AutoExecute('contact', $record, 'INSERT');
+      $newContactId = $db->Insert_ID();
+
+      if ($insert && $newContactId && validity($customerData['address'] ?? null)) {
+        $recordAdd = [];
         $recordAdd['customerAddressText']       = $customerData['address'];
-        $recordAdd['customerAddressDefault']    = 1;
-        $recordAdd['customerAddressLocation']   = $customerData['location'];
-        $recordAdd['customerAddressCity']       = $customerData['city'];
-        $recordAdd['customerId']                = $customerData['customerId'];
+        $recordAdd['customerAddressDefault']    = true; // PG boolean (era int en MySQL).
+        $recordAdd['customerAddressLocation']   = !empty($customerData['location']) ? $customerData['location'] : null;
+        $recordAdd['customerAddressCity']       = !empty($customerData['city']) ? $customerData['city'] : null;
+        $recordAdd['customerId']                = $newContactId;
         $recordAdd['companyId']                 = COMPANY_ID;
 
         if ($customerData['latLng']) {
@@ -2848,7 +2862,7 @@ if ($action) {
         $insertAdd = $db->AutoExecute('customerAddress', $recordAdd, 'INSERT');
       }
 
-      if (isset($update) && $update === false) {
+      if ($insert === false || !$newContactId) {
         jsonDieMsg($db->ErrorMsg());
       } else {
         updateLastTimeEdit(COMPANY_ID, 'customer');
@@ -2857,7 +2871,7 @@ if ($action) {
         sendWS([
           'channel'       => enc(COMPANY_ID),
           'event'         => 'addCustomers',
-          'message'       => json_encode(['ID' => enc($record['contactId']), 'registerID' => enc(REGISTER_ID)])
+          'message'       => json_encode(['ID' => enc($newContactId), 'registerID' => enc(REGISTER_ID)])
         ]);
 
         try {
@@ -2873,7 +2887,7 @@ if ($action) {
             'origin'       => 'CAJA',
             'company_id'       => COMPANY_ID,
             'data'       => [
-              'action' => "El usuario $userName agregó un nuevo cliente (" . $record['contactName'] . ") desde la caja $registerName",
+              'action' => "El usuario $userName agregó un nuevo cliente (" . ($record['contactName'] ?? '') . ") desde la caja $registerName",
               'userId' => USER_ID,
               'userName' => $userName,
               'operationData' => $customerData,
@@ -2896,7 +2910,15 @@ if ($action) {
           error_log(print_r($customerData, true), 3, './error_log');
         }
 
-        jsonDieMsg('true', 200, 'success');
+        // Devolver el UUID generado + el id temporal del front para que la
+        // cache local pueda reconciliar (campos newId/oldId en la respuesta).
+        http_response_code(200);
+        header('Content-Type: application/json');
+        die(json_encode([
+          'success' => 'true',
+          'newId'   => enc($newContactId),
+          'oldId'   => $frontTempId,
+        ]));
       }
 
       dai();
