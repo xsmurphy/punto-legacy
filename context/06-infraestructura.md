@@ -148,4 +148,12 @@ Las libs front se sirven desde `assets/vendor/js/*.min.js` (las concatena el bui
 cd database/seeds && ./run_seeds.sh
 ```
 
-Ejecuta en orden: base → panel_user → catalog → sample_items
+Ejecuta en orden: base → panel_user → **03_dev_plan** → catalog → sample_items
+
+| Seed | Archivo | Qué inserta |
+|------|---------|-------------|
+| 01 | `01_base.sql` (o equivalente) | Company demo, outlet, register, usuarios base |
+| 02 | `02_panel_user.sql` | Usuario panel |
+| 03 | `postgres/03_dev_plan.sql` | "Local Dev Plan" — `plan_code=1`, todos los límites en 99999. Requerido para que el POS bootee sobre PG dev (company.plan=1 → matchea plans.plan_code=1) |
+
+**Nota**: el seed `03_dev_plan.sql` se agrega en commit 5acea95 junto a la migración 10 (`10_plans_code.sql`). Correr la migración 10 ANTES del seed (el seed depende de la columna `plan_code`).

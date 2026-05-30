@@ -81,6 +81,20 @@ franchiser_to_tenant (acceso N→N franquiciador→tenant — NO propiedad/billi
 7. **Columnas BOOLEAN en PG** — comparar con `= true` / `= false`, nunca `= 1` / `= 0`. Error PG: `operator does not exist: boolean = integer`. Sitios pendientes de corregir: `panel/includes/functions.php:3464,3790` y `app/action.php`, `app/load.php`, `app/fetch.php`, `app/fetchs.php`.
 8. **Acceso ≠ propiedad** — la pertenencia de un tenant a un franquiciador (`franchiser_to_tenant`) es solo una capa de acceso/gestión; NO afecta dueño, plan ni facturación, que son siempre per-tenant en `company`. Ver ADR-001.
 
+### Tabla `plans` — planes de suscripción
+
+La tabla `plans` usa **UUID v7 como PK** (`id`), pero `company.plan` es un `smallint` legacy.
+Para bridgear este mismatch, **migración 10** (`10_plans_code.sql`, 2026-05-30) agrega:
+
+- `plan_code smallint NOT NULL DEFAULT 0` — entero semántico que matchea `company.plan`
+- Índice único parcial `UNIQUE (plan_code) WHERE plan_code > 0` — evita duplicados entre planes reales (0 = valor de relleno para planes legacy sin código)
+
+**Patrón de lookup:** `getAllPlans()` en `app/includes/functions.php` indexa el resultado por `plan_code ?? id`.
+Para resolver el plan de una company: `$plans[$company->plan]` → obtiene el row del plan.
+Sin este campo, `getAllPlans(1)` nunca matcheaba (UUID vs int) → arrays de límites vacíos → LIMIT 0 en todas las queries del POS.
+
+**Seed de desarrollo:** `database/seeds/postgres/03_dev_plan.sql` inserta el "Local Dev Plan" con `plan_code=1` y todos los límites en 99999. Incluido en `run_seeds.sh` como tercer seed.
+
 ### Relación franquiciador→tenant (acceso, N→N)
 
 Ver [adr/ADR-001-franchiser-tenant-acceso.md](adr/ADR-001-franchiser-tenant-acceso.md).
@@ -149,5 +163,6 @@ Creada en **migración 09** (`09_admin_user.sql`, 2026-05-28). Es la base del *a
 | 07 | `07_item_jsonb_demote.sql` | Demota 4 columnas de `item` a `item.data` JSONB (itemImage/itemTaxExcluded/itemDiscount/itemUOM) | Aplicada local 2026-05-25 |
 | 08 | `08_franchiser_to_tenant.sql` | Crea tabla puente de acceso N→N franquiciador→tenant + backfill desde `company.parentId` | Aplicada local 2026-05-26 |
 | 09 | `09_admin_user.sql` | Crea tabla `admin_user` para super-admins de plataforma (admin realm separado, bcrypt, sin companyId) | Aplicada local 2026-05-28 |
+| 10 | `10_plans_code.sql` | Agrega columna `plan_code smallint NOT NULL DEFAULT 0` a tabla `plans` + índice único parcial `WHERE plan_code > 0`. Resuelve el mismatch `company.plan smallint` → `plans.id UUID` que hacía que `getAllPlans(1)` nunca matcheara (LIMIT 0) | Aplicada local 2026-05-30 |
 
 **Patrón atómico de demotion:** backfill UPDATE no-destructivo (NULLIF para no inflar con defaults; booleans como JSON booleans, no strings) + DROP atómico en el mismo script. Requiere ser owner de la tabla en PG (el usuario `punto` de la app no lo es — ver `06-infraestructura.md §Privilegio de owner para DDL`).

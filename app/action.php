@@ -147,7 +147,7 @@ if ($action) {
 
     if (validity($ids)) {
       //SELECT * FROM item WHERE companyId = ? AND itemStatus = 1 AND itemCanSale = 1 AND (outletId = ? OR outletId IS NULL OR outletId = 0)" . $updated_at . " ORDER BY itemDate " . $order . $limit
-      $result     = ncmExecute("SELECT itemId, itemId FROM item WHERE companyId = ? AND itemStatus = 1 AND itemCanSale = 1 LIMIT 50000", [COMPANY_ID], false, true, true); //devuelvo object
+      $result     = ncmExecute("SELECT itemId, itemId FROM item WHERE companyId = ? AND itemStatus = 1 AND itemCanSale = TRUE LIMIT 50000", [COMPANY_ID], false, true, true); //devuelvo object
 
       if ($result) {
         $result = array_flatten($result);

@@ -202,8 +202,8 @@ if (isset($_POST['companyId']) && isset($_POST['outletId'])) {
     //REGISTER
     $registersIds = ncmExecute("  SELECT *
                                   FROM register
-                                  WHERE registerStatus = 1
-                                  AND companyId = ? LIMIT " . ($planIt['max_registers'] * $outletCount),
+                                  WHERE registerStatus = TRUE
+                                  AND companyId = ? LIMIT " . intval(($planIt['max_registers'] ?? 99) * $outletCount),
                                   [COMPANY_ID],false,true);
 
 
@@ -558,7 +558,7 @@ if (isset($_POST['companyId']) && isset($_POST['outletId'])) {
       $allTaxonomy  = getAllTaxonomyNames(COMPANY_ID);
       $decimal      = ncmExecute('SELECT settingDecimal FROM company WHERE companyId = ? LIMIT 1',[COMPANY_ID]);
       
-      $products     = ncmExecute("SELECT * FROM item WHERE companyId = ? AND itemStatus = 1 AND itemCanSale = 1 AND (outletId = ? OR outletId IS NULL OR outletId = 0)" . $updated_at . " ORDER BY itemDate " . $order . $limit, [COMPANY_ID,OUTLET_ID],30,true);
+      $products     = ncmExecute("SELECT * FROM item WHERE companyId = ? AND itemStatus = 1 AND itemCanSale = TRUE AND (outletId = ? OR outletId IS NULL)" . $updated_at . " ORDER BY itemDate " . $order . $limit, [COMPANY_ID,OUTLET_ID],30,true);
 
       $catsIds      = getCategoriesIds(COMPANY_ID);
       $categorize   = iftn($catsIds,''," AND (categoryId IN(" . $catsIds . ") OR categoryId IS NULL)");

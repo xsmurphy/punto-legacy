@@ -47,7 +47,7 @@ class RegisterService
     public function docNumbers(string $registerId, string $companyId): array
     {
         $register = ncmExecute(
-            'SELECT * FROM register WHERE registerStatus = 1 AND registerId = ? AND companyId = ? LIMIT 1',
+            'SELECT * FROM register WHERE registerStatus = TRUE AND registerId = ? AND companyId = ? LIMIT 1',
             [$registerId, $companyId],
             false
         );

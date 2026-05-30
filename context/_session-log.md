@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-30 (tarde/noche) — POS boot en PG: 6 bugs resueltos, migration 10 + seed 03 (commit 5acea95)
+
+- **Raíz del problema — plans UUID/int mismatch**: `company.plan` es `smallint` pero `plans.id` es UUID → `getAllPlans(1)` nunca matcheaba → arrays de límites vacíos → LIMIT 0 en todas las queries del POS. Resuelto con migración 10 (`10_plans_code.sql`): agrega `plan_code smallint` + índice único parcial. Seed `03_dev_plan.sql` inserta el dev plan con `plan_code=1`, límites=99999. `getAllPlans()` ahora indexa por `plan_code ?? id`.
+- **PHP 8.5 / PG schema bugs en `fetchs.php`**: (1) `json_decode(null)` deprecated → guards `?? '' / ?? '{}'` en `moduleData`, `settingObj`, `ecom_data`, `outletBusinessHours`. (2) `ORDER BY contactInCalendar DESC` — columna demotada a `data` JSONB → removido; `_flattenJsonb()` en el loop. (3) `IN(false)` — `$cAIns` vacío hacía `implode([]) = false` → guard antes del IN. (4) Los 5 LIMITs plan-driven (outlets/registers/users/customers/items) ahora pasan por `intval()` + `?? 0` en extraUsers/extraRegisters.
+- **`DB.php DBResult`**: agrega `MoveFirst()` (faltaba; se llama en el loop de customers).
+- **`functions.php getRolePermissions`** (app + panel): guard cuando taxonomy query devuelve `false` (tabla sin datos) → evita "access array offset on false" fatal.
+- **Estado del POS**: llega a lock screen tras estos fixes. Siguiente barrera: `noLock` / `modules` vacío / `customers:false` (post-lock-screen, en cola).
+
 ## 2026-05-30 (tarde) — Rebrand iconos Punto + test E2E del POS en Chrome → 3 bugs de boot en PG arreglados (commits 93be05a, bc3aa35, 03d6d49, 1a6cb94)
 
 - **Hecho — iconos**: rebrand completo ENCOM→Punto generado desde `Media/logo/punto_iso.svg` con cairosvg+Pillow (script temporal): favicon/android transparentes, apple/ms-tiles/splash con fondo blanco + `favicon.ico` multi-res. Se crearon los faltantes (apple-touch-icon-\*, favicon-128/196, mstile-\* incl. 310x150) y se arreglaron las refs muertas de los `<head>` → `/assets/icons/`.
