@@ -204,6 +204,35 @@ Tarea estructural iniciada (ortogonal al desacople). Estado por tier:
 
 **Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21; **joinSpaces**/**moveOrders** — commit 5642a1c), `ScheduleService` (rescheduleTo/unlock — slice 4; updateSchedule/scheduleSession/checkIfUserOccupied — slice 20; **getSessionsList** — slice 30; **getAgendaList** — slice 31), `CustomerNoteService`, `TransactionService` (**getTransactionList(listType,…)** — slice 28: quotes/saved + **getMainList()** — slice 29: transactions panel de ventas), `OrderService` (accept/transferToOutlet/assignUser + **customerHasOpenOrders** — slice 23 + **queryOrderRows/getTableClose/getTableDetail/getList** — slice 27), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`, **`CustomerService`** (**getInfo()** — slice 32: resumen del cliente, read-only salvo backfill lazy de customerAddress + **getRecords()** — slice 33: fichas personalizadas, datos estructurados). Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
 
+### Refactor de `app/scripts/app.js` — DIFERIDO (decisión 2026-05-30)
+
+**Estado actual**: 26.927 líneas, 34 módulos globales `ncm*` (`Menu`/`ActionSheet`/`Modules`/`Spaces`/`Maths`/`FE`/`Payments`/`Helpers`/`WebSockets`/`Events`/`Orders`/`Calendar`/`Notify`/`DatePicker`/`Transactions`/`Alerts`/`Dialogs`/`Globals`/`UIX`/`Tutorial`/...), **1.654 cross-references** entre módulos, **0 tests automatizados**.
+
+**Decisión**: NO hacer refactor de app.js como proyecto separado por ahora. El refactor por partes sin tests automatizados es ruleta rusa; el acoplamiento real (1.654 refs cruzadas) hace que "por partes" arrastre dependencias; y el backend desacople (slices 1-34+) ya está limpiando el front incrementalmente sin proyecto paralelo. El riesgo más caro de /app no está en app.js sino en `processData` (money path).
+
+**Plan diferido** (cuando haya capacidad y tests):
+
+1. **Split sin refactor** (~1 día, riesgo cero): mover módulos ya aislados a archivos propios, sin tocar lógica. Concatenación en `build.sh`/`filesCompiler.php` produce el mismo bundle.
+   - `ncmMaths` (~270 líneas) → `app/scripts/maths.js`
+   - `ncmAlerts` (~280 líneas) → `app/scripts/alerts.js`
+   - `ncmDatePicker` (~1070 líneas) → `app/scripts/date-picker.js`
+   - `ncmHttp` (~150 líneas) → `app/scripts/http.js`
+   - `ncmWebSockets` (~145 líneas) → `app/scripts/websockets.js`
+   - `ncmTutorial` (~640 líneas) → `app/scripts/tutorial.js`
+   - Resultado: ~2.500 líneas afuera, `app.js` baja a ~24k sin cambio de comportamiento.
+
+2. **Tests E2E primero** (~2-3 días, ROI altísimo, **prerequisito de cualquier refactor real**): Playwright sobre los 6 flujos críticos ya verificados manualmente:
+   - Login → grilla con productos
+   - Carrito + cobrar Efectivo (sin cliente / con cliente)
+   - Venta a crédito
+   - Modificar count antes de cobrar
+   - Crear/editar/eliminar cliente
+   - En CI → cualquier refactor pasa de ruleta rusa a verde/rojo en minutos.
+
+3. **Slicing dirigido por backend** (lo que ya hacemos): cuando un slice del desacople toca un módulo del front, extraer ese módulo en el mismo commit. Ej.: al migrar `processData → SaleService`, mover `ncmTransactions`+`ncmItems` a archivos propios como parte del mismo trabajo.
+
+**Lo que NO se hace**: "gran refactor de app.js" en proyecto separado, antes de tests, mientras el backend desacople está en curso.
+
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
 
 Los **handlers limpios están agotados**. Lo restante son clusters con dependencias:
@@ -211,7 +240,8 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 - **Cluster meta-JSONB (8 handlers) — ✅ COMPLETO (slices 18-20, 2026-05-28)**: `setUserToOrder` (slice 18, OrderService.assignUser), `removeItemfromOrder`/`processOrderItems`/`processOrderItemsUpdate`/`moveOrderItems` (slice 19, OrderItemsService), `updateSchedule`/`scheduleSession`/`checkIfUserOccupied` (slice 20, ScheduleService). Helper `api/lib/meta_transaction.php` (`txMetaRead`/`txDetailsFromMeta`/`txDetailsWrite`): read-modify-write de `transactionDetails` dentro de `meta` (jsonb) preservando otras keys (tags); usa `$db->Execute` directo (no ncmExecute, que aplica `_flattenJsonb` y elimina la key `meta`). Lecturas multi-fila (checkIfUserOccupied) hacen `SELECT meta` + decode por fila. Lógica de matching (itemId/oPosition/parent) y quirks (keys userId vs user) portados verbatim. Todo verificado contra DB real.
 - **Cluster ENCOM→Punto ✅ HECHO (slices 13-15)**: `clockIn`✅ `notifications`✅ `notificationsCount`✅ `ePOSAddCardTransaction`✅ `cajaPOSAddCardAndQrTransaction`✅ `PixAddTransaction`✅. `verifyQRPaymentCode`=dead (borrar). Análisis KDS hecho: los endpoints canónicos viven en `panel/API/`; el verdadero nodo compartido /app↔KDS↔CDS es `get_orders.php` (type 12) — va con la migración de load.php (lectura de órdenes), NO con este cluster. panel/screens siguen en panel/API por ahora. `send_webSocket` ya cubierto vía `sendWS()`.
 - **Mesa-merge (2 handlers) — ✅ RESUELTO (commit 5642a1c, 2026-05-30)**: `joinSpaces` → `TableService::joinSpaces` (une mesa origen en destino via UUID); `moveOrders` → `TableService::moveOrders` (mueve órdenes + abre destino si cerrada). Los bugs int→UUID del legacy corregidos: nº de mesa en columna UUID, varchar vs int sin comillas, UUIDs sin comillas, `USE INDEX` (MySQL), params desalineados. Todo parametrizado + scope companyId+outletId del JWT. Ver sección "Pendiente en mesas/órdenes" arriba para detalles de la semántica.
-- **`processData` (~1540 líneas)**: el guardado de ventas. **Su INSERT roto YA fue arreglado quirúrgicamente** (commit `e7c04fb`: transactionDetails/tags→meta, recurringSaleData→data) → las ventas vuelven a guardar. Falta la **migración full a SaleService** (BFF→API): pipeline completo de itemSold/comisiones/COGS/manageStock/giftcards/sesiones/recurring/loyalty/facturas/factura-electrónica + bloques separados de cliente/cRecordValue/drawer (~25 helpers). Trabajo grande, incremental, alto riesgo (money+inventario).
+- **`processData` (~1540 líneas)**: el guardado de ventas. **Flujos verificados E2E en PG**: venta cashsale básica ✅ (commit b45684f), venta con cliente seleccionado ✅ (commit b0617ea), venta a crédito type=3/dueDate/complete=false ✅, modificar items en carrito (count 1→5) ✅. Bugs encadenados resueltos: (1) UUID NULL para customerId/transactionParentId=0, (2) timestamp vacío → NULL, (3)-(4) columnas `contactFixedComission`/`itemComissionPercent`/`itemComissionType`/`itemSessions` demoted a JSONB → `SELECT *` + `_flattenJsonb` + filtro PHP (§22.8), (5) `getValue('item','itemSessions',...)` con UUID sin comillas + columna demoted → mismo patrón, (6) `updateLastTimeEdit()` escribía a columnas `company.*LastUpdate` inexistentes en PG → RMW sobre `config` JSONB con `$db->Execute` directo (§22.8.1). **Paths NO verificados aún**: gift card, EI (factura electrónica), schedule (citas). Falta la **migración full a SaleService** (BFF→API): pipeline completo de itemSold/comisiones/COGS/manageStock/giftcards/sesiones/recurring/loyalty/facturas/factura-electrónica + bloques separados de cliente/cRecordValue/drawer (~25 helpers). Trabajo grande, incremental, alto riesgo (money+inventario).
+- **`deleteClient` — ✅ AGREGADO al POS (commit afc2706, 2026-05-30)**: soft-delete de cliente desde el POS. Handler nuevo en `app/action.php`: UPDATE `contactStatus=0` parametrizado con scope `companyId+type=1`; notifica WS con `deleted=true`; llama `updateLastTimeEdit('customer')`. Espeja el patrón del REST canónico `panel/API/v1/contacts.php DELETE` / `ContactRepository::archive`. Los handlers `newClient` y `updateClient` del POS ya existían y son funcionales. **Deuda P2 (diferida)**: los tres handlers de cliente del POS duplican SQL del REST canónico; ideal migrar a que el POS llame al canónico via BFF (misma deuda que VPayment/Attendance pero para clientes). No verifica `Affected_Rows` (no devuelve 404 si el id no existe) ni llama `sendAuditoria` — matchea el canónico en ese punto.
 - **`sale` (~525 líneas)**: renderiza listas HTML de transacciones (monstruo de lectura).
 - **Breakages preexistentes del panel (mismo tipo de migración, follow-up)**: `panel/crons/cronCreateRecurringInvoice.php` lee `recurringSaleData` de multi-row sin flatten → NULL; `panel/report_transactions.php` + `panel/a_report_transactions.php` hacen UPDATE de la columna `tags` (ya no existe) → falla.
 - **HTML/especial**: `chkGiftCard` (gift cards, devuelve HTML/JSON), `consultStatusElectronicInvoice` (factura electrónica).
