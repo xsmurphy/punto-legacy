@@ -2925,6 +2925,31 @@ if ($action) {
       }
 
       dai();
+    } else if (array_key_exists('deleteClient', $data)) {
+      // Soft-delete (archive): contactStatus = 0. Sigue el pattern del REST canónico
+      // panel/API/v1/contacts.php DELETE. NO hace hard-delete: las ventas históricas
+      // con este customerId deben seguir funcionando, solo se oculta del listado.
+      $deleteData = $data['deleteClient'];
+      $id = is_numeric($deleteData['customerId']) ? $deleteData['customerId'] : dec($deleteData['customerId']);
+
+      $update = $db->Execute(
+        'UPDATE contact SET contactStatus = 0, updated_at = ? WHERE contactId = ? AND companyId = ? AND type = 1',
+        [TODAY, $id, COMPANY_ID]
+      );
+
+      if ($update === false) {
+        jsonDieMsg($db->ErrorMsg());
+      } else {
+        updateLastTimeEdit(COMPANY_ID, 'customer');
+        sendWS([
+          'channel' => enc(COMPANY_ID),
+          'event'   => 'addCustomers',
+          'message' => json_encode(['ID' => enc($id), 'registerID' => enc(REGISTER_ID), 'deleted' => true])
+        ]);
+        jsonDieMsg('true', 200, 'success');
+      }
+
+      dai();
     } else if (array_key_exists('updateClient', $data)) {
       $customerData = $data['updateClient'];
       $id           = is_numeric($customerData['customerId']) ? $customerData['customerId'] : dec($customerData['customerId']);
