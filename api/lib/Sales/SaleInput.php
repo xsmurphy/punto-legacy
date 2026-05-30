@@ -117,10 +117,29 @@ final class SaleInput
             invoiceNo:  isset($payload['invoiceno']) && $payload['invoiceno'] !== '' ? (int) $payload['invoiceno'] : null,
             dueDate:    !empty($payload['dueDate'])   ? (string) $payload['dueDate']   : null,
             currency:   !empty($payload['currency'])  ? (string) $payload['currency']  : null,
-            status:     isset($payload['status']) && $payload['status'] !== '' && (int) $payload['status'] > -1 ? (int) $payload['status'] : null,
+            status:     self::normalizeStatus($payload['status'] ?? null),
             dontNotify: !empty($payload['dontNotify']),
             tags:       isset($payload['tags']) ? (array) $payload['tags'] : null,
             taxObj:     isset($payload['taxObj']) && is_array($payload['taxObj']) ? $payload['taxObj'] : null,
         );
+    }
+
+    /**
+     * `transactionStatus` (smallint en PG) — el legacy aceptaba > -1; acá enforce
+     * rango 0..127 (cabe en smallint). Si viene fuera de rango → InvalidSaleInputException.
+     */
+    private static function normalizeStatus(mixed $raw): ?int
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        if (!is_numeric($raw)) {
+            throw new InvalidSaleInputException('status debe ser numérico: ' . var_export($raw, true));
+        }
+        $status = (int) $raw;
+        if ($status < 0 || $status > 127) {
+            throw new InvalidSaleInputException("status fuera de rango (0..127): {$status}");
+        }
+        return $status;
     }
 }

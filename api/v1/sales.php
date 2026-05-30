@@ -69,6 +69,9 @@ try {
         'uid'        => $e->uid,
         'message'    => 'Duplicated Entry',
     ]);
+} catch (InvalidSaleInputException $e) {
+    // Validaciones del servicio (ej: clientId no pertenece al tenant) → 422.
+    apiError($e->getMessage(), 422);
 } catch (SaleAbortedException $e) {
     apiError($e->dbError ?? 'Sale transaction aborted', 500);
 }
