@@ -20,6 +20,22 @@ require_once API_APP_DIR . '/includes/cors.php';
 require_once API_APP_DIR . '/includes/jwt_middleware.php';
 require_once __DIR__ . '/lib/response.php';
 
+// Autoloader mínimo PSR-4 para código nuevo en `api/lib/` con namespace `Punto\Api\…`.
+// Mapea `Punto\Api\Sales\SaleService` → `api/lib/Sales/SaleService.php`.
+// El código legacy sin namespace (api/lib/services/*) sigue cargándose con
+// `require_once` manual desde los endpoints — coexisten. Ver convención §22.9.
+spl_autoload_register(static function (string $class): void {
+    $prefix = 'Punto\\Api\\';
+    if (!str_starts_with($class, $prefix)) {
+        return;
+    }
+    $relative = substr($class, strlen($prefix));
+    $path = __DIR__ . '/lib/' . str_replace('\\', '/', $relative) . '.php';
+    if (is_file($path)) {
+        require_once $path;
+    }
+});
+
 $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 require_once API_APP_DIR . '/head.php'; // db, functions (ncm*, sendPush, checkCompanyStatus), config, enc/dec
 

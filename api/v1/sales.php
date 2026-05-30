@@ -1,26 +1,36 @@
 <?php
+declare(strict_types=1);
+
 /**
  * /api/v1/sales.php — guardado de ventas (API compartida del sistema).
  *
- *   POST { uid, type, sale[], subtotal, tax, discount, payment[], ... }
- *     → guarda la venta y devuelve {success, transactionId, uid}
+ *   POST  data[]={...payload del front...}
+ *     → guarda la venta y devuelve { success, transactionId, uid, duplicated }
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
  *
  * Strangler-fig de `app/action.php?action=processData` — ver SaleService.
+ *
+ * Estilo: convención §22.9 — DTOs + excepciones custom + DI explícita.
  */
 
 require_once dirname(__DIR__) . '/bootstrap.php';
-require_once __DIR__ . '/../lib/services/SaleService.php';
 
-$ctx = apiAuthTenant();
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Sales\Exceptions\DuplicateSaleException;
+use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
+use Punto\Api\Sales\Exceptions\SaleAbortedException;
+use Punto\Api\Sales\SaleInput;
+use Punto\Api\Sales\SaleService;
+
+$authCtx = apiAuthTenant();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
 }
 
-// El front manda el payload completo como JSON dentro de `data[]` (idéntico al legacy
-// processData, para que la cola offline pueda enrutar sin reformatear el payload).
+// El front manda el payload completo como JSON dentro de `data[]` (idéntico al
+// legacy processData, para que la cola offline pueda enrutar sin reformatear).
 $rawData = $_POST['data'] ?? null;
 if (is_array($rawData)) {
     $rawData = $rawData[0] ?? null;
@@ -35,24 +45,32 @@ if (!is_array($decoded)) {
     apiError('Payload data[] no es JSON válido', 422);
 }
 
-// El front envuelve la venta en `{ transaction: { ... }, uid }`. Aceptamos ambas formas.
-$transaction = $decoded['transaction'] ?? $decoded;
-if (isset($decoded['uid']) && !isset($transaction['uid'])) {
-    $transaction['uid'] = $decoded['uid'];
+try {
+    $input = SaleInput::fromPayload($decoded);
+} catch (InvalidSaleInputException $e) {
+    apiError($e->getMessage(), 422);
 }
 
-if (empty($transaction['uid'])) {
-    apiError('Falta uid en el payload', 422);
+/** @var DB $db */
+global $db; // proveído por bootstrap → head.php; pasamos por DI al servicio.
+
+$service = new SaleService(
+    ctx: TenantContext::fromAuth($authCtx),
+    db:  $db,
+);
+
+try {
+    $result = $service->save($input);
+} catch (DuplicateSaleException $e) {
+    // 200 con duplicated=true — el front debe marcar el UID como sincronizado.
+    apiOk([
+        'success'    => true,
+        'duplicated' => true,
+        'uid'        => $e->uid,
+        'message'    => 'Duplicated Entry',
+    ]);
+} catch (SaleAbortedException $e) {
+    apiError($e->dbError ?? 'Sale transaction aborted', 500);
 }
 
-if (!isset($transaction['type']) || !in_array((int) $transaction['type'], [0, 3], true)) {
-    apiError('SaleService::save sólo cubre type ∈ {0, 3} en este sub-slice', 422);
-}
-
-$result = (new SaleService($ctx))->save($transaction);
-
-if (empty($result['success'])) {
-    apiError($result['error'] ?? 'Fallo al guardar la venta', 500);
-}
-
-apiOk($result);
+apiOk($result->toApiPayload());

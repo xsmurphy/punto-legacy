@@ -67,8 +67,5 @@ if (!empty($res['data']['uid'])) {
 if (!empty($res['data']['duplicated'])) {
     $out['duplicated'] = true;
 }
-if (!empty($res['data']['todo'])) {
-    $out['todo'] = $res['data']['todo'];  // TODO 35a.2: quitar cuando el stub deje de devolver `todo`.
-}
 
 bffJson($out);

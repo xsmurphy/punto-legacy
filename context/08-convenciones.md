@@ -550,6 +550,170 @@ updateSchedule, scheduleSession, processData). Se difieren a un **slice dedicado
 que necesita: (1) entender el formato de storage (string vs objeto anidado), (2) datos de prueba
 type-12, (3) patrón `jsonb_set` para el write. No portar estos handlers "como están".
 
+### §22.8 — Columnas demoted a JSONB: SELECT * + _flattenJsonb + filtro PHP (establecido 2026-05-30, commit b45684f)
+
+**Contexto**: las migraciones PG 06/07 movieron varios campos de `contact`, `item` y otros
+a la columna `data` JSONB de la entidad correspondiente (ej.: `contactFixedComission`,
+`itemComissionPercent`, `itemComissionType`, `itemSessions`). Esas columnas **ya no existen**
+en el schema relacional.
+
+**El bug**: si una query hace `SELECT contactFixedComission ... WHERE contactFixedComission > 0`
+(o cualquier referencia directa a la columna demoted), PostgreSQL devuelve
+**"column X does not exist"** y **aborta la transacción activa** (SQLSTATE 25P02).
+Todos los INSERTs/UPDATEs posteriores en esa misma transacción fallan con
+"current transaction is aborted" — pero si el handler final llama `jsonDieMsg('true',200,'success')`
+sin verificar el estado de la tx, devuelve un **falso positivo**: la UI ve "success" y los datos
+**no se guardaron**.
+
+**Patrón de fix** (para queries SELECT sobre entidades con campos demoted):
+
+```php
+// MAL — "column contactFixedComission does not exist" → aborta la tx
+$rows = ncmExecute($db, "SELECT contactFixedComission FROM contact
+                          WHERE companyId=? AND contactFixedComission > 0", [$cid]);
+
+// BIEN — SELECT * deja que _flattenJsonb re-exponga las keys del JSONB como columnas virtuales;
+//         filtrar en PHP, no en WHERE con el campo demoted
+$rows = ncmExecute($db, "SELECT * FROM contact WHERE companyId=?", [$cid], getAssoc: true);
+$rows = array_filter($rows, fn($r) => ($r['contactFixedComission'] ?? 0) > 0);
+```
+
+**Regla derivada — validar estado de tx antes de devolver success**: si el handler usa
+`StartTrans`/`CompleteTrans` (o si hay riesgo de aborto silencioso), NO llamar
+`jsonDieMsg('true',200,'success')` ciegamente al final. Verificar que la tx completó sin
+errores:
+
+```php
+// Patrón seguro post-tx
+if (!$db->CompleteTrans()) {
+    jsonDieMsg('false', 500, 'transaction_failed');
+}
+jsonDieMsg('true', 200, 'success');
+```
+
+**Dónde aplica**: cualquier query del legacy de `action.php`/`load.php` que seleccione
+columnas que las migraciones 06/07 demotearon a JSONB. Hay docenas de estos en el
+monstruo `processData` y en helpers de `app/includes/functions.php`. Cada slice
+que toque una de estas queries **debe** aplicar este patrón.
+
+**Detectado en** (commit b45684f): `getItemComsissionTotal()` + query de `userComission`
+en `functions.php` (columnas `itemComissionPercent`, `itemComissionType`, `itemSessions`,
+`contactFixedComission`). Causaban que `processData` devolviera success con la transacción
+abortada → ventas no persistidas.
+
+#### §22.8.1 — Sub-regla: NUNCA usar `ncmExecute` para read-modify-write de JSONB (establecido 2026-05-30, commit b0617ea)
+
+**Regla**: Para leer un blob JSONB completo con intención de modificarlo y re-escribirlo
+(patrón read-modify-write), usar **`$db->Execute` directo**, NUNCA `ncmExecute`.
+
+**Por qué**: `ncmExecute` pasa el resultado por `_flattenJsonb`, que desempaqueta las keys del
+JSONB dentro de la fila **y hace `unset($row['config'])` (o `$row['data']`/`$row['meta']`)**
+internamente. El resultado: `$row['config']` devuelve `null`, perdés el blob crudo. Si después
+hacés `UPDATE config = json_encode($result)::jsonb`, estás escribiendo `{}` o solo las keys del
+form, destruyendo silenciosamente TODAS las settings que no formaban parte de ese update.
+
+**Incidente real (commit b0617ea)**: `updateLastTimeEdit()` leía `company.config` con
+`ncmExecute` → flatten → perdía el raw → re-escribía `config` con solo el campo
+`*LastUpdate` → destruía `settingTimeZone`, `settingName`, etc. →
+`date_default_timezone_set('')` con string vacío en `data.php:54` → **auth de todo el sistema
+rota** hasta que se re-ejecutó el seed `02_sample_company.sql`.
+
+**Patrón correcto para RMW de JSONB**:
+
+```php
+// MAL — ncmExecute aplica _flattenJsonb, config queda null → se pierde el blob
+$row = ncmExecute($db, "SELECT config FROM company WHERE companyId=?", [$cid]);
+$cfg = $row['config']; // null → json_encode([]) → destruís todas las settings
+
+// BIEN — $db->Execute devuelve el resultado ADOdb sin flatten; fields['config'] es el JSON string crudo
+$res = $db->Execute("SELECT config FROM company WHERE companyId=?", [$cid]);
+$cfg = json_decode($res->fields['config'] ?? '{}', true) ?: [];
+
+// Mergear solo los campos a actualizar
+$cfg['companyLastUpdate'] = date('Y-m-d H:i:s');
+
+// Re-escribir el blob completo (preserva todas las otras keys)
+$db->Execute(
+    "UPDATE company SET config = ?::jsonb WHERE companyId=?",
+    [json_encode($cfg), $cid]
+);
+```
+
+**Aplica a**: cualquier lectura de `data`/`meta`/`config` JSONB seguida de un UPDATE sobre ese
+mismo campo. Usar `$db->Execute` (sin flatten) para el SELECT; `json_decode` en PHP para parsear;
+`array_merge`/spread para combinar; `json_encode + ::jsonb cast` para el UPDATE. Ver §18 para
+el caso análogo en el panel (mismo trap, misma solución con `forceObj`).
+
+---
+
+### §22.9 — Estilo PHP para código nuevo en `/api` (establecido 2026-05-30, slice 35a.1)
+
+Para módulos NUEVOS bajo `api/lib/` (no aplica al `api/lib/services/*` existente, que sigue
+sin namespace por inercia): aplicar el set de estándares modernos PHP 8.1+.
+
+**Obligatorios** en cada archivo nuevo:
+
+1. **`declare(strict_types=1)`** — primer statement, fuerza chequeo de tipos en boundaries.
+2. **`namespace Punto\Api\<Module>`** — autoloader PSR-4 mínimo en `api/bootstrap.php` mapea
+   `Punto\Api\Foo\Bar` → `api/lib/Foo/Bar.php`. Sin Composer.
+3. **`final class`** por default — cerrar a herencia accidental. Si se necesita extender,
+   considerar interfaz o composición primero.
+4. **`readonly` properties + constructor promotion** — dependencias inmutables:
+   ```php
+   public function __construct(
+       private readonly TenantContext $ctx,
+       private readonly DB $db,
+   ) {}
+   ```
+5. **Type hints** en parámetros y returns. NO `array` sin shape — preferir DTO tipado.
+6. **DTOs de entrada/salida** — validan en construcción, arrojan excepción custom si el
+   shape no calza. Ver `Punto\Api\Sales\SaleInput::fromPayload()`.
+7. **Excepciones custom** por dominio — no devolver `['error' => ...]` desde el servicio.
+   El endpoint las captura y mapea a HTTP status apropiado (422/409/500).
+8. **Enums** para magic numbers — `SaleType: int` en vez de `(int) 0`.
+9. **Sin `global $db`** dentro de métodos del servicio. El `global $db` queda contenido en
+   el endpoint (`api/v1/*.php`), que lo lee del bootstrap y lo pasa al constructor del
+   servicio por DI. Adentro del servicio: `$this->db->Execute(...)`, nunca `global $db`.
+   Para helpers del legacy (`manageStock`, `sendAuditoria`, etc.) sí se acepta llamada
+   global por ahora — wrappear en interfaces queda como deuda registrada (no bloquea
+   slices).
+
+**NO obligatorio aún** (deuda registrada):
+
+- **Composer / PSR-4 completo**: el autoloader de `bootstrap.php` es manual, ~15 líneas.
+  Funciona pero no escala a deps externas con namespaces colisionables. Migrar a Composer
+  va con otro slice.
+- **PHPUnit / Pest**: no hay infra de tests unitarios. Hasta que la haya, los tests son
+  smoke E2E via curl + verificación de DB. Los DTOs y excepciones custom hacen el código
+  testeable sin reescribirlo cuando se monte la infra.
+- **Wrapping de helpers del legacy en interfaces**: idealmente
+  `interface StockManager { manage(...) }` con implementación default que llama al global,
+  permite mockear en tests. Por ahora cada slice los llama directo. Cuando aparezca el
+  primer test unitario que necesite mockear → se introduce la interfaz.
+
+**Coexistencia con código viejo**: los servicios pre-35a en `api/lib/services/*` siguen
+sin namespace y mezclando `global $db`. NO se migran preventivamente. Cuando alguno se
+toque por una razón funcional, se moderniza en el mismo commit.
+
+**Estructura de directorios** (ejemplo de `api/lib/Sales/`):
+```
+api/lib/
+├── services/                      ← legacy (CustomerNoteService, etc.) — no se mueven
+├── Context/
+│   └── TenantContext.php          ← Punto\Api\Context\TenantContext (DTO inmutable)
+└── Sales/
+    ├── SaleService.php            ← Punto\Api\Sales\SaleService
+    ├── SaleInput.php              ← DTO input
+    ├── SaleResult.php             ← DTO output
+    ├── SaleType.php               ← enum
+    └── Exceptions/
+        ├── InvalidSaleInputException.php
+        ├── DuplicateSaleException.php
+        └── SaleAbortedException.php
+```
+
+---
+
 ### §22.4 — Bootstrap del contexto POS en los endpoints de /api
 
 Los endpoints en `api/v1/` no tienen el contexto global que carga `head.php`/`data.php` en el flujo legacy. El bootstrap adoptado: `api/bootstrap.php` hace `chdir(/app)` y requiere `head.php` + `data.php` vía rutas absolutas (`API_APP_DIR`). Los endpoints llaman `apiAuthTenant()` (que internamente hace ese bootstrap). Este es el approach transitorio — la deuda es consolidar un `/api/includes` propio (ver `10-roadmap.md § Consolidar /api/includes`).
