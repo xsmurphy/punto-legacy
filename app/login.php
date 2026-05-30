@@ -26,7 +26,10 @@ if($email && $pass){
 
     $check_password = passBuilder($pass,$result['salt']);
 
-    if($check_password == $result['contactPassword']){
+    // rtrim: contactPassword es CHAR(68) en PG → viene padeado con espacios; el hash de
+    // passBuilder no los tiene. Sin rtrim, la comparación falla siempre (bug de migración PG).
+    // hash_equals: comparación constant-time y sin el type-juggling del `==` (magic-hash 0e…).
+    if(hash_equals(rtrim($result['contactPassword']), $check_password)){
       // If they do, then we flip this to true
       $companyId      = $result['companyId'];
       $userId         = $result['contactId'];
