@@ -2257,7 +2257,10 @@ if ($action) {
                       if ($sD['itemId']) {
 
                         $itemId     = dec($sD['itemId']);
-                        $sessions   = getValue('item', 'itemSessions', 'WHERE itemId = ' . $itemId . ' AND companyId = ' . COMPANY_ID);
+                        // itemSessions demoted a data JSONB (migración 07) + UUIDs requieren comillas en PG.
+                        // SELECT * + _flattenJsonb expone itemSessions vía CaseInsensitiveArray.
+                        $itemRow    = ncmExecute('SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$itemId, COMPANY_ID]);
+                        $sessions   = (is_array($itemRow) || $itemRow instanceof CaseInsensitiveArray) ? intval($itemRow['itemSessions'] ?? 0) : 0;
                         $sessions   = $sessions * $sD['count'];
 
                         if ($sessions > 0) {

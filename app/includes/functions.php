@@ -754,24 +754,27 @@ function checkCompanyStatus($id){
 function updateLastTimeEdit($id,$table=false){
 	global $db;
 
-	$date 					= TODAY;
-	// PG: UUIDs entre comillas en SQL concat. MySQL int companyIds no necesitaban.
-	$SQLcompanyId 	= "companyId = '" . $id . "'";
-	$record 				= [];
+	$date = TODAY;
+	// Las columnas *LastUpdate de company fueron demoted a config JSONB en la migración PG.
+	// IMPORTANTE: NO usar ncmExecute aquí — _flattenJsonb desempaqueta `config` y se
+	// pierde el JSON original. Read raw vía $db->Execute para preservar todas las keys.
+	$rs = $db->Execute('SELECT config FROM company WHERE companyId = ? LIMIT 1', [$id]);
+	$config = [];
+	if ($rs && !$rs->EOF) {
+		$raw = $rs->fields['config'] ?? null;
+		if (is_string($raw) && $raw !== '') {
+			$decoded = json_decode($raw, true);
+			if (is_array($decoded)) { $config = $decoded; }
+		}
+	}
 
-	if($table == 'customer'){
-		$record['customersLastUpdate'] 	= $date;
-	}else if($table == 'item'){
-		$record['itemsLastUpdate'] 		= $date;
-	}else if($table == 'calendar'){
-		$record['calendarLastUpdate']   = $date;
-	}else if($table == 'order'){
-		$record['orderLastUpdate'] 		= $date;
-	}else{
-		
-	}	
-	$record['companyLastUpdate'] 		= $date;
-	$db->AutoExecute('company', $record, 'UPDATE', $SQLcompanyId);
+	$config['companyLastUpdate'] = $date;
+	if ($table == 'customer')      { $config['customersLastUpdate']  = $date; }
+	else if ($table == 'item')     { $config['itemsLastUpdate']      = $date; }
+	else if ($table == 'calendar') { $config['calendarLastUpdate']   = $date; }
+	else if ($table == 'order')    { $config['orderLastUpdate']      = $date; }
+
+	$db->Execute('UPDATE company SET config = ?::jsonb WHERE companyId = ?', [json_encode($config), $id]);
 	return $date;
 }
 
