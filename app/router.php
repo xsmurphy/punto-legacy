@@ -63,7 +63,7 @@ if ($path !== '/' && !pathinfo($path, PATHINFO_EXTENSION)) {
 
     // Proxy to panel (dev only — in production nginx routes these)
     if (strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') !== false) {
-        $panelUrl = 'http://localhost:8002' . $uri;
+        $panelUrl = 'http://localhost:8001' . $uri; // panel dev port (NO self → evita loop infinito)
         $ctx = stream_context_create([
             'http' => [
                 'header'         => 'Cookie: ' . ($_SERVER['HTTP_COOKIE'] ?? '') . "\r\n",
