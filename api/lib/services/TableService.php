@@ -158,4 +158,105 @@ class TableService
 
         return ['ok' => true];
     }
+
+    /**
+     * joinSpaces (action.php L243): une la mesa $tFrom dentro de $tTo.
+     *   1. Marca la mesa origen (type 11, name=$tFrom) como hija: transactionParentId =
+     *      el transactionId (UUID) de la mesa destino. closeTable(kind='any') usa esa FK
+     *      para cascadear el borrado de mesas unidas; listTables la lee como 'joined'.
+     *   2. Reasigna las órdenes (type 12) de $tFrom a $tTo (por transactionName).
+     *
+     * Fija el legacy roto en PG: guardaba el NÚMERO de mesa en transactionParentId (UUID),
+     * comparaba transactionName (varchar) contra int sin comillas, e interpolaba UUIDs sin
+     * comillas. Acá resuelve el UUID destino y bindea todo. tFrom/tTo son nombres de mesa
+     * (varchar), no ints.
+     *
+     * @return array{ok:bool,reason?:string,code?:int}
+     */
+    public function joinSpaces(string $companyId, string $outletId, string $tFrom, string $tTo): array
+    {
+        global $db;
+
+        // Resolver el transactionId (UUID) de la mesa destino.
+        $toRow = $db->Execute(
+            'SELECT transactionId FROM transaction
+              WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?
+              LIMIT 1',
+            [self::TYPE_TABLE, $tTo, $outletId, $companyId]
+        );
+        if ($toRow === false || $toRow->EOF) {
+            return ['ok' => false, 'reason' => 'Mesa destino no encontrada', 'code' => 404];
+        }
+        $toId = (string) $toRow->fields['transactionId'];
+
+        // 1. Marcar la mesa origen como hija (joined) de la destino.
+        $db->Execute(
+            'UPDATE transaction SET transactionParentId = ?, updated_at = ?
+              WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?',
+            [$toId, TODAY, self::TYPE_TABLE, $tFrom, $outletId, $companyId]
+        );
+
+        // 2. Mover las órdenes (type 12) de la mesa origen a la destino.
+        $db->Execute(
+            'UPDATE transaction SET transactionName = ?, updated_at = ?
+              WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?',
+            [$tTo, TODAY, self::TYPE_ORDER, $tFrom, $outletId, $companyId]
+        );
+
+        return ['ok' => true];
+    }
+
+    /**
+     * moveOrders (action.php L263): mueve las órdenes (ítems) de la mesa $tFrom a $tTo,
+     * abriendo la mesa destino si estaba cerrada (no existe como type 11 en el outlet).
+     *
+     * A diferencia de joinSpaces NO es una fusión: no marca la mesa origen como hija,
+     * sólo reasigna las órdenes. La mesa origen queda abierta y vacía.
+     *
+     * Fija el legacy roto en PG: `USE INDEX` (sintaxis MySQL), params desalineados
+     * (2 placeholders / 3 args), varchar vs int, UUIDs sin comillas. El INSERT usa
+     * $db->Insert (el PK transactionId lo genera el DEFAULT gen_random_uuid() del schema).
+     *
+     * @return array{ok:bool}
+     */
+    public function moveOrders(
+        string $companyId,
+        string $outletId,
+        string $registerId,
+        string $userId,
+        string $tFrom,
+        string $tTo
+    ): array {
+        global $db;
+
+        // Abrir la mesa destino si no existe (estaba cerrada).
+        $toRow = $db->Execute(
+            'SELECT transactionId FROM transaction
+              WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?
+              LIMIT 1',
+            [self::TYPE_TABLE, $tTo, $outletId, $companyId]
+        );
+        if ($toRow === false || $toRow->EOF) {
+            // transactionId lo completa el DEFAULT gen_random_uuid() del schema.
+            $db->Insert('transaction', [
+                'transactionDate' => TODAY,
+                'transactionName' => $tTo,
+                'transactionType' => self::TYPE_TABLE,
+                'responsibleId'   => $userId,
+                'userId'          => $userId,
+                'outletId'        => $outletId,
+                'registerId'      => $registerId,
+                'companyId'       => $companyId,
+            ]);
+        }
+
+        // Mover las órdenes (type 12) de la mesa origen a la destino.
+        $db->Execute(
+            'UPDATE transaction SET transactionName = ?, updated_at = ?
+              WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?',
+            [$tTo, TODAY, self::TYPE_ORDER, $tFrom, $outletId, $companyId]
+        );
+
+        return ['ok' => true];
+    }
 }

@@ -42,6 +42,12 @@ switch ($action) {
     case 'closeTable':     // DELETE ?kind=&del=
         $res = bffApiDelete($ep, ['kind' => (string) ($get['kind'] ?? 'table'), 'del' => (string) ($get['del'] ?? '')], [], '_jwt');
         break;
+    case 'joinSpaces':     // PUT ?resource=join { from, to }
+        $res = bffApiPut($ep, ['resource' => 'join'], ['from' => (string) ($get['tFrom'] ?? ''), 'to' => (string) ($get['tTo'] ?? '')], '_jwt');
+        break;
+    case 'moveOrders':     // PUT ?resource=move { from, to }
+        $res = bffApiPut($ep, ['resource' => 'move'], ['from' => (string) ($get['tFrom'] ?? ''), 'to' => (string) ($get['tTo'] ?? '')], '_jwt');
+        break;
     default:
         bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }

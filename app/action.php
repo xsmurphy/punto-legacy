@@ -240,57 +240,7 @@ if ($action) {
     }
   }
 
-  if ($action == 'joinSpaces' && $get['tFrom'] && $get['tTo']) {
-    //Elimino la mesa abierta y sus ordenes
-    $tFrom   = intval($get['tFrom']);
-    $tTo     = intval($get['tTo']);
-    $update  = ncmUpdate(['records' => ['transactionParentId' => $tTo], 'table' => 'transaction', 'where' => 'companyId = ' . COMPANY_ID . ' AND outletId = ' . OUTLET_ID . ' AND transactionType = 11 AND transactionName = ' . $tFrom]);
-
-    if ($update === false) {
-      jsonDieMsg();
-    }
-
-    $update  = ncmUpdate(['records' => ['transactionName' => $tTo], 'table' => 'transaction', 'where' => 'companyId = ' . COMPANY_ID . ' AND outletId = ' . OUTLET_ID . ' AND transactionType = 12 AND transactionName = ' . $tFrom]);
-
-
-    if ($update === false) {
-      jsonDieMsg();
-    } else {
-      jsonDieMsg('true', 200, 'success');
-    }
-  }
-
-  if ($action == 'moveOrders' && $get['tFrom'] && $get['tTo']) {
-    //Elimino la mesa abierta y sus ordenes
-    $tFrom    = intval($get['tFrom']);
-    $tTo      = intval($get['tTo']);
-
-    $result   = ncmExecute('SELECT * FROM transaction USE INDEX(outletId, transactionType) WHERE outletId = ? AND transactionType = 11 AND transactionName = ? LIMIT 1', [COMPANY_ID, OUTLET_ID, $tFrom]);
-
-    if (!$result) {
-      ncmInsert([
-        "table"   => "transaction",
-        "records" => [
-          "transactionDate" => TODAY,
-          "transactionName" => $tTo,
-          "transactionType" => 11,
-          "responsibleId"   => USER_ID,
-          "userId"          => USER_ID,
-          "outletId"        => OUTLET_ID,
-          "registerId"      => REGISTER_ID,
-          "companyId"       => COMPANY_ID
-        ]
-      ]);
-    }
-
-    $update   = ncmUpdate(['records' => ['transactionName' => $tTo], 'table' => 'transaction', 'where' => 'outletId = ' . OUTLET_ID . ' AND transactionType = 12 AND transactionName = ' . $tFrom]);
-
-    if ($update === false) {
-      jsonDieMsg();
-    } else {
-      jsonDieMsg('true', 200, 'success');
-    }
-  }
+  // joinSpaces + moveOrders → migrados a bff/tables (TableService::joinSpaces/moveOrders)
 
   if ($action == 'unReserveTable' && $get['t']) {
     //Elimino la mesa abierta y sus ordenes

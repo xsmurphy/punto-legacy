@@ -41,6 +41,22 @@ if ($method === 'DELETE') {
     apiOk($res);
 }
 
+// --- PUT ?resource=join|move: unir mesas / mover órdenes (joinSpaces/moveOrders) ---
+if ($method === 'PUT' && ($resource === 'join' || $resource === 'move')) {
+    $from = trim((string) ($_POST['from'] ?? ''));
+    $to   = trim((string) ($_POST['to'] ?? ''));
+    if ($from === '' || $to === '') {
+        apiError('Faltan from/to', 422);
+    }
+    $res = $resource === 'join'
+        ? $svc->joinSpaces($companyId, $outletId, $from, $to)
+        : $svc->moveOrders($companyId, $outletId, $ctx['registerId'], $ctx['userId'], $from, $to);
+    if (empty($res['ok'])) {
+        apiError($res['reason'] ?? 'No se pudo procesar la operación', $res['code'] ?? 500);
+    }
+    apiOk($res);
+}
+
 if ($method !== 'PUT') {
     apiError('Método no permitido', 405);
 }

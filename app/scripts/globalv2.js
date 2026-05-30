@@ -7000,7 +7000,7 @@ var ncmEvents = {
                         ncmAlerts.toast('La mesa que estas tratando de unir excede al numero de mesas disponibles', 'warning');
                     } else {
 
-                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'joinSpaces', tFrom: tFrom, tTo: spaceNo });
+                        var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'joinSpaces', tFrom: tFrom, tTo: spaceNo });
                         ncmHttp.getit(url, () => {
                             ncmSpaces.action('show', () => {
                                 ncmEvents.a();
@@ -7027,17 +7027,14 @@ var ncmEvents = {
                     numberPad(options, function (spaceNo) {
                         if (ncmHelpers.validity(spaceNo)) {
 
-                            if (!ncmSpaces.cache.table[spaceNo]) {
-                                ncmAlerts.toast('Debe abrir el espacio ' + spaceNo, 'warning');
-                                return false;
-                            }
-
-                            if (ncmSpaces.cache.table[spaceNo].joined) {
+                            // moveOrders abre la mesa destino si está cerrada (backend),
+                            // así que sólo bloqueamos mover a un espacio ya unido (joined).
+                            if (ncmSpaces.cache.table[spaceNo] && ncmSpaces.cache.table[spaceNo].joined) {
                                 ncmAlerts.toast('No puede mover al espacio ' + spaceNo, 'warning');
                                 return false;
                             }
 
-                            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'moveOrders', tFrom: tFrom, tTo: spaceNo });
+                            var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: 'moveOrders', tFrom: tFrom, tTo: spaceNo });
                             ncmHttp.getit(url, () => {
                                 ncmSpaces.action('show', () => {
                                     ncmEvents.a();
