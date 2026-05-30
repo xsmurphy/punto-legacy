@@ -187,7 +187,9 @@ function getItemName($id){
 
 function getItemComsissionTotal($itemId,$count,$total,$isSession=false,$test=false){
 	$comission 	= 0;
-    $item 		= ncmExecute('SELECT itemComissionPercent, itemComissionType, itemSessions FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',[$itemId,COMPANY_ID]);
+    // itemComissionPercent / itemComissionType / itemSessions están demoted a data JSONB (migración 07).
+    // SELECT * + _flattenJsonb las re-expone como columnas en el CaseInsensitiveArray devuelto.
+    $item 		= ncmExecute('SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',[$itemId,COMPANY_ID]);
 
     if($item){
 	    $comissionValue 	= $item['itemComissionPercent'];
@@ -3465,18 +3467,24 @@ function loginPart($result){
 function getRolePermissions($roleId,$companyId){
 	global $_ROLES_DATA;
 
-	$index 		= ncmExecute("SELECT sourceId FROM taxonomy WHERE taxonomyType = 'role' AND taxonomyExtra = ? LIMIT 1",[$roleId],true);
-	if (!$index || !is_array($index) || !isset($index['sourceId'])) {
-		return '';
+	$index = ncmExecute("SELECT sourceId FROM taxonomy WHERE taxonomyType = 'role' AND taxonomyExtra = ? LIMIT 1",[$roleId],true);
+
+	if ($index && is_array($index) && isset($index['sourceId'])) {
+		$saved = ncmExecute("SELECT taxonomyExtra FROM taxonomy WHERE taxonomyType = 'roleData' AND sourceId = ? AND companyId = ? LIMIT 1",[$index['sourceId'],$companyId]);
+		if($saved){
+			$perms = json_decode($saved['taxonomyExtra'],true);
+			if (is_array($perms)) return $perms;
+		}
+		if(!empty($_ROLES_DATA[$index['sourceId']])){
+			return $_ROLES_DATA[$index['sourceId']];
+		}
 	}
-	$saved 		= ncmExecute("SELECT taxonomyExtra FROM taxonomy WHERE taxonomyType = 'roleData' AND sourceId = ? AND companyId = ? LIMIT 1",[$index['sourceId'],$companyId]);
-	$roleSelected = "";
-	if($saved){
-		$roleSelected = json_decode($saved['taxonomyExtra'],true);
-	}else if(!empty($_ROLES_DATA[$index['sourceId']])){
-		$roleSelected = $_ROLES_DATA[$index['sourceId']];
-	}
-	return $roleSelected;
+
+	// Fallback: si no hay taxonomy mapping (instancia recién seedeada),
+	// usar el rol crudo: role=1 → $_BOSS, role=2 → $_MANAGER, etc.
+	// Devolver array vacío (no string) para que el JS pueda hacer perms.register.
+	$roleIdx = max(0, intval($roleId) - 1);
+	return $_ROLES_DATA[$roleIdx] ?? [];
 }
 
 function allowUser($section,$action,$boolean=false){

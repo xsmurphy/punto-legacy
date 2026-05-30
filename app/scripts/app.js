@@ -21439,8 +21439,9 @@ var ncmUser = {
     },
     allow: function (section, action, bool) {
         if (section && action) {
-            var caja = ncmAuth.activeUser.permissions.register;
-            if (caja[section]) {
+            var perms = ncmAuth.activeUser && ncmAuth.activeUser.permissions;
+            var caja = (perms && typeof perms === 'object') ? perms.register : null;
+            if (caja && caja[section]) {
                 if (caja[section][action]) {
                     return true;
                 } else {

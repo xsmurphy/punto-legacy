@@ -2003,35 +2003,34 @@ if ($action) {
         ]);
         $record['transactionPaymentType'] = json_encode($data['payment']);
 
-        $record['transactionParentId']    = $saleParentId;
+        // En PG las columnas UUID no aceptan "0" ni "" → NULL cuando no hay parent/customer.
+        $record['transactionParentId']    = $saleParentId ?: null;
         $record['transactionType']        = $data['type'];
         $record['transactionComplete']    = ($data['type'] == '3' || $data['type'] == '4' || $data['type'] == '13') ? 0 : 1;
 
-        $record['transactionDate']        = $data['date'];
-        $record['transactionDueDate']     = $data['dueDate'] ?? null;
-        $record['fromDate']               = iftn(array_key_exists("from", $data) ? $data['from'] : null, null);
-        $record['toDate']                 = iftn(array_key_exists("to", $data) ? $data['to'] : null, null);
-        $record['transactionName']        = iftn(array_key_exists("ident", $data) ? $data['ident'] : null, null, strip_tags(array_key_exists("ident", $data) ? $data['ident'] : ""));
-        $record['transactionNote']        = isset($data['note']) ? strip_tags($data['note']) : null;
-        $record['invoiceNo']              = iftn($data['invoiceno'] ?? null, null);
+        // En PG las columnas timestamp/date no aceptan "" — convertir vacíos a NULL.
+        $record['transactionDate']        = $data['date'] ?: null;
+        $record['transactionDueDate']     = !empty($data['dueDate']) ? $data['dueDate'] : null;
+        $record['fromDate']               = !empty($data['from']) ? $data['from'] : null;
+        $record['toDate']                 = !empty($data['to']) ? $data['to'] : null;
+        $record['transactionName']        = !empty($data['ident']) ? strip_tags($data['ident']) : null;
+        $record['transactionNote']        = !empty($data['note']) ? strip_tags($data['note']) : null;
+        $record['invoiceNo']              = !empty($data['invoiceno']) ? $data['invoiceno'] : null;
         // tags → meta (ver arriba, junto a transactionDetails); ya no es columna.
         $record['timestamp']              = $data['timestamp'];
         $record['transactionUID']         = $data['uid'];
         $record['transactionCurrency']    = iftn($data['currency'], null);
         $record['transactionStatus']      = (array_key_exists('status', $data) && $data['status'] > -1) ? $data['status'] : 1;
 
-        $record['customerId']             = $client;
+        $record['customerId']             = $client ?: null;
         $record['registerId']             = REGISTER_ID;
-        $record['userId']                 = $user;
+        $record['userId']                 = $user ?: null;
         $record['responsibleId']          = $responsible;
-        $record['outletId']               = iftn(OUTLET_ID, 0);
-        $record['companyId']              = iftn(COMPANY_ID, 0);
+        $record['outletId']               = OUTLET_ID;
+        $record['companyId']              = COMPANY_ID;
 
         $insertTransaction                = $db->AutoExecute('transaction', $record, 'INSERT');
         $transID                          = $db->Insert_ID();
-        // print_r($insertTransaction);
-        // print_r($transID);
-        // die();
         unset($record);
         $records = [];
 
@@ -2121,7 +2120,15 @@ if ($action) {
 
                   $userComission = false;
                   if (validity($sD['user'])) {
-                    $userComission = ncmExecute('SELECT contactFixedComission as comission FROM contact WHERE contactId = ? AND companyId = ? AND contactFixedComission > 0 LIMIT 1', [dec($sD['user']), COMPANY_ID]);
+                    // contactFixedComission demoted a data JSONB (migración 06) → no usar como columna ni en WHERE.
+                    // SELECT * + _flattenJsonb re-expone la key; filtramos > 0 en PHP.
+                    $userComission = ncmExecute('SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1', [dec($sD['user']), COMPANY_ID]);
+                    if (is_array($userComission) || $userComission instanceof CaseInsensitiveArray) {
+                      $fc = $userComission['contactFixedComission'] ?? 0;
+                      $userComission = ($fc > 0) ? ['comission' => $fc] : false;
+                    } else {
+                      $userComission = false;
+                    }
                   }
 
                   //si el item esta dentro de un combo obtengo el precio del item
