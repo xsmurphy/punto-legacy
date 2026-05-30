@@ -30,7 +30,7 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 | API | `api/v1/customer_address.php` | Gateado por `apiAuthTenant()`; envelope canónico (movido a /api en d75dd0b) |
 | API lib | `api/lib/response.php` | `apiOk()`/`apiError()` — envelope canónico compartido |
 | Service | `api/lib/services/CustomerAddressService.php` | list/add/update/delete/setDefault; tenant-scoped; transacciones atómicas (movido a /api en d75dd0b) |
-| Front | `app/scripts/debug.js` | 5 call-sites de `ncmCustomer.address.*` repuntados a `/bff/customer_address?l=` |
+| Front | `app/scripts/app.js` (antes `debug.js` — unificado en Tier 3, 2026-05-30) | 5 call-sites de `ncmCustomer.address.*` repuntados a `/bff/customer_address?l=` |
 
 **Gotcha crítico para TODOS los futuros slices de /app — `app/DB.php` sin `Insert_ID()`**:
 `app/includes/lib/DB.php` (usado por /app) **divergió del panel** y NO tiene el método `Insert_ID()`. Por eso `ncmInsert()` y `ncmUpdate()` son **FATALES en /app** (llaman a `$db->Insert_ID()`). Reglas para slices /app:

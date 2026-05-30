@@ -188,13 +188,19 @@ El mismo patrón de 3 capas del panel se aplica al POS `/app`. El dispatcher mon
 
 **Gap de producción cerrado (commit `84be19f`)**: los slices 6-13 habían construido BFF+API pero NO repuntado el front → producción seguía en `action?l=` (legacy). Repuntados los 11 call-sites de slices 6-13 a sus BFFs en globalv2.js + debug.js. Quedan en `action?l=` SÓLO los handlers no migrados (sale, processData, cluster meta-JSONB, joinSpaces/moveOrders, chkGiftCard, consultStatusElectronicInvoice).
 
-### Reestructura + vendoreo de /app (FUTURO — "cuando convenga", pedido por el usuario)
+### Reestructura + vendoreo de /app (EN CURSO — Tiers 1-3 hechos 2026-05-30)
 
-Tarea estructural diferida (ortogonal al desacople): reestructurar `/app` con mejores nombres de archivo y vendoreo npm. Puntos:
-- `globalv2.js` (front de producción) tiene nombre sin sentido → renombrar (ej. `pos.js`/`app.js`).
-- `debug.js` y `globalv2.js` son copias casi idénticas (smell de duplicación) → unificar fuente y generar la variante debug por build (ya hay `terser` + `build.sh` + `filesCompiler.php`).
-- Vendorear deps JS vía npm en vez de copias manuales.
-- Revisar nombres de archivos PHP de /app (action.php/load.php/fetch.php) una vez vaciados.
+Tarea estructural iniciada (ortogonal al desacople). Estado por tier:
+
+- ✅ **Tier 1 (commit fff7d7490)**: borrados `app/encom_chrome.crx` (binario extensión Chrome con marca ENCOM vieja, 60KB) y `app/pdftest.php` (archivo de prueba, 81 líneas). 0 referencias en el repo.
+- ✅ **Tier 2 (commit 975a30d)**: iconos PWA movidos de `app/` raíz a `app/assets/icons/` (android-/apple-/ms-icon, favicon-16/32/96, splash). Refs actualizadas en `manifest.json`, `browserconfig.xml` y los `<head>` de `index.html`/`index.php`/`schedule_calendar.php`. `favicon.ico` queda en root (well-known path). APP_VERSION → 2.0.9.5. **Deuda preexistente NO tocada** (refs muertas desde antes, sin archivo en disco): los `<head>` referencian `apple-touch-icon-*` (los reales son `apple-icon-*`), `favicon-196x196`, `favicon-128` y `mstile-*` (los reales son `ms-icon-*`) — reconciliar cuando se regenere el set de iconos.
+- ✅ **Tier 3 (commit e97aed7)**: `globalv2.js` renombrado a **`app/scripts/app.js`** (nombre con sentido) y `debug.js` **ELIMINADO** (era un duplicado byte-idéntico mantenido a mano — §22.2b resuelta). `app/includes/assets.php` colapsado a un único `/scripts/app.js` (sin selector debug/mobile/normal). Refs actualizadas en `index.html`, `cache-sw.php`, `filesCompiler.php`, `build.sh`. APP_VERSION → 2.0.9.6 (invalida SW).
+
+**Pendiente de la reestructura:**
+- Vendorear deps JS vía npm en vez de copias manuales (Fase B del vendoreo — diferida por el usuario; ver entry 2026-05-28 del session-log).
+- Unificar `fetch.php` / `fetchs.php` si quedan vivos al vaciar los dispatchers.
+- Mover/renombrar `action.php`/`load.php`/`fetch.php` cuando se vacíen por completo.
+- Reconciliar iconos muertos del `<head>` (apple-touch-icon/mstile/favicon-196/128) — regenerar set completo con herramienta de PWA icons.
 
 **Servicios (todos en `/api/lib/services/` post d75dd0b)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21; **joinSpaces**/**moveOrders** — commit 5642a1c), `ScheduleService` (rescheduleTo/unlock — slice 4; updateSchedule/scheduleSession/checkIfUserOccupied — slice 20; **getSessionsList** — slice 30; **getAgendaList** — slice 31), `CustomerNoteService`, `TransactionService` (**getTransactionList(listType,…)** — slice 28: quotes/saved + **getMainList()** — slice 29: transactions panel de ventas), `OrderService` (accept/transferToOutlet/assignUser + **customerHasOpenOrders** — slice 23 + **queryOrderRows/getTableClose/getTableDetail/getList** — slice 27), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`, **`CustomerService`** (**getInfo()** — slice 32: resumen del cliente, read-only salvo backfill lazy de customerAddress + **getRecords()** — slice 33: fichas personalizadas, datos estructurados). Plomería: `app/bff/lib/api_client.php` + `api/lib/response.php`.
 
@@ -265,7 +271,7 @@ Los clusters restantes de `action.php` (mesa-merge, monstruos processData/sale, 
 - **Fixes PG del legacy**: nº de mesa guardado en columna UUID, varchar vs int sin comillas, UUIDs sin comillas, `USE INDEX` (MySQL), params desalineados (2 placeholders/3 args). Todo parametrizado + scope companyId+outletId del JWT.
 - `TableService` ahora tiene: rename / unreserve / assignUser / closeTable / listTables / **joinSpaces** / **moveOrders**.
 
-**PATRÓN VIGENTE — datos estructurados + Alpine (establecido Slice 33, reescrito commit 3d62191):** para handlers HTML server-rendered, la API devuelve datos estructurados (campos tipados) y el front renderiza con un template Alpine en `app/index.php`/`app/index.html`. El patrón Mustache que documentaba b0fbec3 fue reemplazado en la misma jornada. Ver convención §24 en `08-convenciones.md`.
+**PATRÓN VIGENTE — datos estructurados + Alpine (establecido Slice 33, reescrito commit 3d62191):** para handlers HTML server-rendered, la API devuelve datos estructurados (campos tipados) y el front renderiza con un template Alpine en `app/index.php`/`app/index.html`. El patrón Mustache que documentaba b0fbec3 fue reemplazado en la misma jornada. Ver convención §24 en `08-convenciones.md`. Los componentes Alpine se registran en `app/scripts/app.js` (única fuente del front — `globalv2.js`/`debug.js` reemplazados en Tier 3, 2026-05-30).
 
 **Deuda de migración Mustache→Alpine en /app (~22 templates existentes, 2026-05-29):** `customerRecord` es el primer template en usar Alpine en `/app`. Los demás templates Mustache del POS (templates de items, fichas de contacto, etc.) son deuda de migración incremental — se migran a Alpine cuando se toquen, no de forma preventiva. Mustache 4.0.1 sigue cargado hasta que todos migren.
 
@@ -366,10 +372,7 @@ tenant.
   operación (`load`, `action`) — los IDs vienen del JWT.
 
 **Pendiente menor (cleanup, no seguridad)**:
-- `app/scripts/globalv2.js` aún construye el payload completo en `?l=`
-  con IDs que el server ya ignora. Limpiar en una sesión futura: el
-  cliente debería mandar solo `?l=base64({action})` o pasar directo a
-  query params planos (`?action=...`).
+- `app/scripts/app.js` (antes `globalv2.js` — renombrado en Tier 3 de la reestructura, commit e97aed7) aún construye el payload completo en `?l=` con IDs que el server ya ignora. Limpiar en una sesión futura: el cliente debería mandar solo `?l=base64({action})` o pasar directo a query params planos (`?action=...`).
 
 ---
 

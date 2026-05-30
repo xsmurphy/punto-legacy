@@ -24,7 +24,7 @@ system/
 │   ├── index.html          # SPA estática ✅
 │   ├── API/                # Endpoints REST del módulo app
 │   ├── includes/           # db.php, functions.php, jwt_middleware.php, cors.php
-│   └── scripts/            # globalv2.js, debug.js (withCredentials ya agregado)
+│   └── scripts/            # app.js — única fuente del front POS (globalv2.js renombrado + debug.js eliminado — Tier 3, 2026-05-30)
 ├── panel/                  # Módulo admin (back-office)
 │   ├── API/                # 65+ endpoints REST con envelope canónico
 │   │   ├── lib/

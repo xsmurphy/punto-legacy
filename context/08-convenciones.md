@@ -480,21 +480,29 @@ $action  = $payload['action'] ?? '';
 // ... rutear a la API
 ```
 
-### §22.2b — El front a repuntar es `globalv2.js` (producción), NO sólo `debug.js`
+### §22.2b — El front de /app es `app/scripts/app.js` (única fuente — debug.js ELIMINADO)
 
-**REGLA**: al repuntar el front de /app de `/action?l=` (o `/load?l=`) a `/bff/<concern>?l=`,
-hay que editar **`app/scripts/globalv2.js`** — es el source de **producción** (lo sirve
-`app/includes/assets.php` por defecto). `app/scripts/debug.js` es una copia casi idéntica
-que SÓLO se sirve en modo debug/mobile (para pruebas). Editar sólo debug.js deja
-producción corriendo sobre `action.php` legacy → al vaciar action.php, **producción se
-rompe**.
+> **Resuelta (commit e97aed7, 2026-05-30) — §22.2b ya NO aplica en su forma original.**
 
-**Por qué importa**: los slices 1-13 repuntaron sólo debug.js; producción quedó 100% en
-legacy hasta el backfill del commit `5f1b367` (que copió los 11 repoints a globalv2.js).
-Ambos archivos son sources hand-maintained (NO buildeados con terser); manténgalos en sync.
-Verificar con `node --check` ambos tras editar. El router (`app/router.php`) mapea
-`/bff/<x>` → `app/bff/<x>.php` (URL sin extensión → `.php`), así que basta con que el BFF
-exista.
+**Historia** (para entender referencias antiguas): hasta el commit e97aed7, el front de /app
+tenía DOS archivos: `globalv2.js` (producción) y `debug.js` (copia byte-idéntica para modo
+debug/mobile). La convención obligaba a editar ambos en sync a mano — dolor de mantenimiento
+documentado aquí como "§22.2b". Los slices 1-13 accidentalmente sólo editaron `debug.js`,
+dejando producción en legacy hasta el backfill del commit `5f1b367`.
+
+**Estado actual (única fuente)**: `globalv2.js` fue renombrado a **`app/scripts/app.js`**
+(nombre con sentido, sin sufijo de versión) y `debug.js` fue **eliminado** (era un duplicado
+byte-idéntico). `app/includes/assets.php` ya no tiene el selector debug/mobile/normal —
+sirve siempre `/scripts/app.js`. **La convención "editar globalv2.js Y debug.js de forma
+idéntica" ya no existe: sólo hay `app.js`.**
+
+**Regla vigente**: al repuntar cualquier call-site del front de /app de `/action?l=`
+(o `/load?l=`) a `/bff/<concern>?l=`, editar **`app/scripts/app.js`** — es el único archivo.
+Verificar con `node --check app/scripts/app.js` tras editar.
+
+**Referencias cruzadas que mencionan `globalv2.js` o `debug.js`**: son históricas (commits
+anteriores a e97aed7). `app.js` es el sucesor de ambos. APP_VERSION → 2.0.9.6 al momento
+de la unificación (invalida el SW cache).
 
 ### §22.3 — Fixes PG obligatorios en cada slice /app
 
@@ -591,7 +599,7 @@ Convención de verbos:
 ```
 Template markup  →  <template id="<nombre>"> con x-data/x-for/x-if/x-text/x-html
 Registro         →  Alpine.data('<nombre>', fn) dentro de document.addEventListener('alpine:init', ...)
-                    en globalv2.js Y en debug.js (ambos deben estar en sync — §22.2b)
+                    en app/scripts/app.js (única fuente — ver §22.2b)
 Fetch            →  ncmHttp.getit() (cliente HTTP del POS) — NO fetch nativo, preserva auth/plumbing offline
 Render dinámico  →  clonar el <template>, fijar data-attrs (ej. cid), Alpine.initTree(el) con el nodo
                     DETACHED, luego insertar en el DOM
@@ -599,7 +607,7 @@ x-for            →  exige raíz única → usar wrapper <div style="display:co
                     columnas Bootstrap múltiples side-by-side dentro del loop
 Switch           →  dos ramas x-if (con checked / sin checked) para reproducir el atributo literal
                     que switchit() y recordsEdit leen del DOM
-Orden de carga   →  globalv2.js (no-defer) corre antes de que Alpine (auto-start en DOMContentLoaded)
+Orden de carga   →  app.js (no-defer) corre antes de que Alpine (auto-start en DOMContentLoaded)
                     dispare alpine:init → el listener queda registrado en tiempo
 ```
 
@@ -611,7 +619,7 @@ Orden de carga   →  globalv2.js (no-defer) corre antes de que Alpine (auto-sta
 5. La SQL injection se corrige en el Service (queries parametrizadas), no se porta el bug legacy.
 
 **Estado de Mustache en /app (2026-05-29)**:
-- Alpine.js 3.14.1 vendoreado en `assets/vendor/js/alpinejs-3.14.1.min.js` (local — el POS es offline). Cargado en `app/index.html` (script defer), `app/cache-sw.php` (precache), `app/filesCompiler.php` (bundle vendor). `APP_VERSION` 2.0.9.3 → 2.0.9.4 para invalidar el SW cache.
+- Alpine.js 3.14.1 vendoreado en `assets/vendor/js/alpinejs-3.14.1.min.js` (local — el POS es offline). Cargado en `app/index.html` (script defer), `app/cache-sw.php` (precache), `app/filesCompiler.php` (bundle vendor). `APP_VERSION` llegó a 2.0.9.6 al unificar el front en `app.js` (ver §22.2b).
 - Mustache 4.0.1 sigue cargado (los demás templates existentes lo usan). Es legacy en deprecación incremental.
 - **No crear templates Mustache nuevos en `/app`**. Los existentes se migran a Alpine cuando se toquen (migración incremental, no preventiva).
 

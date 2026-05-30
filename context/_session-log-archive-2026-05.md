@@ -196,3 +196,55 @@
 
 - **`a_report_giftcards` (Gift Cards, ~531 líneas) migrado al BFF — parcial.** 1 vista de lectura (`detail` = giftCardSold activadas) + 4 KPIs (vencidas/por-vencer/canjeadas/vigentes + valor vigente). Form de edición y writes quedan legacy vía `?action=`.
 - **Verificado E2E**: seed de 2 gift cards (1 vigente 150k / 1 vencida saldo 0) en company 0001; render correcto (4 KPIs, íconos coloreados, código único en badges, TOTALES); cero errores de consola.
+- **Pendiente — medianos restantes**: `schedule` (~907 líneas), `production` (~1068, módulo deshabilitado en la company de prueba); diferidos con wrinkle: `cashflow`, `open_invoices`, `vpayments`.
+
+## 2026-05-27 (cont. 5) — `schedule` migrado (19º, mediano): 3 lecturas al BFF + donut/KPIs
+
+- **`a_report_schedule` (Agendamientos, ~907 líneas) migrado al BFF — parcial.** 3 vistas de lectura: `detail` (citas tipo 13 + summary por estado + donut), `stats` (conteos por contacto, usuarios/clientes), `sessions` (paquetes con itemSessions). El modal de sesiones y el write (`delete`) quedan legacy vía `?action=`. Router: `schedule` en `$bffPartialReports`.
+- **Hallazgo CRÍTICO:** `ncmExecute(getAssoc=true)` keyea por la 1ª columna → en agregado GROUP BY (contacto repetido) cada fila sobrescribe → se pierde data. Fix: iterar con `forceObj=true` cuando la 1ª columna se repite.
+- **Otros hallazgos**: `contactInCalendar` e `itemSessions` demovidos a `data` JSONB; `getTotalScheduleByStatus()` interpola contactId sin comillas (PG) + N+1 → reemplazado por agregados parametrizados.
+- **Verificado E2E**: seed de 5 citas (estados 0/6/6/4/5) + paquete de sesiones en company 0001; render correcto; cero errores de consola. `code-reviewer`: sin P0/P1, 2 P2 corregidos.
+
+## 2026-05-27 (cont. 6) — `production` migrado (20º, mediano): 3 lecturas al BFF (módulo deshabilitado → data-layer verificado)
+
+- **`a_report_production` (Producción, ~1068 líneas) migrado al BFF — parcial.** 3 vistas: `general`, `detail`, `compound`. recipe/export/delete quedan legacy vía `?action=`. El módulo está DESHABILITADO en la empresa de prueba → verificado data-layer + general con seed mínimo.
+- **Fixes PG (legacy MUY roto):** `productionType` es BOOLEAN (no int); compuestos: `$db->GetAssoc()` keyea por 1ª columna + `\'production\'` con backslashes literales; roc ambiguo en JOIN; meta vía getItemData. code-reviewer P1: `GROUP BY itemId,userId` → `GROUP BY itemId` + MAX(userId).
+- **TODOS los reportes "simples/medianos/pesados" designados migrados (20 + 1 alias).**
+
+## 2026-05-27 (cont. 7) — `cashflow` + `open_invoices` + `vpayments` (21º–23º): los 3 "con wrinkle" → MIGRACIÓN DE REPORTES COMPLETA
+
+- **Los 3 reportes diferidos migrados al BFF** (read-only, en `$bffStaticReports`): `cashflow` (wrinkle `itemId IS NOT NULL`/NULL vs MySQL `>0`/`=0`), `open_invoices` (se eliminó el self-heal write en GET — §16; fix PG boolean), `vpayments` (gateway Bancard/Dinelco; `api_key` computado en el service porque el middleware no carga `config.php`).
+- **HITO: TODOS los reportes designados están migrados al BFF de 3 capas (23 + 1 alias).** `code-reviewer` sin P0/P1 en los 3.
+
+## 2026-05-27 (cont. 8) — fuera de reportes: borrado a_settingsActual + capa de datos BFF del DASHBOARD (17 widgets)
+
+- **Cleanup**: eliminado `panel/a_settingsActual.php` (duplicado huérfano).
+- **Dashboard del panel — CAPA DE DATOS migrada al BFF** (commit `bfdece5`): service + API + BFF para 17 widgets. Hallazgo clave: acoplamiento a globals de `config.php` (`$_modules`, `$plansValues`, etc.) → resueltos con `companyMeta()` + fallbacks.
+- **Fixes PG**: `FORCE INDEX`/`HOUR()`→`EXTRACT`; columnas demovidas a JSONB; `schedule` itera recordset (no getAssoc, que keyea por `fromDate`). `code-reviewer`: 1 P0 corregido.
+
+## 2026-05-27 (cont. 9) — npm vendoring (17 libs) + Dashboard del panel FRONT migrado (16º módulo BFF, completa el dashboard)
+
+- **Vendoring npm batch** (commits `310662a`/`78c9930`): 17 libs de `assets/vendor/js/` gestionadas por `package.json` con versiones EXACTAS pineadas. `vendor-sync.sh` copia desde `node_modules/` y verifica byte-identidad.
+- **Dashboard del panel — FRONT migrado** (commit `bedd81c`): `panel/reports/dashboard.html` (HTML+Mustache verbatim del legacy) + `panel/scripts/a_report_dashboard.js` (13 widgets via `/bff/reports/dashboard.php?widget=…`). Router: `/a_dashboard → /reports/dashboard.html` en `$bffStaticReports`. Verificado E2E con JWT real.
+- **HITO: Dashboard completamente migrado al modelo Front→BFF→API→Postgres** (1er módulo NO-reporte en el modelo completo, 16º total).
+
+## 2026-05-27 (cont. 10) — Dashboard front: templating migrado de Mustache → Alpine (1er fragmento Alpine)
+
+- **`dashboard.html` + `a_report_dashboard.js` refactorizados** (commit `a7790f9`): bindings Mustache+jQuery reemplazados por Alpine (`x-text`/`x-html`/`x-show`/`x-for`). Charts Chart.js siguen imperativos.
+- **Receta de init determinista documentada en convenciones §17**: markup sin `x-data` → script clona, pone `x-data`, `Alpine.initTree` DETACHED, reinserta, ejecuta `mountUI()`.
+- **Footgun `<template>` en `<tbody>` documentado**: el parser foster-parentea las `<tr>` fuera del `<tbody>` → usar `x-html` + `esc()` en vez de `x-for` dentro de `<tbody>`.
+
+## 2026-05-27 (cont. 11) — `a_outlets` (Sucursales): 1er CRUD del panel migrado al BFF/Alpine
+
+- **`a_outlets` migrado al modelo Front→BFF→API→Postgres** (commit 99d1286): `OutletsService.php` (list/get/update) + API + BFF + `views/outlets.html` (lista ncmDataTables + form Alpine x-model en modal) + `scripts/a_outlets.js`. **HITO: 1er módulo CRUD no-reporte del panel en el BFF**.
+- **Migración PARCIAL**: list/get/update al BFF. Create (cascada) y delete (cascadeante) quedan legacy.
+- **Nuevo router pattern `$bffPartialModules`**: sirve el front estático cuando `empty($_GET['action'])`; fronts en `panel/views/`.
+- **TRAP crítico — JSONB partial-update**: usar `ncmExecute(..., forceObj=true)` + leer `$res->fields['data']` para no wipe el blob al guardar campos parciales. Aplica a cualquier tabla con `data` JSONB.
+
+## 2026-05-27 (cont. 12) — `a_settings` (Ajustes): migración parcial al BFF/Alpine + FIX de guardado roto en PG
+
+- **Hecho — incr. 1-2**: `SettingsService` + `API/v1/settings.php` + `bff/settings.php`. Tabs Perfil + Visualización con Alpine x-model. Router `/a_settings → /views/settings.html`.
+- **Hallazgo crítico**: guardado de Ajustes estaba ROTO en PG (tabla `setting` eliminada en Phase PG) → ahora merge `||` no-destructivo a `company.config` JSONB.
+- **Pendiente — incr. 3**: diseñador de plantillas de impresión + monedas + logo upload.
+
+<!-- Entradas cont. 4-12 del 2026-05-27 archivadas desde _session-log.md el 2026-05-30 (al superar el cap de 200 líneas). -->
