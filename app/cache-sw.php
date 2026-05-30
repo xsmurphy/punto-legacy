@@ -23,7 +23,7 @@ var offlineFundamentals = [
   '/assets/vendor/js/alpinejs-3.14.1.min.js',
   '/assets/vendor/css/animate-4.0.0.compat.min.css',
   // App scripts
-  '/scripts/globalv2.js',
+  '/scripts/app.js',
   '/scripts/ncm-ws.js',
   // App images
   '/images/incomeLogoLgGray.png',

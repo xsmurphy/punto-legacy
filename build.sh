@@ -112,7 +112,7 @@ build_app() {
     "$ROOT/panel/scripts/rb.min.js" \
     "$ROOT/panel/scripts/num2word.js" \
     "$ROOT/panel/scripts/documentPrintBuilder.source.js" \
-    "$ROOT/app/scripts/globalv2.js"
+    "$ROOT/app/scripts/app.js"
 
   local JS_CACHE="$ROOT/app/cach/$(echo -n '1' | shasum | cut -d' ' -f1).js"
   minify_js "$TMP/app.js" "$JS_CACHE"

@@ -112,10 +112,9 @@ function appJS($mode = 'js') {
 		$panelBase . '/scripts/documentPrintBuilder.source.js',
 	];
 
-	// Main app script (last)
-	$mainScript = ($mode === 'debug' || $mode === 'mobile')
-		? '/scripts/debug.js'
-		: '/scripts/globalv2.js';
+	// Main app script (last). app.js es la única fuente del front: debug.js se
+	// eliminó (era un duplicado byte-idéntico) → §22.2b ya no aplica.
+	$mainScript = '/scripts/app.js';
 
 	// Emit tags
 	foreach ($vendor as $f) {

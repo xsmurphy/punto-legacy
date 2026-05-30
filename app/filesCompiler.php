@@ -150,13 +150,13 @@ $files_js = [
 	'/panel/scripts/rb.min.js',
 	'/panel/scripts/num2word.js',
 	'/panel/scripts/documentPrintBuilder.source.js',
-	'/app/scripts/globalv2.js',
+	'/app/scripts/app.js',
 ];
 
 $files_debug = array_merge(
 	["$_v/js/jquery-3.6.3.min.js", "$_v/js/fastclick-1.0.6.min.js"],
-	array_slice($files_js, 1, -1), // skip jquery (already added) and globalv2
-	["$_v/js/qrious.min.js", '/app/scripts/ncm-ws.js', '/app/scripts/debug.js']
+	array_slice($files_js, 1, -1), // skip jquery (already added) and app.js (last)
+	["$_v/js/qrious.min.js", '/app/scripts/ncm-ws.js', '/app/scripts/app.js']
 );
 
 $files_mobile = $files_debug; // same set
