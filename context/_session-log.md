@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-30 (tarde) — Rebrand iconos Punto + test E2E del POS en Chrome → 3 bugs de boot en PG arreglados (commits 93be05a, bc3aa35, 03d6d49, 1a6cb94)
+
+- **Hecho — iconos**: rebrand completo ENCOM→Punto generado desde `Media/logo/punto_iso.svg` con cairosvg+Pillow (script temporal): favicon/android transparentes, apple/ms-tiles/splash con fondo blanco + `favicon.ico` multi-res. Se crearon los faltantes (apple-touch-icon-\*, favicon-128/196, mstile-\* incl. 310x150) y se arreglaron las refs muertas de los `<head>` → `/assets/icons/`.
+- **Hecho — test E2E en el Chrome del usuario** (vía MCP): destapó y arregló 3 bugs que rompían el POS sobre PG. (1) **Login roto para todos**: `contactPassword CHAR(68)` padea con espacios → `==` estricto fallaba → `rtrim()` + `hash_equals()`; además faltaba un register en el Master Outlet (seedeado). (2) **Lentitud (~10s de cuelgue)**: `/API/countries` hacía self-proxy INFINITO en `router.php` (proxyaba a `localhost:8002`=sí mismo) → countries local en `app/API/` + proxy corregido a `:8001`. 8s→0.003s. (3) **Settings 500**: `getAllItemCategories()` usaba `array_key_exists` sobre `CaseInsensitiveArray` (TypeError PHP 8) → `isset()`. Settings ya cargan.
+- **Pendiente**: el POS bootea mucho más pero sigue en blanco — **cola de bugs de boot** (primera corrida E2E sobre PG con seed mínimo destapa bugs latentes PHP8/PG/datos): `noLock` (app.js:17281) lee `userId` de `activeUser` vacío; `modules` vacío; `customers:false`. Opciones planteadas al usuario: (A) seguir la cadena, (B) pausar, (C) completar el seed.
+- **Atención (infra dev)**: la DB es **PostgreSQL nativo** (proceso en :5432), NO el container Docker (`punto_postgres` está Exited). NO arrancar ese container — choca el 5432. `.env` tiene `USE_POSTGRES=false` (la app igual corre sobre PG; flag ignorado). POS en `:8002`, API en `:8000`.
+
 ## 2026-05-30 — Reestructura /app Tiers 1-3: basura borrada, iconos a assets/icons/, front unificado en app.js (commits fff7d74, 975a30d, e97aed7)
 
 - **Tier 1**: borrados `app/encom_chrome.crx` (binario extensión Chrome con marca ENCOM vieja, 60KB) y `app/pdftest.php` (archivo de prueba, 81 líneas). 0 referencias.
