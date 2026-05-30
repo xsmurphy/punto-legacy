@@ -36,6 +36,7 @@ run_seed() {
 
 run_seed "$SCRIPT_DIR/01_master_admin.sql"
 run_seed "$SCRIPT_DIR/02_sample_company.sql"
+run_seed "$SCRIPT_DIR/03_dev_plan.sql"
 
 echo ""
 echo "Seeds ejecutados correctamente."

@@ -1731,7 +1731,7 @@ function getAllPlans($planId = false)
 	if ($result) {
 		while (!$result->EOF) {
 			$fields = $result->fields;
-			$plans[$fields['id']] = $fields;/*[
+			$plans[$fields['plan_code'] ?? $fields['id']] = $fields;/*[
 		    								"id"			=> $fields['id'],
 											"name"			=> $fields['name'],
 											"type"			=> $fields['type'],
@@ -1775,7 +1775,7 @@ function getAllPlans($planId = false)
 	}
 	//
 	if ($planId) {
-		return $plans[$planId];
+		return $plans[$planId] ?? [];
 	} else {
 		return $plans;
 	}

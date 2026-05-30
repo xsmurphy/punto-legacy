@@ -149,7 +149,7 @@ function getAllPlans($planId=false){
 	if($result){
 		while (!$result->EOF) {
 			$fields = $result->fields;
-		    $plans[$fields['id']] = $fields;
+		    $plans[$fields['plan_code'] ?? $fields['id']] = $fields;
 		    $result->MoveNext(); 
 		}
 		$result->Close();
@@ -157,7 +157,7 @@ function getAllPlans($planId=false){
 	
 	//
 	if($planId){
-    	return $plans[$planId];
+    	return $plans[$planId] ?? [];
 	}else{
 		return $plans;
 	}
@@ -3466,6 +3466,9 @@ function getRolePermissions($roleId,$companyId){
 	global $_ROLES_DATA;
 
 	$index 		= ncmExecute("SELECT sourceId FROM taxonomy WHERE taxonomyType = 'role' AND taxonomyExtra = ? LIMIT 1",[$roleId],true);
+	if (!$index || !is_array($index) || !isset($index['sourceId'])) {
+		return '';
+	}
 	$saved 		= ncmExecute("SELECT taxonomyExtra FROM taxonomy WHERE taxonomyType = 'roleData' AND sourceId = ? AND companyId = ? LIMIT 1",[$index['sourceId'],$companyId]);
 	$roleSelected = "";
 	if($saved){

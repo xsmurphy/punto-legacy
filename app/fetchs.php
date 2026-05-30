@@ -94,6 +94,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
       dai();
     }
 
+
     $outletCount  = getOutletCount(COMPANY_ID);
     $settings     = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
     $_modules     = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
@@ -111,7 +112,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
     $planIt       =  getAllPlans($cmy['plan']);
     
-    $__modules   = json_decode($_modules['moduleData'], true);
+    $__modules   = json_decode($_modules['moduleData'] ?? '', true);
     $__modules 	= is_array($__modules) ? $__modules : [];
     
     if (isset($__modules['extraItems']) && is_numeric($__modules['extraItems'])) {
@@ -121,22 +122,24 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
     //USERS
     if($LOAD == 'users'){
+      $usersLimit = (($planIt['max_users'] * $outletCount) + ($__modules['extraUsers'] ?? 0));
       $userData     = ncmExecute("  SELECT
                                       *
                                     FROM contact
                                     WHERE
-                                      companyId = ? 
-                                    AND type = 0 
+                                      companyId = ?
+                                    AND type = 0
                                     AND contactStatus > 0
-                                    ORDER BY main ASC, outletId DESC, contactInCalendar DESC, role ASC
-                                    LIMIT " . (($planIt['max_users'] * $outletCount) + $_modules['extraUsers']),
+                                    ORDER BY main ASC, outletId DESC, role ASC
+                                    LIMIT " . intval($usersLimit),
                                     [COMPANY_ID],false,true);
 
       $userDataArray = [];
 
+
       if($userData){
         while (!$userData->EOF) {
-          $uFields = $userData->fields;
+          $uFields = _flattenJsonb($userData->fields);
           // Here I am preparing to store the $row array into the $_SESSION by
           // removing the salt and password values from it.  Although $_SESSION is
           // stored on the server-side, there is no reason to store sensitive values
@@ -181,7 +184,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
                                     *
                                 FROM outlet
                                 WHERE companyId = ? 
-                                AND outletStatus = 1 LIMIT " . $planIt['max_outlets'],
+                                AND outletStatus = 1 LIMIT " . intval($planIt['max_outlets'] ?? 99),
                                 [COMPANY_ID],false,true);
 
       $outletsIdsArray = [];
@@ -211,7 +214,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
                                   'attendanceToken' => md5( enc(COMPANY_ID) . enc($oI) ),
                                   'outletLatLng'    => toUTF8($oFields['outletLatLng']),
                                   'saleTax'         => $saleTax,
-                                  'weekHours'       => json_decode(toUTF8($oFields['outletBusinessHours']),true)
+                                  'weekHours'       => json_decode(toUTF8($oFields['outletBusinessHours'] ?? ''), true)
                                 ];
           
           $outletsIds->MoveNext();
@@ -228,7 +231,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
       $registersIds = ncmExecute("  SELECT *
                                     FROM register
                                     WHERE registerStatus = 1
-                                    AND companyId = ? LIMIT " . ( ($planIt['max_registers'] * $outletCount) + $_modules['extraRegisters'] ),
+                                    AND companyId = ? LIMIT " . intval( (($planIt['max_registers'] ?? 99) * $outletCount) + ($__modules['extraRegisters'] ?? 0) ),
                                     [COMPANY_ID],false,true);
 
       $registersIdsArray  = [];
@@ -376,8 +379,8 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
           $upsell->Close();
         }
 
-        $settingsFull     = json_decode($settings['settingObj'],true);
-        $ecomData         = json_decode(stripslashes($_modules['ecom_data']) ,true);
+        $settingsFull     = json_decode($settings['settingObj'] ?? '{}', true);
+        $ecomData         = json_decode(stripslashes($_modules['ecom_data'] ?? ''), true);
 
         if (isset($ecomData['tiers']) && is_array($ecomData['tiers'])) {
           foreach ($ecomData['tiers'] as &$tier) {
@@ -448,8 +451,8 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
                             'upsellList'            => $upsellArray,
                             'mandatoryContact'      => $settings['settingMandatoryContactFields'],
                             'supportLock'           => '0890',
-                            'fullSettings'          => json_decode(toUTF8($settings['settingObj']),true),
-                            'modules'               => json_decode(toUTF8($_modules['moduleData']),true),
+                            'fullSettings'          => json_decode(toUTF8($settings['settingObj'] ?? '{}'), true),
+                            'modules'               => json_decode(toUTF8($_modules['moduleData'] ?? ''), true),
                             'ecomData'              => $ecomData,
                             'digitalInvoice'        => $_modules['digitalInvoice'] ? true : false,
                             'accountBlockingAlert'  => ['is' => $settings['planExpired'], 'txt' => 'Le recordamos que posee facturas vencidas en su cuenta ENCOM.'],
@@ -485,7 +488,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
                                     WHERE companyId = ? 
                                     " . $updated_at . "
                                     ORDER BY contactName ASC
-                                    LIMIT " . $planIt['max_customers'],
+                                    LIMIT " . intval($planIt['max_customers']),
                                     [COMPANY_ID],30,true);
 
           //AND contactStatus > 0 
@@ -505,7 +508,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
           $customer->MoveFirst();
 
           $allAddress     = [];
-          $custAddresses  = ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId IN(' . implodes(',', $cAIns) . ')',[COMPANY_ID],false,true);
+          $custAddresses  = $cAIns ? ncmExecute('SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId IN(' . implodes(',', $cAIns) . ')',[COMPANY_ID],false,true) : false;
 
           if($custAddresses){
 
@@ -694,7 +697,7 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
       if($downloadItems){
 
-        $limit        = " LIMIT " . $planIt['max_items'];
+        $limit        = " LIMIT " . intval($planIt['max_items'] ?? 99999);
         $order        = 'ASC';
         $child        = [];
         $childrenIds  = getAllCompanyItemsChildren(COMPANY_ID);

@@ -124,6 +124,14 @@ class DBResult
         return $this->rows;
     }
 
+    /** Retrocede al primer registro. Equivale a $rs->MoveFirst(). */
+    public function MoveFirst(): void
+    {
+        $this->pos    = 0;
+        $this->EOF    = empty($this->rows);
+        $this->fields = new CaseInsensitiveArray($this->EOF ? [] : $this->rows[0]);
+    }
+
     /** No-op: compatibilidad ADOdb ($rs->Close()). */
     public function Close(): void {}
 }
