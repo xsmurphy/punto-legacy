@@ -21706,7 +21706,7 @@ var itemsToTable = function () {
 
         var itemTagsLine = iftn(tagsin, '', displaySelectedTags(tagsin).join(' - '));
         var dataText = [
-            itemId + ' @ ' + iftn(displayPrice, fPrice),
+            (sku ? sku + ' @ ' : '') + iftn(displayPrice, fPrice),
             iftn(itmUser, '', '<i class="material-icons m-l-xs md-14">&#xe851;</i> ' + itmUser),
             iftn(itemTagsLine, '', '<i class="material-icons m-l-xs md-14">&#xe893;</i> ' + itemTagsLine),
             iftn(note, '', '<i class="material-icons m-l-xs md-14">&#xe0cb;</i> ' + note)

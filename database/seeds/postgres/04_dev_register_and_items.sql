@@ -28,16 +28,17 @@ INSERT INTO register (
 
 -- 5 ítems de prueba (sin tracking de inventario para venta directa)
 INSERT INTO item (
-    itemid, itemname, itemprice, itemcost,
+    itemid, itemname, itemsku, itemprice, itemcost,
     itemtype, itemstatus, itemcansale, itemtrackinventory,
     itemsort, companyid
 ) VALUES
-    ('00000000-0000-0000-0000-000000000031', 'Café',         8000,  3000, 'product', 1, TRUE, FALSE, 1, '00000000-0000-0000-0000-000000000010'),
-    ('00000000-0000-0000-0000-000000000032', 'Empanada',    12000,  5000, 'product', 1, TRUE, FALSE, 2, '00000000-0000-0000-0000-000000000010'),
-    ('00000000-0000-0000-0000-000000000033', 'Sandwich',    25000, 10000, 'product', 1, TRUE, FALSE, 3, '00000000-0000-0000-0000-000000000010'),
-    ('00000000-0000-0000-0000-000000000034', 'Jugo Natural',15000,  6000, 'product', 1, TRUE, FALSE, 4, '00000000-0000-0000-0000-000000000010'),
-    ('00000000-0000-0000-0000-000000000035', 'Agua Mineral', 5000,  2000, 'product', 1, TRUE, FALSE, 5, '00000000-0000-0000-0000-000000000010')
+    ('00000000-0000-0000-0000-000000000031', 'Café',         'CAF-001',  8000,  3000, 'product', 1, TRUE, FALSE, 1, '00000000-0000-0000-0000-000000000010'),
+    ('00000000-0000-0000-0000-000000000032', 'Empanada',     'EMP-001', 12000,  5000, 'product', 1, TRUE, FALSE, 2, '00000000-0000-0000-0000-000000000010'),
+    ('00000000-0000-0000-0000-000000000033', 'Sandwich',     'SAN-001', 25000, 10000, 'product', 1, TRUE, FALSE, 3, '00000000-0000-0000-0000-000000000010'),
+    ('00000000-0000-0000-0000-000000000034', 'Jugo Natural', 'JUG-001', 15000,  6000, 'product', 1, TRUE, FALSE, 4, '00000000-0000-0000-0000-000000000010'),
+    ('00000000-0000-0000-0000-000000000035', 'Agua Mineral', 'AGU-001',  5000,  2000, 'product', 1, TRUE, FALSE, 5, '00000000-0000-0000-0000-000000000010')
 ON CONFLICT (itemid) DO UPDATE
     SET itemname  = EXCLUDED.itemname,
+        itemsku   = EXCLUDED.itemsku,
         itemprice = EXCLUDED.itemprice,
         itemcost  = EXCLUDED.itemcost;
