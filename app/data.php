@@ -10,9 +10,11 @@ define('USER_ID', $userId);
 define('REGISTER_ID', $registerId);
 define('ROLE_ID', $roleId);
 
-$SQLcompanyId             = "companyId = " . COMPANY_ID;
-$SQLcompanyIdANDoutletId  = 'companyId = ' . COMPANY_ID . ' AND outletId = ' . OUTLET_ID;
-$SQLcompanyIdJoin         = 'a.companyId = ' . COMPANY_ID;
+// En PG las UUIDs DEBEN ir entre comillas en SQL string concat — sino "trailing junk after numeric literal".
+// MySQL int companyIds quedaban sin comillas porque eran numéricas. Migración a PG → quotes obligatorias.
+$SQLcompanyId             = "companyId = '" . COMPANY_ID . "'";
+$SQLcompanyIdANDoutletId  = "companyId = '" . COMPANY_ID . "' AND outletId = '" . OUTLET_ID . "'";
+$SQLcompanyIdJoin         = "a.companyId = '" . COMPANY_ID . "'";
 
 $setting = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
 $_modules= ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);

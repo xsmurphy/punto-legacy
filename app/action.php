@@ -2924,33 +2924,44 @@ if ($action) {
       dai();
     } else if (array_key_exists('updateClient', $data)) {
       $customerData = $data['updateClient'];
-      $id           = $customerData['customerId'];
+      $id           = is_numeric($customerData['customerId']) ? $customerData['customerId'] : dec($customerData['customerId']);
+      $record       = [];
 
-      $record['contactName']      = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['name']);
-      $record['contactTIN']       = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['ruc']);
-      $record['contactSecondName'] = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['fullName']);
-      $record['contactCI']        = (int)$customerData['ci'];
-      $record['contactNote']      = !empty($customerData['description']) ? $customerData['description'] : $customerData['note'];
-      $record['contactPhone']     = $customerData['phone'];
-      $record['contactPhone2']    = $customerData['phone2'];
-      $record['contactEmail']     = strtolower(preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['email']));
-      $record['contactBirthDay']  = $customerData['birthday']; //birthday es date, no tiene time
-      $record['updated_at']       = TODAY;
+      $record['contactName']       = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['name'] ?? '');
+      $record['contactTIN']        = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['ruc'] ?? '');
+      $record['contactSecondName'] = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['fullName'] ?? '');
+      $record['contactCI']         = !empty($customerData['ci']) ? (string)$customerData['ci'] : null;
+      $record['contactPhone']      = $customerData['phone']  ?? null;
+      $record['contactPhone2']     = $customerData['phone2'] ?? null;
+      $record['contactEmail']      = !empty($customerData['email']) ? strtolower(preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['email'])) : null;
+      // contactBirthDay (date): "" rompe PG → NULL.
+      $record['contactBirthDay']   = !empty($customerData['birthday']) ? $customerData['birthday'] : null;
+      $record['updated_at']        = TODAY;
 
-      //Si es diplomatico agrego para guardar en el json del campo data en contacts
-      if(isset($customerData['diplomatic']) && ($customerData['diplomatic'] === 1 || $customerData['diplomatic'] === 0)){
-        $record['diplomatic']    = $customerData['diplomatic']; 
-        $allData 													=	json_encode($record);
-        $record['data'] 									= $allData;
+      // contactNote demoted a data JSONB (migración 06) + diplomatic en JSONB.
+      // Read-modify-write del JSONB: leer el data actual y mergear las keys
+      // nuevas, sino se sobreescriben las otras claves del JSONB existente.
+      $jsonbPatch = [];
+      $note = !empty($customerData['description']) ? $customerData['description'] : ($customerData['note'] ?? '');
+      if (!empty($note)) {
+        $jsonbPatch['contactNote'] = $note;
+      }
+      if (isset($customerData['diplomatic']) && ($customerData['diplomatic'] === 1 || $customerData['diplomatic'] === 0)) {
+        $jsonbPatch['diplomatic'] = $customerData['diplomatic'];
+      }
+      if (!empty($jsonbPatch)) {
+        $currentData = ncmExecute('SELECT data FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1', [$id, COMPANY_ID]);
+        $merged = is_array($currentData) || $currentData instanceof CaseInsensitiveArray
+          ? (json_decode($currentData['data'] ?? '{}', true) ?: [])
+          : [];
+        $record['data'] = json_encode(array_merge($merged, $jsonbPatch));
       }
 
-      if (is_numeric($id)) {
-        $id = db_prepare($id);
-      } else {
-        $id = db_prepare(dec($id));
-      }
-
-      $update = ncmUpdate(['records' => $record, 'table' => 'contact', 'where' => "contactId = '" . $id . "' AND " . $SQLcompanyId]);
+      $update = ncmUpdate([
+        'records' => $record,
+        'table'   => 'contact',
+        'where'   => "contactId = '" . $id . "' AND " . $SQLcompanyId,
+      ]);
 
       if ($update['error']) {
         $updateError = $update['error'];
@@ -2958,16 +2969,17 @@ if ($action) {
         $updateError = false;
       }
 
-      if (validity($customerData['address'])) {
+      if (validity($customerData['address'] ?? null)) {
+        $recordAdd = [];
 
         $addressExists = ncmExecute('SELECT customerAddressId FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true LIMIT 1', [$id, COMPANY_ID]);
 
         $recordAdd['customerAddressText']       = $customerData['address'];
-        $recordAdd['customerAddressDefault']    = 1;
-        $recordAdd['customerAddressLocation']   = $customerData['location'];
-        $recordAdd['customerAddressCity']       = $customerData['city'];
+        $recordAdd['customerAddressDefault']    = true; // PG boolean (era int en MySQL).
+        $recordAdd['customerAddressLocation']   = !empty($customerData['location']) ? $customerData['location'] : null;
+        $recordAdd['customerAddressCity']       = !empty($customerData['city']) ? $customerData['city'] : null;
 
-        if ($customerData['latLng']) {
+        if (!empty($customerData['latLng'])) {
           $coords = explodes(',', $customerData['latLng']);
           $lat    = $coords[0];
           $lng    = $coords[1];
@@ -2976,30 +2988,20 @@ if ($action) {
           $recordAdd['customerAddressLng'] = $lng;
         }
 
-        if ($addressExists) { //si tiene una dirección updateo
-          $updateAdd = ncmUpdate(['records' => $recordAdd, 'table' => 'customerAddress', 'where' => "customerId = '" . $id . "' AND customerAddressId = " . $addressExists['customerAddressId']]);
+        if ($addressExists) { //si tiene una dirección updateo (customerAddressId es UUID en PG → quotes obligatorias).
+          $updateAdd = ncmUpdate(['records' => $recordAdd, 'table' => 'customerAddress', 'where' => "customerId = '" . $id . "' AND customerAddressId = '" . $addressExists['customerAddressId'] . "'"]);
+          // ncmUpdate devuelve ['error' => msg|false]; ncmInsert (rama else) devuelve UUID string o false.
+          $updateAddError = (is_array($updateAdd) && !empty($updateAdd['error'])) ? $updateAdd['error'] : false;
         } else { //sino añado
-
           $recordAdd['customerId']  = $id;
           $recordAdd['companyId']   = COMPANY_ID;
-
           $updateAdd = ncmInsert(['records' => $recordAdd, 'table' => 'customerAddress']);
-          if (!$updateAdd) {
-            $updateAddError = true;
-          } else {
-            $updateAddError = false;
-          }
-        }
-
-        if ($updateAdd['error']) {
-          $updateAddError = $updateAdd['error'];
-        } else {
-          $updateAddError = false;
+          $updateAddError = $updateAdd ? false : true;
         }
       }
 
-      if ($update === false) {
-        jsonDieMsg($updateError);
+      if ($update === false || !empty($update['error'])) {
+        jsonDieMsg($updateError ?: ($update['error'] ?? 'update failed'));
       } else {
         updateLastTimeEdit(COMPANY_ID, 'customer');
 

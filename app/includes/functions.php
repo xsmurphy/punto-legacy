@@ -755,7 +755,8 @@ function updateLastTimeEdit($id,$table=false){
 	global $db;
 
 	$date 					= TODAY;
-	$SQLcompanyId 	= 'companyId = ' . $id;
+	// PG: UUIDs entre comillas en SQL concat. MySQL int companyIds no necesitaban.
+	$SQLcompanyId 	= "companyId = '" . $id . "'";
 	$record 				= [];
 
 	if($table == 'customer'){
