@@ -16699,7 +16699,7 @@ var ncmHttp = {
                             //no envio por que ya se envio
                         } else {
                             synced++;
-                            ncmHttp.postToServer(url, data, function (result, dat) {
+                            ncmHttp.postSale(url, data, function (result, dat) {
                                 if (ncmHelpers.ifIstrue(result)) {
                                     window.sentUIDsArray.push(dat.uid);
                                 } else {
@@ -16832,6 +16832,44 @@ var ncmHttp = {
         } else {
             ncmHttp.sendDataToServer(data, callback);
         }
+    },
+    postSale: function (legacyUrl, data, callback) {
+        // Strangler 35a.7 — las VENTAS (data.transaction) type 0/3 se intentan
+        // primero en el SaleService nuevo (bff/sales). Si el backend las rechaza
+        // (HTTP 422 = no elegible: giftcard/sesiones/EI/recurrente/parent/pago que
+        // gasta balance) o hay cualquier error/timeout, se REINTENTA con el legacy
+        // processData → ninguna venta se pierde. El backend (assertSimplePathEligible)
+        // es la única fuente de verdad de elegibilidad; el front solo hace un check
+        // barato de tipo para decidir si vale la pena intentar el path nuevo.
+        var tx = data && data.transaction;
+        var eligible = tx && (String(tx.type) === '0' || String(tx.type) === '3');
+
+        if (!eligible) {
+            // No es una venta simple (updateDocNumber, mesa, orden, type!=0/3) → legacy.
+            return ncmHttp.postToServer(legacyUrl, data, callback);
+        }
+
+        var salesUrl = masterUrl + 'bff/sales?l=' + window.btoa(JSON.stringify({ action: 'save' }));
+        var post = $.ajax({
+            type: "POST",
+            url: salesUrl,
+            data: { "data[]": JSON.stringify(data) },
+            timeout: 2500,
+            dataType: "json"
+        });
+
+        post.done(function (result) {
+            callback && callback(result, data);
+        });
+        post.fail(function (jqXHR) {
+            // 422 (no elegible) o error de red → fallback al legacy processData.
+            // La idempotencia por transactionUID en AMBOS paths evita duplicados si
+            // el SaleService alcanzó a persistir pero se perdió la respuesta (el
+            // legacy responde {success:"Duplicated Entry"} → ifIstrue true → UID
+            // marcado, la cola para). thalog para triage en prod (422 vs 5xx).
+            thalog('postSale fallback a legacy', jqXHR && jqXHR.status);
+            ncmHttp.postToServer(legacyUrl, data, callback);
+        });
     },
     postToServer: function (url, data, callback) {
         thalog('postToServer fn');
