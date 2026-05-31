@@ -121,6 +121,10 @@ final class SaleService
 
             // ── B8: itemSold + COGS + comisiones + manageStock (inventario) ──
             $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
+
+            // ── B10: loyalty EARNED (los pagos points/storeCredit/giftcard que
+            //         GASTAN balance ya fueron rechazados en eligibility) ──────
+            $this->persistLoyaltyEarning($input);
         }
 
         // ── B11: cerrar la transacción ──────────────────────────────────────
@@ -315,6 +319,40 @@ final class SaleService
                     ], 'INSERT');
                 }
                 // Tag inexistente o de otro tenant → omitido (no aborta la venta).
+            }
+        }
+    }
+
+    /**
+     * B10 (parcial) — loyalty EARNED. Por cada pago (todos cash/card en este path:
+     * los pagos que gastan balance ya fueron rechazados en eligibility), el cliente
+     * gana puntos si el módulo loyalty está activo. Solo cashsale (type 0) con cliente
+     * — creditsale (3) NO gana (guard del legacy: `type == '0' || type == '5'`).
+     *
+     * Corre dentro de la transacción de save(). manageCustomerLoyalty es helper legacy
+     * (deuda §22.9); su path 'earned' fue arreglado para PG (loyaltyMin/loyaltyValue
+     * desde company.config JSONB).
+     */
+    private function persistLoyaltyEarning(SaleInput $input): void
+    {
+        if ($input->type !== SaleType::Cashsale || $input->clientId === null) {
+            return;
+        }
+        // compLoyalty = módulo loyalty habilitado (company.config->loyalty).
+        // ncmExecute aplana el config JSONB → expone la key `loyalty`.
+        // Asunción: config.loyalty es numérico (1/0), igual que el legacy
+        // `$compLoyalty = $_modules['loyalty']` (data.php:35) que compara `> 0`.
+        $company = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$this->ctx->companyId]);
+        $compLoyalty = (is_array($company) || $company instanceof \ArrayAccess)
+            ? (float) ($company['loyalty'] ?? 0)
+            : 0;
+        if ($compLoyalty <= 0) {
+            return; // módulo loyalty deshabilitado → no se ganan puntos
+        }
+        foreach ($input->payment as $pay) {
+            $price = (float) ($pay['price'] ?? 0);
+            if ($price > 0) {
+                manageCustomerLoyalty('earned', $price, $input->clientId, $this->ctx->companyId);
             }
         }
     }

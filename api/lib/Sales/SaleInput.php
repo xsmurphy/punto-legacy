@@ -156,6 +156,18 @@ final class SaleInput
         if (!empty($payload['parentId'])) {
             throw new InvalidSaleInputException('Venta con parentId no soportada en este path (usar legacy)');
         }
+        // Pagos que MODIFICAN balances del cliente (puntos / crédito interno / gift card)
+        // tocan tablas/helpers fuera del path simple → diferidos a 35c/35e. El path simple
+        // cubre pagos cash/card (que no modifican balance). Sí soportamos loyalty EARNED
+        // (incremento por la venta), que va aparte del payment loop.
+        foreach (($payload['payment'] ?? []) as $pay) {
+            $payType = (string) ($pay['type'] ?? '');
+            if (in_array($payType, ['points', 'storeCredit', 'giftcard'], true)) {
+                throw new InvalidSaleInputException(
+                    "Pago con '{$payType}' no soportado en este path (modifica balance — usar legacy)"
+                );
+            }
+        }
         foreach ($sale as $item) {
             $itemType = (string) ($item['type'] ?? '');
             if ($itemType === 'discount') {

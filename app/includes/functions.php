@@ -264,23 +264,30 @@ function manageCustomerLoyalty($type,$amount,$id,$compId=false){
 	global $db;
 
 	$compId 	= iftn($compId,COMPANY_ID);
-	$amount 	= $db->Prepare($amount);
+	// NO usar $db->Prepare($amount): qstr-quotea el número ('8000') y rompe la
+	// comparación/matemática del branch 'earned' ($amount >= $loyalMin daría
+	// string>=int → false). Mantenemos $amount numérico y parametrizamos en el SQL.
+	$amount 	= floatval($amount);
 
 	if($type == 'used'){
-		$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount - " . $amount . ", updated_at = '" . TODAY . "' WHERE contactId = ?",[$id]);
+		$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount - ?, updated_at = '" . TODAY . "' WHERE contactId = ?",[$amount, $id]);
 	}else if($type == 'earned'){
 		$contactAble = ncmExecute('SELECT contactLoyalty FROM contact WHERE contactId = ? LIMIT 1',[$id]);
 
 		if(!empty($contactAble) && ($contactAble['contactLoyalty'] > 0)){
 
-			$loyaltyVal 	= ncmExecute('SELECT loyaltyMin,loyaltyValue FROM company WHERE companyId = ? LIMIT 1',[$compId]);
-			$loyalMin 		= $loyaltyVal['loyaltyMin'];
-			$loyalVal 		= $loyaltyVal['loyaltyValue'];
+			// loyaltyMin/loyaltyValue están DEMOTED a company.config JSONB → no son
+			// columnas. SELECT * + _flattenJsonb (vía ncmExecute) las expone; el
+			// `SELECT loyaltyMin,loyaltyValue` directo fallaba (columnas inexistentes)
+			// → abortaba la tx de la venta. §22.8.
+			$loyaltyVal 	= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[$compId]);
+			$loyalMin 		= floatval($loyaltyVal['loyaltyMin'] ?? 0);
+			$loyalVal 		= floatval($loyaltyVal['loyaltyValue'] ?? 0);
 
-			if($amount >= $loyalMin){
+			if($loyalMin > 0 && $amount >= $loyalMin){
 				$mult 	= divider($amount,$loyalMin,false,'down');
-				$amount = $loyalVal * $mult;
-				$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + " . $amount . ", updated_at = '" . TODAY . "' WHERE contactId = ?",[$id]);
+				$earned = $loyalVal * $mult;
+				$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ?, updated_at = '" . TODAY . "' WHERE contactId = ?",[$earned, $id]);
 			}
 		}
 	}
