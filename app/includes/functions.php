@@ -298,10 +298,12 @@ function manageCustomerLoyalty($type,$amount,$id,$compId=false){
 function manageCustomerStoreCredit($type,$amount,$id,$compId=false){
 	global $db;
 	$compId 	= iftn($compId,COMPANY_ID);
-	$amount = $db->Prepare($amount);
+	$amount 	= floatval($amount);
 
 	if($type == 'used'){
-		$db->Execute('UPDATE contact SET contactStoreCredit = contactStoreCredit-'.$amount.', updated_at = "'.TODAY.'" WHERE contactId = ?',array($id));
+		// PG: amount parametrizado (no $db->Prepare, que qstr-quotea); updated_at con
+		// comillas SIMPLES (las dobles en PG son identificadores, no strings → rompía).
+		$db->Execute("UPDATE contact SET contactStoreCredit = contactStoreCredit - ?, updated_at = '" . TODAY . "' WHERE contactId = ?", [$amount, $id]);
 	}else if($type == 'earned'){
 		//
 	}
@@ -1156,7 +1158,7 @@ function updatePaymentMethodsInRegisterDB($new,$regId,$rest=false){
 				$upOld 	= updatePaymentMethodsInRegister($new,$old,$rest);
 				if(validity($upOld)){
 					$record['registerDrawerData'] = json_encode($upOld);
-			    	$up 	= $db->AutoExecute('register', $record, 'UPDATE','registerId = '.$db->Prepare($regId));
+			    	$up 	= $db->AutoExecute('register', $record, 'UPDATE', "registerId = '" . $regId . "'");
 			    }
 		    }
 	    }
@@ -2061,18 +2063,16 @@ function checkPlanMaxReached($table,$max){
 
 function checkIfExists($name, $field, $table){
 	global $db, $SQLcompanyId;
-	$name 	= $db->Prepare($name);
-	$field 	= $db->Prepare($field);
-	$table 	= $db->Prepare($table);
-	if($name != '' && !empty($name)){
-		$obj = $db->Execute("SELECT ".$table."Id FROM ".$table." WHERE ".$field." = '".$name."' AND ".$SQLcompanyId);
-		
-		if($obj->fields[0] == '' || $obj->fields[0] < 1){
+	// $field/$table son IDENTIFICADORES (schema, controlados por el código) → NO se
+	// prepara/quotea (qstr los rompía como string literal). $name es VALOR → param.
+	if($name !== '' && !empty($name)){
+		$obj = $db->Execute("SELECT ".$table."Id FROM ".$table." WHERE ".$field." = ? AND ".$SQLcompanyId, [$name]);
+
+		if(!$obj || $obj->fields[0] == '' || $obj->fields[0] < 1){
 			return false;
 		}else{
 			return true;
 		}
-		$obj->Close();
 	}else{
 		return false;
 	}
@@ -2255,17 +2255,23 @@ function getSalesByPayment($from,$to,$regId){
 			$to = false;
 		}
 
-		$date 		= iftn($to,
-											"transactionDate > '" . $db->Prepare($from) . "'",
-											"transactionDate BETWEEN '" . $db->Prepare($from) . "' AND '" . $db->Prepare($to) . "'"
-										);
-		
-		$result 	= ncmExecute($sql = "SELECT transactionId, abs(transactionTotal) as transactionTotal, abs(transactionDiscount) as transactionDiscount,transactionPaymentType, transactionType, transactionParentId, tags
-									FROM transaction 
+		// Fechas parametrizadas (no $db->Prepare, que quotea y además el código las
+		// re-quoteaba → '<doble-quote>' roto en PG). El orden de los params sigue al
+		// de los placeholders en el WHERE.
+		if($to){
+			$date 	= "transactionDate BETWEEN ? AND ?";
+			$params = [$from, $to, $regId];
+		}else{
+			$date 	= "transactionDate > ?";
+			$params = [$from, $regId];
+		}
+
+		$result 	= ncmExecute("SELECT transactionId, abs(transactionTotal) as transactionTotal, abs(transactionDiscount) as transactionDiscount,transactionPaymentType, transactionType, transactionParentId, tags
+									FROM transaction
 									WHERE  " . $date . "
 									AND transactionType IN (0,5,6)
 									AND registerId = ?"
-									,[$regId],false,true);
+									,$params,false,true);
 		if($result){
 			$group = [];
 			while (!$result->EOF) {
@@ -4610,7 +4616,9 @@ function voidSale($trId,$motive=''){
 
     ///Recordarme que tengo que ver como actualizar los lotes cuando elimino una transaccion en el panel y ver que pasa con una transaccion anulada o devuelta, puedo eliminarlas? porque hay que reponer el inventario de forma invertida y es quilombo
 
-    $trId         = $db->Prepare( dec($trId) );
+    // UUID crudo (no $db->Prepare, que lo qstr-quotea → al pasarlo como bind param
+    // quedaría con comillas literales y no matchearía la columna UUID).
+    $trId         = dec($trId);
 
     //veo si tiene cliente la venta y si se uso loyalty obtengo el monto para reponer
     $customer = ncmExecute("SELECT
@@ -4650,7 +4658,8 @@ function voidSale($trId,$motive=''){
     $record['transactionNote'] 	= $motive;
     $record['responsibleId'] 	= USER_ID;
     //$db->AutoExecute('transaction', $record, 'UPDATE', 'transactionId = ' . $trId);
-    ncmUpdate(['records' => $record, 'table' => 'transaction', 'where' => 'transactionId = ' . $trId]);//records (arr), table (str), where (str)
+    // PG: UUID quoteado en el where-string de ncmUpdate (§22.5).
+    ncmUpdate(['records' => $record, 'table' => 'transaction', 'where' => "transactionId = '" . $trId . "'"]);//records (arr), table (str), where (str)
     //elimino pagos si hay
     ncmExecute("DELETE FROM transaction WHERE transactionParentId = ?", [$trId]);
 
@@ -4701,8 +4710,8 @@ function voidSale($trId,$motive=''){
     //inventario//
 
     //Elimino item solds poruqe voy a usar los que quedan guardados en la transaccion en json
-    $db->Execute("DELETE FROM itemSold WHERE transactionId = " . $trId);
-    $db->Execute("DELETE FROM giftCardSold WHERE transactionId = " . $trId);
+    $db->Execute("DELETE FROM itemSold WHERE transactionId = ?", [$trId]);
+    $db->Execute("DELETE FROM giftCardSold WHERE transactionId = ?", [$trId]);
 
     $failedTransaction = $db->HasFailedTrans();
     $db->CompleteTrans();
