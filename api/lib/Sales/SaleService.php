@@ -106,13 +106,20 @@ final class SaleService
         // ── B3: INSERT principal de la venta ────────────────────────────────
         $insertOk = $this->db->AutoExecute('transaction', $record, 'INSERT');
         $transId  = $this->db->Insert_ID();
-        $dbError  = $this->db->ErrorMsg();
+
+        // ── B4 + B6 + B7: relaciones (toTaxObj / toAddress / toTag) ─────────
+        // Solo si el INSERT principal funcionó (evita FK violations en cascada
+        // que ensuciarían el error real). Corren dentro de la misma transacción.
+        if ($insertOk !== false && !empty($transId)) {
+            $this->persistRelations($input, (string) $transId);
+        }
 
         // ── B11 (parcial, ya acá para cerrar el trans del sub-slice) ────────
-        // Los bloques B4-B10 entrarán entre el INSERT y el ErrorMsg en sub-slices
-        // 35a.3-35a.5. Por ahora cerramos para que el sub-slice deje el código
-        // en estado funcional (la venta básica se commitea).
-        $failed = $this->db->HasFailedTrans();
+        // Los bloques B8-B10 (itemSold/manageStock/loyalty) entrarán entre el INSERT
+        // y el ErrorMsg en sub-slices 35a.4-35a.5. Por ahora cerramos para que el
+        // sub-slice deje el código en estado funcional (la venta básica se commitea).
+        $dbError = $this->db->ErrorMsg();
+        $failed  = $this->db->HasFailedTrans();
         $this->db->CompleteTrans();
 
         if ($failed || $insertOk === false || empty($transId)) {
@@ -177,10 +184,14 @@ final class SaleService
             'transactionTotal'       => flipOnReturn($typeStr, $input->subtotal),
             'transactionUnitsSold'   => flipOnReturn($typeStr, $totalUnits),
 
-            // meta JSONB: shape EXACTO del legacy — doble-encode obligatorio.
+            // meta JSONB: shape EXACTO del legacy — ambas keys son JSON-STRINGS adentro
+            // del JSON exterior (doble-encode). Los readers (OrderService:229,
+            // TransactionService:41) hacen `json_decode($meta['tags'])` → DEBE ser string,
+            // no array nativo. El legacy guarda `$data['tags']` (el JSON-string del front);
+            // nosotros normalizamos a list<uuid> y re-encodeamos al mismo shape.
             'meta' => json_encode([
                 'transactionDetails' => json_encode($saleDetail),
-                'tags'               => $input->tags,
+                'tags'               => $input->tags !== null ? json_encode($input->tags) : null,
             ]),
             'transactionPaymentType' => json_encode($input->payment),
 
@@ -208,5 +219,80 @@ final class SaleService
             'outletId'               => $this->ctx->outletId,
             'companyId'              => $this->ctx->companyId,
         ];
+    }
+
+    /**
+     * Persiste las relaciones de la venta (B4 + B6 + B7 del legacy):
+     *   - toTaxObj: snapshot de la matriz de impuestos aplicada (B4, action.php:2040)
+     *   - toAddress: link a la dirección de entrega del cliente (B6, action.php:2060)
+     *   - toTag: links a los tags de la venta (B7, action.php:2066)
+     *
+     * Todo dentro de la transacción abierta en save(). Un fallo (FK violation, etc.)
+     * marca la transacción como fallida y save() lanza SaleAbortedException.
+     */
+    private function persistRelations(SaleInput $input, string $transId): void
+    {
+        // ── B4: snapshot de impuestos (toTaxObj) ────────────────────────────
+        // taxObjSanitizer recorta a 11 items y formatea name/val. Devuelve false
+        // si está vacío → no insertamos.
+        //
+        // DEUDA conocida (matchea el legacy, no es regresión): `toTaxObjText` es
+        // VARCHAR(255). Con ~6+ impuestos el json_encode puede exceder 255 chars
+        // → PG aborta la tx por truncación (22001) y la venta entera falla con
+        // SaleAbortedException. Una venta multi-impuesto legítima podría romper.
+        // Fix futuro: widening de la columna a TEXT (migración) — registrado en
+        // roadmap § processData. Por ahora se preserva el comportamiento legacy.
+        $taxObj = taxObjSanitizer($input->taxObj ?? []);
+        if (is_array($taxObj) && $taxObj !== []) {
+            $this->db->AutoExecute('toTaxObj', [
+                'toTaxObjText'  => json_encode($taxObj),
+                'transactionId' => $transId,
+                'companyId'     => $this->ctx->companyId,
+            ], 'INSERT');
+        }
+
+        // ── B6: dirección de entrega (toAddress) ────────────────────────────
+        // El legacy gatea por saleType ∈ {cashsale, creditsale, order, schedule};
+        // type 0/3 (path simple) siempre califica. Requiere cliente + addressId.
+        // Anti-IDOR: validamos que la dirección pertenezca a ESE cliente y tenant
+        // (el legacy insertaba el addressId crudo del front sin validar).
+        if ($input->clientId !== null && $input->addressId !== null) {
+            $addr = $this->db->Execute(
+                'SELECT customerAddressId FROM customerAddress
+                 WHERE customerAddressId = ? AND customerId = ? AND companyId = ? LIMIT 1',
+                [$input->addressId, $input->clientId, $this->ctx->companyId]
+            );
+            if ($addr && !$addr->EOF) {
+                $this->db->AutoExecute('toAddress', [
+                    'customerAddressId' => $input->addressId,
+                    'transactionId'     => $transId,
+                ], 'INSERT');
+            }
+            // Si la dirección no matchea, la omitimos en silencio (no abortamos la
+            // venta por un addressId stale — es decorativo, no afecta el cobro).
+        }
+
+        // ── B7: tags de la venta (toTag) ────────────────────────────────────
+        // FIX PG: el legacy hacía `intval($ttag)` → roto, porque `totag.tagid` es
+        // UUID (taxonomyId), no int. Mantenemos los UUIDs. Validamos cada tag contra
+        // taxonomy (FK + tenant scope) antes de insertar — un tag inexistente
+        // dispararía FK violation y abortaría la venta.
+        if ($input->tags) {
+            foreach ($input->tags as $tagId) {
+                $tag = $this->db->Execute(
+                    "SELECT taxonomyId FROM taxonomy
+                     WHERE taxonomyId = ? AND taxonomyType = 'tag' AND companyId = ? LIMIT 1",
+                    [$tagId, $this->ctx->companyId]
+                );
+                if ($tag && !$tag->EOF) {
+                    $this->db->AutoExecute('toTag', [
+                        'toTagType' => 0,
+                        'parentId'  => $transId,
+                        'tagId'     => $tagId,
+                    ], 'INSERT');
+                }
+                // Tag inexistente o de otro tenant → omitido (no aborta la venta).
+            }
+        }
     }
 }

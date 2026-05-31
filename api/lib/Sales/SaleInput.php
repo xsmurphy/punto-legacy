@@ -119,9 +119,44 @@ final class SaleInput
             currency:   !empty($payload['currency'])  ? (string) $payload['currency']  : null,
             status:     self::normalizeStatus($payload['status'] ?? null),
             dontNotify: !empty($payload['dontNotify']),
-            tags:       isset($payload['tags']) ? (array) $payload['tags'] : null,
+            tags:       self::normalizeTags($payload['tags'] ?? null),
             taxObj:     isset($payload['taxObj']) && is_array($payload['taxObj']) ? $payload['taxObj'] : null,
         );
+    }
+
+    /**
+     * Normaliza `tags` a una lista de UUIDs (taxonomyId de tipo 'tag').
+     *
+     * El front manda `JSON.stringify(addedTags)` → un JSON-string. Aceptamos también
+     * array directo. Los tags son taxonomyId (UUID) — NO intval (el legacy hacía
+     * `intval($ttag)` que destruía el UUID y rompía el INSERT en `totag.tagid` UUID).
+     * Dedup + cap 20 (mismo límite que el legacy action.php:2078).
+     *
+     * @return list<string>|null
+     */
+    private static function normalizeTags(mixed $raw): ?array
+    {
+        if ($raw === null) {
+            return null;
+        }
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $t) {
+            $tag = (string) $t;
+            if ($tag !== '' && !in_array($tag, $out, true)) {
+                $out[] = $tag;
+            }
+            if (count($out) >= 20) {
+                break;
+            }
+        }
+        return $out;
     }
 
     /**
