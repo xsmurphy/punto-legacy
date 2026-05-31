@@ -163,10 +163,164 @@ final class SaleService
             );
         }
 
+        // ── B14 + B15: notificaciones (email/SMS al cliente + auditoría) ────
+        // POST-COMMIT, BEST-EFFORT: la venta YA está confirmada en BD. Nada acá
+        // puede afectarla — todo wrapeado, los fallos se loguean y se ignoran.
+        $this->dispatchNotifications($input, (string) $transId);
+
         return SaleResult::created(
             transactionId: (string) $transId,
             uid:           $input->uid,
         );
+    }
+
+    /**
+     * B14 + B15 — side effects post-commit (BEST-EFFORT, nunca lanzan).
+     *
+     * La venta ya está commiteada y verificada cuando se llama esto. Cada
+     * sub-acción va en su propio try/catch para que un fallo (Mailgun/SMS/audit
+     * sin configurar, constante undefined, etc.) no bloquee las demás ni rompa
+     * la respuesta de la venta. En dev típicamente no hay infra de email/SMS →
+     * fallan en silencio, que es el comportamiento correcto.
+     */
+    private function dispatchNotifications(SaleInput $input, string $transId): void
+    {
+        // B14: recibo/factura al cliente (email + SMS) — solo cashsale/creditsale.
+        try {
+            $this->notifyCustomer($input, $transId);
+        } catch (\Throwable $e) {
+            error_log('[SaleService] notifyCustomer: ' . $e->getMessage() . "\n", 3, './error_log');
+        }
+
+        // B15: registro de auditoría (FACTURACION).
+        try {
+            $this->sendAudit($input);
+        } catch (\Throwable $e) {
+            error_log('[SaleService] sendAudit: ' . $e->getMessage() . "\n", 3, './error_log');
+        }
+    }
+
+    /**
+     * B14 — email + SMS de recibo/factura al cliente (cashsale/creditsale).
+     * Port del legacy action.php:2550-2639. Gates: cliente + venta de hoy +
+     * tiene email/teléfono + no `dontNotify`. URL receipt o digitalInvoice según
+     * el módulo. sendEmails/sendSMS son helpers legacy (Mailgun + gateway SMS).
+     */
+    private function notifyCustomer(SaleInput $input, string $transId): void
+    {
+        if ($input->clientId === null || $input->dontNotify) {
+            return;
+        }
+        // Solo si la venta es de HOY (el legacy no notifica ventas con fecha pasada).
+        if (date('Y-m-d', strtotime($input->date)) !== date('Y-m-d')) {
+            return;
+        }
+
+        $contact = getCustomerData($input->clientId, 'uid');
+        if (!$contact) {
+            return;
+        }
+        $email = $contact['email'] ?? '';
+        $phone = $contact['phone'] ?? ($contact['phone2'] ?? '');
+        if ($email === '' && $phone === '') {
+            return;
+        }
+
+        $compName = defined('COMPANY_NAME') ? COMPANY_NAME : '';
+        $compLogo = $this->globalStr('compLogo');
+        $contactName = getCustomerName($contact, 'first');
+
+        // URL del recibo. Si el módulo digitalInvoice está activo, usa esa vista.
+        // El payload codifica enc(transId),enc(companyId) (mismo orden que el legacy).
+        $hasDigitalInvoice = $this->moduleEnabled('digitalInvoice');
+        $surl    = $hasDigitalInvoice
+            ? '/screens/digitalInvoice?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId)) . '&pdf=1'
+            : '/screens/receipt?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId));
+        $url = getShortURL($surl);
+
+        $hello   = defined('L_HELLO') ? L_HELLO : 'Hola';
+        $subject = '[' . $compName . '] ' . (defined('L_EMAIL_DETAILS_TITLE') ? L_EMAIL_DETAILS_TITLE : 'Detalle de su compra');
+        $bodyTxt = defined('L_EMAIL_DETAILS_BODY') ? L_EMAIL_DETAILS_BODY : 'Puede ver el detalle de su compra en el siguiente enlace.';
+        $btnTxt  = defined('L_EMAIL_VIEW_DETAILS') ? L_EMAIL_VIEW_DETAILS : 'Ver detalle';
+
+        $body = $hello . ' ' . $contactName . ',<p>' . $bodyTxt . '</p>' . makeEmailActionBtn($url, $btnTxt);
+
+        if ($email !== '') {
+            sendEmails([
+                'subject'  => $subject,
+                'to'       => $email,
+                'fromName' => $compName,
+                'data'     => ['message' => $body, 'companyname' => $compName, 'companylogo' => $compLogo],
+            ]);
+        }
+        if ($phone !== '') {
+            $smsBody = '[' . $compName . '] ' . $hello . ' ' . $contactName . ', ' . $bodyTxt . ' ' . $url;
+            sendSMS($phone, $smsBody);
+        }
+    }
+
+    /**
+     * B15 — registro de auditoría del documento (módulo FACTURACION).
+     * Port del legacy action.php:2753-2790. sendAuditoria es curl best-effort.
+     * getValue('setting',...) del legacy se reemplaza por COMPANY_NAME (la tabla
+     * `setting` no existe en PG; settings en company.config).
+     */
+    private function sendAudit(SaleInput $input): void
+    {
+        // AUDITORIA_URL/TOKEN SIEMPRE están definidas (simple.config.php las setea a
+        // '' cuando el env no existe) → gatear por string vacío, no por defined().
+        // Sin esto dispararíamos un curl a /api/auditoria con Bearer vacío en cada venta.
+        if (!defined('AUDITORIA_URL') || !defined('AUDITORIA_TOKEN')
+            || AUDITORIA_URL === '' || AUDITORIA_TOKEN === '') {
+            return; // auditoría no configurada (dev) → no-op
+        }
+        // Solo cashsale/creditsale en este path (35a). Las devoluciones (type 6,
+        // docType='Nota de Crédito') llegan en 35e — gate explícito para no
+        // mis-etiquetar cuando eso ocurra.
+        if (!$input->type->isSimplePathEligible()) {
+            return;
+        }
+        $userName     = getValue('contact', 'contactName', "WHERE contactId = '" . USER_ID . "'");
+        $registerName = getValue('register', 'registerName', "WHERE registerId = '" . REGISTER_ID . "'");
+        $companyName  = defined('COMPANY_NAME') ? COMPANY_NAME : '';
+        $outletName   = getCurrentOutletName(OUTLET_ID);
+        $docType      = 'Factura';
+
+        sendAuditoria([
+            'date'       => $input->date,
+            'user'       => $userName,
+            'module'     => 'FACTURACION',
+            'origin'     => 'CAJA',
+            'company_id' => $this->ctx->companyId,
+            'data'       => [
+                'action'       => "El usuario {$userName} agregó una {$docType} desde la caja {$registerName}",
+                'userId'       => $this->ctx->userId,
+                'userName'     => $userName,
+                'registerId'   => $this->ctx->registerId,
+                'registerName' => $registerName,
+                'companyID'    => $this->ctx->companyId,
+                'companyName'  => $companyName,
+                'outletId'     => $this->ctx->outletId,
+                'outletName'   => $outletName,
+                'timestamp'    => $input->timestamp,
+            ],
+        ], AUDITORIA_TOKEN);
+    }
+
+    /** Lee un global $-var del bootstrap (compLogo, etc.) de forma segura. */
+    private function globalStr(string $name): string
+    {
+        return isset($GLOBALS[$name]) ? (string) $GLOBALS[$name] : '';
+    }
+
+    /** True si el módulo (company.config / moduleData) está habilitado. */
+    private function moduleEnabled(string $module): bool
+    {
+        $company = ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$this->ctx->companyId]);
+        if (!(is_array($company) || $company instanceof \ArrayAccess)) {
+            return false;
+        }
+        return !empty($company[$module]);
     }
 
     /**

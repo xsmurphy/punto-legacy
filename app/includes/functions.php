@@ -561,10 +561,11 @@ function getContactData($id, $type=false,$cache=false){
 
 	$countries = [];
 
-	$where 		= 'contactId = ' . $id;
-	if($type == 'uid' || $type == 'contactId'){
-		$where 	= 'contactId = ' . $id;
-	}
+	// PG: UUID entre comillas en SQL concat (§22.5). Sin esto el SELECT con el
+	// contactId sin comillas es syntax error → ncmExecute false → getContactData
+	// devolvía false → ningún cliente recibía recibo/notificación.
+	// (El branch por $type era redundante — siempre filtra por contactId.)
+	$where 		= "contactId = '" . $id . "'";
 
 	$genders 	= ['Masculino', 'Femenino', 'Otro'];
 	
