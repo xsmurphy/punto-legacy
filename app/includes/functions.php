@@ -4377,9 +4377,8 @@ function saleIsSimplePathEligible(array $payload, array $sale): ?string
 		if ($itemType === 'discount' || $itemType === 'giftcard') {
 			continue;
 		}
-		if (isset($item['duration']) && (float) $item['duration'] > 0) {
-			return 'Venta con sesiones agendadas no soportada en este path (usar legacy)';
-		}
+		// `duration > 0` (sesiones agendadas) migrado en 35d — SaleService las crea
+		// vía persistScheduledSessions. No se rechaza más acá.
 		if (empty($item['itemId'])) {
 			return 'Línea de venta sin itemId (crédito interno) no soportada en este path (usar legacy)';
 		}

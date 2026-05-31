@@ -85,12 +85,6 @@ final class SaleService
         $saleDetail = saleArraySanitizer($input->sale);
         $totalUnits = countUnitSold($saleDetail);
 
-        // ── Pre-flight: items con sesiones → no es path simple ──────────────
-        // Se chequea ANTES de StartTrans: si algún item tiene sesiones (y hay
-        // cliente), el legacy crearía citas (35d). Rechazar acá evita dejar una
-        // transacción colgada (el throw mid-tx no haría rollback limpio).
-        $this->assertNoScheduledItems($input, $saleDetail);
-
         // ── B1: resolver userId + responsibleId ──────────────────────────────
         // (action.php:1935) Si el user del request ≠ el del JWT, registramos
         // el JWT como responsable (quien realmente operó la caja).
@@ -744,32 +738,90 @@ final class SaleService
      * el legacy (B8 sesiones), que es 35d. Corre ANTES de StartTrans para no
      * dejar transacciones colgadas. `itemSessions` vive en la BD (no en el
      * payload), por eso no lo cubre SaleInput::assertSimplePathEligible.
-     *
-     * @param array<int,array<string,mixed>> $saleDetail
+     * Nota: este método fue el guard pre-35d. Con 35d implementado ya no lanza;
+     * la lógica real vive en persistScheduledSessions (más abajo).
      */
-    private function assertNoScheduledItems(SaleInput $input, array $saleDetail): void
-    {
-        if ($input->clientId === null) {
-            return; // sin cliente, el legacy no crea sesiones aunque el item las tenga
+
+    /**
+     * B8 (35d) — sesiones agendadas: crea N filas type=13 en `transaction`, una por
+     * sesión del item. Port de la rama de sesiones en processData (action.php:2267-2306
+     * → insertEmptySchedule). Corre DENTRO de la transacción de save().
+     *
+     * Diferencias vs el legacy insertEmptySchedule (functions.php:3382):
+     *  - transactionDetails va en `meta` JSONB (como el resto de SaleService). El
+     *    legacy intentaba setearlo como columna directa, que en PG no existe → el
+     *    campo se perdía silenciosamente.
+     *  - packageId (link itemSold → sesión) es UUID ya resuelto, no $db->Insert_ID()
+     *    legacy que devolvía int.
+     *  - Todos los INSERTs son parametrizados (el legacy usaba AutoExecute directamente
+     *    sobre el global $db).
+     *  - updateLastTimeEdit se llama dentro de la tx (como el legacy).
+     *
+     * Gate: solo con cliente (el legacy no crea sesiones si `$client` es falsy).
+     * `itemSessions` está DEMOTED a la columna `data` JSONB → ncmExecute (§22.8).
+     *
+     * @param array<string,mixed> $sD item sanitizado
+     */
+    /** @return int número de sesiones creadas (0 si el item no tiene sesiones) */
+    private function persistScheduledSessions(
+        array $sD,
+        string $itemSoldId,
+        string $transId,
+        SaleInput $input,
+        string $itemId,
+        string $companyId,
+    ): int {
+        // itemSessions DEMOTED a data JSONB → DEBE leerse con ncmExecute.
+        $row      = ncmExecute(
+            'SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+            [$itemId, $companyId]
+        );
+        $perItem  = (is_array($row) || $row instanceof \ArrayAccess) ? (int) ($row['itemSessions'] ?? 0) : 0;
+        $total    = $perItem * (int) ($sD['count'] ?? 1);
+
+        if ($total <= 0) {
+            return 0;
         }
-        foreach ($saleDetail as $sD) {
-            if (($sD['type'] ?? '') === 'discount' || empty($sD['itemId'])) {
-                continue;
-            }
-            // itemSessions está DEMOTED a la columna `data` JSONB → DEBE leerse con
-            // ncmExecute (aplica _flattenJsonb y expone la key); con $this->db->Execute
-            // crudo la key no existe y $sessions sería siempre 0 (guard muerto). §22.8.
-            $row = ncmExecute(
-                'SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
-                [(string) $sD['itemId'], $this->ctx->companyId]
-            );
-            $sessions = (is_array($row) || $row instanceof \ArrayAccess) ? (int) ($row['itemSessions'] ?? 0) : 0;
-            if ($sessions > 0) {
-                throw new InvalidSaleInputException(
-                    "Item {$sD['itemId']} tiene sesiones agendadas — no soportado en este path (usar legacy)"
-                );
-            }
+
+        // El precio de la venta se divide equitativamente entre las N sesiones,
+        // con redondeo 'up' (mismo criterio que el legacy: divider($price,$N,'up')).
+        $price    = (float) ($sD['price'] ?? 0);
+        $perPrice = ($total > 0 && $price > 0) ? (int) ceil($price / $total) : 0;
+
+        // transactionDetails (el contenido de cada sesión) — mismo shape que
+        // buildTransactionRecord::meta['transactionDetails']: JSON array de items.
+        $detailsJson = json_encode([[
+            'itemId' => $sD['itemId'] ?? $itemId,
+            'count'  => $sD['count']  ?? 1,
+            'price'  => $sD['price']  ?? 0,
+            'user'   => $sD['user']   ?? '',
+        ]]);
+
+        $invoicePrefix = (string) ($input->invoiceNo ?? 0) . '/';
+
+        for ($i = 0; $i < $total; $i++) {
+            $this->db->AutoExecute('transaction', [
+                // meta JSONB: transactionDetails va aquí (no es columna directa en PG).
+                'meta'                  => json_encode(['transactionDetails' => $detailsJson]),
+                'transactionDate'       => $input->date,
+                'transactionTotal'      => $perPrice,
+                'transactionParentId'   => $transId,
+                'transactionStatus'     => 0,        // pendiente / sin confirmar
+                'transactionType'       => 13,       // schedule
+                'invoiceNo'             => $i + 1,
+                'invoicePrefix'         => $invoicePrefix,
+                'customerId'            => $input->clientId,
+                'packageId'             => $itemSoldId !== '' ? $itemSoldId : null,
+                'registerId'            => $this->ctx->registerId,
+                'userId'                => $input->userId ?? $this->ctx->userId,
+                'outletId'              => $this->ctx->outletId,
+                'companyId'             => $companyId,
+            ], 'INSERT');
         }
+        // updateLastTimeEdit se llama una vez al final del loop de items, NO acá —
+        // con varios items con sesiones se dispararía N veces (P2 redundante).
+        // Ver persistItemsAndStock donde se llama cuando $hadSessions=true.
+        return $total;
     }
 
     /**
@@ -806,8 +858,9 @@ final class SaleService
             );
         }
 
-        $typeStr   = (string) $input->type->value;
-        $companyId = $this->ctx->companyId;
+        $typeStr     = (string) $input->type->value;
+        $companyId   = $this->ctx->companyId;
+        $hadSessions = false; // flag para updateLastTimeEdit una sola vez al final
 
         foreach ($saleDetail as $sD) {
             if (($sD['type'] ?? '') === 'discount') {
@@ -890,6 +943,19 @@ final class SaleService
                 $records['itemSoldDescription'] = markupt2HTML(['text' => $sD['note'] ?? '', 'type' => 'HtM']);
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
+            $itemSoldId = (string) $this->db->Insert_ID();
+
+            // ── B8 (35d): sesiones agendadas ────────────────────────────────
+            // Si el item tiene itemSessions > 0 en BD (campo demoted a JSONB) y
+            // la venta tiene cliente, crea N filas type=13 en transaction, una
+            // por sesión (packageId = itemSoldId del item vendido). Dentro de la
+            // transacción principal: si algo falla, se rollbackea con la venta.
+            if ($input->clientId !== null) {
+                $sessionsCreated = $this->persistScheduledSessions($sD, $itemSoldId, $transId, $input, $itemId, $companyId);
+                if ($sessionsCreated > 0) {
+                    $hadSessions = true;
+                }
+            }
 
             $units = (float) $sD['count'];
 
@@ -947,6 +1013,12 @@ final class SaleService
                 'transactionId' => $transId,
                 'timestamp'     => $input->timestamp,
             ]);
+        }
+
+        // updateLastTimeEdit UNA SOLA VEZ al final del loop (el legacy lo llamaba
+        // una vez por item con sesiones — redundante; lo hoistamos aquí).
+        if ($hadSessions) {
+            updateLastTimeEdit($companyId, 'calendar');
         }
     }
 }
