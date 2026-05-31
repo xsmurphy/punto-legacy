@@ -187,7 +187,11 @@ La API está destinada a moverse a un server dedicado; los BFFs apuntarán a esa
 
 **Restricción**: patrón read-only-safe. NO usar donde una escritura o invariante cross-recurso dependa de un único snapshot de DB (N calls = N snapshots independientes).
 
-**Pilot**: `customerInfo` — 5 recursos GET en paralelo compuestos en el BFF; output byte-idéntico al endpoint fat `getInfo()` legacy. `getInfo()` + `?resource=info` quedan como composite legacy/backward-compat. Los endpoints fat actuales (`getInfo`, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen.
+**Pilots verificados**:
+- **Pilot 1** `customerInfo` — 5 recursos GET en paralelo compuestos en el BFF; output byte-idéntico al endpoint fat `getInfo()` legacy. Dataset informativo → degradación graceful aceptable. `getInfo()` + `?resource=info` quedan como composite legacy/backward-compat.
+- **Pilot 2** `getSummary` (cierre de caja, commit 8aff931) — 4 recursos granulares (`open|expenses|income|salesByPayment`) en `api/v1/drawer.php`; BFF `app/bff/drawer.php` compone en paralelo y aplica `drawerComposeSummary()`. Dataset financiero → **FAIL-CLOSED** (cualquier hijo que falla → error explícito, no cero silencioso). Output byte-idéntico al composite legacy. `composeSummary()` extraída a función pura (sin DB) en DrawerService; `getSummary()` queda como backward-compat. Ver §22.12.1 en `08-convenciones.md` para la distinción fail-closed vs degradación graceful, y §22.12.2 para la deuda de fórmula duplicada.
+
+Los endpoints fat actuales (`getInfo`, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen.
 
 Ver §22.12 en `08-convenciones.md` para la receta completa y los casos de uso válidos/inválidos.
 

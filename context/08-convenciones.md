@@ -787,7 +787,47 @@ async function postSale(payload, legacyFallback) {
 
 **Enabler/mitigación**: consolidar `/api/includes` canónico (independiente de /app, sin `chdir`) reduce el overhead de bootstrap a milisegundos → el patrón se vuelve barato. Hasta entonces, usar con criterio (reads no críticas de latencia, pantallas de detalle, no loops).
 
-**Pilot verificado**: `customerInfo` en `app/bff/customers.php` — 5 recursos GET (`profile/recentItems/debt/giftcards/address`) compuestos vía `bffApiGetMulti`. Output BYTE-IDÉNTICO al composite legacy `getInfo()` (diffCount=0 sobre cliente real). `getInfo()` + `?resource=info` quedan como composite legacy/backward-compat.
+**Pilot 1 verificado**: `customerInfo` en `app/bff/customers.php` — 5 recursos GET (`profile/recentItems/debt/giftcards/address`) compuestos vía `bffApiGetMulti`. Output BYTE-IDÉNTICO al composite legacy `getInfo()` (diffCount=0 sobre cliente real). `getInfo()` + `?resource=info` quedan como composite legacy/backward-compat.
+
+**Pilot 2 verificado**: `getSummary` (cierre de caja) en `app/bff/drawer.php` — 4 recursos granulares en `api/v1/drawer.php` (`?resource=open|expenses|income|salesByPayment`). El BFF fetch `open` → 3 hijos EN PARALELO con `since=drawerOpenDate` → `drawerComposeSummary()` (rollup financiero). Output BYTE-IDÉNTICO al composite legacy `getSummary()` (drawer vacío + con extracción/propina/ingreso no-cero, tips/subtotal/total correctos). `getSummary()` queda como composite legacy/backward-compat. Ver nota de deuda §22.12.1 abajo.
+
+### §22.12.1 — Sub-regla: FAIL-CLOSED para datasets financieros (establecido 2026-05-31, commit 8aff931)
+
+**Regla**: cuando el dataset compuesto por el BFF es un **rollup financiero** (cierre de caja, totales de dinero, saldos), el BFF debe ser **FAIL-CLOSED** — si cualquier recurso hijo falla, cortar con su error en vez de degradar a cero o parcial.
+
+**Por qué**: un total sub-reportado en silencio (income=0 porque el hijo falló) es peor que un error explícito. El operador necesita saber que el cierre está incompleto, no ver un cierre falso. Contrasta con datasets informativos (perfil de cliente, historial de ítems recientes) donde la degradación graceful (mostrar lo que se pudo obtener) es aceptable.
+
+**Tabla de decisión**:
+
+| Tipo de dataset | Estrategia | Ejemplo |
+|-----------------|-----------|---------|
+| **Rollup financiero** (dinero, totales, saldos) | **FAIL-CLOSED** — cualquier hijo que falla → error al front | `getSummary` (cierre de caja) |
+| **Informativo** (perfil, historial, metadatos) | **Degradación graceful** — partes opcionales ausentes → mostrar con defaults/null | `customerInfo` (profile es duro; debt/giftcards son opcionales) |
+
+**Cómo aplicar en el BFF**:
+```php
+// FAIL-CLOSED (rollup financiero)
+$results = bffApiGetMulti([...]);
+foreach ($results as $key => $raw) {
+    $decoded = bffDecodeEnvelope($raw);
+    if ($decoded === null || !isset($decoded['ok']) || !$decoded['ok']) {
+        // cortar con el error del hijo — no degradar
+        http_response_code(502);
+        echo json_encode(['error' => "Resource $key failed"]);
+        exit;
+    }
+}
+```
+
+### §22.12.2 — Deuda: fórmula de rollup duplicada entre /api y /app/bff (establecido 2026-05-31, commit 8aff931)
+
+**Deuda registrada**: cuando el endpoint BFF-compone ADEMÁS COMPUTA un rollup (no solo ensambla datos independientes), la fórmula queda duplicada — una vez en `/api` (ej. `DrawerService::composeSummary()`) y otra en `/app/bff` (ej. `drawerComposeSummary()`). Este es el **costo inherente del modelo BFF-compone para endpoints con cómputo**, vs el ensamble puro como `customerInfo`.
+
+**Mitigación actual**: comentario cruzado `// MANTENER EN SYNC con <contraparte>` en ambos lados (commit 8aff931). No hay test golden que ate ambas salidas; cualquier divergencia solo se detecta manualmente.
+
+**Mitigación futura**: cuando se consolide `/api/includes` canónico, considerar extraer la fórmula a un módulo compartido sin duplicar. Por ahora el comentario cruzado es suficiente — no bloquea ningún slice.
+
+**Dónde aplica**: cualquier BFF-compone donde el rollup requiera matemática cross-recurso (sumar expenses + income + salesByPayment para derivar neto). Si el BFF solo mergea datos sin calcular, no hay duplicación.
 
 ---
 
