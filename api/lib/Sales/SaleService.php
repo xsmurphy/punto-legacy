@@ -122,8 +122,12 @@ final class SaleService
             // ── B8: itemSold + COGS + comisiones + manageStock (inventario) ──
             $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
 
-            // ── B10: loyalty EARNED (los pagos points/storeCredit/giftcard que
-            //         GASTAN balance ya fueron rechazados en eligibility) ──────
+            // ── B10 (35c.1): redención de gift card — debita el saldo usado ────
+            // (points/storeCredit siguen rechazados en eligibility; giftcard migró).
+            $this->persistGiftCardRedemptions($input);
+
+            // ── B10: loyalty EARNED (cash/card; points/storeCredit/giftcard NO
+            //         ganan puntos — mismo guard que el legacy) ────────────────
             $this->persistLoyaltyEarning($input);
         }
 
@@ -504,11 +508,86 @@ final class SaleService
             return; // módulo loyalty deshabilitado → no se ganan puntos
         }
         foreach ($input->payment as $pay) {
+            // El legacy SOLO premia los pagos del branch `else` (action.php:2453-2456):
+            // points/storeCredit/giftcard GASTAN balance y NO ganan puntos. Sin este
+            // skip, al habilitarse giftcard (35c.1) se premiaría doble (gastar + ganar).
+            $type = (string) ($pay['type'] ?? '');
+            if (in_array($type, ['points', 'storeCredit', 'giftcard'], true)) {
+                continue;
+            }
             $price = (float) ($pay['price'] ?? 0);
             if ($price > 0) {
                 manageCustomerLoyalty('earned', $price, $input->clientId, $this->ctx->companyId);
             }
         }
+    }
+
+    /**
+     * B10 (35c.1) — redención de gift cards usadas como pago. Port de la rama
+     * `giftcard` del payment loop del legacy (action.php:2450-2452 → manageGiftCard).
+     * Corre DENTRO de la transacción de save(): si la venta aborta, el débito del
+     * saldo se rollbackea junto con todo.
+     *
+     * Diferencias vs el legacy manageGiftCard (functions.php:313):
+     *  - Tenant-scoped: el SELECT y el UPDATE filtran por companyId (anti-IDOR —
+     *    el legacy no scopeaba el UPDATE → un código de otra company podía debitarse).
+     *  - UPDATE PARAMETRIZADO por giftCardSoldId (PK): el legacy concatenaba `$id`
+     *    crudo en el WHERE (SQL injection — mitigado solo por el (int) cast del front).
+     *  - Card no encontrada → log + skip (NO throw): un throw 422 haría que el front
+     *    rebote la venta al legacy, que ahora también la rechaza (giftcard migró) →
+     *    loop infinito. Matchea el no-op silencioso del legacy (el front ya validó
+     *    la card con chkGiftCard antes de cobrar).
+     */
+    private function persistGiftCardRedemptions(SaleInput $input): void
+    {
+        foreach ($input->payment as $pay) {
+            if (($pay['type'] ?? '') !== 'giftcard') {
+                continue;
+            }
+            $amount  = (float) ($pay['price'] ?? 0);
+            $cardRef = $pay['extra'] ?? null; // código (giftCardSoldCode) o timestamp
+            if ($amount <= 0 || $cardRef === null || $cardRef === '') {
+                continue;
+            }
+            $this->redeemGiftCard($cardRef, $amount);
+        }
+    }
+
+    /** Debita `$amount` del saldo de la gift card `$cardRef` (capeado al saldo). */
+    private function redeemGiftCard(int|string $cardRef, float $amount): void
+    {
+        // giftCardSoldCode/timestamp son numéricas (int/bigint). Un `extra` no-numérico
+        // haría `giftCardSoldCode = 'abc'` → PG aborta la tx (invalid input syntax) →
+        // la venta entera fallaría. El front siempre manda un código numérico; si no,
+        // log + skip (no-op, como card inexistente) en vez de tumbar la venta.
+        if (!is_numeric($cardRef)) {
+            error_log("[SaleService] redeemGiftCard: ref '{$cardRef}' no numérica — skip\n", 3, './error_log');
+            return;
+        }
+
+        // Lookup por código O timestamp, scopeado al tenant. giftCardSold no tiene
+        // columnas demoted a JSONB → $this->db->Execute crudo es seguro acá.
+        $row = $this->db->Execute(
+            'SELECT giftCardSoldId, giftCardSoldValue FROM giftCardSold
+             WHERE (giftCardSoldCode = ? OR timestamp = ?) AND companyId = ? LIMIT 1',
+            [$cardRef, $cardRef, $this->ctx->companyId]
+        );
+        if (!$row || $row->EOF) {
+            // Card inexistente / de otro tenant → matchea el no-op legacy, con log.
+            error_log("[SaleService] redeemGiftCard: card '{$cardRef}' no encontrada para tenant {$this->ctx->companyId}\n", 3, './error_log');
+            return;
+        }
+
+        // Decremento ATÓMICO en SQL (mejora vs legacy): GREATEST(...-?,0) capea al
+        // saldo y re-lee el valor dentro del mismo UPDATE → sin ventana read-then-write
+        // (dos ventas concurrentes con la misma card ya no pierden un débito). El SELECT
+        // de arriba queda solo para existencia + scope de tenant + el skip de no-encontrada.
+        $this->db->Execute(
+            'UPDATE giftCardSold
+             SET giftCardSoldValue = GREATEST(giftCardSoldValue - ?, 0), giftCardSoldLastUsed = ?
+             WHERE giftCardSoldId = ?',
+            [$amount, TODAY, $row->fields['giftcardsoldid']]
+        );
     }
 
     /**

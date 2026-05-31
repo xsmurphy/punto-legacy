@@ -4361,10 +4361,11 @@ function saleIsSimplePathEligible(array $payload, array $sale): ?string
 	if (!empty($payload['parentId'])) {
 		return 'Venta con parentId no soportada en este path (usar legacy)';
 	}
-	// Pagos que MODIFICAN balances del cliente (puntos / crédito interno / gift card).
+	// Pagos que MODIFICAN balances del cliente aún no migrados (puntos / crédito interno).
+	// `giftcard` se migró en 35c.1 (redención en SaleService::persistGiftCardRedemptions).
 	foreach (($payload['payment'] ?? []) as $pay) {
 		$payType = (string) ($pay['type'] ?? '');
-		if (in_array($payType, ['points', 'storeCredit', 'giftcard'], true)) {
+		if (in_array($payType, ['points', 'storeCredit'], true)) {
 			return "Pago con '{$payType}' no soportado en este path (modifica balance — usar legacy)";
 		}
 	}
