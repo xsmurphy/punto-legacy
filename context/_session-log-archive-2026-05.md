@@ -248,3 +248,67 @@
 - **Pendiente — incr. 3**: diseñador de plantillas de impresión + monedas + logo upload.
 
 <!-- Entradas cont. 4-12 del 2026-05-27 archivadas desde _session-log.md el 2026-05-30 (al superar el cap de 200 líneas). -->
+
+## 2026-05-29 — Slice 33 reescrito en Alpine.js + vendoreo alpinejs-3.14.1 en /app (commit 3d62191)
+
+- **Decisión de convención**: los templates nuevos en `/app` van en **Alpine.js**, NO en Mustache. Migración incremental — Mustache sigue cargado para los ~22 templates existentes pero no se crean templates Mustache nuevos. Convención §24 en `08-convenciones.md` actualizada (antes documentaba Mustache, ahora documenta Alpine + el patrón de integración completo).
+- **customerRecord reescrito**: el template Mustache `#customerRecordTpl` del Slice 33 (commit b0fbec3, mismo día) fue reemplazado por markup Alpine (`x-data`/`x-for`/`x-if`/`x-text`/`x-html`). Primer componente Alpine del POS `/app`. Componente `customerRecord` registrado con `Alpine.data()` en `alpine:init` en `globalv2.js` + `debug.js`. Render: clonar `<template>`, `Alpine.initTree(el)` detached, luego insertar. Switch: dos ramas `x-if` (con `checked` / sin) para alinear con `switchit()`/`recordsEdit`. `x-for` con wrapper `display:contents` por la restricción de raíz única de Alpine.
+- **INFRA**: `assets/vendor/js/alpinejs-3.14.1.min.js` vendoreado (local — POS es offline). Agregado a `app/index.html` (script defer), `app/cache-sw.php` (precache), `app/filesCompiler.php` (bundle vendor; inserción en medio del array para sobrevivir el `array_slice(1,-1)` del bundle debug). `APP_VERSION` 2.0.9.3 → 2.0.9.4 para invalidar el SW cache.
+- **Vault actualizado**: `08-convenciones.md` §24 (reemplaza Mustache por Alpine + patrón de integración) + §11 (agrega Alpine como parte del stack vigente). `03-stack.md` (Alpine 3.14.1 en /app + estado de Mustache como legacy en deprecación). `02-arquitectura.md` (nota Slice 33 corregida de Mustache a Alpine). `10-roadmap.md` (Slice 33 actualizado + nota de deuda de migración ~22 templates).
+- **Nota QA pendiente**: verificación manual en browser del modal de fichas (render de los 7 tipos de campo, guardado, switch toggle, subida de imagen Dropbox).
+
+## 2026-05-29 — Slice 33: customerRecord migrado a BFF/API/CustomerService — CIERRE desacople load.php (commit b0fbec3)
+
+- **Hecho**: el handler `customerRecord` de `app/load.php` (~300 líneas de HTML server-rendered, el ÚLTIMO del desacople de listas/fichas) extraído al patrón BFF→API→Service con contrato JSON + Mustache.
+- **`CustomerService::getRecords(companyId, customerId)`**: devuelve datos estructurados de fichas personalizadas (`customerRecord` + `cRecordField` + `cRecordValue`). `api/v1/customers.php` GET `?resource=records&id=`. `app/bff/customers.php` handler `action=customerRecord`. `CustomerService` queda con `getInfo()` (slice 32) + `getRecords()` (slice 33).
+- **Template Mustache `#customerRecordTpl`**: nuevo en `app/index.php` + `app/index.html` (idénticos). Reproduce los 7 tipos de campo del legacy con las mismas clases/ids que usa el guardado (`recordsEdit`, lee del DOM). Post-render: conecta datePicker + uploaders Dropbox por campo imagen.
+- **JS**: `ncmCustomer.recordsList` en `globalv2.js` + `debug.js` reescrito — antes inyectaba HTML de load.php, ahora fetch JSON a `bff/customers` + render Mustache.
+- **SQL injection corregida**: `getValue()` del legacy concatenaba `cRecordFieldId`/`customerId` en el SQL → queries parametrizadas; scope `companyId` agregado.
+- **PATRÓN NUEVO documentado (§24 en 08-convenciones.md)**: para handlers HTML server-rendered → API devuelve datos estructurados + front renderiza con template Mustache estático. Razón: el guardado (`recordsEdit`) lee el DOM por ids/clases; Mustache los reproduce exactamente sin cambiar el guardado. Aplica cuando el DOM-coupling del guardado haría costoso migrar a Alpine en el mismo paso.
+- **CIERRE**: el desacople de listas/fichas de `load.php` está COMPLETO. Lo que queda en `load.php` es dead code (`tweet`, `orders`, `ordersPanel`, `calendar_*`, `customerProgress`, `walink`, `printServer`, `ordersPanelAPI`) y APIs externas diferidas (`bancardQR`, `pixQR`, `verifyTransactionPix`, `ePOSPending`, `verifyTransactionEPOS`, `userLocation`, `tin`).
+- **Nota QA pendiente**: verificación manual del modal de fichas en browser (render + guardado + subida de imagen por campo tipo "image").
+
+## 2026-05-29 — Slice 32: customerInfo migrado a BFF/API/CustomerService (commit 0e185f4)
+
+- **Hecho**: el handler `customerInfo` de `app/load.php` (~272 líneas) extraído a un nuevo servicio del dominio cliente. `CustomerService::getInfo(companyId, outletId, customerId)` — resumen del cliente: contacto + últimos ítems vendidos + deuda corriente/vencida + gift cards activas + dirección default. Read-only salvo backfill lazy de `customerAddress`.
+- **Nuevos archivos**: `api/lib/services/CustomerService.php` (nuevo servicio, no confundir con `CustomerAddressService`/`CustomerNoteService`) + `api/v1/customers.php` GET `?resource=info&id=` + `app/bff/customers.php` handler `action=customerInfo`.
+- **Correcciones al legacy**: SQL injection (STRING_AGG de transactionIds concatenados en IN() con UUIDs sin comillas → IN(?) parametrizado); scope `companyId` agregado en queries de transaction/itemSold/giftCardSold; booleanos PG correctos (`transactionComplete = false`, `customerAddressDefault = true`).
+- **JS**: `ncmCustomer.infoModal` en `globalv2.js` + `debug.js` repuntado de `load?l=…load:customerInfo` a `bff/customers`.
+- **Nota QA**: preserva bug del legacy — deuda vencida usa `$totalRetrns` (de la deuda corriente) en vez de `$totalRetrnsV` (dead code). Decisión consciente: port fiel.
+- **Deuda técnica P2**: `getDebtListByTransaction()` en `app/includes/functions.php` sigue con `IN()` sin parametrizar y sin scope `companyId`; ahora lo invoca un endpoint tenant-facing → prioritizar limpieza.
+- **Estado de load.php**: queda SOLO `customerRecord` (HTML server-rendered, decisión de contrato pendiente). Todos los demás handlers del desacople están migrados.
+
+## 2026-05-29 — Slices 29-31: agendaList, sessionsList, transactions migrados (commits 66da236, 1d02620, 74fed79)
+
+- **Slice 29**: `TransactionService::getMainList()` — lista principal de ventas del POS. Roles 4/5 solo ven type 2/10 por userId; rest ve todo el tenant. Batch credit IN(?). `api/v1/transactions.php GET ?resource=mainList`. `_bffListMap` ahora incluye `transactions: 'transactions'`.
+- **Slice 30**: `ScheduleService::getSessionsList()` — paquetes de sesiones (itemSessions>0) + sesiones agendadas type 13 del cliente en el outlet. SQL injection cerrada. `_bffListMap` incluye `sessionsList: 'schedule'`.
+- **Slice 31**: `ScheduleService::getAgendaList()` — citas/turnos (type 13, status!=7, fromDate/toDate no nulos). Lee `transactionDetails` desde `meta` JSONB. `footBtn` replica comportamiento legacy. `_bffListMap` incluye `agendaList: 'schedule'`.
+
+## 2026-05-28 (cierre) — Vendoreo npm de /app, Fase A (commit 2bac879)
+
+- **Hecho**: `scripts/vendor-sync.sh` + `npm run vendor` — 11 libs JS sourced desde `node_modules` (fuente de verdad): jquery, moment, ismobilejs, mousetrap, jquery.actual, lz-string, chart.js, sweetalert2, mustache, leaflet, qrious. Verificadas byte-idénticas al `.min` commiteado.
+- **Pendiente — Fase B** (diferida): ~10 libs en npm pero manuales (bootstrap, pouchdb, datatables.net, fastclick, push.js, etc.). Manual permanente (sin npm limpio): chosen, jquery.{number,geolocation,toast,fullscreen}, simpleStorage, rsvp, jsrsasign, qz-tray, moment-locale-es.
+
+## 2026-05-28 (tarde/noche) — Desacople /app: 15 slices + fix crítico de ventas (commits 866052b..53ccd6e)
+
+- **Hecho (slices 6-20):** migrados ~24 handlers de `action.php` a BFF→API→Service. Servicios nuevos en `api/lib/services/`: Transaction, Order (accept/transfer/assignUser), Sync, Register, Table.closeTable, Currency, Attendance, Notification, VPayment (money path, port fiel de add_vpayment), ElectronicInvoice, GiftCard, OrderItems, + Schedule extendido. Clusters **ENCOM→Punto** (attendance/notifications/vpayments) y **meta-JSONB** (8 handlers) COMPLETOS. Front repuntado a `/bff/*`.
+- **CRITICO — guardado de ventas ROTO:** `processData` escribía `transactionDetails`/`tags` como columnas inexistentes en PG → el INSERT fallaba. Fix (commit e7c04fb): guardar en `meta` JSONB.
+- **Convenciones PG nuevos:** §22.5 (identificadores sin comillas), §22.6 (transactionDetails/tags en meta jsonb), §22.7 (verbos REST). Helper `api/lib/meta_transaction.php` (RMW de transactionDetails en meta).
+- **Gap de producción cerrado (commit 5f1b367):** `globalv2.js` era el front de PRODUCCIÓN (debug.js era solo para pruebas); los slices 1-13 solo habían tocado debug.js. Backfill de globalv2.js con los repoints + cutover.
+
+## 2026-05-28 — Extracción de la API compartida a /api top-level (commit d75dd0b)
+
+- **Decisión arquitectónica clave:** los endpoints de los slices de desacople movidos de `/app/API/v1/` a `/api` top-level (hermano de /panel y /app). La API es el backend único del sistema, destinado a correr en server dedicado.
+- **Qué se movió:** `api/router.php` + `api/bootstrap.php` + `apiAuthTenant()` + `api/lib/response.php` + 4 servicios + 4 endpoints `/api/v1/`. Borrados los viejos `/app/API/v1/*`.
+- **Clientes:** `app/bff/lib/api_client.php` apunta a `PUNTO_API_BASE` (dev: `http://localhost:8000`). `.claude/launch.json` tiene server :8000.
+- **Deuda transitoria:** `api/bootstrap.php` hace `chdir(/app)` y reutiliza includes de /app — acoplamiento a resolver antes del SERVER-SPLIT.
+
+## 2026-05-28 — Admin realm F0+F1+F2 + a_settings COMPLETO (commits 01a8929, 96f8b8f, 89e7388)
+
+- **F0**: tabla `admin_user` (bcrypt, sin companyId, email único case-insensitive) + `bootstrap_seed.php` (CLI idempotente). Vars `.env.example`. Verificado E2E.
+- **F1**: auth propia `/admin` — `v1/admin/login.php` (rate-limit) + `v1/admin/me.php` (gated) + `adminMiddleware()` + BFF `bff/admin/{login,me,logout}.php` + front estático standalone `admin/login.html` + `admin/home.html`. Cookie `_jwt_admin` HttpOnly. Aislamiento de realms verificado E2E (cruce → 401 en ambas direcciones).
+- **F2**: CRUD de admins en `/admin` — `AdminUserService.php` (list/get/create/update/setStatus; email único, pass >=8, no desactivar último activo ni a uno mismo) + `panel/API/v1/admin/users.php` + `panel/bff/admin/users.php` + `panel/admin/users.html` + `scripts/users.js`. Router `/admin/users`. Verificado E2E.
+- **a_settings COMPLETO**: SettingsService + Perfil/Visualización/Monedas/Logo/Plantillas al BFF + front Alpine. **HITO: 2º módulo CRUD del panel en BFF/Alpine.**
+- **upload.php IDOR cerrado (commit 214666b).** `ENCOM_COMPANY_ID` → `MASTER_COMPANY_ID` en toda la base de código.
+
+<!-- Entradas slices 29-33 y 2026-05-28 archivadas desde _session-log.md el 2026-05-31 (al superar cap de 200 líneas). -->

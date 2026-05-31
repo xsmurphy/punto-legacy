@@ -81,6 +81,38 @@ franchiser_to_tenant (acceso N→N franquiciador→tenant — NO propiedad/billi
 7. **Columnas BOOLEAN en PG** — comparar con `= true` / `= false`, nunca `= 1` / `= 0`. Error PG: `operator does not exist: boolean = integer`. Sitios pendientes de corregir: `panel/includes/functions.php:3464,3790` y `app/action.php`, `app/load.php`, `app/fetch.php`, `app/fetchs.php`.
 8. **Acceso ≠ propiedad** — la pertenencia de un tenant a un franquiciador (`franchiser_to_tenant`) es solo una capa de acceso/gestión; NO afecta dueño, plan ni facturación, que son siempre per-tenant en `company`. Ver ADR-001.
 
+### Tabla `giftCardSold` — gift cards vendidas/emitidas
+
+Cada fila representa un saldo de gift card emitido al momento de la venta. Leída también desde `CustomerService::getGiftcards()` (resumen de cliente) y el reporte `a_report_giftcards`.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `giftCardSoldId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `giftCardSoldValue` | NUMERIC | Saldo actual (decrementado atómicamente en cada redención: `GREATEST(value - ?, 0)`) |
+| `giftCardSoldExpires` | TIMESTAMPTZ NULL | Vencimiento; NULL = sin vencimiento. Si está vacío/NULL cuenta como vencida en el reporte (guard `!$exp || $exp < $now`). |
+| `giftCardSoldStatus` | BOOLEAN | Activa/inactiva |
+| `giftCardSoldCode` | INTEGER | Código numérico de la tarjeta (dedup por `timestamp+companyId` — evita duplicados en reenvío de cola offline) |
+| `giftCardSoldNote` | TEXT NULL | Nota libre |
+| `giftCardSoldLastUsed` | TIMESTAMPTZ NULL | Última redención |
+| `giftCardSoldSendDate` | DATE NULL | Fecha programada de envío e-gift |
+| `giftCardSoldBeneficiaryId` | UUID NULL | FK → `contact(contactId)` ON DELETE SET NULL. El beneficiario recibe el email/SMS de e-gift. `SaleService::sellGiftCard` valida formato UUID Y existencia en el tenant (evita FK violation con id externo inválido). |
+| `giftCardSoldColor` | TEXT NULL | Color hex del diseño de la tarjeta (validado `/^[0-9a-fA-F]{3,8}$/` antes de interpolarlo en CSS) |
+| `timestamp` | BIGINT | Marca de tiempo del cliente usada como dedup key (UNIQUE por `timestamp+companyId`). Permite reenvío idempotente desde la cola offline. |
+| `transactionId` | UUID NULL | FK → `transaction(transactionId)` — venta en que se emitió la tarjeta |
+| `outletId` | UUID | FK → `outlet` |
+| `companyId` | UUID NOT NULL | Multi-tenant scope |
+
+**Invariantes operativas:**
+- El decremento de saldo es atómico en SQL: `UPDATE giftCardSold SET giftCardSoldValue = GREATEST(giftCardSoldValue - ?, 0)` — sin lost-update bajo concurrencia.
+- `SELECT` para redimir filtra por `companyId` (tenant-scoped, evita redimir tarjetas de otro tenant).
+- Card no encontrada o `giftCardSoldCode` no numérico → `log + skip`, no throw (para no abortar la tx de la venta).
+- `SaleService::notifyGiftCardBeneficiaries` envía el email/SMS **post-commit** best-effort (no bloquea la transacción; el legacy lo hacía inline en la tx con curl síncrono).
+
+**Mejoras de SaleService vs legacy `insertNewGiftCard`/`manageGiftCard` (commits 0e3c7bf + d099019, 2026-05-31):**
+- Dedup por `timestamp` PARAMETRIZADO + tenant-scoped (el legacy concatenaba el id en el SQL — SQLi).
+- `beneficiaryId`: check de formato UUID antes del SELECT (un valor no-uuid abortaría la tx por `invalid uuid syntax`); validado contra contact del tenant → null si no resuelve.
+- Decremento ATÓMICO en SQL (el legacy calculaba el nuevo valor en PHP y luego hacía el UPDATE — race condition).
+
 ### Tabla `plans` — planes de suscripción
 
 La tabla `plans` usa **UUID v7 como PK** (`id`), pero `company.plan` es un `smallint` legacy.
