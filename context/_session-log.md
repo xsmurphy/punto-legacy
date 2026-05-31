@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-31 — Slice 35a.8 COMPLETO: processData depreca path simple, SaleService pasa a AUTORITATIVO (commit dbf2866)
+
+- **35a.8 COMPLETO (commit dbf2866)**: deprecación del path simple (type 0/3 cashsale/creditsale) en `processData` legacy. SaleService es ahora la dependencia DURA del path simple; el legacy lo RECHAZA con 409 (ya no es su safety-net). El legacy sólo retiene los type 0/3 NO-simples (giftcard/EI/puntos/storeCredit/recurrente/parent) que SaleService aún no migra (sub-slices 35b–35f), ruteados vía 422 del SaleService.
+- **NUEVA función `saleIsSimplePathEligible($payload,$sale):?string`** en `app/includes/functions.php` = fuente única de verdad de la elegibilidad (null=simple | string motivo). Compartida sin duplicar por: `SaleInput::assertSimplePathEligible` (API → 422 si no es simple) y el guard de `processData` (legacy → 409 si es simple). Patrón documentado en §22.11.1 de `08-convenciones.md`.
+- **Front (`app.js`)**: `postSale.fail` ahora distingue 422 (fallback legacy — payload no-simple, el legacy lo posee) de 5xx/timeout (`callback(false)` SIN fallback → orphans → reintenta SaleService). `syncOrphans` y `sendDataToServer` usan `postSale` (eligibilidad-aware) en vez de `postToServer(legacy)` directo.
+- **Riesgo aceptado**: SaleService es dependencia dura del path simple. Ante caída sistémica, las ventas simples se encolan (no se pierden) pero no completan hasta recuperarse. Un bug del SaleService se hace VISIBLE en vez de quedar oculto por guardado legacy silencioso.
+- **Verificado**: unit test (10 casos elegibilidad + delegación SaleInput) + guard E2E (venta simple → processData → 409).
+- **Pendiente 35b–35f**: EI, giftcard, sesiones, inCredit, recurrente siguen en el legacy hasta migrarse. Recién al completarlos se podrá remover el manejo de type 0/3 de `processData` por completo.
+- **NOTA**: `_session-log.md` supera el cap de 200 líneas — archivar entradas anteriores a "2026-05-31 noche (slices 35a.5+35a.6)" a `_session-log-archive-2026-05.md` en la próxima sesión.
+
 ## 2026-05-31 — Tercer pilot API granular + BFF compone: items/getInfo (commit 2bca565)
 
 - **TERCER PILOT §22.12 (commit 2bca565)**: `ItemService::getInfo` (endpoint fat: ítem core + inventario por outlet en un solo método) descompuesto al patrón API granular + BFF compone. `getCore()` devuelve campos del ítem + nombres de FK (category/brand/tax/type); `getInventory()` devuelve stock por outlet/depósito (sólo si `itemTrackInventory`; `[]` si no — self-contained con PK lookup barato). API expone `?resource=core|inventory`. `getInfo()` queda como composite backward-compat.

@@ -134,14 +134,18 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 
 **God-helpers de `app/includes/functions.php` arreglados para PG durante slice 35 (2026-05-31):** patrón común: UUID sin comillas en SQL concat + columnas demoted a JSONB leídas sin `_flattenJsonb` + `$db->Prepare()` rompiendo math (§22.10.1). Todos afectaban también al legacy `processData`.
 
-**Guardado de ventas — dos caminos vivos (LIVE desde commit 89b980e, 2026-05-31):** el guardado de ventas (antes 100% en `processData` de `app/action.php`) ahora tiene dos paths:
+**Guardado de ventas — dos caminos vivos (LIVE desde commit 89b980e, 2026-05-31; actualizado commit dbf2866, 35a.8):** el guardado de ventas (antes 100% en `processData` de `app/action.php`) ahora tiene dos paths:
 
 | Path | Cuándo | Quién persiste |
 |------|--------|---------------|
-| **SaleService** (`bff/sales → api/v1/sales.php → api/lib/Sales/SaleService.php`) | Ventas simples type 0/3 elegibles (cashsale/creditsale sin EI/gift card/sesiones/recurrentes) | El nuevo path — fuente de verdad |
-| **Legacy processData** (`app/action.php?l=processData`) | 422 del SaleService (no elegible) + error/timeout + paths no migrados (EI, gift cards, sesiones) | Safety-net + paths pendientes |
+| **SaleService** (`bff/sales → api/v1/sales.php → api/lib/Sales/SaleService.php`) | Ventas simples type 0/3 elegibles (cashsale/creditsale puro, sin EI/gift card/sesiones/recurrentes/parent) | **AUTORITATIVO** — fuente de verdad para el path simple |
+| **Legacy processData** (`app/action.php?l=processData`) | 422 del SaleService (no elegible — type 0/3 NO-simples: giftcard/EI/puntos/storeCredit/recurrente/parent) + paths no migrados (35b–35f). RECHAZA type 0/3 simples con **409** | Sólo retiene paths pendientes de migrar; ya NO es safety-net del simple |
 
-El front rutea vía `ncmHttp.postSale()` (patrón try-fallback — ver §22.11 en `08-convenciones.md`). Idempotencia por `transactionUID` + UNIQUE constraint en ambos paths previene duplicados incluso en el race condition.
+El front rutea vía `ncmHttp.postSale()` (patrón try-fallback — ver §22.11 en `08-convenciones.md`). A partir de 35a.8: un 422 del SaleService → fallback legacy (payload no-simple, legacy lo posee); un 5xx/timeout → `callback(false)` SIN fallback legacy → orphans → reintenta SaleService. Idempotencia por `transactionUID` + UNIQUE constraint en ambos paths previene duplicados.
+
+**Fuente única de elegibilidad (commit dbf2866, 35a.8):** `saleIsSimplePathEligible($payload, $sale): ?string` en `app/includes/functions.php` es la función COMPARTIDA entre ambos tiers: devuelve `null` si el payload es simple; devuelve un string-motivo si no lo es. `SaleInput::assertSimplePathEligible` (API, traduce a 422) y el guard de `processData` (legacy, genera 409) la usan ambos — sin duplicar la regla. Es un god-helper más de `app/includes/functions.php`.
+
+**Riesgo aceptado (35a.8):** SaleService pasa a ser dependencia dura del path simple — ante caída sistémica, las ventas simples se ENCOLAN (cola de orphans) pero no completan hasta que se recupere el SaleService. Un bug del SaleService ya no queda oculto por el guardado legacy silencioso.
 
 - **`manageStock` (commit 6ea1e5a, 35a.4)**: 100% roto en PG para items stockeables — abortaba la tx en la primera línea (UUID sin comillas → SQLSTATE 25P02). Ninguna venta de item con tracking descontaba stock. Fixes: UUID sin comillas (§22.5), `getValue('setting',...)` → constante `COMPANY_NAME`, `iftn($x,NULL)` → `?: null` (§22.8.2), `is_array($stock)` → `instanceof ArrayAccess`.
 - **`manageCustomerLoyalty` (commit 1a8d539, 35a.5)**: `$db->Prepare()` qstr-quoteaba el monto numérico (8000 → '8000') → comparación con `loyaltyMin` siempre falsa → ningún cliente acumulaba puntos. Fix: amount parametrizado con `?`; SELECT * para columnas `loyaltyMin`/`loyaltyValue` demoted a JSONB (§22.10.1).

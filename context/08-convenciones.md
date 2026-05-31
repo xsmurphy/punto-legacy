@@ -769,6 +769,22 @@ async function postSale(payload, legacyFallback) {
 
 ---
 
+### §22.11.1 — Fuente única de verdad de elegibilidad compartida entre tiers (establecido 2026-05-31, commit dbf2866, slice 35a.8)
+
+**Regla**: cuando una condición de eligibilidad (o cualquier regla de negocio) debe ser evaluada en **dos tiers distintos** (ej. el nuevo Service y el legacy), la regla vive en UNA SOLA función que ambos invocan. No se duplica — ni siquiera "por claridad".
+
+**Contexto**: `saleIsSimplePathEligible($payload, $sale): ?string` en `app/includes/functions.php` determina si un payload de venta es elegible para el path simple del SaleService. Retorna `null` si es simple; retorna un string-motivo si no lo es (giftcard, EI, puntos, storeCredit, recurrente, parent, etc.).
+
+Dos consumidores, dos usos distintos:
+- **`SaleInput::assertSimplePathEligible`** (API, tier nuevo): llama a la función global y, si devuelve motivo, lanza `InvalidSaleInputException` → HTTP 422. El front interpreta 422 como "no elegible → fallback legacy".
+- **`processData` guard** (legacy, tier viejo): llama a la misma función. Si devuelve `null` (es simple) → `jsonDieMsg` 409 (`ifIstrue=false` en el front → orphans → reintenta SaleService). Si devuelve motivo (no es simple) → la deja pasar al legacy.
+
+**Por qué**: sin esta función compartida, la misma lógica viviría en dos lugares. Cualquier sub-slice futuro (35b-giftcard, 35c-EI, etc.) que migre un path al SaleService solo necesita actualizar `saleIsSimplePathEligible` — ambos tiers lo recogen automáticamente.
+
+**Dónde aplica**: cualquier regla de routing/elegibilidad que deba ser consistente entre el nuevo Service y el legacy. En el patrón strangler-fig, este es el mecanismo de coordinación preferido sobre duplicar la condición en cada tier.
+
+---
+
 ### §22.12 — Patrón "API granular + BFF compone" (establecido 2026-05-31, commit c4edef9)
 
 **Decisión del arquitecto**: la API expone **recursos granulares reusables** (un concepto de dominio por endpoint); el BFF los **compone en paralelo** para armar el view-model que necesita el front. La API NO arma endpoints con forma de pantalla. Los endpoints fat (que devuelven 13 queries en un JSON plano pensado para UNA pantalla) son deuda a refactorizar al patrón granular cuando se toquen.
