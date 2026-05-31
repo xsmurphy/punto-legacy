@@ -4371,11 +4371,11 @@ function saleIsSimplePathEligible(array $payload, array $sale): ?string
 	}
 	foreach ($sale as $item) {
 		$itemType = (string) ($item['type'] ?? '');
-		if ($itemType === 'discount') {
-			continue; // las líneas de descuento no llevan itemId — válidas
-		}
-		if (!empty($item['giftcardId'])) {
-			return 'Venta de gift card no soportada en este path (usar legacy)';
+		// `discount`: líneas sin itemId, válidas. `giftcard`: VENTA de gift card —
+		// migrada en 35c.2 (SaleService::sellGiftCard crea el giftCardSold; puede no
+		// tener itemId). Ambas se saltean del check de itemId de abajo.
+		if ($itemType === 'discount' || $itemType === 'giftcard') {
+			continue;
 		}
 		if (isset($item['duration']) && (float) $item['duration'] > 0) {
 			return 'Venta con sesiones agendadas no soportada en este path (usar legacy)';

@@ -37,3 +37,4 @@ postgres_data/
 
 # Claude local settings (permissions history)
 .claude/settings.local.json
+app/error_log

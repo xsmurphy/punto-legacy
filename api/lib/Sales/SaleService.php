@@ -167,10 +167,10 @@ final class SaleService
             );
         }
 
-        // ── B14 + B15: notificaciones (email/SMS al cliente + auditoría) ────
+        // ── B14 + B15: notificaciones (email/SMS al cliente + auditoría + e-gift) ──
         // POST-COMMIT, BEST-EFFORT: la venta YA está confirmada en BD. Nada acá
         // puede afectarla — todo wrapeado, los fallos se loguean y se ignoran.
-        $this->dispatchNotifications($input, (string) $transId);
+        $this->dispatchNotifications($input, (string) $transId, $saleDetail);
 
         return SaleResult::created(
             transactionId: (string) $transId,
@@ -187,7 +187,7 @@ final class SaleService
      * la respuesta de la venta. En dev típicamente no hay infra de email/SMS →
      * fallan en silencio, que es el comportamiento correcto.
      */
-    private function dispatchNotifications(SaleInput $input, string $transId): void
+    private function dispatchNotifications(SaleInput $input, string $transId, array $saleDetail): void
     {
         // B14: recibo/factura al cliente (email + SMS) — solo cashsale/creditsale.
         try {
@@ -196,11 +196,78 @@ final class SaleService
             error_log('[SaleService] notifyCustomer: ' . $e->getMessage() . "\n", 3, './error_log');
         }
 
+        // B14 (35c.2): e-gift card — email/SMS al BENEFICIARIO de las gift cards
+        // con fecha de envío = hoy. Movido a post-commit (el legacy lo hacía inline
+        // en la tx, action.php:2331 — un curl lento bloqueando la transacción).
+        try {
+            $this->notifyGiftCardBeneficiaries($saleDetail, $input);
+        } catch (\Throwable $e) {
+            error_log('[SaleService] notifyGiftCard: ' . $e->getMessage() . "\n", 3, './error_log');
+        }
+
         // B15: registro de auditoría (FACTURACION).
         try {
             $this->sendAudit($input);
         } catch (\Throwable $e) {
             error_log('[SaleService] sendAudit: ' . $e->getMessage() . "\n", 3, './error_log');
+        }
+    }
+
+    /**
+     * B14 (35c.2) — e-gift card: notifica al beneficiario (email + SMS) cuando la
+     * gift card tiene fecha de envío = HOY. Port de action.php:2331-2375. BEST-EFFORT
+     * post-commit: la venta ya está confirmada; un fallo de email/SMS no la afecta.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     */
+    private function notifyGiftCardBeneficiaries(array $saleDetail, SaleInput $input): void
+    {
+        $compName = defined('COMPANY_NAME') ? COMPANY_NAME : '';
+        foreach ($saleDetail as $sD) {
+            if (empty($sD['giftcardId']) || empty($sD['giftDate']) || empty($sD['beneficiaryId'])) {
+                continue;
+            }
+            // Solo si la fecha de envío es HOY (legacy: date('Y-m-d') == parte fecha de giftDate).
+            $sendDay = explode(' ', (string) $sD['giftDate'])[0];
+            if ($sendDay !== date('Y-m-d')) {
+                continue;
+            }
+
+            $benefRaw  = (string) $sD['beneficiaryId'];
+            $benefId   = is_numeric($benefRaw) ? $benefRaw : dec($benefRaw);
+            $benefData = getCustomerData($benefId, 'uid');
+            if (!$benefData) {
+                continue;
+            }
+            $benefEmail = $benefData['email'] ?? '';
+            $benefPhone = $benefData['phone'] ?? ($benefData['phone2'] ?? '');
+            if ($benefEmail === '' && $benefPhone === '') {
+                continue;
+            }
+
+            $senderName = $compName;
+            if ($input->clientId !== null) {
+                $senderData = getCustomerData($input->clientId, 'uid');
+                if ($senderData) {
+                    $senderName = getCustomerName($senderData);
+                }
+            }
+            $benefName = getCustomerName($benefData, 'first');
+            $gifUrl    = getShortURL('/screens/giftCardRedeem?s=' . base64_encode($sD['uId'] . ',' . enc($this->ctx->companyId)));
+
+            if ($benefEmail !== '') {
+                $body = '<p>Hola ' . $benefName . ', <br>' . $senderName . ' le ha enviado una Gift Card</p>'
+                      . makeEmailActionBtn($gifUrl, 'Ver Gift Card');
+                sendEmails([
+                    'subject'  => '[' . $compName . '] Gift Card',
+                    'to'       => $benefEmail,
+                    'fromName' => $compName,
+                    'data'     => ['message' => $body, 'companyname' => $compName, 'companylogo' => $this->globalStr('compLogo')],
+                ]);
+            }
+            if ($benefPhone !== '') {
+                sendSMS($benefPhone, '[' . $compName . '] Hola ' . $benefName . ', ' . $senderName . ' le ha enviado una Gift Card. ' . $gifUrl);
+            }
         }
     }
 
@@ -591,6 +658,87 @@ final class SaleService
     }
 
     /**
+     * B8 (35c.2) — venta de gift card: crea el registro giftCardSold con el saldo
+     * inicial. Port de insertNewGiftCard (functions.php:336). Corre DENTRO de la
+     * transacción de save() (rollback con la venta si algo falla).
+     *
+     * Mejoras vs el legacy:
+     *  - Dedup PARAMETRIZADO + tenant-scoped (el legacy concatenaba timestamp/COMPANY_ID).
+     *  - beneficiaryId VALIDADO contra contact del tenant → null si no existe (evita la
+     *    FK violation que abortaría la venta; el legacy insertaba el id crudo del front).
+     *  - NULL-coalesce de expires/sendDate/beneficiary ('' → null; PG rechaza '' en
+     *    columnas timestamp/uuid).
+     *
+     * @param array<string,mixed> $sD item giftcard sanitizado (saleArraySanitizer rama giftcard)
+     */
+    private function sellGiftCard(array $sD, string $transId, SaleInput $input): void
+    {
+        $timestamp = (int) ($sD['uId'] ?? 0);
+        if ($timestamp <= 0) {
+            return; // el legacy requiere timestamp para dedup/lookup
+        }
+
+        // Dedup por timestamp (la cola offline puede reenviar la misma venta).
+        $dup = $this->db->Execute(
+            'SELECT giftCardSoldId FROM giftCardSold WHERE timestamp = ? AND companyId = ? LIMIT 1',
+            [$timestamp, $this->ctx->companyId]
+        );
+        if ($dup && !$dup->EOF) {
+            return; // ya existe → no duplicar
+        }
+
+        // Saldo inicial: totalGift si vino, si no total (legacy action.php:2317).
+        $value = (float) ($sD['totalGift'] ?? $sD['total'] ?? 0);
+
+        // beneficiaryId: el front manda enc(contactId) (o numérico legacy). dec() lo
+        // descifra. Validamos que sea un contact del tenant; si no, null (decorativo,
+        // no abortamos la venta por un beneficiario stale — FK a contact).
+        $beneficiaryId = null;
+        $benef = (string) ($sD['beneficiaryId'] ?? '');
+        if ($benef !== '') {
+            $candidate = is_numeric($benef) ? $benef : dec($benef);
+            // contact.contactId es UUID en PG. Solo consultamos si `$candidate` tiene
+            // forma de UUID — un valor no-uuid (id numérico legacy, basura de dec())
+            // haría que el SELECT aborte la tx por "invalid input syntax for uuid".
+            // En ese caso → beneficiaryId null (decorativo, no rompe la venta).
+            if (is_string($candidate)
+                && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $candidate)) {
+                $bRow = $this->db->Execute(
+                    'SELECT contactId FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                    [$candidate, $this->ctx->companyId]
+                );
+                if ($bRow && !$bRow->EOF) {
+                    $beneficiaryId = $candidate;
+                }
+            }
+        }
+
+        $expires  = !empty($sD['giftcardExp']) ? date('Y-m-d 01:00:00', strtotime((string) $sD['giftcardExp'])) : null;
+        $sendDate = !empty($sD['giftDate']) ? (string) $sD['giftDate'] : null;
+
+        $record = [
+            'giftCardSoldValue'         => $value > 0 ? $value : 0,
+            'giftCardSoldExpires'       => $expires,
+            'giftCardSoldNote'          => !empty($sD['note']) ? (string) $sD['note'] : null,
+            'giftCardSoldSendDate'      => $sendDate,
+            'giftCardSoldBeneficiaryId' => $beneficiaryId,
+            'giftCardSoldColor'         => !empty($sD['giftcardColor']) ? (string) $sD['giftcardColor'] : null,
+            'timestamp'                 => $timestamp,
+            'transactionId'             => $transId,
+            'outletId'                  => $this->ctx->outletId,
+            'companyId'                 => $this->ctx->companyId,
+        ];
+
+        // giftCardSoldCode (int, opcional): solo si es un código real, no placeholder.
+        $code = (string) ($sD['giftcardId'] ?? '');
+        if ($code !== '' && is_numeric($code) && !in_array($code, ['none', 'no', 'giftcard'], true)) {
+            $record['giftCardSoldCode'] = (int) $code;
+        }
+
+        $this->db->AutoExecute('giftCardSold', $record, 'INSERT');
+    }
+
+    /**
      * Pre-flight: rechaza la venta si algún item tiene sesiones configuradas
      * (`itemSessions > 0`) y hay cliente — eso dispara la creación de citas en
      * el legacy (B8 sesiones), que es 35d. Corre ANTES de StartTrans para no
@@ -664,6 +812,17 @@ final class SaleService
         foreach ($saleDetail as $sD) {
             if (($sD['type'] ?? '') === 'discount') {
                 continue; // las líneas de descuento no generan itemSold ni mueven stock
+            }
+
+            // ── VENTA de gift card (35c.2) ──────────────────────────────────
+            // Crea el giftCardSold. En el legacy esto va FUERA del `if itemId`
+            // (action.php:2313): un item giftcard puede no tener itemId. Si lo tiene,
+            // genera además itemSold/stock (el body de abajo) — igual que el legacy.
+            if (!empty($sD['giftcardId'])) {
+                $this->sellGiftCard($sD, $transId, $input);
+            }
+            if (empty($sD['itemId'])) {
+                continue; // sin itemId (p.ej. gift card pura) → no hay itemSold ni stock
             }
 
             $itemId  = (string) $sD['itemId'];
