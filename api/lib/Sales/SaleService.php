@@ -127,6 +127,12 @@ final class SaleService
             // ── B10: loyalty EARNED (cash/card; points/storeCredit/giftcard NO
             //         ganan puntos — mismo guard que el legacy) ────────────────
             $this->persistLoyaltyEarning($input);
+
+            // ── B12 (35f): venta recurrente — crea fila en `recurring` ────────
+            // Solo para creditsale (type=3); cashsale no tiene recurrente (el
+            // legacy lo gatea con in_array(['creditsale','schedule'])). Dentro
+            // de la tx: si falla, rollbackea con la venta.
+            $this->persistRecurring($input, (string) $transId);
         }
 
         // ── B11: cerrar la transacción ──────────────────────────────────────
@@ -585,6 +591,84 @@ final class SaleService
                 manageCustomerLoyalty('earned', $price, $input->clientId, $this->ctx->companyId);
             }
         }
+    }
+
+    /**
+     * B12 (35f) — venta recurrente: crea la suscripción en `recurring`.
+     * Port del bloque creditsale del legacy (action.php:2393-2411).
+     *
+     * Solo se ejecuta para creditsale (type=3) con repeat=true — el legacy gatea
+     * con in_array(['creditsale','schedule']); cashsale (type=0) no tiene recurrente.
+     * Corre DENTRO de la transacción de save(); si falla, rollbackea con la venta.
+     *
+     * `data` JSONB almacena recurringSaleData (el payload completo de la venta) —
+     * el cron de recurrente lo usa para re-someter la venta. El campo
+     * `recurringTransactionData` del legacy contenía el `?l=` base64 raw (params de
+     * sesión del front); en SaleService almacenamos el contexto JWT como JSON (mismos
+     * datos que el cron necesita para reautenticar).
+     */
+    private function persistRecurring(SaleInput $input, string $transId): void
+    {
+        if (!$input->repeat || $input->type !== SaleType::Creditsale) {
+            return; // solo creditsale con repeat=true (legacy: in_array(['creditsale','schedule']))
+        }
+        if ($input->repeatF === null || $input->repeatT === null || $input->repeatT <= 0) {
+            return; // sin frecuencia o sin repeticiones → no-op
+        }
+
+        $nextDate = getNextDatePeriod($input->repeatF, '1',           $input->date);
+        $endDate  = getNextDatePeriod($input->repeatF, $input->repeatT, $input->date);
+
+        // recurringSaleData: el payload completo de la venta, serializado.
+        // El cron lo deserializa y lo re-somete al SaleService (o legacy aún).
+        // Usamos json_encode del array de propiedades públicas del DTO.
+        $saleData = [
+            'uid'       => $input->uid,
+            'type'      => $input->type->value,
+            'sale'      => $input->sale,
+            'subtotal'  => $input->subtotal,
+            'tax'       => $input->tax,
+            'discount'  => $input->discount,
+            'payment'   => $input->payment,
+            'date'      => $input->date,
+            'timestamp' => $input->timestamp,
+            'client'    => $input->clientId,
+            'user'      => $input->userId,
+            'note'      => $input->note,
+            'dueDate'   => $input->dueDate,
+            'currency'  => $input->currency,
+            'repeat'    => false, // la re-submisión NO repite (evita loop)
+        ];
+
+        // recurringTransactionData: el cron (cronCreateRecurringInvoice.php) hace:
+        //   $url = '/action?l=' . base64_encode($fields['recurringTransactionData'])
+        //   → action.php: base64_decode(?l) → json_decode → $get['action']
+        // El JSON DEBE tener la clave `action` para que action.php despache correctamente.
+        // Además el cron lee $transData['registerId'] y $transData['companyId'] (raw UUID).
+        // Guardamos el mismo shape que el legacy (base64_decode(masterUrlParams())):
+        // {"action":"processData","companyId":"...","outletId":"...","userId":"...","roleId":1,"registerId":"..."}.
+        // NOTA: el cron no envía JWT → action.php devuelve 401 (deuda pre-existente,
+        // el cron necesita refactorizarse para mintar un JWT de servicio).
+        $txData = json_encode([
+            'action'     => 'processData',
+            'companyId'  => $this->ctx->companyId,
+            'outletId'   => $this->ctx->outletId,
+            'userId'     => $this->ctx->userId,
+            'roleId'     => 1,
+            'registerId' => $this->ctx->registerId,
+        ]);
+
+        $this->db->AutoExecute('recurring', [
+            'recurringNextDate'        => $nextDate,
+            'recurringEndDate'         => $endDate,
+            'recurringFrecuency'       => $input->repeatF,
+            'recurringStatus'          => 1,
+            'recurringTransactionData' => $txData,
+            'companyId'                => $this->ctx->companyId,
+            // data JSONB: recurringSaleData como key dentro del objeto (mismo patrón
+            // que meta/transactionDetails — json dentro de jsonb, §22.6).
+            'data'                     => json_encode(['recurringSaleData' => json_encode($saleData)]),
+        ], 'INSERT');
     }
 
     /**

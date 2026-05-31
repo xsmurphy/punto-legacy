@@ -45,6 +45,12 @@ final class SaleInput
         public readonly bool $dontNotify = false,
         public readonly ?array $tags = null,
         public readonly ?array $taxObj = null,
+        // ── 35f: venta recurrente ───────────────────────────────────────────
+        public readonly bool $repeat = false,
+        /** Frecuencia: daily | weekly | fortnight | monthly | quarterly | yearly */
+        public readonly ?string $repeatF = null,
+        /** Número de repeticiones */
+        public readonly ?int $repeatT = null,
     ) {
     }
 
@@ -127,6 +133,10 @@ final class SaleInput
             dontNotify: !empty($payload['dontNotify']),
             tags:       self::normalizeTags($payload['tags'] ?? null),
             taxObj:     isset($payload['taxObj']) && is_array($payload['taxObj']) ? $payload['taxObj'] : null,
+            // ── 35f: recurrente ──────────────────────────────────────────────
+            repeat:  !empty($payload['repeat']),
+            repeatF: !empty($payload['repeatF']) ? (string) $payload['repeatF'] : null,
+            repeatT: isset($payload['repeatT']) && is_numeric($payload['repeatT']) ? (int) $payload['repeatT'] : null,
         );
     }
 
