@@ -3,6 +3,17 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-31 — Slice 35d COMPLETO: sesiones agendadas en SaleService (commit 88a9dc9)
+
+- **35d COMPLETO**: sesiones agendadas migradas del legacy `processData`/`insertEmptySchedule` al SaleService.
+- **`saleIsSimplePathEligible` (functions.php)**: rechazo de `item.duration > 0` eliminado — sesiones ya están en SaleService.
+- **`SaleService::save()`**: eliminado el pre-flight `assertNoScheduledItems` (ya no rechaza sesiones).
+- **`persistItemsAndStock`**: captura `$itemSoldId` vía `Insert_ID()` después del AutoExecute de `itemSold`; si hay cliente llama `persistScheduledSessions`; `updateLastTimeEdit` hoistado al final del loop (mejora P2 vs legacy que lo llamaba por ítem con sesiones).
+- **`SaleService::persistScheduledSessions` (NUEVO)**: lee `itemSessions` con `ncmExecute` (JSONB demoted §22.8); `total = ceil(precio / (itemSessions × count))`; crea N filas type=13 en la misma tx vía AutoExecute parametrizado. Mejoras vs `insertEmptySchedule` legacy: `transactionDetails` va en `meta` JSONB (el legacy lo ponía como columna directa inexistente en PG → se perdía silenciosamente); `packageId` es UUID del `itemSoldId` (no int legacy); devuelve int count.
+- **Estado del strangler tras 35d**: SaleService cubre venta simple (35a) + gift card vender/pagar (35c) + sesiones agendadas (35d). El legacy processData retiene: EI/35b (diferido), inCredit/storeCredit/points/35e, recurrente/35f.
+- **Verificado E2E**: 3 sesiones × 2 unidades → 6 filas type=13; total=15000 (ceil 90000÷6); packageId, customerId, status=0, meta.details correctos.
+- **Vault actualizado**: `02-arquitectura.md` (tabla guardado de ventas + fuente única de elegibilidad + métodos SaleService), `10-roadmap.md` (35d ✅, estado post-35d, métodos SaleService, paths pendientes).
+
 ## 2026-05-31 — Slice 35c COMPLETO: gift card (vender + pagar) en SaleService (commits 0e3c7bf + d099019)
 
 - **35c COMPLETO**: los dos paths de gift card (redención y venta) migrados del legacy `processData`/`insertNewGiftCard`/`manageGiftCard` al SaleService. Con este slice, `giftcard` abandona el legacy por completo.
