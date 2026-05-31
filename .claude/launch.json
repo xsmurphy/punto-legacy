@@ -1,10 +1,11 @@
 {
   "version": "0.0.1",
+  "_note_opcache": "opcache.enable_cli=1 acelera el dev server (php -S): cada worker parsea functions.php una vez y reusa el bytecode (bootstrap ~74ms→~7ms). validate_timestamps=1 + revalidate_freq=0 → opcache chequea mtime en cada request y recarga archivos cambiados → código siempre fresco, sin stale. En prod (php-fpm/apache) opcache ya está ON. Ver context/10-roadmap.md § bootstrap. REQUIERE reiniciar los servers para tomar efecto.",
   "configurations": [
     {
       "name": "Punto Panel (Admin)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
-      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8001", "-t", "panel", "panel/router.php"],
+      "runtimeArgs": ["-d", "display_errors=on", "-d", "opcache.enable_cli=1", "-d", "opcache.validate_timestamps=1", "-d", "opcache.revalidate_freq=0", "-d", "opcache.memory_consumption=128", "-S", "localhost:8001", "-t", "panel", "panel/router.php"],
       "cwd": ".",
       "port": 8001,
       "env": {
@@ -14,7 +15,7 @@
     {
       "name": "Punto App (POS)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
-      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8002", "-t", "app", "app/router.php"],
+      "runtimeArgs": ["-d", "display_errors=on", "-d", "opcache.enable_cli=1", "-d", "opcache.validate_timestamps=1", "-d", "opcache.revalidate_freq=0", "-d", "opcache.memory_consumption=128", "-S", "localhost:8002", "-t", "app", "app/router.php"],
       "cwd": ".",
       "port": 8002,
       "env": {
@@ -24,7 +25,7 @@
     {
       "name": "Punto API (compartida)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
-      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8000", "-t", "api", "api/router.php"],
+      "runtimeArgs": ["-d", "display_errors=on", "-d", "opcache.enable_cli=1", "-d", "opcache.validate_timestamps=1", "-d", "opcache.revalidate_freq=0", "-d", "opcache.memory_consumption=128", "-S", "localhost:8000", "-t", "api", "api/router.php"],
       "cwd": ".",
       "port": 8000,
       "env": {
@@ -34,7 +35,7 @@
     {
       "name": "Punto Panel Preview (8011)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
-      "runtimeArgs": ["-d", "display_errors=on", "-S", "localhost:8011", "-t", "panel", "panel/router.php"],
+      "runtimeArgs": ["-d", "display_errors=on", "-d", "opcache.enable_cli=1", "-d", "opcache.validate_timestamps=1", "-d", "opcache.revalidate_freq=0", "-d", "opcache.memory_consumption=128", "-S", "localhost:8011", "-t", "panel", "panel/router.php"],
       "cwd": ".",
       "port": 8011,
       "env": {
@@ -45,7 +46,7 @@
     {
       "name": "Punto Screens (KDS/CDS/recibos)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
-      "runtimeArgs": ["-S", "localhost:8003", "-t", "screens"],
+      "runtimeArgs": ["-d", "opcache.enable_cli=1", "-d", "opcache.validate_timestamps=1", "-d", "opcache.revalidate_freq=0", "-S", "localhost:8003", "-t", "screens"],
       "cwd": ".",
       "port": 8003,
       "env": {

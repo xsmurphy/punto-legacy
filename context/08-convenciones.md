@@ -578,6 +578,22 @@ $rows = ncmExecute($db, "SELECT * FROM contact WHERE companyId=?", [$cid], getAs
 $rows = array_filter($rows, fn($r) => ($r['contactFixedComission'] ?? 0) > 0);
 ```
 
+**Sub-regla §22.8a — leer columnas demoted SIEMPRE con `ncmExecute`, NUNCA con `$db->Execute` crudo** (reforzado 2026-05-31, commit 6ea1e5a):
+
+`$db->Execute` crudo NO aplica `_flattenJsonb` sobre el resultado → las columnas demoted a JSONB (ej. `itemSessions`, `contactFixedComission`) simplemente no aparecen en la fila → el código cae al valor default silenciosamente (guard de sesiones muerto, comisión fija de usuario nunca aplicada = divergencia financiera). Usar SIEMPRE `ncmExecute` para SELECTs que necesiten columnas demoted.
+
+```php
+// MAL — $db->Execute no aplana JSONB; itemSessions no existe en la fila
+$row = $db->Execute("SELECT * FROM item WHERE itemId=?", [$id]);
+$sessions = $row->fields['itemSessions']; // silenciosamente null/0
+
+// BIEN — ncmExecute aplica _flattenJsonb; columnas demoted re-expuestas
+$row = ncmExecute($db, "SELECT * FROM item WHERE itemId=?", [$id]);
+$sessions = $row['itemSessions'] ?? 0;
+```
+
+**Excepción**: para read-modify-write de un blob JSONB completo (patrón RMW), usar `$db->Execute` directo para preservar el raw (ver §22.8.1).
+
 **Regla derivada — validar estado de tx antes de devolver success**: si el handler usa
 `StartTrans`/`CompleteTrans` (o si hay riesgo de aborto silencioso), NO llamar
 `jsonDieMsg('true',200,'success')` ciegamente al final. Verificar que la tx completó sin
@@ -643,6 +659,135 @@ $db->Execute(
 mismo campo. Usar `$db->Execute` (sin flatten) para el SELECT; `json_decode` en PHP para parsear;
 `array_merge`/spread para combinar; `json_encode + ::jsonb cast` para el UPDATE. Ver §18 para
 el caso análogo en el panel (mismo trap, misma solución con `forceObj`).
+
+#### §22.8.2 — Verificación post-commit en money path + footgun de iftn(x, NULL) (establecido 2026-05-31, commit 6ea1e5a)
+
+**Regla — verificación post-commit (escrituras críticas)**: el wrapper DB (`app/includes/lib/DB.php`) llama a `pdo->commit()` aunque la transacción PG esté abortada (SQLSTATE 25P02). El resultado es un **rollback silencioso que devuelve `true`**. `HasFailedTrans()` no lo detecta (solo refleja `FailTrans()` explícito). Para el money path y cualquier escritura crítica, confirmar con un SELECT post-commit que la fila realmente persistió:
+
+```php
+$db->CompleteTrans();
+
+// Verificación post-commit: el wrapper puede hacer commit sobre tx abortada → rollback silencioso
+$check = $db->Execute(
+    "SELECT transactionId FROM transaction WHERE transactionId = ?",
+    [$transactionId]
+);
+if (!$check || $check->RecordCount() === 0) {
+    throw new SaleAbortedException("Transaction not persisted after commit");
+}
+```
+
+Sin este guard, una venta que rolleó (por cualquiera de los bugs §22.8 / §22.3 / etc.) reportaría success al front → plata/inventario fantasma.
+
+**Footgun de `iftn($x, NULL)` — NUNCA para NULL-coalesce de columnas UUID/timestamp**: la función `iftn()` en `app/includes/functions.php` tiene como primera línea `$else = validity($else) ? $else : ''` → convierte el argumento `NULL` a `''` (string vacío) antes de cualquier evaluación. Resultado: `iftn($x, NULL)` **nunca puede devolver NULL** — si `$x` es falsy, devuelve `''`, que rompe columnas UUID y timestamp en PostgreSQL.
+
+```php
+// MAL — iftn nunca devuelve NULL; devuelve '' que rompe FK de tipo UUID
+$supplierId = iftn($raw['supplierId'], NULL);
+
+// BIEN — PHP null-coalesce
+$supplierId = $raw['supplierId'] ?: null;
+```
+
+**Aplica a**: cualquier campo nullable de tipo UUID, timestamp, o entero en columnas que deben ser NULL (no vacío) — en particular `supplierId`, `transactionId`, `locationId` en `manageStock` y similares en helpers de `app/includes/functions.php`.
+
+---
+
+### §22.10 — Footgun de `$db->Prepare()` + patrón side-effects POST-COMMIT BEST-EFFORT (establecido 2026-05-31, commits 1a8d539 + a52ecf6)
+
+#### §22.10.1 — `$db->Prepare()` qstr-quotea TODOS los valores, incluyendo números
+
+**Regla**: NUNCA usar `$db->Prepare($sql)` cuando el valor va a usarse también para lógica de negocio (comparaciones, aritmética). `$db->Prepare()` internamente llama `qstr()` sobre los argumentos, que convierte **cualquier valor a string SQL-quoted** — incluso números: `8000` → `'8000'`. El resultado se guarda en la variable como string, rompiendo todas las comparaciones numéricas y cálculos posteriores.
+
+```php
+// MAL — $db->Prepare quoteea el monto: $amount = "'8000'" (string), no 8000 (int)
+$amount = $db->Prepare($rawAmount);
+if ($amount >= $loyaltyMin) { ... }   // comparación rota: "'8000'" >= 5000 → comportamiento indefinido
+
+// BIEN — mantener el valor numérico para lógica; parametrizar el SQL con ?
+$amount = (float) $rawAmount;          // tipo correcto para lógica
+// en el SQL:
+$db->Execute("INSERT INTO loyalty ... VALUES (?, ...)", [$amount, ...]);
+```
+
+**Dónde aplica**: cualquier god-helper o código legacy que llame `$db->Prepare($valor)` antes de usar ese valor en una comparación. Detectado en `manageCustomerLoyalty()` (commit 1a8d539): el monto quoteado nunca superaba `loyaltyMin` → ningún cliente acumulaba puntos.
+
+**Estado actual (commit 2b37d26, 2026-05-31):** los 5 usos restantes de `$db->Prepare()` en `app/includes/functions.php` fueron eliminados y reemplazados por queries parametrizadas (`?` bind). `$db->Prepare()` **no tiene usos válidos en código nuevo** — siempre usar parametrización directa. FIX P0 incluido: en `voidSale`, el Prepare quoteaba el UUID del `$trId` → los 3 sitios bind recibían el UUID con comillas literales → no matcheaban → toda la restauración (loyalty/storeCredit/giftcard/inventario al anular) se saltaba en silencio. Ahora `$trId` es UUID crudo con bind correcto.
+
+#### §22.10.2 — Side effects post-commit: BEST-EFFORT, nunca lanzan
+
+**Regla**: Los side effects externos (email/SMS al cliente, `sendAuditoria`, webhooks, WS) deben ejecutarse **DESPUÉS del commit confirmado** y cada uno envuelto en `try/catch \Throwable` independiente. Ninguno debe lanzar ni revertir la operación ya persistida.
+
+```php
+// Patrón canónico (SaleService::save())
+$db->CompleteTrans();
+// verificación post-commit §22.8.2 ...
+
+// Side effects: best-effort, orden no crítico
+try { sendEmailConfirmation($ctx, $result); } catch (\Throwable) { /* log; no lanzar */ }
+try { sendSmsConfirmation($ctx, $result); } catch (\Throwable) { /* log; no lanzar */ }
+try { sendAuditoria($ctx, $result); } catch (\Throwable) { /* log; no lanzar */ }
+```
+
+**Por qué**: un fallo de infra externa (SMTP caído, SMS timeout) NO debe revertir una venta que el cliente ya pagó y el inventario ya descontó. El contrato es: la venta persistió → side effects son consecuencias opcionales. Si un side effect es crítico (ej: el cliente necesita el comprobante antes de salir), modelarlo como parte del path principal, no como best-effort.
+
+**Detectado en**: slice 35a.6 (commit a52ecf6) — `getContactData()` roto en PG hacía que el bloque de notificaciones tirara excepción; sin el catch, abortaba un path que ya había commiteado.
+
+---
+
+### §22.11 — Patrón strangler try-fallback para migración de handlers críticos (establecido 2026-05-31, commit 89b980e)
+
+**Contexto**: al migrar un handler del money-path (o cualquier handler con alto riesgo de regresión) al patrón BFF→API→Service, el front puede adoptar un modo de transición donde intenta el endpoint nuevo y cae al legacy ante error o rechazo. Este patrón se llama **try-fallback** y es el corazón del strangler-fig.
+
+**Reglas del patrón**:
+
+1. **El backend nuevo es la única fuente de verdad de elegibilidad**. Rechaza con `422` lo que no cubre (paths no migrados: gift cards, EI, sesiones, recurrentes, etc.). El front no decide si un payload es elegible; solo interpreta el 422 como "no elegible → usar legacy".
+
+2. **El fallback va ante `422` Y ante error/timeout**. Un error de infra (timeout de red, 500) no debe bloquear la operación — el fallback garantiza que la venta nunca se pierda.
+
+3. **Idempotencia por business-key en AMBOS paths**. Ambos paths (nuevo y legacy) deben tener un dupli check por la misma business-key (ej. `transactionUID` + UNIQUE constraint en la tabla) para que el fallback nunca duplique. En el race condition (nuevo persiste tras timeout, fallback intenta INSERT → UNIQUE 23505 → `{success:"Duplicated Entry"}`), el resultado se trata como success (la fila ya existe, correctamente).
+
+4. **El legacy no se borra hasta estabilidad confirmada en producción**. El cleanup (35a.8) se hace solo cuando hay certeza de que el nuevo path no necesita el legacy como safety-net.
+
+```javascript
+// Patrón canónico (app/scripts/app.js — ncmHttp.postSale)
+async function postSale(payload, legacyFallback) {
+    try {
+        const res = await fetch('bff/sales', { ... timeout: 2500 ... });
+        if (res.status === 422) throw new Error('not_eligible'); // → fallback
+        if (!res.ok)            throw new Error('api_error');    // → fallback
+        return await res.json();
+    } catch (e) {
+        return legacyFallback(payload); // always: postToServer(legacy)
+    }
+}
+```
+
+**Primer uso**: `ncmHttp.postSale()` en `app/scripts/app.js` (commit 89b980e, slice 35a.7). Las ventas simples (cashsale/creditsale type 0/3) van al SaleService; el legacy sigue activo para el fallback y para los paths no migrados (EI, gift cards, sesiones, recurrentes).
+
+**Complementa**: §22.8.2 (idempotencia post-commit), §22.10.2 (side effects best-effort), §23 (home canónico de endpoints).
+
+---
+
+### §22.12 — Patrón "API granular + BFF compone" (establecido 2026-05-31, commit c4edef9)
+
+**Decisión del arquitecto**: la API expone **recursos granulares reusables** (un concepto de dominio por endpoint); el BFF los **compone en paralelo** para armar el view-model que necesita el front. La API NO arma endpoints con forma de pantalla. Los endpoints fat (que devuelven 13 queries en un JSON plano pensado para UNA pantalla) son deuda a refactorizar al patrón granular cuando se toquen.
+
+**Plomería canónica**: `bffApiGetMulti(array $endpoints): array` en `app/bff/lib/api_client.php` — curl_multi paralelo; el wall-clock es el del recurso más lento, no la suma. `bffDecodeEnvelope(string $raw): mixed` — decode de envelope factorizado, reutilizable.
+
+**Cuándo usar**:
+- Lecturas compuestas donde el front necesita N conceptos independientes de una misma entidad (profile + deuda + ítems + gift cards…).
+- Cuando los recursos son reusables por otras pantallas o integraciones.
+
+**Cuándo NO usar**:
+- Escrituras: los N calls son N snapshots de DB independientes → un invariante cross-recurso (ej. "debitar y acreditar atómicamente") **no puede verificarse** entre calls paralelos. Para escrituras, usar un único endpoint transaccional.
+- Cuando el costo de latencia sea inaceptable y `/api/includes` canónico no esté implementado (ver mitigación abajo).
+
+**Trade-off medido (piloto customerInfo, 2026-05-31)**: composed 95ms vs composite legacy 37ms (~2.5×). Cada call paralelo paga el bootstrap completo (`chdir + head.php + data.php + JWT` por call). Este overhead es el bottleneck — **no** la cantidad de queries.
+
+**Enabler/mitigación**: consolidar `/api/includes` canónico (independiente de /app, sin `chdir`) reduce el overhead de bootstrap a milisegundos → el patrón se vuelve barato. Hasta entonces, usar con criterio (reads no críticas de latencia, pantallas de detalle, no loops).
+
+**Pilot verificado**: `customerInfo` en `app/bff/customers.php` — 5 recursos GET (`profile/recentItems/debt/giftcards/address`) compuestos vía `bffApiGetMulti`. Output BYTE-IDÉNTICO al composite legacy `getInfo()` (diffCount=0 sobre cliente real). `getInfo()` + `?resource=info` quedan como composite legacy/backward-compat.
 
 ---
 
@@ -744,6 +889,8 @@ Convención de verbos:
   (transición de estado del recurso) o `DELETE` (si el efecto neto es borrar), con `?resource=` si
   hace falta distinguir la sub-acción. Sólo usar `POST` para crear o para reads con payload grande
   (ej: `sync` recibe una lista de IDs).
+
+> **⚠️ BUG HISTÓRICO CERRADO (commit e3d02cc, 2026-05-31):** `bffApiGet` llamaba a `bffApiSend` con 3 args → el cuarto parámetro (método) defaulteaba a `'POST'`. Todos los reads GET llegaban a la API como POST → "Operación no reconocida" en cualquier endpoint gateado por `$method === 'GET'`. Fix: `bffApiGet` pasa `'GET'` explícito como cuarto arg. **Regla derivada**: al agregar o modificar funciones wrapper en `api_client.php`, siempre verificar que el método HTTP correcto se propague explícitamente; no depender de defaults. Al verificar un slice de lectura, hacerlo **a través del BFF** (no solo con curl directo) para que este tipo de bug sea visible.
 
 ---
 

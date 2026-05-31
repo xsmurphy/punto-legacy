@@ -132,6 +132,21 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 
 **Nota /app DB.php (2026-05-28):** `app/includes/lib/DB.php` divergió del panel y **no tiene `Insert_ID()`**. `ncmInsert`/`ncmUpdate` son fatales en /app. Ver `05-modulos-clave.md § Desacople /app` para el patrón de escritura correcto.
 
+**God-helpers de `app/includes/functions.php` arreglados para PG durante slice 35 (2026-05-31):** patrón común: UUID sin comillas en SQL concat + columnas demoted a JSONB leídas sin `_flattenJsonb` + `$db->Prepare()` rompiendo math (§22.10.1). Todos afectaban también al legacy `processData`.
+
+**Guardado de ventas — dos caminos vivos (LIVE desde commit 89b980e, 2026-05-31):** el guardado de ventas (antes 100% en `processData` de `app/action.php`) ahora tiene dos paths:
+
+| Path | Cuándo | Quién persiste |
+|------|--------|---------------|
+| **SaleService** (`bff/sales → api/v1/sales.php → api/lib/Sales/SaleService.php`) | Ventas simples type 0/3 elegibles (cashsale/creditsale sin EI/gift card/sesiones/recurrentes) | El nuevo path — fuente de verdad |
+| **Legacy processData** (`app/action.php?l=processData`) | 422 del SaleService (no elegible) + error/timeout + paths no migrados (EI, gift cards, sesiones) | Safety-net + paths pendientes |
+
+El front rutea vía `ncmHttp.postSale()` (patrón try-fallback — ver §22.11 en `08-convenciones.md`). Idempotencia por `transactionUID` + UNIQUE constraint en ambos paths previene duplicados incluso en el race condition.
+
+- **`manageStock` (commit 6ea1e5a, 35a.4)**: 100% roto en PG para items stockeables — abortaba la tx en la primera línea (UUID sin comillas → SQLSTATE 25P02). Ninguna venta de item con tracking descontaba stock. Fixes: UUID sin comillas (§22.5), `getValue('setting',...)` → constante `COMPANY_NAME`, `iftn($x,NULL)` → `?: null` (§22.8.2), `is_array($stock)` → `instanceof ArrayAccess`.
+- **`manageCustomerLoyalty` (commit 1a8d539, 35a.5)**: `$db->Prepare()` qstr-quoteaba el monto numérico (8000 → '8000') → comparación con `loyaltyMin` siempre falsa → ningún cliente acumulaba puntos. Fix: amount parametrizado con `?`; SELECT * para columnas `loyaltyMin`/`loyaltyValue` demoted a JSONB (§22.10.1).
+- **`getContactData` (commit a52ecf6, 35a.6)**: UUID sin comillas en el WHERE concatenado → devolvía FALSE para TODOS los clientes, rompiendo notificaciones post-venta, modales de cliente y reportes de clientes en el legacy. Fix: UUID correctamente quoted en el WHERE. Ver §22.10.2 para el patrón best-effort que rodea este helper.
+
 **Cross-coupling observado**: muchas funciones de `app/includes/functions.php` llaman
 a funciones de `panel/includes/functions.php`. No son módulos independientes.
 
@@ -150,12 +165,31 @@ La API está destinada a moverse a un server dedicado; los BFFs apuntarán a esa
 | Superficie pública | Solo `/v1/*` endpoints; `bootstrap.php`, `lib/`, `services/` NO son web-accesibles (anti-traversal vía realpath confinado a `/api/v1`) |
 | Auth | `apiAuthTenant()` en `api/bootstrap.php` — JWT de tenant: cookie `_jwt` \| `Authorization: Bearer` \| POST `_jwt`; secret `JWT_SECRET`; claim `cid`. Mismo secret/claims que /panel y /app ya validan → una API autentica ambos clientes. |
 | Envelope | `apiOk()` / `apiError()` — `api/lib/response.php` (canónico) |
-| Servicios | `api/lib/services/*Service.php` (slices del desacople de /app; ver lista completa en `10-roadmap.md § Servicios`). `TableService` ahora cubre: rename/unreserve/assignUser/closeTable/listTables/**joinSpaces**/**moveOrders** (slice 34). |
+| Servicios | Dos familias coexisten (ver `10-roadmap.md § Servicios`): (1) **legacy** `api/lib/services/*Service.php` — 18 servicios sin namespace, PHP legacy, sin DTOs; (2) **modernos** `api/lib/<Module>/<Module>Service.php` — namespace `Punto\Api\<Module>`, `final class`, `readonly`, DTOs de entrada/salida, enums backed, excepciones custom, DI explícita (convención §22.9, establecida 2026-05-30). El primer módulo moderno es `api/lib/Sales/SaleService.php` (`Punto\Api\Sales`) + `api/lib/Context/TenantContext.php` (`Punto\Api\Context`). El autoloader PSR-4 mínimo (~15 líneas, `spl_autoload_register`) en `api/bootstrap.php` mapea `Punto\Api\Foo\Bar` → `api/lib/Foo/Bar.php`. Código nuevo siempre va en el modelo moderno; los 18 legacy se modernizan al tocarse por razón funcional. |
 | Endpoints | `api/v1/{customer_address,tables,schedule,customer_note,orders,register,transactions,customers,…}.php` |
 | Clientes actuales | `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`) |
 | Nota Alpine /app (Slice 33 reescrito, commit 3d62191; front unificado en Tier 3, commit e97aed7) | `api/v1/customers.php` + `app/bff/customers.php` sirven lecturas que el front renderiza client-side con **Alpine.js** (no Mustache). `GET ?resource=records` devuelve datos estructurados; el componente Alpine `customerRecord` en `app/scripts/app.js` (única fuente — reemplazó `globalv2.js`/`debug.js` en 2026-05-30) clona el `<template id="customerRecordTpl">`, fija atributos y llama `Alpine.initTree(el)`. Alpine 3.14.1 está vendoreado en `/app` (offline). Este es el patrón canónico para handlers HTML server-rendered en /app: **API devuelve datos → front renderiza con Alpine**. Ver §24 en `08-convenciones.md`. Mustache sigue cargado para los ~22 templates legacy restantes (deprecación incremental). |
 
 **Deuda transitoria (documentada):** `api/bootstrap.php` actualmente hace `chdir(/app)` y reusa los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. La consolidación de un `/api/includes` canónico (independiente de /panel y /app) es la migración gradual pendiente antes de que /api pueda moverse a su propio server. También: `panel/API/*` (~93 endpoints) migra gradualmente hacia /api.
+
+### Patrón "API granular + BFF compone" (decisión arquitectónica, commit c4edef9, 2026-05-31)
+
+**Dirección tomada**: la API expone **recursos granulares reusables** (un concepto de dominio por endpoint); el BFF los **compone en paralelo** (via `bffApiGetMulti()` + curl_multi) para armar el view-model de la pantalla. La API **nunca arma endpoints con la forma de una pantalla**.
+
+| Rol | Responsabilidad |
+|-----|----------------|
+| API (`/api/v1/*`) | Exponer recursos granulares — `?resource=profile`, `?resource=debt`, `?resource=giftcards`, etc. Cada uno reusable por cualquier cliente. |
+| BFF (`/app/bff/` o `/panel/bff/`) | Componer N recursos en paralelo con `bffApiGetMulti()` y mergear en el shape que la pantalla necesita. |
+
+**Plomería**: `bffApiGetMulti(array $endpoints): array` en `app/bff/lib/api_client.php` (curl_multi, wall-clock = el más lento). `bffDecodeEnvelope(string $raw): mixed` (reutilizable).
+
+**Trade-off medido**: composed 95ms vs composite legacy 37ms (~2.5×). Bottleneck = bootstrap por call (`chdir + head.php + data.php + JWT`), no el número de queries. Mitigación: `/api/includes` canónico (deuda pendiente — lo vuelve barato).
+
+**Restricción**: patrón read-only-safe. NO usar donde una escritura o invariante cross-recurso dependa de un único snapshot de DB (N calls = N snapshots independientes).
+
+**Pilot**: `customerInfo` — 5 recursos GET en paralelo compuestos en el BFF; output byte-idéntico al endpoint fat `getInfo()` legacy. `getInfo()` + `?resource=info` quedan como composite legacy/backward-compat. Los endpoints fat actuales (`getInfo`, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen.
+
+Ver §22.12 en `08-convenciones.md` para la receta completa y los casos de uso válidos/inválidos.
 
 ## Comunicación entre módulos
 
@@ -318,7 +352,8 @@ BFF     panel/bff/<area>/<x>.php  → JWT + llama a la API + JSON   (NO BD, NO H
 API     panel/API/v1/<area>/<x>.php  → (legacy panel; migra gradualmente a /api)
         api/v1/<x>.php              → apiAuthTenant() + apiOk()/apiError() — NUEVO home canónico
 DOMINIO panel/lib/<x>/{Repository,Service}.php  (SQL + reglas panel)
-        api/lib/services/<x>Service.php         (SQL + reglas de los slices /app — NUEVO home canónico)
+        api/lib/services/<x>Service.php         (SQL + reglas — servicios legacy /app, sin namespace)
+        api/lib/<Module>/<Module>Service.php    (SQL + reglas — servicios modernos §22.9: namespace Punto\Api\<Module>, DTOs, enums)
 ```
 
 **REGLA (desde 2026-05-28):** Los nuevos endpoints del desacople van en `/api/v1/` + `/api/lib/services/`, NO en `/app/API/` (que quedó vacío). Los BFFs de /app consumen `/api`. El `panel/API/` migra gradualmente a `/api`.
