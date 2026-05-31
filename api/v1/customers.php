@@ -35,4 +35,27 @@ if ($method === 'GET' && $resource === 'records') {
     apiOk($svc->getRecords($companyId, $encId));
 }
 
+// --- Recursos GRANULARES del cliente (piloto BFF-compone) ------------------
+// Cada uno responde UN concepto reusable; el BFF (app/bff/customers.php) los
+// compone en paralelo para armar el modal de info. `?resource=info` (arriba)
+// queda como composite legacy / backward-compat.
+$granular = [
+    'profile'     => 'getProfile',      // null → 404 si el cliente no existe
+    'recentItems' => 'getRecentItems',
+    'debt'        => 'getDebt',
+    'giftcards'   => 'getGiftCards',
+    'address'     => 'getDefaultAddress',
+];
+if ($method === 'GET' && isset($granular[$resource])) {
+    $rawId = trim((string) ($_GET['id'] ?? ''));
+    if ($rawId === '') {
+        apiError('Falta id', 422);
+    }
+    $data = $svc->{$granular[$resource]}($companyId, $rawId);
+    if ($resource === 'profile' && $data === null) {
+        apiError('Cliente no encontrado', 404);
+    }
+    apiOk($data);
+}
+
 apiError('Operación no reconocida', 400);

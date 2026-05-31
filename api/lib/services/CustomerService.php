@@ -184,6 +184,197 @@ class CustomerService
         ];
     }
 
+    // ========================================================================
+    // RECURSOS GRANULARES (piloto BFF-compone — ver context/10-roadmap.md)
+    //
+    // getInfo() arriba es el endpoint COMPUESTO legacy (la API arma toda la
+    // pantalla). Estos métodos exponen el mismo dato pero PARTIDO en recursos
+    // reusables: cada uno responde un concepto del cliente, independiente y
+    // cacheable. El BFF (app/bff/customers.php) los compone en paralelo y arma
+    // el shape de la pantalla. Cualquier cliente (mobile, integración) puede
+    // pedir solo el recurso que necesita (ej. ?resource=debt).
+    //
+    // getInfo() queda como conveniencia/backward-compat; el path vigente es la
+    // composición en el BFF.
+    // ========================================================================
+
+    /** Perfil del cliente: campos del contacto (sin la dirección default, que es su propio recurso). */
+    public function getProfile(string $companyId, string $rawId): ?array
+    {
+        global $dec, $ts;
+        $id = is_numeric($rawId) ? $rawId : dec($rawId);
+
+        $c = ncmExecute(
+            'SELECT * FROM contact WHERE type = 1 AND contactId = ? AND companyId = ? LIMIT 1',
+            [$id, $companyId]
+        );
+        if (!$c) {
+            return null;
+        }
+        return [
+            'customerId'          => enc($c['contactId']),
+            'customerName'        => toUTF8($c['contactName']),
+            'customerFullName'    => $c['contactSecondName'],
+            'customerTIN'         => $c['contactTIN'],
+            'customerCI'          => $c['contactCI'],
+            'customerPhone1'      => $c['contactPhone'],
+            'customerPhone2'      => $c['contactPhone2'],
+            'customerEmail'       => $c['contactEmail'],
+            'customerAddress2'    => $c['contactAddress2'],
+            'customerNote'        => $c['contactNote'],
+            'customerMemberSince' => niceDate($c['contactDate']),
+            'customerBDay'        => niceDate($c['contactBirthDay']),
+            'loyalty'             => formatCurrentNumber($c['contactLoyaltyAmount'], $dec, $ts),
+            'inCredit'            => formatCurrentNumber($c['contactStoreCredit'], $dec, $ts),
+            'creditLine'          => formatCurrentNumber($c['contactCreditLine'], $dec, $ts),
+        ];
+    }
+
+    /** Últimos 5 ítems comprados (ventas type 0) + fecha de la última compra. */
+    public function getRecentItems(string $companyId, string $rawId): array
+    {
+        global $db;
+        $id = is_numeric($rawId) ? $rawId : dec($rawId);
+
+        $items = [];
+        $lastPurchaseDate = '';
+        $allUsers = getAllContacts(0);
+        $rs = $db->Execute(
+            "SELECT a.itemId AS id, a.itemSoldUnits AS usold, a.itemSoldDate AS date, a.userId AS usr
+               FROM itemSold a, transaction b
+              WHERE b.transactionType = '0' AND b.customerId = ? AND b.companyId = ?
+                AND a.transactionId = b.transactionId
+              ORDER BY a.itemSoldDate DESC LIMIT 5",
+            [$id, $companyId]
+        );
+        if ($rs && !$rs->EOF) {
+            $first = true;
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                if ($first) { $lastPurchaseDate = $f['date']; $first = false; }
+                $items[] = [
+                    'itemName' => toUTF8(getItemName($f['id'])),
+                    'userName' => toUTF8(getTheContactField($f['usr'], $allUsers)),
+                    'itemQty'  => $f['usold'],
+                ];
+                $rs->MoveNext();
+            }
+        }
+        return ['latestPurchasedItems' => $items, 'lastPurchase' => niceDate($lastPurchaseDate)];
+    }
+
+    /** Deuda del cliente: cuenta corriente + vencida (créditos type 3 sin completar). */
+    public function getDebt(string $companyId, string $rawId): array
+    {
+        global $dec, $ts;
+        $id = is_numeric($rawId) ? $rawId : dec($rawId);
+
+        // Corriente
+        $totalDeuda = 0;
+        $debtList   = '';
+        $retCurrent = 0.0;
+        [$curIds, $curTotal, $curDiscount] = $this->creditRows($companyId, $id, false);
+        if (!empty($curIds)) {
+            $retCurrent = $this->sumReturns($companyId, $id, $curIds);
+            $payed      = $this->sumPayments($companyId, $id, $curIds);
+            $totalComprado = $curTotal - $curDiscount;
+            $totalPagado   = $payed + abs($retCurrent);
+            if ($totalPagado < $totalComprado) {
+                $totalDeuda = $totalComprado - $totalPagado;
+                $debtList   = json_encode(getDebtListByTransaction($id));
+            }
+        }
+
+        // Vencida (dueDate <= hoy). Bug legacy preservado: usa abs($retCurrent).
+        $totalDeudaV = 0;
+        $debtListV   = '';
+        [$vIds, $vTotal, $vDiscount] = $this->creditRows($companyId, $id, true);
+        $totalCompradoV = 0;
+        $totalPagadoV   = 0;
+        if (!empty($vIds)) {
+            $payedV         = $this->sumPayments($companyId, $id, $vIds);
+            $totalCompradoV = $vTotal - $vDiscount;
+            $totalPagadoV   = $payedV + abs($retCurrent);
+        }
+        if ($totalPagadoV < $totalCompradoV) {
+            $totalDeudaV = $totalCompradoV - $totalPagadoV;
+            $debtListV   = json_encode(getDebtListByTransaction($id, true));
+        }
+
+        return [
+            'totalDebt'       => formatCurrentNumber($totalDeuda, $dec, $ts),
+            'totalDebtRaw'    => $totalDeuda,
+            'totalDebtData'   => $debtList,
+            'expiredDebt'     => formatCurrentNumber($totalDeudaV, $dec, $ts),
+            'expiredDebtRaw'  => $totalDeudaV,
+            'expiredDebtData' => $debtListV,
+        ];
+    }
+
+    /** Gift cards activas del cliente (donde es beneficiario). */
+    public function getGiftCards(string $companyId, string $rawId): array
+    {
+        global $db;
+        $id = is_numeric($rawId) ? $rawId : dec($rawId);
+
+        $giftCards = [];
+        $rs = $db->Execute(
+            'SELECT * FROM giftCardSold WHERE giftCardSoldBeneficiaryId = ? AND companyId = ?',
+            [$id, $companyId]
+        );
+        if ($rs && !$rs->EOF) {
+            while (!$rs->EOF) {
+                $g = $rs->fields;
+                $giftCards[] = [
+                    'giftCardCode'  => iftn($g['giftCardSoldCode'], $g['timestamp']),
+                    'giftCardUID'   => $g['timestamp'],
+                    'giftCardTotal' => formatCurrentNumber($g['giftCardSoldValue']),
+                ];
+                $rs->MoveNext();
+            }
+        }
+        return ['giftCards' => $giftCards];
+    }
+
+    /** Dirección default del cliente (con backfill lazy del legacy). */
+    public function getDefaultAddress(string $companyId, string $rawId): array
+    {
+        global $db;
+        $id = is_numeric($rawId) ? $rawId : dec($rawId);
+
+        // SELECT * (no columnas específicas): contactAddress/contactLatLng están
+        // DEMOTED a data JSONB → solo _flattenJsonb (vía ncmExecute) las expone. §22.8.
+        $c = ncmExecute(
+            'SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+            [$id, $companyId]
+        );
+        if (!$c) {
+            return ['customerAddress1' => '', 'latLng' => ''];
+        }
+        $address = $c['contactAddress'] ?? null;
+        $latLng  = $c['contactLatLng'] ?? null;
+
+        $custAddr = ncmExecute(
+            'SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId = ? LIMIT 1',
+            [$companyId, $c['contactId']]
+        );
+        if ($custAddr) {
+            $address = $custAddr['customerAddressText'];
+            if ($custAddr['customerAddressLat'] && $custAddr['customerAddressLng']) {
+                $latLng = $custAddr['customerAddressLat'] . ',' . $custAddr['customerAddressLng'];
+            }
+        } elseif ($address) {
+            $db->Insert('customerAddress', [
+                'customerAddressText'    => $address,
+                'customerAddressDefault' => true,
+                'customerAddressDate'    => TODAY,
+                'companyId'              => $companyId,
+                'customerId'             => $c['contactId'],
+            ]);
+        }
+        return ['customerAddress1' => $address, 'latLng' => $latLng];
+    }
+
     /**
      * customerRecord (load.php L1430): fichas personalizadas del cliente.
      *

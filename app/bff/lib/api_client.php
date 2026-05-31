@@ -86,26 +86,94 @@ function bffApiSend(string $url, ?string $body, string $cookieName, string $meth
     $curlEr = curl_error($ch);
     curl_close($ch);
 
+    return bffDecodeEnvelope($body, $status, $curlEr);
+}
+
+/** Desempaqueta el envelope canónico { ok, data } / { ok:false, error } a un shape plano. */
+function bffDecodeEnvelope($body, int $status, string $curlEr = ''): array
+{
     if ($body === false || $curlEr) {
         return ['status' => 0, 'ok' => false, 'data' => null, 'error' => $curlEr ?: 'transport error'];
     }
-
-    $json = json_decode($body, true);
+    $json = json_decode((string) $body, true);
     if (!is_array($json)) {
         return ['status' => $status, 'ok' => false, 'data' => null, 'error' => 'respuesta no-JSON de la API'];
     }
-
     $err = $json['error'] ?? null;
     if (is_array($err)) {
         $err = $err['message'] ?? 'error';
     }
-
     return [
         'status' => $status,
         'ok'     => !empty($json['ok']),
         'data'   => $json['data'] ?? null,
         'error'  => $err,
     ];
+}
+
+/**
+ * GET en PARALELO a varios endpoints de la API (curl_multi). Permite que el BFF
+ * componga un set de datos desde recursos GRANULARES de la API sin pagar N
+ * round-trips secuenciales: el wall-clock es el del recurso más lento, no la suma.
+ *
+ * Patrón: la API expone recursos reusables (?resource=profile, debt, …) y el BFF
+ * los compone en la forma que el front necesita. Ver context/10-roadmap.md
+ * (piloto customerInfo) y §22.x.
+ *
+ * @param array<string,array{path:string,query?:array}> $requests  key → {path, query}
+ * @return array<string,array>  key → shape plano { status, ok, data, error } (igual que bffApiSend)
+ */
+function bffApiGetMulti(array $requests, string $cookieName = '_jwt'): array
+{
+    $mh   = curl_multi_init();
+    $jwt  = $_COOKIE[$cookieName] ?? '';
+    $handles = [];
+
+    foreach ($requests as $key => $req) {
+        $url = bffApiBase() . '/' . ltrim($req['path'], '/');
+        if (!empty($req['query'])) {
+            $url .= '?' . http_build_query($req['query']);
+        }
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+            CURLOPT_HTTPGET        => true,
+        ]);
+        if ($jwt !== '') {
+            curl_setopt($ch, CURLOPT_COOKIE, $cookieName . '=' . rawurlencode($jwt));
+        }
+        curl_multi_add_handle($mh, $ch);
+        $handles[$key] = $ch;
+    }
+
+    // Ejecutar todas concurrentemente. Loop hasta que no queden transfers activos.
+    // (No cortar por $status: en libcurl viejo curl_multi_exec puede devolver
+    // CURLM_CALL_MULTI_PERFORM, que no es CURLM_OK, y cortaría antes de terminar.)
+    do {
+        $running = null;
+        $status  = curl_multi_exec($mh, $running);
+        if ($status > CURLM_OK) {
+            break; // error duro del multi-handle
+        }
+        if ($running) {
+            curl_multi_select($mh, 1.0);
+        }
+    } while ($running > 0);
+
+    $out = [];
+    foreach ($handles as $key => $ch) {
+        $body   = curl_multi_getcontent($ch);
+        $code   = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlEr = curl_error($ch);
+        $out[$key] = bffDecodeEnvelope($body, $code, $curlEr);
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+    }
+    curl_multi_close($mh);
+
+    return $out;
 }
 
 /** Emite un JSON al front y termina. */
