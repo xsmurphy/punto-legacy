@@ -16,9 +16,13 @@ $SQLcompanyId             = "companyId = '" . COMPANY_ID . "'";
 $SQLcompanyIdANDoutletId  = "companyId = '" . COMPANY_ID . "' AND outletId = '" . OUTLET_ID . "'";
 $SQLcompanyIdJoin         = "a.companyId = '" . COMPANY_ID . "'";
 
-$setting = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-$_modules= ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-$company = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+// Una sola query: $setting/$_modules/$company eran 3 SELECT idénticos a la MISMA
+// fila de company (config + flags de módulo + plan/accountId viven todos ahí).
+// Colapsado a 1 round-trip; los 3 nombres se mantienen para backward-compat con
+// los callers que leen cada alias por su semántica.
+$company  = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+$setting  = $company;
+$_modules = $company;
 
 $dec            = $setting['settingDecimal'];
 $ts             = $setting['settingThousandSeparator'];
