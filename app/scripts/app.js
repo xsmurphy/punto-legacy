@@ -16751,7 +16751,11 @@ var ncmHttp = {
 
                     if (data) {
                         osynced++;
-                        ncmHttp.postToServer(url, data, function (result, dat) {
+                        // 35a.8 — vía postSale (no postToServer directo): las huérfanas
+                        // que son venta simple reintentan el SaleService (eligibilidad-
+                        // aware); las no-simples siguen cayendo al legacy vía 422. Así
+                        // una venta simple nunca se guarda silenciosamente por el legacy.
+                        ncmHttp.postSale(url, data, function (result, dat) {
                             if (ncmHelpers.ifIstrue(result)) {
                             } else {
                                 if (arraySearch(simpleStorage.get('orphans'), 'uid', dat.uid) < 0) {
@@ -16778,7 +16782,11 @@ var ncmHttp = {
         var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'processData' });
         if (window.isServerOnline) {
             ncmHelpers.preloader('show');
-            ncmHttp.postToServer(url, data, function (result) {
+            // 35a.8 — vía postSale (no postToServer directo): este path es el edge de
+            // "cola 'sync' llena". Si el dato es una venta simple, postSale la rutea al
+            // SaleService (no al legacy); el drawer open/close y demás no-ventas caen en
+            // el branch !eligible → legacy, sin cambio de comportamiento.
+            ncmHttp.postSale(url, data, function (result) {
                 if (ncmHelpers.ifIstrue(result)) {
                     callback && callback(true);
                 } else {
@@ -16834,18 +16842,16 @@ var ncmHttp = {
         }
     },
     postSale: function (legacyUrl, data, callback) {
-        // Strangler 35a.7 — las VENTAS (data.transaction) type 0/3 se intentan
-        // primero en el SaleService nuevo (bff/sales). Si el backend las rechaza
-        // (HTTP 422 = no elegible: giftcard/sesiones/EI/recurrente/parent/pago que
-        // gasta balance) o hay cualquier error/timeout, se REINTENTA con el legacy
-        // processData → ninguna venta se pierde. El backend (assertSimplePathEligible)
-        // es la única fuente de verdad de elegibilidad; el front solo hace un check
-        // barato de tipo para decidir si vale la pena intentar el path nuevo.
+        // Strangler 35a — las VENTAS (data.transaction) type 0/3 las posee el
+        // SaleService nuevo (bff/sales). 35a.8: SaleService es AUTORITATIVO para la
+        // venta simple; el legacy processData ya NO es red de seguridad de la venta
+        // simple (rechaza esos payloads). El front hace un check barato de tipo; el
+        // backend (saleIsSimplePathEligible, compartido) es la fuente de verdad.
         var tx = data && data.transaction;
         var eligible = tx && (String(tx.type) === '0' || String(tx.type) === '3');
 
         if (!eligible) {
-            // No es una venta simple (updateDocNumber, mesa, orden, type!=0/3) → legacy.
+            // No es venta type 0/3 (updateDocNumber, mesa, orden, drawer, compra…) → legacy.
             return ncmHttp.postToServer(legacyUrl, data, callback);
         }
 
@@ -16862,13 +16868,24 @@ var ncmHttp = {
             callback && callback(result, data);
         });
         post.fail(function (jqXHR) {
-            // 422 (no elegible) o error de red → fallback al legacy processData.
-            // La idempotencia por transactionUID en AMBOS paths evita duplicados si
-            // el SaleService alcanzó a persistir pero se perdió la respuesta (el
-            // legacy responde {success:"Duplicated Entry"} → ifIstrue true → UID
-            // marcado, la cola para). thalog para triage en prod (422 vs 5xx).
-            thalog('postSale fallback a legacy', jqXHR && jqXHR.status);
-            ncmHttp.postToServer(legacyUrl, data, callback);
+            var status = jqXHR && jqXHR.status;
+            // 35a.8 — distinguimos el motivo del fallo:
+            //  • 422 = el backend dice "no es venta simple" (giftcard/EI/puntos/
+            //    storeCredit/recurrente/parent) → ESA venta SÍ pertenece al legacy
+            //    → fallback a processData. MANTENER (es ruteo por elegibilidad).
+            //  • 5xx/timeout/0 = ERROR del SaleService en una venta SIMPLE → NO la
+            //    enmascaramos con un guardado legacy silencioso (red deprecada):
+            //    devolvemos false. La cola la manda a orphans → syncOrphans la
+            //    reintenta contra SaleService. Ninguna venta se pierde (queda
+            //    encolada hasta que SaleService la acepte) y un bug del SaleService
+            //    se hace VISIBLE en vez de quedar oculto por el legacy.
+            if (status === 422) {
+                thalog('postSale 422 → no-simple, fallback legacy', status);
+                ncmHttp.postToServer(legacyUrl, data, callback);
+            } else {
+                thalog('postSale error SaleService (sin fallback) → reintento', status);
+                callback && callback(false, data);
+            }
         });
     },
     postToServer: function (url, data, callback) {

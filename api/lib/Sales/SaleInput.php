@@ -147,41 +147,13 @@ final class SaleInput
      */
     private static function assertSimplePathEligible(array $payload, array $sale): void
     {
-        if (!empty($payload['electronicInvoicePY']) && is_array($payload['electronicInvoicePY'])) {
-            throw new InvalidSaleInputException('Venta con factura electrónica no soportada en este path (usar legacy)');
-        }
-        if (!empty($payload['repeat'])) {
-            throw new InvalidSaleInputException('Venta recurrente no soportada en este path (usar legacy)');
-        }
-        if (!empty($payload['parentId'])) {
-            throw new InvalidSaleInputException('Venta con parentId no soportada en este path (usar legacy)');
-        }
-        // Pagos que MODIFICAN balances del cliente (puntos / crédito interno / gift card)
-        // tocan tablas/helpers fuera del path simple → diferidos a 35c/35e. El path simple
-        // cubre pagos cash/card (que no modifican balance). Sí soportamos loyalty EARNED
-        // (incremento por la venta), que va aparte del payment loop.
-        foreach (($payload['payment'] ?? []) as $pay) {
-            $payType = (string) ($pay['type'] ?? '');
-            if (in_array($payType, ['points', 'storeCredit', 'giftcard'], true)) {
-                throw new InvalidSaleInputException(
-                    "Pago con '{$payType}' no soportado en este path (modifica balance — usar legacy)"
-                );
-            }
-        }
-        foreach ($sale as $item) {
-            $itemType = (string) ($item['type'] ?? '');
-            if ($itemType === 'discount') {
-                continue; // las líneas de descuento no llevan itemId — válidas
-            }
-            if (!empty($item['giftcardId'])) {
-                throw new InvalidSaleInputException('Venta de gift card no soportada en este path (usar legacy)');
-            }
-            if (isset($item['duration']) && (float) $item['duration'] > 0) {
-                throw new InvalidSaleInputException('Venta con sesiones agendadas no soportada en este path (usar legacy)');
-            }
-            if (empty($item['itemId'])) {
-                throw new InvalidSaleInputException('Línea de venta sin itemId (crédito interno) no soportada en este path (usar legacy)');
-            }
+        // Regla COMPARTIDA con el legacy (processData) vía saleIsSimplePathEligible()
+        // en app/includes/functions.php — fuente única de verdad, sin duplicar. Acá la
+        // traducimos a 422 (InvalidSaleInputException); processData usa la misma regla
+        // para RECHAZAR las ventas simples (que desde 35a.8 posee SaleService).
+        $reason = \saleIsSimplePathEligible($payload, $sale);
+        if ($reason !== null) {
+            throw new InvalidSaleInputException($reason);
         }
     }
 

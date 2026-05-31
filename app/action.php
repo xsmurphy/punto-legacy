@@ -1938,6 +1938,19 @@ if ($action) {
           $responsible  = NULL;
         }
 
+        // --- 35a.8: SaleService es el DUEÑO de la VENTA SIMPLE (type 0/3) ---------
+        // processData ya NO procesa ventas simples — las posee SaleService nuevo
+        // (api/lib/Sales/SaleService). El legacy sólo retiene type 0/3 NO-simples
+        // (giftcard, factura electrónica, puntos, storeCredit, recurrente, parent…).
+        // Si una venta simple llega acá es un leak de ruteo del front: la RECHAZAMOS
+        // (ifIstrue=false → la cola la manda a orphans → reintenta SaleService) en vez
+        // de guardarla por el path legacy. Misma regla COMPARTIDA que
+        // SaleInput::assertSimplePathEligible (saleIsSimplePathEligible, sin duplicar).
+        if (in_array((string) ($data['type'] ?? ''), ['0', '3'], true)
+            && saleIsSimplePathEligible($data, is_array($data['sale']) ? $data['sale'] : []) === null) {
+          jsonDieMsg('Venta simple → la procesa SaleService (path legacy deprecado 35a.8)', 409, 'error');
+        }
+
         $db->StartTrans();
 
         //realizo un check para ver si esta venta ya se añadió. para evitar loops desde la app y que sobrecarguen la DB con duplicados

@@ -4334,6 +4334,58 @@ function jsonDieMsg($msg='true',$code=401,$type='error'){
     die(json_encode([$type=>$msg]));
 }
 
+/**
+ * ¿Es esta una VENTA SIMPLE (cashsale/creditsale puro) elegible para SaleService?
+ *
+ * FUENTE ÚNICA DE VERDAD de la elegibilidad del path simple (35a), COMPARTIDA por
+ * ambos tiers para no duplicar la regla:
+ *   - api/lib/Sales/SaleInput::assertSimplePathEligible() (tier API) — lanza 422 si NO.
+ *   - processData en app/action.php (tier legacy)            — RECHAZA las que SÍ lo son
+ *     (SaleService las posee desde 35a.8; el legacy sólo retiene type 0/3 NO-simples).
+ *
+ * Devuelve null si la venta es simple-elegible; si no, el motivo por el cual no lo es.
+ * Paths no-simples diferidos a sub-slices futuros (EI 35b, giftcard 35c, sesiones 35d,
+ * inCredit 35e, recurrente 35f) — esos siguen en el legacy hasta migrarse.
+ *
+ * @param array<string,mixed>            $payload La transacción (dict) — claves del front.
+ * @param array<int,array<string,mixed>> $sale    payload['sale'] CRUDO (sin sanitizar).
+ */
+function saleIsSimplePathEligible(array $payload, array $sale): ?string
+{
+	if (!empty($payload['electronicInvoicePY']) && is_array($payload['electronicInvoicePY'])) {
+		return 'Venta con factura electrónica no soportada en este path (usar legacy)';
+	}
+	if (!empty($payload['repeat'])) {
+		return 'Venta recurrente no soportada en este path (usar legacy)';
+	}
+	if (!empty($payload['parentId'])) {
+		return 'Venta con parentId no soportada en este path (usar legacy)';
+	}
+	// Pagos que MODIFICAN balances del cliente (puntos / crédito interno / gift card).
+	foreach (($payload['payment'] ?? []) as $pay) {
+		$payType = (string) ($pay['type'] ?? '');
+		if (in_array($payType, ['points', 'storeCredit', 'giftcard'], true)) {
+			return "Pago con '{$payType}' no soportado en este path (modifica balance — usar legacy)";
+		}
+	}
+	foreach ($sale as $item) {
+		$itemType = (string) ($item['type'] ?? '');
+		if ($itemType === 'discount') {
+			continue; // las líneas de descuento no llevan itemId — válidas
+		}
+		if (!empty($item['giftcardId'])) {
+			return 'Venta de gift card no soportada en este path (usar legacy)';
+		}
+		if (isset($item['duration']) && (float) $item['duration'] > 0) {
+			return 'Venta con sesiones agendadas no soportada en este path (usar legacy)';
+		}
+		if (empty($item['itemId'])) {
+			return 'Línea de venta sin itemId (crédito interno) no soportada en este path (usar legacy)';
+		}
+	}
+	return null;
+}
+
 function jsonDieResult($array,$code=200){
 	http_response_code($code);
 	header('Content-Type: application/json');
