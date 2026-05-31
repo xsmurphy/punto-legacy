@@ -117,8 +117,12 @@ final class SaleService
             $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
 
             // ── B10 (35c.1): redención de gift card — debita el saldo usado ────
-            // (points/storeCredit siguen rechazados en eligibility; giftcard migró).
             $this->persistGiftCardRedemptions($input);
+
+            // ── B10 (35e): débito de points y storeCredit del cliente ─────────
+            // (manageCustomerLoyalty/StoreCredit 'used' vía helpers legacy dentro
+            //  de la tx; se saltan si no hay cliente).
+            $this->persistBalanceRedemptions($input);
 
             // ── B10: loyalty EARNED (cash/card; points/storeCredit/giftcard NO
             //         ganan puntos — mismo guard que el legacy) ────────────────
@@ -584,6 +588,61 @@ final class SaleService
     }
 
     /**
+     * B10 (35e) — débito de puntos y crédito de tienda usados como pago.
+     * Port de la rama points/storeCredit del payment loop del legacy (action.php:2446-2449).
+     * Reutiliza los helpers existentes (ya corregidos para PG: parametrizados,
+     * sin $db->Prepare) dentro de la misma transacción de save().
+     *
+     * Gate: requiere clientId (sin cliente no hay balance que debitar). El legacy
+     * usaba `$client` que nunca es null en este contexto; los requerimos igualmente.
+     */
+    private function persistBalanceRedemptions(SaleInput $input): void
+    {
+        if ($input->clientId === null) {
+            return; // sin cliente no hay puntos ni crédito que debitar
+        }
+        foreach ($input->payment as $pay) {
+            $type   = (string) ($pay['type'] ?? '');
+            $amount = (float)  ($pay['price'] ?? 0);
+            if ($amount <= 0) {
+                continue;
+            }
+            if ($type === 'points') {
+                // Debita contactLoyaltyAmount del cliente.
+                manageCustomerLoyalty('used', $amount, $input->clientId, $this->ctx->companyId);
+            } elseif ($type === 'storeCredit') {
+                // Debita contactStoreCredit del cliente.
+                manageCustomerStoreCredit('used', $amount, $input->clientId, $this->ctx->companyId);
+            }
+        }
+    }
+
+    /**
+     * B8 (35e) — item inCredit: acredita crédito interno (contactStoreCredit) al cliente.
+     * Port del bloque inCredit del items loop del legacy (action.php:2379-2382).
+     *
+     * Fix vs legacy: el legacy concatenaba $sD['total'] crudo en el SQL → SQLi.
+     * Acá usamos UPDATE parametrizado.
+     *
+     * El item `inCredit` no tiene itemId → no genera itemSold ni mueve stock;
+     * solo actualiza el saldo de crédito del cliente.
+     *
+     * @param array<string,mixed> $sD item sanitizado (saleArraySanitizer)
+     */
+    private function persistInCreditItem(array $sD, string $clientId, string $companyId): void
+    {
+        $amount = (float) ($sD['total'] ?? 0);
+        if ($amount <= 0) {
+            return;
+        }
+        $this->db->Execute(
+            "UPDATE contact SET contactStoreCredit = contactStoreCredit + ?, updated_at = ? WHERE contactId = ?",
+            [$amount, TODAY, $clientId]
+        );
+        updateLastTimeEdit($companyId, 'customer');
+    }
+
+    /**
      * B10 (35c.1) — redención de gift cards usadas como pago. Port de la rama
      * `giftcard` del payment loop del legacy (action.php:2450-2452 → manageGiftCard).
      * Corre DENTRO de la transacción de save(): si la venta aborta, el débito del
@@ -875,7 +934,13 @@ final class SaleService
                 $this->sellGiftCard($sD, $transId, $input);
             }
             if (empty($sD['itemId'])) {
-                continue; // sin itemId (p.ej. gift card pura) → no hay itemSold ni stock
+                // inCredit (35e): item sin itemId que acredita crédito interno al cliente.
+                // Fix vs legacy (action.php:2380): el legacy concatenaba $sD['total'] crudo
+                // (SQLi); acá parametrizamos. Requiere cliente — sin él, skip (igual legacy).
+                if (($sD['type'] ?? '') === 'inCredit' && $input->clientId !== null) {
+                    $this->persistInCreditItem($sD, $input->clientId, $companyId);
+                }
+                continue; // sin itemId → no hay itemSold ni stock
             }
 
             $itemId  = (string) $sD['itemId'];

@@ -4361,26 +4361,24 @@ function saleIsSimplePathEligible(array $payload, array $sale): ?string
 	if (!empty($payload['parentId'])) {
 		return 'Venta con parentId no soportada en este path (usar legacy)';
 	}
-	// Pagos que MODIFICAN balances del cliente aún no migrados (puntos / crédito interno).
-	// `giftcard` se migró en 35c.1 (redención en SaleService::persistGiftCardRedemptions).
-	foreach (($payload['payment'] ?? []) as $pay) {
-		$payType = (string) ($pay['type'] ?? '');
-		if (in_array($payType, ['points', 'storeCredit'], true)) {
-			return "Pago con '{$payType}' no soportado en este path (modifica balance — usar legacy)";
-		}
-	}
+	// Todos los pagos que modifican balance están migrados en SaleService:
+	//   giftcard    → 35c.1  (persistGiftCardRedemptions)
+	//   points      → 35e    (persistBalanceRedemptions)
+	//   storeCredit → 35e    (persistBalanceRedemptions)
+	// No quedan pagos rechazados por modificar balance.
+
 	foreach ($sale as $item) {
 		$itemType = (string) ($item['type'] ?? '');
-		// `discount`: líneas sin itemId, válidas. `giftcard`: VENTA de gift card —
-		// migrada en 35c.2 (SaleService::sellGiftCard crea el giftCardSold; puede no
-		// tener itemId). Ambas se saltean del check de itemId de abajo.
-		if ($itemType === 'discount' || $itemType === 'giftcard') {
+		// Líneas que pueden no tener itemId y son válidas:
+		//   discount → sin itemSold/stock
+		//   giftcard → 35c.2 (crea giftCardSold)
+		//   inCredit → 35e   (acredita contactStoreCredit del cliente)
+		if (in_array($itemType, ['discount', 'giftcard', 'inCredit'], true)) {
 			continue;
 		}
-		// `duration > 0` (sesiones agendadas) migrado en 35d — SaleService las crea
-		// vía persistScheduledSessions. No se rechaza más acá.
+		// `duration > 0` migrado en 35d (persistScheduledSessions). No se rechaza.
 		if (empty($item['itemId'])) {
-			return 'Línea de venta sin itemId (crédito interno) no soportada en este path (usar legacy)';
+			return 'Línea de venta sin itemId no soportada en este path (usar legacy)';
 		}
 	}
 	return null;
