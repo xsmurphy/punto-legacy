@@ -22,12 +22,30 @@ if ($action === 'itemInfo') {
     if ($itemId === '') {
         bffJson(['ok' => false, 'error' => 'Falta id'], 422);
     }
-    $res = bffApiGet('v1/items.php', ['id' => $itemId, 'resource' => 'info'], '_jwt');
-    if (!$res['ok']) {
-        bffFailFromApi($res);
+
+    // PATRÓN BFF-compone (§22.12): la API expone `core` (campos del ítem) e
+    // `inventory` (stock por outlet) por separado; el BFF los pide EN PARALELO y
+    // mergea. ENSAMBLAJE PURO — sin cómputo de rollup en el BFF (a diferencia de
+    // drawer §22.12.1, que computa totales financieros).
+    $ep    = 'v1/items.php';
+    $parts = bffApiGetMulti([
+        'core'      => ['path' => $ep, 'query' => ['id' => $itemId, 'resource' => 'core']],
+        'inventory' => ['path' => $ep, 'query' => ['id' => $itemId, 'resource' => 'inventory']],
+    ], '_jwt');
+
+    // `core` es dependencia DURA: incluye el 404 del ítem (no existe / no es del tenant).
+    if (!$parts['core']['ok']) {
+        bffFailFromApi($parts['core']);
     }
+    $item = $parts['core']['data'];
+
+    // `inventory` es INFORMATIVO → degradación graceful (igual que customerInfo, NO
+    // fail-closed como el rollup financiero de drawer): si falla, mostramos el ítem
+    // con inventario vacío en vez de bloquear todo el modal de detalle.
+    $item['inventory'] = $parts['inventory']['ok'] ? ($parts['inventory']['data']['inventory'] ?? []) : [];
+
     // El front pasa data directo a Mustache — devolver el objeto crudo (sin envolver).
-    bffJson($res['data']);
+    bffJson($item);
 }
 
 bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
