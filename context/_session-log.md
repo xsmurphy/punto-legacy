@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-31 — Slice 35f COMPLETO — HITO MAYOR: STRANGLER processData→SaleService COMPLETO para type 0/3 (commit d23ead1)
+
+- **35f COMPLETO**: ventas recurrentes migradas del legacy `processData` (action.php:2390-2411) al SaleService. Último path de balance/comportamiento que el legacy retenía (salvo EI/35b y parentId).
+- **`SaleInput`**: nuevos campos `repeat (bool)`, `repeatF (string — daily/weekly/monthly/quarterly/yearly)`, `repeatT (int — número de repeticiones)`.
+- **`saleIsSimplePathEligible` (functions.php)**: elimina el rechazo de `repeat=true` — era el ÚLTIMO rechazo migrado. Solo quedan rechazados: EI (35b), parentId, e ítems sin itemId de tipo desconocido. Para ventas type 0/3 sin EI ni parentId, la elegibilidad es siempre NULL (van por SaleService).
+- **`SaleService::persistRecurring` (NUEVO)**: si `repeat=true AND type=Creditsale`, INSERT en tabla `recurring` dentro de la tx de `save()`. Calcula `nextDate` y `endDate` con `getNextDatePeriod`. `recurringTransactionData` = JSON con shape canónico `{action:"processData", companyId, outletId, userId, roleId, registerId}` (el cron espera este shape para re-someter vía `?l=base64(txData)`). `recurringSaleData` = payload completo con `repeat=false` (evita loop en re-submisión). `data` JSONB anidado (§22.6). Verificado E2E: creditsale monthly×3 → fila `recurring` con action/IDs correctos, `data.recurringSaleData` presente, len(txData)=236 < 255.
+- **DEUDA cron JWT (pre-existente, no causada por 35f)**: `panel/crons/cronCreateRecurringInvoice.php` re-somete a `action.php` sin JWT → 401. El cron necesita refactorizarse para mintar un JWT de servicio antes de re-someter. La tabla `recurring` se llena correctamente; el problema es del cron, no del write.
+- **ESTADO FINAL DEL STRANGLER (hito mayor)**: SaleService cubre el ~100% del tráfico real de ventas type 0/3: 35a (venta simple) + 35c (gift card) + 35d (sesiones) + 35e (balance: storeCredit/points/inCredit) + 35f (recurrente) ✅. processData retiene SÓLO: EI (35b, diferida) y parentId (edge raro). La elegibilidad ahora es siempre NULL para cualquier venta cashsale/creditsale sin EI ni parentId.
+- **Vault actualizado**: `02-arquitectura.md` (tabla guardado de ventas: 35f ✅, `saleIsSimplePathEligible` actualizada con 35f como último rechazo migrado, métodos SaleService `persistRecurring` + SaleInput campos nuevos), `10-roadmap.md` (35f ✅ con hito strangler completo, estado processData post-35f, deuda cron JWT, estado final strangler en bloque 35e/35f, SaleService métodos actualizados).
+
 ## 2026-05-31 — Slice 35e COMPLETO: storeCredit / points / inCredit en SaleService (commit 1da19e6)
 
 - **35e COMPLETO**: los tres flujos que modifican balance del cliente migrados del legacy `processData` (action.php:2446-2449 + 2379-2382) al SaleService. Todos los payments que debitan/acreditan balance del cliente están ahora fuera del legacy.
