@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-31 — Tercer pilot API granular + BFF compone: items/getInfo (commit 2bca565)
+
+- **TERCER PILOT §22.12 (commit 2bca565)**: `ItemService::getInfo` (endpoint fat: ítem core + inventario por outlet en un solo método) descompuesto al patrón API granular + BFF compone. `getCore()` devuelve campos del ítem + nombres de FK (category/brand/tax/type); `getInventory()` devuelve stock por outlet/depósito (sólo si `itemTrackInventory`; `[]` si no — self-contained con PK lookup barato). API expone `?resource=core|inventory`. `getInfo()` queda como composite backward-compat.
+- **ENSAMBLAJE PURO**: el BFF (`app/bff/items.php`) pide `core` + `inventory` EN PARALELO (`bffApiGetMulti`) y mergea sin calcular rollup alguno. Sin deuda de fórmula duplicada (§22.12.2). `core` = dependencia dura (lleva el 404); `inventory` = informativo → degradación graceful (consistente con `customerInfo`, NO fail-closed como el rollup financiero de `drawer`).
+- **SEGUNDO CASO ensamblaje-puro-graceful** junto a `customerInfo`; contrasta con el fail-closed financiero de `drawer`. La taxonomía del patrón queda completa con tres pilots: graceful/puro (customer, items) vs fail-closed/rollup (drawer).
+- **Verificado E2E**: byte-idéntico al composite legacy — ítem con tracking (inventario no-trivial: depósitos, totales, qty negativa), ítem sin tracking (`inventory:[]`), y propagación del 404.
+- **Vault actualizado**: `08-convenciones.md` §22.12 (pilot 3); `02-arquitectura.md` (pilot 3 en lista de pilots verificados).
+
 ## 2026-05-31 — Segundo pilot API granular + BFF compone: getSummary (cierre de caja) + sub-reglas fail-closed y rollup duplicado (commit 8aff931)
 
 - **SEGUNDO PILOT §22.12 (commit 8aff931)**: `DrawerService::getSummary` (endpoint fat que armaba toda la pantalla del cierre de caja) descompuesto al patrón API granular + BFF compone. Recursos granulares en `api/v1/drawer.php`: `?resource=open|expenses|income|salesByPayment` (los 3 últimos filtran por `since`; registerId/outletId/companyId del JWT). `composeSummary()` extraída a función pura (sin DB). `getSummary()` queda como composite backward-compat. BFF `app/bff/drawer.php` fetch `open` → 3 hijos EN PARALELO vía `bffApiGetMulti` con `since=drawerOpenDate` → `drawerComposeSummary()`. Output verificado BYTE-IDÉNTICO al legacy (drawer vacío + con extracción/propina/ingreso no-cero).

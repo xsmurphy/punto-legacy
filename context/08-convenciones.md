@@ -791,6 +791,8 @@ async function postSale(payload, legacyFallback) {
 
 **Pilot 2 verificado**: `getSummary` (cierre de caja) en `app/bff/drawer.php` — 4 recursos granulares en `api/v1/drawer.php` (`?resource=open|expenses|income|salesByPayment`). El BFF fetch `open` → 3 hijos EN PARALELO con `since=drawerOpenDate` → `drawerComposeSummary()` (rollup financiero). Output BYTE-IDÉNTICO al composite legacy `getSummary()` (drawer vacío + con extracción/propina/ingreso no-cero, tips/subtotal/total correctos). `getSummary()` queda como composite legacy/backward-compat. Ver nota de deuda §22.12.1 abajo.
 
+**Pilot 3 verificado**: `items/getInfo` en `app/bff/items.php` — 2 recursos granulares en `api/v1/items.php` (`?resource=core|inventory`). `core` = campos del ítem + nombres de FK (category/brand/tax/type); dependencia DURA (lleva el 404). `inventory` = stock por outlet/depósito (sólo si `itemTrackInventory`; `[]` si no); informativo → **degradación graceful** (igual que `customerInfo`, NO fail-closed). BFF pide ambos EN PARALELO (`bffApiGetMulti`) y mergea. Ensamblaje PURO — sin cómputo de rollup (sin deuda §22.12.2). `getInfo()` queda como composite backward-compat. Output verificado BYTE-IDÉNTICO al composite legacy (ítem con tracking, sin tracking, y 404). Segundo caso de ensamblaje-puro-graceful junto a `customerInfo`; contrasta con el fail-closed financiero de `drawer`. (commit 2bca565, 2026-05-31)
+
 ### §22.12.1 — Sub-regla: FAIL-CLOSED para datasets financieros (establecido 2026-05-31, commit 8aff931)
 
 **Regla**: cuando el dataset compuesto por el BFF es un **rollup financiero** (cierre de caja, totales de dinero, saldos), el BFF debe ser **FAIL-CLOSED** — si cualquier recurso hijo falla, cortar con su error en vez de degradar a cero o parcial.
