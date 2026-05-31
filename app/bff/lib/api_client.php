@@ -22,7 +22,10 @@ function bffApiGet(string $path, array $query = [], string $cookieName = '_jwt')
     if ($query) {
         $url .= '?' . http_build_query($query);
     }
-    return bffApiSend($url, null, $cookieName);
+    // IMPORTANTE: pasar 'GET' explícito. Sin esto bffApiSend defaultea a 'POST'
+    // (CURLOPT_POST) → la API recibe POST y todos los endpoints que gatean
+    // `$method === 'GET'` (§22.7: reads) responden "Operación no reconocida".
+    return bffApiSend($url, null, $cookieName, 'GET');
 }
 
 function bffApiPost(string $path, array $data = [], string $cookieName = '_jwt'): array
