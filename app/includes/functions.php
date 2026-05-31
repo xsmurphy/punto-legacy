@@ -1046,7 +1046,8 @@ function getCurrentOutletName($id=false){
 
 	$id = ($id) ? $id : OUTLET_ID;
 
-	$obj = $db->Execute("SELECT outletName FROM outlet WHERE outletId = ".$id);
+	// PG: UUID entre comillas (§22.5).
+	$obj = $db->Execute("SELECT outletName FROM outlet WHERE outletId = '".$id."'");
 	
 	if(validity($obj->fields['outletName'])){
 		return $obj->fields['outletName'];
@@ -2978,11 +2979,17 @@ function manageStock($ops){
 	}
 
 	$stock 				= getItemStock($itemId);
-	$oldStock			= is_numeric(array_key_exists("stockOnHand",is_array($stock) ? $stock : []) ? $stock['stockOnHand'] : "") ? $stock['stockOnHand'] : 0;
-	$oldACOGS			= is_numeric(array_key_exists("stockOnHandCOGS",is_array($stock) ? $stock : []) ? $stock['stockOnHandCOGS'] : "") ? $stock['stockOnHandCOGS'] : 0;
+	// ncmExecute devuelve un CaseInsensitiveArray (objeto ArrayAccess), NO un array
+	// nativo → `is_array($stock)` daba false y oldStock/COGS caían a 0 (rompía el
+	// cálculo de inventario: el stock quedaba en -count en vez de oldStock-count).
+	// `isset()` SÍ rutea por offsetExists del ArrayAccess (case-insensitive); el
+	// acceso `$stock['stockOnHand']` también resuelve la key lowercase de PG.
+	$hasStock			= ($stock instanceof \ArrayAccess) || is_array($stock);
+	$oldStock			= ($hasStock && isset($stock['stockOnHand']) && is_numeric($stock['stockOnHand'])) ? $stock['stockOnHand'] : 0;
+	$oldACOGS			= ($hasStock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS'])) ? $stock['stockOnHandCOGS'] : 0;
 
 	if(!validity($COGS)){
-		$COGS = array_key_exists("stockCOGS",is_array($stock) ? $stock : []) ? $stock['stockCOGS'] : "";
+		$COGS = ($hasStock && isset($stock['stockCOGS'])) ? $stock['stockCOGS'] : "";
 	}
 
 	if($type == '+'){
@@ -3016,12 +3023,15 @@ function manageStock($ops){
 	$row['stockOnHand']   	= $newOnHand;
 	$row['stockOnHandCOGS'] = $newTotalCOGS;
 	$row['itemId'] 			= $itemId;
-	$row['transactionId']	= iftn($transaction,NULL);
+	// PG: columnas UUID rechazan "". iftn($x, NULL) NO devuelve NULL (la 1ª línea de
+	// iftn convierte el default NULL a '') → usamos `?: null` para mandar NULL real
+	// cuando transactionId/supplierId/locationId vienen vacíos.
+	$row['transactionId']	= $transaction ?: null;
 	$row['userId'] 			= $user;
-	$row['supplierId'] 		= iftn($supplier,NULL);
+	$row['supplierId'] 		= $supplier ?: null;
 	$row['outletId'] 		= $outlet;
-	$row['locationId'] 		= $location;
-	
+	$row['locationId'] 		= $location ?: null;
+
 	$row['companyId']		= $company;
 
 	if($date){
@@ -3033,19 +3043,26 @@ function manageStock($ops){
     if($insert !== true){
     	return false;
     }else{
-    	updateRowLastUpdate('item','itemId = ' . $itemId);
+    	// PG: UUIDs DEBEN ir entre comillas en SQL string concat (§22.5). Sin esto el
+    	// WHERE `itemId = <uuid>` es syntax error → aborta la transacción → la venta
+    	// entera rollea en silencio (el commit de una tx PG abortada hace rollback).
+    	updateRowLastUpdate('item',"itemId = '" . $itemId . "'");
     	if($location){
     		$isLocation = ncmExecute('SELECT toLocationId FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',[$location,$itemId]);
     		if($isLocation){
-				$db->Execute('UPDATE toLocation SET toLocationCount = toLocationCount' . $type . $count . ' WHERE toLocationId = ' . $isLocation['toLocationId']);
+				$db->Execute("UPDATE toLocation SET toLocationCount = toLocationCount" . $type . $count . " WHERE toLocationId = '" . $isLocation['toLocationId'] . "'");
 			}else{
 	    		$db->AutoExecute('toLocation', ['locationId' => $location, 'toLocationCount' => $type . $count, 'itemId' => $itemId], 'INSERT');
 	    	}
     	}
 		try {
-			$userName = getValue('contact', 'contactName', 'WHERE contactId = ' . USER_ID);
-            $registerName = getValue('register', 'registerName', 'WHERE registerId = ' . REGISTER_ID);
-            $companyName = getValue('setting', 'settingName', 'WHERE companyId = ' . COMPANY_ID);
+			// PG: UUIDs entre comillas (§22.5). El bloque de auditoría está en try/catch
+			// pero un UUID sin comillas igual abortaría la tx en PG y envenenaría el commit.
+			// La tabla `setting` NO existe en PG (settings viven en company.config) →
+			// usamos la constante COMPANY_NAME que data.php ya resolvió.
+			$userName = getValue('contact', 'contactName', "WHERE contactId = '" . USER_ID . "'");
+            $registerName = getValue('register', 'registerName', "WHERE registerId = '" . REGISTER_ID . "'");
+            $companyName = defined('COMPANY_NAME') ? COMPANY_NAME : '';
             $outletName = getCurrentOutletName(OUTLET_ID);
 			$itemName = getItemName($itemId);
 

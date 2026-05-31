@@ -85,6 +85,12 @@ final class SaleService
         $saleDetail = saleArraySanitizer($input->sale);
         $totalUnits = countUnitSold($saleDetail);
 
+        // ── Pre-flight: items con sesiones → no es path simple ──────────────
+        // Se chequea ANTES de StartTrans: si algún item tiene sesiones (y hay
+        // cliente), el legacy crearía citas (35d). Rechazar acá evita dejar una
+        // transacción colgada (el throw mid-tx no haría rollback limpio).
+        $this->assertNoScheduledItems($input, $saleDetail);
+
         // ── B1: resolver userId + responsibleId ──────────────────────────────
         // (action.php:1935) Si el user del request ≠ el del JWT, registramos
         // el JWT como responsable (quien realmente operó la caja).
@@ -112,17 +118,34 @@ final class SaleService
         // que ensuciarían el error real). Corren dentro de la misma transacción.
         if ($insertOk !== false && !empty($transId)) {
             $this->persistRelations($input, (string) $transId);
+
+            // ── B8: itemSold + COGS + comisiones + manageStock (inventario) ──
+            $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
         }
 
-        // ── B11 (parcial, ya acá para cerrar el trans del sub-slice) ────────
-        // Los bloques B8-B10 (itemSold/manageStock/loyalty) entrarán entre el INSERT
-        // y el ErrorMsg en sub-slices 35a.4-35a.5. Por ahora cerramos para que el
-        // sub-slice deje el código en estado funcional (la venta básica se commitea).
+        // ── B11: cerrar la transacción ──────────────────────────────────────
+        // (Los bloques B10 loyalty/storeCredit entran en sub-slice 35a.5, antes
+        // de este cierre.)
         $dbError = $this->db->ErrorMsg();
         $failed  = $this->db->HasFailedTrans();
         $this->db->CompleteTrans();
 
-        if ($failed || $insertOk === false || empty($transId)) {
+        // ── Verificación post-commit (CRÍTICA, §22.8.1) ─────────────────────
+        // El wrapper hace pdo->commit() siempre que transOk; pero un COMMIT sobre
+        // una tx PG ABORTADA (cualquier statement falló sin FailTrans) hace ROLLBACK
+        // silencioso y devuelve true. HasFailedTrans() no lo refleja. Sin esta
+        // verificación, una venta que rolleó reportaría success → plata/inventario
+        // fantasma. Confirmamos con un SELECT que la fila realmente persistió.
+        $persisted = false;
+        if ($insertOk !== false && !empty($transId)) {
+            $check = $this->db->Execute(
+                'SELECT transactionId FROM transaction WHERE transactionId = ? LIMIT 1',
+                [(string) $transId]
+            );
+            $persisted = $check && !$check->EOF;
+        }
+
+        if ($failed || $insertOk === false || empty($transId) || !$persisted) {
             // Safety-net contra race condition: si dos requests concurrentes pasan
             // el dupli check (UNIQUE en `transactionUID` previene el doble INSERT),
             // el segundo cae acá con SQLSTATE 23505. Lo convertimos a duplicate
@@ -132,7 +155,7 @@ final class SaleService
             }
             throw new SaleAbortedException(
                 dbError: $dbError !== '' ? $dbError : null,
-                message: 'Sale transaction aborted in INSERT',
+                message: 'Sale transaction aborted (no persistió tras commit)',
             );
         }
 
@@ -293,6 +316,207 @@ final class SaleService
                 }
                 // Tag inexistente o de otro tenant → omitido (no aborta la venta).
             }
+        }
+    }
+
+    /**
+     * Pre-flight: rechaza la venta si algún item tiene sesiones configuradas
+     * (`itemSessions > 0`) y hay cliente — eso dispara la creación de citas en
+     * el legacy (B8 sesiones), que es 35d. Corre ANTES de StartTrans para no
+     * dejar transacciones colgadas. `itemSessions` vive en la BD (no en el
+     * payload), por eso no lo cubre SaleInput::assertSimplePathEligible.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     */
+    private function assertNoScheduledItems(SaleInput $input, array $saleDetail): void
+    {
+        if ($input->clientId === null) {
+            return; // sin cliente, el legacy no crea sesiones aunque el item las tenga
+        }
+        foreach ($saleDetail as $sD) {
+            if (($sD['type'] ?? '') === 'discount' || empty($sD['itemId'])) {
+                continue;
+            }
+            // itemSessions está DEMOTED a la columna `data` JSONB → DEBE leerse con
+            // ncmExecute (aplica _flattenJsonb y expone la key); con $this->db->Execute
+            // crudo la key no existe y $sessions sería siempre 0 (guard muerto). §22.8.
+            $row = ncmExecute(
+                'SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [(string) $sD['itemId'], $this->ctx->companyId]
+            );
+            $sessions = (is_array($row) || $row instanceof \ArrayAccess) ? (int) ($row['itemSessions'] ?? 0) : 0;
+            if ($sessions > 0) {
+                throw new InvalidSaleInputException(
+                    "Item {$sD['itemId']} tiene sesiones agendadas — no soportado en este path (usar legacy)"
+                );
+            }
+        }
+    }
+
+    /**
+     * Loop de items de la venta: itemSold + COGS + comisiones + descuento de
+     * inventario (B8 del legacy, action.php:2105-2253). Corre dentro de la
+     * transacción abierta en save().
+     *
+     * Solo el path SIMPLE: la elegibilidad (SaleInput::assertSimplePathEligible)
+     * ya garantizó que NO hay gift cards, sesiones, líneas de crédito ni items
+     * sin itemId. Los combos/compounds SÍ se procesan (son productos normales).
+     *
+     * Excluido vs el legacy (entra en sub-slices futuros):
+     *   - sesiones agendadas (itemSessions > 0) → 35d  [guard defensivo abajo]
+     *   - gift cards → 35c
+     *   - inCredit storeCredit → 35a.5 (payment loop; además dead en legacy)
+     *   - devolución type=6 (manageStock source='return') → 35e
+     *
+     * Reusa helpers globales del legacy (manageStock, getItemStock, etc.) — leen
+     * COMPANY_ID/OUTLET_ID/USER_ID de constantes y escriben con el `global $db`
+     * (mismo objeto inyectado), corriendo en la misma transacción. Deuda §22.9.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     */
+    private function persistItemsAndStock(SaleInput $input, string $transId, array $saleDetail): void
+    {
+        // El loop hardcodea source='sale'/type='-' (descuento de inventario). Las
+        // DEVOLUCIONES (type=6) necesitan source='return'/type='+' y flipOnReturn
+        // invirtiendo signos — eso es 35e. SaleInput::fromPayload ya garantiza
+        // type ∈ {0,3} (Cashsale/Creditsale) vía isSimplePathEligible, pero lo
+        // afirmamos acá para que el invariante sea explícito en el money path.
+        if (!$input->type->isSimplePathEligible()) {
+            throw new InvalidSaleInputException(
+                'persistItemsAndStock solo soporta cashsale/creditsale; type=' . $input->type->value
+            );
+        }
+
+        $typeStr   = (string) $input->type->value;
+        $companyId = $this->ctx->companyId;
+
+        foreach ($saleDetail as $sD) {
+            if (($sD['type'] ?? '') === 'discount') {
+                continue; // las líneas de descuento no generan itemSold ni mueven stock
+            }
+
+            $itemId  = (string) $sD['itemId'];
+            $itmData = $this->db->Execute(
+                'SELECT itemType, itemPrice FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [$itemId, $companyId]
+            );
+            $itemType  = ($itmData && !$itmData->EOF) ? (string) ($itmData->fields['itemtype'] ?? '') : '';
+            $itemPrice = ($itmData && !$itmData->EOF) ? (float) ($itmData->fields['itemprice'] ?? 0) : 0.0;
+
+            // ── comisión del usuario asignado a la línea (si tiene fija > 0) ──
+            // contactFixedComission está DEMOTED a `data` JSONB → ncmExecute (flatten),
+            // NO $this->db->Execute crudo (la key no existiría → comisión fija nunca
+            // se aplicaría = divergencia financiera vs legacy). §22.8.
+            $userComission = false;
+            if (!empty($sD['user'])) {
+                $contactRow = ncmExecute(
+                    'SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                    [(string) $sD['user'], $companyId]
+                );
+                if (is_array($contactRow) || $contactRow instanceof \ArrayAccess) {
+                    $fixed = (float) ($contactRow['contactFixedComission'] ?? 0);
+                    if ($fixed > 0) {
+                        $userComission = $fixed;
+                    }
+                }
+            }
+
+            $comissionTotal = ($sD['type'] ?? '') === 'inCombo'
+                ? $itemPrice * (float) $sD['count']
+                : (float) $sD['total'];
+
+            $comission = $userComission !== false
+                ? getUserComissionTotal($comissionTotal, $userComission)
+                : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
+
+            // ── COGS según tipo de item ─────────────────────────────────────
+            $itemSoldCOGS = [];
+            if ($itemType === 'direct_production') {
+                $itemSoldCOGS['stockOnHandCOGS'] = getProductionCOGS($itemId);
+            } elseif (in_array($itemType, ['precombo', 'combo'], true)) {
+                $itemSoldCOGS['stockOnHandCOGS'] = getComboCOGS($itemId);
+            } else {
+                $itemSoldCOGS = getItemStock($itemId);
+            }
+            $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
+                ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
+                : null;
+
+            // ── INSERT itemSold ─────────────────────────────────────────────
+            $records = [
+                'itemSoldTotal'     => flipOnReturn($typeStr, $sD['total']),
+                'itemSoldTax'       => flipOnReturn($typeStr, addTax($sD['tax'], $sD['total'])),
+                'itemSoldDiscount'  => flipOnReturn($typeStr, $sD['totalDiscount']),
+                'itemSoldUnits'     => flipOnReturn($typeStr, $sD['count']),
+                'itemSoldComission' => flipOnReturn($typeStr, $comission),
+                'itemSoldCOGS'      => flipOnReturn($typeStr, $cogsVal),
+                'itemSoldParent'    => !empty($sD['parent']) ? $sD['parent'] : null,
+                'itemId'            => $itemId,
+                'itemSoldDate'      => $input->date,
+                'transactionId'     => $transId,
+                'userId'            => !empty($sD['user']) ? (string) $sD['user'] : null,
+            ];
+            if (($sD['type'] ?? '') === 'dynamic') {
+                $records['itemSoldDescription'] = markupt2HTML(['text' => $sD['note'] ?? '', 'type' => 'HtM']);
+            }
+            $this->db->AutoExecute('itemSold', $records, 'INSERT');
+
+            $units = (float) $sD['count'];
+
+            // ── compounds: descuenta el stock de los ingredientes ───────────
+            $compound = getCompoundsArray($itemId);
+            if (is_array($compound) && $compound !== []
+                && ($sD['type'] ?? '') !== 'combo' && ($sD['type'] ?? '') !== 'production') {
+                $allWaste = getAllWasteValue();
+                foreach ($compound as $comr) {
+                    $comid    = $comr['compoundId'];
+                    $comunits = (float) $comr['toCompoundQty'] * $units;
+                    $locRow   = $this->db->Execute(
+                        'SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                        [$comid, $companyId]
+                    );
+                    $comLoc   = ($locRow && !$locRow->EOF) ? ($locRow->fields['locationid'] ?? null) : null;
+
+                    $wasteP = $allWaste[$comid] ?? '';
+                    if ($wasteP > 0) {
+                        $comunits = getNeedWithWaste($comunits, $wasteP);
+                    }
+
+                    $source = (($sD['type'] ?? '') === 'direct_production') ? 'production' : 'sale';
+                    manageStock([
+                        'itemId'        => $comid,
+                        'outletId'      => $this->ctx->outletId,
+                        'date'          => TODAY,
+                        'locationId'    => $comLoc,
+                        'count'         => $comunits,
+                        'type'          => '-',
+                        'source'        => $source,
+                        'transactionId' => $transId,
+                        'timestamp'     => $input->timestamp,
+                    ]);
+                }
+            }
+
+            // ── descuento de inventario del item principal ──────────────────
+            // manageStock retorna false (no-op) si el item no es stockeable
+            // (itemTrackInventory < 1) — servicios/items sin stock venden OK.
+            $locRow = $this->db->Execute(
+                'SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [$itemId, $companyId]
+            );
+            $itemLoc = ($locRow && !$locRow->EOF) ? ($locRow->fields['locationid'] ?? null) : null;
+
+            manageStock([
+                'itemId'        => $itemId,
+                'outletId'      => $this->ctx->outletId,
+                'date'          => TODAY,
+                'locationId'    => $itemLoc,
+                'count'         => $units,
+                'type'          => '-',
+                'source'        => 'sale',
+                'transactionId' => $transId,
+                'timestamp'     => $input->timestamp,
+            ]);
         }
     }
 }

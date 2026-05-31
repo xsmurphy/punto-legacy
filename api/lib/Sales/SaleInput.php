@@ -99,6 +99,12 @@ final class SaleInput
             throw new InvalidSaleInputException('Falta date en el payload');
         }
 
+        // Defense-in-depth: SaleService solo cubre la VENTA SIMPLE. Rechazamos los
+        // payloads que requieren paths aún no migrados, para que el caller (front en
+        // 35a.7) los rute al legacy processData. El front ya hace este check antes de
+        // llamar; esto es la segunda línea por si entra un payload no-simple.
+        self::assertSimplePathEligible($payload, $sale);
+
         return new self(
             uid:        $uid,
             type:       $type,
@@ -122,6 +128,49 @@ final class SaleInput
             tags:       self::normalizeTags($payload['tags'] ?? null),
             taxObj:     isset($payload['taxObj']) && is_array($payload['taxObj']) ? $payload['taxObj'] : null,
         );
+    }
+
+    /**
+     * Rechaza payloads que NO son venta simple (cashsale/creditsale puro).
+     *
+     * Paths diferidos a sub-slices futuros — si alguno aparece, lanzamos
+     * InvalidSaleInputException (422) para que el caller use el legacy processData:
+     *   - electronicInvoicePY  → factura electrónica (35b)
+     *   - repeat               → venta recurrente (35f)
+     *   - parentId             → venta con padre (no path simple)
+     *   - item.giftcardId      → gift card (35c)
+     *   - item.duration > 0    → sesiones agendadas (35d)
+     *   - item sin itemId      → líneas de crédito/inCredit (35e/payment loop)
+     *
+     * @param array<string,mixed> $payload
+     * @param array<int,array<string,mixed>> $sale
+     */
+    private static function assertSimplePathEligible(array $payload, array $sale): void
+    {
+        if (!empty($payload['electronicInvoicePY']) && is_array($payload['electronicInvoicePY'])) {
+            throw new InvalidSaleInputException('Venta con factura electrónica no soportada en este path (usar legacy)');
+        }
+        if (!empty($payload['repeat'])) {
+            throw new InvalidSaleInputException('Venta recurrente no soportada en este path (usar legacy)');
+        }
+        if (!empty($payload['parentId'])) {
+            throw new InvalidSaleInputException('Venta con parentId no soportada en este path (usar legacy)');
+        }
+        foreach ($sale as $item) {
+            $itemType = (string) ($item['type'] ?? '');
+            if ($itemType === 'discount') {
+                continue; // las líneas de descuento no llevan itemId — válidas
+            }
+            if (!empty($item['giftcardId'])) {
+                throw new InvalidSaleInputException('Venta de gift card no soportada en este path (usar legacy)');
+            }
+            if (isset($item['duration']) && (float) $item['duration'] > 0) {
+                throw new InvalidSaleInputException('Venta con sesiones agendadas no soportada en este path (usar legacy)');
+            }
+            if (empty($item['itemId'])) {
+                throw new InvalidSaleInputException('Línea de venta sin itemId (crédito interno) no soportada en este path (usar legacy)');
+            }
+        }
     }
 
     /**
