@@ -3,6 +3,17 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-31 — Slice 35e COMPLETO: storeCredit / points / inCredit en SaleService (commit 1da19e6)
+
+- **35e COMPLETO**: los tres flujos que modifican balance del cliente migrados del legacy `processData` (action.php:2446-2449 + 2379-2382) al SaleService. Todos los payments que debitan/acreditan balance del cliente están ahora fuera del legacy.
+- **`saleIsSimplePathEligible` (functions.php)**: elimina el rechazo de payments `points` y `storeCredit`; añade `inCredit` a tipos-sin-itemId válidos (junto a `discount` y `giftcard`). Solo quedan rechazados: EI (35b), repeat (35f), parentId, ítems sin itemId de tipo desconocido.
+- **`SaleService::persistBalanceRedemptions` (NUEVO)**: itera payments, llama `manageCustomerLoyalty('used')` para `points` y `manageCustomerStoreCredit('used')` para `storeCredit` dentro de la tx. Gate: clientId null → no-op. Se llama en `save()` entre `persistGiftCardRedemptions` y `persistLoyaltyEarning`.
+- **`SaleService::persistInCreditItem` (NUEVO)**: UPDATE parametrizado `contactStoreCredit + amount`. Fix SQLi del legacy que concatenaba `$sD['total']` crudo. Gate: amount > 0 + clientId presente.
+- **`persistItemsAndStock`**: ítems sin itemId tipo `inCredit` + cliente → `persistInCreditItem` + continue (sin itemSold/stock, igual que el legacy).
+- **HITO MAYOR — estado del strangler tras 35e**: SaleService cubre TODOS los paths de venta cashsale/creditsale (35a) + gift card (35c) + sesiones (35d) + balance (35e). El legacy processData retiene TYPE 0/3 SÓLO para EI (35b, diferida) y recurrente (35f). La venta simple + giftcard + sesiones + balance está 100% en SaleService.
+- **Verificado E2E**: loyalty 5000→3000 (-2000 points); storeCredit 10000-4000+3000=9000 (débito + acreditación inCredit). code-reviewer sin P0/P1.
+- **Vault actualizado**: `02-arquitectura.md` (tabla guardado de ventas: 35e ✅, fuente única de elegibilidad, métodos SaleService post-35e), `10-roadmap.md` (35e ✅, estado processData post-35e como hito mayor, SaleService métodos actualizados, estado del strangler).
+
 ## 2026-05-31 — Slice 35d COMPLETO: sesiones agendadas en SaleService (commit 88a9dc9)
 
 - **35d COMPLETO**: sesiones agendadas migradas del legacy `processData`/`insertEmptySchedule` al SaleService.
