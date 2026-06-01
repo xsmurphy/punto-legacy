@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-05-31 (batch P0 higiene + seguridad)
+> **Última actualización:** 2026-06-01 (P1.5 — bff_init.php + decisión dos roles BFF)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -29,6 +29,23 @@ big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 | `be49ef4` | Paths `/home/encom/public_html` hardcoded → `__DIR__` relativo | ✅ |
 
 **Deuda de dominios hardcodeados** (parcialmente resuelta por `f35dcc8`/`b7714fd`/`be49ef4`): quedan `cors.php` allowlists y algunas refs en `.shtml`. Ver sección "Deuda: de-hardcode de dominios" más abajo.
+
+---
+
+## ✅ P1.5 — Refactor BFF: bff_init.php + decisión dos roles (2026-06-01)
+
+| Commit | Qué | Estado |
+|--------|-----|--------|
+| `9f30891` | **`app/bff/lib/bff_init.php` (NUEVO)** — extrae boilerplate común de los 19 BFFs (include api_client + auth guard JWT + decode `?l=` + setear `$action`). -148/+44 = **-104 líneas netas**. Lint 19/19 OK. E2E OK. | ✅ |
+
+**Decisión arquitectónica P1.5:** los BFFs de `/app/bff/` tienen DOS roles documentados:
+
+1. **Traductor de protocolo** (`?l=` → REST) — 16 de 19 BFFs. Decodifican el sobre legacy `masterUrlParams`, mapean acciones a verbos HTTP + resource params del API, shapean datos. Son traductores de dominio, no redirectores 1:1.
+2. **Compositor multi-fuente** (§22.12) — 3 BFFs: `customers`, `drawer`, `items`. Además de traducir, componen N recursos del API en paralelo con `bffApiGetMulti`.
+
+**No se creó un router único** (habría creado un switch de ~400 líneas menos debuggable). La estructura por dominio se mantiene.
+
+Ver `08-convenciones.md §22.13` para la receta completa y `02-arquitectura.md § Patrón "API granular + BFF compone"` para la infra de `bff_init.php`.
 
 ---
 

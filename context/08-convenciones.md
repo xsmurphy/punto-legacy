@@ -890,6 +890,62 @@ foreach ($results as $key => $raw) {
 
 ---
 
+### §22.13 — Dos roles del BFF de /app: Traductor de protocolo vs Compositor multi-fuente (decisión P1.5, commit 9f30891, 2026-06-01)
+
+**Contexto:** al analizar los 19 BFFs de `/app/bff/`, se los había etiquetado preliminarmente como "pass-through redundantes". Esa etiqueta era **incorrecta**. Los BFFs hacen trabajo real y tienen dos roles bien diferenciados:
+
+#### Rol 1 — Traductor de protocolo `?l=` → REST (16 de los 19 BFFs)
+
+El front del POS construye y envía un sobre `?l=base64(json)` legacy (`masterUrlParams`) para TODA su comunicación. El BFF es el responsable de:
+
+1. Decodificar ese sobre (`json_decode(base64_decode($_GET['l']))`).
+2. Mapear la acción legacy (`$action`) al verbo HTTP + resource params del API.
+3. Shapear datos entre el formato legacy del front y el envelope canónico de la API.
+
+Cada BFF es un **traductor de dominio**: entiende las acciones de su concern (mesas, órdenes, clientes, etc.) y las mapea al REST canónico. No son redirectores 1:1 — son traductores de protocolo.
+
+**Los 16 BFFs traductores**: `attendance`, `currencies`, `customer_address`, `customer_note`, `electronic_invoice`, `giftcards`, `notifications`, `order_items`, `orders`, `register`, `sales`, `schedule`, `sync`, `tables`, `transactions`, `vpayments`.
+
+#### Rol 2 — Compositor multi-fuente (3 BFFs — §22.12)
+
+Los tres BFFs restantes ADEMÁS del rol de traducción hacen composición: piden múltiples recursos del API EN PARALELO y ensamblan el dataset del view-model.
+
+| BFF | Recursos que compone |
+|-----|---------------------|
+| `customers.php` | `profile + recentItems + debt + giftcards + address` (5 recursos, `bffApiGetMulti`) |
+| `drawer.php` | `open + expenses + income + salesByPayment` (4 recursos, `bffApiGetMulti`) |
+| `items.php` | `core + inventory` (2 recursos, `bffApiGetMulti`) |
+
+Ver §22.12 para las reglas de composición (cuándo usar `bffApiGetMulti`, fail-closed vs degradación graceful, deuda de fórmula duplicada).
+
+#### Por qué NO se consolidó en un router único
+
+La decisión explícita (P1.5) fue **mantener la estructura por dominio** (un archivo por concern). Un router único habría creado un `switch` de ~400 líneas, menos debuggable y más frágil de mantener. La estructura por archivo preserva la cohesión y hace que cada cambio en un dominio quede en su propio archivo.
+
+#### Bootstrap común: `app/bff/lib/bff_init.php`
+
+El boilerplate repetido en los 19 BFFs fue extraído a `app/bff/lib/bff_init.php` (commit 9f30891, -104 líneas netas). Cada BFF lo incluye con una línea:
+
+```php
+require_once __DIR__ . '/lib/bff_init.php';
+```
+
+El archivo hace exactamente:
+1. `require_once` de `api_client.php`
+2. Verifica `$_COOKIE['_jwt']` — devuelve 401 si ausente
+3. Decodifica `$_GET['l']` → `$get` (array del sobre legacy)
+4. Setea `$action` desde `$get['action']`
+
+Los BFFs no duplican más ese bloque. Solo agregan su lógica de dominio.
+
+#### Cuándo crear un BFF nuevo para /app
+
+- Si el concern es un **traductor de protocolo** (acciones del front → REST): crear `app/bff/<concern>.php`, incluir `bff_init.php`, rutear `$action`.
+- Si además **compone múltiples recursos**: agregar `bffApiGetMulti` según §22.12, aplicando fail-closed o degradación graceful según el tipo de dataset.
+- Si es una **escritura** o **invariante cross-recurso**: usar un único endpoint transaccional, no composición paralela.
+
+---
+
 ### §22.9 — Estilo PHP para código nuevo en `/api` (establecido 2026-05-30, slice 35a.1)
 
 Para módulos NUEVOS bajo `api/lib/` (no aplica al `api/lib/services/*` existente, que sigue

@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-01 — Decisión P1.5: bff_init.php + dos roles del BFF documentados (commit 9f30891)
+
+- **Decisión P1.5**: los 16 BFFs "pass-through" NO son redundantes — son **traductores de protocolo** (`?l=` → REST). Decodifican el sobre legacy `masterUrlParams`, mapean acciones a verbos HTTP + resource params del API, y shapean datos. La etiqueta "pass-through redundante" del análisis inicial era incorrecta.
+- **`app/bff/lib/bff_init.php` (NUEVO)**: extrae el boilerplate compartido (include api_client, auth guard JWT, decode `?l=`, setear `$action`) de los 19 BFFs. Cada BFF reemplaza 5-6 líneas por 1 `require_once`. Métricas: -148 líneas / +44 = **-104 netas**. Lint 19/19 OK. E2E (transactions/drawer/giftcards) → 200 OK.
+- **Dos roles documentados**: Rol 1 = Traductor de protocolo (16 BFFs); Rol 2 = Compositor multi-fuente §22.12 (3 BFFs: customers, drawer, items). Por qué no un router único: un switch de ~400 líneas sería menos debuggable; la estructura por dominio se mantiene.
+- **Vault actualizado**: `08-convenciones.md` (nueva §22.13 — dos roles del BFF), `02-arquitectura.md` (bff_init.php documentado en infra del BFF + tabla de roles), `10-roadmap.md` (P1.5 ✅).
+
 ## 2026-06-01 — TransactionService::voidTransaction + fix PHP 8.5 abs() (commit b3d164f)
 
 - **`TransactionService::voidTransaction`** (NUEVO): anulación de transacción (type→7). Corrige 4 bugs del legacy `voidSale`: giftcard restore WHERE incompleto, points/storeCredit concatenados, giftcard `'extra'` nunca restaurado (el `unset('extra')` de `groupByPaymentMethod` lo borraba antes de iterar — ahora se itera sobre raw payments), companyName desde tabla `setting` inexistente → constante COMPANY_NAME.

@@ -202,6 +202,18 @@ La API está destinada a moverse a un server dedicado; los BFFs apuntarán a esa
 
 **Plomería**: `bffApiGetMulti(array $endpoints): array` en `app/bff/lib/api_client.php` (curl_multi, wall-clock = el más lento). `bffDecodeEnvelope(string $raw): mixed` (reutilizable).
 
+**Bootstrap común de los BFFs de /app — `app/bff/lib/bff_init.php` (commit 9f30891, 2026-06-01):**
+Los 19 BFFs de `/app/bff/` comparten un bloque de boilerplate (include api_client, auth guard, decode `?l=`, setear `$action`) que fue extraído a `bff_init.php`. Cada BFF hace `require_once __DIR__ . '/lib/bff_init.php'` en lugar de repetir las 5-6 líneas. Resultado: -104 líneas netas, lint 19/19 OK, E2E OK.
+
+**Dos roles de los BFFs de /app (decisión P1.5, commit 9f30891, 2026-06-01):**
+
+| Rol | Qué hace | Cuántos |
+|-----|----------|---------|
+| **Traductor de protocolo** | Decodifica el sobre `?l=` legacy, mapea acciones a verbos REST + resource params, shapea datos. Cada BFF entiende su dominio. | 16 de 19 |
+| **Compositor multi-fuente** (§22.12) | Además de traducir, pide N recursos del API EN PARALELO (`bffApiGetMulti`) y ensambla el view-model. | 3: `customers`, `drawer`, `items` |
+
+Los BFFs "pass-through" NO son redundantes — son traductores de protocolo con lógica real de dominio. La estructura por dominio (un archivo por concern) se mantiene intencionalmente: un router único habría creado un switch de ~400 líneas menos debuggable. Ver §22.13 en `08-convenciones.md` para la receta completa.
+
 **Trade-off medido**: composed 95ms vs composite legacy 37ms (~2.5×). Bottleneck = bootstrap por call (`chdir + head.php + data.php + JWT`), no el número de queries. Mitigación: `/api/includes` canónico (deuda pendiente — lo vuelve barato).
 
 **Restricción**: patrón read-only-safe. NO usar donde una escritura o invariante cross-recurso dependa de un único snapshot de DB (N calls = N snapshots independientes).
