@@ -1,6 +1,4 @@
 RewriteEngine On
-##ErrorDocument 404 https://panel.encom.app/includes/404.inc.php
-##ErrorDocument 500 https://panel.encom.app/includes/errorPage.inc.php
 
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_URI} !^/\.well-known/cpanel-dcv/[0-9a-zA-Z_-]+$
