@@ -9,8 +9,10 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/CurrencyService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\CurrencyService;
 
-apiAuthTenant(); // identidad/contexto del tenant (carga settings/countries globals)
+$ctx = apiAuthTenant(); // identidad/contexto del tenant (carga settings/countries globals)
 
-$svc = new CurrencyService();
+$svc = new CurrencyService(TenantContext::fromAuth($ctx));
 apiOk($svc->exchangeList());

@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * VPaymentService — pagos electrónicos del POS (Slice 15, cluster ENCOM→Punto).
  *
@@ -21,8 +26,12 @@
  * Gotchas PG: identificadores sin comillas, valores bindeados, scope companyId.
  */
 
-class VPaymentService
+final class VPaymentService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /** generateUID() del panel inlineado (no existe en app/includes): timestamp en ms. */
     private function generateUID(int $add = 0): string
     {

@@ -11,6 +11,8 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/ElectronicInvoiceService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\ElectronicInvoiceService;
 
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
@@ -24,7 +26,7 @@ if (!is_array($data)) {
     $data = [];
 }
 
-$doc = (new ElectronicInvoiceService())->consultStatus($companyId, $data);
+$doc = (new ElectronicInvoiceService(TenantContext::fromAuth($ctx)))->consultStatus($companyId, $data);
 if ($doc === null) {
     apiError('No se encontraron documentos', 404);
 }

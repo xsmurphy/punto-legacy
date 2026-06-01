@@ -11,11 +11,13 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/CustomerService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\CustomerService;
 
 $ctx       = apiAuthTenant();
 $companyId = $ctx['companyId'];
 
-$svc      = new CustomerService();
+$svc      = new CustomerService(TenantContext::fromAuth($ctx));
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 

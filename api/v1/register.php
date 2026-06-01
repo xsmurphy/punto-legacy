@@ -11,12 +11,14 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/RegisterService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\RegisterService;
 
 $ctx        = apiAuthTenant();
 $companyId  = $ctx['companyId'];
 $registerId = $ctx['registerId'];
 
-$svc        = new RegisterService();
+$svc        = new RegisterService(TenantContext::fromAuth($ctx));
 $method     = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 // GET = numeración de documentos de la caja (docsNum). registerId del JWT.

@@ -14,6 +14,8 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/ScheduleService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\ScheduleService;
 
 $ctx        = apiAuthTenant();
 $companyId   = $ctx['companyId'];
@@ -21,7 +23,7 @@ $outletId    = $ctx['outletId'];
 $registerId  = $ctx['registerId'];
 $userId      = $ctx['userId'];
 
-$svc      = new ScheduleService();
+$svc      = new ScheduleService(TenantContext::fromAuth($ctx));
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 

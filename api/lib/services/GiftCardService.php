@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * GiftCardService — consulta de gift cards del POS.
  *
@@ -14,8 +19,12 @@
  *   - companyId scope en el SELECT (igual que el legacy).
  */
 
-class GiftCardService
+final class GiftCardService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * Valida una gift card para canje.
      * @return string  invalid|notfound|deactivated|expired|used|notenough|true

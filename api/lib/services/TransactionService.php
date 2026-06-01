@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+use DB;
+
 /**
  * TransactionService — operaciones sobre transacciones/órdenes del POS (Slice 6).
  *
@@ -18,8 +23,13 @@
  * (sendWS, updateLastTimeEdit) para que el servicio sea puro de BD.
  */
 
-class TransactionService
+final class TransactionService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+        public readonly \DB $db,
+    ) {}
+
     /**
      * Lee una transacción por ID y devuelve el shape que espera el POS front.
      * tags y transactionDetails viven en meta JSONB (§22.6); ncmExecute/_flattenJsonb
@@ -126,8 +136,7 @@ class TransactionService
      */
     private function getTypePayments(string $transactionId, string $companyId): array
     {
-        global $db;
-        $result = $db->Execute(
+        $result = $this->db->Execute(
             'SELECT transactionId, transactionTotal, userId, transactionDate, transactionPaymentType, invoiceNo
              FROM transaction
              WHERE transactionType = 5 AND transactionParentId = ? AND companyId = ?
@@ -161,8 +170,7 @@ class TransactionService
      */
     public function delete(string $transactionId, string $companyId): bool
     {
-        global $db;
-        $res = $db->Execute(
+        $res = $this->db->Execute(
             'DELETE FROM transaction WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
@@ -174,8 +182,7 @@ class TransactionService
      */
     public function deletePrintJob(string $transactionId, string $companyId): bool
     {
-        global $db;
-        $res = $db->Execute(
+        $res = $this->db->Execute(
             'DELETE FROM printServer WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
@@ -193,8 +200,6 @@ class TransactionService
      */
     public function reject(string $transactionId, string $companyId, ?string $motive): bool
     {
-        global $db;
-
         $setCols = 'transactionStatus = ?, updated_at = NOW()';
         $params  = [6];
 
@@ -205,7 +210,7 @@ class TransactionService
         $params[] = $transactionId;
         $params[] = $companyId;
 
-        $res = $db->Execute(
+        $res = $this->db->Execute(
             "UPDATE transaction SET $setCols WHERE transactionId = ? AND companyId = ?",
             $params
         );
@@ -229,9 +234,8 @@ class TransactionService
         string $companyId,
         string $outletId
     ): bool {
-        global $db;
         $data = json_encode(['motive' => markupt2HTML(['text' => $motive, 'type' => 'HtM']), 'user' => $userId]);
-        $res  = $db->Execute(
+        $res  = $this->db->Execute(
             'INSERT INTO itemDeleted (itemId, date, data, companyId, outletId)
              VALUES (?, NOW(), ?, ?, ?)',
             [$itemId, $data, $companyId, $outletId]
@@ -279,7 +283,7 @@ class TransactionService
         ?string $date,
         int     $limit
     ): array {
-        global $db, $dec, $ts;
+        global $dec, $ts;
 
         $where  = ['companyId = ?'];
         $params = [$companyId];
@@ -309,7 +313,7 @@ class TransactionService
 
         $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
              . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
-        $rs  = $db->Execute($sql, $params);
+        $rs  = $this->db->Execute($sql, $params);
 
         // First pass: collect IDs and row references for batch subquery
         $trsIds = [];
@@ -327,7 +331,7 @@ class TransactionService
         $toPaidMap = [];
         if (!empty($trsIds)) {
             $ph     = implode(',', array_fill(0, count($trsIds), '?'));
-            $paidRs = $db->Execute(
+            $paidRs = $this->db->Execute(
                 "SELECT SUM(ABS(transactionTotal)) AS payed, transactionParentId
                    FROM transaction
                   WHERE transactionType IN (5, 6) AND companyId = ?
@@ -450,7 +454,7 @@ class TransactionService
         ?string $date,
         int     $limit
     ): array {
-        global $db, $dec, $ts;
+        global $dec, $ts;
 
         static $configs = [
             'quotes' => [
@@ -493,7 +497,7 @@ class TransactionService
 
         $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
              . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
-        $rs  = $db->Execute($sql, $params);
+        $rs  = $this->db->Execute($sql, $params);
 
         $anchor = $cfg['anchor'];
         $out = [
@@ -562,8 +566,7 @@ class TransactionService
         string $userId,
         string $motive = ''
     ): bool {
-        global $db;
-        $db->StartTrans();
+        $this->db->StartTrans();
 
         // 1. Leer métodos de pago para reponer balances de cliente/giftcard.
         $tx = ncmExecute(
@@ -587,12 +590,12 @@ class TransactionService
 
                 // Devolver balance del cliente (solo si hay cliente válido).
                 if (validity($customerId) && $type === 'points') {
-                    $db->Execute(
+                    $this->db->Execute(
                         "UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ?, updated_at = ? WHERE contactId = ?",
                         [$price, TODAY, $customerId]
                     );
                 } elseif (validity($customerId) && $type === 'storeCredit') {
-                    $db->Execute(
+                    $this->db->Execute(
                         "UPDATE contact SET contactStoreCredit = contactStoreCredit + ?, updated_at = ? WHERE contactId = ?",
                         [$price, TODAY, $customerId]
                     );
@@ -603,7 +606,7 @@ class TransactionService
                     // 'extra' → el legacy nunca restauró giftcards en void (bug silencioso).
                     $extra = $payment['extra'] ?? null;
                     if (is_numeric($extra)) {
-                        $db->Execute(
+                        $this->db->Execute(
                             'UPDATE giftCardSold SET giftCardSoldValue = giftCardSoldValue + ? WHERE (giftCardSoldCode = ? OR timestamp = ?) AND companyId = ?',
                             [$price, $extra, $extra, $companyId]
                         );
@@ -674,11 +677,11 @@ class TransactionService
         }
 
         // 5. Eliminar itemSold y giftCardSold vinculados.
-        $db->Execute('DELETE FROM itemSold WHERE transactionId = ?', [$transactionId]);
-        $db->Execute('DELETE FROM giftCardSold WHERE transactionId = ?', [$transactionId]);
+        $this->db->Execute('DELETE FROM itemSold WHERE transactionId = ?', [$transactionId]);
+        $this->db->Execute('DELETE FROM giftCardSold WHERE transactionId = ?', [$transactionId]);
 
-        $failed = $db->HasFailedTrans();
-        $db->CompleteTrans();
+        $failed = $this->db->HasFailedTrans();
+        $this->db->CompleteTrans();
 
         return !$failed;
     }

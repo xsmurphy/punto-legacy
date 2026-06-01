@@ -3,6 +3,12 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-01 — Configuración de contexto: Mempalace + orden de consulta
+
+- **Mempalace activado**: agregado como fuente de contexto en `~/.claude/CLAUDE.md` (global) y en el project CLAUDE.md. Wing del proyecto: `system` (362 drawers en backend/design/context + 7886 en sessions/).
+- **Orden obligatorio de consulta**: Mempalace → `context/` → graphify. Mempalace da el "qué pasó antes", context/ da el "diseño", graphify da las "conexiones en código". Documentado en el encabezado del Kit de contexto.
+- Sin commits — solo cambios de configuración del harness.
+
 ## 2026-06-01 — Decisión P1.5: bff_init.php + dos roles del BFF documentados (commit 9f30891)
 
 - **Decisión P1.5**: los 16 BFFs "pass-through" NO son redundantes — son **traductores de protocolo** (`?l=` → REST). Decodifican el sobre legacy `masterUrlParams`, mapean acciones a verbos HTTP + resource params del API, y shapean datos. La etiqueta "pass-through redundante" del análisis inicial era incorrecta.

@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * ScheduleService — agenda/calendario del POS (slice 4 del desacople de /app).
  *
@@ -14,8 +19,12 @@
 
 require_once __DIR__ . '/../meta_transaction.php';
 
-class ScheduleService
+final class ScheduleService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /** Cambia la hora de fin (toDate) de una cita, preservando su fecha de inicio. */
     public function rescheduleTo(string $companyId, string $transId, string $time): array
     {

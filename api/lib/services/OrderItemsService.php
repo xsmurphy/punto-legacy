@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * OrderItemsService — manipulación de items dentro de transactionDetails (cluster meta-JSONB).
  *
@@ -17,8 +22,12 @@
 
 require_once __DIR__ . '/../meta_transaction.php';
 
-class OrderItemsService
+final class OrderItemsService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * removeItemfromOrder: marca el item (itemId @ oPosition) como status=0.
      * @return bool false si no hay details (replica el $delete=false del legacy → error).

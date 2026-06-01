@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * TableService — operaciones sobre las mesas/espacios del POS (slice 2 del desacople de /app).
  *
@@ -14,8 +19,12 @@
  *   - se agrega scope por companyId (el legacy sólo filtraba por outletId).
  */
 
-class TableService
+final class TableService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     const TYPE_TABLE = 11;
     const TYPE_ORDER = 12;
 

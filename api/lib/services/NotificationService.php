@@ -1,4 +1,8 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+use DB;
 /**
  * NotificationService — notificaciones del POS (Slice 14, cluster ENCOM→Punto).
  *
@@ -18,8 +22,13 @@
  * agregado al UPDATE de mark-seen (el legacy no lo tenía).
  */
 
-class NotificationService
+final class NotificationService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+        public readonly \DB $db,
+    ) {}
+
     /**
      * Lista las notificaciones nuevas (posteriores al último visto) y marca como visto.
      *
@@ -27,8 +36,6 @@ class NotificationService
      */
     public function listForUser(string $companyId, string $userId, string $outletId): array
     {
-        global $db;
-
         $lastSeen = $this->lastSeen($userId);
 
         $rows = ncmExecute(
@@ -62,7 +69,7 @@ class NotificationService
         }
 
         // Marca como visto (mutación legítima — por eso list va en POST). Scope companyId.
-        $db->Execute(
+        $this->db->Execute(
             'UPDATE contact SET contactLastNotificationSeen = ? WHERE contactId = ? AND companyId = ?',
             [date('Y-m-d H:i:s'), $userId, $companyId]
         );

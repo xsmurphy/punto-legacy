@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * AttendanceService — fichaje de asistencia del personal (Slice 13, cluster ENCOM→Punto).
  *
@@ -14,8 +19,12 @@
  * agregado al UPDATE (el legacy sólo filtraba por attendanceId).
  */
 
-class AttendanceService
+final class AttendanceService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * Alterna el fichaje del usuario en un outlet.
      *

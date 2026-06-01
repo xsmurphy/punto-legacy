@@ -10,6 +10,8 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/GiftCardService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\GiftCardService;
 
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
@@ -18,7 +20,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
-$svc      = new GiftCardService();
+$svc      = new GiftCardService(TenantContext::fromAuth($ctx));
 $code     = $_GET['code'] ?? '';
 $resource = (string) ($_GET['resource'] ?? '');
 

@@ -11,6 +11,8 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/SyncService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\SyncService;
 
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
@@ -21,7 +23,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
 }
 
-$svc      = new SyncService();
+$svc      = new SyncService(TenantContext::fromAuth($ctx));
 $resource = (string) ($_GET['resource'] ?? '');
 $ids      = $_POST['ids'] ?? [];
 if (!is_array($ids)) {

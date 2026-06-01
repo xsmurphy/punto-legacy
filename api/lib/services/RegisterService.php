@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * RegisterService — sesión de caja (register) del POS (Slice 10).
  *
@@ -18,8 +23,12 @@
  * (el legacy interpolaba el WHERE sin comillas).
  */
 
-class RegisterService
+final class RegisterService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * Persiste el sessionId de una caja. sessionId es BIGINT en PG.
      *

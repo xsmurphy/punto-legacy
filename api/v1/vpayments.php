@@ -13,13 +13,15 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/VPaymentService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\VPaymentService;
 
 $ctx        = apiAuthTenant();
 $companyId   = $ctx['companyId'];
 $outletId    = $ctx['outletId'];
 $userId      = $ctx['userId'];
 
-$svc    = new VPaymentService();
+$svc    = new VPaymentService(TenantContext::fromAuth($ctx));
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 // GET ?code= → verifica un authCode APPROVED (lectura pura). Verbos REST (§22.7).

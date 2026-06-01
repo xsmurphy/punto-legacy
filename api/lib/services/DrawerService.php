@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * DrawerService — operaciones de caja/drawer del POS (Slice 26).
  *
@@ -11,8 +16,12 @@
  * REGISTER_ID, OUTLET_ID, COMPANY_ID son constantes definidas tras apiAuthTenant().
  */
 
-class DrawerService
+final class DrawerService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * Verifica si el cajón está abierto (hay una fila sin cerrar).
      *

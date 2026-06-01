@@ -1,4 +1,8 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
 /**
  * SyncService — checks de sincronización offline del POS (Slice 8).
  *
@@ -15,8 +19,12 @@
  * traer decenas de miles de filas. Identificadores SIN comillas (ver §22.5).
  */
 
-class SyncService
+final class SyncService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * Dado un set de itemIds del cliente, retorna cuáles ya NO están activos (borrados).
      * Excluye falsy e 'intCred' (igual que el legacy).

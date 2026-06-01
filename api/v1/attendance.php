@@ -11,6 +11,8 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/AttendanceService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\AttendanceService;
 
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
@@ -34,7 +36,7 @@ if (!hash_equals($expected, $token)) {
     apiError('Código incorrecto', 403);
 }
 
-$svc = new AttendanceService();
+$svc = new AttendanceService(TenantContext::fromAuth($ctx));
 $res = $svc->toggle($companyId, $outletId, $userId);
 
 apiOk(['error' => $res['error'], 'type' => $res['type']]);

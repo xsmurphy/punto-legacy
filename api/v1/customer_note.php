@@ -9,6 +9,8 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/CustomerNoteService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\CustomerNoteService;
 
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
@@ -24,7 +26,7 @@ if ($customerId === '' || trim($text) === '') {
     apiError('Faltan customerId/text', 422);
 }
 
-$res = (new CustomerNoteService())->add($companyId, $customerId, $text);
+$res = (new CustomerNoteService(TenantContext::fromAuth($ctx)))->add($companyId, $customerId, $text);
 if (empty($res['ok'])) {
     apiError('No se pudo guardar la nota', 500);
 }

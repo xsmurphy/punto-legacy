@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * CustomerService — lecturas agregadas del cliente para el POS (desacople de /app).
  *
@@ -21,8 +26,12 @@
  * de $totalRetrnsV (que además era dead code). Ver QA si esto se decide corregir.
  */
 
-class CustomerService
+final class CustomerService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * @return array|null  Shape legacy de customerInfo, o null si el cliente no existe.
      */

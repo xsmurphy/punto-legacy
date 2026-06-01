@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * CurrencyService — tasas de cambio configuradas del tenant (Slice 12).
  *
@@ -12,8 +17,12 @@
  *   - COUNTRY                      — país del tenant (se excluye de la lista)
  */
 
-class CurrencyService
+final class CurrencyService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * Lista de monedas extranjeras con su tasa de cambio configurada.
      *

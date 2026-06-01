@@ -14,13 +14,15 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/OrderService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\OrderService;
 
 $ctx        = apiAuthTenant();
 $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 $registerId = $ctx['registerId'];
 
-$svc      = new OrderService();
+$svc      = new OrderService(TenantContext::fromAuth($ctx));
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 

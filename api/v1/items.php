@@ -9,11 +9,13 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/ItemService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\ItemService;
 
 $ctx       = apiAuthTenant();
 $companyId = $ctx['companyId'];
 
-$svc      = new ItemService();
+$svc      = new ItemService(TenantContext::fromAuth($ctx));
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 

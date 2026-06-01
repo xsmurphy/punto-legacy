@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * ItemService — operaciones de lectura sobre ítems del catálogo (Slice 25).
  *
@@ -14,8 +19,12 @@
  * que incluye app/includes/functions.php a través de head.php.
  */
 
-class ItemService
+final class ItemService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     // ========================================================================
     // RECURSOS GRANULARES (patrón BFF-compone — ver §22.12)
     //

@@ -2,8 +2,15 @@
 
 ## Kit de contexto (obligatorio leer al inicio)
 
-El directorio `context/` es nuestro **vault de conocimiento** del proyecto — funciona como un Obsidian vault.
-Antes de cualquier trabajo, leer `context/README.md` para el índice y luego los archivos relevantes a la tarea.
+## Orden obligatorio de consulta de contexto
+
+Antes de cualquier trabajo, consultar en este orden:
+
+1. **Mempalace** — `mcp__mempalace__mempalace_search` con términos del tema (wing `system`). Contexto acumulado entre sesiones, decisiones pasadas, errores conocidos.
+2. **`context/`** — vault de conocimiento estructurado del proyecto. Leer `context/README.md` primero y luego los archivos relevantes a la tarea (ver tabla abajo).
+3. **graphify** — `graphify-out/GRAPH_REPORT.md` o `graphify-out/wiki/index.md` para preguntas de arquitectura, dependencias y god nodes.
+
+No saltarse pasos: Mempalace da el "qué pasó antes", context/ da el "cómo está diseñado", graphify da el "cómo está conectado el código".
 
 | # | Archivo | Cuándo leerlo |
 |---|---------|---------------|
@@ -158,3 +165,22 @@ Reglas:
 - Antes de responder preguntas de arquitectura o código, leer `graphify-out/GRAPH_REPORT.md` para god nodes y comunidades
 - Si existe `graphify-out/wiki/index.md`, navegar ahí en vez de leer archivos crudos
 - Después de modificar código, correr `.venv/bin/python -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"` para mantener el grafo al día
+
+## mempalace
+
+Mempalace es la memoria persistente entre sesiones (MCP). Wing de este proyecto: `system`.
+
+Cuándo consultar:
+- Al inicio de cualquier sesión antes de arrancar trabajo
+- Ante preguntas sobre decisiones pasadas, errores repetidos, o patrones conocidos
+- Cuando el context/ vault no tenga la respuesta
+
+Cómo consultar:
+1. `mcp__mempalace__mempalace_search` con términos del tema — punto de entrada principal
+2. `mcp__mempalace__mempalace_list_rooms` en wing `punto` para ver las áreas disponibles
+3. `mcp__mempalace__mempalace_get_drawer` si un drawer específico parece relevante
+
+Cuándo guardar:
+- Decisiones de arquitectura no-obvias tomadas en la sesión
+- Errores o trampas que costaron tiempo y podrían repetirse
+- Verificar duplicados con `mcp__mempalace__mempalace_check_duplicate` antes de `add_drawer`

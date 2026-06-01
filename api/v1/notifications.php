@@ -12,13 +12,16 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/NotificationService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\NotificationService;
 
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
 $userId     = $ctx['userId'];
 $outletId   = $ctx['outletId'];
 
-$svc    = new NotificationService();
+global $db;
+$svc    = new NotificationService(TenantContext::fromAuth($ctx), $db);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 // GET = count (lectura pura). POST = list (mutación: marca como visto). Ver §22.7 / §16.

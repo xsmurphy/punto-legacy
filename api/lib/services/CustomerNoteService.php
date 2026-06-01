@@ -1,4 +1,8 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
 /**
  * CustomerNoteService — notas de cliente del POS (slice 5 del desacople de /app).
  *
@@ -7,8 +11,12 @@
  * del request; la identidad (companyId) del JWT en la API.
  */
 
-class CustomerNoteService
+final class CustomerNoteService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /** Agrega una nota de texto a un cliente. */
     public function add(string $companyId, string $customerId, string $text): array
     {

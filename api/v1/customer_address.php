@@ -13,11 +13,13 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/CustomerAddressService.php';
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\CustomerAddressService;
 
 $ctx       = apiAuthTenant();
 $companyId  = $ctx['companyId'];
 
-$svc    = new CustomerAddressService();
+$svc    = new CustomerAddressService(TenantContext::fromAuth($ctx));
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 $fieldsFromBody = static fn(): array => [

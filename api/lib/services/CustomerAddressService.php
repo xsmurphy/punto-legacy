@@ -1,4 +1,8 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
 /**
  * CustomerAddressService — capa de datos de las direcciones de cliente del POS.
  *
@@ -20,8 +24,12 @@
  * Todas las ops scopean por companyId (tenant). La identidad viene del JWT en la API.
  */
 
-class CustomerAddressService
+final class CustomerAddressService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /** Lista las direcciones de un cliente (o una sola si se pasa addressId). Shape = front legacy. */
     public function listForCustomer(string $companyId, string $customerId, ?string $addressId = null): array
     {

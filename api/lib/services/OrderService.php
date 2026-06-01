@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * OrderService — órdenes del POS (Slice 7 + cluster meta-JSONB).
  *
@@ -21,8 +26,12 @@
 
 require_once __DIR__ . '/../meta_transaction.php';
 
-class OrderService
+final class OrderService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * ¿El cliente tiene órdenes abiertas en este outlet? (customerHasOrders, load.php L1634).
      * Orden = transaction type 12 con status != 4 (no finalizada). Sólo chequea existencia.

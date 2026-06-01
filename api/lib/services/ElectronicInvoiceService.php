@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+// DB not needed (uses ncmExecute helpers)
+
 /**
  * ElectronicInvoiceService — consulta de facturación electrónica (Paraguay).
  *
@@ -9,8 +14,12 @@
  * Lectura con payload (rango de fechas/documento) → el endpoint la expone vía POST (§22.7).
  */
 
-class ElectronicInvoiceService
+final class ElectronicInvoiceService
 {
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+
     /**
      * Consulta el estado de un documento electrónico en la API de FE.
      *
