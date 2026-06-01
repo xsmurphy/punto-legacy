@@ -9015,6 +9015,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			$now = time();
 
 			$token = jwtEncode([
+				'iss'  => 'panel', // realm: separa tokens panel de POS/admin (mismo JWT_SECRET)
 				'sub'  => (string)$user['contactId'],
 				'cid'  => (string)$user['companyId'],
 				'oid'  => (string)($outlet['outletId'] ?? ''),

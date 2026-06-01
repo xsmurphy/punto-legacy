@@ -56,6 +56,7 @@ function adminIssueJwt($admin): string
     $now = time();
 
     return jwtEncode([
+        'iss'   => 'admin', // realm explícito; además del aud y del secret distinto (ADMIN_JWT_SECRET)
         'sub'   => (string) $admin['adminId'],
         'email' => (string) $admin['email'],
         'aud'   => 'admin',
@@ -107,8 +108,13 @@ function adminMiddleware(): void
     }
 
     $payload = jwtDecode($token, $secret);
-    // Rechaza tokens de otro realm: un _jwt_panel de tenant no trae aud=admin y/o firma con otro secret.
-    if (!is_array($payload) || ($payload['aud'] ?? '') !== 'admin' || empty($payload['sub'])) {
+    // Realm gate: aud=admin + iss=admin + sub presente. Tokens emitidos antes del
+    // fix de iss son rechazados (admin usa ADMIN_JWT_SECRET distinto a JWT_SECRET,
+    // así que cross-realm por construcción NO ocurre; el iss es defense-in-depth).
+    if (!is_array($payload)
+        || ($payload['iss'] ?? '') !== 'admin'
+        || ($payload['aud'] ?? '') !== 'admin'
+        || empty($payload['sub'])) {
         apiUnauthorized('No autorizado (admin)');
     }
 

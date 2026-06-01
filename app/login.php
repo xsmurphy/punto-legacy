@@ -66,6 +66,7 @@ if($email && $pass){
           $ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
           $now = time();
           $jwtPayload = [
+              'iss'  => 'pos-app', // realm: separa tokens POS de panel/admin
               'sub'  => $userId,
               'cid'  => $companyId,
               'oid'  => $outletId,

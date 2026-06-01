@@ -103,6 +103,7 @@ if($result){
 		$_jwtSecret = $_ENV['JWT_SECRET'] ?? '';
 		if ($_jwtSecret !== '') {
 			$_serviceJwt = jwtEncode([
+				'iss'  => 'pos-app', // re-submisión va a action.php → realm POS
 				'sub'  => $transData['userId']   ?? '',
 				'cid'  => $companyId,
 				'oid'  => $transData['outletId']  ?? '',

@@ -44,6 +44,19 @@ function jwtAuthenticate(): bool
         ]));
     }
 
+    // Realm gate: JWT_SECRET es COMPARTIDO entre POS y panel; el claim `iss`
+    // separa los realms para que un token panel NO autentique en /app/action.php
+    // /load.php/etc. (privilege confusion). Tokens sin `iss` (emitidos antes del
+    // fix) → rechazados; pre-producción, forzar re-login es aceptable.
+    if (($payload['iss'] ?? '') !== 'pos-app') {
+        http_response_code(401);
+        header('Content-Type: application/json');
+        die(json_encode([
+            'error' => 'Token de otro realm',
+            'code'  => 401,
+        ]));
+    }
+
     // Definir identidad autenticada como constantes PHP.
     // IDs son UUIDs (string) desde Phase UUID; role sigue siendo int.
     define('AUTHED_USER_ID',     (string)($payload['sub']  ?? ''));

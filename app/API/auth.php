@@ -99,6 +99,7 @@ $ttl    = (int)($_ENV['JWT_TTL'] ?? 28800);
 $now    = time();
 
 $payload = [
+    'iss'  => 'pos-app', // realm: separa tokens POS de panel/admin (mismo JWT_SECRET)
     'sub'  => $userId,
     'cid'  => $companyId,
     'oid'  => $outletId,

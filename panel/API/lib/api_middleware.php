@@ -78,6 +78,14 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
             apiUnauthorized('Token inválido o expirado');
         }
 
+        // Realm gate: JWT_SECRET es COMPARTIDO con POS; el claim `iss` separa
+        // los realms para que un token POS NO autentique contra el panel
+        // (privilege confusion). Tokens sin `iss` (pre-fix de seguridad) son
+        // rechazados — pre-producción, forzar re-login es aceptable.
+        if (($payload['iss'] ?? '') !== 'panel') {
+            apiUnauthorized('Token de otro realm');
+        }
+
         $companyIdInt  = $payload['cid']  ?? '';
         $outletIdInt   = $payload['oid']  ?? '';
         $registerIdInt = $payload['rid']  ?? '';

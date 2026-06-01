@@ -61,12 +61,15 @@ function uploadImage($file, $itemImgPath, $max_size){
 // por eso casteamos a string antes de comparar (un !== estricto dejaría pasar el 0).
 $companyId = (defined('COMPANY_ID') && (string) COMPANY_ID !== '0' && (string) COMPANY_ID !== '') ? (string) COMPANY_ID : '';
 
+// Fallback JWT-puro (cuando no hay sesión legacy). El iss-gate se ejerce SOLO en
+// esta rama; si la sesión legacy ya pobló COMPANY_ID arriba, no llegamos acá.
 if($companyId === ''){
   $secret = $_ENV['JWT_SECRET'] ?? '';
   $token  = $_COOKIE['_jwt_panel'] ?? '';
   if($secret && $token){
     $payload = jwtDecode($token, $secret);
-    if(is_array($payload) && !empty($payload['cid'])){
+    // Realm gate: JWT_SECRET compartido con POS — el `iss` debe ser 'panel'.
+    if(is_array($payload) && ($payload['iss'] ?? '') === 'panel' && !empty($payload['cid'])){
       $companyId = (string) $payload['cid'];
     }
   }

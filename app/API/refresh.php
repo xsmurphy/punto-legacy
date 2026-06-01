@@ -40,10 +40,18 @@ if ($payload === null) {
     die(json_encode(['error' => 'Token inválido o expirado']));
 }
 
+// Realm gate: refresh solo emite tokens POS desde tokens POS. Un token panel
+// (mismo JWT_SECRET) NO debe poder refrescarse acá → privilege escalation.
+if (($payload['iss'] ?? '') !== 'pos-app') {
+    http_response_code(401);
+    die(json_encode(['error' => 'Token de otro realm']));
+}
+
 $ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
 $now = time();
 
 $newPayload = [
+    'iss'  => 'pos-app', // realm: separa tokens POS de panel/admin (mismo JWT_SECRET)
     'sub'  => $payload['sub'],
     'cid'  => $payload['cid'],
     'oid'  => $payload['oid'],
