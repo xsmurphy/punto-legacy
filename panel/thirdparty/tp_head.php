@@ -1,9 +1,9 @@
 <?php
 require_once(__DIR__ . '/../includes/cors.php');
 
-include_once('/home/encom/public_html/panel/includes/db.php');
-include_once('/home/encom/public_html/panel/includes/simple.config.php');
-include_once('/home/encom/public_html/panel/includes/functions.php');
+include_once(__DIR__ . '/../includes/db.php');
+include_once(__DIR__ . '/../includes/simple.config.php');
+include_once(__DIR__ . '/../includes/functions.php');
 
 function enc($str): string { return (string)$str; }
 

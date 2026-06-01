@@ -139,7 +139,7 @@ define('TODAY', date('Y-m-d H:i:s'));
 define('TODAY_START', date('Y-m-d 00:00:00'));
 define('TODAY_END', date('Y-m-d 23:59:59'));
 define('ASSETS_URL', '/assets/');
-define('SYSIMGS_FOLDER', '/home/encom/public_html/assets/sysimages');
+define('SYSIMGS_FOLDER', __DIR__ . '/../../assets/sysimages');
 define('OUTLET_ID', iftn($post['outletId'],''));
 define('REGISTER_ID', iftn($post['registerId'],''));
 

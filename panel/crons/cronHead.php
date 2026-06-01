@@ -3,10 +3,10 @@ if(!$_GET['a'] || $_GET['a'] != NCM_SECRET){
 	//die('I died');
 }
 
-include_once('/home/encom/public_html/panel/includes/compression_start.php');
-include_once('/home/encom/public_html/panel/includes/db.php');
-include_once('/home/encom/public_html/panel/includes/simple.config.php');
-include_once('/home/encom/public_html/panel/includes/functions.php');
+include_once(__DIR__ . '/../includes/compression_start.php');
+include_once(__DIR__ . '/../includes/db.php');
+include_once(__DIR__ . '/../includes/simple.config.php');
+include_once(__DIR__ . '/../includes/functions.php');
 
 date_default_timezone_set('America/Asuncion');
 
@@ -31,7 +31,7 @@ function theErrorHandler($type=false){
       $whoops->register();
     }else{
 	    $whoops->pushHandler(function($exception, $inspector, $run) {
-	        include_once('/home/encom/public_html/panel/includes/errorPage.inc.php');
+	        include_once(__DIR__ . '/../includes/errorPage.inc.php');
 	        return true;
 	    });
 	    $whoops->register();

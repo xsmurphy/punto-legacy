@@ -1,5 +1,5 @@
 <?php
-include_once('/home/encom/public_html/panel/includes/top_includes.php');
+include_once(__DIR__ . '/../includes/top_includes.php');
 topHook();
 allowUser('sales','view');
 
