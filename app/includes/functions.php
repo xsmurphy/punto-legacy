@@ -4352,9 +4352,8 @@ function jsonDieMsg($msg='true',$code=401,$type='error'){
  */
 function saleIsSimplePathEligible(array $payload, array $sale): ?string
 {
-	if (!empty($payload['electronicInvoicePY']) && is_array($payload['electronicInvoicePY'])) {
-		return 'Venta con factura electrónica no soportada en este path (usar legacy)';
-	}
+	// `electronicInvoicePY` migrado en 35b (SaleService::dispatchElectronicInvoice).
+	// Ya no se rechaza.
 	// `repeat` migrado en 35f (SaleService::persistRecurring). No se rechaza.
 	if (!empty($payload['parentId'])) {
 		return 'Venta con parentId no soportada en este path (usar legacy)';

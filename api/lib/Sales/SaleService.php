@@ -209,12 +209,64 @@ final class SaleService
             error_log('[SaleService] notifyGiftCard: ' . $e->getMessage() . "\n", 3, './error_log');
         }
 
+        // B14 (35b): factura electrónica PY — envío al proveedor FE (fire-and-forget).
+        try {
+            $this->dispatchElectronicInvoice($input);
+        } catch (\Throwable $e) {
+            error_log('[SaleService] dispatchElectronicInvoice: ' . $e->getMessage() . "\n", 3, './error_log');
+        }
+
         // B15: registro de auditoría (FACTURACION).
         try {
             $this->sendAudit($input);
         } catch (\Throwable $e) {
             error_log('[SaleService] sendAudit: ' . $e->getMessage() . "\n", 3, './error_log');
         }
+    }
+
+    /**
+     * B14 (35b) — envío de factura electrónica al proveedor FE (Paraguay).
+     * Port del bloque EI del legacy (action.php:2742-2763 → sendFE).
+     * POST-COMMIT, BEST-EFFORT: la venta ya está confirmada. Fire-and-forget
+     * (el legacy también descarta $feresult). FACTURACION_ELECTRONICA_TOKEN
+     * definido en simple.config.php; si vacío → no-op (dev sin FE configurada).
+     *
+     * Tipo → typeDoc: FC (cashsale), FCR (creditsale). type=6 (NC) se agrega en 35e.
+     */
+    private function dispatchElectronicInvoice(SaleInput $input): void
+    {
+        if ($input->electronicInvoicePY === null) {
+            return;
+        }
+        // Solo FC y FCR en este sub-slice (type=6/NC es 35e — devoluciones).
+        $typeDoc = match ($input->type) {
+            SaleType::Cashsale   => 'FC',
+            SaleType::Creditsale => 'FCR',
+            default              => null,
+        };
+        if ($typeDoc === null) {
+            return;
+        }
+        if (!defined('FACTURACION_ELECTRONICA_TOKEN') || FACTURACION_ELECTRONICA_TOKEN === '') {
+            return; // FE no configurada (dev/staging)
+        }
+
+        $company = ncmExecute(
+            "SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1",
+            [$this->ctx->companyId]
+        );
+        $ruc = ($company && (is_array($company) || $company instanceof \ArrayAccess))
+            ? (string) ($company['settingRUC'] ?? '')
+            : '';
+
+        $fedata = [
+            'ruc'   => $ruc,
+            'email' => (string) ($input->electronicInvoicePY['email'] ?? ''),
+            'type'  => $typeDoc,
+            'data'  => $input->electronicInvoicePY,
+        ];
+
+        sendFE($fedata, FACTURACION_ELECTRONICA_TOKEN);
     }
 
     /**
@@ -305,13 +357,21 @@ final class SaleService
         $compLogo = $this->globalStr('compLogo');
         $contactName = getCustomerName($contact, 'first');
 
-        // URL del recibo. Si el módulo digitalInvoice está activo, usa esa vista.
-        // El payload codifica enc(transId),enc(companyId) (mismo orden que el legacy).
+        // URL del recibo — misma lógica de prioridad que el legacy (action.php:2594-2601):
+        //   1. digitalInvoice activo → pantalla de factura digital
+        //   2. EI presente (35b)    → URL del proveedor FE (no es URL local)
+        //   3. Default              → pantalla de recibo
         $hasDigitalInvoice = $this->moduleEnabled('digitalInvoice');
-        $surl    = $hasDigitalInvoice
-            ? '/screens/digitalInvoice?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId)) . '&pdf=1'
-            : '/screens/receipt?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId));
-        $url = getShortURL($surl);
+        if ($hasDigitalInvoice) {
+            $surl = '/screens/digitalInvoice?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId)) . '&pdf=1';
+            $url  = getShortURL($surl);
+        } elseif ($input->electronicInvoicePY !== null
+            && defined('FACTURACION_ELECTRONICA_URL') && FACTURACION_ELECTRONICA_URL !== '') {
+            $url = FACTURACION_ELECTRONICA_URL; // el legacy usa la URL raíz del proveedor EI
+        } else {
+            $surl = '/screens/receipt?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId));
+            $url  = getShortURL($surl);
+        }
 
         $hello   = defined('L_HELLO') ? L_HELLO : 'Hola';
         $subject = '[' . $compName . '] ' . (defined('L_EMAIL_DETAILS_TITLE') ? L_EMAIL_DETAILS_TITLE : 'Detalle de su compra');
