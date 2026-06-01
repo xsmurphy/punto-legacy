@@ -584,64 +584,6 @@ if (!empty($load)) {
 
   // customerRecord → migrado a bff/customers + #customerRecordTpl (Slice 33)
 
-  if($load == 'customerAddress' && $get['id']){
-    $jsonOut    = [];
-
-    if(is_numeric($get['id'])){
-      $cusId      = $get['id'];
-    }else{
-      $cusId      = dec($get['id']);
-    }
-
-    if(isset($get['aid'])){
-      $aid        = dec($get['aid']);
-      $records    = ncmExecute('SELECT * FROM customerAddress WHERE customerAddressId = ? AND companyId = ? LIMIT 1',[$aid,COMPANY_ID],false);
-
-      if($records){
-        $jsonOut = [
-                    "id"        => enc($records['customerAddressId']),
-                    "name"      => $records['customerAddressName'],
-                    "address"   => $records['customerAddressText'],
-                    "default"   => $records['customerAddressDefault'],
-                    "location"  => $records['customerAddressLocation'],
-                    "city"      => $records['customerAddressCity'],
-                    "latLng"    => ($records['customerAddressLat'] ? $records['customerAddressLat'] . ',' . $records['customerAddressLng'] : false),
-                    "lat"       => $records['customerAddressLat'],
-                    "lng"       => $records['customerAddressLng'],
-                    "customerId" => enc($records['customerId'])
-                  ];
-      }
-
-    }else{
-      $records    = ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? ORDER BY customerAddressDefault DESC, customerAddressId DESC LIMIT 10',[$cusId,COMPANY_ID],false,true); 
-
-      if($records){
-        while (!$records->EOF){
-          $field     = $records->fields;
-          $jsonOut[] = [
-                        "id"        => enc($field['customerAddressId']),
-                        "name"      => $field['customerAddressName'],
-                        "address"   => $field['customerAddressText'],
-                        "default"   => $field['customerAddressDefault'],
-                        "location"  => $field['customerAddressLocation'],
-                        "city"      => $field['customerAddressCity'],
-                        "latLng"    => ($field['customerAddressLat'] ? $field['customerAddressLat'] . ',' . $field['customerAddressLng'] : false),
-                        "lat"       => $field['customerAddressLat'],
-                        "lng"       => $field['customerAddressLng'],
-                        "customerId" => enc($field['customerId'])
-                      ];
-
-          $records->MoveNext();
-        }
-      }
-
-    }
-
-    jsonDieMsg($jsonOut,200,'addresses');
-  }
-
-  // customerInfo → migrado a bff/customers (Slice 32)
-
 
   if($load == 'userLocation' && $get['id']){
     $jsonOut  = [];
