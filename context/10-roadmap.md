@@ -386,12 +386,21 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 **PILOTO ARQUITECTÓNICO — API granular + BFF compone (commit c4edef9, 2026-05-31) ✅ HECHO:** refactor de `customerInfo` que invierte la responsabilidad de composición. La API expone 5 recursos GET granulares reusables (`profile/recentItems/debt/giftcards/address`); el BFF los pide en paralelo con `bffApiGetMulti()` y los mergea en el shape legacy. Output BYTE-IDÉNTICO al `getInfo()` legacy (diffCount=0). **DECISIÓN tomada**: esta es la dirección del codebase — API granular + BFF compone. Los endpoints fat actuales (`getInfo`/composite de records, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen. Trade-off medido y bottleneck identificado: ver `/api/includes` canónico arriba.
 
-**Lo que QUEDA en load.php (post audit 2026-06-01, commit 85be7de — 722 líneas):**
-- ~~**Dead code borrado** (commit 85be7de, 2026-06-01)~~: 9 handlers eliminados (-991 líneas): `tweet`, `orders` (handler `$get['t']`), `ordersPanel`, `calendar_resources` (sin `_json`), `calendar_week` (sin `_json`), `calendar_agenda` (sin `_json`), `customerProgress`, `walink`, `printServer`. 0 callsites confirmados en todo el repo antes del borrado.
-- **Handlers vivos pendientes de migrar** (invocados desde `app/scripts/app.js`):
-  - `ordersPanelAPI` (load.php, app.js `ncmOrders.panel` refresh).
-  - `calendar_resources_json` / `calendar_week_json` / `calendar_agenda_json` / `calendar_month` (load.php, app.js vía `ncmCalendar.currentMode`). Conjunto del calendario.
-- **APIs externas diferidas** (requieren integraciones externas para testear, vivas): `bancardQR`, `pixQR`, `verifyTransactionPix`, `ePOSPending`, `verifyTransactionEPOS`, `userLocation`, `tin`.
+**Lo que QUEDA en load.php (post audits 2026-06-01 — 665 líneas):**
+
+- ~~**Dead code borrado** (commit 85be7de)~~: 9 handlers eliminados (-991 líneas): `tweet`, `orders` (handler `$get['t']`), `ordersPanel`, `calendar_resources` (sin `_json`), `calendar_week` (sin `_json`), `calendar_agenda` (sin `_json`), `customerProgress`, `walink`, `printServer`. 0 callsites confirmados antes del borrado.
+- ~~**Handler vestigial borrado** (commit 9ce8c1f)~~: `customerAddress` (-58 líneas) — el callsite del front ya apuntaba a `bff/customer_address` desde Slice 1; `CustomerAddressService::listForCustomer` cubre ambos modos (con/sin `aid`).
+- **Handlers vivos pendientes de migrar — Cluster A: proxies a panel/API** (5 handlers, ~575 líneas). Cada uno llama vía `curlContents(API_URL . '/...')` a endpoints de `panel/API/*.php`, recibe el shape de allí y lo re-shapea al que espera el front. Migrar requiere reimplementar el shape de panel/API directamente en el Service (consultando la BD), no proxy HTTP.
+  - `ordersPanelAPI` (~92 líneas) — refresh del panel de órdenes. Proxy a `panel/API/get_orders.php` con compare-timestamp vs `/get_last_update.php`. Repuntar al BFF requiere reimplementar el filtrado + shape de orders en `OrderService::getPanelList(...)`. Callsite: `app.js:7626`.
+  - `userLocation` (~50 líneas) — ubicación de un repartidor + próxima orden en camino. Mezcla SELECT propio (contact con `contactTrackLocation=1`) + proxy a `get_orders.php` con `status=5&limit=1`. Callsite: `app.js:8161`.
+  - `calendar_resources_json` / `calendar_week_json` / `calendar_agenda_json` (~270 líneas combinadas) — vistas JSON del calendario (resources/week/agenda). SQL específico + agrupación por slots horarios.
+  - `calendar_month` (~105 líneas) — vista mensual del calendario.
+- **APIs externas diferidas** (6 handlers, ~145 líneas, vivas) — requieren credenciales reales o sandbox para testear. **NO migrar sin integración disponible** (money path). Cada una es un proxy a un proveedor externo (Bancard, Pix de Bancard, ePOS, RUC Paraguay):
+  - `bancardQR` / `pixQR` / `verifyTransactionPix` — Bancard.
+  - `ePOSPending` / `verifyTransactionEPOS` — ePOS.
+  - `tin` — RUC Paraguay (`API_URL/get_tin`).
+
+**Decisión 2026-06-01:** ✅ borrar handlers vestigiales fue trivial; migrar Cluster A requiere reimplementar shapes de panel/API; APIs externas requieren setup de sandbox. Ninguno bloquea Phase AI. Se hacen en sesiones futuras dedicadas (cuando se tenga acceso a sandbox de proveedores y/o tiempo para reimplementar los shapes).
 
 Los clusters restantes de `action.php` (mesa-merge, monstruos processData/sale, HTML/especial, dead) no son de `load.php`.
 

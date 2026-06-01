@@ -11,6 +11,8 @@
 - **Slice 36b (commit cb5b997)**: `TransactionService::changeStatus` (NUEVO, 172 líneas del legacy). 3 fases: schedule completion logic, UPDATE transactionStatus + motive, ids para notifs. Side-effects best-effort: updateLastTimeEdit, 2× sendWS, notif cliente por status (5=email+sms, 4=push cancelada, 1=push confirmada, reminder=email+sms). 6 callsites repuntados en app.js.
 - **Slice 36c (commit be1e959)**: borrado del handler `if ($action == 'sale')` completo (-529 líneas). action.php: 2214 → 1685 (-52% total). **Queda solo `processData`**. Branch default era dead code (0 callsites confirmados).
 - **Estado final**: action.php ya no es god node. load.php ya no es god node funcional. TransactionService tiene: delete/deletePrintJob/reject/recordItemDeletion/voidTransaction/**setNote**/**changeStatus**.
+- **Cleanup vestigial customerAddress (commit 9ce8c1f)**: borrado del handler `load=customerAddress` (-58 líneas). Callsite ya repunteado a `bff/customer_address` desde Slice 1; `CustomerAddressService::listForCustomer` cubre ambos modos. load.php: 722 → 665.
+- **Audit de los 11 handlers vivos restantes en load.php** documentado en 10-roadmap.md: Cluster A (5 handlers proxies a `panel/API/*` que requieren reimplementación de shapes — `ordersPanelAPI`, `userLocation`, 4 calendarios) + APIs externas diferidas (6 handlers con credenciales/sandbox: tin, bancardQR, pixQR, verifyTransactionPix, ePOSPending, verifyTransactionEPOS). Decisión: no bloquean Phase AI; sesiones dedicadas.
 
 ## 2026-06-01 — P1.5: namespace + TenantContext DI en los 18 Services de `api/lib/services/` (commit 23cdd76)
 
