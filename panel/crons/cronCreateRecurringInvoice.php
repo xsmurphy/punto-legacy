@@ -1,5 +1,9 @@
 <?php
 include_once './cronHead.php';
+// JWT de servicio — necesario para que action.php (que requiere jwtAuthenticate)
+// acepte la re-submisión de la venta recurrente. El cron no tiene sesión de
+// usuario, por lo que mintea un JWT de corta vida (2min) por cada venta.
+require_once __DIR__ . '/../../app/includes/jwt.php';
 
 $allowedPlans 	= '1,2,4,8,9,10';
 $in 			= [];
@@ -91,8 +95,26 @@ if($result){
 
 		$url 		= '/action?l=' . base64_encode($fields['recurringTransactionData']);
 
-		curlContents($url, 'POST', $data); //inserto venta
-		curlContents($url, 'POST', $invoiceData); //inserto invoice
+		// action.php requiere JWT (migración de auth). El cron no tiene sesión,
+		// así que mintea un JWT de servicio de corta vida (2min) por venta, usando
+		// el contexto de la suscripción (companyId/outletId/registerId/userId de
+		// recurringTransactionData). $_ENV['JWT_SECRET'] viene del mismo .env.
+		$jwtHeaders = [];
+		$_jwtSecret = $_ENV['JWT_SECRET'] ?? '';
+		if ($_jwtSecret !== '') {
+			$_serviceJwt = jwtEncode([
+				'sub'  => $transData['userId']   ?? '',
+				'cid'  => $companyId,
+				'oid'  => $transData['outletId']  ?? '',
+				'rid'  => $registerId,
+				'role' => (int) ($transData['roleId'] ?? 1),
+				'exp'  => time() + 120, // 2 min — suficiente para los dos POST
+			], $_jwtSecret);
+			$jwtHeaders = ['Cookie: _jwt=' . $_serviceJwt];
+		}
+
+		curlContents($url, 'POST', $data,        $jwtHeaders); //inserto venta
+		curlContents($url, 'POST', $invoiceData, $jwtHeaders); //inserto invoice
 
 		$status = 1;
 		if($fields['recurringEndDate'] == $rangeDate){

@@ -3,6 +3,17 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-31 — Slice 35b COMPLETO — HITO FINAL: STRANGLER type 0/3 completamente migrado (commit a246722)
+
+- **35b COMPLETO**: factura electrónica PY migrada del legacy `processData` (action.php:2742-2763) al SaleService como POST-COMMIT best-effort.
+- **`SaleInput`**: agrega campo `electronicInvoicePY` (nullable array).
+- **`saleIsSimplePathEligible` (functions.php)**: elimina el rechazo de `electronicInvoicePY` — era el ÚLTIMO rechazo de payload activo. Ahora solo rechaza: parentId (edge raro) e ítems sin itemId de tipo desconocido. Para toda venta type 0/3 sin parentId la elegibilidad es siempre NULL → SaleService. **El strangler type 0/3 está completamente migrado.**
+- **`SaleService::dispatchElectronicInvoice` (NUEVO)**: POST-COMMIT best-effort. Lee RUC de `company.config` JSONB (ncmExecute, tenant-scoped). Mapea type→typeDoc (FC/FCR; NCR/type=6 devoluciones, diferido). Llama `sendFE()`. Gate: `FACTURACION_ELECTRONICA_TOKEN` no vacío (dev sin FE → no-op, mismo patrón que sendAudit).
+- **`SaleService::notifyCustomer` actualizado**: URL del recibo con prioridad del legacy: `digitalInvoice > EI (FACTURACION_ELECTRONICA_URL directo, sin getShortURL) > receipt local`.
+- **HITO FINAL — estado del strangler post-35b**: SaleService cubre el 100% del tráfico real de ventas type 0/3: 35a + 35c + 35d + 35e + 35f + 35b ✅. processData retiene SÓLO parentId (edge raro, no un feature real). `saleIsSimplePathEligible` queda en estado casi-null para toda venta normal.
+- **Verificado E2E**: cashsale (type=0) y creditsale (type=3) con payload `electronicInvoicePY` → 200 (antes 422). sendFE no dispara en dev (token vacío). code-reviewer sin P0/P1.
+- **Vault actualizado**: `02-arquitectura.md` (tabla guardado de ventas: 35b ✅, `saleIsSimplePathEligible` 35b como último rechazo, métodos SaleService `dispatchElectronicInvoice`/`notifyCustomer` + `SaleInput.electronicInvoicePY`), `10-roadmap.md` (35b ✅ hito final, estado processData post-35b, SaleService métodos actualizados).
+
 ## 2026-05-31 — Slice 35f COMPLETO — HITO MAYOR: STRANGLER processData→SaleService COMPLETO para type 0/3 (commit d23ead1)
 
 - **35f COMPLETO**: ventas recurrentes migradas del legacy `processData` (action.php:2390-2411) al SaleService. Último path de balance/comportamiento que el legacy retenía (salvo EI/35b y parentId).

@@ -707,8 +707,8 @@ final class SaleService
         // Además el cron lee $transData['registerId'] y $transData['companyId'] (raw UUID).
         // Guardamos el mismo shape que el legacy (base64_decode(masterUrlParams())):
         // {"action":"processData","companyId":"...","outletId":"...","userId":"...","roleId":1,"registerId":"..."}.
-        // NOTA: el cron no envía JWT → action.php devuelve 401 (deuda pre-existente,
-        // el cron necesita refactorizarse para mintar un JWT de servicio).
+        // El cron mintea un JWT de servicio de corta vida (120s) usando este contexto —
+        // ver panel/crons/cronCreateRecurringInvoice.php (fix del cron JWT).
         $txData = json_encode([
             'action'     => 'processData',
             'companyId'  => $this->ctx->companyId,
