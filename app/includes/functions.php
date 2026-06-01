@@ -1360,9 +1360,9 @@ function buildCalendarTop($options,$test=false){
 	//MODES
 	$modeBtnAr 	= [
 					'month'		=>['mode'=>'calendar_month','name'=>'Mes'],
-					'week'		=>['mode'=>'calendar_week','name'=>'Semana'],
-					'resource'	=>['mode'=> ($test?'calendar_resources2':'calendar_resources'),'name'=>'Recursos'],
-					'agenda'	=>['mode'=>'calendar_agenda','name'=>'Agenda']
+					'week'		=>['mode'=>'calendar_week_json','name'=>'Semana'],
+					'resource'	=>['mode'=>'calendar_resources_json','name'=>'Recursos'],
+					'agenda'	=>['mode'=>'calendar_agenda_json','name'=>'Agenda']
 					];
 
 	$modeBtn 	= '';
@@ -1390,15 +1390,15 @@ function buildCalendarTop($options,$test=false){
     	$time 		= 'month';
     	$title 		= niceDate($date,false,true);
     }else if($options['current'] == 'week'){
-    	$typemode 	= 'calendar_week';
+    	$typemode 	= 'calendar_week_json';
     	$time 		= 'week';
     	$title 		= niceDate($date,false,true);
     }else if($options['current'] == 'agenda'){
-    	$typemode 	= 'calendar_agenda';
+    	$typemode 	= 'calendar_agenda_json';
     	$time 		= 'month';
     	$title 		= niceDate($date);
     }else if($options['current'] == 'resource'){
-    	$typemode 	= ($test?'calendar_resources2':'calendar_resources');
+    	$typemode 	= 'calendar_resources_json';
     	$time 		= 'day';
     	$title 		= niceDate($date,false,false,false,true);
     }
