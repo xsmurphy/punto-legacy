@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-01 — P1.5: namespace + TenantContext DI en los 18 Services de `api/lib/services/` (commit 23cdd76)
+
+- **Modernización masiva P1.5**: los 18 Services en `api/lib/services/*.php` pasaron de ser clases sin namespace ni DI a seguir el patrón canónico: `declare(strict_types=1)`, `namespace Punto\Api\Services`, `use Punto\Api\Context\TenantContext`, `final class`, constructor con `public readonly TenantContext $ctx`.
+- **Dos casos con `\DB $db`**: `NotificationService` y `TransactionService` reciben además `\DB $db` (eliminan `global $db` interno; el endpoint inyecta la instancia global).
+- **Endpoints `api/v1/*.php` actualizados**: los 16 endpoints correspondientes agregan `use Punto\Api\Context\TenantContext` + `use Punto\Api\Services\XxxService` y pasan `TenantContext::fromAuth($ctx)` al constructor. Los 2 con `\DB` además pasan `global $db`.
+- **Vault actualizado**: `08-convenciones.md` nueva §22.14 (patrón canónico para Services en `api/lib/services/`); `05-modulos-clave.md` (tabla /api y REGLA actualizadas para reflejar que los Services ya tienen namespace y DI).
+
 ## 2026-06-01 — Configuración de contexto: Mempalace + orden de consulta
 
 - **Mempalace activado**: agregado como fuente de contexto en `~/.claude/CLAUDE.md` (global) y en el project CLAUDE.md. Wing del proyecto: `system` (362 drawers en backend/design/context + 7886 en sessions/).

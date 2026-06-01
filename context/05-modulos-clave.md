@@ -83,7 +83,7 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/router.php` | Dev server router — confina al path `/api/v1/` |
 | `api/bootstrap.php` | Bootstrap + `apiAuthTenant()` — autentica JWT tenant, prepara contexto POS |
 | `api/lib/response.php` | `apiOk()` / `apiError()` — envelope canónico |
-| `api/lib/services/CustomerAddressService.php` | CRUD de direcciones de cliente |
+| `api/lib/services/CustomerAddressService.php` | CRUD de direcciones de cliente. Todos los Services en `api/lib/services/` tienen `declare(strict_types=1)`, `namespace Punto\Api\Services`, `final class` y DI por constructor (`TenantContext $ctx`; más `\DB $db` en Notification y Transaction). Ver §22.14 de `08-convenciones.md`. |
 | `api/lib/services/TableService.php` | rename / unreserve / assignUser / closeTable / **listTables** / **joinSpaces** / **moveOrders** de mesas |
 | `api/lib/services/OrderService.php` | accept / transferToOutlet / assignUser / **customerHasOpenOrders** (slice 23 — bool, type 12 status!=4, parametrizado, multi-tenant) |
 | `api/lib/services/RegisterService.php` | setSession (slice 10) / **docNumbers** (slice 22 — 7 contadores de doc por registro, bug PG de UUID sin comillas corregido) |
@@ -102,7 +102,7 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 
 **Deuda transitoria**: `api/bootstrap.php` hace `chdir(/app)` y reusa los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. La consolidación de un `/api/includes` canónico es la tarea pendiente antes de que /api pueda vivir en su propio server.
 
-**REGLA**: Todo nuevo endpoint de desacople (de /app o de /panel) va en `/api/v1/` + `/api/lib/services/`, NO en `/app/API/v1/` (que quedó vacío de slices) ni directo en `panel/API/`.
+**REGLA**: Todo nuevo endpoint de desacople (de /app o de /panel) va en `/api/v1/` + `/api/lib/services/`, NO en `/app/API/v1/` (que quedó vacío de slices) ni directo en `panel/API/`. Los Services en `api/lib/services/` siguen el patrón §22.14 (`namespace Punto\Api\Services`, `final class`, DI con `TenantContext`). Los módulos de dominio nuevos van en subdirectorios PascalCase (`api/lib/Sales/`, etc.) con el estándar §22.9 completo.
 
 ---
 

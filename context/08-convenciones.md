@@ -946,6 +946,61 @@ Los BFFs no duplican más ese bloque. Solo agregan su lógica de dominio.
 
 ---
 
+### §22.14 — Patrón canónico para Services en `api/lib/services/` (P1.5, commit 23cdd76, 2026-06-01)
+
+**Contexto**: el commit P1.5 modernizó los 18 Services legacy de `api/lib/services/` que existían sin namespace ni DI (arrastrados desde el inicio del desacople). A partir de este commit, todos tienen el mismo header estándar.
+
+**Patrón obligatorio** para cualquier Service en `api/lib/services/*.php`:
+
+```php
+<?php
+declare(strict_types=1);
+namespace Punto\Api\Services;
+use Punto\Api\Context\TenantContext;
+
+final class XxxService
+{
+    public function __construct(
+        public readonly TenantContext $ctx,
+    ) {}
+    // ...
+}
+```
+
+**Los dos servicios que además reciben `\DB $db`** (porque usan `$db->Execute()` directo para operaciones que `ncmExecute` no cubre):
+
+```php
+final class NotificationService   // y TransactionService
+{
+    public function __construct(
+        public readonly TenantContext $ctx,
+        public readonly \DB $db,
+    ) {}
+}
+```
+
+Los 16 servicios restantes reciben **solo `TenantContext $ctx`**.
+
+**Inyección desde el endpoint** (`api/v1/*.php`):
+
+```php
+use Punto\Api\Context\TenantContext;
+use Punto\Api\Services\XxxService;
+
+$ctx = apiAuthTenant();
+$svc = new XxxService(TenantContext::fromAuth($ctx));
+
+// Para los dos con \DB:
+global $db;
+$svc = new NotificationService(TenantContext::fromAuth($ctx), $db);
+```
+
+`TenantContext` es el DTO inmutable de identidad de tenant. Su fuente es `api/lib/Context/TenantContext.php` (`namespace Punto\Api\Context`). El `global $db` queda ÚNICAMENTE en el endpoint; dentro del service siempre se usa `$this->ctx` y `$this->db`.
+
+**Distinción con módulos nuevos** (ej. `api/lib/Sales/`): los servicios en `api/lib/services/` usan el mismo namespace `Punto\Api\Services` y siguen el patrón §22.14; los módulos nuevos de dominio en subdirectorios PascalCase (`api/lib/Sales/`, etc.) usan `Punto\Api\<Module>` y aplican el estándar completo §22.9 (DTOs, enums, excepciones custom).
+
+---
+
 ### §22.9 — Estilo PHP para código nuevo en `/api` (establecido 2026-05-30, slice 35a.1)
 
 Para módulos NUEVOS bajo `api/lib/` (no aplica al `api/lib/services/*` existente, que sigue
@@ -991,9 +1046,9 @@ sin namespace por inercia): aplicar el set de estándares modernos PHP 8.1+.
   permite mockear en tests. Por ahora cada slice los llama directo. Cuando aparezca el
   primer test unitario que necesite mockear → se introduce la interfaz.
 
-**Coexistencia con código viejo**: los servicios pre-35a en `api/lib/services/*` siguen
-sin namespace y mezclando `global $db`. NO se migran preventivamente. Cuando alguno se
-toque por una razón funcional, se moderniza en el mismo commit.
+**Coexistencia con código viejo**: los servicios en `api/lib/services/*` ya tienen namespace
+y DI desde el commit 23cdd76 (P1.5 — ver §22.14). NO se migran más atributos preventivamente;
+si se toca un service por razón funcional, se aplica el patrón §22.14 completo en el mismo commit.
 
 **Estructura de directorios** (ejemplo de `api/lib/Sales/`):
 ```

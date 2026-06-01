@@ -356,7 +356,10 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 **PILOTO ARQUITECTÓNICO — API granular + BFF compone (commit c4edef9, 2026-05-31) ✅ HECHO:** refactor de `customerInfo` que invierte la responsabilidad de composición. La API expone 5 recursos GET granulares reusables (`profile/recentItems/debt/giftcards/address`); el BFF los pide en paralelo con `bffApiGetMulti()` y los mergea en el shape legacy. Output BYTE-IDÉNTICO al `getInfo()` legacy (diffCount=0). **DECISIÓN tomada**: esta es la dirección del codebase — API granular + BFF compone. Los endpoints fat actuales (`getInfo`/composite de records, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen. Trade-off medido y bottleneck identificado: ver `/api/includes` canónico arriba.
 
 **Lo que QUEDA en load.php (NO son parte del desacople de listas/fichas):**
-- **Dead code** (nunca se migran, se borran al vaciar load.php): `tweet`, `orders`, `ordersPanel`, `calendar_*`, `customerProgress`, `walink`, `printServer`, `ordersPanelAPI`.
+- **Dead code confirmado por audit** (2026-06-01) — 0 callsites en todo el repo, borrar al limpiar load.php: `tweet`, `orders` (handler con `$get['t']`), `ordersPanel`, `calendar_resources` (sin `_json`), `calendar_week` (sin `_json`), `calendar_agenda` (sin `_json`), `customerProgress` (el front usa `customerProgressView?action=1`, endpoint distinto), `walink`, `printServer` (`type=='printServer'` en app.js:18293 es toggle de settings, no invoca el handler). ~630 líneas.
+- **Handlers vivos pendientes de migrar** (no son dead — invocados desde `app/scripts/app.js`):
+  - `ordersPanelAPI` (load.php:1302, app.js:7626 `ncmOrders.panel` refresh).
+  - `calendar_resources_json` / `calendar_week_json` / `calendar_agenda_json` / `calendar_month` (load.php:476/642/798/904, app.js:8697/9447/9475 vía `ncmCalendar.currentMode`). Conjunto del calendario.
 - **APIs externas diferidas** (requieren integraciones externas para testear): `bancardQR`, `pixQR`, `verifyTransactionPix`, `ePOSPending`, `verifyTransactionEPOS`, `userLocation`, `tin`.
 
 Los clusters restantes de `action.php` (mesa-merge, monstruos processData/sale, HTML/especial, dead) no son de `load.php`.
