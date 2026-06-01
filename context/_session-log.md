@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-05-31 — Fix cron JWT para re-submisión de ventas recurrentes (commit eb8a7a3)
+
+- **Problema**: `cronCreateRecurringInvoice.php` enviaba la re-submisión de ventas recurrentes a `action.php` sin auth → 401 (action.php requiere `jwtAuthenticate()` desde la migración JWT). Deuda registrada al completar 35f.
+- **Fix**: el cron include `app/includes/jwt.php` vía `__DIR__ . '/../../app/includes/jwt.php'`. Antes de los dos `curlContents`, mintea un JWT de servicio de 120s con el contexto de `recurringTransactionData` (companyId/outletId/userId/registerId/roleId). Pasa `['Cookie: _jwt=<token>']` como 4to arg — el header `Cookie:` popula `$_COOKIE` en el servidor. `$_ENV['JWT_SECRET']` disponible vía `panel/includes/simple.config.php`.
+- **Decisión**: JWT de servicio de corta vida (120s) en vez de un token fijo de servicio. Si `JWT_SECRET` vacío → `$jwtHeaders=[]` → curlContents sin auth (comportamiento previo, inocuo).
+- **Pendiente próxima sesión**: `parentId` (único edge de type 0/3 que queda en legacy — raro, pero a documentar cuando se toque).
+
 ## 2026-05-31 — Slice 35b COMPLETO — HITO FINAL: STRANGLER type 0/3 completamente migrado (commit a246722)
 
 - **35b COMPLETO**: factura electrónica PY migrada del legacy `processData` (action.php:2742-2763) al SaleService como POST-COMMIT best-effort.
