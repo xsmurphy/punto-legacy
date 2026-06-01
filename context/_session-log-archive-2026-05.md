@@ -312,3 +312,42 @@
 - **upload.php IDOR cerrado (commit 214666b).** `ENCOM_COMPANY_ID` → `MASTER_COMPANY_ID` en toda la base de código.
 
 <!-- Entradas slices 29-33 y 2026-05-28 archivadas desde _session-log.md el 2026-05-31 (al superar cap de 200 líneas). -->
+
+## 2026-05-30 — Slice 34: joinSpaces + moveOrders migrados a TableService (commit 5642a1c)
+
+- **Hecho**: los dos handlers del cluster "Mesa-merge" de `action.php`, diferidos por estar ROTOS en PG (int→UUID), resueltos e integrados al patrón BFF→API→Service.
+- **`TableService::joinSpaces`**: resuelve el `transactionId` (UUID) de la mesa destino, marca la origen como hija (`transactionParentId = ese UUID`), reasigna sus órdenes (type 12). Devuelve 404 si la destino no existe. `PUT api/v1/tables.php?resource=join`.
+- **`TableService::moveOrders`**: mueve órdenes de una mesa a otra y ABRE la destino si estaba cerrada (INSERT type 11, PK por DEFAULT `gen_random_uuid()`). No es fusión (no marca parentId). `PUT api/v1/tables.php?resource=move`.
+- **Fixes PG del legacy**: nº de mesa en columna UUID, varchar vs int sin comillas, UUIDs sin comillas, `USE INDEX` (MySQL), params desalineados (2 placeholders/3 args). Todo parametrizado + scope companyId+outletId del JWT.
+- **TableService** queda con: rename / unreserve / assignUser / closeTable / listTables / joinSpaces / moveOrders.
+
+## 2026-05-30 — Reestructura /app Tiers 1-3: basura borrada, iconos a assets/icons/, front unificado en app.js (commits fff7d74, 975a30d, e97aed7)
+
+- **Tier 1**: borrados `app/encom_chrome.crx` (binario extensión Chrome con marca ENCOM vieja, 60KB) y `app/pdftest.php` (archivo de prueba, 81 líneas). 0 referencias.
+- **Tier 2**: iconos PWA movidos de `app/` raíz a `app/assets/icons/`. Refs actualizadas en `manifest.json`, `browserconfig.xml`, `index.html`/`index.php`/`schedule_calendar.php`. APP_VERSION → 2.0.9.5.
+- **Tier 3 (convención §22.2b RESUELTA)**: `globalv2.js` renombrado a **`app/scripts/app.js`** y `debug.js` **ELIMINADO** (era un duplicado byte-idéntico mantenido a mano). `app/includes/assets.php` colapsado a un único `/scripts/app.js`. APP_VERSION → 2.0.9.6.
+- **Vault actualizado**: `08-convenciones.md` §22.2b reescrita; `10-roadmap.md` sección "Reestructura" actualizada (Tiers 1-3 ✅); `02-arquitectura.md` y `05-modulos-clave.md` ref a `globalv2.js`/`debug.js` → `app.js`.
+
+## 2026-05-30 (tarde) — Rebrand iconos Punto + test E2E del POS en Chrome → 3 bugs de boot en PG (commits 93be05a, bc3aa35, 03d6d49, 1a6cb94)
+
+- **Iconos**: rebrand completo ENCOM→Punto regenerado desde `Media/logo/punto_iso.svg`. Se crearon faltantes (apple-touch-icon-*, favicon-128/196, mstile-* incl. 310x150) + `favicon.ico` multi-res y se arreglaron las refs muertas de los `<head>` → `/assets/icons/`.
+- **3 bugs de boot PG**: (1) login roto — `contactPassword CHAR(68)` padea con espacios → `==` estricto fallaba → `rtrim()` + `hash_equals()`. (2) Lentitud (~10s) — `/API/countries` hacía self-proxy INFINITO en `router.php`. Fix: countries local en `app/API/`. (3) Settings 500 — `getAllItemCategories()` usaba `array_key_exists` sobre `CaseInsensitiveArray` (TypeError PHP 8) → `isset()`.
+
+## 2026-05-30 (tarde/noche) — POS boot en PG: 6 bugs resueltos, migration 10 + seed 03 (commit 5acea95)
+
+- **Raíz del problema — plans UUID/int mismatch**: `company.plan` es `smallint` pero `plans.id` es UUID → `getAllPlans(1)` nunca matcheaba → LIMIT 0 en todas las queries del POS. Resuelto con migración 10 (`10_plans_code.sql`): agrega `plan_code smallint` + índice único parcial. Seed `03_dev_plan.sql` inserta el dev plan con `plan_code=1`, límites=99999.
+- **PHP 8.5 / PG schema bugs en `fetchs.php`**: json_decode(null) deprecated, ORDER BY contactInCalendar (columna demoted), IN(false), LIMIT plan-driven con intval.
+- **`DB.php DBResult`**: agrega `MoveFirst()` (faltaba; se llama en el loop de customers).
+
+## 2026-05-30 (noche) — Guardado de ventas E2E funcional en PG — processData 4 bugs encadenados (commit b45684f)
+
+- **commit b45684f — processData: venta E2E funcional** (2 ventas confirmadas en `transaction` + `itemsold` sobre el seed demo). Cuatro bugs encadenados: (1) UUID NULL — `customerId=0` → "invalid input syntax for type uuid". Fix: convertir `0`/`""` a NULL para columnas UUID. (2) Timestamp vacío — `transactionDueDate=""`→ NULL. (3) `contactFixedComission` demoted a `data` JSONB → `SELECT *` + `_flattenJsonb` + filtro PHP (§22.8). (4) `itemComissionPercent`/`itemComissionType`/`itemSessions` demoted — mismo patrón.
+- **Seeds con UUIDs no-secuenciales (commit 93c1cbb)**: reemplazados UUIDs secuenciales en el seed demo por UUIDs aleatorios (evitan falsos positivos en búsquedas por UUID).
+
+## 2026-05-30 (noche, cierre) — Flujos POS verificados E2E: venta con cliente, crédito, modificar items; deleteClient; 5 bugs PG (commits b0617ea, afc2706)
+
+- **E2E verificados hoy** (PG): (1) venta cashsale básica ✅ (commit b45684f), (2) venta con cliente seleccionado ✅, (3) venta a crédito (type=3, dueDate, complete=false) ✅, (4) modificar items en carrito (count 1→5) ✅, (5) soft-delete de cliente ✅. Total: 5 flujos del POS funcionales en PG end-to-end.
+- **Bug b0617ea — venta con cliente: 3 bugs encadenados**: (1) `getValue('item','itemSessions', 'WHERE itemId='.$itemId)` con UUID sin comillas + columna `itemSessions` demoted a JSONB → aborta la tx. Fix: `SELECT *` + `_flattenJsonb` + intval del campo JSONB (patrón §22.8). (2) `updateLastTimeEdit()` escribía columnas `company.*LastUpdate` que no existen en PG. Fix: RMW sobre `config` JSONB con cast `::jsonb` usando `$db->Execute` directo. (3) Auto-bug: `ncmExecute` para leer config → `_flattenJsonb` destruye el blob raw → borraba TODAS las settings. Fix definitivo: `$db->Execute('SELECT config ...')` directo para RMW de JSONB. Documentado como sub-regla nueva en §22.8.
+- **Bug afc2706 — deleteClient faltante en el POS**: handler nuevo en `app/action.php`: soft-delete (`contactStatus = 0`), UPDATE parametrizado con scope `companyId + type=1`, notifica WS con `deleted=true`, llama `updateLastTimeEdit('customer')`.
+
+<!-- Entradas 2026-05-30 archivadas desde _session-log.md el 2026-06-01 (al superar cap de 200 líneas). -->

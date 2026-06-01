@@ -271,6 +271,32 @@ Tarea estructural iniciada (ortogonal al desacople). Estado por tier:
 
 **Lo que NO se hace**: "gran refactor de app.js" en proyecto separado, antes de tests, mientras el backend desacople está en curso.
 
+### action.php — estado post-Slice 36 (2026-06-01) — STRANGLER CASI COMPLETO
+
+> **Última actualización**: 2026-06-01 — Slice 36 (commits 8c97f9f + a5dcc50 + cb5b997 + be1e959) + audit de vestigiales (85be7de).
+
+**Estado actual de action.php (1685 líneas):**
+- **Setup** (líneas 1–54): session, cors, JWT, company check, includes (head.php, data.php).
+- **ÚNICO handler real**: `if ($action == 'processData')` (línea 57, ~1622 líneas) — fallback del strangler de ventas. En prod cubre type 0/3 via SaleService casi al 100%; el legacy solo retiene parentId (edge raro).
+- **Tail** (~últimas 5 líneas): checkExecTime + else → 401.
+- **action.php YA NO es un god node**. El dispatcher de ~43 concerns fue vaciado concern-por-concern. Queda solo processData.
+
+**Historial del vaciado (cronológico):**
+- Slices 1–34 (2026-05-28 a 2026-05-30): migración de handlers individuales al patrón BFF→API→Service.
+- **commit 8c97f9f (2026-06-01)**: borrado de **35 handlers vestigiales** cuyo vaciado había sido repuntado en slices previos pero el código muerto aún permanecía. -1335 líneas. action.php: 3549 → 2214. Handlers borrados: clockIn, setCurrencies, notifications, notificationsCount, deleteInPrintServer, chkDeletedItems, chkDeletedCustomers, closeTable, renameTable, unReserveTable, removeItemfromOrder, processOrderItems, processOrderItemsUpdate, moveOrderItems, transferOrderToOutlet, deleteItemHistory, ePOSAddCardTransaction, cajaPOSAddCardAndQrTransaction, PixAddTransaction, chkGiftCard, customerNote, customerAddressAdd/Update/Delete/SetDefault, scheduleSession, updateSchedule, updateScheduleTo, deleteTransaction, checkIfUserOccupied, rejectOrder, acceptOrder, setUserToOrder, setUserToSpace, unlockCalendar, consultStatusElectronicInvoice. Bonus: repunteado el último callsite legacy `closeTable` en app.js de `action?l=` a `bff/tables?l=`.
+- **Slice 36a (commit a5dcc50)**: sub-actions `del` + `note` del handler `sale` migrados. `TransactionService::setNote` (UPDATE transactionNote vía markupt2HTML). `api/v1/transactions.php` PUT `?resource=note`. `app/bff/transactions.php` case `'modifyTransactionNote'`. 2 callsites repuntados.
+- **Slice 36b (commit cb5b997)**: sub-action `status` migrado (172 líneas). `TransactionService::changeStatus` encapsula 3 fases: (1) lógica schedule completion (status=6 + session → recrea comissions; status in [4,5] + parent → revert a 0); (2) UPDATE transactionStatus + motive (skip si 'reminder'); (3) devuelve customerId/userId/date para notifs. `api/v1/transactions.php` PUT `?resource=status` — side-effects best-effort en try/catch \Throwable (updateLastTimeEdit calendar+order, 2 sendWS KDS+register, notif cliente por status: 5=email+sms no-asistencia, 4=push cancelada, 1=push confirmada, reminder=email+sms recordatorio). `app/bff/transactions.php` case `'changeSaleStatus'` (mapea el quirk legacy `?status=<txId>&s=<newStatus>`). 6 callsites repuntados en app.js.
+- **Slice 36c (commit be1e959)**: borrado del handler `if ($action == 'sale')` completo (-529 líneas). action.php: 2214 → 1685. El branch default (~325 líneas de HTML list rendering) era dead code (0 callsites confirmados).
+
+**Estado actual de load.php (722 líneas, post audit 85be7de):**
+- **13 handlers vivos**: bancardQR, pixQR, verifyTransactionPix, ePOSPending, verifyTransactionEPOS, calendar_resources_json, calendar_week_json, calendar_agenda_json, calendar_month, ordersPanelAPI, customerAddress, userLocation, tin.
+- **9 dead handlers borrados** en commit 85be7de: tweet, orders (handler `$get['t']`), ordersPanel, calendar_resources (sin `_json`), calendar_week (sin `_json`), calendar_agenda (sin `_json`), customerProgress, walink, printServer.
+- load.php YA NO es un god node funcional. Su superficie viva son APIs externas diferidas + 5 pendientes de migrar (ver sección "Lo que QUEDA en load.php" abajo, actualizada post-audit).
+
+**Reducción total del dispatcher (referencia):**
+- action.php: 3549 → 1685 líneas (**-52%**).
+- load.php: 1714 → 722 líneas (**-58%**).
+
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
 
 Los **handlers limpios están agotados**. Lo restante son clusters con dependencias:
@@ -303,10 +329,15 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
   Trabajo grande, incremental, alto riesgo (money+inventario). La estructura `api/lib/Sales/` + `api/lib/Context/` queda establecida como modelo para futuros módulos (ver §22.9 en `08-convenciones.md`).
   **DEUDA conocida (35a.3, no regresión — matchea legacy)**: `toTaxObj.toTaxObjText` es VARCHAR(255); con ~6+ impuestos el json_encode excede y aborta la tx por truncación (22001). Fix: migración para widening a TEXT.
 - **`deleteClient` — ✅ AGREGADO al POS (commit afc2706, 2026-05-30)**: soft-delete de cliente desde el POS. Handler nuevo en `app/action.php`: UPDATE `contactStatus=0` parametrizado con scope `companyId+type=1`; notifica WS con `deleted=true`; llama `updateLastTimeEdit('customer')`. Espeja el patrón del REST canónico `panel/API/v1/contacts.php DELETE` / `ContactRepository::archive`. Los handlers `newClient` y `updateClient` del POS ya existían y son funcionales. **Deuda P2 (diferida)**: los tres handlers de cliente del POS duplican SQL del REST canónico; ideal migrar a que el POS llame al canónico via BFF (misma deuda que VPayment/Attendance pero para clientes). No verifica `Affected_Rows` (no devuelve 404 si el id no existe) ni llama `sendAuditoria` — matchea el canónico en ese punto.
-- **`sale` (~525 líneas)**: renderiza listas HTML de transacciones (monstruo de lectura).
+- ~~**`sale` (~525 líneas)**~~ ✅ **COMPLETAMENTE MIGRADO Y BORRADO — Slice 36 (commits a5dcc50 + cb5b997 + be1e959, 2026-06-01)**:
+  - Sub-action `del` → reutiliza `deleteTransaction` existente (36a). 1 callsite repuntado.
+  - Sub-action `note` → `TransactionService::setNote` (36a). `api/v1/transactions.php` PUT `?resource=note`. `app/bff/transactions.php` case `'modifyTransactionNote'`. 1 callsite repuntado.
+  - Sub-action `status` → `TransactionService::changeStatus` (36b). Side-effects best-effort (calendar, WS KDS+register, notif cliente). `app/bff/transactions.php` case `'changeSaleStatus'`. 6 callsites repuntados.
+  - Branch default (~325 líneas, HTML list rendering) era dead code (0 callsites) — borrado sin port.
+  - Handler `if ($action == 'sale')` completo borrado en 36c: -529 líneas. action.php: 2214 → 1685.
 - **Breakages preexistentes del panel (mismo tipo de migración, follow-up)**: `panel/crons/cronCreateRecurringInvoice.php` lee `recurringSaleData` de multi-row sin flatten → NULL; `panel/report_transactions.php` + `panel/a_report_transactions.php` hacen UPDATE de la columna `tags` (ya no existe) → falla.
 - **HTML/especial**: ~~`chkGiftCard`~~ ✅ MIGRADO (GiftCardService, commit anterior) · ~~`consultStatusElectronicInvoice`~~ ✅ MIGRADO (ElectronicInvoiceService con BFF + endpoint). **`voidSale` ✅ MIGRADO** — `TransactionService::voidTransaction(transactionId, motive, companyId)` (commit b3d164f, 2026-06-01): anulación de transacción (type→7); corrige 4 bugs del legacy: giftcard restore WHERE incompleto, points/storeCredit concatenados en SQL, giftcard `'extra'` nunca restaurado (el `unset('extra')` en `groupByPaymentMethod` lo borraba antes de iterar — ahora se itera raw payments), companyName leído desde tabla `setting` inexistente → constante COMPANY_NAME. `api/v1/transactions.php` PUT `?resource=void {motive}`. Side-effects best-effort (`updateLastTimeEdit` + `sendAuditoria`). `app/bff/transactions.php` case `'voidSale'` → `bffApiPut`. `app/scripts/app.js` repuntado de `action.php` a `bff/transactions`. **Fix PHP 8.5** en `groupByPaymentMethod` (`app/includes/functions.php`): `abs()` ya no acepta string/null → `(float)($val ?? 0)` antes de `abs()`. Verificado E2E: void cash → type=7, note correcto, itemSold=0; void giftcard → saldo restaurado correctamente.
-- **DEAD (borrar al vaciar action.php)**: `checkoutScreen` (`return false` al inicio), `checkSession` (front usa WS, no HTTP), `encode` (front no lo llama; enc() es identity → no-op).
+- **Nota sobre DEAD code**: los handlers `checkoutScreen`, `checkSession` y `encode` mencionados en análisis previos **no existían** en action.php al momento de la auditoría (2026-06-01) — fueron falsos positivos del análisis inicial. No hay código dead residual post-Slice 36c.
 
 ### Migración de panel/API → /api (gradual, pendiente)
 
@@ -355,12 +386,12 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 **PILOTO ARQUITECTÓNICO — API granular + BFF compone (commit c4edef9, 2026-05-31) ✅ HECHO:** refactor de `customerInfo` que invierte la responsabilidad de composición. La API expone 5 recursos GET granulares reusables (`profile/recentItems/debt/giftcards/address`); el BFF los pide en paralelo con `bffApiGetMulti()` y los mergea en el shape legacy. Output BYTE-IDÉNTICO al `getInfo()` legacy (diffCount=0). **DECISIÓN tomada**: esta es la dirección del codebase — API granular + BFF compone. Los endpoints fat actuales (`getInfo`/composite de records, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen. Trade-off medido y bottleneck identificado: ver `/api/includes` canónico arriba.
 
-**Lo que QUEDA en load.php (NO son parte del desacople de listas/fichas):**
-- **Dead code confirmado por audit** (2026-06-01) — 0 callsites en todo el repo, borrar al limpiar load.php: `tweet`, `orders` (handler con `$get['t']`), `ordersPanel`, `calendar_resources` (sin `_json`), `calendar_week` (sin `_json`), `calendar_agenda` (sin `_json`), `customerProgress` (el front usa `customerProgressView?action=1`, endpoint distinto), `walink`, `printServer` (`type=='printServer'` en app.js:18293 es toggle de settings, no invoca el handler). ~630 líneas.
-- **Handlers vivos pendientes de migrar** (no son dead — invocados desde `app/scripts/app.js`):
-  - `ordersPanelAPI` (load.php:1302, app.js:7626 `ncmOrders.panel` refresh).
-  - `calendar_resources_json` / `calendar_week_json` / `calendar_agenda_json` / `calendar_month` (load.php:476/642/798/904, app.js:8697/9447/9475 vía `ncmCalendar.currentMode`). Conjunto del calendario.
-- **APIs externas diferidas** (requieren integraciones externas para testear): `bancardQR`, `pixQR`, `verifyTransactionPix`, `ePOSPending`, `verifyTransactionEPOS`, `userLocation`, `tin`.
+**Lo que QUEDA en load.php (post audit 2026-06-01, commit 85be7de — 722 líneas):**
+- ~~**Dead code borrado** (commit 85be7de, 2026-06-01)~~: 9 handlers eliminados (-991 líneas): `tweet`, `orders` (handler `$get['t']`), `ordersPanel`, `calendar_resources` (sin `_json`), `calendar_week` (sin `_json`), `calendar_agenda` (sin `_json`), `customerProgress`, `walink`, `printServer`. 0 callsites confirmados en todo el repo antes del borrado.
+- **Handlers vivos pendientes de migrar** (invocados desde `app/scripts/app.js`):
+  - `ordersPanelAPI` (load.php, app.js `ncmOrders.panel` refresh).
+  - `calendar_resources_json` / `calendar_week_json` / `calendar_agenda_json` / `calendar_month` (load.php, app.js vía `ncmCalendar.currentMode`). Conjunto del calendario.
+- **APIs externas diferidas** (requieren integraciones externas para testear, vivas): `bancardQR`, `pixQR`, `verifyTransactionPix`, `ePOSPending`, `verifyTransactionEPOS`, `userLocation`, `tin`.
 
 Los clusters restantes de `action.php` (mesa-merge, monstruos processData/sale, HTML/especial, dead) no son de `load.php`.
 

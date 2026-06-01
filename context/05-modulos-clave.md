@@ -10,12 +10,11 @@ delivery, calendario de citas, agendamientos.
 
 **Entry point**: `app/index.php` (HTML + PHP template)
 
-**Dispatcher principal**: `app/action.php` (~143KB)
-- Decodifica parámetro `l=` (base64) para extraer acción + metadata
-- Valida JWT (cookie `_jwt`), fallback a legacy Hashids
-- ~43+ acciones aún aquí: clockIn, setCurrencies, addSale, getItems, etc.
-- Rate limiting: 80 requests/minuto por register
-- **`customerAddress.*` ya NO está aquí** — migrado al BFF/API/Service (slice 1, commit d79cfa4)
+**Dispatcher principal**: ~~`app/action.php` (~143KB)~~ → **1685 líneas post-Slice 36 (2026-06-01) — ya NO es god node**
+- El dispatcher de ~43+ acciones fue vaciado concern-por-concern (slices 1–36).
+- **Queda únicamente el handler `processData`** (~1622 líneas) — fallback del strangler de ventas. En prod cubre type 0/3 casi al 100% vía SaleService; el legacy solo retiene parentId (edge raro).
+- Setup (líneas 1–54): session, cors, JWT, company check, includes. Tail: checkExecTime + else→401.
+- Ver `10-roadmap.md § action.php estado post-Slice 36` para el historial completo del vaciado.
 
 **Desacople progresivo de /app al patrón Front→BFF→API→Service (iniciado 2026-05-28)**
 
@@ -86,6 +85,7 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/lib/services/CustomerAddressService.php` | CRUD de direcciones de cliente. Todos los Services en `api/lib/services/` tienen `declare(strict_types=1)`, `namespace Punto\Api\Services`, `final class` y DI por constructor (`TenantContext $ctx`; más `\DB $db` en Notification y Transaction). Ver §22.14 de `08-convenciones.md`. |
 | `api/lib/services/TableService.php` | rename / unreserve / assignUser / closeTable / **listTables** / **joinSpaces** / **moveOrders** de mesas |
 | `api/lib/services/OrderService.php` | accept / transferToOutlet / assignUser / **customerHasOpenOrders** (slice 23 — bool, type 12 status!=4, parametrizado, multi-tenant) |
+| `api/lib/services/TransactionService.php` | delete / deletePrintJob / reject / recordItemDeletion (slices 6, 28, 29) + **voidTransaction** (commit b3d164f — anulación type→7, corrige 4 bugs del legacy) + **setNote** (Slice 36a — UPDATE transactionNote vía markupt2HTML) + **changeStatus** (Slice 36b — 3 fases: schedule completion logic, UPDATE transactionStatus + motive, devuelve ids para notifs; side-effects best-effort). Recibe `TenantContext $ctx` + `\DB $db`. |
 | `api/lib/services/RegisterService.php` | setSession (slice 10) / **docNumbers** (slice 22 — 7 contadores de doc por registro, bug PG de UUID sin comillas corregido) |
 | `api/lib/services/ScheduleService.php` | rescheduleTo / unlock de agendamientos |
 | `api/lib/services/CustomerNoteService.php` | add de notas de cliente |

@@ -106,7 +106,7 @@ El franchiser (`panel/franchiser.php`, gateado por `isParent`) es un **realm ten
 | Patrón | Dónde |
 |--------|-------|
 | Monolito con API REST emergente | `/panel/API/*.php` (93 endpoints) |
-| Action dispatcher | `/app/action.php` (~43+ acciones vía param `l=`) — en desacople progresivo |
+| ~~Action dispatcher~~ → **Vaciado (2026-06-01)** | `/app/action.php` tenía ~43+ acciones vía param `l=`; post-Slice 36 solo queda `processData`. El patrón BFF→API→Service lo reemplazó concern-por-concern. |
 | BFF 3 capas (Front→BFF→API→Service) | `/panel/` (completo) + **`/app/` en desacople progresivo** (slice 1: customerAddress ✅, 2026-05-28) |
 | Pub/Sub bridge | PHP → Redis → Node.js WS → Browser |
 | JSONB extensible | Columnas `config`, `data`, `meta` en tablas principales |
@@ -137,7 +137,7 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 |---------|---------------|
 | `panel/includes/functions.php` (282KB) | Host de `ncmExecute()`, `validity()`, `iftn()`, `toUTF8()` |
 | `app/includes/functions.php` | Duplicado parcial — cambios al panel suelen requerir sync acá |
-| `app/action.php` (143KB) | Dispatcher de ~43+ acciones del POS; se vacía concern-por-concern |
+| ~~`app/action.php` (143KB)~~ → **1685 líneas post-Slice 36 (2026-06-01)** | Dispatcher de ~43+ acciones del POS completamente vaciado. Ya NO es god node — queda solo el handler `processData` (~1622 líneas, fallback del strangler de ventas). Ver `10-roadmap.md § action.php estado post-Slice 36`. |
 | `panel/API/lib/api_middleware.php` | Auth de los endpoints migrados del panel |
 | `app/includes/jwt_middleware.php` | Auth de /app — también usada por el bootstrap de `/api` vía `chdir+require` (transitorio) |
 | `api/bootstrap.php` | Bootstrap de la API compartida; `apiAuthTenant()` — JWT tenant (cookie `_jwt` \| Bearer \| POST, claim `cid`, `JWT_SECRET`) |
