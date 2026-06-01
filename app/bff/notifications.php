@@ -11,14 +11,7 @@
  * Front manda action="notifications,<type>" (list) o action="notificationsCount" (count).
  */
 
-require_once __DIR__ . '/lib/api_client.php';
-
-if (empty($_COOKIE['_jwt'])) {
-    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
-}
-
-$get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
-$action = (string) ($get['action'] ?? '');
+require_once __DIR__ . '/lib/bff_init.php';
 $parts  = explode(',', $action);
 
 // --- list: action = "notifications[,type]" → POST (mutación: marca visto) --

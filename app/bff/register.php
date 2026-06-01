@@ -11,14 +11,7 @@
  * NO toca BD. Decodifica `?l=`, reenvía a /api/v1/register.php (cookie _jwt).
  */
 
-require_once __DIR__ . '/lib/api_client.php';
-
-if (empty($_COOKIE['_jwt'])) {
-    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
-}
-
-$get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
-$action = (string) ($get['action'] ?? '');
+require_once __DIR__ . '/lib/bff_init.php';
 
 // GET docsNum: numeración de documentos. El front consume el objeto plano directo
 // (window.docsNum[rIndex] = result) → no se envuelve en una clave.

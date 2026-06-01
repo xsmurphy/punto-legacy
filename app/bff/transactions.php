@@ -12,14 +12,7 @@
  * /api/v1/transactions.php (con cookie _jwt) y devuelve el shape legacy { success:"true" }.
  */
 
-require_once __DIR__ . '/lib/api_client.php';
-
-if (empty($_COOKIE['_jwt'])) {
-    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
-}
-
-$get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
-$action = (string) ($get['action'] ?? '');
+require_once __DIR__ . '/lib/bff_init.php';
 $id     = (string) ($get['id'] ?? '');
 $ep     = 'v1/transactions.php';
 

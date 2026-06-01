@@ -13,14 +13,7 @@
  * array de items (los que devuelven) o {success:"true"} (remove).
  */
 
-require_once __DIR__ . '/lib/api_client.php';
-
-if (empty($_COOKIE['_jwt'])) {
-    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
-}
-
-$get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
-$action = (string) ($get['action'] ?? '');
+require_once __DIR__ . '/lib/bff_init.php';
 $items  = is_array($get['items'] ?? null) ? $get['items'] : [];
 $ep     = 'v1/order_items.php';
 

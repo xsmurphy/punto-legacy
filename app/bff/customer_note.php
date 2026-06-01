@@ -6,13 +6,7 @@
  * sobre `?l=` del front, reenvía a la API v1 (cookie _jwt) y devuelve {success:"true"}.
  */
 
-require_once __DIR__ . '/lib/api_client.php';
-
-if (empty($_COOKIE['_jwt'])) {
-    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
-}
-
-$get = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
+require_once __DIR__ . '/lib/bff_init.php';
 
 if (($get['action'] ?? '') !== 'customerNote') {
     bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);

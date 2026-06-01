@@ -13,15 +13,8 @@
  * NO toca BD: reenvía a `/api/v1/sales.php` con cookie `_jwt`.
  */
 
-require_once __DIR__ . '/lib/api_client.php';
-
-if (empty($_COOKIE['_jwt'])) {
-    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
-}
-
+require_once __DIR__ . '/lib/bff_init.php';
 // `?l=` declara la acción (espeja el contrato del legacy). El payload va en POST data[].
-$get    = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
-$action = $get['action'] ?? '';
 
 if ($action !== 'save' && $action !== 'processData') {
     bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);

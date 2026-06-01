@@ -12,13 +12,7 @@
  * es por-concern, no el IF monolítico. Ver context/05-modulos-clave.md.
  */
 
-require_once __DIR__ . '/lib/api_client.php';
-
-if (empty($_COOKIE['_jwt'])) {
-    bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
-}
-
-$get = json_decode(base64_decode($_GET['l'] ?? ''), true) ?: [];
+require_once __DIR__ . '/lib/bff_init.php';
 
 // --- Lectura: load=customerAddress ------------------------------------------
 if (($get['load'] ?? '') === 'customerAddress') {
