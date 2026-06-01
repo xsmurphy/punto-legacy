@@ -1,16 +1,41 @@
 # Punto POS — Instrucciones para Claude
 
-## Kit de contexto (obligatorio leer al inicio)
-
 ## Orden obligatorio de consulta de contexto
 
-Antes de cualquier trabajo, consultar en este orden:
+Antes de cualquier trabajo, consultar las tres fuentes en este orden:
 
-1. **Mempalace** — `mcp__mempalace__mempalace_search` con términos del tema (wing `system`). Contexto acumulado entre sesiones, decisiones pasadas, errores conocidos.
-2. **`context/`** — vault de conocimiento estructurado del proyecto. Leer `context/README.md` primero y luego los archivos relevantes a la tarea (ver tabla abajo).
-3. **graphify** — `graphify-out/GRAPH_REPORT.md` o `graphify-out/wiki/index.md` para preguntas de arquitectura, dependencias y god nodes.
+1. **Mempalace** — el "qué pasó antes": contexto acumulado entre sesiones, decisiones pasadas, errores conocidos.
+2. **`context/`** — el "cómo está diseñado": vault estructurado del proyecto (producto, arquitectura, dominio, convenciones, roadmap).
+3. **graphify** — el "cómo está conectado el código": knowledge graph del codebase con god nodes y comunidades.
 
-No saltarse pasos: Mempalace da el "qué pasó antes", context/ da el "cómo está diseñado", graphify da el "cómo está conectado el código".
+No saltarse pasos. Cada fuente cubre una pregunta distinta; las tres juntas dan el cuadro completo antes de tocar código.
+
+---
+
+## 1) Mempalace — memoria entre sesiones (MCP)
+
+Wing de este proyecto: **`system`**.
+
+### Cuándo consultar
+- Al inicio de cualquier sesión antes de arrancar trabajo.
+- Ante preguntas sobre decisiones pasadas, errores repetidos, o patrones conocidos.
+- Cuando el `context/` vault no tenga la respuesta.
+
+### Cómo consultar
+1. `mcp__mempalace__mempalace_search` con términos del tema — punto de entrada principal.
+2. `mcp__mempalace__mempalace_list_rooms` en wing `system` para ver las áreas disponibles.
+3. `mcp__mempalace__mempalace_get_drawer` si un drawer específico parece relevante.
+
+### Cuándo guardar
+- Decisiones de arquitectura no-obvias tomadas en la sesión.
+- Errores o trampas que costaron tiempo y podrían repetirse.
+- Verificar duplicados con `mcp__mempalace__mempalace_check_duplicate` antes de `add_drawer`.
+
+---
+
+## 2) context/ — vault de conocimiento del proyecto
+
+Leer `context/README.md` primero (índice) y luego los archivos relevantes a la tarea según esta tabla:
 
 | # | Archivo | Cuándo leerlo |
 |---|---------|---------------|
@@ -27,6 +52,43 @@ No saltarse pasos: Mempalace da el "qué pasó antes", context/ da el "cómo est
 | 09 | [context/09-costos-y-creditos.md](context/09-costos-y-creditos.md) | Para APIs pagas y modelo de créditos IA |
 | 10 | [context/10-roadmap.md](context/10-roadmap.md) | **Crítico** — backlog priorizado, fuente única de verdad del roadmap |
 | 11 | [context/11-design-system.md](context/11-design-system.md) | Manual de marca — reutilizar clases/colores existentes (BS3+app.css); skill `brand-manual`. Nunca inventar estilos ni rediseñar |
+
+### Mantenimiento del vault
+
+Al terminar cualquier sesión con cambios significativos, actualizar el archivo correspondiente.
+Criterio: *"¿la próxima sesión arrancaría confundida sin esta nota?"*
+
+| Si cambia... | Actualizar... |
+|--------------|---------------|
+| Roadmap, prioridades, fases | `10-roadmap.md` |
+| Servicios nuevos, comunicación entre componentes, god nodes | `02-arquitectura.md` |
+| Versiones de lenguajes/frameworks | `03-stack.md` |
+| Schemas, entidades, relaciones | `04-modelo-de-dominio.md` |
+| Reglas de colaboración o convenciones nuevas | `08-convenciones.md` |
+| Resumen de sesión (siempre al cierre) | `_session-log.md` |
+
+El `_session-log.md` tiene cap blando de 200 líneas. Cuando se supere, archivar a `_session-log-archive-YYYY-MM.md`.
+
+---
+
+## 3) graphify — knowledge graph del código
+
+Knowledge graph generado en `graphify-out/`.
+
+### Cómo consultar
+- Antes de responder preguntas de arquitectura o código, leer `graphify-out/GRAPH_REPORT.md` para god nodes y comunidades.
+- Si existe `graphify-out/wiki/index.md`, navegar ahí en vez de leer archivos crudos.
+
+### Mantenimiento
+Después de modificar código, regenerar el grafo:
+
+```bash
+.venv/bin/python -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"
+```
+
+El subagente `context-updater` ya lo regenera automáticamente cuando lo invocás post-commit.
+
+---
 
 ## Reglas del proyecto (críticas)
 
@@ -51,21 +113,7 @@ No saltarse pasos: Mempalace da el "qué pasó antes", context/ da el "cómo est
    `.htaccess`) — centralizarlos es deuda registrada en `context/10-roadmap.md`. CORS es
    security-sensitive: cualquier cambio debe preservar la allowlist actual como fallback.
 
-## Mantenimiento del vault
-
-Al terminar cualquier sesión con cambios significativos, actualizar el archivo correspondiente del vault.
-Criterio: *"¿la próxima sesión arrancaría confundida sin esta nota?"*
-
-| Si cambia... | Actualizar... |
-|--------------|---------------|
-| Roadmap, prioridades, fases | `10-roadmap.md` |
-| Servicios nuevos, comunicación entre componentes, god nodes | `02-arquitectura.md` |
-| Versiones de lenguajes/frameworks | `03-stack.md` |
-| Schemas, entidades, relaciones | `04-modelo-de-dominio.md` |
-| Reglas de colaboración o convenciones nuevas | `08-convenciones.md` |
-| Resumen de sesión (siempre al cierre) | `_session-log.md` |
-
-El `_session-log.md` tiene cap blando de 200 líneas. Cuando se supere, archivar a `_session-log-archive-YYYY-MM.md`.
+---
 
 ## Workflow de Git (estricto — única rama)
 
@@ -77,9 +125,11 @@ El `_session-log.md` tiene cap blando de 200 líneas. Cuando se supere, archivar
 4. **Excepción**: commits con prefix `wip:` pueden saltearse el reviewer (pero NO el push).
 
 Si una sesión te coloca en un worktree o branch distinta de `main`:
-- Hacer el trabajo igual (no es bloqueante)
-- Al cerrar, mergear el branch a `main` y eliminar el worktree
-- Cualquier actualización al `context/` debe ir a `main`
+- Hacer el trabajo igual (no es bloqueante).
+- Al cerrar, mergear el branch a `main` y eliminar el worktree.
+- Cualquier actualización al `context/` debe ir a `main`.
+
+---
 
 ## Uso proactivo de agentes y skills
 
@@ -156,31 +206,3 @@ Invocar proactivamente cuando aplique:
 
 > Si una skill o agente matchea claramente el trigger declarado en su descripción,
 > invocarla sin pedir permiso. Si hay duda razonable, preguntar al usuario qué prefiere.
-
-## graphify
-
-Este proyecto tiene un knowledge graph en `graphify-out/`.
-
-Reglas:
-- Antes de responder preguntas de arquitectura o código, leer `graphify-out/GRAPH_REPORT.md` para god nodes y comunidades
-- Si existe `graphify-out/wiki/index.md`, navegar ahí en vez de leer archivos crudos
-- Después de modificar código, correr `.venv/bin/python -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"` para mantener el grafo al día
-
-## mempalace
-
-Mempalace es la memoria persistente entre sesiones (MCP). Wing de este proyecto: `system`.
-
-Cuándo consultar:
-- Al inicio de cualquier sesión antes de arrancar trabajo
-- Ante preguntas sobre decisiones pasadas, errores repetidos, o patrones conocidos
-- Cuando el context/ vault no tenga la respuesta
-
-Cómo consultar:
-1. `mcp__mempalace__mempalace_search` con términos del tema — punto de entrada principal
-2. `mcp__mempalace__mempalace_list_rooms` en wing `punto` para ver las áreas disponibles
-3. `mcp__mempalace__mempalace_get_drawer` si un drawer específico parece relevante
-
-Cuándo guardar:
-- Decisiones de arquitectura no-obvias tomadas en la sesión
-- Errores o trampas que costaron tiempo y podrían repetirse
-- Verificar duplicados con `mcp__mempalace__mempalace_check_duplicate` antes de `add_drawer`
