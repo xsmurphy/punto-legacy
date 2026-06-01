@@ -7835,14 +7835,15 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 					continue;
 				}
 
-				$nuPrice 	= iftn(abs($nu['price'] ?? 0), 0); // lo que se ingresa en el visor d epago
-				$nuTotal 	= iftn(abs($nu['total'] ?? 0), 0); // saldo a pagar
+				// PHP 8.5: abs() ya no acepta strings/null → (float) antes de abs().
+				$nuPrice 	= iftn(abs((float)($nu['price'] ?? 0)), 0); // lo que se ingresa en el visor d epago
+				$nuTotal 	= iftn(abs((float)($nu['total'] ?? 0)), 0); // saldo a pagar
 
 				$nu['type']	= getPaymentMethodDecoded($nu['type'], true);
 
 				if ($nuPrice > $nuTotal) {
 					$nu['price'] 	= $nuTotal;
-					$nuPrice 			= (float)abs($nu['price'] ?? 0);
+					$nuPrice 			= abs((float)($nu['price'] ?? 0));
 				}
 
 				$match = false;
