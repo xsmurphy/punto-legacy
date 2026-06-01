@@ -178,6 +178,22 @@ final class TransactionService
     }
 
     /**
+     * Actualiza la nota de una transacción. La nota llega en markup propio del POS;
+     * `markupt2HTML` la convierte a HTML antes de persistir (igual que action.php legacy).
+     * Multi-tenant: scope companyId obligatorio.
+     */
+    public function setNote(string $transactionId, string $companyId, string $note): bool
+    {
+        $html = markupt2HTML(['text' => $note, 'type' => 'HtM']);
+        $res  = $this->db->Execute(
+            'UPDATE transaction SET transactionNote = ?, updated_at = NOW()
+              WHERE transactionId = ? AND companyId = ?',
+            [$html, $transactionId, $companyId]
+        );
+        return $res !== false;
+    }
+
+    /**
      * Elimina un job de la cola printServer por transactionId + companyId.
      */
     public function deletePrintJob(string $transactionId, string $companyId): bool

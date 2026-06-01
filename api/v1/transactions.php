@@ -105,6 +105,19 @@ if ($method === 'PUT' && $resource === 'reject') {
     apiOk(['rejected' => true]);
 }
 
+// --- PUT ?resource=note: actualizar nota de transacción ------------------
+if ($method === 'PUT' && $resource === 'note') {
+    $transactionId = trim((string) ($_GET['id'] ?? ''));
+    $note          = (string) ($_POST['note'] ?? '');
+    if ($transactionId === '' || $note === '') {
+        apiError('Falta id o note', 422);
+    }
+    if (!$svc->setNote($transactionId, $companyId, $note)) {
+        apiError('No se pudo actualizar la nota', 500);
+    }
+    apiOk(['updated' => true]);
+}
+
 // --- PUT ?resource=void: anular transacción (type→7) ----------------------
 if ($method === 'PUT' && $resource === 'void') {
     $transactionId = trim((string) ($_GET['id'] ?? ''));

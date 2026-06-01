@@ -73,6 +73,9 @@ switch ($action) {
         $body = !empty($get['motive']) ? ['motive' => (string) $get['motive']] : [];
         $res  = bffApiPut($ep, ['id' => $id, 'resource' => 'void'], $body, '_jwt');
         break;
+    case 'modifyTransactionNote': // PUT ?id=&resource=note { note }
+        $res = bffApiPut($ep, ['id' => $id, 'resource' => 'note'], ['note' => (string) ($get['note'] ?? '')], '_jwt');
+        break;
     default:
         bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }

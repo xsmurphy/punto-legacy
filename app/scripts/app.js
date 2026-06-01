@@ -5122,8 +5122,8 @@ var ncmEvents = {
 
             ncmAlerts.prompt({ title: 'Nueva nota' }, function (note) {
                 if (note) {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({
-                        action: 'sale',
+                    var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({
+                        action: 'modifyTransactionNote',
                         note: note,
                         id: id
                     });
@@ -5577,7 +5577,7 @@ var ncmEvents = {
                         ncmCustomer.notInTransactionAlert(customerId, function () {
                             tables('items'); //actualizo la tabla de ventas
                             ncmMenu.manager('hide');
-                            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'sale', del: id });
+                            var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'deleteTransaction', id: id });
                             ncmHttp.getit(url); //elimino la venta cargada
                         });
                     }
