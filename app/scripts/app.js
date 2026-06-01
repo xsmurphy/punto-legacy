@@ -5158,8 +5158,8 @@ var ncmEvents = {
                 if (stat == 4) {
                     ncmAlerts.prompt({ title: 'Motivo' }, function (motive) {
                         motive = iftn(motive, 'Cancelado sin motivo');
-                        var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({
-                            action: 'sale',
+                        var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({
+                            action: 'changeSaleStatus',
                             status: id,
                             s: stat,
                             m: motive,
@@ -5175,7 +5175,7 @@ var ncmEvents = {
                     var link = tis.attr('href');
                     ncmHelpers.openBrowser(link);
                 } else {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'sale', status: id, s: stat, schedule: true });
+                    var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'changeSaleStatus', status: id, s: stat, schedule: true });
                     $blockEl.find('i.material-icons').text(icon);
                     $blockEl.removeClass('b-dark b-info b-warning b-danger b-white b-success').addClass('b-' + color);
                     ncmHttp.get({ url: url, hideLoader: true });
@@ -5187,7 +5187,7 @@ var ncmEvents = {
             } else
                 if (mode == 'orderList') {
 
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'sale', status: id, s: stat });
+                    var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'changeSaleStatus', status: id, s: stat });
                     if (!isMobile.phone) {
                         //$('.imodal').imodal('hide');
                     }
@@ -5217,7 +5217,7 @@ var ncmEvents = {
                     }
 
                 } else {
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'sale', status: id, s: stat });
+                    var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'changeSaleStatus', status: id, s: stat });
                     ncmHttp.getit(url, function () {
 
                         ncmTransactions.buildList({
@@ -5352,7 +5352,7 @@ var ncmEvents = {
 
                             ncmCustomer.notInTransactionAlert(customerId, function () {
                                 //cambio estado a finalizado
-                                var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'sale', status: id, s: 6, schedule: true, uid: ncmTransactions.trUID });
+                                var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'changeSaleStatus', status: id, s: 6, schedule: true, uid: ncmTransactions.trUID });
                                 ncmHttp.getit(url, function () {
                                     if (ncmHelpers.valid(bring, 'isSession')) {
                                         //window.location.hash = 'schedule_module';
@@ -5430,7 +5430,7 @@ var ncmEvents = {
                     $('#modalSales').imodal('hide');
                     ncmTransactions.parentSaleId = id;
 
-                    var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ "action": 'sale', "status": id, "s": 4 });
+                    var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ "action": 'changeSaleStatus', "status": id, "s": 4 });
                     ncmHttp.getit(url); //set como finalizada
                 }
 
@@ -5720,7 +5720,7 @@ var ncmEvents = {
                             $blockEl.css({ 'background-color': 'rgb(167, 176, 183)' });
 
                             // Cambio estado a finalizado
-                            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'sale', status: id, s: 6, schedule: true, uid: orgTrsID });
+                            var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'changeSaleStatus', status: id, s: 6, schedule: true, uid: orgTrsID });
                             ncmHttp.getit(url, function () {
                                 $('.imodal').imodal('hide');
                             });

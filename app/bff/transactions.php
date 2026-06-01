@@ -76,6 +76,17 @@ switch ($action) {
     case 'modifyTransactionNote': // PUT ?id=&resource=note { note }
         $res = bffApiPut($ep, ['id' => $id, 'resource' => 'note'], ['note' => (string) ($get['note'] ?? '')], '_jwt');
         break;
+    case 'changeSaleStatus':    // PUT ?id=&resource=status { status, motive?, schedule?, uid? }
+        // Legacy: ?action=sale&status=<id>&s=<status>&m=<motive>&schedule=true&uid=<uid>
+        // (`status` carga el id; `s` carga el nuevo estado — quirk del dispatcher viejo.)
+        $body = ['status' => (string) ($get['s'] ?? '')];
+        if (!empty($get['m']))        { $body['motive']   = (string) $get['m']; }
+        if (!empty($get['schedule'])) { $body['schedule'] = '1'; }
+        if (!empty($get['uid']))      { $body['uid']      = (string) $get['uid']; }
+        // El id de la transacción venía en `status` (no `id`) en el legacy. Le pasamos por `id` al endpoint.
+        $txId = (string) ($get['status'] ?? '');
+        $res  = bffApiPut($ep, ['id' => $txId, 'resource' => 'status'], $body, '_jwt');
+        break;
     default:
         bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }

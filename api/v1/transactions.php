@@ -105,6 +105,120 @@ if ($method === 'PUT' && $resource === 'reject') {
     apiOk(['rejected' => true]);
 }
 
+// --- PUT ?resource=status: cambiar estado (slice 36b — strangler de action.php?sale&status=) ---
+if ($method === 'PUT' && $resource === 'status') {
+    $transactionId = trim((string) dec($_GET['id'] ?? ''));
+    $newStatus     = (string) ($_POST['status'] ?? '');
+    if ($transactionId === '' || $newStatus === '') {
+        apiError('Falta id o status', 422);
+    }
+    $motive      = $_POST['motive'] ?? null;
+    $isSchedule  = !empty($_POST['schedule']);
+    $scheduleUid = isset($_POST['uid']) && $_POST['uid'] !== '' ? (string) $_POST['uid'] : null;
+
+    $result = $svc->changeStatus(
+        $transactionId, $newStatus, $companyId, $outletId,
+        $motive, $isSchedule, $scheduleUid
+    );
+    if (!$result['ok']) {
+        apiError('No se pudo cambiar el estado', 500);
+    }
+
+    // Side-effects best-effort. Fallar acá no revierte el UPDATE.
+    $finalStatus = $result['finalStatus'];
+
+    try {
+        if ($finalStatus !== 'reminder') {
+            updateLastTimeEdit($companyId, 'calendar');
+            updateLastTimeEdit($companyId, 'order');
+            sendWS([
+                'channel' => enc($outletId) . '-KDS',
+                'event'   => 'order',
+                'message' => enc($transactionId),
+            ]);
+            sendWS([
+                'channel' => enc($outletId) . '-register',
+                'event'   => 'order',
+                'message' => json_encode(['ID' => enc($transactionId), 'registerID' => enc($registerId)]),
+            ]);
+        }
+    } catch (\Throwable $e) {
+        error_log('[transactions.status] WS falló (ignorado): ' . $e->getMessage());
+    }
+
+    // Notificaciones al cliente (push / email / SMS) — solo si schedule + status final en [1,4,5,reminder]
+    if ($result['notifyNeeded'] && $result['customerId']) {
+        try {
+            $compName    = defined('COMPANY_NAME') ? COMPANY_NAME : '';
+            $compLogo    = defined('COMPANY_LOGO') ? COMPANY_LOGO : '';
+            $contactData = getCustomerData($result['customerId'], 'uid');
+            $contactName = getCustomerName($contactData, 'first');
+            $contactMail = $contactData['email']  ?? '';
+            $contactPhn  = $contactData['phone']  ?? ($contactData['phone2'] ?? '');
+            $niceDate    = niceDate($result['transactionDate'], true, false, false, true);
+
+            $subject = ''; $body = ''; $smsBody = ''; $notify = false;
+
+            if ($finalStatus === '5') {
+                $subject = '[' . $compName . '] Agendamiento';
+                $body    = 'Hola ' . iftn($contactName, '!') . ',' .
+                    '<p>Lamentamos que no haya podido asistir.</p>' .
+                    '<p>Si desea volver a re agendar, por favor no dude en contactarnos ' . addWhatsAppLink() . '</p>';
+                $smsBody = '[' . $compName . '] ' . $contactName . ', lamentamos que no haya podido asistir, ante cualquier duda por favor pongase en contacto.' . addWhatsAppLink(true);
+                $notify  = true;
+            } elseif ($finalStatus === '4') {
+                sendPush([
+                    'ids'     => enc($companyId),
+                    'message' => 'Se canceló su cita con ' . $contactName . ' el ' . $niceDate,
+                    'title'   => $compName,
+                    'where'   => 'caja',
+                    'filters' => [
+                        ['key' => 'userId',    'value' => enc($result['userId'] ?? '')],
+                        ['key' => 'companyId', 'value' => enc($companyId)],
+                    ],
+                ]);
+            } elseif ($finalStatus === '1') {
+                sendPush([
+                    'ids'     => enc($companyId),
+                    'message' => 'Se confirmó su cita con ' . $contactName . ' el ' . $niceDate,
+                    'title'   => $compName,
+                    'where'   => 'caja',
+                    'filters' => [
+                        ['key' => 'userId',    'value' => enc($result['userId'] ?? '')],
+                        ['key' => 'companyId', 'value' => enc($companyId)],
+                    ],
+                ]);
+            } elseif ($finalStatus === 'reminder') {
+                $url     = getShortURL('/screens/scheduleConfirm?s=' . base64_encode(enc($transactionId) . ',' . enc($companyId)));
+                $subject = '[' . $compName . '] Recordatorio';
+                $body    = 'Hola ' . $contactName . ',' .
+                    '<p>Le contactamos para recordarle su cita, acceda a más detalles en</p>' .
+                    makeEmailActionBtn($url, 'Detalles');
+                $smsBody = '[' . $compName . '] Hola ' . $contactName . ', le recordamos su agendamiento. Detalles en: \n' . $url;
+                $notify  = true;
+            }
+
+            if ($notify) {
+                sendEmails([
+                    'subject'  => $subject,
+                    'to'       => $contactMail,
+                    'fromName' => $compName,
+                    'data'     => [
+                        'message'     => $body,
+                        'companyname' => $compName,
+                        'companylogo' => $compLogo,
+                    ],
+                ]);
+                sendSMS($contactPhn, $smsBody, true, true);
+            }
+        } catch (\Throwable $e) {
+            error_log('[transactions.status] notificaciones fallaron (ignorado): ' . $e->getMessage());
+        }
+    }
+
+    apiOk(['updated' => true, 'status' => $finalStatus]);
+}
+
 // --- PUT ?resource=note: actualizar nota de transacción ------------------
 if ($method === 'PUT' && $resource === 'note') {
     $transactionId = trim((string) ($_GET['id'] ?? ''));

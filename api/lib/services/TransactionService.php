@@ -4,6 +4,8 @@ namespace Punto\Api\Services;
 use Punto\Api\Context\TenantContext;
 use DB;
 
+require_once __DIR__ . '/../meta_transaction.php';
+
 /**
  * TransactionService — operaciones sobre transacciones/órdenes del POS (Slice 6).
  *
@@ -203,6 +205,182 @@ final class TransactionService
             [$transactionId, $companyId]
         );
         return $res !== false;
+    }
+
+    /**
+     * Cambia el estado de una transacción (slice 36b — strangler de action.php?action=sale&status=…).
+     *
+     * Encapsula la lógica de BD del legacy:
+     *   - schedule + status=6: marca complete=1; si hay session vinculada a transacción padre,
+     *     borra y recrea comisiones de itemSold leyendo de transactionDetails (meta jsonb).
+     *     Si no hay session, INSERT en toScheduleUID si llegó uid.
+     *   - schedule + status in [4,5] con padre: revierte a status=0 + limpia from/toDate +
+     *     borra comisión asociada (sesión recurrente reseteada).
+     *   - status != 'reminder': UPDATE transactionStatus + updated_at + nota opcional.
+     *   - status === 'reminder': NO se cambia estado, solo se devuelve para que el caller
+     *     dispare notificación (email/SMS de recordatorio).
+     *
+     * Side-effects de notificación (WS, push, email, SMS) NO van acá — los hace el endpoint.
+     *
+     * @param string $transactionId  UUID de la transacción.
+     * @param string $newStatus      Status objetivo: '0'..'6' o 'reminder'.
+     * @param string $companyId      UUID del tenant.
+     * @param string $outletId       UUID del outlet.
+     * @param ?string $motive        Motivo opcional (strip_tags antes de persistir).
+     * @param bool   $isSchedule     true si el caller vino del módulo schedule (afecta la lógica de session/parent).
+     * @param ?string $scheduleUid   UUID externo (tracking del scheduling), usado en INSERT toScheduleUID cuando no hay session.
+     * @return array{
+     *   ok: bool,
+     *   finalStatus: string,
+     *   customerId: ?string,
+     *   userId: ?string,
+     *   transactionDate: ?string,
+     *   notifyNeeded: bool
+     * }  customerId/userId/date para que el endpoint arme las notificaciones; notifyNeeded
+     *    indica si el caller debe disparar email/SMS/push (schedule + final in [1,4,5,reminder]).
+     */
+    public function changeStatus(
+        string $transactionId,
+        string $newStatus,
+        string $companyId,
+        string $outletId,
+        ?string $motive,
+        bool $isSchedule,
+        ?string $scheduleUid
+    ): array {
+        $finalStatus     = $newStatus;
+        $extraUpdates    = [];     // columnas extra a setear ('fromDate'=>NULL, 'toDate'=>NULL, 'transactionComplete'=>1)
+
+        // ----- Fase 1: lógica especial de schedule (completion + parent reversion) ----
+        if ($isSchedule) {
+
+            if ($newStatus === '6' || $newStatus === 6) {
+                $extraUpdates['transactionComplete'] = 1;
+
+                // ¿La transacción es session vinculada a venta padre?
+                $session = ncmExecute(
+                    'SELECT * FROM transaction
+                      WHERE transactionType = 13 AND transactionParentId IS NOT NULL
+                        AND invoicePrefix IS NOT NULL
+                        AND transactionId = ? AND companyId = ? LIMIT 1',
+                    [$transactionId, $companyId]
+                );
+
+                if ($session) {
+                    // Recrear comisiones desde transactionDetails (meta jsonb).
+                    $details = txDetailsFromMeta(txMetaRead($transactionId, $companyId, 13));
+                    if (!empty($details)) {
+                        $this->db->Execute(
+                            'DELETE FROM comission WHERE transactionId = ?',
+                            [$transactionId]
+                        );
+                        foreach ($details as $row) {
+                            $rawItemId   = $row['itemId'] ?? '';
+                            $itemId      = $rawItemId !== '' ? dec($rawItemId) : '';
+                            $count       = $row['count'] ?? 0;
+                            $uniPrice    = $row['uniPrice'] ?? 0;
+                            $comTotal    = getItemComsissionTotal($itemId, $count, $uniPrice, true);
+                            if ($comTotal) {
+                                $this->db->AutoExecute('comission', [
+                                    'comissionTotal'  => $comTotal,
+                                    'comissionSource' => 'session',
+                                    'userId'          => $session['userId'],
+                                    'transactionId'   => $transactionId,
+                                    'outletId'        => $outletId,
+                                    'companyId'       => $companyId,
+                                ], 'INSERT');
+                            }
+                        }
+                    }
+                } elseif ($scheduleUid !== null && $scheduleUid !== '') {
+                    // No es session — solo trackear el uid externo del scheduling.
+                    $this->db->AutoExecute('toScheduleUID', [
+                        'scheduleId'     => $transactionId,
+                        'transactionUID' => $scheduleUid,
+                    ], 'INSERT');
+                }
+
+            } elseif ($newStatus === '4' || $newStatus === '5' || $newStatus === 4 || $newStatus === 5) {
+                // ¿Es session de una recurrente? Reseteamos a status=0.
+                $row = ncmExecute(
+                    'SELECT transactionParentId FROM transaction
+                      WHERE transactionId = ? AND companyId = ? LIMIT 1',
+                    [$transactionId, $companyId]
+                );
+                $parent = $row['transactionParentId'] ?? null;
+                if ($parent !== null && $parent !== '') {
+                    $finalStatus = '0';
+                    $extraUpdates['fromDate'] = null;
+                    $extraUpdates['toDate']   = null;
+                    $this->db->Execute(
+                        'DELETE FROM comission WHERE transactionId = ?',
+                        [$transactionId]
+                    );
+                }
+            }
+        }
+
+        // ----- Fase 2: UPDATE de transactionStatus (salvo 'reminder' que no cambia estado) ----
+        if ($finalStatus !== 'reminder') {
+            $sets   = ['transactionStatus = ?', 'updated_at = NOW()'];
+            $params = [(string) $finalStatus];
+
+            if ($motive !== null && $motive !== '') {
+                $sets[]   = 'transactionNote = ?';
+                $params[] = strip_tags($motive);
+            }
+            foreach ($extraUpdates as $col => $val) {
+                $sets[]   = "$col = ?";
+                $params[] = $val;
+            }
+
+            $params[] = $transactionId;
+            $params[] = $companyId;
+
+            $res = $this->db->Execute(
+                'UPDATE transaction SET ' . implode(', ', $sets)
+                . ' WHERE transactionId = ? AND companyId = ?',
+                $params
+            );
+            if ($res === false) {
+                return [
+                    'ok'              => false,
+                    'finalStatus'     => (string) $finalStatus,
+                    'customerId'      => null,
+                    'userId'          => null,
+                    'transactionDate' => null,
+                    'notifyNeeded'    => false,
+                ];
+            }
+        }
+
+        // ----- Fase 3: traer datos para el caller (notificaciones) ------------------
+        $notifyNeeded = $isSchedule && (in_array((string) $finalStatus, ['1', '4', '5'], true) || $finalStatus === 'reminder');
+
+        $customerId      = null;
+        $userId          = null;
+        $transactionDate = null;
+        if ($notifyNeeded) {
+            $row = ncmExecute(
+                'SELECT customerId, userId, transactionDate FROM transaction
+                  WHERE transactionId = ? AND companyId = ? LIMIT 1',
+                [$transactionId, $companyId]
+            );
+            if ($row) {
+                $customerId      = $row['customerId']      ?? null;
+                $userId          = $row['userId']          ?? null;
+                $transactionDate = $row['transactionDate'] ?? null;
+            }
+        }
+
+        return [
+            'ok'              => true,
+            'finalStatus'     => (string) $finalStatus,
+            'customerId'      => $customerId,
+            'userId'          => $userId,
+            'transactionDate' => $transactionDate,
+            'notifyNeeded'    => $notifyNeeded,
+        ];
     }
 
     /**
