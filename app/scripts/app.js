@@ -6924,7 +6924,7 @@ var ncmEvents = {
                             ncmTransactions.orderClose = { 'type': ops.kind, 'id': ops.index };
                             $('#tr' + id).remove();
 
-                            ncmHttp.getit(masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ 'action': 'closeTable', 'del': ops.index, 'kind': ops.kind }));//elimino opened table
+                            ncmHttp.getit(masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ 'action': 'closeTable', 'del': ops.index, 'kind': ops.kind }));//elimino opened table
                         }
 
                         if (ncmHelpers.validity(ncmTransactions.bringingSale) && ncmTransactions.bringingSale.pMethods.length > 0 && ncmTransactions.bringingSale.type == "12" && kind == 'any' && ncmTransactions.bringingSale.parentID == false) {
