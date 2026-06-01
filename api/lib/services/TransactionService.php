@@ -7,6 +7,7 @@
  *   deleteInPrintServer (L155) — elimina un job de la cola de impresión
  *   rejectOrder        (L1260) — rechaza una orden (status 6); la notif WS va al caller
  *   recordItemDeletion  (L605) — inserta en itemDeleted (historial de borrado de ítems)
+ *   voidTransaction (voidSale en functions.php:4658) — anula una transacción (type→7)
  *
  * Bugs PG corregidos respecto al legacy:
  *   - LIMIT 1 en DELETE → eliminado (transactionId es PK, limita solo).
@@ -537,5 +538,148 @@ class TransactionService
         }
 
         return $out;
+    }
+
+    /**
+     * Anula una transacción (type→7). Port de voidSale() (app/includes/functions.php:4658).
+     *
+     * Bugs PG corregidos vs el legacy:
+     *   - giftcard restore: WHERE incompleto (`AND outletId = ` sin valor) → parametrizado.
+     *   - points/storeCredit: `contactAmount + $dat['price']` concatenado → parametrizado.
+     *   - companyName: `getValue('setting','settingName',...)` — tabla `setting` no existe
+     *     en PG → usa la constante COMPANY_NAME (definida tras apiAuthTenant).
+     *   - responsibleId: usa el userId del JWT (el que realmente operó la caja).
+     *
+     * Side-effects (updateLastTimeEdit, sendAuditoria) van en el caller (api/v1/transactions.php)
+     * para mantener el servicio puro de BD (misma separación que reject/delete).
+     *
+     * @return bool true si la anulación se guardó; false si la tx falló.
+     */
+    public function voidTransaction(
+        string $transactionId,
+        string $companyId,
+        string $outletId,
+        string $userId,
+        string $motive = ''
+    ): bool {
+        global $db;
+        $db->StartTrans();
+
+        // 1. Leer métodos de pago para reponer balances de cliente/giftcard.
+        $tx = ncmExecute(
+            'SELECT customerId, transactionPaymentType, outletId FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+            [$transactionId, $companyId]
+        );
+
+        if ($tx) {
+            $customerId = $tx['customerId'] ?? null;
+            // Iterar los pagos RAW (no groupByPaymentMethod) porque groupBy hace
+            // unset($nu['extra']) antes de pushear — $dat['extra'] sería siempre null
+            // y el restore de giftcard nunca funcionaría. Para el void basta iterar
+            // cada línea de pago individualmente (no necesitamos agrupar totales).
+            $payments = json_decode($tx['transactionPaymentType'] ?? '', true);
+            foreach (is_array($payments) ? $payments : [] as $payment) {
+                $type  = (string) ($payment['type']  ?? '');
+                $price = (float)  ($payment['price'] ?? 0);
+                if ($price <= 0) {
+                    continue;
+                }
+
+                // Devolver balance del cliente (solo si hay cliente válido).
+                if (validity($customerId) && $type === 'points') {
+                    $db->Execute(
+                        "UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ?, updated_at = ? WHERE contactId = ?",
+                        [$price, TODAY, $customerId]
+                    );
+                } elseif (validity($customerId) && $type === 'storeCredit') {
+                    $db->Execute(
+                        "UPDATE contact SET contactStoreCredit = contactStoreCredit + ?, updated_at = ? WHERE contactId = ?",
+                        [$price, TODAY, $customerId]
+                    );
+                } elseif ($type === 'giftcard') {
+                    // Devolver saldo a gift card — FIX: WHERE completo + companyId scope
+                    // + parametrizado. El legacy tenía `AND outletId = ` sin valor →
+                    // sintácticamente rota. También: groupByPaymentMethod descarta
+                    // 'extra' → el legacy nunca restauró giftcards en void (bug silencioso).
+                    $extra = $payment['extra'] ?? null;
+                    if (is_numeric($extra)) {
+                        $db->Execute(
+                            'UPDATE giftCardSold SET giftCardSoldValue = giftCardSoldValue + ? WHERE (giftCardSoldCode = ? OR timestamp = ?) AND companyId = ?',
+                            [$price, $extra, $extra, $companyId]
+                        );
+                    }
+                }
+            }
+        }
+
+        // 2. Marcar transacción como anulada (type=7).
+        ncmUpdate([
+            'records' => [
+                'transactionType' => '7',
+                'transactionNote' => $motive,
+                'responsibleId'   => $userId,
+            ],
+            'table' => 'transaction',
+            'where' => "transactionId = '" . $transactionId . "'",
+        ]);
+
+        // 3. Eliminar sub-transacciones (pagos type=5/6 vinculados por parentId).
+        ncmExecute('DELETE FROM transaction WHERE transactionParentId = ?', [$transactionId]);
+
+        // 4. Reponer inventario por cada itemSold.
+        $items = ncmExecute(
+            'SELECT itemId, itemSoldUnits FROM itemSold WHERE transactionId = ?',
+            [$transactionId],
+            false,
+            true
+        );
+        if ($items) {
+            while (!$items->EOF) {
+                $f      = $items->fields;
+                $itemId = $f['itemid'] ?? $f['itemId'] ?? '';
+                $units  = (float) ($f['itemsoldunits'] ?? $f['itemSoldUnits'] ?? 0);
+
+                // Reponer ingredientes si es compound.
+                $compound = getCompoundsArray($itemId);
+                if (is_array($compound) && $compound !== []) {
+                    foreach ($compound as $comr) {
+                        $comId  = $comr['compoundId'];
+                        $locRow = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$comId, $companyId]);
+                        manageStock([
+                            'itemId'        => $comId,
+                            'outletId'      => $outletId,
+                            'date'          => TODAY,
+                            'count'         => abs((float) $comr['toCompoundQty'] * $units),
+                            'source'        => 'void',
+                            'locationId'    => $locRow['locationId'] ?? null,
+                            'transactionId' => $transactionId,
+                        ]);
+                    }
+                }
+
+                $locRow = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$itemId, $companyId]);
+                manageStock([
+                    'itemId'        => $itemId,
+                    'outletId'      => $outletId,
+                    'date'          => TODAY,
+                    'locationId'    => $locRow['locationId'] ?? null,
+                    'count'         => abs($units),
+                    'source'        => 'void',
+                    'transactionId' => $transactionId,
+                ]);
+
+                $items->MoveNext();
+            }
+            $items->Close();
+        }
+
+        // 5. Eliminar itemSold y giftCardSold vinculados.
+        $db->Execute('DELETE FROM itemSold WHERE transactionId = ?', [$transactionId]);
+        $db->Execute('DELETE FROM giftCardSold WHERE transactionId = ?', [$transactionId]);
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+
+        return !$failed;
     }
 }

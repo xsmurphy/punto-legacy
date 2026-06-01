@@ -5,6 +5,7 @@
  *   DELETE ?id=<txId>                      → elimina la transacción
  *   DELETE ?id=<txId>&resource=printjob    → elimina de la cola de impresión
  *   PUT    ?id=<txId>&resource=reject { motive } → rechaza orden (status 6) + WS
+ *   PUT    ?id=<txId>&resource=void { motive }   → anula transacción (type→7) + auditoría
  *   POST   ?resource=itemDeletion { itemId, motive } → inserta en itemDeleted
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
@@ -99,6 +100,59 @@ if ($method === 'PUT' && $resource === 'reject') {
     }
 
     apiOk(['rejected' => true]);
+}
+
+// --- PUT ?resource=void: anular transacción (type→7) ----------------------
+if ($method === 'PUT' && $resource === 'void') {
+    $transactionId = trim((string) ($_GET['id'] ?? ''));
+    if ($transactionId === '') {
+        apiError('Falta id', 422);
+    }
+    $motive = (string) ($_POST['motive'] ?? '');
+
+    if (!$svc->voidTransaction($transactionId, $companyId, $outletId, $userId, $motive)) {
+        apiError('No se pudo anular la transacción', 500);
+    }
+
+    // Side-effects post-void (best-effort — la anulación ya está committeada).
+    try {
+        updateLastTimeEdit($companyId, 'item');
+
+        // Auditoría — FIX: usa COMPANY_NAME (constante cargada por data.php tras
+        // apiAuthTenant); el legacy llamaba getValue('setting','settingName',...) pero
+        // la tabla `setting` no existe en PG (settings viven en company.config JSONB).
+        $userName     = getValue('contact', 'contactName', "WHERE contactId = '$userId'");
+        $registerName = getValue('register', 'registerName', "WHERE registerId = '$registerId'");
+        $companyName  = defined('COMPANY_NAME') ? COMPANY_NAME : '';
+        $outletName   = getCurrentOutletName($outletId);
+
+        $transaction = ncmExecute('SELECT * FROM transaction WHERE transactionId = ? LIMIT 1', [$transactionId]);
+
+        sendAuditoria([
+            'date'       => TODAY,
+            'user'       => $userName,
+            'module'     => 'FACTURACION',
+            'origin'     => 'CAJA',
+            'company_id' => $companyId,
+            'data'       => [
+                'action'        => "El usuario {$userName} anuló una factura desde la caja {$registerName}",
+                'userId'        => $userId,
+                'userName'      => $userName,
+                'operationData' => $transaction,
+                'registerId'    => $registerId,
+                'registerName'  => $registerName,
+                'companyID'     => $companyId,
+                'companyName'   => $companyName,
+                'outletId'      => $outletId,
+                'outletName'    => $outletName,
+                'timestamp'     => $transaction['timestamp'] ?? null,
+            ],
+        ], defined('AUDITORIA_TOKEN') ? AUDITORIA_TOKEN : '');
+    } catch (\Throwable $e) {
+        error_log('[transactions.void] side-effect falló (ignorado): ' . $e->getMessage());
+    }
+
+    apiOk(['voided' => true]);
 }
 
 // --- POST ?resource=itemDeletion: registrar borrado de ítem ---------------

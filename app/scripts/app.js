@@ -5241,9 +5241,9 @@ var ncmEvents = {
                             motive = iftn(motive, '');
                             motive = encodeURIComponent(motive);
                             var id = ncmTransactions.bringingSale.transactionId;
-                            var payments = ncmTransactions.bringingSale.pMethods;
-                            var rawdate = ncmTransactions.bringingSale.date;
-                            var url = masterUrl + 'action?l=' + ncmHttp.masterUrlParams({ action: 'sale', void: id, motive: motive, date: rawdate });
+                            // Strangler: bff/transactions vía TransactionService::voidTransaction
+                            // (TransactionService.voidTransaction), no más action.php.
+                            var url = masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: 'voidSale', id: id, motive: motive });
                             ncmHttp.get({
                                 url: url,
                                 onSuccess: (result) => {

@@ -2106,8 +2106,9 @@ function groupByPaymentMethod($new,$old){
 	}
 
 	foreach($new as $nu){
-		$nuPrice 	= iftn(abs($nu['price']),0); // lo que se ingresa en el visor de pago
-		$nuTotal 	= iftn(abs($nu['total']),0); // saldo a pagar
+		// PHP 8.5: abs() ya no acepta strings/null silenciosamente → castear a float.
+		$nuPrice 	= iftn(abs((float)($nu['price'] ?? 0)), 0); // lo que se ingresa en el visor de pago
+		$nuTotal 	= iftn(abs((float)($nu['total'] ?? 0)), 0); // saldo a pagar
 		$nuType 	= $nu['type'];
 
 		if(!isset($nu['name']) || !$nu['name']){
@@ -2116,7 +2117,7 @@ function groupByPaymentMethod($new,$old){
 
 		if($nuPrice > $nuTotal){
 			$nu['price'] 	= $nuTotal;
-			$nuPrice 			= (float)abs($nu['price']);
+			$nuPrice 			= abs((float)$nu['price']);
 		}
 
     $match 					= false;

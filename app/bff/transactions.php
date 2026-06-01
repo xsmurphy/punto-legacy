@@ -76,6 +76,10 @@ switch ($action) {
             'motive' => (string) ($get['motive'] ?? ''),
         ], '_jwt');
         break;
+    case 'voidSale':            // PUT ?id=&resource=void { motive }
+        $body = !empty($get['motive']) ? ['motive' => (string) $get['motive']] : [];
+        $res  = bffApiPut($ep, ['id' => $id, 'resource' => 'void'], $body, '_jwt');
+        break;
     default:
         bffJson(['ok' => false, 'error' => 'operación no soportada'], 400);
 }
