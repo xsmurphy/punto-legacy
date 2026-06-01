@@ -3,6 +3,20 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-01 — TransactionService::voidTransaction + fix PHP 8.5 abs() (commit b3d164f)
+
+- **`TransactionService::voidTransaction`** (NUEVO): anulación de transacción (type→7). Corrige 4 bugs del legacy `voidSale`: giftcard restore WHERE incompleto, points/storeCredit concatenados, giftcard `'extra'` nunca restaurado (el `unset('extra')` de `groupByPaymentMethod` lo borraba antes de iterar — ahora se itera sobre raw payments), companyName desde tabla `setting` inexistente → constante COMPANY_NAME.
+- **Plomería 3 capas**: `api/v1/transactions.php` PUT `?resource=void {motive}` (side-effects best-effort: `updateLastTimeEdit` + `sendAuditoria`); `app/bff/transactions.php` case `'voidSale'` → `bffApiPut`; `app/scripts/app.js` repuntado de `action.php` a `bff/transactions`.
+- **Fix PHP 8.5** en `groupByPaymentMethod` (`app/includes/functions.php`): `abs()` ya no acepta string/null → `(float)($val ?? 0)` antes de `abs()`.
+- `chkGiftCard` y `consultStatusElectronicInvoice` ya estaban migrados (GiftCardService / ElectronicInvoiceService) — se marcaron como tales en `10-roadmap.md`.
+- **Verificado E2E**: void cash → type=7, note correcto, itemSold=0; void giftcard → saldo restaurado (bug del legacy corregido).
+
+## 2026-05-31 — Batch P0: higiene + JWT realm isolation (commits be49ef4..2de4231)
+
+- **Higiene (4 commits)**: paths `/home/encom/public_html` → `__DIR__` relativo; `manifest.json` URLs → relativas + marca Punto; páginas `.shtml` de error sin `encom.app` hardcoded + cleanup `.htaccess`; borrado `app/.htaccessol` (backup huérfano); `cronDebitBalance.php` → stub limpio con log.
+- **JWT realm isolation (commit 2de4231) — CONVENCIÓN DE SEGURIDAD NUEVA**: cierra privilege-confusion cross-realm POS ↔ panel. Ambos comparten `JWT_SECRET` pero ahora cada token lleva claim `iss` canónico (`'pos-app'` / `'panel'` / `'admin'`). 5 emisores y 4 validadores actualizados. `refresh.php` valida `iss` ANTES de re-emitir (evita privilege-escalation por refresh). Tokens sin `iss` → 401 (pre-prod, forzar re-login OK). Verificado E2E con curl directo (POS token → 200; panel token → 401; sin iss → 401). code-reviewer sin P0/P1.
+- **Vault actualizado**: `02-arquitectura.md` (tabla de realms ampliada a 3 realms con columna `iss` y tabla de valores canónicos), `08-convenciones.md` (nueva §12.1 JWT realm), `10-roadmap.md` (batch P0 ✅, estado de seguridad).
+
 ## 2026-05-31 — Fix cron JWT para re-submisión de ventas recurrentes (commit eb8a7a3)
 
 - **Problema**: `cronCreateRecurringInvoice.php` enviaba la re-submisión de ventas recurrentes a `action.php` sin auth → 401 (action.php requiere `jwtAuthenticate()` desde la migración JWT). Deuda registrada al completar 35f.

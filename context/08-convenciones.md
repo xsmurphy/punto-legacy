@@ -217,6 +217,47 @@ usa camelCase). Solo las clases en PascalCase como manda PSR.
 - JWT: HttpOnly cookies, no localStorage
 - SQL: queries parametrizadas siempre. Concatenación directa = bug de seguridad.
 
+### §12.1 — JWT: claim `iss` obligatorio (establecido commit 2de4231, 2026-05-31)
+
+**Regla**: todo JWT emitido en este proyecto DEBE incluir el claim `iss` (issuer) con uno de los tres valores canónicos. Es la barrera que previene privilege-confusion entre realms cuando dos de ellos comparten `JWT_SECRET`.
+
+**Problema resuelto**: `JWT_SECRET` es compartido entre POS (`_jwt`, validado en `app/includes/jwt_middleware.php`) y panel (`_jwt_panel`, validado en `panel/API/lib/api_middleware.php`). Sin `iss`, un token panel válido podía autenticar contra el POS poniendo la cookie `_jwt` manualmente (y viceversa).
+
+**Valores canónicos de `iss`**:
+
+| Valor | Dónde se emite | Dónde se valida |
+|-------|----------------|-----------------|
+| `'pos-app'` | `app/API/auth.php`, `app/API/refresh.php`, `app/login.php`, cron service tokens (`cronCreateRecurringInvoice.php`) | `app/includes/jwt_middleware.php` |
+| `'panel'` | `panel/includes/functions.php` (login de tenant) | `panel/API/lib/api_middleware.php`, `panel/upload.php` |
+| `'admin'` | `panel/API/lib/admin_auth.php` (login de admin) | `panel/API/lib/admin_auth.php` (suma al `aud='admin'` ya existente) |
+
+**Cómo aplicar** (al emitir un nuevo JWT):
+```php
+// BIEN — incluir siempre el claim iss
+$payload = [
+    'iss'       => 'pos-app',   // o 'panel' o 'admin' según el realm
+    'sub'       => $userId,
+    'cid'       => $companyId,
+    'exp'       => time() + JWT_TTL,
+    // ... otros claims
+];
+```
+
+**Cómo validar** (ya implementado en cada middleware — NO duplicar lógica):
+```php
+// En jwt_middleware.php (realm pos-app)
+if (($payload['iss'] ?? '') !== 'pos-app') {
+    http_response_code(401);
+    die(json_encode(['error' => 'Token de otro realm']));
+}
+```
+
+**Tokens sin `iss`**: son rechazados con 401. Tokens pre-fix (anteriores al commit 2de4231) no tienen `iss` → forzar re-login. Pre-producción, esto es aceptable.
+
+**refresh.php — regla adicional**: valida `iss === 'pos-app'` del token ENTRANTE antes de re-emitir. Un token `iss=panel` enviado a `refresh.php` recibe 401 — cierra el privilege-escalation por refresh.
+
+**Nunca crear un nuevo emisor de JWT** sin agregar el valor de `iss` a esta tabla y al middleware correspondiente.
+
 **Política SQL legacy** (queries con concatenación directa):
 - Tratamiento P0: auditoría dedicada + batch de remediación (ver `10-roadmap.md` —
   "SQL Injection Audit")

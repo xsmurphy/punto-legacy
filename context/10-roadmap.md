@@ -10,8 +10,25 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-05-31
+> **Última actualización:** 2026-05-31 (batch P0 higiene + seguridad)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
+
+---
+
+## ✅ Batch P0 — Higiene + Seguridad (2026-05-31)
+
+5 commits de mantenimiento preventivo aterrizados en main:
+
+| Commit | Qué | Estado |
+|--------|-----|--------|
+| `2de4231` | **JWT claim `iss` (realm isolation)** — cierra cross-realm POS ↔ panel (ambos usan `JWT_SECRET`). Tres valores canónicos: `'pos-app'`, `'panel'`, `'admin'`. Validado en los 4 middlewares. Ver `08-convenciones.md §12.1` y `02-arquitectura.md § Admin realm`. | ✅ |
+| `e765dd3` | `cronDebitBalance.php` — stub limpio con trigger log (cron roto → no-op documentado) | ✅ |
+| `6cf0196` | Borrado `app/.htaccessol` — backup huérfano del `.htaccess` viejo | ✅ |
+| `f35dcc8` | Páginas de error (`.shtml`) sin `encom.app` hardcoded + cleanup `.htaccess` | ✅ |
+| `b7714fd` | `manifest.json` — URLs absolutas → relativas + marca Punto | ✅ |
+| `be49ef4` | Paths `/home/encom/public_html` hardcoded → `__DIR__` relativo | ✅ |
+
+**Deuda de dominios hardcodeados** (parcialmente resuelta por `f35dcc8`/`b7714fd`/`be49ef4`): quedan `cors.php` allowlists y algunas refs en `.shtml`. Ver sección "Deuda: de-hardcode de dominios" más abajo.
 
 ---
 
@@ -35,7 +52,7 @@ big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 | IDs | UUID v7 ✅ — enc()/dec() identity, ncmInsert auto-genera PK |
 | API | ~68 endpoints en `panel/API/*.php`, todos con envelope canónico ✅ |
 | WebSockets | ~~Pusher~~ → ws-server propio (Node.js + Redis Pub/Sub) ✅ |
-| Seguridad | Bypass key eliminado, CORS allowlist, debug gateado |
+| Seguridad | Bypass key eliminado, CORS allowlist, debug gateado, JWT realm isolation (claim `iss`) ✅ |
 
 ---
 
@@ -271,7 +288,7 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 - **`deleteClient` — ✅ AGREGADO al POS (commit afc2706, 2026-05-30)**: soft-delete de cliente desde el POS. Handler nuevo en `app/action.php`: UPDATE `contactStatus=0` parametrizado con scope `companyId+type=1`; notifica WS con `deleted=true`; llama `updateLastTimeEdit('customer')`. Espeja el patrón del REST canónico `panel/API/v1/contacts.php DELETE` / `ContactRepository::archive`. Los handlers `newClient` y `updateClient` del POS ya existían y son funcionales. **Deuda P2 (diferida)**: los tres handlers de cliente del POS duplican SQL del REST canónico; ideal migrar a que el POS llame al canónico via BFF (misma deuda que VPayment/Attendance pero para clientes). No verifica `Affected_Rows` (no devuelve 404 si el id no existe) ni llama `sendAuditoria` — matchea el canónico en ese punto.
 - **`sale` (~525 líneas)**: renderiza listas HTML de transacciones (monstruo de lectura).
 - **Breakages preexistentes del panel (mismo tipo de migración, follow-up)**: `panel/crons/cronCreateRecurringInvoice.php` lee `recurringSaleData` de multi-row sin flatten → NULL; `panel/report_transactions.php` + `panel/a_report_transactions.php` hacen UPDATE de la columna `tags` (ya no existe) → falla.
-- **HTML/especial**: `chkGiftCard` (gift cards, devuelve HTML/JSON), `consultStatusElectronicInvoice` (factura electrónica).
+- **HTML/especial**: ~~`chkGiftCard`~~ ✅ MIGRADO (GiftCardService, commit anterior) · ~~`consultStatusElectronicInvoice`~~ ✅ MIGRADO (ElectronicInvoiceService con BFF + endpoint). **`voidSale` ✅ MIGRADO** — `TransactionService::voidTransaction(transactionId, motive, companyId)` (commit b3d164f, 2026-06-01): anulación de transacción (type→7); corrige 4 bugs del legacy: giftcard restore WHERE incompleto, points/storeCredit concatenados en SQL, giftcard `'extra'` nunca restaurado (el `unset('extra')` en `groupByPaymentMethod` lo borraba antes de iterar — ahora se itera raw payments), companyName leído desde tabla `setting` inexistente → constante COMPANY_NAME. `api/v1/transactions.php` PUT `?resource=void {motive}`. Side-effects best-effort (`updateLastTimeEdit` + `sendAuditoria`). `app/bff/transactions.php` case `'voidSale'` → `bffApiPut`. `app/scripts/app.js` repuntado de `action.php` a `bff/transactions`. **Fix PHP 8.5** en `groupByPaymentMethod` (`app/includes/functions.php`): `abs()` ya no acepta string/null → `(float)($val ?? 0)` antes de `abs()`. Verificado E2E: void cash → type=7, note correcto, itemSold=0; void giftcard → saldo restaurado correctamente.
 - **DEAD (borrar al vaciar action.php)**: `checkoutScreen` (`return false` al inicio), `checkSession` (front usa WS, no HTTP), `encode` (front no lo llama; enc() es identity → no-op).
 
 ### Migración de panel/API → /api (gradual, pendiente)

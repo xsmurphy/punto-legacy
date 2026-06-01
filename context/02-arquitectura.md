@@ -60,18 +60,31 @@ Front (HTML+JS) → BFF (/app/bff/ o /panel/bff/) → /api/v1/* (API compartida)
 
 El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 
-| Dimensión | Realm tenant (panel) | Realm admin (/admin) |
-|-----------|---------------------|---------------------|
-| Ruta de login | `/panel/API/auth.php` | `/admin/login` (F1 — pendiente) |
-| Cookie JWT | `_jwt_panel` | `_jwt_admin` |
-| Secret env | `JWT_SECRET` | `ADMIN_JWT_SECRET` |
-| Claim `aud` | — (no seteado hoy) | `"admin"` |
-| Tabla de usuarios | `contact` (tenant employees) | `admin_user` (plataforma) |
-| Password scheme | sha256 + salt + HASH\_TIMES | bcrypt (`password_hash`) |
-| `companyId` | Siempre presente (scope tenant) | Ausente (admin no pertenece a empresa) |
-| Accede a | Datos de UN tenant | Cross-tenant (todas las companies) |
+| Dimensión | Realm POS (/app) | Realm tenant (panel) | Realm admin (/admin) |
+|-----------|-----------------|---------------------|---------------------|
+| Ruta de login | `/app/login.php` · `/app/API/auth.php` | `/panel/API/auth.php` | `/admin/login` |
+| Cookie JWT | `_jwt` | `_jwt_panel` | `_jwt_admin` |
+| Secret env | `JWT_SECRET` | `JWT_SECRET` | `ADMIN_JWT_SECRET` |
+| Claim `iss` | `'pos-app'` | `'panel'` | `'admin'` |
+| Claim `aud` | — | — | `"admin"` |
+| Tabla de usuarios | `contact` (POS employees) | `contact` (tenant employees) | `admin_user` (plataforma) |
+| Password scheme | sha256 + salt + HASH\_TIMES | sha256 + salt + HASH\_TIMES | bcrypt (`password_hash`) |
+| `companyId` | Siempre presente | Siempre presente | Ausente |
+| Accede a | POS (app/action.php + /api) | Panel de tenant | Cross-tenant (todas las companies) |
 
-**Regla de aislamiento (no-negociable):** un `_jwt_panel` de tenant nunca valida en `/admin` y viceversa — secrets, cookies y `aud` distintos garantizan esto. No existe código compartido de validación de JWT entre los dos realms.
+**Regla de aislamiento (no-negociable):** un token de un realm nunca valida en otro. Los tres realms están aislados por secret + cookie + claim `iss`. Para POS y panel, `JWT_SECRET` es COMPARTIDO — el claim `iss` es la barrera que previene la confusión de privilegios (commit 2de4231, 2026-05-31).
+
+**Claim `iss` — valores canónicos (establecido commit 2de4231, 2026-05-31):**
+
+| Valor | Emitido por | Validado en |
+|-------|-------------|-------------|
+| `'pos-app'` | `app/API/auth.php`, `app/API/refresh.php`, `app/login.php`, cron service tokens | `app/includes/jwt_middleware.php` |
+| `'panel'` | `panel/includes/functions.php` (login tenant) | `panel/API/lib/api_middleware.php`, `panel/upload.php` |
+| `'admin'` | `panel/API/lib/admin_auth.php` | `panel/API/lib/admin_auth.php` (suma al `aud='admin'`) |
+
+Cada middleware compara `($payload['iss'] ?? '') !== '<realm>'` y rechaza con 401 si no coincide. Tokens sin `iss` (emitidos antes del fix) → 401 — pre-producción, forzar re-login es aceptable.
+
+**refresh.php:** valida `iss === 'pos-app'` ANTES de re-emitir, cerrando el privilege-escalation por refresh (un token con `iss=panel` enviado a `refresh.php` no puede obtener un token POS).
 
 ### Estado del admin realm (2026-05-28)
 
@@ -133,6 +146,8 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 **Nota /app DB.php (2026-05-28):** `app/includes/lib/DB.php` divergió del panel y **no tiene `Insert_ID()`**. `ncmInsert`/`ncmUpdate` son fatales en /app. Ver `05-modulos-clave.md § Desacople /app` para el patrón de escritura correcto.
 
 **God-helpers de `app/includes/functions.php` arreglados para PG durante slice 35 (2026-05-31):** patrón común: UUID sin comillas en SQL concat + columnas demoted a JSONB leídas sin `_flattenJsonb` + `$db->Prepare()` rompiendo math (§22.10.1). Todos afectaban también al legacy `processData`.
+
+**`groupByPaymentMethod` (commit b3d164f, 2026-06-01) — fix PHP 8.5:** `abs()` ya no acepta string/null a partir de PHP 8.5 → `(float)($val ?? 0)` antes de `abs()`. Aplica a todos los callers que sumaban métodos de pago (voidSale era el más afectado: el `unset('extra')` antes de iterar hacía que el gift card `'extra'` nunca se restaurara; ahora se itera sobre los payments raw antes del groupBy). Ver detalles en `10-roadmap.md § voidTransaction`.
 
 **Guardado de ventas — dos caminos vivos (LIVE desde commit 89b980e, 2026-05-31; actualizado commit dbf2866, 35a.8):** el guardado de ventas (antes 100% en `processData` de `app/action.php`) ahora tiene dos paths:
 
