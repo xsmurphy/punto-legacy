@@ -1,12 +1,12 @@
 {
-  "name": "ENCOM Panel",
+  "name": "Punto Panel",
   "lang": "es",
   "dir": "ltr",
-  "short_name": "ENCOM",
+  "short_name": "Punto",
   "theme_color": "#d7e5e8",
   "background_color": "#d7e5e8",
   "start_url": "/@",
-  "scope": "https://panel.encom.app/@",
+  "scope": "/@",
   "display": "standalone",
   "orientation": "natural",
   "categories": ["business", "financial"],
@@ -50,7 +50,7 @@
   ],
   "related_applications": [{
     "platform": "webapp",
-    "url": "https://panel.encom.app/manifest.json"
+    "url": "/manifest.json"
   }]
 
 }

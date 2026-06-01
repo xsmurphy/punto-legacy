@@ -1,12 +1,12 @@
 {
-  "name": "ENCOM",
+  "name": "Punto",
   "lang": "es",
   "dir": "ltr",
-  "short_name": "ENCOM",
+  "short_name": "Punto",
   "theme_color": "#d7e5e8",
   "background_color": "#d7e5e8",
-  "start_url": "https://app.encom.app",
-  "scope": "https://app.encom.app/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "natural",
   "categories": ["business", "financial"],
@@ -121,7 +121,7 @@
   ],
   "related_applications": [{
     "platform": "webapp",
-    "url": "https://app.encom.app/manifest.json"
+    "url": "/manifest.json"
   }]
 
 }
