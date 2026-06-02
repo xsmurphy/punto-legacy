@@ -49,6 +49,21 @@ if ($action === 'ordersList') {
     bffJson($res['data']);
 }
 
+// GET userLocation (load.php L588): ubicación del repartidor + próxima delivery.
+// El front consume el objeto plano { lat, lng, orderData? } o { error } si 404.
+if ($action === 'userLocation') {
+    $res = bffApiGet(
+        'v1/orders.php',
+        ['resource' => 'userLocation', 'id' => (string) ($get['id'] ?? '')],
+        '_jwt'
+    );
+    if (!$res['ok']) {
+        $err = is_string($res['error'] ?? null) ? $res['error'] : 'not found';
+        bffJson(['error' => $err]);
+    }
+    bffJson($res['data'] ?? []);
+}
+
 // GET customerHasOrders: el front consume el objeto plano { hasOrders: bool }.
 if ($action === 'customerHasOrders') {
     $res = bffApiGet(

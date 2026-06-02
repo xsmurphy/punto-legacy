@@ -8158,7 +8158,7 @@ var ncmOrders = {
 
                     } else {
 
-                        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'userLocation', id: user.userId });
+                        var url = masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'userLocation', id: user.userId });
                         ncmHttp.get({
                             url: url,
                             onSuccess: function (data) {

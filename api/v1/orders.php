@@ -188,4 +188,38 @@ if ($resource === 'user') {
     apiOk(['assigned' => true]);
 }
 
+// --- GET ?resource=userLocation&id=<userId>: ubicación del repartidor + próxima delivery ---
+if ($method === 'GET' && $resource === 'userLocation') {
+    $userId = trim((string) dec($_GET['id'] ?? ''));
+    if ($userId === '') {
+        apiError('Falta id', 422);
+    }
+
+    // Lookup del contact del staff (type=0, tracking activado). Tenant-scoped.
+    $contact = ncmExecute(
+        'SELECT contactId, contactLatLng FROM contact
+          WHERE type = 0 AND contactTrackLocation = 1
+            AND contactId = ? AND companyId = ? LIMIT 1',
+        [$userId, $companyId]
+    );
+    if (!$contact) {
+        apiError('not found', 404);
+    }
+
+    $out    = [];
+    $latLng = (string) ($contact['contactLatLng'] ?? '');
+    if ($latLng !== '' && str_contains($latLng, ',')) {
+        [$lat, $lng] = array_map('floatval', explode(',', $latLng, 2));
+        $out['lat'] = $lat;
+        $out['lng'] = $lng;
+
+        $delivery = $svc->getNextDeliveryForUser($userId, $companyId, $outletId);
+        if ($delivery !== null) {
+            $out['orderData'] = $delivery;
+        }
+    }
+
+    apiOk($out);
+}
+
 apiError('Operación no reconocida', 400);

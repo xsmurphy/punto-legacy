@@ -585,58 +585,7 @@ if (!empty($load)) {
   // customerRecord → migrado a bff/customers + #customerRecordTpl (Slice 33)
 
 
-  if($load == 'userLocation' && $get['id']){
-    $jsonOut  = [];
-    $id       = dec( $db->Prepare($get['id']) );
-    $result   = ncmExecute('SELECT * FROM contact WHERE type = 0 AND contactTrackLocation = 1 AND contactId = ? AND companyId = ? LIMIT 1',[$id,COMPANY_ID]);
-    if($result){
-      if($result['contactLatLng']){
-        $orderD =   [
-                      'api_key'       => API_KEY,
-                      'company_id'    => enc(COMPANY_ID),
-                      'user'          => enc($result['contactId']),
-                      'type'          => 12,
-                      'limit'         => 1,
-                      'order'         => 'ASC',
-                      'status'        => '5',//en camino
-                      'from'          => date('Y-m-d H:i:s',strtotime('-1 month')),
-                      'to'            => date('Y-m-d 23:59:59'),
-                      'customerdata'  => 1
-                    ];
-
-        $order           = json_decode(curlContents(API_URL . '/get_orders.php','POST',$orderD),true);
-
-        //print_r($orderD);
-        
-        if(!isset($order['error']) && validity($order,'array')){
-          foreach ($order as $date => $dats) {
-          
-            $jsonOut['orderData'] = [
-                                      'id'            => $dats['transaction_id'],
-                                      'orderNo'       => $dats['number_id'],
-                                      'customerId'    => $dats['customer_id'],
-                                      'customerName'  => $dats['customer_name'],
-                                      'address'       => $dats['customer_address'],
-                                      'lat'           => $dats['customer_lat'],
-                                      'lng'           => $dats['customer_lng']
-                                    ];
-          }
-        }
-
-        $lat = floatval( explodes(',',$result['contactLatLng'],0) );
-        $lng = floatval( explodes(',',$result['contactLatLng'],1) );
-
-        $jsonOut['lat'] = $lat;
-        $jsonOut['lng'] = $lng;
-        //obtengo datos de la proxima orden
-      }
-
-      jsonDieResult($jsonOut,200);
-    }
-      
-    jsonDieResult(['error'=>'not found'],404);
-    
-  }
+  // userLocation → migrado a bff/orders (Slice 39, 2026-06-02 — OrderService::getNextDeliveryForUser)
 
   // transactions → migrado a bff/transactions (Slice 29)
 

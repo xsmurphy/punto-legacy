@@ -493,4 +493,59 @@ final class OrderService
 
         return $out;
     }
+
+    /**
+     * Próxima orden en camino (delivery) asignada a un usuario, dentro del outlet+tenant.
+     *
+     * Reemplaza el call legacy a `panel/API/get_orders.php` con params {type=12, status=5,
+     * limit=1, order=ASC, customerdata=1} que hacía el handler `load=userLocation`.
+     *
+     * Paridad con el legacy (panel/API/get_orders.php:163-256):
+     *   - customerName ← iftn(contactSecondName, contactName)
+     *   - address/lat/lng ← `customerAddress` (per-order delivery address), no `contact.contactLatLng`
+     *     (default del cliente). El JOIN: transaction → toAddress (por orden) → customerAddress.
+     *   - Si la orden no tiene toAddress asociado, lat/lng/address quedan null/''.
+     *
+     * Retorna null si no hay órdenes status=5 asignadas al usuario.
+     */
+    public function getNextDeliveryForUser(string $userId, string $companyId, string $outletId): ?array
+    {
+        $from = date('Y-m-d H:i:s', strtotime('-1 month'));
+        $to   = date('Y-m-d 23:59:59');
+
+        $row = ncmExecute(
+            "SELECT t.transactionId, t.invoiceNo, t.customerId,
+                    COALESCE(NULLIF(c.contactSecondName,''), c.contactName) AS customerName,
+                    ca.customerAddressText AS customerAddress,
+                    ca.customerAddressLat  AS customerLat,
+                    ca.customerAddressLng  AS customerLng
+               FROM transaction t
+          LEFT JOIN contact         c  ON c.contactId         = t.customerId    AND c.companyId  = t.companyId
+          LEFT JOIN toAddress       ta ON ta.transactionId    = t.transactionId
+          LEFT JOIN customerAddress ca ON ca.customerAddressId = ta.customerAddressId AND ca.companyId = t.companyId
+              WHERE t.companyId       = ?
+                AND t.outletId        = ?
+                AND t.userId          = ?
+                AND t.transactionType = 12
+                AND t.transactionStatus = 5
+                AND t.transactionDate BETWEEN ? AND ?
+              ORDER BY t.transactionDate ASC
+              LIMIT 1",
+            [$companyId, $outletId, $userId, $from, $to]
+        );
+
+        if (!$row) {
+            return null;
+        }
+
+        return [
+            'id'           => $row['transactionId'],
+            'orderNo'      => $row['invoiceNo']       ?? '',
+            'customerId'   => $row['customerId']      ?? '',
+            'customerName' => $row['customerName']    ?? '',
+            'address'      => $row['customerAddress'] ?? '',
+            'lat'          => isset($row['customerLat']) && $row['customerLat'] !== null ? (float) $row['customerLat'] : null,
+            'lng'          => isset($row['customerLng']) && $row['customerLng'] !== null ? (float) $row['customerLng'] : null,
+        ];
+    }
 }
