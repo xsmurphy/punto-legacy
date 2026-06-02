@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-02 — Slice 39: `load=userLocation` → OrderService granular (commit c052fe5)
+
+- **`OrderService::getNextDeliveryForUser` (NUEVO)**: query única tenant-scoped que trae la próxima orden status=5 ("en camino") del usuario. JOINs: `contact` (customerName con fallback contactSecondName), `toAddress` + `customerAddress` (delivery address per-orden, NO contact.contactLatLng default).
+- **Endpoint compositor**: `api/v1/orders.php?resource=userLocation&id=<userId>` — lookup contact (tracking activado) + parseo de coords + delivery. Reproduce paridad con `panel/API/get_orders.php:163-256` sin migrar las 281 líneas del endpoint fat.
+- **Patrón validado**: "API granular + BFF compone" (commit c4edef9, slice 32) aplicado al Cluster A de load.php — en vez de migrar endpoints fat de panel/API, exponer queries granulares específicas para cada callsite del front. Plantilla para los 4 calendarios + ordersPanelAPI restantes.
+- **load.php**: 662 → 611 líneas, 10 → 9 handlers vivos. Cluster A: 5 → 4 handlers (~525 líneas restantes).
+- **P0 atrapado en code-review**: shape inicial leía lat/lng/address de `contact` (default del cliente) en vez de `customerAddress` per-orden. Corregido antes del commit.
+
 ## 2026-06-02 — Slice 38: migración de `load=tin` a TinService vía Marangatu (commit dc33d7e)
 
 - **TinService (NUEVO)**: `api/lib/services/TinService.php` — `lookup($id, $country): ?array`. Llama directo a `https://marangatu.set.gov.py/eset-restful/contribuyentes/...`, descarta DV si el RUC viene con `-DV`. Solo PY soportado. Shape `{id, tin, name, fullName, address, phone}` en paridad con el legacy `panel/API/get_tin.php` (campo `bday` siempre vacío en legacy → omitido). Sigue patrón §22.14 (`namespace Punto\Api\Services`, `final class`, DI con `TenantContext`).
