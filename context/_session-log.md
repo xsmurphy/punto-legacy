@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-02 — Slice 38: migración de `load=tin` a TinService vía Marangatu (commit dc33d7e)
+
+- **TinService (NUEVO)**: `api/lib/services/TinService.php` — `lookup($id, $country): ?array`. Llama directo a `https://marangatu.set.gov.py/eset-restful/contribuyentes/...`, descarta DV si el RUC viene con `-DV`. Solo PY soportado. Shape `{id, tin, name, fullName, address, phone}` en paridad con el legacy `panel/API/get_tin.php` (campo `bday` siempre vacío en legacy → omitido). Sigue patrón §22.14 (`namespace Punto\Api\Services`, `final class`, DI con `TenantContext`).
+- **Path nuevo**: `/app/scripts/app.js:20987` → `bff/tin.php` → `api/v1/tin.php` → `TinService` → Marangatu. Eliminado hop intermedio legacy `/app → panel/API/get_tin.php → Marangatu`.
+- **Fallbacks eliminados por decisión explícita**: BD `ruc_py` (tabla `incomepo_rucpy` ya no existe) y búsqueda por CI vía `eas.suace.gov.py` (fuera de scope del ítem "RUC"). Decisión del usuario: "Solo Marangatu — limpio".
+- **load.php**: 665 → 662 líneas, 11 → 10 handlers vivos. `tin` sale de "APIs externas diferidas"; quedan 5 (Bancard ×3, ePOS ×2).
+- **Deuda anotada**: `panel/API/get_tin.php` sigue vivo (otros consumers posibles — no tocar). `app/tin.php` / `app/rucs.php` en `/app` raíz: verificar callsites; si 0, borrar en slice futuro.
+- **Patrón nuevo**: primer slice donde `/api` llama directo a una API externa pública sin proxy a `panel/API`. No se agrega como convención aún (esperar 2-3 ejemplos más).
+
 ## 2026-06-01 (tarde) — Cierre del strangler de action.php: Slice 36 + audit de vestigiales
 
 - **Audit de vestigiales (commit 85be7de)**: borrado de 9 dead handlers de `load.php` (-991 líneas). Handlers confirmados con 0 callsites: tweet, orders, ordersPanel, calendar_resources/week/agenda (sin `_json`), customerProgress, walink, printServer. load.php: 1714 → 722 líneas (-58%).

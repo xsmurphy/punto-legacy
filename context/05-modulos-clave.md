@@ -89,6 +89,7 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/lib/services/RegisterService.php` | setSession (slice 10) / **docNumbers** (slice 22 — 7 contadores de doc por registro, bug PG de UUID sin comillas corregido) |
 | `api/lib/services/ScheduleService.php` | rescheduleTo / unlock de agendamientos |
 | `api/lib/services/CustomerNoteService.php` | add de notas de cliente |
+| `api/lib/services/TinService.php` | búsqueda de RUC paraguayo vía Marangatu (SET). `lookup($id, $country): ?array` — descarta DV si viene con `-DV`; solo PY soportado. Shape: `{id, tin, name, fullName, address, phone}`. (Slice 38, commit dc33d7e) |
 | `api/lib/services/CustomerService.php` | **getInfo()** (slice 32 — resumen de cliente: contacto + últimos ítems vendidos + deuda corriente/vencida + gift cards activas + dirección default). Read-only salvo backfill lazy de customerAddress. Corrige SQL injection del legacy (STRING_AGG(ids) concatenado en IN() → IN(?) parametrizado). Scope companyId en todas las queries de transaction/itemSold/giftCardSold. |
 | `api/v1/customer_address.php` | Endpoint CRUD customerAddress (slice 1) |
 | `api/v1/tables.php` | Endpoint mesas (slices 2–3, 21, 34) — GET listTables; PUT `?resource=join` (joinSpaces), PUT `?resource=move` (moveOrders) |

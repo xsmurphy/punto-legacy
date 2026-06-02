@@ -288,14 +288,15 @@ Tarea estructural iniciada (ortogonal al desacople). Estado por tier:
 - **Slice 36b (commit cb5b997)**: sub-action `status` migrado (172 líneas). `TransactionService::changeStatus` encapsula 3 fases: (1) lógica schedule completion (status=6 + session → recrea comissions; status in [4,5] + parent → revert a 0); (2) UPDATE transactionStatus + motive (skip si 'reminder'); (3) devuelve customerId/userId/date para notifs. `api/v1/transactions.php` PUT `?resource=status` — side-effects best-effort en try/catch \Throwable (updateLastTimeEdit calendar+order, 2 sendWS KDS+register, notif cliente por status: 5=email+sms no-asistencia, 4=push cancelada, 1=push confirmada, reminder=email+sms recordatorio). `app/bff/transactions.php` case `'changeSaleStatus'` (mapea el quirk legacy `?status=<txId>&s=<newStatus>`). 6 callsites repuntados en app.js.
 - **Slice 36c (commit be1e959)**: borrado del handler `if ($action == 'sale')` completo (-529 líneas). action.php: 2214 → 1685. El branch default (~325 líneas de HTML list rendering) era dead code (0 callsites confirmados).
 
-**Estado actual de load.php (722 líneas, post audit 85be7de):**
-- **13 handlers vivos**: bancardQR, pixQR, verifyTransactionPix, ePOSPending, verifyTransactionEPOS, calendar_resources_json, calendar_week_json, calendar_agenda_json, calendar_month, ordersPanelAPI, customerAddress, userLocation, tin.
+**Estado actual de load.php (662 líneas, post Slice 38 dc33d7e):**
+- **10 handlers vivos**: bancardQR, pixQR, verifyTransactionPix, ePOSPending, verifyTransactionEPOS, calendar_resources_json, calendar_week_json, calendar_agenda_json, calendar_month, ordersPanelAPI, userLocation.
+- ~~customerAddress~~ borrado commit 9ce8c1f; ~~tin~~ migrado Slice 38 commit dc33d7e.
 - **9 dead handlers borrados** en commit 85be7de: tweet, orders (handler `$get['t']`), ordersPanel, calendar_resources (sin `_json`), calendar_week (sin `_json`), calendar_agenda (sin `_json`), customerProgress, walink, printServer.
-- load.php YA NO es un god node funcional. Su superficie viva son APIs externas diferidas + 5 pendientes de migrar (ver sección "Lo que QUEDA en load.php" abajo, actualizada post-audit).
+- load.php YA NO es un god node funcional. Su superficie viva son APIs externas diferidas + pendientes de migrar (ver sección "Lo que QUEDA en load.php" abajo, actualizada post-Slice 38).
 
 **Reducción total del dispatcher (referencia):**
 - action.php: 3549 → 1685 líneas (**-52%**).
-- load.php: 1714 → 722 líneas (**-58%**).
+- load.php: 1714 → 662 líneas (**-61%**).
 
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
 
@@ -386,19 +387,19 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 **PILOTO ARQUITECTÓNICO — API granular + BFF compone (commit c4edef9, 2026-05-31) ✅ HECHO:** refactor de `customerInfo` que invierte la responsabilidad de composición. La API expone 5 recursos GET granulares reusables (`profile/recentItems/debt/giftcards/address`); el BFF los pide en paralelo con `bffApiGetMulti()` y los mergea en el shape legacy. Output BYTE-IDÉNTICO al `getInfo()` legacy (diffCount=0). **DECISIÓN tomada**: esta es la dirección del codebase — API granular + BFF compone. Los endpoints fat actuales (`getInfo`/composite de records, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen. Trade-off medido y bottleneck identificado: ver `/api/includes` canónico arriba.
 
-**Lo que QUEDA en load.php (post audits 2026-06-01 — 665 líneas):**
+**Lo que QUEDA en load.php (post Slice 38 2026-06-02 — 662 líneas):**
 
 - ~~**Dead code borrado** (commit 85be7de)~~: 9 handlers eliminados (-991 líneas): `tweet`, `orders` (handler `$get['t']`), `ordersPanel`, `calendar_resources` (sin `_json`), `calendar_week` (sin `_json`), `calendar_agenda` (sin `_json`), `customerProgress`, `walink`, `printServer`. 0 callsites confirmados antes del borrado.
 - ~~**Handler vestigial borrado** (commit 9ce8c1f)~~: `customerAddress` (-58 líneas) — el callsite del front ya apuntaba a `bff/customer_address` desde Slice 1; `CustomerAddressService::listForCustomer` cubre ambos modos (con/sin `aid`).
+- ~~**`tin` migrado (Slice 38, commit dc33d7e, 2026-06-02)**~~: `TinService::lookup` vía Marangatu (SET); path `/app → bff/tin.php → api/v1/tin.php → TinService → marangatu.set.gov.py`. Fallbacks del legacy eliminados (BD `ruc_py` ya no existe; búsqueda por CI vía `eas.suace.gov.py` fuera de scope). `panel/API/get_tin.php` sigue vivo (otros consumers posibles). `app/tin.php` / `app/rucs.php` siguen en `/app` raíz como deuda de limpieza (candidatos a borrar si 0 callsites — verificar antes).
 - **Handlers vivos pendientes de migrar — Cluster A: proxies a panel/API** (5 handlers, ~575 líneas). Cada uno llama vía `curlContents(API_URL . '/...')` a endpoints de `panel/API/*.php`, recibe el shape de allí y lo re-shapea al que espera el front. Migrar requiere reimplementar el shape de panel/API directamente en el Service (consultando la BD), no proxy HTTP.
   - `ordersPanelAPI` (~92 líneas) — refresh del panel de órdenes. Proxy a `panel/API/get_orders.php` con compare-timestamp vs `/get_last_update.php`. Repuntar al BFF requiere reimplementar el filtrado + shape de orders en `OrderService::getPanelList(...)`. Callsite: `app.js:7626`.
   - `userLocation` (~50 líneas) — ubicación de un repartidor + próxima orden en camino. Mezcla SELECT propio (contact con `contactTrackLocation=1`) + proxy a `get_orders.php` con `status=5&limit=1`. Callsite: `app.js:8161`.
   - `calendar_resources_json` / `calendar_week_json` / `calendar_agenda_json` (~270 líneas combinadas) — vistas JSON del calendario (resources/week/agenda). SQL específico + agrupación por slots horarios.
   - `calendar_month` (~105 líneas) — vista mensual del calendario.
-- **APIs externas diferidas** (6 handlers, ~145 líneas, vivas) — requieren credenciales reales o sandbox para testear. **NO migrar sin integración disponible** (money path). Cada una es un proxy a un proveedor externo (Bancard, Pix de Bancard, ePOS, RUC Paraguay):
+- **APIs externas diferidas** (5 handlers, vivos) — requieren credenciales reales o sandbox para testear. **NO migrar sin integración disponible** (money path). Cada una es un proxy a un proveedor externo (Bancard, Pix de Bancard, ePOS):
   - `bancardQR` / `pixQR` / `verifyTransactionPix` — Bancard.
   - `ePOSPending` / `verifyTransactionEPOS` — ePOS.
-  - `tin` — RUC Paraguay (`API_URL/get_tin`).
 
 **Decisión 2026-06-01:** ✅ borrar handlers vestigiales fue trivial; migrar Cluster A requiere reimplementar shapes de panel/API; APIs externas requieren setup de sandbox. Ninguno bloquea Phase AI. Se hacen en sesiones futuras dedicadas (cuando se tenga acceso a sandbox de proveedores y/o tiempo para reimplementar los shapes).
 
