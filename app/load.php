@@ -648,9 +648,7 @@ if (!empty($load)) {
 
   // quotesList + savedList → migrado a bff/transactions (Slice 28)
 
-  if($load == 'tin'){
-    echo curlContents(API_URL . '/get_tin?id=' . $get['id'] . '&country=' . $get['country'],'POST',['company_id'=>enc(COMPANY_ID),'api_key'=>API_KEY]);
-  }
+  // tin → migrado a bff/tin (Slice 38, 2026-06-02 — TinService llama directo a Marangatu)
 
   checkExecTime($load);
 

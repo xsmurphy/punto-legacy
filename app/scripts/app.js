@@ -20984,7 +20984,7 @@ var searchByRUC = function () {
 
             var val = $rucField.val().toString();
             if (val != '') {
-                var url = window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'tin', id: val, country: country });
+                var url = window.masterUrl + 'bff/tin?l=' + ncmHttp.masterUrlParams({ load: 'tin', id: val, country: country });
                 ncmHttp.getit(url, function (data) {
 
                     if (data.error) {
