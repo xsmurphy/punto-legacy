@@ -49,6 +49,25 @@ if ($action === 'ordersList') {
     bffJson($res['data']);
 }
 
+// GET ordersPanelAPI (load.php L488): lista del panel de órdenes.
+// Legacy devolvía `{orders: [...]}` via jsonDieMsg($orders,200,'orders'); el front lo consume
+// como `data.orders`. El API devuelve el mismo shape.
+if ($action === 'ordersPanelAPI') {
+    $res = bffApiGet(
+        'v1/orders.php',
+        [
+            'resource' => 'panelList',
+            'ID'       => (string) ($get['ID']   ?? ''),
+            'date'     => (string) ($get['date'] ?? ''),
+        ],
+        '_jwt'
+    );
+    if (!$res['ok']) {
+        bffFailFromApi($res);
+    }
+    bffJson($res['data'] ?? ['orders' => []]);
+}
+
 // GET userLocation (load.php L588): ubicación del repartidor + próxima delivery.
 // El front consume el objeto plano { lat, lng, orderData? } o { error } si 404.
 if ($action === 'userLocation') {

@@ -188,6 +188,17 @@ if ($resource === 'user') {
     apiOk(['assigned' => true]);
 }
 
+// --- GET ?resource=panelList: lista del panel de órdenes (Slice 40 — strangler ordersPanelAPI) ---
+// Parámetros opcionales: ID (filtrar a una sola orden), date (end date inclusive).
+// El compare-timestamp del legacy (lastChk) se ignora — el endpoint upstream estaba roto en PG.
+if ($method === 'GET' && $resource === 'panelList') {
+    $orderId = trim((string) ($_GET['ID']   ?? '')) ?: null;
+    $date    = trim((string) ($_GET['date'] ?? '')) ?: null;
+
+    $orders = $svc->getPanelList($companyId, $outletId, $orderId, $date);
+    apiOk(['orders' => $orders]);
+}
+
 // --- GET ?resource=userLocation&id=<userId>: ubicación del repartidor + próxima delivery ---
 if ($method === 'GET' && $resource === 'userLocation') {
     $userId = trim((string) dec($_GET['id'] ?? ''));

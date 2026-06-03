@@ -495,6 +495,138 @@ final class OrderService
     }
 
     /**
+     * Lista del panel de órdenes (Slice 40 — strangler de `load=ordersPanelAPI`).
+     *
+     * Devuelve las órdenes (transactionType=12) del outlet+tenant del JWT con status
+     * abierto (0,1,2,3,5), del último mes hasta $date, ordenadas DESC por fecha.
+     *
+     * Shape ya mapeado al que consume el front (`ncmOrders.panel.allOrders`):
+     *   { id, table, orderNo, source, status, note, userId, customerId, customerName,
+     *     statusColor, statusName, created, createdDate, orderDue, tags, address, city,
+     *     location, lat, lng }
+     *
+     * Paridad con legacy:
+     *   - customerName ← COALESCE(NULLIF(contactSecondName,''), contactName) (panel/API/get_orders.php:163)
+     *   - address/city/location/lat/lng ← `customerAddress` per-orden via `toAddress` JOIN
+     *   - statusColor/statusName ← maps fijos del legacy (panel/API/get_orders.php:28-29)
+     *   - source ← derivado de transactionName ('table' si numérico, 'ecom' si 'ecom', false sino)
+     *   - tags ← json_decode(meta->>'tags') (§22.6 demotion)
+     *   - El compare-timestamp del legacy (`lastChk` vs /get_last_update.php) NO se
+     *     reimplementa: la columna `orderLastUpdate` fue demotada en Phase PG y nunca
+     *     funcionó en PG → en prod siempre se fetcha; este método mantiene esa paridad.
+     *
+     * NOTA: NO incluye el filtrado por registerId del legacy (`getROC()` agrega registerId
+     * cuando viene). El panel del POS muestra TODAS las órdenes del outlet, por eso el
+     * scope acá es companyId + outletId (el registerId vendría a restringir más, pero el
+     * front quiere ver órdenes de todas las cajas del outlet).
+     *
+     * @param ?string $orderId  filtrar a una única transacción (opcional).
+     * @param ?string $date     end date (default: today 23:59:59).
+     */
+    public function getPanelList(string $companyId, string $outletId, ?string $orderId, ?string $date): array
+    {
+        global $db;
+
+        $from = date('Y-m-d H:i:s', strtotime('-1 month'));
+        $to   = ($date && $date !== '') ? $date : date('Y-m-d 23:59:59');
+
+        $sql = "SELECT t.transactionId, t.transactionName, t.transactionStatus,
+                       t.transactionNote, t.transactionDate, t.transactionDueDate,
+                       t.userId, t.customerId, t.invoiceNo, t.meta,
+                       COALESCE(NULLIF(c.contactSecondName,''), c.contactName) AS customerName,
+                       ca.customerAddressText     AS customerAddress,
+                       ca.customerAddressCity     AS customerCity,
+                       ca.customerAddressLocation AS customerLocation,
+                       ca.customerAddressLat      AS customerLat,
+                       ca.customerAddressLng      AS customerLng
+                  FROM transaction t
+             LEFT JOIN contact         c  ON c.contactId         = t.customerId    AND c.companyId  = t.companyId
+             LEFT JOIN toAddress       ta ON ta.transactionId    = t.transactionId
+             LEFT JOIN customerAddress ca ON ca.customerAddressId = ta.customerAddressId AND ca.companyId = t.companyId
+                 WHERE t.companyId       = ?
+                   AND t.outletId        = ?
+                   AND t.transactionType = 12
+                   AND t.transactionStatus IN (0,1,2,3,5)
+                   AND t.transactionDate BETWEEN ? AND ?";
+        $params = [$companyId, $outletId, $from, $to];
+
+        if ($orderId !== null && $orderId !== '') {
+            $sql      .= ' AND t.transactionId = ?';
+            $params[]  = $orderId;
+        }
+
+        $sql .= ' ORDER BY t.transactionDate DESC LIMIT 80';
+
+        $rs = $db->Execute($sql, $params);
+        if ($rs === false || $rs->EOF) {
+            return [];
+        }
+
+        // Maps fijos legacy.
+        $statusName = ['0' => 'Pendiente', '1' => 'Pendiente', '2' => 'En Espera', '3' => 'En Proceso', '4' => 'Finalizado', '5' => 'Enviado', '6' => 'Cancelado'];
+        $statusCol  = ['0' => 'light',     '1' => 'light',     '2' => 'warning',   '3' => 'info',       '4' => 'success',    '5' => 'dark',    '6' => 'danger'];
+
+        $out = [];
+        while (!$rs->EOF) {
+            $f = $rs->fields;
+
+            $name = (string) ($f['transactionName'] ?? '');
+            if (is_numeric($name)) {
+                $source = 'table';
+            } elseif ($name === 'ecom') {
+                $source = 'ecom';
+                $name   = '';
+            } else {
+                $source = false;
+                $name   = '';
+            }
+
+            // tags vive en meta.tags (jsonb, §22.6). Lectura tolerante a forma.
+            $tags = [];
+            $meta = $f['meta'] ?? null;
+            if (is_string($meta) && $meta !== '') {
+                $m = json_decode($meta, true);
+                if (is_array($m) && isset($m['tags'])) {
+                    $raw = is_string($m['tags']) ? json_decode($m['tags'], true) : $m['tags'];
+                    if (is_array($raw)) {
+                        $tags = $raw;
+                    }
+                }
+            }
+
+            $status = (string) ($f['transactionStatus'] ?? '0');
+            $date   = (string) ($f['transactionDate']   ?? '');
+
+            $out[] = [
+                'id'           => $f['transactionId'],
+                'table'        => $name,
+                'orderNo'      => $f['invoiceNo']     ?? '',
+                'source'       => $source,
+                'status'       => $status,
+                'note'         => $f['transactionNote'] ?? '',
+                'userId'       => $f['userId']        ?? '',
+                'customerId'   => $f['customerId']    ?? '',
+                'customerName' => $f['customerName']  ?? '',
+                'statusColor'  => $statusCol[$status]  ?? '',
+                'statusName'   => $statusName[$status] ?? '',
+                'created'      => $date !== '' ? strtotime($date) : 0,
+                'createdDate'  => $date,
+                'orderDue'     => $f['transactionDueDate'] ?? null,
+                'tags'         => $tags,
+                'address'      => $f['customerAddress']  ?? '',
+                'city'         => $f['customerCity']     ?? '',
+                'location'     => $f['customerLocation'] ?? '',
+                'lat'          => isset($f['customerLat']) && $f['customerLat'] !== null ? (float) $f['customerLat'] : null,
+                'lng'          => isset($f['customerLng']) && $f['customerLng'] !== null ? (float) $f['customerLng'] : null,
+            ];
+
+            $rs->MoveNext();
+        }
+
+        return $out;
+    }
+
+    /**
      * Próxima orden en camino (delivery) asignada a un usuario, dentro del outlet+tenant.
      *
      * Reemplaza el call legacy a `panel/API/get_orders.php` con params {type=12, status=5,

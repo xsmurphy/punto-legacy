@@ -7623,7 +7623,7 @@ var ncmOrders = {
                 cancelled: 0
             };
 
-            var url = window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'ordersPanelAPI', lastChk: ncmOrders.panel.lastChk, date: iftn(ncmTransactions.customDate, '', ncmTransactions.customDate + ' 23:59:59') });
+            var url = window.masterUrl + 'bff/orders?l=' + ncmHttp.masterUrlParams({ action: 'ordersPanelAPI', date: iftn(ncmTransactions.customDate, '', ncmTransactions.customDate + ' 23:59:59') });
             ncmHttp.getit(url, (data) => {
 
                 if (ncmHelpers.valid(data, 'orders')) {
