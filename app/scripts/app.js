@@ -14,9 +14,6 @@ $(document).ready(function () {
         "href": "/assets/vendor/css/leaflet-routing-machine.css"
     }).appendTo("head");
 
-    /*$("<script/>", { //agrego google recaptcha
-       "src"            : "https://www.google.com/recaptcha/api.js?render=6LfDSOoUAAAAALtjJkK_Epxdl7qFC7D7hynzu-ph"
-    }).appendTo("head");*/
 
     /*$("<script/>", { //console debugger
        "src"            : "https://remotejs.com/agent/agent.js",
@@ -16712,7 +16709,6 @@ var ncmHttp = {
             type = options.rtype ? options.rtype : 'POST',
             async = (options.async === 'false') ? false : true,
             xhr = (options.xhr) ? options.xhr : 1, //xhr ID para el key en el array
-            gtoken = '',
             timeout = options.timeout ? options.timeout : 30000;
 
         dataType = iftn(dataType, 'text');
@@ -16723,10 +16719,8 @@ var ncmHttp = {
             ncmHelpers.preloader('show');
         }
 
-        //grecaptcha.ready(function() {
-        //  grecaptcha.execute('6LfDSOoUAAAAALtjJkK_Epxdl7qFC7D7hynzu-ph', {action: 'order'}).then(function(gtoken) {
         ncmHttp.xhrArr[xhr] = $.ajax({
-            url: url + '&gtoken=' + gtoken,
+            url: url,
             type: type,
             dataType: dataType,
             data: data,

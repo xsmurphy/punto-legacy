@@ -4126,23 +4126,6 @@ function getValidPhone($phone,$country=COUNTRY_CODE,$format=false){
     return $valid;
 }
 
-function gCaptcha($gtoken){
-    if(!$gtoken){
-        jsonDieResult(['error'=>'gtoken not found'],404);
-    }
-
-    $captchaData   =   [
-                        'secret'    => '6LfDSOoUAAAAAGLDr3dCnIri_YrtF7J-u2JBhzZF',
-                        'response'  => $gtoken,
-                        'remoteip'  => getUserIpAddr()
-                        ];
-
-    $captcha   = json_decode(curlContents('https://www.google.com/recaptcha/api/siteverify','POST',$captchaData),true);
-
-    if(!$captcha['success']){
-        jsonDieResult(['error'=>'invalid gtoken',$captcha],500);
-    }
-}
 
 function getUserIpAddr(){
     if(!empty($_SERVER['HTTP_CLIENT_IP'])){

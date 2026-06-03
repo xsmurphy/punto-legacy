@@ -94,9 +94,6 @@ include_once("libraries/countries.php");
 
 <body class="noscroll">
 
-  <script type="text/javascript">
-    window.grecaptcha = { ready: function(cb){ try { cb && cb(); } catch(e){} }, execute: function(){ return Promise.resolve(''); } };
-  </script>
   
   <section class="container no-padder" style="width:100%!important; max-width:1396px!important; min-height: 100vh;">
     <section class="vbox no-padder m-t-lg clear no-bg md-whiteframe-6dp r-3x">
