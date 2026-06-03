@@ -16,6 +16,12 @@ delivery, calendario de citas, agendamientos.
 - Setup (líneas 1–54): session, cors, JWT, company check, includes. Tail: checkExecTime + else→401.
 - Ver `10-roadmap.md § action.php estado post-Slice 36` para el historial completo del vaciado.
 
+**~~`app/load.php`~~ → ELIMINADO (`git rm`, Slice 43, commit cc02762, 2026-06-03)**
+- Era el segundo dispatcher del POS (reads, APIs externas). 1714 líneas al inicio del trabajo (Slice 1).
+- Vaciado progresivamente en Slices 1-43 migrando ~44 handlers al patrón BFF→API→Service.
+- Última migración (Slice 43): `bancardQR`, `pixQR`, `verifyTransactionPix` → `BancardService` + `PixService`.
+- El archivo fue eliminado con `git rm` una vez vacío de handlers. Ya NO existe en el repo.
+
 **Desacople progresivo de /app al patrón Front→BFF→API→Service (iniciado 2026-05-28)**
 
 El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patrón de 3 capas que el panel. `action.php`/`load.php` siguen sirviendo los concerns no migrados.
@@ -90,6 +96,8 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/lib/services/ScheduleService.php` | rescheduleTo / unlock (slice 4) / updateSchedule / scheduleSession / checkIfUserOccupied (slice 20) / getSessionsList (slice 30) / getAgendaList (slice 31) / **getCalendarSlots** (slice 41 — resources/week views; fix PG IN bindeado) / **getCalendarAgenda** (slice 41 — agenda mensual agrupada por día; JOIN a contact vs N+1 SELECT del legacy) / **getCalendarMonthCounts** (slice 41 — counts por día) |
 | `api/lib/services/CustomerNoteService.php` | add de notas de cliente |
 | `api/lib/services/TinService.php` | búsqueda de RUC paraguayo vía Marangatu (SET). `lookup($id, $country): ?array` — descarta DV si viene con `-DV`; solo PY soportado. Shape: `{id, tin, name, fullName, address, phone}`. (Slice 38, commit dc33d7e) |
+| `api/lib/services/BancardService.php` | Bancard QR payments. `createQR / refreshQR / cancelQR` — llama a `BANCARD_QR_API` con Bearer token. Construye `identifier` JSON con IDs del JWT (companyId, outletId, registerId, UID, amount, saleAmount, comission, tax). (Slice 43, commit cc02762) |
+| `api/lib/services/PixService.php` | Pix (Bancard) payments. `getToken` (OAuth2 client_credentials) + `createQR` (token + /api/generate_qr, incluye token en respuesta — paridad con legacy; deuda de diseño documentada en docblock: token viaja por el cliente) + `verifyTransaction` (verifica por referenceId usando token del caller). (Slice 43, commit cc02762) |
 | `api/lib/services/CustomerService.php` | **getInfo()** (slice 32 — resumen de cliente: contacto + últimos ítems vendidos + deuda corriente/vencida + gift cards activas + dirección default). Read-only salvo backfill lazy de customerAddress. Corrige SQL injection del legacy (STRING_AGG(ids) concatenado en IN() → IN(?) parametrizado). Scope companyId en todas las queries de transaction/itemSold/giftCardSold. |
 | `api/v1/customer_address.php` | Endpoint CRUD customerAddress (slice 1) |
 | `api/v1/tables.php` | Endpoint mesas (slices 2–3, 21, 34) — GET listTables; PUT `?resource=join` (joinSpaces), PUT `?resource=move` (moveOrders) |
@@ -98,6 +106,8 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/v1/customer_note.php` | Endpoint notas de cliente (slice 5) |
 | `api/v1/register.php` | Endpoint de registro: GET sin acción → docNumbers (slice 22); POST setSession (slice 10) |
 | `api/v1/customers.php` | Endpoint de cliente: GET `?resource=info&id=<encId>` → resumen completo del cliente (slice 32) |
+| `api/v1/bancard.php` | Bancard QR: POST `{type: create\|refresh\|cancel}` → `apiOk` con respuesta de Bancard. (Slice 43) |
+| `api/v1/pix.php` | Pix QR: POST `{type: create\|verify}` → `apiOk` con respuesta de Pix. (Slice 43) |
 
 **Clientes actuales**: `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`). `/panel/bff/*` aún no consume /api (usa panel/API/ in-process); la migración es gradual.
 

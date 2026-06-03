@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-03 (Slice 41 — Cluster A calendar_* completo, load.php 250 líneas)
+> **Última actualización:** 2026-06-03 (Slice 43 — app/load.php COMPLETAMENTE ELIMINADO — 1714 → 0 líneas, commit cc02762)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -288,15 +288,27 @@ Tarea estructural iniciada (ortogonal al desacople). Estado por tier:
 - **Slice 36b (commit cb5b997)**: sub-action `status` migrado (172 líneas). `TransactionService::changeStatus` encapsula 3 fases: (1) lógica schedule completion (status=6 + session → recrea comissions; status in [4,5] + parent → revert a 0); (2) UPDATE transactionStatus + motive (skip si 'reminder'); (3) devuelve customerId/userId/date para notifs. `api/v1/transactions.php` PUT `?resource=status` — side-effects best-effort en try/catch \Throwable (updateLastTimeEdit calendar+order, 2 sendWS KDS+register, notif cliente por status: 5=email+sms no-asistencia, 4=push cancelada, 1=push confirmada, reminder=email+sms recordatorio). `app/bff/transactions.php` case `'changeSaleStatus'` (mapea el quirk legacy `?status=<txId>&s=<newStatus>`). 6 callsites repuntados en app.js.
 - **Slice 36c (commit be1e959)**: borrado del handler `if ($action == 'sale')` completo (-529 líneas). action.php: 2214 → 1685. El branch default (~325 líneas de HTML list rendering) era dead code (0 callsites confirmados).
 
-**Estado actual de load.php (216 líneas, post Slice 42 commit 7eea7d0 — 2026-06-03):**
-- ✅ `ePOSPending` migrado (Slice 42): `VPaymentService::getPending` — query directa a `vPayments WHERE UID IS NULL OR UID=''`.
-- ✅ `verifyTransactionEPOS` migrado (Slice 42): `VPaymentService::getByUID` — busca pago por UID.
-- **3 handlers vivos restantes**: bancardQR, pixQR, verifyTransactionPix. Todos son APIs externas Bancard/Pix (money path real, requieren credenciales configuradas para testear). ✅ **Cluster A 100% migrado** (Slices 38–41). ✅ **Cluster ePOS migrado** (Slice 42).
-- load.php YA NO es un god node. Solo quedan 3 handlers de pagos externos Bancard/Pix.
+**✅ load.php COMPLETAMENTE MIGRADO Y ELIMINADO (Slice 43, commit cc02762, 2026-06-03):**
+- ✅ `ePOSPending` migrado (Slice 42): `VPaymentService::getPending`.
+- ✅ `verifyTransactionEPOS` migrado (Slice 42): `VPaymentService::getByUID`.
+- ✅ `bancardQR` migrado (Slice 43): `BancardService::createQR / refreshQR / cancelQR`.
+- ✅ `pixQR` migrado (Slice 43): `PixService::createQR`.
+- ✅ `verifyTransactionPix` migrado (Slice 43): `PixService::verifyTransaction`.
+- **`app/load.php` ELIMINADO (`git rm`) en Slice 43.** 1714 líneas → 0. -100%.
+
+**Servicios nuevos de pagos externos (Slice 43):**
+- `api/lib/services/BancardService.php` — `createQR / refreshQR / cancelQR`. Llama a `BANCARD_QR_API` con Bearer token. Construye `identifier` JSON con IDs del JWT (companyId, outletId, registerId, UID, amount, saleAmount, comission, tax).
+- `api/lib/services/PixService.php` — `getToken` (OAuth2 client_credentials) + `createQR` (obtiene token, llama a /api/generate_qr, incluye token en respuesta) + `verifyTransaction` (verifica por referenceId usando token del caller). **Deuda de diseño documentada en docblock**: el token Pix viaja por el cliente (paridad con el legacy). La corrección sería almacenarlo server-side. Queda como deuda de seguridad.
+- `api/v1/bancard.php` — POST `{type: create|refresh|cancel}` → `apiOk` con JSON de Bancard.
+- `api/v1/pix.php` — POST `{type: create|verify}` → `apiOk` con JSON de Pix.
+- `app/bff/bancard.php` — mapea `load:bancardQR` → `bffApiPost` → `bffJson($res['data'])`.
+- `app/bff/pix.php` — mapea `load:pixQR` y `load:verifyTransactionPix` → `bffApiPost` → `bffJson($res['data'])`.
+
+**Fix P0 pre-commit (Slice 43):** los endpoints devolvían JSON crudo (sin envelope `{ok,data}`), lo que hacía `bffDecodeEnvelope` marcar `ok=false` siempre → todo el money path muerto. Corregido envolviendo en `apiOk`.
 
 **Reducción total del dispatcher (referencia):**
 - action.php: 3549 → 1685 líneas (**-52%**).
-- load.php: 1714 → 216 líneas (**-87%**).
+- load.php: 1714 → **0 líneas** (**-100% — ELIMINADO**).
 
 ### action.php — mapa de lo que queda (post Slice 12, 2026-05-28)
 
@@ -387,7 +399,7 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 **PILOTO ARQUITECTÓNICO — API granular + BFF compone (commit c4edef9, 2026-05-31) ✅ HECHO:** refactor de `customerInfo` que invierte la responsabilidad de composición. La API expone 5 recursos GET granulares reusables (`profile/recentItems/debt/giftcards/address`); el BFF los pide en paralelo con `bffApiGetMulti()` y los mergea en el shape legacy. Output BYTE-IDÉNTICO al `getInfo()` legacy (diffCount=0). **DECISIÓN tomada**: esta es la dirección del codebase — API granular + BFF compone. Los endpoints fat actuales (`getInfo`/composite de records, listas de orders/transactions) son **deuda a refactorizar** al patrón granular cuando se toquen. Trade-off medido y bottleneck identificado: ver `/api/includes` canónico arriba.
 
-**load.php casi terminado — solo APIs externas diferidas (post Slice 41 2026-06-03 — 250 líneas):**
+**✅ load.php COMPLETAMENTE MIGRADO Y ELIMINADO (Slice 43, commit cc02762, 2026-06-03 — 1714 → 0 líneas):**
 
 ✅ **Cluster A 100% MIGRADO** (Slices 38–41, commits dc33d7e / c052fe5 / … / 9306d30):
 
@@ -400,12 +412,13 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 - ~~**`ePOSPending` + `verifyTransactionEPOS` migrados (Slice 42, commit 7eea7d0, 2026-06-03)**~~: `VPaymentService::getPending` (query directa a vPayments WHERE UID IS NULL OR UID='') y `VPaymentService::getByUID`. Endpoint `api/v1/vpayments.php?resource=pending|byUID`. BFF cases en `bff/vpayments.php`. 3 callsites repuntados en app.js (L2121/2387/2677). load.php: 250 → 216 líneas. Fix P1 en review: campo `source` omitido inicialmente (el front lo usa para distinguir 'dinelcoPOS').
 
-**Único pendiente — APIs externas Bancard/Pix (3 handlers, ~155 líneas):** requieren credenciales reales configuradas en el entorno para testear (money path). **NO migrar sin integración disponible.** Decisión: no bloquean Phase AI; sesión dedicada cuando haya acceso al sandbox de Bancard/Pix.
-  - `bancardQR` / `pixQR` / `verifyTransactionPix` — Bancard + Pix de Bancard.
+**✅ APIs externas Bancard/Pix MIGRADAS (Slice 43, commit cc02762, 2026-06-03):**
+  - `bancardQR` / `pixQR` / `verifyTransactionPix` → `BancardService` + `PixService`.
+  - `app/load.php` **ELIMINADO** (`git rm`). Fin del trabajo en load.php.
 
-**Reducción total de load.php**: 1714 → 216 líneas (**-87%**). load.php ya NO es un god node.
+**Reducción total de load.php**: 1714 → **0 líneas** (**-100% — ELIMINADO en Slice 43**).
 
-**Decisión 2026-06-01/03:** ✅ Cluster A cerrado (Slices 38-41). ✅ Cluster ePOS cerrado (Slice 42). APIs externas Bancard/Pix requieren sandbox. Ninguno bloquea Phase AI.
+**Decisión 2026-06-01/03:** ✅ Cluster A cerrado (Slices 38-41). ✅ Cluster ePOS cerrado (Slice 42). ✅ Bancard/Pix migrados y load.php eliminado (Slice 43).
 
 Los clusters restantes de `action.php` (mesa-merge, monstruos processData/sale, HTML/especial, dead) no son de `load.php`.
 
