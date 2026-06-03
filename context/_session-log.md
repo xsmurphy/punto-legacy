@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-03 — Slice 41: `calendar_*` → ScheduleService, cierre del Cluster A (commit 9306d30)
+
+- **3 métodos nuevos en ScheduleService**: `getCalendarSlots(mode, date, weekRange?, resource?, companyId, outletId)` — resources/week views; fix PG: IN($csv UUIDs interpolados) → IN(?,?,...) bindeados. `getCalendarAgenda(date, companyId, outletId)` — agenda mensual agrupada por día; mejora: JOIN a `contact` en vez del N+1 SELECT del legacy. `getCalendarMonthCounts(date, companyId, outletId)` — counts por día. HTML del calendar_month se construye en el endpoint compositor (presentation layer separado del Service). BFF detecta prefix `calendar_` en el `load` y mapea a los 4 `mode`s.
+- **HITO — Cluster A 100% COMPLETO**: los 5 handlers de load.php que proxyaban a `panel/API/*` vía `curlContents` migrados en 4 slices: Slice 38 (tin→TinService), Slice 39 (userLocation→OrderService), Slice 40 (ordersPanelAPI→OrderService), Slice 41 (calendar_*→ScheduleService). load.php: 519 → 250 líneas (-270 en este slice). Reducción total desde inicio: 1714 → 250 líneas (-85%).
+- **Estado final de load.php (250 líneas, 5 handlers)**: solo APIs externas diferidas (Bancard ×3, ePOS ×2) — requieren sandbox de proveedores (money path real). Decisión documentada: no migrar hasta tener sandbox.
+- **Archivos cambiados**: `api/lib/services/ScheduleService.php` (+213), `api/v1/schedule.php` (+83), `app/bff/schedule.php` (+47), `app/scripts/app.js` (3 callsites repunteados líneas 8697/9447/9475), `app/load.php` (-270).
+
 ## 2026-06-02 — Slice 39: `load=userLocation` → OrderService granular (commit c052fe5)
 
 - **`OrderService::getNextDeliveryForUser` (NUEVO)**: query única tenant-scoped que trae la próxima orden status=5 ("en camino") del usuario. JOINs: `contact` (customerName con fallback contactSecondName), `toAddress` + `customerAddress` (delivery address per-orden, NO contact.contactLatLng default).
