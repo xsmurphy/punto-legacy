@@ -1340,7 +1340,7 @@ var ncmSpaces = {
     userToSpace: false,
     action: (action, callback) => {
         if (action == 'show') {
-            var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'tables' });
+            var url = masterUrl + 'bff/tables?l=' + ncmHttp.masterUrlParams({ action: '' });
             var $container = moduleWrapElement();
 
             if (isMobile.phone) {
@@ -2192,7 +2192,7 @@ var ncmPayments = {
                 var toPay = ncmPayments.ePOS.toPay();
                 ncmPayments.ops.wa = ncmPayments.ePOS.wa({ saleAmount: ncmTransactions.updatePrice('total'), amount: toPay.total, comission: toPay.comission, tax: toPay.tax });
                 var data = await loadWait({
-                    url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({
+                    url: masterUrl + 'bff/bancard?l=' + ncmHttp.masterUrlParams({
                         load: 'bancardQR',
                         type: 'create',
                         QRAmount: toPay.total,
@@ -2218,7 +2218,7 @@ var ncmPayments = {
             refresh: async function () {
 
                 var data = await loadWait({
-                    url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'bancardQR', type: 'refresh', ID: ncmPayments.ePOS.ID }),
+                    url: masterUrl + 'bff/bancard?l=' + ncmHttp.masterUrlParams({ load: 'bancardQR', type: 'refresh', ID: ncmPayments.ePOS.ID }),
                     type: 'POST',
                     dataType: 'json',
                     hideloader: false
@@ -2239,7 +2239,7 @@ var ncmPayments = {
                 }
 
                 var data = await loadWait({
-                    url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'bancardQR', type: 'cancel', ID: ncmPayments.ePOS.ID }),
+                    url: masterUrl + 'bff/bancard?l=' + ncmHttp.masterUrlParams({ load: 'bancardQR', type: 'cancel', ID: ncmPayments.ePOS.ID }),
                     type: 'POST',
                     dataType: 'json',
                     hideloader: true
@@ -2788,7 +2788,7 @@ var ncmPayments = {
 
                     try {
                         const result = await ncmHttp.get({
-                            url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({
+                            url: masterUrl + 'bff/pix?l=' + ncmHttp.masterUrlParams({
                                 load: 'verifyTransactionPix',
                                 referenceId: data.reference_id,
                                 token: data.token
@@ -2825,7 +2825,7 @@ var ncmPayments = {
                 var toPay = ncmPayments.pix.toPay();
 
                 ncmHttp.get({
-                    url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({
+                    url: masterUrl + 'bff/pix?l=' + ncmHttp.masterUrlParams({
                         load: 'pixQR',
                         type: 'create',
                         UID: ncmTransactions.trUID
@@ -11689,7 +11689,7 @@ var ncmTransactions = {
             var _bffListTarget = _bffListMap[load];
             var url = _bffListTarget
                 ? window.masterUrl + 'bff/' + _bffListTarget + '?l=' + ncmHttp.masterUrlParams({ action: load, limit: options.limit, customerId: options.cId, date: options.date })
-                : window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: load, limit: options.limit, customerId: options.cId, date: options.date, json: 1 });
+                : window.masterUrl + 'bff/transactions?l=' + ncmHttp.masterUrlParams({ action: load, limit: options.limit, customerId: options.cId, date: options.date });
 
             ncmHttp.getit(url, function (result) {
                 var txtDetails = [];
@@ -20029,7 +20029,7 @@ document.addEventListener('alpine:init', function () {
 var ncmCustomer = {
     agendaSessionsModal: function (cId, limit) {
         var toLoad = (type == 'openAgenda') ? 'agendaList' : 'sessionsList';
-        var url = window.masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: toLoad, customerId: cId });
+        var url = window.masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: toLoad, customerId: cId });
 
         $('#saleTableDataMsg').show();
         $('#saleInfoData').hide();
