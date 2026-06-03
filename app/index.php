@@ -184,7 +184,6 @@ include_once("libraries/countries.php");
                     </div>
                     <div class="text-xs m-b">Te enviaremos un Whatsapp con un código de verificación</div>
                     <a href="#" class="btn btn-rounded btn-lg btn-info font-bold text-u-c" id="verifySMS">Enviar Código</a>
-                    <p class="m-t text-xs">Este sitio está protegido por reCAPTCHA de Google donde aplican las <br> <a href="https://policies.google.com/privacy"><u>Politicas de privacidad</u></a> y <a href="https://policies.google.com/terms"><u>Términos del servicio</u></a></p>
                   </div>
 
                   <div class="col-sm-12 text-center no-padder signUpStep2" style="display: none;">

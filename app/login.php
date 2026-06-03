@@ -102,8 +102,6 @@ if($email && $pass){
     $rateLimiterId = $_SERVER['REMOTE_ADDR'];
     include_once('head.php');
 
-    //gCaptcha($get['gtoken']);
-
     $phone     = getValidPhone($get['phone'],$get['country']);
 
     if($phone['type'] < 1 || (isset($phone['error']) && $phone['error'])){ //es linea baja o invalido
