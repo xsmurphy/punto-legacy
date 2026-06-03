@@ -384,4 +384,221 @@ final class ScheduleService
 
         return $out;
     }
+
+    // ========================================================================
+    // Slice 41 — cluster Calendario (strangler de load.php?load=calendar_*).
+    // ========================================================================
+
+    /**
+     * Slots de calendario para vistas resources/week (load.php?load=calendar_resources_json
+     * y calendar_week_json — mismo bloque legacy con distinto rango de fechas).
+     *
+     * Modo `resources` (default): vista de un solo día. Usa $date.
+     * Modo `week`: vista de 7 días. $weekRange = "YYYY-MM-DD|YYYY-MM-DD".
+     *
+     * Retorna array de slots con el shape que consume ncmCalendar:
+     *   { userId, responsibleId, icon, color, customerId, customerUnd, start, end,
+     *     items, total, id, blocked, note, status, details }
+     *
+     * $resource: filtro opcional a un solo user del staff.
+     *
+     * Mejora vs legacy: IN ($csv de UUIDs interpolados) → IN (?,?,?,...) bindeados.
+     * Paridad preservada en condición legacy `outletId < 1 OR outletId = ?` (contactos
+     * "globales" sin outlet asignado — semánticamente raros en PG con UUIDs, pero el
+     * legacy lo emitía tal cual).
+     */
+    public function getCalendarSlots(
+        string  $mode,
+        string  $date,
+        ?string $weekRange,
+        ?string $resource,
+        string  $companyId,
+        string  $outletId
+    ): array {
+        global $dec, $ts; // separators de locale cargados por data.php (mismo uso que el legacy).
+
+        if ($mode === 'week' && $weekRange !== null && $weekRange !== '' && str_contains($weekRange, '|')) {
+            [$startDay, $endDay] = explode('|', $weekRange, 2);
+            $startDate = $startDay . ' 00:00:00';
+            $endDate   = $endDay   . ' 23:59:59';
+        } else {
+            $startDate = $date . ' 00:00:00';
+            $endDate   = $date . ' 23:59:59';
+        }
+
+        $userFilter = '';
+        $userParams = [];
+        if ($resource !== null && $resource !== '') {
+            $userFilter   = ' AND contactId = ?';
+            $userParams[] = $resource;
+        }
+
+        // `outletId < 1` es rama legacy (int < 1 indicaba "user global, sin outlet").
+        // En PG con UUIDs nunca matchea — se mantiene literal por paridad histórica.
+        $users = ncmExecute(
+            "SELECT STRING_AGG(contactId::text, ',') AS users
+               FROM contact
+              WHERE type = 0
+                AND (outletId < 1 OR outletId = ?)
+                AND companyId = ?" . $userFilter . "
+              ORDER BY contactCalendarPosition ASC
+              LIMIT 100",
+            array_merge([$outletId, $companyId], $userParams),
+            true
+        );
+
+        if (!$users || empty($users['users'])) {
+            return [];
+        }
+
+        $userIds = array_values(array_filter(array_map('trim', explode(',', $users['users']))));
+        if (!$userIds) {
+            return [];
+        }
+        $inPlaceholders = implode(',', array_fill(0, count($userIds), '?'));
+
+        $sql = "SELECT * FROM transaction
+                 WHERE transactionType   = 13
+                   AND transactionStatus NOT IN (4, 5)
+                   AND userId IN ($inPlaceholders)
+                   AND fromDate > ?
+                   AND toDate   < ?
+                   AND outletId  = ?
+                   AND companyId = ?
+                 LIMIT 500";
+        $params = array_merge($userIds, [$startDate, $endDate, $outletId, $companyId]);
+
+        $rs = ncmExecute($sql, $params, false, true);
+        if (!$rs) {
+            return [];
+        }
+
+        $iconMap  = ['0'=>'stars', '1'=>'thumb_up', '2'=>'keyboard_arrow_down', '3'=>'keyboard_arrow_right', '4'=>'block', '5'=>'person_add_disabled', '6'=>'check', '7'=>'block'];
+        $colorMap = ['0'=>'dark',  '1'=>'info',     '2'=>'warning',             '3'=>'success',             '4'=>'dark',  '5'=>'danger',              '6'=>'dark',  '7'=>'dark'];
+
+        $out = [];
+        while (!$rs->EOF) {
+            $f      = $rs->fields;
+            $status = (string) ($f['transactionStatus'] ?? '0');
+
+            $details = $f['transactionDetails'] ?? null;
+            if (is_string($details) && $details !== '') {
+                $details = json_decode($details, true);
+            }
+            if (!is_array($details)) {
+                $details = [];
+            }
+
+            $out[] = [
+                'userId'        => $f['userId']        ?? '',
+                'responsibleId' => $f['responsibleId'] ?? '',
+                'icon'          => $iconMap[$status]   ?? 'stars',
+                'color'         => $colorMap[$status]  ?? 'dark',
+                'customerId'    => $f['customerId']    ?? '',
+                'customerUnd'   => $f['customerId']    ?? '',
+                'start'         => $f['fromDate']      ?? null,
+                'end'           => $f['toDate']        ?? null,
+                'items'         => '',
+                'total'         => (defined('CURRENCY') ? CURRENCY : '') . formatCurrentNumber((float) ($f['transactionTotal'] ?? 0), $dec ?? '', $ts ?? ''),
+                'id'            => $f['transactionId'],
+                'blocked'       => $status === '7',
+                'note'          => $f['transactionNote'] ?? '',
+                'status'        => $status,
+                'details'       => $details,
+            ];
+            $rs->MoveNext();
+        }
+        $rs->Close();
+
+        return $out;
+    }
+
+    /**
+     * Agenda mensual: citas (type=13) del mes que contiene $date, agrupadas por día.
+     * Retorna: [ { date: "<niceDate>", schedules: [{id, hour, name}, ...] }, ... ]
+     *
+     * Paridad con load.php?load=calendar_agenda_json. Mejora: JOIN a contact en vez del
+     * N+1 SELECT del legacy. Filtra status=7 acá (legacy lo filtraba en el loop de output).
+     */
+    public function getCalendarAgenda(string $date, string $companyId, string $outletId): array
+    {
+        $startMonth = date('Y-m-d 00:00:00', strtotime('first day of this month', strtotime($date)));
+        $endMonth   = date('Y-m-d 00:00:00', strtotime('last day of this month',  strtotime($date)));
+
+        $rs = ncmExecute(
+            "SELECT t.transactionId, t.transactionStatus, t.fromDate,
+                    COALESCE(NULLIF(c.contactSecondName,''), c.contactName) AS customerName
+               FROM transaction t
+          LEFT JOIN contact c ON c.contactId = t.customerId AND c.companyId = t.companyId
+              WHERE t.transactionType   = 13
+                AND t.transactionStatus NOT IN (4, 5, 7)
+                AND t.fromDate > ?
+                AND t.toDate   < ?
+                AND t.outletId  = ?
+                AND t.companyId = ?
+              ORDER BY t.fromDate ASC",
+            [$startMonth, $endMonth, $outletId, $companyId],
+            false,
+            true
+        );
+
+        if (!$rs) {
+            return [];
+        }
+
+        $group = [];
+        while (!$rs->EOF) {
+            $f   = $rs->fields;
+            $day = niceDate($f['fromDate']);
+            $group[$day][] = [
+                'id'   => $f['transactionId'],
+                'hour' => date('H:i', strtotime($f['fromDate'])),
+                'name' => $f['customerName'] ?? '',
+            ];
+            $rs->MoveNext();
+        }
+        $rs->Close();
+
+        $out = [];
+        foreach ($group as $day => $rows) {
+            $out[] = ['date' => $day, 'schedules' => $rows];
+        }
+        return $out;
+    }
+
+    /**
+     * Counts de citas (type=13) por día para el mes de $date. Retorna { "YYYY-MM-DD" => int }.
+     * El HTML del calendario mensual lo arma el endpoint a partir de estos counts.
+     * Paridad con load.php?load=calendar_month (data layer).
+     */
+    public function getCalendarMonthCounts(string $date, string $companyId, string $outletId): array
+    {
+        $startDate = date('Y-m-d 00:00:00', strtotime('first day of this month', strtotime($date)));
+        $endDate   = date('Y-m-d 23:59:59', strtotime('last day of this month',  strtotime($date)));
+
+        $rs = ncmExecute(
+            "SELECT DATE(fromDate) AS d, COUNT(transactionId) AS c
+               FROM transaction
+              WHERE transactionType   = 13
+                AND transactionStatus NOT IN (4, 5)
+                AND fromDate > ?
+                AND toDate   < ?
+                AND outletId  = ?
+                AND companyId = ?
+              GROUP BY d",
+            [$startDate, $endDate, $outletId, $companyId],
+            false,
+            true
+        );
+
+        $counts = [];
+        if ($rs) {
+            while (!$rs->EOF) {
+                $counts[(string) $rs->fields['d']] = (int) $rs->fields['c'];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return $counts;
+    }
 }

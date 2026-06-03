@@ -52,6 +52,89 @@ if ($method === 'GET' && $resource === 'sessions') {
     apiOk($svc->getSessionsList($companyId, $encCid, $date));
 }
 
+// --- GET ?resource=calendar: vistas del calendario (Slice 41 — strangler de calendar_*) ---
+// mode: 'resources' | 'week' | 'agenda' | 'month'
+//   resources/week: { slots: [...] }      — array de slots para ncmCalendar
+//   agenda:         { agenda: [...] }     — array agrupado por día
+//   month:          { html: "<...>" }     — HTML del calendario mensual
+if ($method === 'GET' && $resource === 'calendar') {
+    $mode = (string) ($_GET['mode'] ?? 'resources');
+    $date = trim((string) ($_GET['date'] ?? '')) ?: date('Y-m-d');
+
+    if ($mode === 'resources' || $mode === 'week') {
+        $weekRange = trim((string) ($_GET['weekRange'] ?? '')) ?: null;
+        $resourceU = trim((string) dec($_GET['user'] ?? '')) ?: null;
+        apiOk(['slots' => $svc->getCalendarSlots($mode, $date, $weekRange, $resourceU, $companyId, $outletId)]);
+    }
+
+    if ($mode === 'agenda') {
+        apiOk(['agenda' => $svc->getCalendarAgenda($date, $companyId, $outletId)]);
+    }
+
+    if ($mode === 'month') {
+        $counts = $svc->getCalendarMonthCounts($date, $companyId, $outletId);
+
+        // HTML rendering (presentation logic; mismo markup que el legacy load.php?load=calendar_month).
+        $month        = date('m', strtotime($date));
+        $year         = date('Y', strtotime($date));
+        $daysOfWeek   = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+        $firstDay     = mktime(0, 0, 0, (int) $month, 1, (int) $year);
+        $numberDays   = (int) date('t', $firstDay);
+        $dateComp     = getdate($firstDay);
+        $dayOfWeek    = $dateComp['wday'];
+        $monthPadded  = str_pad($month, 2, '0', STR_PAD_LEFT);
+
+        $calendar  = "<table class='table scheduler table-bordered m-b-lg'><tr>";
+        foreach ($daysOfWeek as $day) {
+            $calendar .= '<th class="dk" style="width:14.3%;">' . $day . '</th>';
+        }
+        $calendar .= '</tr><tr>';
+
+        if ($dayOfWeek > 0) {
+            $calendar .= "<td colspan='$dayOfWeek' class='bg-light dker'>&nbsp;</td>";
+        }
+
+        $currentDay = 1;
+        while ($currentDay <= $numberDays) {
+            if ($dayOfWeek === 7) {
+                $dayOfWeek = 0;
+                $calendar .= '</tr><tr>';
+            }
+            $dayPadded = str_pad((string) $currentDay, 2, '0', STR_PAD_LEFT);
+            $cellDate  = "$year-$monthPadded-$dayPadded";
+            $isToday   = date('Y-m-d') === $cellDate;
+            $count     = $counts[$cellDate] ?? 0;
+
+            $calendar .= '<td class="ncmCalendarDay ' . ($isToday ? 'bg-white' : '') . ' scrolleable pointer clickeable" rel="' . $cellDate . '" data-type="calendarView" data-mode="calendar_resources" data-date="' . $cellDate . '" style="height:100px;">'
+                . ' <div>'
+                . '   <span class="badge ' . ($isToday ? 'bg-info' : 'bg-white') . '">' . $currentDay . '</span>'
+                . ' </div>'
+                . ' <div class="text-center">'
+                . '   <div class="font-bold h2">' . $count . '</div>'
+                . '   <div class="text-xs text-muted">Reserva(s)</div>'
+                . ' </div>'
+                . '</td>';
+
+            $currentDay++;
+            $dayOfWeek++;
+        }
+
+        if ($dayOfWeek !== 7) {
+            $remaining = 7 - $dayOfWeek;
+            $calendar .= "<td colspan='$remaining' class='bg-light dker'>&nbsp;</td>";
+        }
+        $calendar .= '</tr></table>';
+
+        $title = !empty($_GET['solo']) ? '' : buildCalendarTop(['date' => $date, 'current' => 'month']);
+        $bottomSpace = '<div class="col-xs-12 wrapper-xl"></div><div class="col-xs-12 wrapper-xl"></div>';
+        $html  = '<div class="table-responsive bg-light panel no-padder m-b-lg" style="overflow-y:hidden;">' . $title . $calendar . $bottomSpace . '</div>';
+
+        apiOk(['html' => $html]);
+    }
+
+    apiError('mode inválido (resources|week|agenda|month)', 422);
+}
+
 // --- GET ?resource=agenda: lista de citas/turnos (type 13) (Slice 31)
 if ($method === 'GET' && $resource === 'agenda') {
     $encCid = trim((string) ($_GET['customerId'] ?? '')) ?: null;

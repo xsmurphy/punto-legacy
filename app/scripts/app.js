@@ -8694,7 +8694,7 @@ var ncmCalendar = {
             date = moment(date).startOf('week').format('YYYY-MM-DD');   
         }*/
 
-        var url = masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: ncmCalendar.currentMode, date: date, resource: resource, weekRange: ncmCalendar.weekRange });
+        var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ load: ncmCalendar.currentMode, date: date, resource: resource, weekRange: ncmCalendar.weekRange });
         var hideLoader = false;
         var currentRequest = null;
         var cacheDateIndx = date + ncmCalendar.currentView;
@@ -9444,7 +9444,7 @@ var ncmCalendar = {
             } else {
 
                 ncmHttp.loadPage({
-                    page: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: ncmCalendar.currentMode, date: date, solo: 1, resource: ncmCalendar.currentResource }),
+                    page: masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ load: ncmCalendar.currentMode, date: date, solo: 1, resource: ncmCalendar.currentResource }),
                     container: ncmCalendar.el,
                     hideloader: false,
                     bg: '<img src="' + window.masterUrl + 'images/transparent.png">',
@@ -9472,7 +9472,7 @@ var ncmCalendar = {
             } else {
 
                 ncmHttp.get({
-                    url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: ncmCalendar.currentMode, date: date, resource: ncmCalendar.currentResource }),
+                    url: masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ load: ncmCalendar.currentMode, date: date, resource: ncmCalendar.currentResource }),
                     onSuccess: function (result) {
                         ncmUIX.mustache($(ncmCalendar.el), result, $('#calendarAgendaTpl'));
                         var mustached = ncmUIX.mustache(false, result, $('#calendarAgendaTpl'));

@@ -10,6 +10,53 @@
 
 require_once __DIR__ . '/lib/bff_init.php';
 
+// load.php → calendar_* (Slice 41): vistas del calendario. El front pasa `load` con
+// el mode (calendar_resources_json | calendar_week_json | calendar_agenda_json | calendar_month).
+// Mapeamos a $action por compatibilidad con el dispatcher.
+$load = (string) ($get['load'] ?? '');
+if ($action === '' && str_starts_with($load, 'calendar_')) {
+    $action = $load;
+}
+
+// calendar_resources_json / calendar_week_json: el front consume `data.data` (legacy
+// emitía jsonDieMsg($jsonOut,200,'data') → {data:[...]}). Adapt al shape moderno {slots}.
+if ($action === 'calendar_resources_json' || $action === 'calendar_week_json') {
+    $mode = ($action === 'calendar_week_json') ? 'week' : 'resources';
+    $res  = bffApiGet('v1/schedule.php', [
+        'resource'  => 'calendar',
+        'mode'      => $mode,
+        'date'      => (string) ($get['date']      ?? ''),
+        'weekRange' => (string) ($get['weekRange'] ?? ''),
+        'user'      => (string) ($get['resource']  ?? ''),
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson(['data' => $res['data']['slots'] ?? []]);
+}
+
+if ($action === 'calendar_agenda_json') {
+    $res = bffApiGet('v1/schedule.php', [
+        'resource' => 'calendar',
+        'mode'     => 'agenda',
+        'date'     => (string) ($get['date'] ?? ''),
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson(['data' => $res['data']['agenda'] ?? []]);
+}
+
+// calendar_month: el legacy hacía echo $html directo. El BFF re-emite como text/html.
+if ($action === 'calendar_month') {
+    $res = bffApiGet('v1/schedule.php', [
+        'resource' => 'calendar',
+        'mode'     => 'month',
+        'date'     => (string) ($get['date'] ?? ''),
+        'solo'     => !empty($get['solo']) ? '1' : '',
+    ], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    header('Content-Type: text/html; charset=utf-8');
+    echo (string) ($res['data']['html'] ?? '');
+    exit;
+}
+
 // checkIfUserOccupied: lectura con payload → POST ?resource=occupied → devuelve el array.
 if ($action === 'checkIfUserOccupied') {
     $users = is_array($get['users'] ?? null) ? $get['users'] : [];
