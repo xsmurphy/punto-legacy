@@ -24,6 +24,24 @@ $userId      = $ctx['userId'];
 $svc    = new VPaymentService(TenantContext::fromAuth($ctx));
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+// GET ?resource=pending → pagos ePOS sin UID (Slice 42 — strangler ePOSPending)
+if ($method === 'GET' && ($_GET['resource'] ?? '') === 'pending') {
+    apiOk(['success' => $svc->getPending($companyId)]);
+}
+
+// GET ?resource=byUID&uid=<uid> → busca un pago por UID (Slice 42 — strangler verifyTransactionEPOS)
+if ($method === 'GET' && ($_GET['resource'] ?? '') === 'byUID') {
+    $uid = trim((string) ($_GET['uid'] ?? ''));
+    if ($uid === '') {
+        apiError('Falta uid', 422);
+    }
+    $row = $svc->getByUID($companyId, $uid);
+    if ($row === null) {
+        apiError('No encontrado', 404);
+    }
+    apiOk(['success' => $row]);
+}
+
 // GET ?code= → verifica un authCode APPROVED (lectura pura). Verbos REST (§22.7).
 if ($method === 'GET') {
     $code     = (string) ($_GET['code'] ?? '');

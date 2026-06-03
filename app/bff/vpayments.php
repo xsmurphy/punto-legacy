@@ -15,6 +15,24 @@
 
 require_once __DIR__ . '/lib/bff_init.php';
 
+// load.php → ePOSPending (Slice 42): pagos ePOS sin UID. El front consume `data.success`.
+if ($action === 'ePOSPending') {
+    $res = bffApiGet('v1/vpayments.php', ['resource' => 'pending'], '_jwt');
+    if (!$res['ok']) bffFailFromApi($res);
+    bffJson($res['data'] ?? ['success' => []]);
+}
+
+// load.php → verifyTransactionEPOS (Slice 42): busca pago por UID. Consume `result.success`.
+if ($action === 'verifyTransactionEPOS') {
+    $uid = (string) ($get['uid'] ?? '');
+    $res = bffApiGet('v1/vpayments.php', ['resource' => 'byUID', 'uid' => $uid], '_jwt');
+    if (!$res['ok']) {
+        $err = is_string($res['error'] ?? null) ? $res['error'] : 'not_found';
+        bffJson(['error' => $err]);
+    }
+    bffJson($res['data'] ?? []);
+}
+
 // action.php → source de add_vpayment
 $sourceMap = [
     'ePOSAddCardTransaction'         => 'POS',

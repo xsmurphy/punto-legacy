@@ -177,42 +177,8 @@ if (!empty($load)) {
     
   }
 
-  if($load == 'ePOSPending'){
-    $data           = [
-                        'api_key'       => API_KEY,
-                        'company_id'    => enc(COMPANY_ID)
-                      ];
-
-    $result         = json_decode(curlContents(API_URL .'/get_vpayments','POST',$data), true);
-    $returns        = [];
-
-    if(validity($result['success'])){
-      foreach ($result['success'] as $key => $value) {
-        if(!validity($value['UID'])){
-          $returns[] = $value;
-        }
-      }
-    }
-
-    jsonDieResult(['success' => $returns], 200);
-  }
-
-
-  if($load == 'verifyTransactionEPOS'){
-    $data           = [
-                        'api_key'       => API_KEY,
-                        'company_id'    => enc(COMPANY_ID),
-                        'UID'           => $get['uid']
-                      ];
-
-    $result         = json_decode(curlContents(API_URL .'/get_vpayments','POST',$data), true);
-    if(isset($result['error'])){
-      jsonDieResult(['error' => $result['error']], 400);
-    } else {
-    jsonDieResult(['success' => $result], 200);
-    }
-    
-  }
+  // ePOSPending → migrado a bff/vpayments (Slice 42, 2026-06-03 — VPaymentService::getPending)
+  // verifyTransactionEPOS → migrado a bff/vpayments (Slice 42, 2026-06-03 — VPaymentService::getByUID)
 
   // calendar_resources_json / calendar_week_json / calendar_agenda_json / calendar_month → migrados a bff/schedule (Slice 41, 2026-06-03 — ScheduleService::getCalendar*)
 

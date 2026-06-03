@@ -2117,8 +2117,8 @@ var ncmPayments = {
 
                     try {
                         const result = await ncmHttp.get({
-                            url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({
-                                load: 'verifyTransactionEPOS',
+                            url: masterUrl + 'bff/vpayments?l=' + ncmHttp.masterUrlParams({
+                                action: 'verifyTransactionEPOS',
                                 uid: ncmTransactions.trUID
                             }),
                             type: 'json'
@@ -2384,7 +2384,7 @@ var ncmPayments = {
         list: {
             paymentMethod: (callback) => {
                 ncmHttp.get({
-                    url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'ePOSPending' }),
+                    url: masterUrl + 'bff/vpayments?l=' + ncmHttp.masterUrlParams({ action: 'ePOSPending' }),
                     type: 'json',
                     onSuccess: (data) => {
 
@@ -2674,7 +2674,7 @@ var ncmPayments = {
         list: {
             paymentMethod: (callback) => {
                 ncmHttp.get({
-                    url: masterUrl + 'load?l=' + ncmHttp.masterUrlParams({ load: 'ePOSPending' }),
+                    url: masterUrl + 'bff/vpayments?l=' + ncmHttp.masterUrlParams({ action: 'ePOSPending' }),
                     type: 'json',
                     onSuccess: (data) => {
 

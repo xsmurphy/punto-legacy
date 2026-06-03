@@ -265,4 +265,96 @@ final class VPaymentService
             );
         }
     }
+
+    // =========================================================================
+    // Slice 42 — ePOS read-ops (strangler de load.php?load=ePOSPending|verifyTransactionEPOS)
+    // =========================================================================
+
+    /**
+     * Pagos ePOS pendientes (sin UID asignado) del tenant.
+     *
+     * Paridad con load.php?load=ePOSPending: proxy a panel/API/get_vpayments con
+     * company_id y api_key, luego filtraba !validity($value['UID']). Acá query directa.
+     * El legacy devolvía `{success: [...]}` — el shape de cada item se preserva al máximo
+     * (mismas columnas que panel/API/get_vpayments devolvía). El front itera `data.success`.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getPending(string $companyId): array
+    {
+        $rs = ncmExecute(
+            "SELECT ID, date, payoutDate, payoutAmount, depositedDate, comission, tax,
+                    orderNo, operationNo, authCode, status, amount, UID, method, source, outletId
+               FROM vPayments
+              WHERE companyId = ?
+                AND (UID IS NULL OR UID = '')
+              ORDER BY date DESC
+              LIMIT 200",
+            [$companyId],
+            false,
+            true
+        );
+
+        $out = [];
+        if ($rs) {
+            while (!$rs->EOF) {
+                $f     = $rs->fields;
+                $out[] = [
+                    'ID'            => enc($f['ID']),
+                    'date'          => $f['date'],
+                    'payoutDate'    => $f['payoutDate']    ?? null,
+                    'payoutAmount'  => $f['payoutAmount']  ?? null,
+                    'depositedDate' => $f['depositedDate'] ?? null,
+                    'comission'     => $f['comission']     ?? null,
+                    'tax'           => $f['tax']           ?? null,
+                    'orderNo'       => $f['orderNo']       ?? null,
+                    'operationNo'   => $f['operationNo']   ?? null,
+                    'authCode'      => $f['authCode']      ?? null,
+                    'status'        => $f['status']        ?? null,
+                    'amount'        => $f['amount']        ?? null,
+                    'UID'           => $f['UID']            ?? null,
+                    'method'        => $f['method']        ?? null,
+                    'source'        => $f['source']        ?? null,
+                    'outletId'      => enc($f['outletId'] ?? ''),
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return $out;
+    }
+
+    /**
+     * Busca un pago ePOS por UID (usado para verificar resultado de una operación).
+     *
+     * Paridad con load.php?load=verifyTransactionEPOS: proxy a panel/API/get_vpayments
+     * con `?UID=` — retornaba `{success: <resultado>}`. Acá query directa.
+     * El front chequea `result.success` como truthy.
+     *
+     * @return array|null null si no se encontró.
+     */
+    public function getByUID(string $companyId, string $uid): ?array
+    {
+        $row = ncmExecute(
+            "SELECT ID, date, orderNo, operationNo, authCode, status, amount, UID, method
+               FROM vPayments
+              WHERE UID = ? AND companyId = ?
+              LIMIT 1",
+            [$uid, $companyId]
+        );
+        if (!$row) {
+            return null;
+        }
+        return [
+            'ID'          => enc($row['ID']),
+            'date'        => $row['date'],
+            'orderNo'     => $row['orderNo']     ?? null,
+            'operationNo' => $row['operationNo'] ?? null,
+            'authCode'    => $row['authCode']    ?? null,
+            'status'      => $row['status']      ?? null,
+            'amount'      => $row['amount']      ?? null,
+            'UID'         => $row['UID']          ?? null,
+            'method'      => $row['method']      ?? null,
+        ];
+    }
 }
