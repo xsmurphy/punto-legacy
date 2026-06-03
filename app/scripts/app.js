@@ -660,7 +660,6 @@ var imodaler = function (options) {
             $(this).find('.imodal-body').addClass('wrapper').removeClass('no-padder');
         }
 
-        ncmHelpers.bitrix.hideChat();
     }).on('inc.imodal.shown', function () {
         if (!ncmHelpers.valid(options, 'noOff')) {
             $(this).off('inc.imodal.shown');
@@ -907,7 +906,6 @@ var ncmMenu = {
 
         currentSaleModeUI();
 
-        ncmHelpers.bitrix.hideChat();
     },
     showMenu: function (callback) {
         ncmMenu.moving = true;
@@ -924,7 +922,6 @@ var ncmMenu = {
             ncmMenu.setContent();
 
             setTimeout(function () {
-                ncmHelpers.bitrix.showChat();
             }, 800);
 
             ncmMenu.over.trigger("ncmMenu.show");
@@ -2711,106 +2708,6 @@ var ncmPayments = {
 };
 
 var ncmHelpers = {
-    bitrix: {
-        widget: false,
-        chat: (intercomSettings) => {
-
-            (function (w, d, u) {
-                var s = d.createElement('script'); s.async = true; s.src = u + '?' + (Date.now() / 60000 | 0);
-                var h = d.getElementsByTagName('script')[0]; h.parentNode.insertBefore(s, h);
-            })(window, document, 'https://cdn.bitrix24.com/b11821471/crm/site_button/loader_4_1xmwxy.js');
-
-            $(window).off('onBitrixLiveChat').on('onBitrixLiveChat', (event) => {
-
-                ncmHelpers.bitrix.widget = event.detail.widget;
-
-                ncmHelpers.bitrix.hideChat();
-
-                ncmHelpers.bitrix.widget.setUserRegisterData({
-                    //'hash'        : window.intercomSettings.user_hash,
-                    'name': window.intercomSettings.name,
-                    'email': window.intercomSettings.email,
-                    'avatar': window.intercomSettings.company.avatar,
-                    'www': '',
-                    'position': window.intercomSettings.Rol
-                });
-
-                ncmHelpers.bitrix.widget.setCustomData([
-                    {
-                        "USER": {
-                            "NAME": window.intercomSettings.name,
-                            "AVATAR": window.intercomSettings.company.avatar,
-                        }
-                    },
-                    {
-                        "GRID": [
-                            {
-                                "NAME": "Empresa",
-                                "VALUE": window.intercomSettings.company.name,
-                                "DISPLAY": "LINE"
-                            },
-                            {
-                                "NAME": "Plan",
-                                "VALUE": window.intercomSettings.company.plan,
-                                "DISPLAY": "LINE"
-                            },
-                            {
-                                "NAME": "Fuente",
-                                "VALUE": window.intercomSettings.Source,
-                                "DISPLAY": "LINE"
-                            },
-                            {
-                                "NAME": "Rol",
-                                "VALUE": window.intercomSettings.Rol,
-                                "DISPLAY": "LINE"
-                            },
-                            {
-                                "NAME": "E-mail",
-                                "VALUE": window.intercomSettings.email,
-                                "DISPLAY": "LINE",
-                            },
-                            {
-                                "NAME": "Teléfono",
-                                "VALUE": window.intercomSettings.Phone,
-                                "DISPLAY": "LINE",
-                            },
-                            {
-                                "NAME": "Versión",
-                                "VALUE": ncmGlobals.settings[0].webAppVersion,
-                                "DISPLAY": "LINE",
-                            },
-                            {
-                                "NAME": "ID",
-                                "VALUE": window.intercomSettings.user_id,
-                                "DISPLAY": "LINE"
-                            }
-                        ]
-                    }
-                ]);
-            });
-
-        },
-        hideChat: () => {
-
-            if (!ncmHelpers.valid(ncmHelpers.bitrix.widget)) {
-                return false;
-            }
-
-            ncmHelpers.bitrix.widget.close();
-            $('.b24-widget-button-wrapper').addClass('hidden');
-
-        },
-        showChat: () => {
-
-            if (!ncmHelpers.valid(ncmHelpers.bitrix.widget)) {
-                return false;
-            }
-
-            ncmHelpers.bitrix.widget.close();
-            $('.b24-widget-button-wrapper').removeClass('hidden');
-
-        }
-    },
     checkIfUsedInvoiceNo: (ops) => {
 
         var currInvNo = 0;
@@ -15733,15 +15630,7 @@ var ncmTutorial = {
                 delayBefore: 100,
                 disabled: true,
                 content: 'Presione aquí si necesita guías interactivas de cada área.'
-            },
-            {
-                title: 'Soporte Online',
-                target: '.b24-widget-button-wrapper',
-                shape: 1,
-                disabled: true,
-                content: 'Si tiene dudas escribanos directamente aquí'
-            }
-            ];
+            }];
 
 
             ncmTutorial.set.intro = {
@@ -17198,40 +17087,6 @@ var ncmAuth = {
         }
 
         trackEvent("User Login", ncmGlobals.settings[0].companyName, ncmAuth.activeUser.name);
-
-        window.intercomSettings = {
-            "app_id": "uvb2fg2w",
-            "user_hash": ncmAuth.activeUser.intercom,
-            "name": ncmAuth.activeUser.name,
-            "email": iftn(ncmAuth.activeUser.email, null),
-            "user_id": ncmAuth.activeUser.activeUserId,
-            "Rol": ncmAuth.activeUser.roleName,
-            "Phone": ncmGlobals.settings[0].companyPhone,
-            "Outlet": ncmTransactions.cOutletData().name,
-            "App Version": ncmGlobals.settings[0].webAppVersion,
-            "Source": (isMobile.any) ? "App" : "WebApp",
-            "Plan": ncmGlobals.settings[0].plan['name'],
-            "Monthly Spent": (ncmGlobals.settings[0].plan['price'] * ncmGlobals.outlets.length),
-            "company": {
-                "id": ncmGlobals.settings[0].companyId,
-                "avatar": imgPath(ncmGlobals.settings[0].companyId, '150', '150'),
-                "name": ncmGlobals.settings[0].companyName,
-                "phone": ncmGlobals.settings[0].companyPhone,
-                "plan": ncmGlobals.settings[0].plan['name'],
-                "created_at": ncmGlobals.settings[0].companyDate,
-                "plan": ncmGlobals.settings[0].plan['name'],
-                "upgraded_at": null,
-                "outlets_count": ncmGlobals.outlets.length,
-                "Agendamiento": (ncmGlobals.settings[0].calendar) ? 'Yes' : 'No',
-                "Mesas": (ncmGlobals.settings[0].storeTables) ? 'Yes' : 'No',
-                "Panel de Ordenes": (ncmGlobals.settings[0].ordersPanel) ? 'Yes' : 'No',
-                "Spotify": (ncmGlobals.settings[0].spotify) ? 'Yes' : 'No',
-                "Dropbox": (ncmGlobals.settings[0].dropbox) ? 'Yes' : 'No',
-                "Dark Mode": (ncmUIX.isDarkMode) ? 'Yes' : 'No'
-            }
-        };
-
-        ncmHelpers.bitrix.chat(intercomSettings);
 
         // Sentry removed
 
@@ -24690,7 +24545,6 @@ var startRegister = function () {
         noOff: true, //usa ON en vez de ONE
         onAfter: () => {
 
-            ncmHelpers.bitrix.hideChat();
             ncmUIX.uiHeightsAndSpaces();
             ncmEvents.a();
 
@@ -24699,7 +24553,6 @@ var startRegister = function () {
             if (ncmMenu.open) {
                 setTimeout(function () {
                     if (!$('.imodal').is(':visible')) {
-                        ncmHelpers.bitrix.showChat();
                     }
                 }, 300);
             }
