@@ -3,6 +3,12 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-03 — Slice 42: ePOSPending + verifyTransactionEPOS → VPaymentService (commit 7eea7d0)
+
+- **`VPaymentService::getPending` + `getByUID` (NUEVO)**: 2 métodos read-only. `getPending`: SELECT FROM vPayments WHERE UID IS NULL OR UID='' (query directa en vez del proxy legacy a panel/API/get_vpayments). `getByUID`: busca pago por UID. Fix P1 detectado en code-review: campo `source` omitido inicialmente (el front lo usa para discriminar 'dinelcoPOS'→ePOS Card vs ePOS genérico). Endpoint `api/v1/vpayments.php?resource=pending|byUID`. BFF cases en `bff/vpayments.php`. 3 callsites repuntados en app.js (L2121/2387/2677).
+- **load.php**: 250 → 216 líneas (-87% total). Quedan solo 3 handlers: bancardQR, pixQR, verifyTransactionPix (money path Bancard — requieren credenciales sandbox).
+- **Para eliminar load.php definitivamente**: solo faltan los 3 handlers de Bancard/Pix. Una vez que estén configuradas las credenciales, es trabajo de ~2h más + borrar el archivo.
+
 ## 2026-06-03 — Slice 41: `calendar_*` → ScheduleService, cierre del Cluster A (commit 9306d30)
 
 - **3 métodos nuevos en ScheduleService**: `getCalendarSlots(mode, date, weekRange?, resource?, companyId, outletId)` — resources/week views; fix PG: IN($csv UUIDs interpolados) → IN(?,?,...) bindeados. `getCalendarAgenda(date, companyId, outletId)` — agenda mensual agrupada por día; mejora: JOIN a `contact` en vez del N+1 SELECT del legacy. `getCalendarMonthCounts(date, companyId, outletId)` — counts por día. HTML del calendar_month se construye en el endpoint compositor (presentation layer separado del Service). BFF detecta prefix `calendar_` en el `load` y mapea a los 4 `mode`s.
