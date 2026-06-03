@@ -962,9 +962,6 @@ var ncmMenu = {
             //$('[data-type="tutorial"]').addClass('hidden');
             //$('.hideMenuX[data-type="hideMenu"]').addClass('hidden');
 
-            /*Intercom('update', {
-              hide_default_launcher : true
-            });*/
 
             ncmMenu.setContent();
 
@@ -3978,12 +3975,6 @@ var ncmEvents = {
             //ncmEvents.unHashUrl();
 
             if (hashSrc && hashSrc != '#!') {
-                if (!isMobile.any) {
-                    gtag('config', 'UA-73323449-2', {
-                        'page_title': document.title,
-                        'page_path': hashSrc
-                    });
-                }
             }
 
             ncmModules.hide();
@@ -17144,9 +17135,6 @@ var ncmAuth = {
         window.decimalSign = (ncmGlobals.settings[0].thousandSeparator == 'dot') ? ',' : '.';
         window.appConfigObj = ncmStorage.getEntry('appConfig');
 
-        if (!isMobile.any) {
-            mixpanel.init('21d2d35dd7c15d5e3c68680bfec2258c', { debug: true });
-        }
 
 
         if (window.registerInit) {
@@ -17188,9 +17176,6 @@ var ncmAuth = {
 
         ncmWebSockets.start = new NcmWS(window.WS_URL);
 
-        if (!isMobile.any) {
-            mixpanel.identify(ncmAuth.activeUser.activeUserId);
-        }
 
         $('.userName').html(ncmAuth.activeUser.name);
         $('.userRole').html(ncmAuth.activeUser.roleName);
@@ -17270,26 +17255,8 @@ var ncmAuth = {
         }
 
         pluginExecute('intercom', function () {
-            /*if(ncmHelpers.validity(intercom)){
-                intercom.setLauncherVisibility('HIDDEN');
-                intercom.registerIdentifiedUser({userId:ncmAuth.activeUser.activeUserId});
-                intercom.updateUser(intercomSettings);
-            }else{
-                Intercom('boot', window.intercomSettings);
-                Intercom('update', {
-                  hide_default_launcher: true
-                });
-            }*/
-
             if (!ncmAuth.activeUser.isSupport) {
-                setTimeout(function () {
-
-                    /*Intercom('boot', window.intercomSettings);
-                    Intercom('update', {
-                      hide_default_launcher: true
-                    });*/
-
-                }, 800);
+                // Intercom removed
             }
 
             // OneSignal removed — push notifications handled by Web Push (VAPID)
@@ -24344,21 +24311,7 @@ var triggerInputKeyEvent = function ($input, val) {
     $input.val(val).trigger(e);
 };
 
-var trackEvent = function (event, data) {
-    //window.Intercom(event, data,meta);
-
-    if (!isMobile.any) {
-        mixpanel.track(event, data);
-    }
-
-    if (!isMobile.any) {
-        gtag('event', event, {
-            'event_category': ncmHelpers.valid(data, 'company'),
-            'event_label': ncmHelpers.valid(data, 'user'),
-            'value': ncmHelpers.valid(data, 'transaction_type')
-        });
-    }
-};
+var trackEvent = function () {}; // analytics removed
 
 var copyTextToClipBoard = function ($el) {
     $element = $el[0];
