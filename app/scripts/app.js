@@ -1308,7 +1308,6 @@ var modulesManager = function (action, callback) {
     } else if (action == 'load') {
 
 
-
     } else {
         callback && callback();
     }
@@ -1527,7 +1526,6 @@ var ncmSpaces = {
     },
     cache: {}
 };
-
 
 
 var ncmMaths = {
@@ -2716,200 +2714,6 @@ var ncmPayments = {
             }
         }
     },
-    pix: {
-        addedToSale: [],
-        ID: null,
-        timeOut: () => {
-            return window.setTimeout(() => {    //ejecuto el timer
-                ncmPayments.ePOS.refresh();     //actualizo el qr cada 4 min
-            }, 1 * 60 * 1000); //4 min
-        },
-        qr: {
-            load: (dataPix) => {
-
-                if (!ncmHelpers.valid(ncmGlobals.settings[0], 'epos')) {
-                    return false;
-                }
-
-                var prev = '   <div class="col-sm-6 col-xs-12 col-sm-offset-3 wrapper">' +
-                    '       <div class="col-xs-12 font-bold text-center h4 wrapper">' +
-                    '           <span class="material-icons text-dark" style="font-size:100px!important;">qr_code</span>' +
-                    '           <div>Generando QR...</div>' +
-                    '       </div>' +
-                    '   </div>';
-
-                ncmPayments.container.html(prev);
-                ncmPayments.pix.qr.create(dataPix);
-            },
-            render: (data) => {
-                ncmPayments.ops.pixData = data;
-                ncmPayments.container.html('<div class="font-bold text-center h2 col-xs-12 wrapper m-t-lg">Cargando...</div>');
-
-                var qrB = "";
-                var qrImg = "";
-                if (ncmHelpers.valid(data, 'qrcode')) {
-                    var qrDataB = window.btoa(data.qrcode);
-                    qrB = window.standAloneUrl + 'qrGenerator?s=T2csSkU1LHFyT25seQ==&action=qrOnly&c=' + qrDataB;
-                    qrImg = "data:image/png;base64," + data.qrcode;
-                }
-
-                if (isMobile.android.device) {
-                    qrImg = false;
-                }
-
-                ncmUIX.mustache(ncmPayments.container, { qr: qrB, img: qrImg, pixDatas: false, ventaGs: ncmMaths.formatNumber({ number: data.ventaGs }), ventaDolar: ncmMaths.formatNumber({ number: data.ventaDolar, decimal: "yes" }), ventaReal: ncmMaths.formatNumber({ number: data.ventaReal, decimal: "yes" }) }, $('#qrPixPaymentTpl'));
-                $('#modalNarrow').scrollTop(3000);
-
-                // Ejecutar la petición cada 5 segundos
-                let intervalId = setInterval(veryfiPayPix, 5000);
-
-                $('#modalNarrow').off('inc.imodal.hidden').on('inc.imodal.hidden', function () { //al cerrar el modal
-                    Mousetrap.unbind(['esc', 'tab', 'enter', 'backspace', 'space', 'a', 's', 'd', 'f', 'g', 'q', 'w', 'e', 'o', 't', 'A', 'S', 'D', 'F', 'G', 'Q', 'W', 'E', 'O', 'T']);
-                    ncmAlerts.alert({ title: "¿Desea cancelar el pago?", body: 'Si cierra la ventana no se podra confirmar la transacción', type: 'confirm' }, function (result) {
-                        if (result) {
-                            clearInterval(intervalId);
-                            bindMouseTrapRegister();
-                        } else {
-                            bindMouseTrapRegister();
-                            $('#modalNarrow').imodal('show');
-                        }
-                    });
-                });
-
-                $('#modalNarrow').off('inc.imodal.shown').on('inc.imodal.shown', function () { //al abrir el modal
-                    bindMouseTrapRegister();
-                    $('#modalMensaje').imodal('hide');
-                });
-
-                async function veryfiPayPix() {
-                    if (!ncmHelpers.valid(data, 'reference_id')) {
-                        return;
-                    }
-
-                    try {
-                        const result = await ncmHttp.get({
-                            url: masterUrl + 'bff/pix?l=' + ncmHttp.masterUrlParams({
-                                load: 'verifyTransactionPix',
-                                referenceId: data.reference_id,
-                                token: data.token
-                            }),
-                            type: 'json'
-                        });
-
-                        if (ncmHelpers.valid(result)) {
-                            // Verificar si la transacción fue exitosa
-                            if (result.success) {
-
-                                if (result.success[0].status && (result.success[0].status === 'approved')) {
-                                    clearInterval(intervalId);
-                                    ncmPayments.pix.events(result.success[0]);
-                                } else {
-                                    ncmAlerts.toast('El pago aun no fue confirmado', 'warning');
-                                }
-
-                            } else {
-                                // Notificar al usuario sobre el error en el pago
-                                ncmAlerts.toast('Error en el pago', 'warning');
-                            }
-                        } else {
-                            ncmAlerts.toast('Error en la verificación del pago', 'warning');
-                        }
-                    } catch (error) {
-                        ncmAlerts.toast('Error en la verificación del pago', 'warning');
-                    }
-                }
-
-            },
-            create: async function (dataPix) {
-
-                var toPay = ncmPayments.pix.toPay();
-
-                ncmHttp.get({
-                    url: masterUrl + 'bff/pix?l=' + ncmHttp.masterUrlParams({
-                        load: 'pixQR',
-                        type: 'create',
-                        UID: ncmTransactions.trUID
-                    }),
-                    type: 'json',
-                    hideloader: false,
-                    dataType: 'json',
-                    data: {
-                        QRAmount: toPay.total,
-                        description: dataPix.pixDescription,
-                        name: dataPix.pixCustomer,
-                        phone: dataPix.pixCustomerPhone,
-                        email: dataPix.pixCustomerEmail,
-                        cpf: dataPix.pixCpf,
-                    },
-                    onSuccess: function (data) {
-                        if (ncmHelpers.valid(data, 'qrcode')) {
-                            ncmPayments.pix.ID = data.reference_id;
-                            ncmPayments.pix.qr.render(data);
-                            return data;
-                        } else {
-                            ncmAlerts.toast('Ocurrió un error', 'warning');
-                            $('#modalNarrow').imodal('hide');
-                            return false;
-                        }
-                    },
-                    onFail: function () {
-                        ncmAlerts.toast('Error, Ocurrió un error', 'warning');
-                        return false;
-                    },
-                });
-            }
-        },
-        toPay: () => {
-            var totalPayAmount = ncmMaths.parseFloatSafe($('#tendered').val());
-            return { 'total': totalPayAmount, 'saleAmount': totalPayAmount };
-        },
-        events: (data) => {
-
-            var authCode = data.reference_id;
-            var saleData = ncmPayments.ePOS.toPay();
-
-            var url = masterUrl + 'bff/vpayments?l=' + ncmHttp.masterUrlParams({
-                action: 'PixAddTransaction',
-                authCode: authCode,
-                total: saleData.total,
-                sale: saleData.saleAmount,
-                UID: ncmTransactions.trUID,
-                operationData: data,
-                operationNo: data.id
-            });
-
-            ncmHttp.getit(url, (result) => {
-
-                if (ncmHelpers.validInObject(result, 'success')) {
-
-                    paymentMethodProcessFn(ncmPayments.ops.coin, ncmPayments.ops.name, saleData.total, '', () => {
-                        ncmAlerts.toast('Pago añadido', 'success');
-                        payPad();
-                    });
-
-                    $('#modalNarrow').imodal('hide');
-
-                    trackEvent(ncmPayments.ops.name, { 'company': ncmGlobals.settings[0].companyName, 'user': ncmAuth.activeUser.name, 'amount': saleData.total });
-
-                } else {
-                    if (ncmHelpers.validInObject(result, 'error') == 'already_exists') {
-                        ncmAlerts.toast('Error: El código ya fue procesado', 'danger');
-                    } else {
-                        ncmAlerts.toast('Error en el pago', 'danger');
-                    }
-                }
-
-            }, function (result) {
-
-                if (ncmHelpers.valid(result, 'error') == 'already_exists') {
-                    ncmAlerts.toast('Error: El código ya fue procesado', 'danger');
-                } else {
-                    ncmAlerts.toast('Error en el pago', 'danger');
-                }
-
-            }, false, 'json');
-        }
-    }
 };
 
 var ncmHelpers = {
@@ -5864,7 +5668,6 @@ var ncmEvents = {
             ncmTransactions.parentSaleId = sales;
 
 
-
             ncmCustomer.notInTransactionAlert(customerId, function () {
                 var options = {
                     title: 'Monto a cobrar',
@@ -6757,7 +6560,6 @@ var ncmEvents = {
             }
 
 
-
         } else if (type == 'addOrder') {
             var kind = iftn(tis.data('kind'), 'any');
 
@@ -7517,7 +7319,6 @@ var ncmOrders = {
                         ncmUIX.hideByDevice();
 
                         ncmEvents.a();
-
 
 
                     }, false, false, 'json');
@@ -8357,7 +8158,6 @@ var ncmOrders = {
                 ncmPrinters.justPrint('orderPrint');
 
 
-
             }, false, true);
         },
         lastChk: moment().format('YYYY-MM-DD HH:mm:ss')
@@ -9119,7 +8919,6 @@ var ncmCalendar = {
                                 return false;
                             }
                         }
-
 
 
                         var url = masterUrl + 'bff/schedule?l=' + ncmHttp.masterUrlParams({ action: 'scheduleSession', f: startDate, t: endDate, id: id, c: cust, u: user });
@@ -12737,8 +12536,6 @@ var ncmAlerts = {
         });
 
 
-
-
     },
     toastTimeout: false,
     prompt: function (options, callback) {
@@ -14071,7 +13868,6 @@ var str_replace = function (str, findArray, replaceArray) {
 };
 
 
-
 //DB & ARRAYS END
 
 //SERVER 
@@ -14784,7 +14580,6 @@ var ncmUIX = {
                 $('#tableOrdersManager span.material-icons.text-default').removeClass('text-default').addClass('text-white');
 
                 $('body').addClass('darkMode');
-
 
 
                 $('meta[name="theme-color"]').attr("content", '#181f24');
@@ -15961,7 +15756,6 @@ var ncmTutorial = {
             ];
 
 
-
             ncmTutorial.set.intro = {
                 enable: false
             };
@@ -15998,7 +15792,6 @@ var ncmTutorial = {
                     }
                 });
             }
-
 
 
         } else if (type == 'makeSale') {
@@ -16116,7 +15909,6 @@ var sessionAutoLock = function () {
 
     }
 };
-
 
 
 var loadJQDataTable = function (options) {
@@ -17134,8 +16926,6 @@ var deviceType = function () {
 };
 
 //OTHER END
-
-
 
 
 //COMMON
@@ -18929,7 +18719,6 @@ var initRegister = function (updateData, callback) {
 //DATABASE//
 
 
-
 //DATABASE END//
 
 //TABLES//
@@ -19748,7 +19537,6 @@ var ncmMaps = {
                 });
             }
         }
-
 
 
         if (opts.locations) {
@@ -21618,7 +21406,6 @@ var tables = (type, callback) => {
 };
 
 
-
 var orderTableItemsArray = function () {
     if (ncmHelpers.validity(window.itemsObj, 'object')) {
         $.each(window.itemsObj, function (k, val) {
@@ -22647,7 +22434,6 @@ var calculateComboDiscounts = function (combo, compounds, note, count) {
             var pro = ncmGlobals.products[index];
 
 
-
             var price = ncmMaths.parseFloatSafe(pro.price);
             if (pro.fixedDiscount > 0) {
                 pro.price = ncmMaths.rule3Simple(pro.fixedDiscount, pro.price);
@@ -23047,82 +22833,6 @@ var paymentMethodFn = function (coin, name, price) {
 
                     $('#modalBankPicker #checkBankPayment, #modalBankPicker #checkBankPaymentNumber, #modalBankPicker #checkBankPaymentExpiration').val('');
                 }
-            });
-        }
-        else if (coin == 'pix') {
-
-            var pixCustomer = '';
-            var pixCustomerPhone = '0999999999';
-            var pixCustomerEmail = '<?= EMAIL_FROM ?>';
-
-            if (ncmHelpers.valid(ncmTransactions, 'customer')) {
-                if (ncmHelpers.valid(ncmTransactions.customer, 'phone')) {
-                    pixCustomerPhone = ncmTransactions.customer.phone
-                }
-
-                if (ncmHelpers.valid(ncmTransactions.customer, 'email')) {
-                    pixCustomerEmail = ncmTransactions.customer.email
-                }
-
-                pixCustomer = ncmTransactions.customer.name;
-
-            } else {
-                ncmAlerts.alert({ title: "Debe añadir un cliente", type: "warning" });
-                return false;
-            }
-
-            var $container = $('#modalNarrow .imodal-body');
-
-            imodaler({
-                element: $('#modalNarrow'),
-                contentNoWrap: true,
-                fixed: false,
-                onBefore: async function () {
-                    $container.removeClass('wrapper').addClass('no-padder');
-                    $container.addClass('bg-white');
-                    $container.html('');
-                    ncmTransactions.trUID = numuid();
-
-                    ncmPayments.ops = { container: $container, coin: coin, name: name, price: ncmTransactions.updatePrice('topay') };
-
-                    var online = true;
-                    checkInternet();
-                    if (window.isServerOnline === false) {
-                        online = false
-                    }
-
-                    ncmUIX.mustache(ncmPayments.container, { pixDatas: true }, $('#qrPixPaymentTpl'));
-
-                    $("#PixPaymentBtnSubmit").on("click", async function () {
-                        var description = "Pago a " + ncmGlobals.settings[0].companyName;
-                        var cpf = $("#PixCpfInput").val();
-                        if (ncmHelpers.validity(cpf) && cpf.length >= 5) {
-                            if (online) {
-                                var dataPix = {
-                                    pixCustomer: pixCustomer,
-                                    pixDescription: description,
-                                    pixCpf: cpf,
-                                    pixCustomerPhone: pixCustomerPhone,
-                                    pixCustomerEmail: pixCustomerEmail
-                                }
-                                ncmPayments.pix.qr.load(dataPix);
-                            } else {
-                                ncmAlerts.alert({ title: "ERROR: No se puede realizar esta operación sin conexión a Internet", type: "danger" });
-                                return false;
-                            }
-                        } else {
-                            ncmAlerts.toast("La descripción y el cpf deben tener al menos 5 caracteres", "warning");
-                        }
-                    });
-                },
-                onAfter: () => {
-                    ncmUIX.setDarkMode();
-                },
-                onHidden: () => {
-                    $('#modalNarrow .imodal-body').removeClass('bg-white');
-                    ncmWebSockets.checkoutScreen();
-                },
-                contentNoWrap: true
             });
         }
         else if ($.inArray(coin, ['QRPayment', 'ePOSCard', 'ePOS']) > -1) {
@@ -24735,7 +24445,6 @@ var focusIt = function ($el, callback) {
 };
 
 
-
 //OTHER END//
 
 
@@ -24758,7 +24467,6 @@ $.ajaxSetup({
         ncmHttp.syncing = false;
     }
 }); //timeout para ajax requests
-
 
 
 window.masterUrl = location.protocol + '//' + location.host + '/';
@@ -25351,7 +25059,6 @@ var ncmPrinters = {
             var documentIs = 'FACTURA';
             var typeOfDoc = 'invoiceNo';
             var tableNo = ncmTransactions.tableNo;
-
 
 
             var thisRegister = ncmTransactions.cRegisterData();
@@ -26978,5 +26685,4 @@ var printBLE = {
 //PRINTER OBJECT END
 
 //DESIGN
-
 
