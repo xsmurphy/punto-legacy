@@ -335,7 +335,6 @@ if (isset($_POST['companyId']) && isset($_POST['outletId'])) {
                           'calendar'              => ($_modules['calendar'] ? $_modules['calendar'] : false),
                           'ordersPanel'           => ($_modules['ordersPanel'] ? $_modules['ordersPanel'] : false),
                           'orderAverageTime'      => ($_modules['orderAverageTime'] ? $_modules['orderAverageTime'] : 60),
-                          'spotify'               => ( ($_modules['spotify'] && $_modules['spotifyUrl']) ? $_modules['spotifyUrl'] : false),
                           'dropbox'               => ( ($_modules['dropbox'] && $_modules['dropboxToken']) ? $_modules['dropboxToken'] : false),
                           'phonePrefix'           => $countries[$settings['settingCountry']]['phone'],
                           'plan'                  => $planIt,

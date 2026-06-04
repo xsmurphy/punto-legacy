@@ -999,7 +999,7 @@ var ncmMenu = {
     },
     setContents: function () {
         var menuInfoTop = 168;
-        var menuInfoBottom = (ncmGlobals.settings[0].spotify) ? 125 : 0;
+        var menuInfoBottom = 0;
         var menuInfoBody = ncmUIX.windowH - (menuInfoTop + menuInfoBottom + 15);
 
         $('.menuInfoBody').height(menuInfoBody + 'px');
@@ -17186,28 +17186,6 @@ var ncmAuth = {
 
         //check app Version
         checkAppVersion();
-
-        //Spotify
-        if (!isMobile.phone) {
-            //Spotify
-            if (ncmGlobals.settings[0].spotify) {
-                $('#menu #spotifyWidget').show();
-                $('<iframe>', {
-                    src: 'https://open.spotify.com/embed/playlist/' + ncmGlobals.settings[0].spotify,
-                    id: 'spotifyWidgetPlayer',
-                    frameborder: 0,
-                    allowtransparency: true,
-                    scrolling: 'no',
-                    allow: 'encrypted-media',
-                    style: 'height : 80px; width : 100%;',
-                    class: 'pull-right r-3x md-whiteframe-4dp'
-                }).appendTo('#menu #spotifyWidgetPlayerWrap');
-            } else {
-                $('#menu #spotifyWidgetPlayerWrap').html('<div class="h2 text-white font-bold text-right"><a href="/caja-registradora/spotify" class="clickeable" data-type="url" target="_blank"><span class="text-white">Añade tu <br>playlist</a></div>');
-            }
-        }
-        //
-
     },
     events: function () {
         document.activeElement.blur();
