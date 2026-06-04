@@ -64,7 +64,7 @@ system/
 - Endpoint login: `app/API/auth.php` → POST email+pass → JWT
 - Middleware: `app/includes/jwt_middleware.php` → define `AUTHED_USER_ID`, `AUTHED_COMPANY_ID`, etc.
 - Constantes son **string** (UUID), excepto `AUTHED_ROLE_ID` que es int
-- Fallback legacy activo: si no hay JWT, cae a `$_POST` params con header `X-Legacy-Auth: 1`
+- ~~Fallback legacy activo: si no hay JWT, cae a `$_POST` params con header `X-Legacy-Auth: 1`~~ → **ELIMINADO** (commit 2aa149f, 2026-06-04). `fetchs.php` es JWT-only; header `X-Legacy-Auth` ya no se emite.
 
 ### `/panel` (módulo admin)
 - Cookie: `_jwt_panel` (HttpOnly, SameSite=Strict)
@@ -178,7 +178,7 @@ echo json_encode($result); exit;
 - `app/load.php` (3873 líneas) y `app/action.php` (3604 líneas) son mega-routers — Sprint E pendiente
 
 ### Rutas legacy activas (a eliminar eventualmente)
-- `app/fetch.php`, `app/load.php` — fallback legacy con `X-Legacy-Auth: 1`
+- ~~`app/fetch.php`, `app/load.php`~~ — **AMBOS ELIMINADOS**: `load.php` eliminado en Slice 43 (commit cc02762, 2026-06-03); `fetch.php` eliminado en commit 2aa149f (2026-06-04, código muerto — sin callsites). `fetchs.php` simplificado: fallback Hashids y `X-Legacy-Auth` eliminados.
 - 2 endpoints panel/API que aún usan `api_head.php` en vez de `apiMiddleware()`
 - 4 endpoints públicos panel/API sin middleware: `2fapin.php`, `check_verification.php`, `send_verification.php`, `phonevalidator.php` — necesitan `apiMiddlewarePublic()` o modo público
 

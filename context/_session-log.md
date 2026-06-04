@@ -3,6 +3,13 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-04 — Consolidación fetch handlers + cierre de deuda de seguridad Hashids (commit 2aa149f)
+
+- **`app/fetch.php` ELIMINADO** (`git rm`, -725 líneas): versión "moderna" con JWT obligatorio pero sin callsites en el front (auditado en app.js / panel/ / cache-sw.php / .htaccess / router.php). Código muerto — 0 regresiones.
+- **`app/fetchs.php` simplificado** (-39 líneas netas): fallback Hashids legacy eliminado del branch `else`. Ahora `jwtAuthenticate()` falla → 401 directo. Header `X-Legacy-Auth: 1` ya no se emite. `$rateLimiterId` = `$_SERVER['REMOTE_ADDR']` (era `$_POST['outletId']`, consistente con action.php). Check de mismatch `$postedCompanyId` ahora se hace SIEMPRE.
+- **Deuda de seguridad histórica cerrada**: el fallback Hashids era la única superficie que aceptaba identidad del request sin firma JWT. Eliminado definitivamente. Sin cambios funcionales para clientes legítimos.
+- **Vault actualizado**: `10-roadmap.md` (estado auth app, Phase 1 notas, sección deprecation fallback, pendientes reestructura), `docs/SESSION_CONTEXT.md` (refs a `fetch.php` y `X-Legacy-Auth` obsoletas marcadas).
+
 ## 2026-06-03 — HITO MÁXIMO: app/load.php COMPLETAMENTE ELIMINADO — Slice 43 (commit cc02762)
 
 - **HITO HISTÓRICO: `app/load.php` ya no existe.** El dispatcher legacy de reads del POS que tenía 1714 líneas al inicio del trabajo fue vaciado progresivamente en Slices 1-43 y eliminado con `git rm` en este commit. 1714 → 0 líneas (-100%). ~44 handlers migrados durante múltiples sesiones.

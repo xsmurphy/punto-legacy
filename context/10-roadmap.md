@@ -64,7 +64,7 @@ Ver `08-convenciones.md §22.13` para la receta completa y `02-arquitectura.md �
 | Backend | PHP 8.x, sin framework, archivos monolíticos |
 | DB | PostgreSQL 16 vía ADOdb + Docker ✅ |
 | Frontend | Bootstrap 3 + jQuery, HTML mezclado con PHP |
-| Auth (app) | JWT HS256 ✅ — cookie `_jwt` HttpOnly + fallback legacy activo |
+| Auth (app) | JWT HS256 ✅ — cookie `_jwt` HttpOnly. Fallback Hashids legacy **ELIMINADO** (commit 2aa149f, 2026-06-04). `fetchs.php` JWT-only; `fetch.php` eliminado. |
 | Auth (panel) | JWT HS256 ✅ — 68/68 endpoints con apiMiddleware() |
 | IDs | UUID v7 ✅ — enc()/dec() identity, ncmInsert auto-genera PK |
 | API | ~68 endpoints en `panel/API/*.php`, todos con envelope canónico ✅ |
@@ -234,8 +234,8 @@ Tarea estructural iniciada (ortogonal al desacople). Estado por tier:
 
 **Pendiente de la reestructura:**
 - Vendorear deps JS vía npm en vez de copias manuales (Fase B del vendoreo — diferida por el usuario; ver entry 2026-05-28 del session-log).
-- Unificar `fetch.php` / `fetchs.php` si quedan vivos al vaciar los dispatchers.
-- Mover/renombrar `action.php`/`load.php`/`fetch.php` cuando se vacíen por completo.
+- ~~Unificar `fetch.php` / `fetchs.php` si quedan vivos al vaciar los dispatchers.~~ → **RESUELTO (commit 2aa149f, 2026-06-04)**: `fetch.php` ELIMINADO con `git rm` (código muerto — JWT obligatorio, sin callsites en el front). `fetchs.php` simplificado (fallback Hashids eliminado, JWT-only).
+- ~~Mover/renombrar `action.php`/`load.php`/`fetch.php` cuando se vacíen por completo.~~ → `load.php` eliminado (Slice 43), `fetch.php` eliminado (commit 2aa149f). Solo queda `action.php` (retiene `processData`).
 - ✅ **Rebrand de iconos ENCOM → Punto (HECHO)**: set completo regenerado desde `Media/logo/punto_iso.svg` (cairosvg + Pillow, script temporal). favicon/android transparentes; apple/ms-tiles/splash con fondo blanco. Se crearon los que faltaban (apple-touch-icon-*, favicon-128/196, mstile-* incl. 310x150) + `favicon.ico` multi-res, y se arreglaron las refs muertas de los `<head>` → `/assets/icons/`. APP_VERSION → 2.0.9.7.
 
 **Servicios legacy (en `/api/lib/services/` — sin namespace, 18 servicios)**: `CustomerAddressService`, `TableService` (rename/unreserve/assignUser/closeTable/**listTables** — slice 21; **joinSpaces**/**moveOrders** — commit 5642a1c), `ScheduleService` (rescheduleTo/unlock — slice 4; updateSchedule/scheduleSession/checkIfUserOccupied — slice 20; **getSessionsList** — slice 30; **getAgendaList** — slice 31), `CustomerNoteService`, `TransactionService` (**getTransactionList(listType,…)** — slice 28: quotes/saved + **getMainList()** — slice 29: transactions panel de ventas), `OrderService` (accept/transferToOutlet/assignUser + **customerHasOpenOrders** — slice 23 + **queryOrderRows/getTableClose/getTableDetail/getList** — slice 27), `SyncService`, `RegisterService` (**setSession** — slice 10 + **docNumbers** — slice 22), `CurrencyService`, **`CustomerService`** (**getInfo()** — slice 32: resumen del cliente, read-only salvo backfill lazy de customerAddress + **getRecords()** — slice 33: fichas personalizadas, datos estructurados + **5 recursos granulares** — commit c4edef9: `getProfile`, `getRecentItems`, `getDebt`, `getGiftcards`, `getAddress` — patrón API granular + BFF compone, cada uno reusable e independiente). Plomería: `app/bff/lib/api_client.php` (**`bffApiGetMulti()`** + **`bffDecodeEnvelope()`** — commit c4edef9) + `api/lib/response.php`.
@@ -460,7 +460,7 @@ Los clusters restantes de `action.php` (mesa-merge, monstruos processData/sale, 
 **Hardenings post-Phase 2 (2026-05-16)**:
 - ✅ HMAC write token en `panel/API/kds.php` action=update — slug ya no permite mutar órdenes
 - ✅ `.env` parser robusto — soporta valores con quotes
-- ✅ Logging del fallback legacy `?l=` en `app/load.php`, `fetch.php`, `action.php` via `app/includes/legacy_auth_log.php`
+- ✅ Logging del fallback legacy `?l=` en `app/load.php`, `fetch.php`, `action.php` via `app/includes/legacy_auth_log.php` (histórico — `load.php` y `fetch.php` ya fueron eliminados; `legacy_auth_log.php` puede limpiarse en sesión futura)
 
 **Nice-to-have (no bloquean Phase AI)**:
 
@@ -516,7 +516,7 @@ NO bloquea: login, API endpoints `panel/API/` migrados (todos usan
 
 ---
 
-## Deprecation del fallback legacy `?l=` en /app ✅ COMPLETO (server)
+## Deprecation del fallback legacy `?l=` en /app ✅ COMPLETO (server + archivos eliminados)
 
 **Problema (resuelto 2026-05-16)**: `app/load.php`, `app/fetch.php` y
 `app/action.php` aceptaban identidad client-supplied via
@@ -529,6 +529,11 @@ tenant.
   sin fallback a IDs del request.
 - `?l=` se mantiene como sobre base64 pero SOLO para extraer la
   operación (`load`, `action`) — los IDs vienen del JWT.
+
+**Cierre definitivo de deuda de seguridad Hashids (commit 2aa149f, 2026-06-04):**
+- `app/fetch.php` **ELIMINADO** con `git rm` (-725 líneas). Era la versión "moderna" con JWT obligatorio pero sin ningún callsite en el front (auditado en app.js / panel/ / cache-sw.php / .htaccess / router.php). Código muerto — 0 regresiones.
+- `app/fetchs.php` **simplificado**: el branch `else` que aceptaba identidad del POST vía Hashids legacy fue eliminado. Si `jwtAuthenticate()` falla → 401 directo (ya no hay fallback). Header `X-Legacy-Auth: 1` ya no se emite. `$rateLimiterId` cambió de `$_POST['outletId']` a `$_SERVER['REMOTE_ADDR']` (consistente con action.php). El check de mismatch `$postedCompanyId !== $companyId` se hace SIEMPRE (antes solo si JWT válido).
+- **Sin cambios funcionales para el front legítimo**: el callsite vivo (`updateDB.load()` en `app/scripts/app.js:12820`) envía cookie `_jwt` (HttpOnly) en cada POST. El fallback Hashids era superficie de ataque — nunca se usó en prod legítimamente.
 
 **Pendiente menor (cleanup, no seguridad)**:
 - `app/scripts/app.js` (antes `globalv2.js` — renombrado en Tier 3 de la reestructura, commit e97aed7) aún construye el payload completo en `?l=` con IDs que el server ya ignora. Limpiar en una sesión futura: el cliente debería mandar solo `?l=base64({action})` o pasar directo a query params planos (`?action=...`).
@@ -920,7 +925,7 @@ Reemplazó el mecanismo de identidad falsificable (`$_GET['l']` base64) con JWT.
 | 1.1 | Endpoint de login | `app/API/auth.php` | ✅ |
 | 1.2 | Middleware JWT | `app/includes/jwt_middleware.php` | ✅ |
 | 1.3 | JWT primero, fallback legacy + header `X-Legacy-Auth` | `app/action.php` | ✅ |
-| 1.4 | Validar con JWT, mismatch check en POST | `app/fetchs.php` | ✅ |
+| 1.4 | Validar con JWT, mismatch check en POST | `app/fetchs.php` | ✅ (fallback Hashids eliminado commit 2aa149f — ver sección "Deprecation fallback legacy") |
 | 1.5 | Refresh token | `app/API/refresh.php` | ✅ |
 | 1.6 | Actualizar JS del POS | `app/index.php` | ⚠️ pendiente verificar |
 
@@ -928,8 +933,8 @@ Reemplazó el mecanismo de identidad falsificable (`$_GET['l']` base64) con JWT.
 
 - Cookie HttpOnly `_jwt` (browser) + header `Authorization: Bearer` (clientes programáticos)
 - Payload: `sub` (userId), `cid` (companyId), `oid` (outletId), `rid` (registerId), `role`, `iat`, `exp`
-- Fallback legacy activo: si no hay JWT, sigue funcionando con Hashids en `?l=`
-- `X-Legacy-Auth: 1` header para monitorear adopción
+- ~~Fallback legacy activo: si no hay JWT, sigue funcionando con Hashids en `?l=`~~ → **ELIMINADO** (commit 2aa149f, 2026-06-04). JWT obligatorio — 401 directo si falla. `fetchs.php` ya no tiene el branch Hashids. `fetch.php` eliminado con `git rm`.
+- ~~`X-Legacy-Auth: 1` header para monitorear adopción~~ → **ELIMINADO** (commit 2aa149f, 2026-06-04). `fetchs.php` ya no emite este header.
 
 ## Phase 2 (parcial) — Formalizar API del panel
 
