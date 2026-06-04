@@ -30,29 +30,28 @@ function checkExecTime($reference = false){
 require_once('includes/jwt_middleware.php');
 
 if(isset($_POST['companyId']) && isset($_POST['outletId'])){
-  $rateLimiterId = $_POST['outletId'];
+  $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 
   include_once('head.php');
 
-  // Autenticación JWT (cookie HttpOnly, header Bearer, o POST _jwt)
-  $jwtValid = jwtAuthenticate();
+  // JWT obligatorio — sin fallback Hashids. La identidad viene SIEMPRE del token
+  // firmado, no del POST. El fallback legacy (header X-Legacy-Auth) fue eliminado
+  // como deuda de seguridad: aceptaba companyId/outletId del POST sin validar firma.
+  if (!jwtAuthenticate()) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    die(json_encode(['error' => 'Autenticación requerida', 'code' => 401]));
+  }
 
-  if ($jwtValid) {
-    // Identidad validada server-side
-    $companyId = AUTHED_COMPANY_ID;
-    $outletId  = AUTHED_OUTLET_ID;
-    // Verificar que el companyId del POST coincide con el del token (previene mezcla)
-    $postedCompanyId = dec(validateHttp('companyId', 'post'));
-    if ($postedCompanyId && $postedCompanyId !== $companyId) {
-      http_response_code(403);
-      header('Content-Type: application/json');
-      die(json_encode(['error' => 'Mismatch de identidad', 'code' => 403]));
-    }
-  } else {
-    // Ruta legacy: decodificar Hashids del POST
-    header('X-Legacy-Auth: 1');
-    $companyId = dec( validateHttp('companyId','post') );
-    $outletId  = dec( validateHttp('outletId','post') );
+  $companyId = AUTHED_COMPANY_ID;
+  $outletId  = AUTHED_OUTLET_ID;
+
+  // Verificar que el companyId del POST coincide con el del token (previene mezcla).
+  $postedCompanyId = dec(validateHttp('companyId', 'post'));
+  if ($postedCompanyId && $postedCompanyId !== $companyId) {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    die(json_encode(['error' => 'Mismatch de identidad', 'code' => 403]));
   }
 
   $LOAD = validateHttp('load');
