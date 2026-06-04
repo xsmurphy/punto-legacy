@@ -277,9 +277,16 @@ Tarea estructural iniciada (ortogonal al desacople). Estado por tier:
 
 **Estado actual de action.php (1685 líneas):**
 - **Setup** (líneas 1–54): session, cors, JWT, company check, includes (head.php, data.php).
-- **ÚNICO handler real**: `if ($action == 'processData')` (línea 57, ~1622 líneas) — fallback del strangler de ventas. En prod cubre type 0/3 via SaleService casi al 100%; el legacy solo retiene parentId (edge raro).
+- **ÚNICO handler real**: `if ($action == 'processData')` (línea 57, ~1622 líneas).
 - **Tail** (~últimas 5 líneas): checkExecTime + else → 401.
-- **action.php YA NO es un god node**. El dispatcher de ~43 concerns fue vaciado concern-por-concern. Queda solo processData.
+- **action.php YA NO es un god node** dispatcher. El dispatcher de ~43 concerns fue vaciado concern-por-concern.
+- **PERO** `processData` retiene el guardado de los **tipos 5, 6, 8, 9, 12, 13** + edge `parentId` (audit 2026-06-04). NO es "solo edge raro" — son los pagos de factura crédito, devoluciones, recurrentes, cotizaciones, órdenes KDS y agendamientos.
+
+**📄 Plan de eliminación documentado:** `docs/PLAN_action_php_elimination.md` (audit 2026-06-04).
+- 8 sub-slices necesarios (35b-i): 70-93h de desarrollo total.
+- 5-6 semanas FTE (3 con 2 devs).
+- Sprint 3 contiene money path (35e.1/35e.2) — máxima rigurosidad.
+- Helpers en `app/includes/functions.php` (flipOnReturn, manageStock, etc.) NO se refactorizan durante la migración.
 
 **Historial del vaciado (cronológico):**
 - Slices 1–34 (2026-05-28 a 2026-05-30): migración de handlers individuales al patrón BFF→API→Service.
