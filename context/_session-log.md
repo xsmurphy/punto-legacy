@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 (cierre de jornada) — PSR-4 mega-sesión: 5 slices, 4548 callsites migrados
+
+- **Hecho**: jornada masiva del refactor PSR-4 (ítem #4 top-5 estructurales de /app). Slices 2-6 ejecutados consecutivamente con el patrón Wrapper §26.1 (Approach C "Híbrido Gradual"). 8 clases nuevas en `Punto\App\*` (Json, Output, Validation, Str, Date, Math, Arr, Cond). Commits ceed82d..6167c20. Ver entries individuales abajo para detalles por slice.
+- **Métricas acumuladas**: **4548 callsites legacy preservados** sin breaking changes (761 + 2298 + 268 + 185 + 1036). `functions.php`: 5117 → 3777 líneas (-26.2%). CI verde en cada commit. Smoke unitario sobre cada slice (35-22-16-13-22 tests).
+- **Decisión validada**: el patrón Wrapper transparente funciona independientemente del conteo real de callers — estimación original tendió a quedarse 5-6× corta (validity estimado 130 → real 716; toUTF8 estimado 39 → real 238). Riesgo cero confirmado en cluster utilities. **Sigue valiendo para slices restantes**.
+- **Pendiente**: Slice 7 — `App\Domain\Taxonomy` (12h, riesgo medio). Marca el cruce de namespace `Helpers/` → `Domain/` (utilities puras → lógica de negocio con DB). 9 sub-slices restantes (~183h).
+- **Atención**: en Slice 6 los tests de Math "fallaron" 4 casos por `floor/ceil/round` que retornan `float` en PHP 8.x (no `int`). Verificado: es paridad verbatim del legacy, no bug. Mismo análisis para `Arr::getKey([], 'a')` → `''` (no `false`) por `iftn(false, false)` semantics. Documentado en commits.
+
 ## 2026-06-05 — PSR-4 Slice 6: Math + Arr + Cond — 1036 callers en 3 clases (commit 6167c20)
 
 - **Slice 6 del plan PSR-4** (sub-slice 7/16). Migra 8 funciones utility a 3 clases cohesivas siguiendo §26.1. Slice más grande hasta ahora pero riesgo bajo (utilities puras sin DB).
