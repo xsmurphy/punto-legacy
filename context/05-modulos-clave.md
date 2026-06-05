@@ -68,6 +68,26 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 
 **Frontend**: Bootstrap 3 + jQuery, service worker para offline.
 
+### Namespace PSR-4 `Punto\App\*` en /app (Slice 0, commit 8a7819c, 2026-06-04)
+
+`/app` ahora tiene estructura PSR-4 paralela al código legacy. El autoloader está en `app/composer.json` (`composer dump-autoload --optimize`). Los directorios PSR-4 conviven con `app/includes/` (legacy) y `app/bff/` (BFFs):
+
+| Directorio | Namespace | Propósito |
+|------------|-----------|-----------|
+| `app/Helpers/` | `Punto\App\Helpers\` | Utility puras (validity, iftn, toUTF8, niceDate, etc.) |
+| `app/Domain/Customer/` | `Punto\App\Domain\Customer\` | Lógica de clientes |
+| `app/Domain/Money/` | `Punto\App\Domain\Money\` | Cálculos monetarios |
+| `app/Domain/Inventory/` | `Punto\App\Domain\Inventory\` | Stock y movimientos |
+| `app/Domain/Document/` | `Punto\App\Domain\Document\` | Facturas y numeración |
+| `app/Domain/Store/` | `Punto\App\Domain\Store\` | Mesas, órdenes, cajas |
+| `app/Domain/Taxonomy/` | `Punto\App\Domain\Taxonomy\` | Categorías, marcas, impuestos |
+| `app/Domain/GiftCard/` | `Punto\App\Domain\GiftCard\` | Gift cards |
+| `app/Http/Response/` | `Punto\App\Http\Response\` | Helpers HTTP (jsonDieMsg, dai) |
+| `app/Services/Notification/` | `Punto\App\Services\Notification\` | Email, SMS, Push, FE |
+| `app/Database/` | `Punto\App\Database\` | Query wrapper (reemplaza ncmExecute) |
+
+En Slice 0 los directorios están vacíos (`.gitkeep`); se poblan en Slices 1-16. `app/Helpers/SmokeTest.php` es transitoria (se elimina en Slice 1). Ver `08-convenciones.md §26` y `10-roadmap.md § Top-5 mejoras estructurales`.
+
 ---
 
 ## /api — API compartida (backend único del sistema, añadido 2026-05-28)

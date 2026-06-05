@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-03 (Slice 43 — app/load.php COMPLETAMENTE ELIMINADO — 1714 → 0 líneas, commit cc02762)
+> **Última actualización:** 2026-06-04 (PSR-4 Slice 0 — estructura `Punto\App\*` en `/app`, commit 8a7819c)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -544,6 +544,88 @@ tenant.
 
 **Pendiente menor (cleanup, no seguridad)**:
 - `app/scripts/app.js` (antes `globalv2.js` — renombrado en Tier 3 de la reestructura, commit e97aed7) aún construye el payload completo en `?l=` con IDs que el server ya ignora. Limpiar en una sesión futura: el cliente debería mandar solo `?l=base64({action})` o pasar directo a query params planos (`?action=...`).
+
+---
+
+## Top-5 mejoras estructurales de /app (iniciado 2026-06-04)
+
+Cinco tareas de higiene técnica identificadas como las de mayor ROI para /app. Son ortogonales entre sí y al desacople de `action.php`.
+
+| # | Qué | Estado |
+|---|-----|--------|
+| 1 | **Consolidar fetch handlers** — `fetch.php` eliminado, `fetchs.php` JWT-only | ✅ COMPLETO (commit 2aa149f) |
+| 2 | **Matar `action.php`** — plan de eliminación en `docs/PLAN_action_php_elimination.md` | 📋 Plan hecho (audit 2026-06-04) |
+| 3 | **Split `app.js` 26K → módulos ESM** | ⏸ DIFERIDO (sin tests; ver § Refactor app.js) |
+| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — Slice 0 hecho (commit 8a7819c) |
+| 5 | **CI mínimo** — GitHub Actions php-lint + js-syntax + composer-validate | ✅ COMPLETO (commits 17a2293 + 7ab230a) |
+
+### PSR-4 `functions.php` → `Punto\App\*` — Slice 0 (commit 8a7819c, 2026-06-04)
+
+**Problema**: `app/includes/functions.php` tiene 5116 líneas y 180 funciones globales. Es un god-file sin namespace, sin autoload, sin tests. El mismo problema existe en `panel/includes/functions.php` (282KB). El plan aborda solo el lado `/app`.
+
+**Decisión arquitectónica — Approach C (Híbrido Gradual):**
+- Las funciones globales existentes en `functions.php` se **mantienen como wrappers** durante 2+ releases (preservan el contrato de `action.php` strangler y del legacy).
+- El código NUEVO se escribe en clases PSR-4 bajo `Punto\App\*`.
+- La migración se hace función-por-función, dominio-por-dominio, sin big-bang.
+
+**Namespace**: `Punto\App\*` — espejo exacto de `Punto\Api\*` (ya establecido en `/api/lib/`). La dualidad `Punto\App\` (código moderno de `/app`) vs `Punto\Api\` (código moderno de `/api`) marca la frontera entre legacy global e infraestructura PSR-4.
+
+**Slice 0 — lo que se entrega (ZERO breaking changes):**
+
+```
+app/
+├── composer.json          ← autoload PSR-4, 5 prefijos
+├── Helpers/
+│   ├── README.md
+│   └── SmokeTest.php      ← clase de prueba (se elimina en Slice 1)
+├── Domain/
+│   ├── README.md
+│   ├── Customer/.gitkeep
+│   ├── Money/.gitkeep
+│   ├── Inventory/.gitkeep
+│   ├── Document/.gitkeep
+│   ├── Store/.gitkeep
+│   ├── Taxonomy/.gitkeep
+│   └── GiftCard/.gitkeep
+├── Http/
+│   ├── README.md
+│   └── Response/.gitkeep
+├── Services/
+│   ├── README.md
+│   └── Notification/.gitkeep
+└── Database/
+    └── README.md
+```
+
+**`app/composer.json` — autoload PSR-4:**
+```json
+"autoload": {
+  "psr-4": {
+    "Punto\\App\\Helpers\\":  "Helpers/",
+    "Punto\\App\\Domain\\":   "Domain/",
+    "Punto\\App\\Http\\":     "Http/",
+    "Punto\\App\\Services\\": "Services/",
+    "Punto\\App\\Database\\": "Database/"
+  }
+}
+```
+
+**`composer dump-autoload --optimize`**: 3172 classes registradas. `SmokeTest::ping()` resuelve correctamente. PHP lint 0 errores. App server :8002 → HTTP 200. CI verde.
+
+**Plan completo**: `docs/PLAN_functions_php_PSR4.md`
+- Audit de 180 funciones en 18 dominios
+- 32 dead code candidates (Slice 1 — 4h)
+- 16 sub-slices con horas, riesgo, bloqueos
+- Estimación: 220h total, 11 semanas FTE (7 con 2 devs)
+
+**Top 5 riesgos críticos** (del plan):
+1. `functions.php` tiene cross-calling masivo con `panel/includes/functions.php` — los tests de un módulo pueden implicar cargar ambos.
+2. `ncmExecute`/`ncmInsert`/`ncmUpdate` y helpers de JSONB (`_flattenJsonb`) deben quedar accesibles desde las clases nuevas.
+3. Las funciones `validity`, `iftn`, `toUTF8` son god-helpers con 46-80 edges cada una — wrappers hasta tener sustitutos verificados.
+4. `SaleService` ya usa algunas funciones globales de `functions.php` vía `include` en el bootstrap; un refactor rompería esa cadena si no se orquesta con cuidado.
+5. CI actual solo hace lint PHP; no hay tests unitarios que detecten regresión semántica.
+
+**Próximo paso**: Slice 1 — borrar los 32 candidatos dead code (4h, riesgo bajo).
 
 ---
 

@@ -1186,6 +1186,49 @@ Estas son las versiones contra las que se valida el código en CI. Si se necesit
 
 ---
 
+## §26 — Código nuevo en `/app`: usar namespace `Punto\App\*` (establecido 2026-06-04, commit 8a7819c)
+
+**Regla**: todo código PHP nuevo que se agregue en `/app` (fuera de los includes legacy y BFFs existentes) debe vivir bajo el namespace `Punto\App\*` y seguir la estructura de directorios PSR-4 establecida en el Slice 0.
+
+**Estructura de namespaces disponibles en `/app`:**
+
+| Namespace | Directorio | Para qué |
+|-----------|-----------|---------|
+| `Punto\App\Helpers\` | `app/Helpers/` | Utility puras — validity, iftn, toUTF8, niceDate y similares |
+| `Punto\App\Domain\Customer\` | `app/Domain/Customer/` | Lógica de dominio de clientes |
+| `Punto\App\Domain\Money\` | `app/Domain/Money/` | Cálculos monetarios, comisiones, impuestos |
+| `Punto\App\Domain\Inventory\` | `app/Domain/Inventory/` | Stock, movimientos, depósitos |
+| `Punto\App\Domain\Document\` | `app/Domain/Document/` | Facturas, comprobantes, numeración |
+| `Punto\App\Domain\Store\` | `app/Domain/Store/` | Mesas, órdenes, registros, outlets |
+| `Punto\App\Domain\Taxonomy\` | `app/Domain/Taxonomy/` | Categorías, marcas, impuestos |
+| `Punto\App\Domain\GiftCard\` | `app/Domain/GiftCard/` | Gift cards |
+| `Punto\App\Http\Response\` | `app/Http/Response/` | Helpers de respuesta HTTP (jsonDieMsg, dai) |
+| `Punto\App\Services\Notification\` | `app/Services/Notification/` | Email, SMS, Push, FE |
+| `Punto\App\Database\` | `app/Database/` | Query wrapper (reemplaza ncmExecute/Insert/Update) |
+
+**Convenciones de estilo** (igual que §22.9 para `/api`, adaptado al contexto `/app`):
+
+1. `declare(strict_types=1)` en la primera línea.
+2. Namespace canónico del directorio (`namespace Punto\App\Helpers;`, etc.).
+3. `final class` por default.
+4. `readonly` properties + constructor promotion para DI.
+5. PascalCase para clases, camelCase para métodos y variables (consistente con el resto del proyecto).
+6. Métodos **estáticos** para utility puras sin estado (`Helpers\*`); instancia con DI para services y domain objects.
+
+**Autoloader**: `app/composer.json` gestiona el autoload vía `composer dump-autoload --optimize`. El map PSR-4 ya está configurado con los 5 prefijos. No usar `require`/`include` para clases bajo `Punto\App\*`.
+
+**Convivencia con el legacy**:
+
+- Las funciones globales de `app/includes/functions.php` **siguen funcionando** y son la fuente viva mientras existan los wrappers. NO se deprecan sin tener el reemplazo PSR-4 verificado.
+- Al migrar una función global a PSR-4, dejar el wrapper en `functions.php` que llame a la clase nueva. El wrapper se elimina solo cuando no quede ningún callsite del legacy usándolo.
+- **NO usar funciones globales de `functions.php` desde código nuevo** bajo `Punto\App\*` — crear el equivalente PSR-4 o inyectarlo. Excepciones documentadas en el plan `docs/PLAN_functions_php_PSR4.md`.
+
+**`app/Helpers/SmokeTest.php`** (transitoria — se elimina en Slice 1): clase de prueba que verifica que el autoloader resuelve. No depender de ella en ningún otro código.
+
+**Ver también**: `02-arquitectura.md § Modernización PSR-4 de /app`, `10-roadmap.md § Top-5 mejoras estructurales`, `docs/PLAN_functions_php_PSR4.md`.
+
+---
+
 ## §21 — Manual de marca (identidad visual)
 
 **Regla**: La identidad visual es un **manual de referencia** (`context/11-design-system.md`)

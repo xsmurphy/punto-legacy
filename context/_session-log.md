@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-04 — PSR-4 Slice 0: estructura `Punto\App\*` en /app (commit 8a7819c)
+
+- **Slice 0 del plan de migración `functions.php` → PSR-4** (ítem #4 del top-5 mejoras estructurales de /app). ZERO breaking changes: ningún archivo PHP existente tocado. PHP lint 0 errores, CI verde, app :8002 → HTTP 200.
+- **`app/composer.json` (NUEVO)**: autoload PSR-4 con 5 prefijos: `Punto\App\Helpers\`, `Punto\App\Domain\*`, `Punto\App\Http\`, `Punto\App\Services\`, `Punto\App\Database\`. `composer dump-autoload --optimize` → 3172 clases registradas.
+- **Estructura de directorios creada**: `app/{Helpers,Domain/{Customer,Money,Inventory,Document,Store,Taxonomy,GiftCard},Http/Response,Services/Notification,Database}/` con READMEs cortos en cada nivel. `SmokeTest.php` transitoria verificada (se elimina en Slice 1).
+- **Decisión arquitectónica**: Approach C (Híbrido Gradual) — wrappers en `functions.php` se mantienen 2+ releases; código nuevo usa PSR-4; migración función-por-función sin big-bang. Namespace `Punto\App\*` espeja `Punto\Api\*` (ya en `/api/lib/`).
+- **Plan completo**: `docs/PLAN_functions_php_PSR4.md` — 180 funciones auditadas, 32 dead code candidates (Slice 1, 4h), 16 sub-slices, estimación 220h (11 sem FTE, 7 con 2 devs). Top 5 riesgos documentados.
+- **Vault actualizado**: `10-roadmap.md` (sección top-5 + Slice 0), `02-arquitectura.md` (namespace dual), `05-modulos-clave.md` (tabla PSR-4), `08-convenciones.md` (§26 — reglas de código nuevo en /app).
+
 ## 2026-06-04 — CI mínimo GitHub Actions + .editorconfig (commits 17a2293 + 7ab230a)
 
 - **`.github/workflows/ci.yml` (NUEVO)**: 3 jobs paralelos: `php-lint` (`php -l` sobre diff PHP 8.4), `js-syntax` (`node --check` sobre diff JS Node 20), `composer-validate` (`composer validate --strict` en app/ y panel/). Cancel-in-progress activado. Dispara en push y PR a main.

@@ -170,6 +170,42 @@ El front rutea vía `ncmHttp.postSale()` (patrón try-fallback — ver §22.11 e
 **Cross-coupling observado**: muchas funciones de `app/includes/functions.php` llaman
 a funciones de `panel/includes/functions.php`. No son módulos independientes.
 
+## Modernización PSR-4 de /app — namespace `Punto\App\*` (iniciado 2026-06-04, commit 8a7819c)
+
+**Dualidad de namespaces en el proyecto:**
+
+| Namespace | Codebase | Autoloader |
+|-----------|----------|-----------|
+| `Punto\Api\*` | `/api/lib/` | PSR-4 manual en `api/bootstrap.php` (`spl_autoload_register`) |
+| `Punto\App\*` | `/app/` (Helpers, Domain, Http, Services, Database) | PSR-4 via `app/composer.json` (`composer dump-autoload`) |
+
+**La frontera semántica es clara**: `Punto\Api\*` = lógica de la API compartida (backend único); `Punto\App\*` = lógica modernizada específica del POS. El legacy global (`app/includes/functions.php` + código sin namespace) coexiste con ambos durante la migración incremental.
+
+**Estructura de directorios `app/` bajo PSR-4 (Slice 0, 2026-06-04):**
+
+```
+app/
+├── composer.json                    ← autoload PSR-4 (5 prefijos)
+├── Helpers/                         ← Punto\App\Helpers\ — utility puras (validity, iftn, toUTF8, niceDate)
+├── Domain/
+│   ├── Customer/                    ← Punto\App\Domain\Customer\
+│   ├── Money/                       ← Punto\App\Domain\Money\
+│   ├── Inventory/                   ← Punto\App\Domain\Inventory\
+│   ├── Document/                    ← Punto\App\Domain\Document\
+│   ├── Store/                       ← Punto\App\Domain\Store\
+│   ├── Taxonomy/                    ← Punto\App\Domain\Taxonomy\
+│   └── GiftCard/                    ← Punto\App\Domain\GiftCard\
+├── Http/
+│   └── Response/                    ← Punto\App\Http\Response\ — jsonDieMsg, dai, etc.
+├── Services/
+│   └── Notification/                ← Punto\App\Services\Notification\ — Email, SMS, Push, FE
+└── Database/                        ← Punto\App\Database\ — Query (reemplaza ncmExecute/Insert/Update)
+```
+
+**Regla de convivencia legacy ↔ PSR-4**: las funciones globales de `app/includes/functions.php` se mantienen como wrappers hasta que los módulos PSR-4 que las reemplacen estén verificados. Código NUEVO en `/app` debe usar `Punto\App\*`; el código existente no se migra preventivamente. Ver §26 en `08-convenciones.md` para las reglas detalladas.
+
+**Plan de migración**: `docs/PLAN_functions_php_PSR4.md` — audit de 180 funciones, 32 dead code candidates, 16 sub-slices, estimación 220h. Ver `10-roadmap.md § Top-5 mejoras estructurales`.
+
 ## API compartida (/api) — módulo top-level (decisión 2026-05-28)
 
 > Ver [ADR-003-api-compartida-top-level.md](context/adr/ADR-003-api-compartida-top-level.md) si existe, o leer el commit d75dd0b.
@@ -186,6 +222,7 @@ La API está destinada a moverse a un server dedicado; los BFFs apuntarán a esa
 | Auth | `apiAuthTenant()` en `api/bootstrap.php` — JWT de tenant: cookie `_jwt` \| `Authorization: Bearer` \| POST `_jwt`; secret `JWT_SECRET`; claim `cid`. Mismo secret/claims que /panel y /app ya validan → una API autentica ambos clientes. |
 | Envelope | `apiOk()` / `apiError()` — `api/lib/response.php` (canónico) |
 | Servicios | Dos familias coexisten (ver `10-roadmap.md § Servicios`): (1) **legacy** `api/lib/services/*Service.php` — 18 servicios sin namespace, PHP legacy, sin DTOs; (2) **modernos** `api/lib/<Module>/<Module>Service.php` — namespace `Punto\Api\<Module>`, `final class`, `readonly`, DTOs de entrada/salida, enums backed, excepciones custom, DI explícita (convención §22.9, establecida 2026-05-30). El primer módulo moderno es `api/lib/Sales/SaleService.php` (`Punto\Api\Sales`) + `api/lib/Context/TenantContext.php` (`Punto\Api\Context`). El autoloader PSR-4 mínimo (~15 líneas, `spl_autoload_register`) en `api/bootstrap.php` mapea `Punto\Api\Foo\Bar` → `api/lib/Foo/Bar.php`. Código nuevo siempre va en el modelo moderno; los 18 legacy se modernizan al tocarse por razón funcional. |
+| Namespace PSR-4 en /app | **`Punto\App\*`** (commit 8a7819c, 2026-06-04) — espejo de `Punto\Api\*`. Ver sección "Modernización PSR-4 de /app" abajo. |
 | Endpoints | `api/v1/{customer_address,tables,schedule,customer_note,orders,register,transactions,customers,…}.php` |
 | Clientes actuales | `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`) |
 | Nota Alpine /app (Slice 33 reescrito, commit 3d62191; front unificado en Tier 3, commit e97aed7) | `api/v1/customers.php` + `app/bff/customers.php` sirven lecturas que el front renderiza client-side con **Alpine.js** (no Mustache). `GET ?resource=records` devuelve datos estructurados; el componente Alpine `customerRecord` en `app/scripts/app.js` (única fuente — reemplazó `globalv2.js`/`debug.js` en 2026-05-30) clona el `<template id="customerRecordTpl">`, fija atributos y llama `Alpine.initTree(el)`. Alpine 3.14.1 está vendoreado en `/app` (offline). Este es el patrón canónico para handlers HTML server-rendered en /app: **API devuelve datos → front renderiza con Alpine**. Ver §24 en `08-convenciones.md`. Mustache sigue cargado para los ~22 templates legacy restantes (deprecación incremental). |
