@@ -71,6 +71,10 @@ define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);
 define('API_PIX_SECRET',         $_ENV['API_PIX_SECRET']        ?? '');
 define('MAILGUN_TOKEN',          $_ENV['MAILGUN_TOKEN']         ?? '');
+define('SENDGRID_SMTP_USER',     $_ENV['SENDGRID_SMTP_USER']    ?? '');
+define('SENDGRID_SMTP_PASS',     $_ENV['SENDGRID_SMTP_PASS']    ?? '');
+define('NCM_SMS_API_KEY',        $_ENV['NCM_SMS_API_KEY']       ?? '');
+define('NCM_SMS_COMPANY_ID',     $_ENV['NCM_SMS_COMPANY_ID']    ?? '');
 
 $companyCategories  = [
   'Salud y Fitness' =>[

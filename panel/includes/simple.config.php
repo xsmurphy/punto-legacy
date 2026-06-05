@@ -71,6 +71,10 @@ define('PHONE_DB',                      'phone');
 define('AUDITORIA_URL',                 $_ENV['AUDITORIA_URL']                 ?? '');
 define('AUDITORIA_TOKEN',               $_ENV['AUDITORIA_TOKEN_PANEL']         ?? '');
 define('MAILGUN_TOKEN',                 $_ENV['MAILGUN_TOKEN']                 ?? '');
+define('SENDGRID_SMTP_USER',            $_ENV['SENDGRID_SMTP_USER']            ?? '');
+define('SENDGRID_SMTP_PASS',            $_ENV['SENDGRID_SMTP_PASS']            ?? '');
+define('NCM_SMS_API_KEY',               $_ENV['NCM_SMS_API_KEY']               ?? '');
+define('NCM_SMS_COMPANY_ID',            $_ENV['NCM_SMS_COMPANY_ID']            ?? '');
 
 // WhatsApp (Evolution API)
 define('EVOLUTION_API_URL',             $_ENV['EVOLUTION_API_URL']             ?? '');

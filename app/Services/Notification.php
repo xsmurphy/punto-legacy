@@ -115,7 +115,7 @@ final class Notification
     }
 
     /**
-     * Envía un email vía SMTP de SendGrid (legacy, credenciales hardcodeadas).
+     * Envía un email vía SMTP de SendGrid.
      * Equivalente legacy: `sendSMTPEmail($meta, $template, $to, $subject, ...)`.
      */
     public static function sendSMTP(
@@ -152,8 +152,8 @@ final class Notification
         $mail->isSMTP();
         $mail->Host       = 'smtp.sendgrid.net';
         $mail->SMTPAuth   = true;
-        $mail->Username   = 'incomeregister';
-        $mail->Password   = 'Holasendgrid1!';
+        $mail->Username   = SENDGRID_SMTP_USER;
+        $mail->Password   = SENDGRID_SMTP_PASS;
         $mail->Port       = 587;
         $mail->SMTPSecure = 'tls';
 
@@ -178,14 +178,14 @@ final class Notification
     }
 
     /**
-     * Envía un SMS vía NCM (sistema interno con credenciales fijas).
+     * Envía un SMS vía NCM (sistema interno).
      * Equivalente legacy: `sendNCMSMS($number, $msg, $country, $companyId)`.
      */
     public static function sendNCMSMS(mixed $number, mixed $msg, mixed $country, mixed $companyId = ''): array
     {
         $data = [
-            'api_key'    => '340f3033a868ce57b9300f6e1e3732e272639bdf',
-            'company_id' => 'Og',
+            'api_key'    => NCM_SMS_API_KEY,
+            'company_id' => NCM_SMS_COMPANY_ID,
             'phone'      => $number,
             'country'    => $country,
             'msg'        => $msg,
