@@ -856,62 +856,25 @@ function getAllTaxonomyNames($companyId,$numeric=false){
 function printOutTags($tags,$bg = 'bg-white'){
     return \Punto\App\Domain\Taxonomy::printTags($tags, (string) $bg);
 }
+/**
+ * @deprecated Slice 8 (PSR-4). Usar `\Punto\App\Domain\Store::getCurrentOutletName()`. ~41 callers.
+ */
 function getCurrentOutletName($id=false){
-	global $db;
-
-	$id = ($id) ? $id : OUTLET_ID;
-
-	// PG: UUID entre comillas (§22.5).
-	$obj = $db->Execute("SELECT outletName FROM outlet WHERE outletId = '".$id."'");
-	
-	if(validity($obj->fields['outletName'])){
-		return $obj->fields['outletName'];
-	}else{
-		return 'None';
-	}
-	$obj->Close();
+    return \Punto\App\Domain\Store::getCurrentOutletName($id);
 }
 
+/**
+ * @deprecated Slice 8 (PSR-4). Usar `\Punto\App\Domain\Store::getAllOutletData()`. ~2 callers.
+ */
 function getAllOutletData($id=false){
-	global $db;
-
-	$id 		= ($id)?$id:OUTLET_ID;
-	$result 	= $db->Execute("SELECT * FROM outlet WHERE outletId = ?",[$id]);
-	$data 		= [];
-
-	if(validateResultFromDB($result)){
-		while (!$result->EOF) {
-			$fields = $result->fields;
-			$data[$fields['outletId']] = [];
-			foreach($fields as $key => $value){
-				if(strpos($key, "outlet") !== false){
-					$key = str_replace("outlet","",$key);
-					$key = lcfirst($key);
-					$data[$fields['outletId']][str_replace("outlet","",$key)] = $value;
-				}
-			}
-			$result->MoveNext();
-		}
-	}
-	$result->Close();
-	
-	if($id){
-    	return $data[$id];
-	}else{
-		return $data;
-	}
+    return \Punto\App\Domain\Store::getAllOutletData($id);
 }
 
+/**
+ * @deprecated Slice 8 (PSR-4). Usar `\Punto\App\Domain\Store::getOutletCount()`. ~2 callers.
+ */
 function getOutletCount($compId){
-	global $db;
-
-	$obj = ncmExecute("SELECT COUNT(outletId) as count FROM outlet WHERE outletStatus = 1 AND companyId = ? LIMIT 100",[$compId]);
-
-	if($obj){
-		return $obj['count'];
-	}else{
-		return 1;
-	}
+    return \Punto\App\Domain\Store::getOutletCount($compId);
 }
 /**
  * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::selectInput()`. ~4 callers.
@@ -1201,29 +1164,12 @@ function getItemTypeName($result){
     return $typeName;
 }
 
+/**
+ * @deprecated Slice 8 (PSR-4). Usar `\Punto\App\Domain\Store::selectInput()`. ~19 callers.
+ *             La función original hacía echo directo; este wrapper echa el retorno de la clase.
+ */
 function selectInputOutlet($match='',$multi=false,$class='',$name='outlet'){
-	global $db, $SQLcompanyId;
-	$result = $db->Execute("SELECT outletName,outletId FROM outlet WHERE ".$SQLcompanyId." ORDER BY outletName ASC");
-	// if($multi){
-	// 	$type = '[]';
-	// }
-?>
-	<select name="<?=$name?>" class="form-control <?=$class?>">
-		<?php while (!$result->EOF) {?>
-			<?php
-            $selected = '';
-            if($result->fields['outletId'] == $match){
-                $selected = 'selected';
-            }
-            ?>
-            <option value="<?=enc($result->fields['outletId']);?>" <?=$selected?>><?=$result->fields['outletName'];?></option>
-            <?php 
-            $result->MoveNext(); 
-        }
-        $result->Close();
-        ?>
-    </select>
-<?php
+    echo \Punto\App\Domain\Store::selectInput($match, (bool) $multi, (string) $class, (string) $name);
 }
 
 function formatCurrentNumber($number,$de='',$ts=''){
@@ -1848,16 +1794,11 @@ function getItemPrice($id){
 	return $total;
 }
 
+/**
+ * @deprecated Slice 8 (PSR-4). Usar `\Punto\App\Domain\Store::getOperatingCost()`. ~3 callers.
+ */
 function getOperatingCost($outletId){
-	global $db;
-	$opCost = $db->Execute("SELECT outletOperatingCosts
-								FROM outlet
-								WHERE outletId = ".$outletId." 
-								LIMIT 1");
-								
-	$operationCost = $opCost->fields[0];
-	$opCost->Close();
-	return $operationCost;
+    return \Punto\App\Domain\Store::getOperatingCost($outletId);
 }
 
 function isntDiscount($str){
