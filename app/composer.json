@@ -12,6 +12,15 @@
         "phpmailer/phpmailer": "^6.9",
         "hashids/hashids": "^4.1"
     },
+    "autoload": {
+        "psr-4": {
+            "Punto\\App\\Helpers\\":  "Helpers/",
+            "Punto\\App\\Domain\\":   "Domain/",
+            "Punto\\App\\Http\\":     "Http/",
+            "Punto\\App\\Services\\": "Services/",
+            "Punto\\App\\Database\\": "Database/"
+        }
+    },
     "config": {
         "vendor-dir": "vendor",
         "allow-plugins": {
