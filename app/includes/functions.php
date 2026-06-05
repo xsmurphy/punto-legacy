@@ -58,50 +58,11 @@ function getRoleName($id){
 }
 
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getPaymentMethodName()`. ~25 callers.
+ */
 function getPaymentMethodName($id,$decode=false){
-	global $db;
-	if($id == 'cash'){
-		$out = 'Efectivo';
-	}else if($id == 'pix'){
-		$out = 'PIX';
-	}else if($id == 'creditcard'){
-		$out = 'T. Crédito';
-	}else if($id == 'debitcard'){
-		$out = 'T. Débito';
-	}else if($id == 'check'){
-		$out = 'Cheque';
-	}else if($id == 'giftcard'){
-		$out = 'Gift Card';
-	}else if($id == 'inCredit' || $id == 'storeCredit'){
-		$out = 'Crédito Interno';
-	}else if($id == 'points'){
-		$out = 'Loyalty';
-	}else if($id == 'QRPayment' || $id == 'VPOS' || $id == 'ePOS' || $id == 'epos' || $id == 'bancardQROnline'){
-		$out = 'ePOS';
-	}else if($id == 'ePOSCard'){
-		$out = 'ePOS Card';
-	}else{
-		if($decode){
-			$id = dec($id);
-		}
-		$result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1',[$id, COMPANY_ID]);
-
-		if($result){
-			$out = $result['taxonomyName'];
-		}else{
-			if(!$decode){
-				$id = dec($id);
-			}
-			$result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1',[$id, COMPANY_ID]);
-			if($result){
-				$out = $result['taxonomyName'];
-			}else{
-				$out = '';
-			}
-		}
-	}
-
-	return $out;
+    return \Punto\App\Domain\Taxonomy::getPaymentMethodName($id, (bool) $decode);
 }
 
 function companyLogo($small = false){
@@ -163,20 +124,11 @@ function getAllPlans($planId=false){
 	}
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getCategoriesIds()`. ~1 caller.
+ */
 function getCategoriesIds($companyId){
-	
-	$result = ncmExecute("SELECT STRING_AGG(taxonomyId::text, ',') as ids FROM taxonomy WHERE (taxonomyExtra = 2 OR taxonomyExtra IS NULL) AND taxonomyType = 'category' AND companyId = ?", [$companyId], false, true);
-
-	if($result){
-		if($result->fields['ids']){
-			return $result->fields['ids'];
-		}else{
-			return false;
-		}
-	    $result->Close();
-	}else{
-		return false;
-	}
+    return \Punto\App\Domain\Taxonomy::getCategoriesIds($companyId);
 }
 
 function getItemName($id){
@@ -226,9 +178,11 @@ function getUserComissionTotal($total,$percent){
 	}
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getTaxValue()`. ~8 callers.
+ */
 function getTaxValue($id){
-	$tax = ncmExecute("SELECT taxonomyName FROM taxonomy WHERE taxonomyType = 'tax' AND taxonomyId = ? LIMIT 1",[$id]);
-	return $tax['taxonomyName'] ?? false;
+    return \Punto\App\Domain\Taxonomy::getTaxValue($id);
 }
 
 function getTableObjectName($id, $table, $customQuery = "", $column = 1, $where = ''){
@@ -861,128 +815,46 @@ function getValue($table, $field, $where = '', $returnType = 'number', $cache = 
 	}
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getArray()`. ~6 callers.
+ */
 function getTaxonomyArray($type,$company,$compZero = false){
-	global $db, $SQLcompanyId;
-
-	$compZero 	= ($compZero) ? 'companyId = 1 OR ' : '';
-
-	if($company){
-		$company = $compZero . 'companyId = ' . $company;
-	}else{
-		$company = $compZero . $SQLcompanyId;
-	}
-
-	$result = ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = ? AND taxonomyExtra != 'internal' AND (" . $company . ") LIMIT 500",[$type],false,true);
-	
-	$out 	= [];
-
-	if($result){
-		while (!$result->EOF) {//ID sin codificar a proposito
-	        $out[] = ['tagid' => $result->fields['taxonomyId'],'tagname' => $result->fields['taxonomyName']];
-
-	        $result->MoveNext(); 
-	    }
-       $result->Close();
-	}
-
-    return json_encode($out);
+    return \Punto\App\Domain\Taxonomy::getArray((string) $type, $company, (bool) $compZero);
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getTagsDefaults()`. ~2 callers.
+ */
 function getTagsDefaults($idsOnly=false){
-
-	$result 	= ncmExecute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = 'tag' AND companyId = 1 AND taxonomyExtra != 'internal' LIMIT 20",[],false,true);
-	
-	$out = [];
-
-	if($result){
-		while (!$result->EOF) {
-			if($idsOnly){
-				$out[] = $result->fields['taxonomyId'];
-			}else{
-		        $out[] = ["tagid" => $result->fields['taxonomyId'],"tagname" => $result->fields['taxonomyName']];
-		    }
-
-	        $result->MoveNext(); 
-	    }
-	}
-
-    return $out;
+    return \Punto\App\Domain\Taxonomy::getTagsDefaults((bool) $idsOnly);
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getCustomTemplates()`. ~9 callers.
+ */
 function getCustomTemplates($company){
-	global $db;
-
-	// Parametrizar companyId (UUID en PG). Mantener el OR companyId IS NULL
-	// como fallback para templates globales heredados.
-	$result = ncmExecute(
-		"SELECT taxonomyId,taxonomyName,taxonomyExtra FROM taxonomy
-		 WHERE taxonomyType = 'printTemplate' AND (companyId = ? OR companyId IS NULL)",
-		[$company], false, true
-	);
-
-	$out = [];
-
-	if (!$result || !is_object($result)) {
-		return json_encode($out);
-	}
-
-	while (!$result->EOF) {
-		$out[] = array('id'=>enc($result->fields['taxonomyId']),'name'=>$result->fields['taxonomyName'],'data'=>$result->fields['taxonomyExtra']);
-		$result->MoveNext();
-	}
-	$result->Close();
-
-	return json_encode($out);
+    return \Punto\App\Domain\Taxonomy::getCustomTemplates($company);
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getName()`. ~28 callers.
+ */
 function getTaxonomyName($id,$numeric=false,$company=false){
-	global $db, $SQLcompanyId;
-
-	if(!$company){
-		$company = $SQLcompanyId;
-	}
-	
-	$result = $db->Execute("SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND ".$company,array($id));
-
-	if(validity($result->fields['taxonomyName'])){
-		return $result->fields['taxonomyName'];
-	}else{
-		if($numeric){
-			return 0;
-		}else{
-			return 'None';
-		}
-	}
-	
-	$result->Close();
+    return \Punto\App\Domain\Taxonomy::getName($id, (bool) $numeric, $company);
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getAllNames()`. ~1 caller.
+ */
 function getAllTaxonomyNames($companyId,$numeric=false){
-	
-	$a 		= [];
-	$result = ncmExecute("SELECT taxonomyId, taxonomyName FROM taxonomy WHERE companyId = ?",[$companyId],false,true);
-
-	if($result){
-		while (!$result->EOF) {
-		    $a[$result->fields['taxonomyId']] = [
-													"name" => $result->fields['taxonomyName']
-												];
-		    $result->MoveNext(); 
-		}
-		$result->Close();
-	}
-	
-	return $a;
+    return \Punto\App\Domain\Taxonomy::getAllNames($companyId, (bool) $numeric);
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::printTags()`. ~12 callers.
+ */
 function printOutTags($tags,$bg = 'bg-white'){
-	$tagout = '';
-	if($tags){
-		foreach($tags as $tag){
-	    	$tagout .= '<span class="label '.$bg.'">'.getTaxonomyName($tag).'</span> ';
-	    }
-	}
-	return $tagout;
+    return \Punto\App\Domain\Taxonomy::printTags($tags, (string) $bg);
 }
 function getCurrentOutletName($id=false){
 	global $db;
@@ -1041,29 +913,12 @@ function getOutletCount($compId){
 		return 1;
 	}
 }
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::selectInput()`. ~4 callers.
+ *             La función original hacía echo directo; este wrapper echa el retorno de la clase.
+ */
 function selectInputTaxonomy($type,$match,$multi=false){
-	global $db, $SQLcompanyId;
-	$result = $db->Execute("SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = ? AND ".$SQLcompanyId." ORDER BY taxonomyName ASC",array($type));
-	if($multi){
-		$type = $type.'[]';
-	}
-?>
-	<select name="<?=$type?>" class="form-control">
-		<?php while (!$result->EOF) {?>
-			<?php
-            $selected = '';
-            if($result->fields['taxonomyId'] == $match){
-                $selected = 'selected';
-            }
-            ?>
-            <option value="<?=enc($result->fields['taxonomyId']);?>" <?=$selected?>><?=$result->fields['taxonomyName'];?></option>
-            <?php 
-            $result->MoveNext(); 
-        }
-        $result->Close();
-        ?>
-    </select>
-<?php
+    echo \Punto\App\Domain\Taxonomy::selectInput((string) $type, $match, (bool) $multi);
 }
 
 /**
@@ -1709,27 +1564,11 @@ function getIdOrInsert($name, $table, $insertIt = true, $extra = ''){
 	}
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getIdOrInsert()`. ~3 callers.
+ */
 function getTaxonomyIdOrInsert($name, $type, $insertIt = true){
-	global $db, $SQLcompanyId;
-
-	if(validity($name)){
-		$obj = $db->Execute("SELECT taxonomyId FROM taxonomy WHERE taxonomyName = ? AND taxonomyType = ? AND ".$SQLcompanyId,array($name,$type));
-		
-		if(validity($obj->fields['taxonomyId'])){
-			return $obj->fields['taxonomyId'];
-		}else{
-			if($insertIt == true){
-				$record['taxonomyName'] = $name;
-				$record['taxonomyType'] = $type;
-				$record['companyId'] 	= COMPANY_ID;
-				
-				$insert = $db->AutoExecute('taxonomy', $record, 'INSERT');
-				if($insert === true){
-					return $db->Insert_ID();
-				}
-			}
-		}
-	}
+    return \Punto\App\Domain\Taxonomy::getIdOrInsert($name, (string) $type, (bool) $insertIt);
 }
 
 function formatNumberToInsertDB($number,$forceDecimals=false,$decimalsCount=2){
@@ -2556,24 +2395,11 @@ function getAllCompanyItemsChildren($companyId, $itemsIds = false){
 
 }
 
+/**
+ * @deprecated Slice 7 (PSR-4). Usar `\Punto\App\Domain\Taxonomy::getAllItemCategories()`. ~13 callers.
+ */
 function getAllItemCategories($companyId){
-	global $db;
-	//GET ALL CATEGORIES ARRAY
-	$a 		= [];
-	$result = ncmExecute("SELECT taxonomyId,taxonomyName, CAST(taxonomyExtra AS INTEGER) as sort FROM taxonomy WHERE taxonomyType = ? AND companyId = ? ORDER BY sort ASC LIMIT 500",['category',$companyId],false,true);
-
-	if($result){
-		while (!$result->EOF) {
-		    $a[enc($result->fields['taxonomyId'])] = 	[
-															"name" => $result->fields['taxonomyName'],
-															"sort" => (int) (!isset($result->fields['taxonomyExtra']) ? 0 : $result->fields['taxonomyExtra'])
-														];
-		    $result->MoveNext(); 
-		}
-		$result->Close();
-	}
-	
-	return $a;
+    return \Punto\App\Domain\Taxonomy::getAllItemCategories($companyId);
 }
 function getAllWasteValue($id=false,$cache=false){
 	$andId 		= ' LIMIT 500';
