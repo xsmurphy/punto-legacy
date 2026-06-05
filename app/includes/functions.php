@@ -3443,86 +3443,20 @@ function implodes($str,$array,$returnEmpty=false){
 	}
 }
 
+/**
+ * @deprecated Slice 4 (PSR-4). Usar `\Punto\App\Helpers\Str::isHtml()` en código nuevo.
+ *             Wrapper mantenido para los ~2 callers legacy.
+ */
 function isHTML($string){
- return ( $string != strip_tags($string) ) ? true : false;
+    return \Punto\App\Helpers\Str::isHtml((string) $string);
 }
 
+/**
+ * @deprecated Slice 4 (PSR-4). Usar `\Punto\App\Helpers\Str::markupHtml()` en código nuevo.
+ *             Wrapper mantenido para los ~19 callers legacy.
+ */
 function markupt2HTML($options){
-	if(is_array($options)){
-		$text = $options['text'] ? $options['text'] : '';
-		$type = $options['type'];//HtMor MtH
-	}else{
-		$text = $options;
-		$type = false;
-	}
-	
-
-	if(!$type){// si no especifico el tipo detecto
-		if(isHTML($text)){
-			$type = 'HtM';
-		}else{
-			$type = 'MtH';
-		}
-	}
-
-	$HtMrules = [
-		["find" => '<br>', "replace" 	=> '\n'],
-		["find" => '<br/>', "replace" 	=> '\n'],
-		["find" => '<br />', "replace" 	=> '\n'],
-		["find" => '<b>', "replace" 	=> '*'],
-		["find" => '</b>', "replace" 	=> '*'],
-		["find" => '<strong>', "replace" => '*'],
-		["find" => '</strong>', "replace" => '*'],
-		["find" => '<em>', "replace" 	=> '_'],
-		["find" => '</em>', "replace" 	=> '_'],
-		["find" => '<i>', "replace" 	=> '_'],
-		["find" => '</i>', "replace" 	=> '_'],
-		["find" => '</i>', "replace" 	=> '_'],
-		["find" => '<li>', "replace" 	=> '- '],
-		["find" => '</li>', "replace" 	=> ''],
-		["find" => '<u>', "replace" 	=> '~'],
-		["find" => '</u>', "replace" 	=> '~'],
-		["find" => '&nbsp;&nbsp;•&nbsp;', "replace" => '- '],
-		["find" => '<div>', "replace" 	=> '\n'],
-		["find" => '</div>', "replace" 	=> ''],
-		["find" => '<p>', "replace" 	=> '\n'],
-		["find" => '</p>', "replace" 	=> '']
-	];
-
-	$MtHrules = [
-	    ["find" => '/\*(.*?)\*/', "replace" => '<strong>$1</strong>'],
-	    ["find" => '/\_(.*?)\_/', "replace" => '<em>$1</em>'],
-	    ["find" => '/\~(.*?)\~/', "replace" => '<u>$1</u>'],
-	    ["find" => '/\- (.*?)/', "replace" => '<br>&nbsp;&nbsp;•&nbsp; $1 &nbsp;'],
-	    ["find" => '/\```(.*?)\```/', "replace" => '<pre>$1</pre>']
-	];
-
-	if($type == 'HtM'){
-		foreach($HtMrules as $rule){
-		  	$texts 	= explode($rule['find'], $text); //text.split(rule.find).join(rule.replace);
-		  	$text 	= implode($rule['replace'], $texts);
-		}
-
-		$text = strip_tags($text);
-	}else{
-		$text = strip_tags($text);
-		
-		$text = explode('\n', $text);
-		$text = implode('<br>', $text);
-		$text = explode('\r', $text);
-		$text = implode('<br>', $text);
-
-		$text = str_replace(['\n','\r'],['<br>','<br>'],$text);
-
-		$text = nl2br($text);
-        
-		foreach($MtHrules as $rule){
-			$text = preg_replace($rule['find'], $rule['replace'], $text);//text.replace(rule.find, rule.replace);
-		}
-
-	} 
-
-	return $text;
+    return \Punto\App\Helpers\Str::markupHtml($options);
 }
 
 /**
@@ -3594,12 +3528,12 @@ function findEmailOrPhoneLogin($email){
 	return $result;
 }
 
+/**
+ * @deprecated Slice 4 (PSR-4). Usar `\Punto\App\Helpers\Str::tryBase64Decode()` en código nuevo.
+ *             Wrapper mantenido para los ~9 callers legacy.
+ */
 function isBase64Decode($str){
-	$out = $str;
-	if(preg_match('/^[a-zA-Z0-9\/\r\n+]*={0,2}$/', $str)){
-		$out = html_entity_decode( base64_decode($str) );
-	}
-	return $out;
+    return \Punto\App\Helpers\Str::tryBase64Decode((string) $str);
 }
 
 function acceptCompanyPayment($amount,$companyId){//company ID seria el ID del cliente de Income
@@ -3889,29 +3823,12 @@ function array_flatten(array $array) {
     return $return;
 }
 
+/**
+ * @deprecated Slice 4 (PSR-4). Usar `\Punto\App\Helpers\Str::toUtf8()` en código nuevo.
+ *             Wrapper mantenido para los ~238 callers legacy.
+ */
 function toUTF8($text){
-
-	if(!validity($text)){
-		return '';
-	}
-
-	$return = '-';
-	$wrong 	= ['Ã¡','Ã©',	'Ã³',	'º',	'Ã±',	'í±',	'Ã']; //la í ('Ã') siempre poner al final
-	$right 	= ['á',	'é',	'ó',	'ú',	'ñ',	'ñ',	'í'];
-
-	$text = str_replace($wrong, $right, $text);
-	$text = rtrim($text);
-	//return $text;
-
-	if(validity($text)){
-		$utfd = mb_convert_encoding($text,'UTF-8');
-
-		if(validity($utfd)){
-			$return = $utfd;
-		}
-	}
-
-	return $return;
+    return \Punto\App\Helpers\Str::toUtf8($text);
 }
 function taxObjSanitizer($array){
 	$out 	= [];
