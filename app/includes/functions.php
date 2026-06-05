@@ -233,30 +233,11 @@ function manageGiftCard($amount,$id){
     return \Punto\App\Domain\Customer::manageGiftCard($amount, $id);
 }
 
+/**
+ * @deprecated Slice 14 (PSR-4). Usar `\Punto\App\Domain\GiftCard::insertNew()`. ~1 caller.
+ */
 function insertNewGiftCard($code,$price,$expires,$trsId,$note,$beneficiaryId,$timestamp,$sendDate,$color){
-	global $db;
-	//precio, vencimiento, status = 1, code, transId, outletId, companyId
-
-	$repety = ncmExecute('SELECT giftCardSoldId FROM giftCardSold WHERE timestamp = ' . $timestamp . ' AND companyId = ' . COMPANY_ID . ' LIMIT 1');
-
-	if(!$repety && $timestamp){
-		$record['giftCardSoldValue'] 				= ($price) ? $price : 0;
-		$record['giftCardSoldExpires'] 			= $expires;
-		$record['giftCardSoldNote'] 				= $note;
-		$record['giftCardSoldSendDate']			= $sendDate;
-		$record['giftCardSoldBeneficiaryId']= $beneficiaryId;
-		$record['giftCardSoldColor'] 				= $color;
-		$record['timestamp'] 								= $timestamp;
-		$record['transactionId'] 						= $trsId;
-		$record['outletId'] 								= OUTLET_ID;
-		$record['companyId'] 								= COMPANY_ID;
-
-		if($code != 'none' && $code != 'no' && $code != 'giftcard'){
-			$record['giftCardSoldCode'] 	=  $code;
-		}
-
-		return $db->AutoExecute('giftCardSold', $record, 'INSERT');
-	}
+    return \Punto\App\Domain\GiftCard::insertNew($code, $price, $expires, $trsId, $note, $beneficiaryId, $timestamp, $sendDate, $color);
 }
 
 function getAllTransactionPayments($id=false,$limit=false){
@@ -511,15 +492,11 @@ function getSaleType($type){
 	return array($saleType,$docType);
 }
 
+/**
+ * @deprecated Slice 11 (PSR-4). Usar `\Punto\App\Domain\Document::getNextDocNumber()`. ~12 callers.
+ */
 function getNextDocNumber($number,$in,$company,$register){
-	global $db;
-	$lastUsed  = getValue('transaction','invoiceNo','WHERE companyId = ' . $company . ' AND registerId = ' . $register . ' AND (invoiceNo IS NOT NULL AND invoiceNo > 0) AND transactionType IN(' . $in . ') ORDER BY transactionDate DESC LIMIT 1');
-
-    if($lastUsed > $number){
-    	return $lastUsed;
-    }else{
-    	return $number;
-    }
+    return \Punto\App\Domain\Document::getNextDocNumber($number, $in, $company, $register);
 }
 /**
  * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::getValue()`. ~99 callers.
@@ -731,107 +708,38 @@ function buildCalendarTop($options,$test=false){
 
 	return $out;
 }
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getCompoundsArray()`. ~23 callers.
+ */
 function getCompoundsArray($itemId,$cache=false){
-	$result = ncmExecute('SELECT * FROM toCompound WHERE itemId = ? ORDER BY toCompoundOrder LIMIT 1000',[$itemId],$cache,true,true);
-	return $result;
+    return \Punto\App\Domain\Inventory::getCompoundsArray($itemId, $cache);
 }
 
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::displayableCompounds()`. ~3 callers.
+ */
 function displayableCompounds($id){
-	$out 				= [];
-	$compounds 	= getCompoundsArray($id);
-
-	if($compounds){
-		foreach ($compounds as $key => $value) {
-			$out[] 	= [ 'id' => enc($value['compoundId']), 'units' => $value['toCompoundQty'], 'select' => $value['toCompoundPreselected'] ];
-		}
-	}
-	return $out;
+    return \Punto\App\Domain\Inventory::displayableCompounds($id);
 }
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getProductionCapacity()`. ~5 callers.
+ */
 function getProductionCapacity($compounds,$inventory,$waste = false){
-	//obtengo la capacidad de produccion de un articulo basandome en el inventario de sus compuestos
-	//recibo los compuestos y un array de inventario
-	//por cada compuesto sumo el total del inventario y divido por la cantidad que necesito
-	//el resultado es la cantidad de unidades que puedo hacer con ese compuesto ej: 5,2,8
-	//entonces guardo cada cantidad de produccion en un array y luego devuelvo el menor valor, ej: 2 (es la máxima cantidad que puedo producir)
-	if(!$waste){
-		$waste = [];
-	}
-
-	if(validity($compounds,'array') && $inventory){
-		$canMake 	= 0;
-		$eachAmount = [];
-
-		foreach($compounds as $val){
-			$need 				= $val['toCompoundQty'];
-			$wasteP = 0;
-			if(array_key_exists($val['compoundId'],$waste)){
-				$wasteP = $waste[$val['compoundId']];
-			}
-			
-			if($wasteP > 0){
-				$need = getNeedWithWaste($need,$wasteP);
-			}
-
-			if($need > 0){//ignoro las cantidades en 0 para que no divida en 0
-				$have = 0;
-				if(array_key_exists($val['compoundId'], $inventory)){
-					$have 			= $inventory[$val['compoundId']]['onHand'];
-				}
-				
-				$divi 			= divider($need,$have);
-				$eachAmount[] 	= round($divi,3);//limito los decimales a 3
-			}
-		}
-		
-		return ($eachAmount) ? min($eachAmount) : 0; //obtengo el menor valor del array
-	}else{
-		return 0;
-	}
+    return \Punto\App\Domain\Inventory::getProductionCapacity($compounds, $inventory, $waste);
 }
 
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getProductionCOGS()`. ~8 callers.
+ */
 function getProductionCOGS($itemId,$wasted=true){
-	$total 	= 0;
-	$result = getCompoundsArray($itemId);
-	if($result){
-		$waste 	= getAllWasteValue();
-
-		foreach ($result as $key => $value) {
-			$id 	= $value['compoundId'];
-			$count 	= (float)$value['toCompoundQty'];
-
-			$wasteP = $waste[$id] ?? '';
-
-			if($wasteP > 0 && $wasted){
-				$count 	= getNeedWithWaste($count,$wasteP);
-			}
-
-			$avrg 	= getItemStock($id);
-			$avrg 	= $avrg['stockOnHandCOGS'] ?? 0;
-			
-			$price 	= ($avrg * $count);
-			$total += $price;
-		}
-	}
-	return $total;
+    return \Punto\App\Domain\Inventory::getProductionCOGS($itemId, (bool) $wasted);
 }
 
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getComboCOGS()`. ~8 callers.
+ */
 function getComboCOGS($parent){
-	$result 			= getCompoundsArray($parent);
-	$comboCOGS 		= 0;
-
-	if(validity($result,'array')){
-		foreach ($result as $resulta) {
-			$id 			= $resulta['compoundId'];
-		  $units 		= number_format($resulta['toCompoundQty'],2);//dejo en 2 ceros
-	    
-			$compData = ncmExecute('SELECT itemPrice FROM item WHERE itemId = ? LIMIT 1',[$id]);
-		  $price 		= $compData['itemPrice'] ?? 0;
-
-			$comboCOGS += $price * $units;
-		}
-	}
-
-	return $comboCOGS;
+    return \Punto\App\Domain\Inventory::getComboCOGS($parent);
 }
 
 function getItemTypeName($result){
@@ -885,57 +793,25 @@ function selectInputOutlet($match='',$multi=false,$class='',$name='outlet'){
     echo \Punto\App\Domain\Store::selectInput($match, (bool) $multi, (string) $class, (string) $name);
 }
 
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::formatNumber()`. ~530 callers.
+ */
 function formatCurrentNumber($number,$de='',$ts=''){
-	global $DECIMAL,$THOUSAND_SEPARATOR;
-	if(!$number){$number = 0;}
-
-	$decimal 	= (!$de) ? $DECIMAL : $de;
-	$thouS 		= (!$ts) ? $THOUSAND_SEPARATOR : $ts;
-
-	if($decimal == 'no'){
-		//$explode 	= explode($number); //esto es para eliminar los decimales
-		//$number 	= $explode[0];
-		$number 	= round($number);
-		if($thouS == 'comma'){
-			return number_format($number, 0, '.', ',');
-		}else{
-			return number_format($number, 0, ',', '.');
-		}
-	}else{
-		if($thouS == 'comma'){
-			return number_format($number, 2, '.', ',');
-		}else{
-			return number_format($number, 2, ',', '.');
-		}
-	}
+    return \Punto\App\Domain\Money::formatNumber($number, $de, $ts);
 }
 
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::formatQty()`. ~85 callers.
+ */
 function formatQty($val,$extDec=2){
-	if(strpos($val . '', '.') === false){ //es entero
-		return formatCurrentNumber($val,'no',false);
-	}else{ //si tiene decimales
-		$getDec = explode('.', $val);
-	    if($getDec[1] > 0){//si los decimales no son 0 fuerzo a enviar decimales
-	      return formatCurrentNumber($val,'yes',false,$extDec);
-	    }else{//de lo contrario envio enteros
-	      return formatCurrentNumber($val,'no',false);
-	    }
-	}
+    return \Punto\App\Domain\Money::formatQty($val, (int) $extDec);
 }
 
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::addTax()`. ~7 callers.
+ */
 function addTax($tax,$price){
-	if($tax && $price && $tax > 0){
-		$taxVal 	= $price / (1 + ($tax / 100));
-		$total 		= $price-$taxVal;
-
-		if($total && $total > 0){
-			return $total;
-		}else{
-			return 0;
-		}
-	}else{
-		return 0;
-	}
+    return \Punto\App\Domain\Money::addTax($tax, $price);
 }
 
 function checkAmount($table){
@@ -1230,36 +1106,18 @@ function getTaxonomyIdOrInsert($name, $type, $insertIt = true){
     return \Punto\App\Domain\Taxonomy::getIdOrInsert($name, (string) $type, (bool) $insertIt);
 }
 
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::formatForDB()`. ~73 callers.
+ */
 function formatNumberToInsertDB($number,$forceDecimals=false,$decimalsCount=2){
-	if(!validity($number)){$number = 0;}
-
-	if(DECIMAL == 'no' && !$forceDecimals){
-		if(THOUSAND_SEPARATOR == 'dot'){
-			$explode 	= explode(',',$number); //esto es para eliminar los decimales
-			$number 	= $explode[0];
-			$number 	= str_replace('.','',$number);
-		}else{
-			$explode 	= explode('.',$number); //esto es para eliminar los decimales
-			$number 	= $explode[0];
-			$number 	= str_replace(',','',$number);
-		}
-		return $number;
-	}else{
-		if(THOUSAND_SEPARATOR == 'dot'){
-			$number = str_replace('.','',$number);//1.000,00 => 1000,00
-			$number = str_replace(',','.',$number);//1000,00 => 1000.00
-		}else{
-			$number = str_replace(',','',$number);//1,000.00 => 1000.00
-		}
-
-		$number = forceExtraDecimalsNumber($number,$decimalsCount);
-
-		return $number;
-	}
+    return \Punto\App\Domain\Money::formatForDB($number, (bool) $forceDecimals, (int) $decimalsCount);
 }
 
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::forceDecimals()`. ~2 callers.
+ */
 function forceExtraDecimalsNumber($num,$max=3){
-	return number_format($num,$max,'.','');
+    return \Punto\App\Domain\Money::forceDecimals($num, (int) $max);
 }
 
 function sanitizeForDB($str){
@@ -1440,53 +1298,18 @@ function sumProperties($arr, $property) {
     return $sum;
 }
 
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getItemStock()`. ~16 callers.
+ */
 function getItemStock($itemId,$outlet=false,$inLocation=false){
-	if(!validity($itemId)){
-		return false;
-	}
-
-	if($inLocation){
-		$locationc 	= 0;
-		$location 	= ncmExecute('SELECT * FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',[$itemId,$inLocation]);
-
-		return ($location) ? $location['toLocationCount'] : 0;
-	}
-
-	if($outlet){
-		$outletId = $outlet;
-	}else{
-		$outletId = OUTLET_ID;
-	}
-	
-	$result = ncmExecute('SELECT * FROM stock WHERE itemId = ? AND outletId = ? ORDER BY stockId DESC LIMIT 1',[$itemId,$outletId]);
-
-	return $result;
+    return \Punto\App\Domain\Inventory::getItemStock($itemId, $outlet, $inLocation);
 }
 
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getItemMainStock()`. ~1 caller.
+ */
 function getItemMainStock($itemId,$outletId){
-
-	$inventory 	= getItemStock($itemId,$outletId);
-	$count 		= formatQty($inventory['stockOnHand']);
-	$depo 		= ncmExecute('SELECT * FROM taxonomy WHERE taxonomyType = "location" AND outletId = ? ORDER BY taxonomyName ASC',[$outletId],false,true);
-	
-	if($depo){
-		$dTotal = 0;
-		while (!$depo->EOF) {
-			$dCount 	= 0;
-			$depCount 	= ncmExecute('SELECT * FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',[$depo->fields['taxonomyId'],$itemId]);
-
-			if($depCount){
-				$dCount = $depCount['toLocationCount'];
-			}
-			
-			$dTotal += $dCount;
-
-			$count 	= $count - $dTotal;
-
-			$depo->MoveNext();
-		}
-	}
-	return $count;
+    return \Punto\App\Domain\Inventory::getItemMainStock($itemId, $outletId);
 }
 
 /*function getAllItemStock($outlet=OUTLET_ID){
@@ -1510,194 +1333,18 @@ function getItemMainStock($itemId,$outletId){
 		return [];
 	}
 }*/
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getAllItemStock()`. ~8 callers.
+ */
 function getAllItemStock($outlet=false,$all=false){
-	global $db;
-
-	$sql 	= '	SELECT t1.itemId as itemId, t1.stockOnHand as onHand, t1.stockOnHandCOGS as cogs
-				FROM stock t1
-				JOIN
-				(
-				  SELECT max(stockId) AS stockId
-				  FROM stock
-				  WHERE outletId = ?
-				  GROUP BY itemId
-				) t2 ON t1.stockId = t2.stockId AND t1.outletId = ?';
-
-	if($all){
-		$allOutletsArray = getAllOutletData();
-		$result = [];
-		foreach ($allOutletsArray as $outlet => $val) {
-			$item = ncmExecute($sql,[$outlet,$outlet],false,true,true);
-			if($item){
-				foreach ($item as $itemId => $values) {
-					$result[$itemId]['itemId'] 	= $values['itemId'];
-					$result[$itemId]['onHand'] += $values['onHand'];
-					$result[$itemId]['cogs'] 	= $values['cogs'];
-				}
-			}
-		}
-	}else{
-		$outlet = iftn($outlet,OUTLET_ID);
-
-		$result = ncmExecute($sql,[$outlet,$outlet],false,true,true);
-	}
-
-	if(validity($result)){
-		return $result;
-	}else{
-		return [];
-	}
+    return \Punto\App\Domain\Inventory::getAllItemStock($outlet, (bool) $all);
 }
 
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::manageStock()`. ~27 callers. CRÍTICO.
+ */
 function manageStock($ops){
-	global $db;
-	$itemId 				= $ops['itemId'];
-	$source 				= iftn($ops['source'],'adjustment');
-	$count 					= $ops['count'];
-	$type 					= iftn($ops['type'] ?? '','+');
-	$COGS					= array_key_exists("cogs",$ops) ? $ops["cogs"] : "";
-	$user 					= iftn(array_key_exists("userId",$ops) ? $ops["userId"] : "",USER_ID);
-	$transaction			= $ops['transactionId'];
-	$supplier				= array_key_exists("supplierId",$ops) ? $ops['supplierId'] : "";
-	$outlet					= $ops['outletId'];
-	$location				= $ops['locationId'];
-	$note					= array_key_exists("note",$ops) ? $ops['note'] : "";
-	$date					= $ops['date'];
-	$company				= iftn(array_key_exists("companyId",$ops) ? $ops['companyId'] : "",COMPANY_ID);
-
-	if(!validity($count) || !$itemId){
-		return false;
-	}
-
-	//verifico si el item tiene control de stock y no es un servicio
-	$isStockeable 		= ncmExecute('SELECT itemTrackInventory FROM item WHERE itemStatus = 1 AND itemId = ? AND companyId = ? LIMIT 1',[$itemId,COMPANY_ID]);
-
-	if(!$isStockeable || $isStockeable['itemTrackInventory'] < 1){
-		return false;
-	}
-
-	$stock 				= getItemStock($itemId);
-	// ncmExecute devuelve un CaseInsensitiveArray (objeto ArrayAccess), NO un array
-	// nativo → `is_array($stock)` daba false y oldStock/COGS caían a 0 (rompía el
-	// cálculo de inventario: el stock quedaba en -count en vez de oldStock-count).
-	// `isset()` SÍ rutea por offsetExists del ArrayAccess (case-insensitive); el
-	// acceso `$stock['stockOnHand']` también resuelve la key lowercase de PG.
-	$hasStock			= ($stock instanceof \ArrayAccess) || is_array($stock);
-	$oldStock			= ($hasStock && isset($stock['stockOnHand']) && is_numeric($stock['stockOnHand'])) ? $stock['stockOnHand'] : 0;
-	$oldACOGS			= ($hasStock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS'])) ? $stock['stockOnHandCOGS'] : 0;
-
-	if(!validity($COGS)){
-		$COGS = ($hasStock && isset($stock['stockCOGS'])) ? $stock['stockCOGS'] : "";
-	}
-
-	if($type == '+'){
-		$newOnHand 			= $oldStock + $count;//obtengo nueva cantidad en stock
-
-		if($oldStock < 0){//si el stock viejo es menor a 0 el costo se calcula con el onhand
-			//Es así para que pueda aumentar el negativo y comenzar de cero con el positivo
-			$newCOGS 		= $COGS * $newOnHand;
-		}else{//si no se calcula con la cantidad añadida
-			$newCOGS 		= $COGS * $count;
-		}
-		
-		$newTotalCOGS 		= (($oldACOGS * $oldStock) + $newCOGS);
-		$newTotalCOGS 		= divider($newTotalCOGS, $newOnHand, true);
-	}else{//si es venta o quito stock
-		$newOnHand 			= $oldStock - $count;
-		$COGS 				= $oldACOGS;
-
-		if($newOnHand <= 0){
-			$newTotalCOGS 		= 0;
-		}else{
-			$newTotalCOGS 		= $oldACOGS;
-		}
-		
-	}
-
-	$row['stockSource']   	= $source;
-	$row['stockNote']   	= $note;
-	$row['stockCount']   	= $type . $count;
-	$row['stockCOGS']   	= $COGS;
-	$row['stockOnHand']   	= $newOnHand;
-	$row['stockOnHandCOGS'] = $newTotalCOGS;
-	$row['itemId'] 			= $itemId;
-	// PG: columnas UUID rechazan "". iftn($x, NULL) NO devuelve NULL (la 1ª línea de
-	// iftn convierte el default NULL a '') → usamos `?: null` para mandar NULL real
-	// cuando transactionId/supplierId/locationId vienen vacíos.
-	$row['transactionId']	= $transaction ?: null;
-	$row['userId'] 			= $user;
-	$row['supplierId'] 		= $supplier ?: null;
-	$row['outletId'] 		= $outlet;
-	$row['locationId'] 		= $location ?: null;
-
-	$row['companyId']		= $company;
-
-	if($date){
-		$row['stockDate']	= $date;
-	}
-    
-    $insert = $db->AutoExecute('stock', $row, 'INSERT');
-
-    if($insert !== true){
-    	return false;
-    }else{
-    	// PG: UUIDs DEBEN ir entre comillas en SQL string concat (§22.5). Sin esto el
-    	// WHERE `itemId = <uuid>` es syntax error → aborta la transacción → la venta
-    	// entera rollea en silencio (el commit de una tx PG abortada hace rollback).
-    	updateRowLastUpdate('item',"itemId = '" . $itemId . "'");
-    	if($location){
-    		$isLocation = ncmExecute('SELECT toLocationId FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',[$location,$itemId]);
-    		if($isLocation){
-				$db->Execute("UPDATE toLocation SET toLocationCount = toLocationCount" . $type . $count . " WHERE toLocationId = '" . $isLocation['toLocationId'] . "'");
-			}else{
-	    		$db->AutoExecute('toLocation', ['locationId' => $location, 'toLocationCount' => $type . $count, 'itemId' => $itemId], 'INSERT');
-	    	}
-    	}
-		try {
-			// PG: UUIDs entre comillas (§22.5). El bloque de auditoría está en try/catch
-			// pero un UUID sin comillas igual abortaría la tx en PG y envenenaría el commit.
-			// La tabla `setting` NO existe en PG (settings viven en company.config) →
-			// usamos la constante COMPANY_NAME que data.php ya resolvió.
-			$userName = getValue('contact', 'contactName', "WHERE contactId = '" . USER_ID . "'");
-            $registerName = getValue('register', 'registerName', "WHERE registerId = '" . REGISTER_ID . "'");
-            $companyName = defined('COMPANY_NAME') ? COMPANY_NAME : '';
-            $outletName = getCurrentOutletName(OUTLET_ID);
-			$itemName = getItemName($itemId);
-
-            $auditoriaData = [
-              'date'        => $date,
-              'user'      => $userName,
-              'module'       => 'STOCK',
-              'origin'       => 'CAJA',
-              'company_id'       => COMPANY_ID,
-              'data'       => [
-                'action' => "El usuario $userName ajustó el item $itemName desde la caja " . $registerName,
-                'userId' => USER_ID,
-                'userName' => $userName,
-				'itemId'	=> $itemId,
-				'itemName'=> $itemName,
-                'operationData' => $row,
-                'registerId' => REGISTER_ID,
-                'registerName' => $registerName,
-                'companyID' => COMPANY_ID,
-                'companyName' => $companyName,
-                'outletId' => OUTLET_ID,
-                'outletName' => $outletName,
-                'timestamp' => $ops['timestamp']
-              ]
-            ];
-
-            sendAuditoria($auditoriaData, AUDITORIA_TOKEN);
-		} catch (\Throwable $th) {
-			//throw $th;
-			error_log("Error al enviar registro de auditoría de ajuste de stock: \n", 3, './error_log');
-			error_log(print_r($th, true), 3, './error_log');
-			error_log("data stock: \n", 3, './error_log');
-            error_log(print_r($row, true), 3, './error_log');
-		}
-
-    	return $row;
-    }
+    return \Punto\App\Domain\Inventory::manageStock((array) $ops);
 }
 
 //INVENTORY LOGIC END
@@ -1946,34 +1593,18 @@ function getAllCompanyItemsChildren($companyId, $itemsIds = false){
 function getAllItemCategories($companyId){
     return \Punto\App\Domain\Taxonomy::getAllItemCategories($companyId);
 }
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getAllWasteValue()`. ~9 callers.
+ */
 function getAllWasteValue($id=false,$cache=false){
-	$andId 		= ' LIMIT 500';
-
-	if($id){
-		$andId 	= ' AND itemId = ' . $id . ' LIMIT 1';
-	}
-
-	$sql 		= 'SELECT itemWaste, itemId FROM item WHERE itemWaste > 0 AND companyId = ? ' . $andId;
-	$result 	= ncmExecute($sql,[COMPANY_ID],$cache,true);
-	$out 		= [];
-
-	if($result){
-		while (!$result->EOF) {
-			$fields 				= $result->fields;
-			$out[$fields['itemId']] = $fields['itemWaste'];
-		    $result->MoveNext(); 
-		}
-
-		$result->Close();
-	}
-
-	return $out;
+    return \Punto\App\Domain\Inventory::getAllWasteValue($id, $cache);
 }
 
+/**
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getNeedWithWaste()`. ~8 callers.
+ */
 function getNeedWithWaste($need,$wasteP){
-	$wasteFactor 	= $wasteP / 100;
-	$wasteValue 	= $need * $wasteFactor;
-	return $need + $wasteValue;
+    return \Punto\App\Domain\Inventory::getNeedWithWaste($need, $wasteP);
 }
 
 /*function sendEmail($to,$subject,$body,$altbody,$from = EMAIL_FROM,$smtp=true){
@@ -2015,199 +1646,46 @@ function getNeedWithWaste($need,$wasteP){
 	}
 }*/
 
+/**
+ * @deprecated Slice 15 (PSR-4). Usar `\Punto\App\Services\Notification::sendSMTP()`. ~5 callers.
+ */
 function sendSMTPEmail($meta,$template,$to,$subject,$body=APP_NAME,$altbody=APP_NAME){
-
-	if(!validity($to,'email')){
-		return false;
-	}
-
-	$fromName 	= APP_NAME;
-	$replayTo 	= iftn(OUTLET_EMAIL,EMAIL_FROM);
-	$from 		= EMAIL_FROM;
-
-	//Create a new PHPMailer instance
-	$mail = new PHPMailer(true);
-
-	$options = json_encode(
-					array(
-	                    "to" 		=> array($to),
-	                    "sub" 		=> $meta,
-	                    "filters" 	=> array(
-				                              "templates" 	=> array(
-								                                        "settings" 	=> array(
-											                                                  "enable" 	=> 1,
-											                                                  "template_id" => $template
-											                                                )
-								                                      )
-				                            )
-                    	)
-					);
-
-	$mail->isSMTP();                            // Set mailer to use SMTP
-	$mail->Host 		= 'smtp.sendgrid.net';  // Specify server
-	$mail->SMTPAuth 	= true;                 // Enable SMTP authentication
-	$mail->Username 	= 'incomeregister';     // SMTP username
-	$mail->Password 	= 'Holasendgrid1!';     // SMTP password
-	$mail->Port 		= 587;                  // Recommended Port
-	$mail->SMTPSecure 	= 'tls';	
-	
-	$mail->setFrom($from, $fromName);
-	$mail->addReplyTo($replayTo, $fromName);
-	$mail->addAddress($to);
-
-	$mail->isHTML(true);
-	$mail->msgHTML($body);
-	$mail->addCustomHeader("X-SMTPAPI: " . $options);
-	$mail->addCustomHeader('MIME-Version: 1.0');
-	$mail->addCustomHeader('Content-Type: text/html; charset=utf-8');
-
-	$mail->Subject = utf8_decode($subject);
-	$mail->Body 	= $altbody;
-	//$mail->AltBody 	= $altbody;
-
-	if (!$mail->send()){
-	    return $mail->ErrorInfo;
-	} else {
-	    return true;
-	}
+    return \Punto\App\Services\Notification::sendSMTP($meta, $template, $to, $subject, $body, $altbody);
 }
 
+/**
+ * @deprecated Slice 15 (PSR-4). Usar `\Punto\App\Services\Notification::sendEmails()`. ~23 callers.
+ */
 function sendEmails($options){
-  $from     = iftn($options['from'] ?? "",EMAIL_FROM);
-  $fromName = iftn($options['fromName'] ?? "",APP_NAME);
-  $to       = $options['to'];
-  $subject  = $options['subject'];
-  $data     = $options['data']['message'] ?? '';
-//   $template = iftn($options['template'] ?? "","d-02e7f867251d4383af26d8c9cc2b4318");
-//   $options['data']['subject'] = $subject;
-//  $data     = json_encode($options['data'] ?? []); //paso php array y convierto a json
-//   $apiKey   = iftn(SENDGRID_API_KEY ?? "","");
-
-//   $data   = '{' .
-//             ' "from":{' .
-//             '   "email":"' . $from . '",' .
-//             '	"name":"' . $fromName . '"' .
-//             ' },' .
-//             ' "personalizations":[{' .
-//             '   "to":[' .
-//             '         { "email":"' . $to . '"}' .
-//             '        ],' .
-//             '   "dynamic_template_data":' . $data .
-//             ' }],'.
-//             ' "template_id":"' . $template . '"' .
-//             '}';
-
-//   $header =   [
-//                 "Accept: application/json",
-//                 "Authorization: Bearer " . $apiKey,
-//                 "Content-Type: application/json"
-//               ];
-
-   //return curlContents('https://api.sendgrid.com/v3/mail/send','POST',$data,$header);
-
-   // Envio de correo con Mailgun
-   $mgClient = MailgunClient::create(MAILGUN_TOKEN);
-   $domain = MAILGUN_DOMAIN;
-
-   # Make the call to the client.			
-   try {
-	   $resultMail = $mgClient->messages()->send($domain, [
-		   'from'    => $fromName .'<' . $from . '>',
-		   'to'      => $to,
-		   'subject' => toUTF8($subject),
-		   'html'    => toUTF8($data)
-	   ]);
-
-	   // Verificar el estado del envío
-	   if ($resultMail->getId()) {
-		   //error_log("Correo enviado exitosamente. ID: " . $resultMail->getId(), 3, './error_log');
-		   return true;
-	   } else {
-		   //error_log("No se pudo enviar el correo.", 3, './error_log');
-		   return "No se pudo enviar el correo.";
-	   }
-   } catch (\Exception $e) {
-	   // Manejo de errores
-	   //error_log("Error al enviar el correo: " . $e->getMessage(), 3, './error_log');
-	   return "Error al enviar el correo: " . $e->getMessage();
-   }
+    return \Punto\App\Services\Notification::sendEmails($options);
 }
 
+/**
+ * @deprecated Slice 15 (PSR-4). Usar `\Punto\App\Services\Notification::sendEmail()`. ~9 callers.
+ */
 function sendEmail($options){
-	global $db;
-
-	$data =   [
-	            'api_key'       => API_KEY,
-	            'company_id'    => enc(COMPANY_ID),
-	            'fromName'     	=> $options['fromName'],
-	            'to'       			=> $options['to'],
-	            'subject'    		=> $options['subject'],
-	            'mode'       		=> 'notify',
-	            'autoSend' 			=> $options['auto'],
-	            'secret' 				=> NCM_SECRET
-	          ];
-
-	$out = curlContents(API_URL . '/send_email','POST',$data);
-	
-	return $out;
+    return \Punto\App\Services\Notification::sendEmail($options);
 }
 
+/**
+ * @deprecated Slice 15 (PSR-4). Usar `\Punto\App\Services\Notification::sendSMS()`. ~17 callers.
+ */
 function sendSMS($number,$msg,$numvalidation=true,$auto=false){
-	global $db;
-
-	$data =   [
-	            'api_key'       => API_KEY,
-	            'company_id'    => enc(COMPANY_ID),
-	            'phone'         => $number,
-	            'country'       => COUNTRY_CODE,
-	            'msg'       		=> $msg,
-	            'credit'       	=> SMS_CREDIT,
-	            'autoSend' 			=> $auto,
-	            'secret' 				=> NCM_SECRET
-	          ];
-
-	$out = curlContents(API_URL . '/send_sms','POST',$data);
-	
-	return $out;
+    return \Punto\App\Services\Notification::sendSMS($number, $msg, (bool) $numvalidation, (bool) $auto);
 }
 
+/**
+ * @deprecated Slice 15 (PSR-4). Usar `\Punto\App\Services\Notification::sendPush()`. ~10 callers.
+ */
 function sendPush($options){
-
-	$companyId = !empty($options['companyId']) ? $options['companyId'] : null;//para el api auth
-	$options['where'] = $options['where'] ? $options['where'] : 'caja';
-
-	$data = [
-						"api_key"       => API_KEY,
-						"company_id"    => iftn($companyId,enc(COMPANY_ID)),
-						"secret" 				=> NCM_SECRET,
-						"ids"       		=> $options['ids'],
-					  "message"    		=> $options['message'],
-					  "where"      		=> $options['where'],
-					  "title"      		=> $options['title'],
-					  "web_url"     	=> $options['web_url'] ?? "",
-					  "app_url"     	=> $options['app_url'] ?? "",
-					  "filters"   		=> json_encode($options['filters'])
-					];
-
-	return json_decode( curlContents(API_URL.'/send_push', 'POST', $data) );
+    return \Punto\App\Services\Notification::sendPush($options);
 }
 
+/**
+ * @deprecated Slice 15 (PSR-4). Usar `\Punto\App\Services\Notification::sendNCMSMS()`. ~1 caller.
+ */
 function sendNCMSMS($number,$msg,$country,$companyId=''){
-	$sent 		= false;
-
-	$data =   [
-	            'api_key'       => '340f3033a868ce57b9300f6e1e3732e272639bdf',
-	            'company_id'    => 'Og',
-	            'phone'         => $number,
-	            'country'       => $country,
-	            'msg'       	=> $msg,
-	            'credit'       	=> 100,
-	            'secret' 		=> NCM_SECRET
-	          ];
-		
-	$sent = curlContents(API_URL . '/send_sms','POST',$data);
-
-	return [$sent,$number];
+    return \Punto\App\Services\Notification::sendNCMSMS($number, $msg, $country, $companyId);
 }
 
 function SMSSegmentsCounter($str){
@@ -2284,22 +1762,11 @@ function addWhatsAppLink($text=false,$sms=true){
 	}
 }
 
+/**
+ * @deprecated Slice 15 (PSR-4). Usar `\Punto\App\Services\Notification::sendWS()`. ~11 callers.
+ */
 function sendWS($ops = []){
-	$channel 	= $ops['channel'];
-	$event 		= $ops['event'];
-	$message 	= $ops['message'];
- 
-	$data 		=   [
-		              'api_key'       => API_KEY,
-		              'company_id'    => enc(COMPANY_ID),
-		              'channel'       => $channel,
-		              'event'         => $event,
-		              'message'       => $message
-		            ];
-
-  $result = curlContents(API_URL . '/send_webSocket.php','POST',$data);
-
-  return $result;
+    return \Punto\App\Services\Notification::sendWS((array) $ops);
 }
 
 function curlContents($url, $method = 'GET', $data = false, $headers = false, $returnInfo = false, $spoofRef = false, $timeout = 30) {    
@@ -3071,134 +2538,24 @@ function array_flatten(array $array) {
 function toUTF8($text){
     return \Punto\App\Helpers\Str::toUtf8($text);
 }
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::sanitizeTaxObj()`. ~2 callers.
+ */
 function taxObjSanitizer($array){
-	$out 	= [];
-	$i 		= 0;
-
-	if(!validity($array)){
-		return false;
-	}
-
-	foreach ($array as $key => $value) {
-
-		if($i > 10){
-			break;
-		}
-
-		$name 	= $value['name'] ? markupt2HTML(['text' => $value['name'], 'type' => 'HtM']) : "0";
-		$amount = number_format( floatval($value['val']), 3);
-
-		$out[] 	= ['name' => $name, 'val' => $amount];
-		$i++;
-	}
-
-	return $out;
+    return \Punto\App\Domain\Money::sanitizeTaxObj($array);
 }
 
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::sanitizePaymentObj()`. ~1 caller.
+ */
 function paymentMObjSanitizer($array){
-	//[{"type":"creditcard","name":"Cr\u00e9dito","price":2750,"total":2750,"extra":""}]
-	$out 	= [];
-	$i 		= 0;
-
-	if(!validity($array)){
-		return false;
-	}
-
-	foreach ($array as $key => $value) {
-
-		if($i > 10){
-			break;
-		}
-
-		$type = $value['type'];
-		if(is_numeric($type)){
-			$type = intval($type);
-		}else{
-			$type = markupt2HTML(['text' => $type, 'type' => 'HtM']);
-		}
-
-		$name 	= markupt2HTML(['text' => $value['name'], 'type' => 'HtM']);
-		$price 	= floatval($value['price']);
-		$total 	= floatval($value['total']);
-		$extra 	= markupt2HTML(['text' => $value['extra'], 'type' => 'HtM']);
-		$name 	= substr($name,0,20);
-		$extra 	= substr($extra,0,30);
-
-		$out[] 	= ['type' => $type, 'name' => $name, 'price' => $price, 'total' => $total, 'extra' => $extra];
-		$i++;
-	}
-
-	return $out;
+    return \Punto\App\Domain\Money::sanitizePaymentObj($array);
 }
 
+/**
+ * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::sanitizeSaleArray()`. ~2 callers.
+ */
 function saleArraySanitizer($array){
-	/*if(COMPANY_ID != 10){
-		return $array;
-	}*/
-
-	$out 	= [];
-	$i 		= 0;
-	foreach ($array as $key => $value) {
-
-		$tags = [];
-		if(array_key_exists('tags',$value) && is_array($value['tags'])){
-			foreach ($value['tags'] as $key) {
-				$tags[] = markupt2HTML(['text' => $key, 'type' => 'HtM']);
-			}
-		}
-
-		if($value['type'] == 'giftcard'){
-			$out[] = 	[
-								'itemId' 				=> markupt2HTML(['text' => $value['itemId'], 'type' => 'HtM']),
-								'count' 				=> floatval($value['count']),
-								'oQty' 					=> floatval($value['oQty']),
-								'uniPrice' 			=> floatval($value['uniPrice']),
-								'price' 				=> floatval($value['price']),
-								'total' 				=> floatval($value['total']),
-								'tax' 					=> floatval($value['tax']),
-								'user' 					=> markupt2HTML(['text' => $value['user'], 'type' => 'HtM']),
-								'type' 					=> markupt2HTML(['text' => $value['type'], 'type' => 'HtM']),
-								'date' 					=> markupt2HTML(['text' => $value['date'], 'type' => 'HtM']),
-								'note' 					=> markupt2HTML(['text' => $value['note'], 'type' => 'HtM']),
-								'beneficiaryId' => markupt2HTML(['text' => $value['beneficiaryId'], 'type' => 'HtM']),
-								'giftDate' 			=> markupt2HTML(['text' => $value['giftDate'], 'type' => 'HtM']),
-								'giftcardColor' => markupt2HTML(['text' => $value['giftcardColor'], 'type' => 'HtM']),
-								'giftcardExp' 	=> markupt2HTML(['text' => $value['giftcardExp'], 'type' => 'HtM']),
-								'giftcardId' 		=> (int)$value['giftcardId'],
-								'uId' 					=> (int)$value['uId'],
-								'currency' 			=> markupt2HTML(['text' => $value['currency'], 'type' => 'HtM'])
-							];
-		}else{
-			$out[] = 	[
-						'itemId' 				=> markupt2HTML(['text' => $value['itemId'], 'type' => 'HtM']),
-						'count' 				=> floatval($value['count']),
-						'oQty' 					=> floatval($value['oQty'] ?? 0),
-						'name' 					=> markupt2HTML(['text' => $value['name'], 'type' => 'HtM']),
-						'uniPrice' 			=> floatval($value['uniPrice'] ?? 0),
-						'price' 				=> floatval($value['price'] ?? 0),
-						'total' 				=> floatval($value['total'] ?? 0),
-						'tax' 					=> floatval($value['tax'] ?? 0),
-						'discount'			=> floatval(array_key_exists("discount",$value) ? $value['discount'] : 0),
-						'totalDiscount'	=> floatval(array_key_exists("totalDiscount",$value) ? $value['totalDiscount'] : 0),
-						'tags' 					=> $tags,
-						'user' 					=> markupt2HTML(['text' => $value['user'] ?? '', 'type' => 'HtM']),
-						'type' 					=> markupt2HTML(['text' => $value['type'], 'type' => 'HtM']),
-						'date' 					=> markupt2HTML(['text' => array_key_exists('date',$value) ? $value['date'] : "", 'type' => 'HtM']),
-						'note' 					=> markupt2HTML(['text' => array_key_exists('note',$value) ? $value['note'] : "", 'type' => 'HtM']),
-						'currency' 			=> markupt2HTML(['text' => array_key_exists('currency',$value) ? $value['currency'] : "", 'type' => 'HtM']),
-						'uId' 					=> (int) array_key_exists('uId',$value) ? $value['uId'] : 0,
-						'parent' 				=> array_key_exists("parent",$value) ? ($value['parent'] ? (int)$value['parent'] : NULL) : NULL,
-						'isParent' 			=> array_key_exists("isParent",$value) ? ($value['isParent'] ? (int)$value['isParent'] : NULL) : NULL
-					];
-		}
-
-		
-		
-
-		$i++;
-	}
-
-	return $out;
-
+    return \Punto\App\Domain\Money::sanitizeSaleArray($array);
 }
 ?>
