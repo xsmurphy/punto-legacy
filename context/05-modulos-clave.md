@@ -82,11 +82,18 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 | `app/Domain/Store/` | `Punto\App\Domain\Store\` | Mesas, órdenes, cajas |
 | `app/Domain/Taxonomy/` | `Punto\App\Domain\Taxonomy\` | Categorías, marcas, impuestos |
 | `app/Domain/GiftCard/` | `Punto\App\Domain\GiftCard\` | Gift cards |
-| `app/Http/Response/` | `Punto\App\Http\Response\` | Helpers HTTP (jsonDieMsg, dai) |
+| `app/Http/Response/` | `Punto\App\Http\Response\` | Helpers HTTP (jsonDieMsg, dai) — **POBLADO (Slice 2)** |
 | `app/Services/Notification/` | `Punto\App\Services\Notification\` | Email, SMS, Push, FE |
 | `app/Database/` | `Punto\App\Database\` | Query wrapper (reemplaza ncmExecute) |
 
-En Slice 0 los directorios están vacíos (`.gitkeep`); se poblan en Slices 1-16. `app/Helpers/SmokeTest.php` es transitoria (se elimina en Slice 1). Ver `08-convenciones.md §26` y `10-roadmap.md § Top-5 mejoras estructurales`.
+**Clases PSR-4 existentes en `/app` (post Slice 2, commit ceed82d):**
+
+| Clase | Namespace completo | Reemplaza (wrapper en functions.php) |
+|-------|-------------------|--------------------------------------|
+| `Json` | `Punto\App\Http\Response\Json` | `jsonDieResult` (158 callers) + `jsonDieMsg` (61 callers) |
+| `Output` | `Punto\App\Http\Response\Output` | `dai` (542 callers) |
+
+Los demás directorios siguen vacíos (`.gitkeep`); se poblan en Slices 3-16. `app/Helpers/SmokeTest.php` fue **eliminada en Slice 2** (cumplida su función transitoria de verificar el autoloader). Ver `08-convenciones.md §26` y `10-roadmap.md § Top-5 mejoras estructurales`.
 
 ---
 

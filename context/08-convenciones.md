@@ -1192,19 +1192,59 @@ Estas son las versiones contra las que se valida el código en CI. Si se necesit
 
 **Estructura de namespaces disponibles en `/app`:**
 
-| Namespace | Directorio | Para qué |
-|-----------|-----------|---------|
-| `Punto\App\Helpers\` | `app/Helpers/` | Utility puras — validity, iftn, toUTF8, niceDate y similares |
-| `Punto\App\Domain\Customer\` | `app/Domain/Customer/` | Lógica de dominio de clientes |
-| `Punto\App\Domain\Money\` | `app/Domain/Money/` | Cálculos monetarios, comisiones, impuestos |
-| `Punto\App\Domain\Inventory\` | `app/Domain/Inventory/` | Stock, movimientos, depósitos |
-| `Punto\App\Domain\Document\` | `app/Domain/Document/` | Facturas, comprobantes, numeración |
-| `Punto\App\Domain\Store\` | `app/Domain/Store/` | Mesas, órdenes, registros, outlets |
-| `Punto\App\Domain\Taxonomy\` | `app/Domain/Taxonomy/` | Categorías, marcas, impuestos |
-| `Punto\App\Domain\GiftCard\` | `app/Domain/GiftCard/` | Gift cards |
-| `Punto\App\Http\Response\` | `app/Http/Response/` | Helpers de respuesta HTTP (jsonDieMsg, dai) |
-| `Punto\App\Services\Notification\` | `app/Services/Notification/` | Email, SMS, Push, FE |
-| `Punto\App\Database\` | `app/Database/` | Query wrapper (reemplaza ncmExecute/Insert/Update) |
+| Namespace | Directorio | Para qué | Clases existentes |
+|-----------|-----------|---------|------------------|
+| `Punto\App\Helpers\` | `app/Helpers/` | Utility puras — validity, iftn, toUTF8, niceDate y similares | — |
+| `Punto\App\Domain\Customer\` | `app/Domain/Customer/` | Lógica de dominio de clientes | — |
+| `Punto\App\Domain\Money\` | `app/Domain/Money/` | Cálculos monetarios, comisiones, impuestos | — |
+| `Punto\App\Domain\Inventory\` | `app/Domain/Inventory/` | Stock, movimientos, depósitos | — |
+| `Punto\App\Domain\Document\` | `app/Domain/Document/` | Facturas, comprobantes, numeración | — |
+| `Punto\App\Domain\Store\` | `app/Domain/Store/` | Mesas, órdenes, registros, outlets | — |
+| `Punto\App\Domain\Taxonomy\` | `app/Domain/Taxonomy/` | Categorías, marcas, impuestos | — |
+| `Punto\App\Domain\GiftCard\` | `app/Domain/GiftCard/` | Gift cards | — |
+| `Punto\App\Http\Response\` | `app/Http/Response/` | Helpers de respuesta HTTP | **`Json`**, **`Output`** (Slice 2) |
+| `Punto\App\Services\Notification\` | `app/Services/Notification/` | Email, SMS, Push, FE | — |
+| `Punto\App\Database\` | `app/Database/` | Query wrapper (reemplaza ncmExecute/Insert/Update) | — |
+
+### §26.1 — Patrón "Wrapper → Clase namespaced" (Approach C, establecido en Slice 2, commit ceed82d)
+
+**El patrón canónico** para migrar funciones globales de `functions.php` a PSR-4 sin tocar los callers existentes:
+
+1. **Crear la clase** `final` en el namespace `Punto\App\*` con métodos estáticos (para utility) o instancia con DI (para services).
+2. **Convertir la función global** en un wrapper de 1 línea con docblock `@deprecated` apuntando a la clase nueva.
+3. **Los callers existentes NO se tocan** — siguen funcionando transparentemente vía el wrapper.
+4. **Código nuevo** usa la clase directamente.
+5. **Los wrappers se mantienen ≥2 releases** antes de eliminarse; no remover hasta que no quede ningún callsite del legacy usándolo.
+
+**Ejemplo canónico (Slice 2 — `app/Http/Response/Json.php`):**
+
+```php
+// app/Http/Response/Json.php (NUEVO — Punto\App\Http\Response)
+namespace Punto\App\Http\Response;
+final class Json {
+    public static function send(mixed $payload, int $code = 200): never { ... }
+    public static function die(string $msg = 'true', int $code = 401, string $type = 'error'): never { ... }
+}
+
+// app/includes/functions.php (wrapper — mantiene los 61 callers legacy intactos)
+/**
+ * @deprecated Slice 2 (PSR-4). Usar `\Punto\App\Http\Response\Json::die()` en código nuevo.
+ *             Este wrapper se mantiene para los ~61 callers legacy.
+ */
+function jsonDieMsg($msg='true',$code=401,$type='error'){
+    \Punto\App\Http\Response\Json::die($msg, $code, $type);
+}
+```
+
+**Clases en `app/Http/Response/` (POBLADAS — Slice 2, commit ceed82d):**
+
+| Clase | Reemplaza a | Callers legacy preservados |
+|-------|------------|---------------------------|
+| `Json::send($payload, $code=200)` | `jsonDieResult($array, $code)` | 158 |
+| `Json::die($msg, $code=401, $type='error')` | `jsonDieMsg($msg, $code, $type)` | 61 |
+| `Output::dai($val, $noclose=false)` | `dai($val, $noclose)` | 542 |
+
+`Output::dai()` cierra `$GLOBALS['db']` antes de `die()` (comportamiento idéntico al legacy). **Total: 761 callsites legacy intactos** — el wrapper es completamente transparente.
 
 **Convenciones de estilo** (igual que §22.9 para `/api`, adaptado al contexto `/app`):
 

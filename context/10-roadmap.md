@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-04 (PSR-4 Slice 0 — estructura `Punto\App\*` en `/app`, commit 8a7819c)
+> **Última actualización:** 2026-06-05 (PSR-4 Slice 2 — `App\Http\Response` poblada, commit ceed82d)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -556,7 +556,7 @@ Cinco tareas de higiene técnica identificadas como las de mayor ROI para /app. 
 | 1 | **Consolidar fetch handlers** — `fetch.php` eliminado, `fetchs.php` JWT-only | ✅ COMPLETO (commit 2aa149f) |
 | 2 | **Matar `action.php`** — plan de eliminación en `docs/PLAN_action_php_elimination.md` | 📋 Plan hecho (audit 2026-06-04) |
 | 3 | **Split `app.js` 26K → módulos ESM** | ⏸ DIFERIDO (sin tests; ver § Refactor app.js) |
-| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — Slice 0 hecho (commit 8a7819c) |
+| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — 3/16 sub-slices hechos (Slice 0+1+2, commit ceed82d) |
 | 5 | **CI mínimo** — GitHub Actions php-lint + js-syntax + composer-validate | ✅ COMPLETO (commits 17a2293 + 7ab230a) |
 
 ### PSR-4 `functions.php` → `Punto\App\*` — Slice 0 (commit 8a7819c, 2026-06-04)
@@ -625,7 +625,41 @@ app/
 4. `SaleService` ya usa algunas funciones globales de `functions.php` vía `include` en el bootstrap; un refactor rompería esa cadena si no se orquesta con cuidado.
 5. CI actual solo hace lint PHP; no hay tests unitarios que detecten regresión semántica.
 
-**Próximo paso**: Slice 1 — borrar los 32 candidatos dead code (4h, riesgo bajo).
+**Próximo paso**: ~~Slice 1 — borrar los 32 candidatos dead code (4h, riesgo bajo).~~ ✅ **Slice 1 COMPLETO (ver session-log 2026-06-04).** ~~**Slice 2** — `App\Http\Response` (jsonDieMsg, jsonDieResult, dai)~~ ✅ **Slice 2 COMPLETO (commit ceed82d, 2026-06-05).**
+
+**Próximo paso real**: Slice 3 — `App\Helpers\Validation` (validity, ~130 callers — linchpin del refactor). 8h estimadas.
+
+### PSR-4 `functions.php` → `Punto\App\*` — Slice 2 (commit ceed82d, 2026-06-05)
+
+**Patrón establecido (Approach C — "Wrapper → Clase namespaced"):**
+
+1. Crear clase `final` en `Punto\App\*` con métodos estáticos.
+2. La función global en `functions.php` → wrapper de 1 línea + `@deprecated` apuntando a la clase nueva.
+3. Callers legacy sin cambios (761 callsites intactos).
+4. Código nuevo usa la clase directa.
+
+**Clases creadas:**
+
+| Archivo | Clase | Métodos | Callers legacy preservados |
+|---------|-------|---------|---------------------------|
+| `app/Http/Response/Json.php` | `Json` | `::send($payload, $code=200)` · `::die($msg, $code=401, $type='error')` | 158 + 61 = 219 |
+| `app/Http/Response/Output.php` | `Output` | `::dai($val, $noclose=false)` | 542 |
+
+**`app/Helpers/SmokeTest.php` ELIMINADA** (cumplida su función — Slice 0 había prometido esto en Slice 1; se adelantó al Slice 2).
+
+**Validación:** `composer dump-autoload`: 3173 clases. PHP lint 0 regresiones. App :8002 → HTTP 200. E2E: `GET /fetchs.php` sin JWT → `{"error":"Invalid data"}` HTTP 401 (shape idéntico pre-slice). CI verde (3 jobs).
+
+**Estado del plan (16 sub-slices):**
+
+| Sub-slice | Estado | Horas |
+|-----------|--------|-------|
+| 0 | ✅ Estructura PSR-4 + autoload | 1 |
+| 1 | ✅ Borrar ~27 dead functions (−1049 líneas) | 4 |
+| **2** | ✅ **App\Http\Response (Json, Output) — 761 callers preservados** | 8 |
+| 3 | Próximo: `App\Helpers\Validation` (validity, 130 callers — linchpin) | 8 |
+| 4–15 | Pendientes | ~199 |
+
+`functions.php`: 5117 → 4068 (Slice 1, −1049) → 4062 (Slice 2, −6 por wrappers de 1 línea).
 
 ---
 

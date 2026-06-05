@@ -1,12 +1,12 @@
 # Plan de migración de `app/includes/functions.php` a PSR-4
 
-> **Estado:** Diseño aprobado. Slice 0 ejecutado.
-> **Última actualización:** 2026-06-04 (audit por Explore agent)
+> **Estado:** En ejecución. Slices 0, 1, 2 completos. Próximo: Slice 3 (`App\Helpers\Validation`).
+> **Última actualización:** 2026-06-05 (Slice 2 — commit ceed82d)
 > **Estimado total:** 220h (~11 semanas FTE, 7 con 2 devs)
 
 ## Resumen ejecutivo
 
-`app/includes/functions.php` tiene **5116 líneas con 180 funciones globales** que el monolito /app del POS usa pervasivamente. **18% son dead code** (32 funciones sin callers); las restantes incluyen el money path (cálculo de impuestos, comisiones, inventario, gift cards).
+`app/includes/functions.php` **comenzó con 5116 líneas y 180 funciones globales**. Post Slice 1: 4068 líneas (−1049 dead code). Post Slice 2: 4062 líneas. Las funciones restantes incluyen el money path (cálculo de impuestos, comisiones, inventario, gift cards).
 
 Migrarlo a namespaces PSR-4 sin romper nada requiere un **enfoque gradual de 16 sub-slices** durante 7-11 semanas.
 
@@ -73,9 +73,9 @@ Migrarlo a namespaces PSR-4 sin romper nada requiere un **enfoque gradual de 16 
 
 | Sub-slice | Qué | Horas | Riesgo | Bloquea | Notas |
 |---|---|---|---|---|---|
-| **0** | Estructura PSR-4 + composer autoload | 1 | Bajo | Nada | **HOY** — mkdir + dump-autoload |
-| **1** | Borrar 32 funciones dead | 4 | Bajo | Nada | Auditar panel/, bff/, screens primero |
-| **2** | `App\Http\Response` (jsonDieMsg, dai) | 8 | Medio | Tests | 79 callers |
+| **0** ✅ | Estructura PSR-4 + composer autoload | 1 | Bajo | Nada | COMPLETO (commit 8a7819c) |
+| **1** ✅ | Borrar ~27 funciones dead (−1049 líneas) | 4 | Bajo | Nada | COMPLETO — ver session-log 2026-06-04 |
+| **2** ✅ | `App\Http\Response` (jsonDieMsg, jsonDieResult, dai) | 8 | Medio | Tests | COMPLETO (commit ceed82d) — 761 callers preservados |
 | **3** | `App\Helpers\Validation` (validity) | 8 | **CRÍTICO** | 4-10 | 130 callers — linchpin |
 | **4** | `App\Helpers\String` (toUTF8, markup) | 8 | Bajo | Nada | 80+ callers |
 | **5** | `App\Helpers\Date` (niceDate) | 8 | Bajo | Nada | 30 callers |

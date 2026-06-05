@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 — PSR-4 Slice 2: App\Http\Response poblada — 761 callers legacy intactos (commit ceed82d)
+
+- **Slice 2 del plan de migración `functions.php` → PSR-4** (sub-slice 2 del ítem #4 top-5). Establece el **patrón canónico "Wrapper → Clase namespaced"** (Approach C) que guiará los 13 sub-slices restantes. Primer código REAL en `Punto\App\*`.
+- **2 clases nuevas en `app/Http/Response/`**: `Json` (`::send` reemplaza `jsonDieResult`; `::die` reemplaza `jsonDieMsg`) y `Output` (`::dai` reemplaza `dai`). 761 callers legacy (61+158+542) preservados sin modificar — los 3 wrappers de `functions.php` delegan a las clases nuevas en 1 línea con `@deprecated`.
+- **`app/Helpers/SmokeTest.php` ELIMINADA** (clase transitoria del Slice 0, cumplida su función de verificar el autoloader). `functions.php`: 4068 → 4062 líneas.
+- **Validación end-to-end**: `composer dump-autoload` 3173 clases · PHP lint 0 regresiones · App :8002 HTTP 200 · `GET /fetchs.php` sin JWT → `{"error":"Invalid data"}` 401 (shape idéntico pre-slice) · CI verde (3 jobs paralelos).
+- **Vault actualizado**: `08-convenciones.md §26.1` (patrón wrapper + tabla clases existentes) · `05-modulos-clave.md` (tabla PSR-4 con clases) · `10-roadmap.md` (Slice 2 ✅, progreso 3/16, plan sub-slices) · `docs/PLAN_functions_php_PSR4.md` (estado actualizado). **Próximo**: Slice 3 — `App\Helpers\Validation` (validity, 130 callers, linchpin, 8h).
+
 ## 2026-06-04 — PSR-4 Slice 0: estructura `Punto\App\*` en /app (commit 8a7819c)
 
 - **Slice 0 del plan de migración `functions.php` → PSR-4** (ítem #4 del top-5 mejoras estructurales de /app). ZERO breaking changes: ningún archivo PHP existente tocado. PHP lint 0 errores, CI verde, app :8002 → HTTP 200.
