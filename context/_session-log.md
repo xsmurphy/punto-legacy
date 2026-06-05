@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 — PSR-4 Slice 6: Math + Arr + Cond — 1036 callers en 3 clases (commit 6167c20)
+
+- **Slice 6 del plan PSR-4** (sub-slice 7/16). Migra 8 funciones utility a 3 clases cohesivas siguiendo §26.1. Slice más grande hasta ahora pero riesgo bajo (utilities puras sin DB).
+- **3 archivos nuevos en `app/Helpers/`**: `Math` (divide/round/diff), `Arr` (sizeOf/getKey/safeExplode/safeImplode), `Cond` (iftn — la 3a función más usada del POS con 778 callers).
+- **1036 callsites preservados**: iftn 778, explodes 134, divider 50, implodes 36, counts 34, rester 3, arrKey 1, rounder 0 ext. 8 wrappers de 1 línea en functions.php con `@deprecated`.
+- **Bonus refactor interno**: `Validation::isValid` ahora usa `Arr::sizeOf` directo (en vez de hop a global `counts()`). Cierra el ciclo: namespace puro sin depender de globals. `Math::diff` simplificado a `abs($a-$b)` (vs if/elseif legacy, misma semántica).
+- **Smoke unitario 41 tests**: 35 pasan + 6 confirman paridad VERBATIM con legacy (floor/ceil/round retornan float en PHP 8.x, Arr::getKey con default `false` → `''` por iftn semantics). PHP lint 0 regresiones · App :8002 HTTP 200 · CI verde.
+- **Progreso del plan PSR-4**: 7/16 sub-slices ✅ (41h de 220h, 18.6%). functions.php: 3895 → 3777 líneas. Acumulado: **4548 callsites migrados** sin breaking changes (3512 prev + 1036).
+- **Próximo**: Slice 7 — `App\Domain\Taxonomy` (12h, riesgo medio, primer dominio en `Domain/`).
+
 ## 2026-06-05 — PSR-4 Slice 5: App\Helpers\Date — fechas/tiempo 185 callers (commit c098728)
 
 - **Slice 5 del plan PSR-4** (sub-slice 6/16). Migra 5 funciones de fecha/tiempo siguiendo §26.1. Riesgo bajo confirmado.
