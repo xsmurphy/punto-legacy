@@ -3,6 +3,17 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 — PSR-4 Slice 5: App\Helpers\Date — fechas/tiempo 185 callers (commit c098728)
+
+- **Slice 5 del plan PSR-4** (sub-slice 6/16). Migra 5 funciones de fecha/tiempo siguiendo §26.1. Riesgo bajo confirmado.
+- **`app/Helpers/Date.php` (NUEVO, 175 líneas)**: `Date::nice` (formato "Domingo 03 de Junio, 2026"), `Date::niceAgo` ("Hace 2 horas"), `Date::nextPeriod` (cron recurrentes), `Date::startEndTime` (split rango horario), `Date::translateWeekName` (Monday→Lunes). Acceso a `$GLOBALS['meses']` con fallback `[]` para mock-friendly testing.
+- **185 callsites preservados**: niceDate 166, getNextDatePeriod 9, niceDate2 5, dateStartEndTime 5, translateNamesOfWeek 0 externos. 5 wrappers de 1 línea en functions.php con `@deprecated`.
+- **Quirks legacy preservados verbatim**: rama 'fortnight' vacía en nextPeriod (no-op), arg `$lang` ignorado en translateWeekName (rama 'br' comentada en legacy), '0000-00-00 00:00:00' → 'Sin fecha'.
+- **`strToDate` NO se migra** — vive en `panel/includes/functions.php` (fuera de scope del refactor /app).
+- **Smoke unitario 22/22 tests OK**: nice (8 casos: mes/año/hora/weekDay/noDay), niceAgo edge case, translateWeekName, nextPeriod (daily/weekly/monthly/quarterly/yearly + unknown), startEndTime, 4 wrappers delegan. PHP lint 0 regresiones · App :8002 HTTP 200 · CI verde.
+- **Progreso del plan PSR-4**: 6/16 sub-slices ✅ (37h hechas de 220h, 16.8%). functions.php: 3957 → 3895 líneas.
+- **Próximo**: Slice 6 — `App\Helpers\Utils` (divider, counts, otros utilities — ~60+ callers, riesgo bajo).
+
 ## 2026-06-05 — PSR-4 Slice 4: App\Helpers\Str — texto/encoding 268 callers (commit fc213f4)
 
 - **Slice 4 del plan PSR-4** (sub-slice 5/16 del ítem #4). Migra 4 funciones de texto/encoding siguiendo §26.1. Riesgo bajo confirmado.

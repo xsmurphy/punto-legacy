@@ -1,7 +1,7 @@
 # Plan de migración de `app/includes/functions.php` a PSR-4
 
-> **Estado:** En ejecución. Slices 0, 1, 2, 3, 4 completos. Próximo: Slice 5 (`App\Helpers\Date`).
-> **Última actualización:** 2026-06-05 (Slice 4 — commit fc213f4)
+> **Estado:** En ejecución. Slices 0, 1, 2, 3, 4, 5 completos. Próximo: Slice 6 (`App\Helpers\Utils`).
+> **Última actualización:** 2026-06-05 (Slice 5 — commit c098728)
 > **Estimado total:** 220h (~11 semanas FTE, 7 con 2 devs)
 
 ## Resumen ejecutivo
@@ -78,7 +78,7 @@ Migrarlo a namespaces PSR-4 sin romper nada requiere un **enfoque gradual de 16 
 | **2** ✅ | `App\Http\Response` (jsonDieMsg, jsonDieResult, dai) | 8 | Medio | Tests | COMPLETO (commit ceed82d) — 761 callers preservados |
 | **3** ✅ | `App\Helpers\Validation` (validity, validateBool, validateHttp, validateResultFromDB) | 8 | **CRÍTICO** | 4-10 | COMPLETO (commit 3fdeeb5) — **2298 callers** preservados (validity 716 + validateHttp 1524 + validateBool 58). Estimación original de 130 callers fue 5.5× off — el patrón funcionó igual. |
 | **4** ✅ | `App\Helpers\Str` (toUtf8, markupHtml, isHtml, tryBase64Decode) | 8 | Bajo | Nada | COMPLETO (commit fc213f4) — **268 callers** (238+19+9+2). Renombrado a `Str` (no `String`) por convención Laravel/PHP built-in. |
-| **5** | `App\Helpers\Date` (niceDate) | 8 | Bajo | Nada | 30 callers |
+| **5** ✅ | `App\Helpers\Date` (niceDate, niceDate2, getNextDatePeriod, dateStartEndTime, translateNamesOfWeek) | 8 | Bajo | Nada | COMPLETO (commit c098728) — **185 callers** preservados. `strToDate` quedó out-of-scope (vive en panel/). |
 | **6** | `App\Helpers\Utils` (divider, counts) | 4 | Bajo | Nada | 60+ callers |
 | **7** | `App\Domain\Taxonomy` | 12 | Medio | 8 | + cache layer |
 | **8** | `App\Domain\Store` (outlets, registers) | 12 | Bajo | 9 | Depende de 7 |

@@ -556,7 +556,7 @@ Cinco tareas de higiene técnica identificadas como las de mayor ROI para /app. 
 | 1 | **Consolidar fetch handlers** — `fetch.php` eliminado, `fetchs.php` JWT-only | ✅ COMPLETO (commit 2aa149f) |
 | 2 | **Matar `action.php`** — plan de eliminación en `docs/PLAN_action_php_elimination.md` | 📋 Plan hecho (audit 2026-06-04) |
 | 3 | **Split `app.js` 26K → módulos ESM** | ⏸ DIFERIDO (sin tests; ver § Refactor app.js) |
-| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — 5/16 sub-slices hechos (Slices 0+1+2+3+4, commit fc213f4) |
+| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — 6/16 sub-slices hechos (Slices 0+1+2+3+4+5, commit c098728) |
 | 5 | **CI mínimo** — GitHub Actions php-lint + js-syntax + composer-validate | ✅ COMPLETO (commits 17a2293 + 7ab230a) |
 
 ### PSR-4 `functions.php` → `Punto\App\*` — Slice 0 (commit 8a7819c, 2026-06-04)
@@ -625,9 +625,9 @@ app/
 4. `SaleService` ya usa algunas funciones globales de `functions.php` vía `include` en el bootstrap; un refactor rompería esa cadena si no se orquesta con cuidado.
 5. CI actual solo hace lint PHP; no hay tests unitarios que detecten regresión semántica.
 
-**Próximo paso**: ~~Slice 1 — dead code (4h).~~ ✅ ~~Slice 2 — `App\Http\Response`~~ ✅ commit ceed82d (761 callers). ~~Slice 3 — `App\Helpers\Validation`~~ ✅ commit 3fdeeb5 (2298 callers, linchpin). ~~**Slice 4** — `App\Helpers\Str` (toUtf8, markupHtml, base64)~~ ✅ **Slice 4 COMPLETO (commit fc213f4, 2026-06-05) — 268 callers preservados.**
+**Próximo paso**: ~~Slice 1 — dead code (4h).~~ ✅ ~~Slice 2 — `App\Http\Response`~~ ✅ commit ceed82d (761). ~~Slice 3 — `App\Helpers\Validation`~~ ✅ commit 3fdeeb5 (2298 linchpin). ~~Slice 4 — `App\Helpers\Str`~~ ✅ commit fc213f4 (268). ~~**Slice 5** — `App\Helpers\Date`~~ ✅ **Slice 5 COMPLETO (commit c098728, 2026-06-05) — 185 callers (5 funciones: nice, niceAgo, nextPeriod, startEndTime, translateWeekName).**
 
-**Próximo paso real**: Slice 5 — `App\Helpers\Date` (niceDate, getNextDatePeriod, ~30 callers, riesgo bajo). 8h estimadas.
+**Próximo paso real**: Slice 6 — `App\Helpers\Utils` (divider, counts, otros utilities, ~60+ callers, riesgo bajo). 4h estimadas.
 
 ### PSR-4 `functions.php` → `Punto\App\*` — Slice 2 (commit ceed82d, 2026-06-05)
 
