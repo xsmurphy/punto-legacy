@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-05 (PSR-4 Slice 2 — `App\Http\Response` poblada, commit ceed82d)
+> **Última actualización:** 2026-06-05 (PSR-4 Slice 8 — `App\Domain\Store` poblada, commit 7545b02)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -556,7 +556,7 @@ Cinco tareas de higiene técnica identificadas como las de mayor ROI para /app. 
 | 1 | **Consolidar fetch handlers** — `fetch.php` eliminado, `fetchs.php` JWT-only | ✅ COMPLETO (commit 2aa149f) |
 | 2 | **Matar `action.php`** — plan de eliminación en `docs/PLAN_action_php_elimination.md` | 📋 Plan hecho (audit 2026-06-04) |
 | 3 | **Split `app.js` 26K → módulos ESM** | ⏸ DIFERIDO (sin tests; ver § Refactor app.js) |
-| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — 7/16 sub-slices hechos (Slices 0-6, commit 6167c20). **4548 callsites migrados** sin breaking changes. |
+| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — 9/16 sub-slices hechos (Slices 0-8, commit 7545b02). **4727 callsites migrados** sin breaking changes. |
 | 5 | **CI mínimo** — GitHub Actions php-lint + js-syntax + composer-validate | ✅ COMPLETO (commits 17a2293 + 7ab230a) |
 
 ### PSR-4 `functions.php` → `Punto\App\*` — Slice 0 (commit 8a7819c, 2026-06-04)
@@ -625,9 +625,9 @@ app/
 4. `SaleService` ya usa algunas funciones globales de `functions.php` vía `include` en el bootstrap; un refactor rompería esa cadena si no se orquesta con cuidado.
 5. CI actual solo hace lint PHP; no hay tests unitarios que detecten regresión semántica.
 
-**Próximo paso**: ~~Slice 1 — dead code (4h).~~ ✅ ~~Slice 2 — `App\Http\Response`~~ ✅ commit ceed82d (761). ~~Slice 3 — `App\Helpers\Validation`~~ ✅ commit 3fdeeb5 (2298 linchpin). ~~Slice 4 — `App\Helpers\Str`~~ ✅ commit fc213f4 (268). ~~Slice 5 — `App\Helpers\Date`~~ ✅ commit c098728 (185). ~~**Slice 6** — `App\Helpers\{Math,Arr,Cond}`~~ ✅ **Slice 6 COMPLETO (commit 6167c20, 2026-06-05) — 1036 callers en 3 clases (iftn 778 + explodes 134 + divider 50 + implodes 36 + counts 34 + rester 3 + arrKey 1).**
+**Próximo paso**: ~~Slice 1 — dead code (4h).~~ ✅ ~~Slice 2 — `App\Http\Response`~~ ✅ commit ceed82d (761). ~~Slice 3 — `App\Helpers\Validation`~~ ✅ commit 3fdeeb5 (2298 linchpin). ~~Slice 4 — `App\Helpers\Str`~~ ✅ commit fc213f4 (268). ~~Slice 5 — `App\Helpers\Date`~~ ✅ commit c098728 (185). ~~**Slice 6** — `App\Helpers\{Math,Arr,Cond}`~~ ✅ **Slice 6 COMPLETO (commit 6167c20, 2026-06-05) — 1036 callers en 3 clases.** ~~**Slice 7** — `App\Domain\Taxonomy`~~ ✅ **Slice 7 COMPLETO (commit 416f4e9, 2026-06-05) — 112 callers, 12 funciones, cache getName().** ~~**Slice 8** — `App\Domain\Store`~~ ✅ **Slice 8 COMPLETO (commit 7545b02, 2026-06-05) — 67 callsites, 5 funciones outlet/store.**
 
-**Próximo paso real**: Slice 7 — `App\Domain\Taxonomy` (primer slice del namespace `Domain/`, 12h, riesgo medio). Cambia el sub-namespace de `Helpers/` (utilities puras) a `Domain/` (lógica de negocio).
+**Próximo paso real**: Slice 9 — `App\Domain\Customer` (getData, loyalty, 20h, riesgo alto). Depende de Slice 7.
 
 ### PSR-4 `functions.php` → `Punto\App\*` — Slice 2 (commit ceed82d, 2026-06-05)
 
@@ -656,10 +656,15 @@ app/
 | 0 | ✅ Estructura PSR-4 + autoload | 1 |
 | 1 | ✅ Borrar ~27 dead functions (−1049 líneas) | 4 |
 | **2** | ✅ **App\Http\Response (Json, Output) — 761 callers preservados** | 8 |
-| 3 | Próximo: `App\Helpers\Validation` (validity, 130 callers — linchpin) | 8 |
-| 4–15 | Pendientes | ~199 |
+| 3 | ✅ `App\Helpers\Validation` (validity+validateBool+validateHttp+validateResultFromDB — 2298 callers, linchpin) | 8 |
+| 4 | ✅ `App\Helpers\Str` (toUtf8, markupHtml, isHtml, tryBase64Decode — 268 callers) | 8 |
+| 5 | ✅ `App\Helpers\Date` (niceDate, niceDate2, getNextDatePeriod, dateStartEndTime, translateNamesOfWeek — 185 callers) | 8 |
+| 6 | ✅ `App\Helpers\{Math, Arr, Cond}` (iftn 778 + explodes 134 + divider 50 + implodes 36 + counts 34 + rester 3 + arrKey 1 — 1036 callers) | 4 |
+| **7** | ✅ **`App\Domain\Taxonomy` — 112 callers, 12 funciones, cache getName() (commit 416f4e9)** | 12 |
+| **8** | ✅ **`App\Domain\Store` — 67 callsites, 5 funciones outlet/store (commit 7545b02)** | 12 |
+| 9–15 | Pendientes | ~153 |
 
-`functions.php`: 5117 → 4068 (Slice 1, −1049) → 4062 (Slice 2, −6 por wrappers de 1 línea).
+`functions.php`: 5117 → 4068 (Slice 1, −1049) → 4062 (Slice 2) → 4022 (Slice 3) → 3957 (Slice 4) → 3895 (Slice 5) → 3777 (Slice 6) → 3658 (Slice 7, −119) → 3599 (Slice 8, −59). autoload: **3181 clases**.
 
 ---
 

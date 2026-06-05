@@ -1,7 +1,7 @@
 # Plan de migración de `app/includes/functions.php` a PSR-4
 
-> **Estado:** En ejecución. Slices 0-6 completos (7/16). Próximo: Slice 7 (`App\Domain\Taxonomy`).
-> **Última actualización:** 2026-06-05 (Slice 6 — commit 6167c20)
+> **Estado:** En ejecución. Slices 0-8 completos (9/16). Próximo: Slice 9 (`App\Domain\Customer`).
+> **Última actualización:** 2026-06-05 (Slice 8 — commit 7545b02)
 > **Estimado total:** 220h (~11 semanas FTE, 7 con 2 devs)
 
 ## Resumen ejecutivo
@@ -80,8 +80,8 @@ Migrarlo a namespaces PSR-4 sin romper nada requiere un **enfoque gradual de 16 
 | **4** ✅ | `App\Helpers\Str` (toUtf8, markupHtml, isHtml, tryBase64Decode) | 8 | Bajo | Nada | COMPLETO (commit fc213f4) — **268 callers** (238+19+9+2). Renombrado a `Str` (no `String`) por convención Laravel/PHP built-in. |
 | **5** ✅ | `App\Helpers\Date` (niceDate, niceDate2, getNextDatePeriod, dateStartEndTime, translateNamesOfWeek) | 8 | Bajo | Nada | COMPLETO (commit c098728) — **185 callers** preservados. `strToDate` quedó out-of-scope (vive en panel/). |
 | **6** ✅ | `App\Helpers\{Math, Arr, Cond}` (divider, rounder, rester, counts, arrKey, explodes, implodes, iftn) | 4 | Bajo | Nada | COMPLETO (commit 6167c20) — **1036 callers** (iftn 778 + explodes 134 + divider 50 + implodes 36 + counts 34 + rester 3 + arrKey 1). Splitteado en 3 clases por cohesión semántica. |
-| **7** | `App\Domain\Taxonomy` | 12 | Medio | 8 | + cache layer |
-| **8** | `App\Domain\Store` (outlets, registers) | 12 | Bajo | 9 | Depende de 7 |
+| **7** ✅ | `App\Domain\Taxonomy` — 112 callers, 12 métodos, cache getName() (commit 416f4e9) | 12 | Medio | 8 | Primera clase en Domain/ |
+| **8** ✅ | `App\Domain\Store` — 67 callsites, 5 funciones outlet/store (commit 7545b02) | 12 | Bajo | 9 | Segunda clase en Domain/ |
 | **9** | `App\Domain\Customer` (getData, loyalty) | 20 | Alto | 15 | 60 callers, GDPR |
 | **10** | `App\Database\Query` (ncmExecute) | 28 | **CRÍTICO** | 11-14 | 127 callers |
 | **11** | `App\Domain\Document` (docNumber) | 16 | **CRÍTICO** | 12 | comprobante audit |

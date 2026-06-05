@@ -3,6 +3,22 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 — PSR-4 Slice 8: App\Domain\Store — 67 callsites, 5 funciones (commit 7545b02)
+
+- **Segunda clase en `Punto\App\Domain\`** — `app/Domain/Store.php` — `final class Store` con 5 métodos estáticos que reemplazan 5 funciones globales de outlets/store en `functions.php`. Mismo patrón Wrapper §26.1 del Approach C.
+- **67 callsites preservados** sin breaking changes: `getCurrentOutletName` 41 (la más usada), `selectInputOutlet` 19, `getOperatingCost` 3, `getAllOutletData` 2, `getOutletCount` 2. 5 wrappers `@deprecated Slice 8` en `functions.php`.
+- **Métricas acumuladas post Slice 8**: `functions.php` 3658 → 3599 líneas (−59). autoload: 3181 clases. PHP lint 0 regresiones. App :8002 HTTP 200.
+- **Progreso plan PSR-4**: 9/16 sub-slices ✅. **4727 callsites migrados** acumulados (4660 prev + 67). `Punto\App\Domain\` tiene 2 clases: `Taxonomy` (Slice 7) + `Store` (Slice 8).
+- **Próximo**: Slice 9 — `App\Domain\Customer` (getData, loyalty, 20h, riesgo alto — 60 callers, GDPR).
+
+## 2026-06-05 — PSR-4 Slice 7: App\Domain\Taxonomy — 112 callers, 12 funciones (commit 416f4e9)
+
+- **Primer clase en `Punto\App\Domain\`** (cruce de namespace Helpers/ → Domain/: utilities puras → lógica de negocio con acceso a BD). `app/Domain/Taxonomy.php` — `final class Taxonomy` con 12 métodos estáticos que reemplazan las 12 funciones globales de taxonomy/payment en `functions.php`.
+- **112 callsites preservados** sin breaking changes: getTaxonomyName 28, getPaymentMethodName 25, printOutTags 12, getAllItemCategories 13, getCustomTemplates 9, getTaxValue 8, getTaxonomyArray 6, selectInputTaxonomy 4, getTaxonomyIdOrInsert 3, getTagsDefaults 2, getAllTaxonomyNames 1, getCategoriesIds 1. 12 wrappers `@deprecated Slice 7` en functions.php.
+- **Cache layer en `getName()`**: mapa estático `$cache[companyId][id] = name` para evitar N+1 en loops de `printOutTags`. No existía en el legacy.
+- **functions.php**: 3777 → 3658 líneas (-119). autoload: 3180 clases. PHP lint 0 regresiones · App :8002 HTTP 200.
+- **Progreso plan PSR-4**: 8/16 sub-slices ✅. **4660 callsites migrados** acumulados (4548 prev + 112). Próximo: Slice 8 — `App\Domain\Store` (12h, riesgo bajo).
+
 ## 2026-06-05 (cierre de jornada) — PSR-4 mega-sesión: 5 slices, 4548 callsites migrados
 
 - **Hecho**: jornada masiva del refactor PSR-4 (ítem #4 top-5 estructurales de /app). Slices 2-6 ejecutados consecutivamente con el patrón Wrapper §26.1 (Approach C "Híbrido Gradual"). 8 clases nuevas en `Punto\App\*` (Json, Output, Validation, Str, Date, Math, Arr, Cond). Commits ceed82d..6167c20. Ver entries individuales abajo para detalles por slice.

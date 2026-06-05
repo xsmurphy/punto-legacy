@@ -86,14 +86,22 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 | `app/Services/Notification/` | `Punto\App\Services\Notification\` | Email, SMS, Push, FE |
 | `app/Database/` | `Punto\App\Database\` | Query wrapper (reemplaza ncmExecute) |
 
-**Clases PSR-4 existentes en `/app` (post Slice 2, commit ceed82d):**
+**Clases PSR-4 existentes en `/app` (post Slice 7, commit 416f4e9):**
 
 | Clase | Namespace completo | Reemplaza (wrapper en functions.php) |
 |-------|-------------------|--------------------------------------|
 | `Json` | `Punto\App\Http\Response\Json` | `jsonDieResult` (158 callers) + `jsonDieMsg` (61 callers) |
 | `Output` | `Punto\App\Http\Response\Output` | `dai` (542 callers) |
+| `Validation` | `Punto\App\Helpers\Validation` | `validity` (716) + `validateHttp` (1524) + `validateBool` (58) + `validateResultFromDB` |
+| `Str` | `Punto\App\Helpers\Str` | `toUTF8` (238) + `markupt2HTML` (19) + `isBase64Decode` (9) + `isHTML` (2) |
+| `Date` | `Punto\App\Helpers\Date` | `niceDate` (166) + `getNextDatePeriod` (9) + `niceDate2` (5) + `dateStartEndTime` (5) + `translateNamesOfWeek` |
+| `Math` | `Punto\App\Helpers\Math` | `divider` (50) + `rounder` + `rester` (3) |
+| `Arr` | `Punto\App\Helpers\Arr` | `counts` (34) + `explodes` (134) + `implodes` (36) + `arrKey` (1) |
+| `Cond` | `Punto\App\Helpers\Cond` | `iftn` (778) |
+| `Taxonomy` | `Punto\App\Domain\Taxonomy` | 12 funciones taxonomy/payment (112 callers). Cache estático en `getName()` para evitar N+1 en printTags loops. Primera clase en `Domain/`. |
+| `Store` | `Punto\App\Domain\Store` | 5 funciones outlet/store (67 callsites): `getCurrentOutletName` (41), `selectInputOutlet` (19), `getOperatingCost` (3), `getAllOutletData` (2), `getOutletCount` (2). Segunda clase en `Domain/`. (Slice 8, commit 7545b02) |
 
-Los demás directorios siguen vacíos (`.gitkeep`); se poblan en Slices 3-16. `app/Helpers/SmokeTest.php` fue **eliminada en Slice 2** (cumplida su función transitoria de verificar el autoloader). Ver `08-convenciones.md §26` y `10-roadmap.md § Top-5 mejoras estructurales`.
+`app/Helpers/SmokeTest.php` fue **eliminada en Slice 2** (cumplida su función transitoria). Ver `08-convenciones.md §26` y `10-roadmap.md § Top-5 mejoras estructurales`. autoload: **3181 clases** (post Slice 8).
 
 ---
 

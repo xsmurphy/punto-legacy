@@ -1199,8 +1199,8 @@ Estas son las versiones contra las que se valida el código en CI. Si se necesit
 | `Punto\App\Domain\Money\` | `app/Domain/Money/` | Cálculos monetarios, comisiones, impuestos | — |
 | `Punto\App\Domain\Inventory\` | `app/Domain/Inventory/` | Stock, movimientos, depósitos | — |
 | `Punto\App\Domain\Document\` | `app/Domain/Document/` | Facturas, comprobantes, numeración | — |
-| `Punto\App\Domain\Store\` | `app/Domain/Store/` | Mesas, órdenes, registros, outlets | — |
-| `Punto\App\Domain\Taxonomy\` | `app/Domain/Taxonomy/` | Categorías, marcas, impuestos | — |
+| `Punto\App\Domain\Store\` | `app/Domain/Store/` | Mesas, órdenes, registros, outlets | **`Store`** (Slice 8) |
+| `Punto\App\Domain\Taxonomy\` | `app/Domain/Taxonomy/` | Categorías, marcas, impuestos | **`Taxonomy`** (Slice 7) |
 | `Punto\App\Domain\GiftCard\` | `app/Domain/GiftCard/` | Gift cards | — |
 | `Punto\App\Http\Response\` | `app/Http/Response/` | Helpers de respuesta HTTP | **`Json`**, **`Output`** (Slice 2) |
 | `Punto\App\Services\Notification\` | `app/Services/Notification/` | Email, SMS, Push, FE | — |
