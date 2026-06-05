@@ -49,7 +49,7 @@ final class Validation
         if (!isset($value)) {
             return false;
         }
-        if (!$value || empty($value) || $value == 'undefined' || $value === null || $value == false || $value === false || $value == '' || counts($value) < 0.00001) {
+        if (!$value || empty($value) || $value == 'undefined' || $value === null || $value == false || $value === false || $value == '' || Arr::sizeOf($value) < 0.00001) {
             return false;
         }
         if ($force) {

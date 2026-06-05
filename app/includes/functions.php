@@ -1770,10 +1770,11 @@ function sanitizeForDB($str){
 	return trim(htmlspecialchars($str));
 }
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Cond::iftn()`. ~778 callers (la 3a más usada).
+ */
 function iftn($if, $else = false, $then = false){
-	$else 	= validity($else)?$else:'';
-	$final 	= validity($then)?$then:$if;
-	return validity($if)?$final:$else;
+    return \Punto\App\Helpers\Cond::iftn($if, $else, $then);
 }
 
 /**
@@ -1981,41 +1982,25 @@ function switchIn($name, $status, $extraClass='',$val=1){
 		    </div>';
 }
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Arr::getKey()`. ~1 caller.
+ */
 function arrKey($array,$key,$returnOnFalse=false){
-	if(array_key_exists($key, $array)){
-		return $array[$key];
-	}else{
-		return iftn($returnOnFalse,false);
-	}
+    return \Punto\App\Helpers\Arr::getKey((array) $array, $key, $returnOnFalse);
 }
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Arr::sizeOf()`. ~34 callers.
+ */
 function counts($val){
-	if(is_numeric($val)){//primero check is numeric para procesar numeric strings
-        return $val;
-	}else if(is_string($val)){
-		return strlen($val);
-	}else if(is_array($val)){
-		return count($val);
-	}else{
-		return 0;
-	}
+    return \Punto\App\Helpers\Arr::sizeOf($val);
 }
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Arr::safeExplode()`. ~134 callers.
+ */
 function explodes($str,$array,$return=-1){
-	if(validity($array,'string')){
-		if($return > -1){
-			$out = explode($str,$array);
-			return $out[$return];
-		}else{
-			return explode($str,$array);
-		}
-	}else{
-		if($return > -1){
-			return '';
-		}else{
-			return array();
-		}
-	}
+    return \Punto\App\Helpers\Arr::safeExplode((string) $str, $array, (int) $return);
 }
 function getItemPrice($id){
 	global $db, $SQLcompanyId;
@@ -3347,16 +3332,11 @@ function jsonDieResult($array,$code=200){
     \Punto\App\Http\Response\Json::send($array, $code);
 }
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Arr::safeImplode()`. ~36 callers.
+ */
 function implodes($str,$array,$returnEmpty=false){
-	if(is_array($array) && validity($array)){
-		return implode($str,$array);
-	}else{
-		if($returnEmpty){
-			return '';
-		}else{
-			return false;
-		}
-	}
+    return \Punto\App\Helpers\Arr::safeImplode((string) $str, $array, (bool) $returnEmpty);
 }
 
 /**
@@ -3657,51 +3637,25 @@ function voidSale($trId,$motive=''){
 
 //other
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Math::divide()`. ~50 callers.
+ */
 function divider($val1,$val2,$force=false,$round=false){
-	if($val1>0 && $val2>0){
-		if($force){
-			$out = $val1/$val2;
-            return rounder($out,$round);
-		}
-
-		if($val1>$val2){
-			$out = ($val1/$val2);
-		}else{
-			$out = ($val2/$val1);
-		}
-	}else{
-		$out = 0;
-	}
-
-	return rounder($out,$round);
+    return \Punto\App\Helpers\Math::divide($val1, $val2, (bool) $force, $round);
 }
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Math::round()`. 0 callers externos.
+ */
 function rounder($value,$round=false){
-	if($round){
-		if($round == 'down'){
-			$out = floor($value);
-		}else if($round == 'up'){
-			$out = ceil($value);
-		}else if($round == 'auto'){
-			$out = round($value);
-		}else{
-			$out = $value;
-		}
-	}else{
-		$out = $value;
-	}
-	return $out;
+    return \Punto\App\Helpers\Math::round($value, $round);
 }
 
+/**
+ * @deprecated Slice 6 (PSR-4). Usar `\Punto\App\Helpers\Math::diff()`. ~3 callers.
+ */
 function rester($first,$second,$round=false){
-	if($first>$second){
-		$out = $first-$second;
-	}elseif($first<$second){
-		$out = $second-$first;
-	}else{
-		$out = 0;
-	}
-	return rounder($out,$round);
+    return \Punto\App\Helpers\Math::diff($first, $second, $round);
 }
 
 function print_gzipped_page() {
