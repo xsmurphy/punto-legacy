@@ -1066,128 +1066,44 @@ function selectInputTaxonomy($type,$match,$multi=false){
 <?php
 }
 
+/**
+ * @deprecated Slice 5 (PSR-4). Usar `\Punto\App\Helpers\Date::nice()` en código nuevo.
+ *             Wrapper mantenido para los ~166 callers legacy.
+ */
 function niceDate($date, $hours = false, $noDay = false, $year = true, $weekDay = false){
-	global $dias,$meses;
-	if($date == '0000-00-00 00:00:00' || !validity($date)){
-		return 'Sin fecha';
-	}
-
-	$y 			= ($year) ? ', ' . date('Y',strtotime($date)) : '';
-	$m			= date('m',strtotime($date));
-	$d			= ($noDay) ? '' : date('d',strtotime($date)) . ' de ';
-	$h			= date('H',strtotime($date));
-	$mi			= date('i',strtotime($date));	
-	$s			= date('s',strtotime($date));
-	$w 			= date('w',strtotime($date));
-	$l			= ($weekDay) ? translateNamesOfWeek(date('l',strtotime($date))) . ' ' : '';
-
-	$hoursto 	= ($hours == true) ? ' a las ' . $h . ':' . $mi : '';
-
-	return $l . $d . $meses[$m-1] . $y . $hoursto;
+    return \Punto\App\Helpers\Date::nice($date, (bool) $hours, (bool) $noDay, (bool) $year, (bool) $weekDay);
 }
 
+/**
+ * @deprecated Slice 5 (PSR-4). Usar `\Punto\App\Helpers\Date::niceAgo()` en código nuevo.
+ *             Wrapper mantenido para los ~5 callers legacy.
+ */
 function niceDate2($datetime, $type = 'normal') {
-
-	if($datetime == '0000-00-00 00:00:00' || !validity($datetime)){
-		return 'Sin fecha';
-	}
-
-    $now = new DateTime;
-    $ago = new DateTime($datetime);
-    $diff = $now->diff($ago);
-    $plural = '';
-
-    $weekends = floor($diff->d / 7);
-    $diff->d -= $weekends * 7;
-
-    if($type == 'small'){
-    	$string = array(
-	        'y' => 'año',
-	        'm' => 'mes',
-	        'w' => 'sem',
-	        'd' => 'día',
-	        'h' => 'h',
-	        'i' => 'min',
-	        's' => 'seg',
-	    );
-    }else{
-    	$string = array(
-	        'y' => 'año',
-	        'm' => 'mes',
-	        'w' => 'semana',
-	        'd' => 'día',
-	        'h' => 'hora',
-	        'i' => 'minutos',
-	        's' => 'segundos',
-	    );
-    }
-
-    foreach ($string as $k => &$v) {
-        if (!empty($diff->$k)) {
-        	if($type != 'small'){
-        		$plural = ($k == 'm')?'es':'s';
-        	}
-            $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? $plural : '');
-        } else {
-            unset($string[$k]);
-        }
-    }
-
-    if($type == 'normal'){
-    	$string = array_slice($string, 0, 1);
-    	return $string ? 'Hace '.implodes(', ', $string) : 'Ahora';
-    }else if($type == 'full'){
-    	return $string ? 'Hace '.implodes(', ', $string) : 'Ahora';
-    }else if($type == 'small'){
-    	$string = array_slice($string, 0, 1);
-    	return $string ? implodes(', ', $string) : 'Ahora';
-    }
-
+    return \Punto\App\Helpers\Date::niceAgo($datetime, $type);
 }
 
+/**
+ * @deprecated Slice 5 (PSR-4). Usar `\Punto\App\Helpers\Date::startEndTime()` en código nuevo.
+ *             Wrapper mantenido para los ~5 callers legacy.
+ */
 function dateStartEndTime($startDate,$endDate){
-	$date 	= explodes(' ',$startDate,0);
-	$start 	= explodes(' ',$startDate,1);
-	$end 	= explodes(' ',$endDate,1);
-
-	$start 	= explodes(':',$start,0) . ':' . explodes(':',$start,1);
-	$end 	= explodes(':',$end,0) . ':' . explodes(':',$end,1);
-
-	return array($date,$start,$end);
+    return \Punto\App\Helpers\Date::startEndTime((string) $startDate, (string) $endDate);
 }
 
+/**
+ * @deprecated Slice 5 (PSR-4). Usar `\Punto\App\Helpers\Date::nextPeriod()` en código nuevo.
+ *             Wrapper mantenido para los ~9 callers legacy (cron de recurrentes).
+ */
 function getNextDatePeriod($frecuency,$times,$date = TODAY,$format = 'Y-m-d 00:00:00'){
-	if($frecuency == 'daily'){
-		$strtotime = strtotime($date . ' +' . $times . ' day');
-	}else if($frecuency == 'weekly'){
-		$strtotime = strtotime($date . ' +' . $times . ' week');
-	}else if($frecuency == 'fortnight'){
-		//$strtotime = strtotime($date . ' +' . $times . ' week');
-	}else if($frecuency == 'monthly'){
-		$strtotime = strtotime($date . ' +' . $times . ' month');
-	}else if($frecuency == 'quarterly'){
-		$strtotime = strtotime($date . ' +' . ($times * 3) . ' month');
-	}else if($frecuency == 'yearly'){
-		$strtotime = strtotime($date . ' +' . $times . ' year');
-	}else{
-		$strtotime = strtotime($date);
-	}
-
-	return date($format,$strtotime);
+    return \Punto\App\Helpers\Date::nextPeriod((string) $frecuency, (int) $times, (string) $date, (string) $format);
 }
 
+/**
+ * @deprecated Slice 5 (PSR-4). Usar `\Punto\App\Helpers\Date::translateWeekName()` en código nuevo.
+ *             Wrapper mantenido para 0 callers externos (interno de niceDate vía wrapper).
+ */
 function translateNamesOfWeek($word,$lang='es'){
-	$src 	= ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-	$es 	= ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-	$change = $es;
-
-	if($lang == 'br'){
-		// $change = $br;
-	}
-
-	$out = str_replace($src, $es, $word);
-
-	return $out;
+    return \Punto\App\Helpers\Date::translateWeekName((string) $word, (string) $lang);
 }
 
 function buildCalendarTop($options,$test=false){
