@@ -3393,10 +3393,12 @@ function signUp($post,$login = true){
 	}
 }
 
+/**
+ * @deprecated Slice 2 (PSR-4). Usar `\Punto\App\Http\Response\Json::die()` en código nuevo.
+ *             Este wrapper se mantiene para los ~61 callers legacy.
+ */
 function jsonDieMsg($msg='true',$code=401,$type='error'){
-	http_response_code($code);
-	header('Content-Type: application/json');
-    die(json_encode([$type=>$msg]));
+    \Punto\App\Http\Response\Json::die($msg, $code, $type);
 }
 
 /**
@@ -3446,10 +3448,12 @@ function saleIsSimplePathEligible(array $payload, array $sale): ?string
 	return null;
 }
 
+/**
+ * @deprecated Slice 2 (PSR-4). Usar `\Punto\App\Http\Response\Json::send()` en código nuevo.
+ *             Este wrapper se mantiene para los ~158 callers legacy.
+ */
 function jsonDieResult($array,$code=200){
-	http_response_code($code);
-	header('Content-Type: application/json');
-    die(json_encode($array));
+    \Punto\App\Http\Response\Json::send($array, $code);
 }
 
 function implodes($str,$array,$returnEmpty=false){
@@ -3546,13 +3550,12 @@ function markupt2HTML($options){
 	return $text;
 }
 
+/**
+ * @deprecated Slice 2 (PSR-4). Usar `\Punto\App\Http\Response\Output::dai()` en código nuevo.
+ *             Este wrapper se mantiene para los ~542 callers legacy.
+ */
 function dai($val = '',$noclose = false){
-	global $db;
-	if(!$noclose && $db){
-		$db->Close();
-	}
-	die($val);
-	exit();
+    \Punto\App\Http\Response\Output::dai((string) $val, $noclose);
 }
 function passEncoder($pass){
 	// A salt is randomly generated here to protect again brute force attacks
