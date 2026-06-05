@@ -16,5 +16,9 @@
         "allow-plugins": {
             "php-http/discovery": true
         }
+    },
+    "scripts": {
+        "lint": "find . -name '*.php' -not -path './vendor/*' -not -path './cach/*' -exec php -l {} \\; | grep -v 'No syntax errors detected' || true",
+        "lint:strict": "find . -name '*.php' -not -path './vendor/*' -not -path './cach/*' -print0 | xargs -0 -n1 -P4 php -l > /dev/null"
     }
 }

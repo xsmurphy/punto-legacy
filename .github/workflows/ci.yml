@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancelar runs previos en el mismo branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────
+  # PHP lint — php -l sobre todos los .php cambiados (no vendor/cach)
+  # ────────────────────────────────────────────────────────────────────
+  php-lint:
+    name: PHP Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 2 deja diff vs HEAD~ para detectar archivos cambiados
+          fetch-depth: 2
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Determinar archivos PHP cambiados
+        id: changed
+        run: |
+          # En push a main: diff vs HEAD~. En PR: diff vs base branch.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+            # Si before es 0000... (primer push), fallback a HEAD~1
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base="HEAD~1"
+            fi
+          fi
+          files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.php' \
+            | grep -vE '^(.*/vendor/|.*/cach/|.*/node_modules/)' || true)
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$files" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "Archivos PHP a lintear:"
+          echo "$files"
+
+      - name: Lint php -l
+        if: steps.changed.outputs.files != ''
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if ! php -l "$f" > /dev/null 2>&1; then
+              echo "::error file=$f::PHP syntax error"
+              php -l "$f"
+              fail=1
+            fi
+          done <<< "${{ steps.changed.outputs.files }}"
+          exit $fail
+
+      - name: Sin archivos PHP cambiados
+        if: steps.changed.outputs.files == ''
+        run: echo "Sin .php cambiados — skip."
+
+  # ────────────────────────────────────────────────────────────────────
+  # JS syntax check — node --check sobre todos los .js cambiados
+  # (no vendor/cach/min)
+  # ────────────────────────────────────────────────────────────────────
+  js-syntax:
+    name: JS Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Determinar archivos JS cambiados
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base="HEAD~1"
+            fi
+          fi
+          files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.js' \
+            | grep -vE '^(.*/vendor/|.*/cach/|.*/node_modules/|.*\.min\.js$)' || true)
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$files" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "Archivos JS a chequear:"
+          echo "$files"
+
+      - name: node --check
+        if: steps.changed.outputs.files != ''
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if ! node --check "$f" 2>&1; then
+              echo "::error file=$f::JS syntax error"
+              fail=1
+            fi
+          done <<< "${{ steps.changed.outputs.files }}"
+          exit $fail
+
+      - name: Sin archivos JS cambiados
+        if: steps.changed.outputs.files == ''
+        run: echo "Sin .js cambiados — skip."
+
+  # ────────────────────────────────────────────────────────────────────
+  # Composer validate — chequea que app/composer.json y panel/composer.json
+  # estén bien formados y sus locks coherentes
+  # ────────────────────────────────────────────────────────────────────
+  composer-validate:
+    name: Composer Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+
+      - name: Validate app/composer.json
+        run: composer validate --no-check-publish --strict
+        working-directory: ./app
+
+      - name: Validate panel/composer.json
+        run: composer validate --no-check-publish --strict
+        working-directory: ./panel

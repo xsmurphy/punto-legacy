@@ -7,7 +7,10 @@
     "vendor": "bash scripts/vendor-sync.sh",
     "build": "./build.sh",
     "build:app": "./build.sh app",
-    "build:panel": "./build.sh panel"
+    "build:panel": "./build.sh panel",
+    "lint:js": "find app/scripts panel/scripts -name '*.js' -not -name '*.min.js' -print0 2>/dev/null | xargs -0 -n1 -P4 node --check",
+    "lint:php": "(cd app && composer lint:strict) && (cd panel && composer lint:strict)",
+    "lint": "npm run lint:js && npm run lint:php"
   },
   "repository": {
     "type": "git",
