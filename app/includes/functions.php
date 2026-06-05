@@ -205,86 +205,32 @@ function getTableObjectName($id, $table, $customQuery = "", $column = 1, $where 
 	$obj->Close();
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getRealCustomerId()`. ~1 caller.
+ */
 function getRealCustomerId($id){
-	$l = strlen((string)$id);
-	if($l > 11) {
-	    return 'contactId';
-	} else {
-	    return 'contactId';
-	}
+    return \Punto\App\Domain\Customer::getRealCustomerId($id);
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::manageLoyalty()`. ~4 callers.
+ */
 function manageCustomerLoyalty($type,$amount,$id,$compId=false){
-	global $db;
-
-	$compId 	= iftn($compId,COMPANY_ID);
-	// NO usar $db->Prepare($amount): qstr-quotea el número ('8000') y rompe la
-	// comparación/matemática del branch 'earned' ($amount >= $loyalMin daría
-	// string>=int → false). Mantenemos $amount numérico y parametrizamos en el SQL.
-	$amount 	= floatval($amount);
-
-	if($type == 'used'){
-		$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount - ?, updated_at = '" . TODAY . "' WHERE contactId = ?",[$amount, $id]);
-	}else if($type == 'earned'){
-		$contactAble = ncmExecute('SELECT contactLoyalty FROM contact WHERE contactId = ? LIMIT 1',[$id]);
-
-		if(!empty($contactAble) && ($contactAble['contactLoyalty'] > 0)){
-
-			// loyaltyMin/loyaltyValue están DEMOTED a company.config JSONB → no son
-			// columnas. SELECT * + _flattenJsonb (vía ncmExecute) las expone; el
-			// `SELECT loyaltyMin,loyaltyValue` directo fallaba (columnas inexistentes)
-			// → abortaba la tx de la venta. §22.8.
-			$loyaltyVal 	= ncmExecute('SELECT * FROM company WHERE companyId = ? LIMIT 1',[$compId]);
-			$loyalMin 		= floatval($loyaltyVal['loyaltyMin'] ?? 0);
-			$loyalVal 		= floatval($loyaltyVal['loyaltyValue'] ?? 0);
-
-			if($loyalMin > 0 && $amount >= $loyalMin){
-				$mult 	= divider($amount,$loyalMin,false,'down');
-				$earned = $loyalVal * $mult;
-				$db->Execute("UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ?, updated_at = '" . TODAY . "' WHERE contactId = ?",[$earned, $id]);
-			}
-		}
-	}
-
-	updateLastTimeEdit($compId,'customer');
+    return \Punto\App\Domain\Customer::manageLoyalty($type, $amount, $id, $compId);
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::manageStoreCredit()`. ~2 callers.
+ */
 function manageCustomerStoreCredit($type,$amount,$id,$compId=false){
-	global $db;
-	$compId 	= iftn($compId,COMPANY_ID);
-	$amount 	= floatval($amount);
-
-	if($type == 'used'){
-		// PG: amount parametrizado (no $db->Prepare, que qstr-quotea); updated_at con
-		// comillas SIMPLES (las dobles en PG son identificadores, no strings → rompía).
-		$db->Execute("UPDATE contact SET contactStoreCredit = contactStoreCredit - ?, updated_at = '" . TODAY . "' WHERE contactId = ?", [$amount, $id]);
-	}else if($type == 'earned'){
-		//
-	}
-	updateLastTimeEdit($compId,'customer');
+    return \Punto\App\Domain\Customer::manageStoreCredit($type, $amount, $id, $compId);
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::manageGiftCard()`. ~1 caller.
+ */
 function manageGiftCard($amount,$id){
-	global $db;
-
-	$amount = floatval($amount);
-
-	if($amount > 0){
-		$value 		= ncmExecute('SELECT giftCardSoldValue FROM giftCardSold WHERE (giftCardSoldCode = ? OR timestamp = ?) AND companyId = ? LIMIT 1', [$id, $id, COMPANY_ID] );
-
-		if($amount > $value['giftCardSoldValue']){
-			$amount = $value['giftCardSoldValue'];
-		}
-
-		$record 	= [
-									'giftCardSoldValue' 		=> $value['giftCardSoldValue'] - $amount,
-									'giftCardSoldLastUsed'	=> TODAY
-								];
-
-		ncmUpdate([ 'records' => $record, 'table' => 'giftCardSold', 'where' => '(giftCardSoldCode = ' . $id . ' OR timestamp = ' . $id . ') AND companyId = ' . COMPANY_ID . ' LIMIT 1' ]);
-
-		//$db->Execute("UPDATE giftCardSold SET giftCardSoldValue = giftCardSoldValue - " . $amount . ", giftCardSoldLastUsed = '" . TODAY . "' WHERE (giftCardSoldCode = ? OR timestamp = ?) AND outletId = ? LIMIT 1", [ $id, $id, OUTLET_ID ] );
-	}
+    return \Punto\App\Domain\Customer::manageGiftCard($amount, $id);
 }
 
 function insertNewGiftCard($code,$price,$expires,$trsId,$note,$beneficiaryId,$timestamp,$sendDate,$color){
@@ -407,267 +353,51 @@ function getDebtListByTransaction($id,$expireds=false){
 	return $debtArr;
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getAllContacts()`. ~15 callers.
+ */
 function getAllContacts($type=false,$where=''){
-	global $db,$compId;
-	//GET ALL CUSTOMERS ARRAY
-	$a1 = [];
-	$a2 = [];
-
-	$compId 		= iftn($compId,COMPANY_ID);
-	$plan 			= getAllPlans(PLAN_ID);
-	$outletsCount 	= getOutletCount($compId);
-
-	if($type == 0){
-		$limit = ' LIMIT ' . $plan['max_users'] * $outletsCount;
-	}else if($type == 1){
-		$limit = ' LIMIT ' . $plan['max_customers'] * $outletsCount;
-	}else{
-		$limit = ' LIMIT ' . $plan['max_suppliers'] * $outletsCount;
-	}
-
-	
-	if($type == 0 || $type > 0){$typeand = ' AND type = ' . $type;}else{$typeand = '';}
-
-	$result = ncmExecute("SELECT * FROM contact WHERE companyId = ?" . $where . $typeand . $limit,[COMPANY_ID],false,true);
-
-	if($result){
-		while (!$result->EOF) {
-			$values = 	[
-							"name"		=>$result->fields['contactName'],
-							"sname"		=>$result->fields['contactSecondName'],
-							"address"	=>$result->fields['contactAddress'],
-							"email"		=>$result->fields['contactEmail'],
-							"ruc"		=>$result->fields['contactTIN'],
-							"id"		=>$result->fields['contactId'],
-							"rid"		=>$result->fields['contactRealId'],
-							"uid"		=>$result->fields['contactId'],
-							"phone"		=>$result->fields['contactPhone'],
-							"note"		=>$result->fields['contactNote'],
-							"city"		=>$result->fields['contactCity'],
-							"date"		=>$result->fields['contactDate'],
-							"type"		=>$result->fields['type'],
-							"role"		=>$result->fields['role'],
-							"main"		=>$result->fields['main'],
-							"lockpass"	=>$result->fields['lockPass'],
-							"outlet"	=>$result->fields['outletId']
-						];
-
-		    $a1[$result->fields['contactId']] 		= $values;
-		    $a2[$result->fields['contactId']] 		= $values;
-		    $a3[$result->fields['contactRealId']] 	= $values;
-
-		    $result->MoveNext(); 
-		}
-		$result->Close();
-	}
-
-
-	
-	return [$a1,$a2,$a3];
+    return \Punto\App\Domain\Customer::getAllContacts($type, (string) $where);
 }
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getContactField()`. ~4 callers.
+ */
 function getTheContactField($id,$array,$field='name'){
-	//Esta función busca hacer un match entre el ID proveido que puede ser un UID, ID nuevo o ID viejo (AKA RealID), con alguno de los 3 posibles IDs en la DB, (ID, UID, RealID), si encuentra un match devuelve el field especificado
-	if(validity($id)){
-		$ck = 0;
-		$out = '';
-		while(1){
-			$out = array_key_exists($id, $array[$ck]) && $array[$ck][$id][$field];
-			if(validity($out) || $ck == 2){ break;}
-			$ck++;
-		}
-		return $out;
-	}else{
-		return '';
-	}
+    return \Punto\App\Domain\Customer::getContactField($id, $array, (string) $field);
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getData()`. ~38 callers.
+ */
 function getCustomerData($id, $type=false){
-	return getContactData($id, $type);
+    return \Punto\App\Domain\Customer::getData($id, $type);
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getTransactionAddress()`. ~1 caller.
+ */
 function getCustomerTransactionAddress($transId,$encode=false){
-	$out 	= false;
-	$trAddr = ncmExecute('SELECT customerAddressId as id FROM toAddress WHERE transactionId = ? LIMIT 1',[$transId]);
-	if($trAddr){
-		$address = ncmExecute('SELECT * FROM customerAddress WHERE customerAddressId = ? AND companyId = ? LIMIT 1',[$trAddr['id'], COMPANY_ID]);
-		if($address){
-			$out = [
-						'id' 		=> $encode ? enc($address['customerAddressId']) : $address['customerAddressId'],
-						'name' 		=> $address['customerAddressName'],
-						'address' 	=> $address['customerAddressText'],
-						'location' 	=> $address['customerAddressLocation'],
-						'city' 		=> $address['customerAddressCity'],
-						'lat' 		=> $address['customerAddressLat'],
-						'lng' 		=> $address['customerAddressLng']
-					];
-		}
-	}
-
-	return $out;
+    return \Punto\App\Domain\Customer::getTransactionAddress($transId, (bool) $encode);
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getContactData()`. ~36 callers.
+ */
 function getContactData($id, $type=false,$cache=false){
-	global $db, $SQLcompanyId;
-
-	$countries = [];
-
-	// PG: UUID entre comillas en SQL concat (§22.5). Sin esto el SELECT con el
-	// contactId sin comillas es syntax error → ncmExecute false → getContactData
-	// devolvía false → ningún cliente recibía recibo/notificación.
-	// (El branch por $type era redundante — siempre filtra por contactId.)
-	$where 		= "contactId = '" . $id . "'";
-
-	$genders 	= ['Masculino', 'Femenino', 'Otro'];
-	
-	$result 	= ncmExecute("SELECT * FROM contact WHERE " . $where . " AND companyId = ? LIMIT 1",[COMPANY_ID],$cache);
-
-	if($result){
-
-		if(validity($result['contactName']) || validity($result['contactSecondName'])){
-			$name 				= toUTF8($result['contactName']);
-			$sname 				= toUTF8($result['contactSecondName']);
-			$note 				= toUTF8($result['contactNote']);
-			$address 			= false;
-			$location 		= false;
-			$city 				= false;
-			$lat 					= 0;
-			$lng 					= 0;
-
-			$address    	= ncmExecute('SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true LIMIT 1',[$id,COMPANY_ID]); 
-
-			if($address){
-				$address 		= toUTF8($result['customerAddressText'] ?? "");
-				$location 	= toUTF8($result['customerAddressLocation'] ?? "");
-				$city 			= toUTF8($result['customerAddressCity'] ?? "");
-				$lat 				= $result['customerAddressLat'] ?? "";
-				$lng 				= $result['customerAddressLng'] ?? "";
-			}
-
-			$age 					= '';
-			if($result['contactBirthDay']){
-				$age 				= date_diff(date_create($result['contactBirthDay']), date_create('today'))->y;
-			}
-
-			if($result['contactCountry']){
-				include_once('libraries/countries.php');
-			}
-			
-			return [
-							'id'					=> $result['contactId'],
-							'uid'					=> $result['contactId'],
-							'name'				=> $name,
-							'secondName'	=> $sname,
-							'ruc'					=> $result['contactTIN'],
-							'phone'				=> $result['contactPhone'],
-							'phone2'			=> $result['contactPhone2'],
-							'addressId'		=> enc($result['customerAddressId'] ?? ""),
-							'address'			=> $address,
-							'location'		=> $location,
-							'city' 				=> $city,
-							'lat' 				=> $lat,
-							'lng' 				=> $lng,
-							'email'				=> $result['contactEmail'],
-							'note'				=> $note,
-							'rol' 				=> $result['role'],
-							'bDay' 				=> $result['contactBirthDay'],
-							'age' 				=> $age,
-							'country'			=> $result['contactCountry'],
-							'countryName' => $countries[$result['contactCountry'] ?? ""]['name'] ?? "",
-							'gender'			=> $genders[$result['contactGender'] ?? ""] ?? "",
-							'ci'					=> $result['contactCI'],
-							'since'				=> $result['contactDate']
-						];
-
-		}else{
-
-			return [
-							'id'					=> $result['contactId'],
-							'uid'					=> $result['contactId'],
-							'name'				=> 'Sin Nombre',
-							'secondName'	=> 'Sin Nombre',
-							'ruc'					=> '',
-							'phone'				=> '',
-							'address'			=> '',
-							'lat'					=> '',
-							'lng'					=> '',
-							'city' 				=> '',
-							'country'			=> '',
-							'location'		=> '',
-							'email'				=> '',
-							'note'				=> '',
-							'rol' 				=> $result['role'],
-							'bDay' 				=> '',
-							'age' 				=> '',
-							'gender'			=> '',
-							'ci'					=> '',
-							'since'				=> ''
-						];
-
-		}
-
-	}else{
-
-		return false;
-
-	}
+    return \Punto\App\Domain\Customer::getContactData($id, $type, $cache);
 }
 
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getName()`. ~36 callers.
+ */
 function getCustomerName($data,$part=false){
-	$name   = $data['secondName'];
-    if(!validity($name) || $name == 'Sin Nombre' || counts($name) < 2){
-      $name = $data['name'];
-    }
-
-    if($part){
-    	$part 	= ($part == 'first') ? 0 : 1;
-    	$name 	= explodes(' ',$name,$part);    	
-    }
-
-    return $name;
+    return \Punto\App\Domain\Customer::getName($data, $part);
 }
+/**
+ * @deprecated Slice 9 (PSR-4). Usar `\Punto\App\Domain\Customer::getContactCreditLine()`. ~1 caller.
+ */
 function getContactCreditLine($uid,$creditLine){
-	if(empty($uid)){
-		return 0;
-	}
-	$totalC  = ncmExecute('SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, STRING_AGG(transactionId::text, \',\') as ids 
-	                        FROM transaction 
-	                        WHERE customerId = ? 
-	                        AND transactionType = 3
-	                        AND transactionComplete = 0', 
-	                        [$uid], 60
-	                     );
-
-	if(empty($totalC) || empty($totalC['ids'])){
-		return $creditLine;
-	}
-
-  	$totalRetrns  = ncmExecute(' SELECT SUM(transactionTotal) as total 
-                          FROM transaction 
-                          WHERE customerId = ? 
-                          AND transactionType = 6
-                          AND transactionParentId IN(' . $totalC["ids"] . ')
-                          ', [$uid]
-                        );
-
-  	$payedC  = ncmExecute(' SELECT SUM(transactionTotal) as payed 
-                          FROM transaction 
-                          WHERE transactionType = 5
-                          AND transactionParentId IN(' . $totalC["ids"] . ')
-                          AND customerId = ?', [$uid]
-                        );
-
-	$totalComprado  = $totalC['total'] - $totalC['discount'];
-	$totalPagado    = $payedC['payed'] + abs($totalRetrns['total'] ?? 0);
-
-	if($totalPagado >= $totalComprado){
-		$totalDeuda     = 0;
-		$debtList       = '';
-	}else{
-		$totalDeuda     = $totalComprado - $totalPagado;  
-	}
-
-	return $creditLine - $totalDeuda;
-
+    return \Punto\App\Domain\Customer::getContactCreditLine($uid, $creditLine);
 }
 
 function checkCompanyStatus($id){
@@ -791,28 +521,11 @@ function getNextDocNumber($number,$in,$company,$register){
     	return $number;
     }
 }
+/**
+ * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::getValue()`. ~99 callers.
+ */
 function getValue($table, $field, $where = '', $returnType = 'number', $cache = false){
-	global $db;
-
-	$limit = ' LIMIT 1';
-
-	if(strpos($where, 'LIMIT') !== false){ // si where contine limit le saco
-		$limit = '';
-	}
-
-	$result 	= ncmExecute("SELECT " . $field . " FROM " . $table . " " . $where . $limit, [], $cache);
-	
-	if($result){
-		return $result[$field];
-	}else{
-		if($returnType == 'number'){
-			return 0;
-		}else if($returnType == 'boolean'){
-			return false;
-		}else if($returnType == 'string'){
-			return '';
-		}
-	}
+    return \Punto\App\Database\Query::getValue((string) $table, (string) $field, (string) $where, (string) $returnType, $cache);
 }
 
 /**
@@ -1599,157 +1312,48 @@ function validity($value,$force=false){
  * Copia idéntica de panel/includes/functions.php::_flattenJsonb para que
  * el módulo /app no necesite incluir el del panel. Phase PG.4.
  */
+/**
+ * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::flattenJsonb()`. ~23 callers.
+ */
 function _flattenJsonb($row): CaseInsensitiveArray
 {
-	$arr = ($row instanceof CaseInsensitiveArray) ? $row->toArray() : (array) $row;
-
-	static $jsonbCols = ['data', 'meta', 'config'];
-	foreach ($jsonbCols as $col) {
-		$val = $arr[$col] ?? $arr[strtolower($col)] ?? null;
-		if (isset($val) && is_string($val) && $val !== '') {
-			$decoded = json_decode($val, true);
-			if (is_array($decoded) && !array_is_list($decoded)) {
-				$arr = array_merge($decoded, $arr); // columna gana sobre JSONB
-				unset($arr[$col]);
-			}
-		}
-	}
-
-	return new CaseInsensitiveArray($arr);
+    return \Punto\App\Database\Query::flattenJsonb($row);
 }
 
+/**
+ * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::execute()`. ~1035 callers.
+ *             God node de DB del POS — semántica crítica, no modificar sin regression suite.
+ */
 function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $getAssoc = false ){
-	global $db;
-
-	$go = false;
-
-	if(!$cache){
-		if($getAssoc){
-			$result = $db->GetAssoc($sql, $array);
-		}else{
-			$result = $db->Execute($sql,$array);
-		}
-	}else{
-		$cachTime = 3600;
-		if(is_numeric($cache)){
-			$cachTime = $cache;
-		}
-
-		if($getAssoc){
-			$result = $db->CacheGetAssoc($cachTime,$sql, $array);
-		}else{
-			$result = $db->cacheExecute($cachTime,$sql,$array);
-		}
-
-	}
-
-	if($getAssoc){
-		$count = counts($result);
-	}else{
-		$count = validateResultFromDB($result,true);
-	}
-
-	if($getAssoc){
-		if(validity($result,'array')){
-			$go = true;
-		}
-	}else{
-		if(validateResultFromDB($result)){
-			$go = true;
-		}
-	}
-
-	if($go){
-		if($getAssoc){
-			// Aplanar JSONB en cada fila del array asociativo
-			return array_map('_flattenJsonb', $result);
-		}else{
-			if($count > 1 || $forceObj){
-				return $result; // objeto ADOdb — el flatten se aplica al iterar
-			}else if($count > 0){
-				return _flattenJsonb($result->fields);
-			}else{
-				return 0;
-			}
-		}
-	}else{
-		// When forceObj is requested and the query succeeded but returned 0 rows,
-		// return the empty recordset so callers can safely iterate (EOF=true from start)
-		if($forceObj && $result && is_object($result)){
-			return $result;
-		}
-		return false;
-	}
+    return \Punto\App\Database\Query::execute((string) $sql, $array, $cache, (bool) $forceObj, (bool) $getAssoc);
 }
 
-function ncmUpdate($options){//records (arr), table (str), where (str)
-	global $db;
-
-	if( !validity($options,'array') || !validity($options['records'],'array') || !validity($options['table']) || !validity($options['where']) ){
-		return false;
-	}
-
-	$table 		= $options['table'];
-	$record 	= $options['records'];
-	$where 		= $options['where'];
-
-	$update 	= $db->AutoExecute($table, $record, 'UPDATE', $where);
-	$updateId 	= $db->Insert_ID();
-
-	if($update !== false){
-		return ['error' => false, 'id' => $updateId];
-	}else{
-		return ['error' => $db->ErrorMsg()];
-	}
+/**
+ * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::update()`. ~69 callers.
+ */
+function ncmUpdate($options){
+    return \Punto\App\Database\Query::update((array) $options);
 }
 
+/**
+ * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::insert()`. ~47 callers.
+ */
 function ncmInsert($options){
-	global $db;
-
-	if( !validity($options,'array') || !validity($options['records'],'array') || !validity($options['table']) ){
-		return false;
-	}
-
-	$table 			= $options['table'];
-	$record 		= $options['records'];
-
-	$insert 		= $db->AutoExecute($table, $record, 'INSERT');
-	$insertedId = $db->Insert_ID();
-
-	if($insert !== false){
-		return $insertedId;
-	}else{
-		return false;
-	}
+    return \Punto\App\Database\Query::insert((array) $options);
 }
 
-function ncmDelete($from,$where){//
-	global $db;
-
-	if(!validity($from) || !validity($where)){
-		return false;
-	}
-
-	$deleted = $db->Execute("DELETE FROM ? WHERE ?",[$from,$where]);
-
-	if($deleted !== false){
-		return true;
-	}else{
-		return false;
-	}
+/**
+ * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::delete()`. ~3 callers.
+ */
+function ncmDelete($from,$where){
+    return \Punto\App\Database\Query::delete($from, $where);
 }
 
+/**
+ * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::iterate()`. ~1 caller.
+ */
 function ncmWhile($result,$callback,$vars){
-	if($result){
-	    while (!$result->EOF) {
-	    	$field = $result->fields;
-	    	if (is_callable($callback)) {
-		        call_user_func($callback,$field,$vars);
-		    }
-	    	$result->MoveNext(); 
-	    }
-	    $result->Close();
-	}
+    return \Punto\App\Database\Query::iterate($result, $callback, $vars);
 }
 
 function switchIn($name, $status, $extraClass='',$val=1){
