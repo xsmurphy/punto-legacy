@@ -3,6 +3,22 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 — PSR-4 Slices 11-15: Document + Money + Inventory + GiftCard + Notification (commits 2cae098..532be24)
+
+- **5 clases nuevas** bajo `Punto\App\Domain\` y `Punto\App\Services\`: `Document` (12 callers), `Money` (702 callers — hogar canónico de todo el formateo monetario), `Inventory` (116 callers — hogar canónico de stock y COGS, incluye `manageStock` crítico con 27 callers), `GiftCard` (1 caller), `Notification` (76 callers). Total nuevos callsites cubiertos: **~907**.
+- **Métricas post-Slices 11-15**: `functions.php` 3203 → **2560 líneas** (−643). autoload: **3188 clases**. Callsites migrados acumulados: **~7573**.
+- **Progreso PSR-4**: **15/16** sub-slices completos. El money path, inventory, y notificaciones tienen hogar namespaced definitivo. Slice 16 (eliminación de wrappers deprecated) **DIFERIDO post-release** (≥2 releases en prod antes de remover).
+- **Deuda P1 anotada**: credenciales de cron JWT — `cronCreateRecurringInvoice.php` re-somete a `action.php` sin JWT → 401 (pre-existente, no causada por estos slices). Registrada como tarea.
+- **Próximo**: Phase AI.1 (sin bloqueos del refactor PSR-4).
+
+## 2026-06-05 — PSR-4 Slices 9-10: App\Domain\Customer + App\Database\Query (commit 51d600b)
+
+- **Slice 9** — `app/Domain/Customer.php` — `final class Customer`, 11 métodos estáticos, 139 callsites. Fix P0: `getName(mixed $data)` — tipado relajado de `array` a `mixed` + early-return on false (el legacy toleraba `false` sin fatal). Métodos clave: `getCustomerData`/`getContactData` (38+36), `getCustomerName` (36), `getAllContacts` (15), `manageLoyalty` (4).
+- **Slice 10** — `app/Database/Query.php` — `final class Query`, 7 métodos, 1273 callsites. Wrappea el god node `ncmExecute` (1035 callers): `execute()` llama `self::flattenJsonb()` directo; `getValue()` llama `self::execute()` directo. Hito arquitectónico: el god node DB de /app tiene hogar namespaced.
+- **Métricas**: `functions.php` 3599 → 3203 líneas (−396). autoload: 3183 clases. PHP lint 0 regresiones · App :8002 HTTP 200.
+- **Progreso plan PSR-4**: 11/16 sub-slices ✅. ~6139 callsites migrados acumulados.
+- **Próximo**: Slice 11 — `App\Domain\Document` (docNumber, 16h, riesgo crítico — comprobante audit).
+
 ## 2026-06-05 — PSR-4 Slice 8: App\Domain\Store — 67 callsites, 5 funciones (commit 7545b02)
 
 - **Segunda clase en `Punto\App\Domain\`** — `app/Domain/Store.php` — `final class Store` con 5 métodos estáticos que reemplazan 5 funciones globales de outlets/store en `functions.php`. Mismo patrón Wrapper §26.1 del Approach C.

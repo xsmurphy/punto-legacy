@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-05 (PSR-4 Slice 8 — `App\Domain\Store` poblada, commit 7545b02)
+> **Última actualización:** 2026-06-05 (PSR-4 Slices 11-15 — `Document` + `Money` + `Inventory` + `GiftCard` + `Notification`, commits 2cae098..532be24)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -556,7 +556,7 @@ Cinco tareas de higiene técnica identificadas como las de mayor ROI para /app. 
 | 1 | **Consolidar fetch handlers** — `fetch.php` eliminado, `fetchs.php` JWT-only | ✅ COMPLETO (commit 2aa149f) |
 | 2 | **Matar `action.php`** — plan de eliminación en `docs/PLAN_action_php_elimination.md` | 📋 Plan hecho (audit 2026-06-04) |
 | 3 | **Split `app.js` 26K → módulos ESM** | ⏸ DIFERIDO (sin tests; ver § Refactor app.js) |
-| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — 9/16 sub-slices hechos (Slices 0-8, commit 7545b02). **4727 callsites migrados** sin breaking changes. |
+| 4 | **Migración `functions.php` → PSR-4 `Punto\App\*`** | 🏗 EN CURSO — 15/16 sub-slices hechos (Slices 0-15, commits 2cae098..532be24). Slice 16 (deprecation removal) **DIFERIDO** post-release. **~7573 callsites migrados** sin breaking changes. `functions.php`: **2560 líneas** (−643 en Slices 11-15). autoload: **3188 clases**. |
 | 5 | **CI mínimo** — GitHub Actions php-lint + js-syntax + composer-validate | ✅ COMPLETO (commits 17a2293 + 7ab230a) |
 
 ### PSR-4 `functions.php` → `Punto\App\*` — Slice 0 (commit 8a7819c, 2026-06-04)
@@ -626,8 +626,19 @@ app/
 5. CI actual solo hace lint PHP; no hay tests unitarios que detecten regresión semántica.
 
 **Próximo paso**: ~~Slice 1 — dead code (4h).~~ ✅ ~~Slice 2 — `App\Http\Response`~~ ✅ commit ceed82d (761). ~~Slice 3 — `App\Helpers\Validation`~~ ✅ commit 3fdeeb5 (2298 linchpin). ~~Slice 4 — `App\Helpers\Str`~~ ✅ commit fc213f4 (268). ~~Slice 5 — `App\Helpers\Date`~~ ✅ commit c098728 (185). ~~**Slice 6** — `App\Helpers\{Math,Arr,Cond}`~~ ✅ **Slice 6 COMPLETO (commit 6167c20, 2026-06-05) — 1036 callers en 3 clases.** ~~**Slice 7** — `App\Domain\Taxonomy`~~ ✅ **Slice 7 COMPLETO (commit 416f4e9, 2026-06-05) — 112 callers, 12 funciones, cache getName().** ~~**Slice 8** — `App\Domain\Store`~~ ✅ **Slice 8 COMPLETO (commit 7545b02, 2026-06-05) — 67 callsites, 5 funciones outlet/store.**
+~~**Slice 9** — `App\Domain\Customer`~~ ✅ **Slice 9 COMPLETO (commit 51d600b, 2026-06-05) — 139 callsites, 11 métodos.** Fix P0: `Customer::getName(mixed $data)` — tipado relajado de `array` a `mixed` + early-return on false (legacy toleraba false sin fatal).
+~~**Slice 10** — `App\Database\Query`~~ ✅ **Slice 10 COMPLETO (commit 51d600b, 2026-06-05) — 1273 callsites, 7 métodos.** Wrap del god node `ncmExecute` (1035 callers) + `getValue` (99) + `ncmUpdate` (69) + `ncmInsert` (47) + `_flattenJsonb` (23) + `ncmDelete` (3) + `ncmWhile` (1). `execute()` llama `self::flattenJsonb()` directamente (no global); `getValue()` llama `self::execute()` directamente.
 
-**Próximo paso real**: Slice 9 — `App\Domain\Customer` (getData, loyalty, 20h, riesgo alto). Depende de Slice 7.
+**✅ Slices 11-15 COMPLETOS (commits 2cae098..532be24, 2026-06-05):**
+- **Slice 11** — `App\Domain\Document` (`getNextDocNumber` — 12 callers). Riesgo crítico: comprobante audit trail.
+- **Slice 12** — `App\Domain\Money` (8 métodos: `formatNumber` 530, `formatQty` 85, `formatForDB` 73, `addTax` 7, `forceDecimals` 2, `sanitizeTaxObj` 2, `sanitizeSaleArray` 2, `sanitizePaymentObj` 1 — **702 callers total**). Riesgo crítico: precisión financiera.
+- **Slice 13** — `App\Domain\Inventory` (11 métodos: `manageStock` 27 CRÍTICO, `getCompoundsArray` 23, `getItemStock` 16, `getAllItemStock` 8, `getProductionCOGS` 8, `getComboCOGS` 8, `getNeedWithWaste` 8, `getAllWasteValue` 9, `getProductionCapacity` 5, `displayableCompounds` 3, `getItemMainStock` 1 — **116 callers total**). Riesgo crítico: stock e inventario.
+- **Slice 14** — `App\Domain\GiftCard` (`insertNew` — 1 caller).
+- **Slice 15** — `App\Services\Notification` (7 métodos: `sendEmails` 23, `sendSMS` 17, `sendWS` 11, `sendPush` 10, `sendEmail` 9, `sendSMTP` 5, `sendNCMSMS` 1 — **76 callers total**).
+
+**Slice 16 — DIFERIDO post-release:** eliminación de wrappers deprecated de `functions.php`. No bloquea ningún slice funcional; se hace cuando los wrappers hayan tenido 2+ releases en producción.
+
+**Próximo paso**: Phase AI.1 (sin bloqueos del PSR-4).
 
 ### PSR-4 `functions.php` → `Punto\App\*` — Slice 2 (commit ceed82d, 2026-06-05)
 
@@ -662,9 +673,16 @@ app/
 | 6 | ✅ `App\Helpers\{Math, Arr, Cond}` (iftn 778 + explodes 134 + divider 50 + implodes 36 + counts 34 + rester 3 + arrKey 1 — 1036 callers) | 4 |
 | **7** | ✅ **`App\Domain\Taxonomy` — 112 callers, 12 funciones, cache getName() (commit 416f4e9)** | 12 |
 | **8** | ✅ **`App\Domain\Store` — 67 callsites, 5 funciones outlet/store (commit 7545b02)** | 12 |
-| 9–15 | Pendientes | ~153 |
+| **9** | ✅ **`App\Domain\Customer` — 139 callsites, 11 métodos (commit 51d600b)** | 20 |
+| **10** | ✅ **`App\Database\Query` — 1273 callsites, 7 métodos, ncmExecute god node (commit 51d600b)** | 28 |
+| **11** | ✅ **`App\Domain\Document` — 12 callers, `getNextDocNumber`** | 16 |
+| **12** | ✅ **`App\Domain\Money` — 702 callers, 8 métodos** | 28 |
+| **13** | ✅ **`App\Domain\Inventory` — 116 callers, 11 métodos** | 28 |
+| **14** | ✅ **`App\Domain\GiftCard` — 1 caller, `insertNew`** | 12 |
+| **15** | ✅ **`App\Services\Notification` — 76 callers, 7 métodos** | 20 |
+| 16 | ⏸ Deprecation notices + remover wrappers — **DIFERIDO post-release** | 4 |
 
-`functions.php`: 5117 → 4068 (Slice 1, −1049) → 4062 (Slice 2) → 4022 (Slice 3) → 3957 (Slice 4) → 3895 (Slice 5) → 3777 (Slice 6) → 3658 (Slice 7, −119) → 3599 (Slice 8, −59). autoload: **3181 clases**.
+`functions.php`: 5117 → 4068 (Slice 1, −1049) → 4062 (Slice 2) → 4022 (Slice 3) → 3957 (Slice 4) → 3895 (Slice 5) → 3777 (Slice 6) → 3658 (Slice 7, −119) → 3599 (Slice 8, −59) → 3203 (Slices 9-10, −396) → **2560 (Slices 11-15, −643)**. autoload: **3188 clases**.
 
 ---
 

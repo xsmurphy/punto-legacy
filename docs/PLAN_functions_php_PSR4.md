@@ -1,12 +1,12 @@
 # Plan de migración de `app/includes/functions.php` a PSR-4
 
-> **Estado:** En ejecución. Slices 0-8 completos (9/16). Próximo: Slice 9 (`App\Domain\Customer`).
-> **Última actualización:** 2026-06-05 (Slice 8 — commit 7545b02)
+> **Estado:** En ejecución. Slices 0-15 completos (15/16). Slice 16 (deprecation removal) **DIFERIDO post-release**.
+> **Última actualización:** 2026-06-05 (Slices 11-15 — commits 2cae098..532be24)
 > **Estimado total:** 220h (~11 semanas FTE, 7 con 2 devs)
 
 ## Resumen ejecutivo
 
-`app/includes/functions.php` **comenzó con 5116 líneas y 180 funciones globales**. Post Slice 1: 4068 líneas (−1049 dead code). Post Slice 2: 4062 líneas. Las funciones restantes incluyen el money path (cálculo de impuestos, comisiones, inventario, gift cards).
+`app/includes/functions.php` **comenzó con 5116 líneas y 180 funciones globales**. Post Slice 1: 4068 líneas (−1049 dead code). Post Slice 2: 4062 líneas. Post Slices 9-10: 3203 líneas (−396 en commit 51d600b). Post Slices 11-15: **2560 líneas** (−643 en commits 2cae098..532be24). autoload: **3188 clases**. El money path (formatting, tax, stock, COGS, gift cards, notificaciones) está ahora completamente namespaced.
 
 Migrarlo a namespaces PSR-4 sin romper nada requiere un **enfoque gradual de 16 sub-slices** durante 7-11 semanas.
 
@@ -82,14 +82,14 @@ Migrarlo a namespaces PSR-4 sin romper nada requiere un **enfoque gradual de 16 
 | **6** ✅ | `App\Helpers\{Math, Arr, Cond}` (divider, rounder, rester, counts, arrKey, explodes, implodes, iftn) | 4 | Bajo | Nada | COMPLETO (commit 6167c20) — **1036 callers** (iftn 778 + explodes 134 + divider 50 + implodes 36 + counts 34 + rester 3 + arrKey 1). Splitteado en 3 clases por cohesión semántica. |
 | **7** ✅ | `App\Domain\Taxonomy` — 112 callers, 12 métodos, cache getName() (commit 416f4e9) | 12 | Medio | 8 | Primera clase en Domain/ |
 | **8** ✅ | `App\Domain\Store` — 67 callsites, 5 funciones outlet/store (commit 7545b02) | 12 | Bajo | 9 | Segunda clase en Domain/ |
-| **9** | `App\Domain\Customer` (getData, loyalty) | 20 | Alto | 15 | 60 callers, GDPR |
-| **10** | `App\Database\Query` (ncmExecute) | 28 | **CRÍTICO** | 11-14 | 127 callers |
-| **11** | `App\Domain\Document` (docNumber) | 16 | **CRÍTICO** | 12 | comprobante audit |
-| **12** | `App\Domain\Money` (formatting, tax) | 28 | **CRÍTICO** | 13 | precision tests |
-| **13** | `App\Domain\Inventory` (stock, COGS) | 28 | **CRÍTICO** | Nada | snapshot tests |
-| **14** | `App\Domain\GiftCard` | 12 | Alto | Nada | 5 callers, isolated |
-| **15** | `App\Services\Notification` (DI-ready) | 20 | Bajo | Nada | Mailgun, Twilio, Firebase |
-| **16** | Deprecation notices + remover wrappers | 4 | Bajo | Nada | Después de 2+ releases |
+| **9** ✅ | `App\Domain\Customer` (getData, loyalty) | 20 | Alto | 15 | COMPLETO (commit 51d600b) — 139 callsites. Fix P0: getName(mixed $data). |
+| **10** ✅ | `App\Database\Query` (ncmExecute god node) | 28 | **CRÍTICO** | 11-14 | COMPLETO (commit 51d600b) — 1273 callsites (ncmExecute 1035 + getValue 99 + ncmUpdate 69 + ncmInsert 47 + _flattenJsonb 23 + ncmDelete 3 + ncmWhile 1). execute() usa self::flattenJsonb() directo. |
+| **11** ✅ | `App\Domain\Document` — `getNextDocNumber`, 12 callers | 16 | **CRÍTICO** | 12 | COMPLETO (2026-06-05) |
+| **12** ✅ | `App\Domain\Money` — 8 métodos, 702 callers | 28 | **CRÍTICO** | 13 | COMPLETO (2026-06-05) |
+| **13** ✅ | `App\Domain\Inventory` — 11 métodos, 116 callers | 28 | **CRÍTICO** | Nada | COMPLETO (2026-06-05) |
+| **14** ✅ | `App\Domain\GiftCard` — `insertNew`, 1 caller | 12 | Alto | Nada | COMPLETO (2026-06-05) |
+| **15** ✅ | `App\Services\Notification` — 7 métodos, 76 callers | 20 | Bajo | Nada | COMPLETO (2026-06-05) |
+| **16** | Deprecation notices + remover wrappers | 4 | Bajo | Nada | **DIFERIDO post-release** (≥2 releases) |
 
 **Total: 220h (~11 semanas FTE).**
 

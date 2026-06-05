@@ -1194,17 +1194,17 @@ Estas son las versiones contra las que se valida el código en CI. Si se necesit
 
 | Namespace | Directorio | Para qué | Clases existentes |
 |-----------|-----------|---------|------------------|
-| `Punto\App\Helpers\` | `app/Helpers/` | Utility puras — validity, iftn, toUTF8, niceDate y similares | — |
-| `Punto\App\Domain\Customer\` | `app/Domain/Customer/` | Lógica de dominio de clientes | — |
-| `Punto\App\Domain\Money\` | `app/Domain/Money/` | Cálculos monetarios, comisiones, impuestos | — |
-| `Punto\App\Domain\Inventory\` | `app/Domain/Inventory/` | Stock, movimientos, depósitos | — |
-| `Punto\App\Domain\Document\` | `app/Domain/Document/` | Facturas, comprobantes, numeración | — |
+| `Punto\App\Helpers\` | `app/Helpers/` | Utility puras — validity, iftn, toUTF8, niceDate y similares | **`Validation`** (S3), **`Str`** (S4), **`Date`** (S5), **`Math`**, **`Arr`**, **`Cond`** (S6) |
+| `Punto\App\Domain\Customer\` | `app/Domain/Customer/` | Lógica de clientes y contactos | **`Customer`** (Slice 9, commit 51d600b) — 11 métodos estáticos; 139 callsites. Fix P0 en `getName(mixed $data)`: tipado `mixed` + early-return on false (legacy toleraba false sin fatal). |
+| `Punto\App\Domain\Money\` | `app/Domain/Money/` | Cálculos monetarios, comisiones, impuestos | **`Money`** (Slice 12) — 8 métodos, 702 callers: `formatNumber` (530), `formatQty` (85), `formatForDB` (73), `addTax` (7) y otros. Hogar canónico para formateo monetario. |
+| `Punto\App\Domain\Inventory\` | `app/Domain/Inventory/` | Stock, movimientos, depósitos | **`Inventory`** (Slice 13) — 11 métodos, 116 callers: `manageStock` (27 CRÍTICO), `getCompoundsArray` (23), `getItemStock` (16), COGS y capacidad de producción. Hogar canónico para stock. |
+| `Punto\App\Domain\Document\` | `app/Domain/Document/` | Facturas, comprobantes, numeración | **`Document`** (Slice 11) — `getNextDocNumber` (12 callers). |
 | `Punto\App\Domain\Store\` | `app/Domain/Store/` | Mesas, órdenes, registros, outlets | **`Store`** (Slice 8) |
 | `Punto\App\Domain\Taxonomy\` | `app/Domain/Taxonomy/` | Categorías, marcas, impuestos | **`Taxonomy`** (Slice 7) |
-| `Punto\App\Domain\GiftCard\` | `app/Domain/GiftCard/` | Gift cards | — |
+| `Punto\App\Domain\GiftCard\` | `app/Domain/GiftCard/` | Gift cards | **`GiftCard`** (Slice 14) — `insertNew` (1 caller). |
 | `Punto\App\Http\Response\` | `app/Http/Response/` | Helpers de respuesta HTTP | **`Json`**, **`Output`** (Slice 2) |
-| `Punto\App\Services\Notification\` | `app/Services/Notification/` | Email, SMS, Push, FE | — |
-| `Punto\App\Database\` | `app/Database/` | Query wrapper (reemplaza ncmExecute/Insert/Update) | — |
+| `Punto\App\Services\Notification\` | `app/Services/Notification/` | Email, SMS, Push, FE | **`Notification`** (Slice 15) — 7 métodos, 76 callers: `sendEmails` (23), `sendSMS` (17), `sendWS` (11), `sendPush` (10), `sendEmail` (9), `sendSMTP` (5), `sendNCMSMS` (1). |
+| `Punto\App\Database\` | `app/Database/` | Query wrapper (reemplaza ncmExecute/Insert/Update) | **`Query`** (Slice 10, commit 51d600b) — 7 métodos; wrappea el god node `ncmExecute` (1035 callers). `execute()` llama `self::flattenJsonb()` directo; `getValue()` llama `self::execute()` directo. Ver §26.2 abajo. |
 
 ### §26.1 — Patrón "Wrapper → Clase namespaced" (Approach C, establecido en Slice 2, commit ceed82d)
 
@@ -1264,6 +1264,26 @@ function jsonDieMsg($msg='true',$code=401,$type='error'){
 - **NO usar funciones globales de `functions.php` desde código nuevo** bajo `Punto\App\*` — crear el equivalente PSR-4 o inyectarlo. Excepciones documentadas en el plan `docs/PLAN_functions_php_PSR4.md`.
 
 **`app/Helpers/SmokeTest.php`** (transitoria — se elimina en Slice 1): clase de prueba que verifica que el autoloader resuelve. No depender de ella en ningún otro código.
+
+### §26.2 — `App\Database\Query` — el god node `ncmExecute` tiene hogar namespaced (Slice 10, commit 51d600b)
+
+`Punto\App\Database\Query` es la clase PSR-4 que wrappea los 7 helpers del core DB de `/app`:
+
+| Método | Reemplaza | Callers |
+|--------|-----------|---------|
+| `Query::execute()` | `ncmExecute()` | 1035 (god node) |
+| `Query::getValue()` | `getValue()` | 99 |
+| `Query::update()` | `ncmUpdate()` | 69 |
+| `Query::insert()` | `ncmInsert()` | 47 |
+| `Query::flattenJsonb()` | `_flattenJsonb()` | 23 |
+| `Query::delete()` | `ncmDelete()` | 3 |
+| `Query::while()` | `ncmWhile()` | 1 |
+
+**Auto-referencia interna**: `execute()` invoca `self::flattenJsonb()` directamente (no la función global); `getValue()` invoca `self::execute()` directamente. Las dependencias están encapsuladas dentro de la clase.
+
+**Implicación arquitectónica**: el god node `ncmExecute` — que en el grafo de dependencias tenía 124 edges — ahora tiene una representación namespaced en `Punto\App\Database\Query::execute()`. El alias global `ncmExecute()` sigue vivo como wrapper para los 1035 callers legacy; código nuevo usa `Query::execute()` directamente.
+
+**Ver también**: `02-arquitectura.md § God nodes` y `docs/PLAN_functions_php_PSR4.md`.
 
 **Ver también**: `02-arquitectura.md § Modernización PSR-4 de /app`, `10-roadmap.md § Top-5 mejoras estructurales`, `docs/PLAN_functions_php_PSR4.md`.
 

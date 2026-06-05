@@ -100,8 +100,15 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 | `Cond` | `Punto\App\Helpers\Cond` | `iftn` (778) |
 | `Taxonomy` | `Punto\App\Domain\Taxonomy` | 12 funciones taxonomy/payment (112 callers). Cache estático en `getName()` para evitar N+1 en printTags loops. Primera clase en `Domain/`. |
 | `Store` | `Punto\App\Domain\Store` | 5 funciones outlet/store (67 callsites): `getCurrentOutletName` (41), `selectInputOutlet` (19), `getOperatingCost` (3), `getAllOutletData` (2), `getOutletCount` (2). Segunda clase en `Domain/`. (Slice 8, commit 7545b02) |
+| `Customer` | `Punto\App\Domain\Customer` | 11 métodos estáticos (139 callsites): `getCustomerData`/`getContactData` (38+36), `getCustomerName` (36), `getAllContacts` (15), `manageLoyalty` (4), `getContactField` (4), `manageStoreCredit` (2), `manageGiftCard` (1), `getRealCustomerId` (1), `getTransactionAddress` (1), `getContactCreditLine` (1). Fix P0: `getName(mixed $data)` tipado relajado de `array` a `mixed` + early-return on false. (Slice 9, commit 51d600b) |
+| `Query` | `Punto\App\Database\Query` | 7 métodos que wrappean el core DB: `execute()` (ncmExecute god node — 1035 callers), `getValue()` (99), `update()` (69), `insert()` (47), `flattenJsonb()` (23), `delete()` (3), `while()` (1). Total: 1273 callsites. `execute()` llama `self::flattenJsonb()` directo; `getValue()` llama `self::execute()` directo. (Slice 10, commit 51d600b) |
+| `Document` | `Punto\App\Domain\Document` | `getNextDocNumber` — 12 callers. Hogar canónico para numeración de comprobantes. (Slice 11) |
+| `Money` | `Punto\App\Domain\Money` | 8 métodos, **702 callers**: `formatNumber` (530), `formatQty` (85), `formatForDB` (73), `addTax` (7), `forceDecimals` (2), `sanitizeTaxObj` (2), `sanitizeSaleArray` (2), `sanitizePaymentObj` (1). Hogar canónico para formateo monetario e impuestos. Código nuevo usa esta clase. (Slice 12) |
+| `Inventory` | `Punto\App\Domain\Inventory` | 11 métodos, **116 callers**: `manageStock` (27 — CRÍTICO), `getCompoundsArray` (23), `getItemStock` (16), `getAllItemStock` (8), `getProductionCOGS` (8), `getComboCOGS` (8), `getNeedWithWaste` (8), `getAllWasteValue` (9), `getProductionCapacity` (5), `displayableCompounds` (3), `getItemMainStock` (1). Hogar canónico para lógica de stock y COGS. Código nuevo usa esta clase. (Slice 13) |
+| `GiftCard` | `Punto\App\Domain\GiftCard` | `insertNew` — 1 caller. (Slice 14) |
+| `Notification` | `Punto\App\Services\Notification` (namespace `Punto\App\Services\`) | 7 métodos, **76 callers**: `sendEmails` (23), `sendSMS` (17), `sendWS` (11), `sendPush` (10), `sendEmail` (9), `sendSMTP` (5), `sendNCMSMS` (1). Hogar canónico para envío de notificaciones. (Slice 15) |
 
-`app/Helpers/SmokeTest.php` fue **eliminada en Slice 2** (cumplida su función transitoria). Ver `08-convenciones.md §26` y `10-roadmap.md § Top-5 mejoras estructurales`. autoload: **3181 clases** (post Slice 8).
+`app/Helpers/SmokeTest.php` fue **eliminada en Slice 2** (cumplida su función transitoria). Ver `08-convenciones.md §26` y `10-roadmap.md § Top-5 mejoras estructurales`. autoload: **3188 clases** (post Slices 11-15). PSR-4 `/app` prácticamente completo — 15/16, Slice 16 (deprecation removal) diferido.
 
 ---
 

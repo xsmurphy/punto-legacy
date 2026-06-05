@@ -122,7 +122,7 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 
 | Función | Edges | Dónde | Qué hace |
 |---------|------:|-------|----------|
-| `ncmExecute()` | 124 | `panel/includes/functions.php` + duplicado en `app/` | Ejecutor de queries con cache. Todo pasa por acá. |
+| `ncmExecute()` | 124 | `panel/includes/functions.php` + duplicado en `app/` | Ejecutor de queries con cache. Todo pasa por acá. **En `/app`: ahora wrapeado por `Punto\App\Database\Query::execute()` (Slice 10, commit 51d600b) — 1035 callers legacy preservados como wrappers; código nuevo usa la clase directamente.** |
 | `make_xlsx_lib()` | 82 | exports | Generador de archivos XLSX |
 | `validity()` | 80 | `functions.php` | Validador genérico de datos |
 | `simple_html_dom_node` | 49 | vendor | Parser HTML |
@@ -203,6 +203,20 @@ app/
 ```
 
 **Regla de convivencia legacy ↔ PSR-4**: las funciones globales de `app/includes/functions.php` se mantienen como wrappers hasta que los módulos PSR-4 que las reemplacen estén verificados. Código NUEVO en `/app` debe usar `Punto\App\*`; el código existente no se migra preventivamente. Ver §26 en `08-convenciones.md` para las reglas detalladas.
+
+**Estado post Slices 9-10 (commit 51d600b, 2026-06-05):** 11/16 sub-slices completos. `functions.php` 3599 → 3203 líneas (−396). autoload: 3183 clases. ~6139 callsites migrados acumulados.
+
+- **`Punto\App\Domain\Customer`** (Slice 9) — 11 métodos, 139 callsites. Fix P0 en `getName(mixed $data)`: tipado relajado de `array` a `mixed` + early-return on false (el legacy toleraba recibir `false` sin fatal).
+- **`Punto\App\Database\Query`** (Slice 10) — god node `ncmExecute` (1035 callers) ahora tiene hogar namespaced. La función global `ncmExecute()` sigue activa como wrapper de 1 línea; código nuevo usa `Query::execute()`. Auto-referencia interna: `execute()` llama `self::flattenJsonb()` directamente. Ver §26.2 en `08-convenciones.md`.
+
+**Estado post Slices 11-15 (commits 2cae098..532be24, 2026-06-05): PSR-4 prácticamente COMPLETO — 15/16 sub-slices. Slice 16 (deprecation removal) diferido post-release.**
+
+- **`Punto\App\Domain\Document`** (Slice 11) — `getNextDocNumber`, 12 callers. Hogar canónico para numeración de comprobantes.
+- **`Punto\App\Domain\Money`** (Slice 12) — 8 métodos, **702 callers**. Hogar canónico para todo el formateo monetario (`formatNumber`, `formatQty`, `formatForDB`) y lógica de impuestos (`addTax`). Sustituye al cluster money/tax de `functions.php`. **Código nuevo en /app que necesite formatear dinero usa esta clase directamente.**
+- **`Punto\App\Domain\Inventory`** (Slice 13) — 11 métodos, **116 callers**. Hogar canónico para lógica de stock y COGS (`manageStock` CRÍTICO — 27 callers, `getCompoundsArray`, `getItemStock`, `getAllItemStock`, `getProductionCOGS`, `getComboCOGS`, `getNeedWithWaste`, `getAllWasteValue`, `getProductionCapacity`, `displayableCompounds`, `getItemMainStock`). **Código nuevo en /app que necesite gestionar stock usa esta clase directamente.**
+- **`Punto\App\Domain\GiftCard`** (Slice 14) — `insertNew`, 1 caller.
+- **`Punto\App\Services\Notification`** (Slice 15, namespace `Punto\App\Services\`) — 7 métodos, **76 callers**. Hogar canónico para envío de notificaciones (`sendEmails`, `sendSMS`, `sendWS`, `sendPush`, `sendEmail`, `sendSMTP`, `sendNCMSMS`).
+- **Métricas finales**: `functions.php` **2560 líneas** (−643 en Slices 11-15). autoload: **3188 clases**. ~**7573 callsites** migrados acumulados.
 
 **Plan de migración**: `docs/PLAN_functions_php_PSR4.md` — audit de 180 funciones, 32 dead code candidates, 16 sub-slices, estimación 220h. Ver `10-roadmap.md § Top-5 mejoras estructurales`.
 
