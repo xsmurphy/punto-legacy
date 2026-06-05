@@ -1,7 +1,7 @@
 # Plan de migración de `app/includes/functions.php` a PSR-4
 
-> **Estado:** En ejecución. Slices 0, 1, 2, 3 completos. Próximo: Slice 4 (`App\Helpers\String`).
-> **Última actualización:** 2026-06-05 (Slice 3 — commit 3fdeeb5)
+> **Estado:** En ejecución. Slices 0, 1, 2, 3, 4 completos. Próximo: Slice 5 (`App\Helpers\Date`).
+> **Última actualización:** 2026-06-05 (Slice 4 — commit fc213f4)
 > **Estimado total:** 220h (~11 semanas FTE, 7 con 2 devs)
 
 ## Resumen ejecutivo
@@ -77,7 +77,7 @@ Migrarlo a namespaces PSR-4 sin romper nada requiere un **enfoque gradual de 16 
 | **1** ✅ | Borrar ~27 funciones dead (−1049 líneas) | 4 | Bajo | Nada | COMPLETO — ver session-log 2026-06-04 |
 | **2** ✅ | `App\Http\Response` (jsonDieMsg, jsonDieResult, dai) | 8 | Medio | Tests | COMPLETO (commit ceed82d) — 761 callers preservados |
 | **3** ✅ | `App\Helpers\Validation` (validity, validateBool, validateHttp, validateResultFromDB) | 8 | **CRÍTICO** | 4-10 | COMPLETO (commit 3fdeeb5) — **2298 callers** preservados (validity 716 + validateHttp 1524 + validateBool 58). Estimación original de 130 callers fue 5.5× off — el patrón funcionó igual. |
-| **4** | `App\Helpers\String` (toUTF8, markup) | 8 | Bajo | Nada | 80+ callers |
+| **4** ✅ | `App\Helpers\Str` (toUtf8, markupHtml, isHtml, tryBase64Decode) | 8 | Bajo | Nada | COMPLETO (commit fc213f4) — **268 callers** (238+19+9+2). Renombrado a `Str` (no `String`) por convención Laravel/PHP built-in. |
 | **5** | `App\Helpers\Date` (niceDate) | 8 | Bajo | Nada | 30 callers |
 | **6** | `App\Helpers\Utils` (divider, counts) | 4 | Bajo | Nada | 60+ callers |
 | **7** | `App\Domain\Taxonomy` | 12 | Medio | 8 | + cache layer |

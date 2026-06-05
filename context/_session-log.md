@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 — PSR-4 Slice 4: App\Helpers\Str — texto/encoding 268 callers (commit fc213f4)
+
+- **Slice 4 del plan PSR-4** (sub-slice 5/16 del ítem #4). Migra 4 funciones de texto/encoding siguiendo §26.1. Riesgo bajo confirmado.
+- **`app/Helpers/Str.php` (NUEVO, 162 líneas)**: `Str::toUtf8` (corrige mojibake Ã¡→á + mb_convert), `Str::isHtml` (strip_tags compare), `Str::markupHtml` (bidireccional WhatsApp markup ↔ HTML), `Str::tryBase64Decode` (decode + html_entity_decode si válido). Nombre `Str` (no `String`) por convención Laravel/built-in.
+- **268 callsites preservados** sin modificar: toUTF8 238 (estimado 39 → 6× off), markupt2HTML 19, isBase64Decode 9, isHTML 2. 4 wrappers de 1 línea en functions.php con `@deprecated`.
+- **Semántica VERBATIM**: conserva `</i>` duplicado en HtMrules (paridad legacy, posible bug histórico inocuo) + retorno '-' cuando mb_convert falla + aceptación de mixed para null/array → ''.
+- **Smoke unitario 16/16 tests OK**: mojibake fix, null/empty handling, markup bidireccional con detección automática (MtH default, HtM si tags), base64 valid/invalid, todos los wrappers delegan correctamente. PHP lint 0 regresiones · App :8002 HTTP 200 · CI verde.
+- **Progreso del plan PSR-4**: 5/16 sub-slices ✅ (29h hechas de 220h, 13.2%). functions.php: 4022 → 3957 líneas (-65 al colapsar markupHtml de 77 líneas a wrapper).
+- **Próximo**: Slice 5 — `App\Helpers\Date` (niceDate, getNextDatePeriod, ~30 callers reales TBD, riesgo bajo).
+
 ## 2026-06-05 — PSR-4 Slice 3: App\Helpers\Validation — linchpin 2298 callers (commit 3fdeeb5)
 
 - **Slice 3 del plan PSR-4** (sub-slice 4/16 del ítem #4 top-5). Migra las 4 funciones de validación de `functions.php` siguiendo el patrón canónico §26.1 (Wrapper → Clase namespaced).
