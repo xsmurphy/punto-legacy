@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-05 — PSR-4 Slice 3: App\Helpers\Validation — linchpin 2298 callers (commit 3fdeeb5)
+
+- **Slice 3 del plan PSR-4** (sub-slice 4/16 del ítem #4 top-5). Migra las 4 funciones de validación de `functions.php` siguiendo el patrón canónico §26.1 (Wrapper → Clase namespaced).
+- **Linchpin del refactor**: `validity()` tiene **716 callers** vs los 130 estimados en el plan original (5.5× off). El patrón funcionó igual gracias al wrapper transparente. Total callsites preservados: **2298** (validity 716 + validateHttp 1524 + validateBool 58 + validateResultFromDB n).
+- **`app/Helpers/Validation.php` (NUEVO, 111 líneas)**: `Validation::isValid` (núcleo, preserva quirk del 'undefined' literal del front JS), `::fromRequest` (lectura $_GET/$_POST), `::http` (alias con `db_prepare`), `::fromDbResult` (RecordCount check). 4 wrappers de 1 línea en functions.php con `@deprecated`.
+- **Smoke unitario 13/13 tests OK**: edge cases isValid(null/""/"undefined"/0/[]/email válido/email inválido) + delegación wrapper. PHP lint 0 regresiones · App :8002 HTTP 200 · CI verde.
+- **Progreso del plan PSR-4**: 4/16 sub-slices ✅ (21h hechas de 220h, 9.5%). functions.php: 4062 → 4022 líneas.
+- **Próximo**: Slice 4 — `App\Helpers\String` (toUTF8, markupt2HTML, ~80+ callers, riesgo bajo).
+
 ## 2026-06-05 — PSR-4 Slice 2: App\Http\Response poblada — 761 callers legacy intactos (commit ceed82d)
 
 - **Slice 2 del plan de migración `functions.php` → PSR-4** (sub-slice 2 del ítem #4 top-5). Establece el **patrón canónico "Wrapper → Clase namespaced"** (Approach C) que guiará los 13 sub-slices restantes. Primer código REAL en `Punto\App\*`.
