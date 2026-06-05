@@ -113,9 +113,10 @@ if (isset($bffPartialModules[$path]) && empty($_GET['action'])) {
 // (cookie _jwt_admin); el gate es client-side (home.html pide /bff/admin/me.php → 401 redirige a login).
 // En prod, replicar con RewriteRule (/admin → admin/home.html, /admin/login → admin/login.html).
 $adminStatic = [
-    '/admin'       => '/admin/home.html',
-    '/admin/login' => '/admin/login.html',
-    '/admin/users' => '/admin/users.html',
+    '/admin'           => '/admin/home.html',
+    '/admin/login'     => '/admin/login.html',
+    '/admin/users'     => '/admin/users.html',
+    '/admin/companies' => '/admin/companies.html',
 ];
 if (isset($adminStatic[$path])) {
     $htmlFile = __DIR__ . $adminStatic[$path];
