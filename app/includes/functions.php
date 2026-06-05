@@ -1860,60 +1860,35 @@ function iftn($if, $else = false, $then = false){
 	return validity($if)?$final:$else;
 }
 
+/**
+ * @deprecated Slice 3 (PSR-4). Usar `\Punto\App\Helpers\Validation::fromRequest()` en código nuevo.
+ *             Wrapper mantenido para los ~58 callers legacy.
+ */
 function validateBool($value,$server=true,$type='get'){
-	if($server === true){//verifico si realmente los metodos fueron pasados por post o get
-		if($_SERVER['REQUEST_METHOD'] != 'POST' && $_SERVER['REQUEST_METHOD'] != 'GET'){
-			return false;
-		}
-	}
-	
-	if($type == 'get'){
-		return validity($_GET[$value]);
-	}else if($type == 'post'){
-		return validity($_POST[$value]);
-	}else{
-		return validity($value);
-	}
+    return \Punto\App\Helpers\Validation::fromRequest($value, $server, $type);
 }
 
-function validateHttp($value,$type = 'get'){//alias de validateBool
-	$result = db_prepare( validateBool($value, true, $type) );
-	unset( $value, $type );
-	return $result;
+/**
+ * @deprecated Slice 3 (PSR-4). Usar `\Punto\App\Helpers\Validation::http()` en código nuevo.
+ *             Wrapper mantenido para los ~1524 callers legacy (el más usado).
+ */
+function validateHttp($value,$type = 'get'){
+    return \Punto\App\Helpers\Validation::http($value, $type);
 }
 
+/**
+ * @deprecated Slice 3 (PSR-4). Usar `\Punto\App\Helpers\Validation::fromDbResult()` en código nuevo.
+ */
 function validateResultFromDB($result,$num=false){
-	if($result){
-		if($result->RecordCount()>0){
-			return ($num)?$result->RecordCount():true;
-		}
-	}
-	return ($num)?0:false;
+    return \Punto\App\Helpers\Validation::fromDbResult($result, $num);
 }
 
+/**
+ * @deprecated Slice 3 (PSR-4). Usar `\Punto\App\Helpers\Validation::isValid()` en código nuevo.
+ *             Wrapper mantenido para los ~716 callers legacy (linchpin del refactor).
+ */
 function validity($value,$force=false){
-	if(!isset($value)){
-		return false;
-	}else{
-		if(!$value || empty($value) || $value == 'undefined' || $value === null || $value == false || $value === false || $value == '' || counts($value) < 0.00001){
-			return false;
-		}else{
-			if($force){
-				if($force === 'email'){
-					if(filter_var($value, FILTER_VALIDATE_EMAIL)){
-						return $value;
-					}else{
-						return false;
-					}
-				}else if(gettype($value) === $force){
-					return $value;
-				}else{
-					return false;
-				}
-			}
-			return $value;
-		}
-	}
+    return \Punto\App\Helpers\Validation::isValid($value, $force);
 }
 
 /**
