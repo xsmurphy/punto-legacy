@@ -1150,6 +1150,42 @@ Orden de carga   →  app.js (no-defer) corre antes de que Alpine (auto-start en
 
 ---
 
+## §25 — Calidad de código: CI, editorconfig, composer validate (establecido 2026-06-04)
+
+### §25.1 — CI valida solo diff (no el repo entero)
+
+El workflow `.github/workflows/ci.yml` corre `php -l` y `node --check` sobre los archivos **cambiados** en cada PR/push, no sobre todo el codebase. Razón: el repo tiene 3 archivos PHP con sintaxis rota (deuda histórica — 0.8%). Ver `06-infraestructura.md § CI` para la lista exacta y los comandos para reproducir localmente.
+
+**Consecuencia práctica**: si tocás `panel/a_report_schedule.php`, `panel/a_report_production.php` o `panel/languages/en.php`, el CI los va a lintear y va a fallar hasta que se corrija la sintaxis rota. Es intencional — estos archivos son el target de cleanup progresivo.
+
+### §25.2 — `.editorconfig` estándar
+
+El archivo `.editorconfig` en la raíz del repo fija el estilo de formateo:
+
+| Contexto | Indentación | Otros |
+|----------|-------------|-------|
+| General (default) | 2 espacios | UTF-8, LF, final newline, trim trailing whitespace |
+| `*.php` | 4 espacios | — |
+| `Makefile` | tab | — |
+| `vendor/**`, `cach/**`, `*.min.js`, `*.min.css` | (excluidos) | No aplicar |
+
+Los editores compatibles con EditorConfig respetan esto automáticamente. No necesita configuración manual por desarrollador.
+
+### §25.3 — `composer validate --strict` requiere `license`
+
+El job `composer-validate` del CI corre con el flag `--strict`. Este modo falla si falta el campo `license` en `composer.json`. El código es propietario → ambos `app/composer.json` y `panel/composer.json` declaran `"license": "proprietary"`. Si se agrega un nuevo `composer.json` en el repo, incluir `"license": "proprietary"` desde el inicio.
+
+### §25.4 — Versiones de runtime usadas en CI (fuente canónica para compatibilidad)
+
+| Runtime | Versión | Usado en |
+|---------|---------|---------|
+| PHP | 8.4 | job `php-lint` |
+| Node.js | 20 | job `js-syntax` |
+
+Estas son las versiones contra las que se valida el código en CI. Si se necesita reproducir localmente con exactitud, usar PHP 8.4 y Node 20. La versión PHP de prod puede diferir; confirmar en `context/03-stack.md`.
+
+---
+
 ## §21 — Manual de marca (identidad visual)
 
 **Regla**: La identidad visual es un **manual de referencia** (`context/11-design-system.md`)

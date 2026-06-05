@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-04 — CI mínimo GitHub Actions + .editorconfig (commits 17a2293 + 7ab230a)
+
+- **`.github/workflows/ci.yml` (NUEVO)**: 3 jobs paralelos: `php-lint` (`php -l` sobre diff PHP 8.4), `js-syntax` (`node --check` sobre diff JS Node 20), `composer-validate` (`composer validate --strict` en app/ y panel/). Cancel-in-progress activado. Dispara en push y PR a main.
+- **Diseño clave**: CI valida SOLO archivos cambiados (no el repo entero). Deuda histórica (3 archivos PHP rotos en panel/ — 0.8%) no bloquea PRs existentes; archivos nuevos/tocados sí se validan al instante.
+- **`.editorconfig` (NUEVO)**: UTF-8, LF, 2 espacios general (4 en PHP, tab en Makefile), final newline, trim trailing whitespace. Excepciones vendor/cach y *.min.{js,css}.
+- **Fix primer run (7ab230a)**: `composer validate --strict` fallaba sin `license` declarada — agregado `"license": "proprietary"` a app/ y panel/ `composer.json`.
+- **Scripts nuevos**: `package.json` raíz agrega `lint:js`, `lint:php`, `lint`; cada `composer.json` agrega scripts `lint` y `lint:strict` para reproducir CI localmente.
+- **Deuda detectada y documentada en `docs/CI.md`**: `panel/a_report_schedule.php:449`, `panel/a_report_production.php:421`, `panel/languages/en.php:45` — 3/378 archivos PHP (0.8%). Quien toque esos archivos debe arreglarlos antes de commitear.
+
 ## 2026-06-04 — Consolidación fetch handlers + cierre de deuda de seguridad Hashids (commit 2aa149f)
 
 - **`app/fetch.php` ELIMINADO** (`git rm`, -725 líneas): versión "moderna" con JWT obligatorio pero sin callsites en el front (auditado en app.js / panel/ / cache-sw.php / .htaccess / router.php). Código muerto — 0 regresiones.

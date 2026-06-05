@@ -116,6 +116,49 @@ El backfill UPDATE previo al DROP puede correr perfectamente con el usuario `pun
 
 Ejemplo: migración `06_contact_jsonb_demote.sql` (backfill → DROP de 6 columnas) requirió ejecución como usuario owner, no como `punto`.
 
+## CI — GitHub Actions (establecido 2026-06-04, commits 17a2293 + 7ab230a)
+
+**Workflow**: `.github/workflows/ci.yml` — dispara en `push` a main y en `pull_request` a main. Cancel-in-progress activado.
+
+**3 jobs paralelos:**
+
+| Job | Herramienta | Qué valida |
+|-----|-------------|-----------|
+| `php-lint` | `php -l` (PHP 8.4) | Sintaxis PHP de archivos cambiados vs base branch (PR) o HEAD~ (push). Excluye vendor/, cach/, node_modules/. |
+| `js-syntax` | `node --check` (Node 20) | Sintaxis JS de archivos cambiados. Excluye vendor/, cach/, node_modules/, *.min.js. |
+| `composer-validate` | `composer validate --strict` | `app/composer.json` y `panel/composer.json`. Requiere `"license"` declarado — ambos tienen `"license": "proprietary"`. |
+
+**Diseño clave — valida solo diff, no el repo entero**: el repo tiene 3 archivos PHP con sintaxis rota (0.8%, deuda histórica en panel/). Si el CI validara todo, bloquearía cada PR. Con la estrategia de diff: bugs nuevos bloquean; bugs viejos no bloquean hasta que se toque el archivo.
+
+**Deuda histórica de sintaxis detectada** (documentada en `docs/CI.md`):
+- `panel/a_report_schedule.php:449` — Unclosed `{`
+- `panel/a_report_production.php:421` — Unclosed `{`
+- `panel/languages/en.php:45` — syntax error, unexpected `,`
+- 3/378 archivos PHP (0.8%). Quien toque uno de estos archivos debe arreglarlo antes de commitear.
+
+**Reproducir CI localmente:**
+
+```bash
+# PHP lint del diff vs main
+git diff --name-only main... | grep '\.php$' | xargs -I{} php -l {}
+
+# JS syntax del diff vs main
+git diff --name-only main... | grep '\.js$' | grep -v '\.min\.js$' | xargs -I{} node --check {}
+
+# Composer validate (cada subproyecto)
+cd app && composer validate --strict
+cd panel && composer validate --strict
+
+# Scripts npm convenientes (raíz)
+npm run lint:php   # equivalente al job php-lint
+npm run lint:js    # equivalente al job js-syntax
+npm run lint       # ambos
+```
+
+**Ver runs**: https://github.com/xsmurphy/punto-legacy/actions
+
+---
+
 ## Build pipeline
 
 ```bash

@@ -547,6 +547,28 @@ tenant.
 
 ---
 
+## CI mínimo — GitHub Actions ✅ COMPLETO (2026-06-04, commits 17a2293 + 7ab230a)
+
+**Problema resuelto**: el repo no tenía ninguna validación automática. Los errores de sintaxis PHP/JS se descubrían en runtime (prod) o no se descubrían hasta que alguien ejecutaba `php -l` a mano.
+
+**Implementado**:
+- `.github/workflows/ci.yml`: 3 jobs paralelos (php-lint / js-syntax / composer-validate). Dispara en push a main y PR a main. Cancel-in-progress activado. Ver `06-infraestructura.md § CI` para todos los detalles y comandos locales.
+- `.editorconfig` en raíz del repo: UTF-8, LF, 2 espacios general (4 en PHP, tab en Makefile), final newline, trim trailing whitespace.
+- `app/composer.json` + `panel/composer.json`: scripts `lint` / `lint:strict` + `"license": "proprietary"` (requerido por `--strict`).
+- `package.json` raíz: scripts `lint:js`, `lint:php`, `lint`.
+
+**Deuda histórica detectada** (documentada en `docs/CI.md`):
+- `panel/a_report_schedule.php:449` — Unclosed `{`
+- `panel/a_report_production.php:421` — Unclosed `{`
+- `panel/languages/en.php:45` — syntax error, unexpected `,`
+- 3/378 archivos PHP (0.8%). Estrategia: CI no valida estos archivos hasta que alguien los toque — en ese momento, el contribuidor debe arreglarlos antes de que el CI pase.
+
+**Próximos pasos de CI** (diferidos, documentados en `docs/CI.md`):
+- Tests E2E con Playwright sobre los 6 flujos críticos del POS (prerequisito del refactor de app.js).
+- Lint estricto de todo el repo cuando se limpie la deuda de los 3 archivos rotos.
+
+---
+
 ## Migration Runner
 
 **Problema**: Las migraciones se corren a mano. En deploy con Coolify no hay step automático.
