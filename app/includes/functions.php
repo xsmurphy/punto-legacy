@@ -1905,8 +1905,10 @@ function getFileContent($url){//usar solo con urls propias y controladas por enc
 									        "verify_peer_name" 	=> false,
 									    ],
 								'http' => [
-											'header' 			=> 
-											'Cookie: ' . $_SERVER['HTTP_COOKIE'] . "\r\n"
+											'header' 			=>
+											'Cookie: ' . $_SERVER['HTTP_COOKIE'] . "\r\n",
+											'timeout'			=> 5,
+											'ignore_errors'		=> true,
 										]
 							];  
 
