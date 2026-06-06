@@ -94,6 +94,10 @@ if (!$register) {
 
 $registerId = (string)$register['registerId'];
 
+// Registrar device para el modelo device-pairing (§28).
+require_once __DIR__ . '/../includes/device.php';
+$deviceId = deviceRegister($companyId, $userId, $outletId, $registerId);
+
 $secret = $_ENV['JWT_SECRET'] ?? '';
 $ttl    = (int)($_ENV['JWT_TTL'] ?? 28800);
 $now    = time();
@@ -108,6 +112,9 @@ $payload = [
     'iat'  => $now,
     'exp'  => $now + $ttl,
 ];
+if ($deviceId) {
+    $payload['did'] = $deviceId;
+}
 
 $token = jwtEncode($payload, $secret);
 jwtSetCookie($token, $ttl);

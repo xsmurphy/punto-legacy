@@ -16,6 +16,7 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../includes/cors.php';
 require_once __DIR__ . '/../includes/simple.config.php'; // carga .env
+require_once __DIR__ . '/../includes/db.php';            // device check necesita $db
 require_once __DIR__ . '/../includes/jwt.php';
 require_once __DIR__ . '/../includes/jwt_middleware.php';
 
@@ -47,6 +48,18 @@ if (($payload['iss'] ?? '') !== 'pos-app') {
     die(json_encode(['error' => 'Token de otro realm']));
 }
 
+// Device pairing — si el JWT trae `did`, validar status antes de emitir
+// un token nuevo. Sin este check, un device revocado podría seguir
+// emitiéndose tokens nuevos mientras tuviera uno vivo.
+$deviceId = (string)($payload['did'] ?? '');
+if ($deviceId !== '' && jwtIsDeviceRevoked($deviceId, (string)($payload['cid'] ?? ''))) {
+    http_response_code(401);
+    die(json_encode([
+        'error' => 'Dispositivo desactivado por el administrador',
+        'code'  => 'device_revoked',
+    ]));
+}
+
 $ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
 $now = time();
 
@@ -60,6 +73,10 @@ $newPayload = [
     'iat'  => $now,
     'exp'  => $now + $ttl,
 ];
+// Preservar did para que el refresh mantenga el emparejamiento
+if ($deviceId !== '') {
+    $newPayload['did'] = $deviceId;
+}
 
 $newToken = jwtEncode($newPayload, $secret);
 jwtSetCookie($newToken, $ttl);

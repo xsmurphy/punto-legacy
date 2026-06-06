@@ -59,6 +59,11 @@ if($email && $pass){
         jsonDieMsg("Error inesperado, por favor contáctenos");
       }
 
+      // Registrar device para el modelo device-pairing (§28). El did se
+      // incluye en el JWT y el panel del tenant podrá revocarlo.
+      require_once __DIR__ . '/includes/device.php';
+      $deviceId = deviceRegister($companyId, $userId, $outletId, $registerId);
+
       // Emitir JWT y establecer cookie HttpOnly
       $jwtSecret = $_ENV['JWT_SECRET'] ?? '';
       $jwtToken  = '';
@@ -75,6 +80,9 @@ if($email && $pass){
               'iat'  => $now,
               'exp'  => $now + $ttl,
           ];
+          if ($deviceId) {
+              $jwtPayload['did'] = $deviceId;
+          }
           $jwtToken = jwtEncode($jwtPayload, $jwtSecret);
           jwtSetCookie($jwtToken, $ttl);
       }
