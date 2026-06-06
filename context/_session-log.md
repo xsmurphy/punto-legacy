@@ -3,6 +3,20 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-06 — JWT_TTL /app subido a 10 años — modelo device pairing (commit 7e1b26f)
+
+- **Cambio**: `JWT_TTL` en `.env.example` pasa de `28800` (8h) a `315360000` (10 años). `ADMIN_JWT_TTL` queda en 8h.
+- **Decisión de arquitectura**: el JWT de /app NO es una sesión — es un *device pairing* (análogo a Apple TV pareado a una cuenta). El cajero entra/sale con PIN; el JWT representa el dispositivo pareado. TTL corto paraliza cajas apagadas un fin de semana.
+- **Docs actualizados**: `06-infraestructura.md` (tabla env vars + nota modelo), `02-arquitectura.md` (tabla realms + nota distinción capa dispositivo/cajero), `08-convenciones.md` (§28 nuevo).
+
+## 2026-06-05 — F3.1 Companies read-only + SMTP/NCM creds → env (commits e51d5e7..747384d)
+
+- **F3.1 Admin realm deployable**: `CompanyAdminService` (listAll/get/getCounts — owners+counts batched con IN(), filtro+total post-fetch en PHP) + `panel/API/v1/admin/companies.php` + BFF + `panel/admin/companies.html` + `companies.js` (dark theme, drawer detalle role=dialog, vanilla JS, todo `esc()`). Router `/admin/companies`. `home.html` card "Empresas". 884 LOC netas.
+- **Decisión de marca**: campo API `externalCustomerId` (no `encomCustomerId`) — CLAUDE.md regla #2.
+- **Patrón nuevo §27**: `mergeConfig()` inline en services de `/admin` para aplanar JSONB sin importar `functions.php` del realm tenant.
+- **Fix P1 Slice 15**: credenciales SMTP SendGrid (`SENDGRID_SMTP_USER/PASS`) y NCM SMS (`NCM_SMS_API_KEY/COMPANY_ID`) movidas de literales hardcodeados a env vars. Definidas en `.env.example` + `app/` y `panel/includes/simple.config.php`.
+- **Próximo**: F3.2 — update company (nombre/config/settings/módulos en TX).
+
 ## 2026-06-05 — PSR-4 Slices 11-15: Document + Money + Inventory + GiftCard + Notification (commits 2cae098..532be24)
 
 - **5 clases nuevas** bajo `Punto\App\Domain\` y `Punto\App\Services\`: `Document` (12 callers), `Money` (702 callers — hogar canónico de todo el formateo monetario), `Inventory` (116 callers — hogar canónico de stock y COGS, incluye `manageStock` crítico con 27 callers), `GiftCard` (1 caller), `Notification` (76 callers). Total nuevos callsites cubiertos: **~907**.

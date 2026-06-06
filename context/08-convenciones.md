@@ -1289,6 +1289,49 @@ function jsonDieMsg($msg='true',$code=401,$type='error'){
 
 ---
 
+## §27 — Servicios del realm `/admin`: `mergeConfig()` inline, sin importar `functions.php` (establecido F3.1, commit 747384d, 2026-06-05)
+
+**Regla**: Los services de `panel/lib/admin/` (realm de super-admins de plataforma) **NO deben importar** `panel/includes/functions.php` ni `app/includes/functions.php`. El realm `/admin` está criptográficamente aislado del realm tenant; importar el mega-file de funciones del realm tenant lo contamina y genera acoplamiento indeseable.
+
+**Problema concreto**: `_flattenJsonb()` (la función que aplana JSONB de columnas como `company.config`) vive en `panel/includes/functions.php`. Los services de `/admin` necesitan aplanar ese JSONB para exponer `settingName`, `companyName`, `eposData`, `moduleData`, etc. de las companies.
+
+**Solución — `mergeConfig()` inline**: cada service de `/admin` que necesite aplanar JSONB implementa su propia función `mergeConfig()` privada (o equivalente). La implementación replica la lógica de `_flattenJsonb` en ~15 líneas, sin dependencia externa:
+
+```php
+private function mergeConfig(array $row): array {
+    $config = json_decode($row['config'] ?? '{}', true) ?: [];
+    unset($row['config']);
+    return array_merge($row, $config);
+}
+```
+
+**Por qué no extraer a un shared helper**: la función es mínima y el costo de duplicación es menor que el riesgo de crear una dependencia entre `panel/lib/admin/` y los includes del realm tenant. Si en el futuro `/admin` tiene ≥3 services que la necesiten, considerar `panel/lib/admin/lib/JsonbHelper.php` como shared interno del realm.
+
+**Detectado en**: `CompanyAdminService` (F3.1) — aplana `company.config` JSONB post-migración PG (§22.8). El mismo patrón debe seguirse en cualquier service futuro del realm `/admin` que necesite columnas demoted a JSONB.
+
+---
+
+## §28 — Modelo de auth de /app: device pairing ≠ sesión (establecido commit 7e1b26f, 2026-06-06)
+
+**Regla**: el JWT de `/app` (`_jwt`) NO es una sesión de usuario. Es un **device pairing**: certifica que "este dispositivo está autorizado a operar como caja de esta empresa". No acortar `JWT_TTL` (actualmente 10 años) sin antes implementar un mecanismo alternativo de revocación por dispositivo (device-token-table).
+
+**Los dos niveles de auth de /app — distinción crítica:**
+
+| Nivel | Nombre | Mecanismo | Quién lo activa | TTL | Cuándo caduca |
+|-------|--------|-----------|-----------------|-----|--------------|
+| **Capa dispositivo** | Device pairing | JWT `_jwt` firmado con `JWT_SECRET` | Admin (user+password, una vez por dispositivo) | `JWT_TTL` = 10 años | Solo al rotar `JWT_SECRET` (revocación masiva) |
+| **Capa cajero** | Sesión de turno | PIN de 4 dígitos → `ncmAuth.activeUser` + `lockPad` en JS | Cajero (entrada/salida por turno) | Por turno — no persiste | Al salir del turno / bloquear la pantalla |
+
+**Por qué `JWT_TTL=10y`**: una caja apagada un fin de semana o en una sucursal sin admin presente no debe quedar inutilizable el lunes. El PIN maneja el acceso por turno; el JWT maneja el emparejamiento del dispositivo. Son concerns distintos y no se deben colapsar.
+
+**Revocación hoy**: rotar `JWT_SECRET` invalida TODOS los JWTs de /app y /panel en un paso. Es una revocación global, no per-device. Si se necesita revocar un dispositivo individual (robo, baja de sucursal) sin afectar al resto, el mecanismo correcto es una **device-token-table** (deuda futura — no implementada aún).
+
+**Contraste con /admin**: `ADMIN_JWT_TTL=8h` porque el super-admin SÍ tiene una sesión real: abre el panel de administración desde su browser personal y espera que expire al cabo del día. El modelo de su auth es el modelo clásico de sesión web.
+
+**Anti-patrón a evitar**: nunca ajustar `JWT_TTL` de /app pensando en "seguridad de sesión". La seguridad de acceso por turno la provee el PIN. El JWT de /app es análogo a un certificado de dispositivo — su vigencia no cambia el riesgo de acceso no autorizado por un cajero.
+
+---
+
 ## §21 — Manual de marca (identidad visual)
 
 **Regla**: La identidad visual es un **manual de referencia** (`context/11-design-system.md`)

@@ -65,12 +65,22 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 | Ruta de login | `/app/login.php` · `/app/API/auth.php` | `/panel/API/auth.php` | `/admin/login` |
 | Cookie JWT | `_jwt` | `_jwt_panel` | `_jwt_admin` |
 | Secret env | `JWT_SECRET` | `JWT_SECRET` | `ADMIN_JWT_SECRET` |
+| TTL env var | `JWT_TTL` — **10 años** (device pairing) | `JWT_TTL` — **10 años** | `ADMIN_JWT_TTL` — **8h** (sesión real) |
 | Claim `iss` | `'pos-app'` | `'panel'` | `'admin'` |
 | Claim `aud` | — | — | `"admin"` |
 | Tabla de usuarios | `contact` (POS employees) | `contact` (tenant employees) | `admin_user` (plataforma) |
 | Password scheme | sha256 + salt + HASH\_TIMES | sha256 + salt + HASH\_TIMES | bcrypt (`password_hash`) |
 | `companyId` | Siempre presente | Siempre presente | Ausente |
 | Accede a | POS (app/action.php + /api) | Panel de tenant | Cross-tenant (todas las companies) |
+
+**Modelo "device pairing" de /app vs sesiones de cajero (commit 7e1b26f, 2026-06-06):** el realm POS tiene DOS mecanismos de auth superpuestos que NO se deben confundir:
+
+| Nivel | Quién | Mecanismo | Persistencia |
+|-------|-------|-----------|-------------|
+| **Activación de caja** | Admin | JWT (`_jwt`, `JWT_TTL=10y`) | Permanente mientras el secret no rote. Análogo a Apple TV pareado a una cuenta. |
+| **Acceso del cajero** | Cajero | PIN de 4 dígitos → `ncmAuth.activeUser` + `lockPad` en JS | Transitorio por turno — el JWT del dispositivo NO se toca. |
+
+El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet". No es una sesión de usuario. Si se acorta el `JWT_TTL` sin reemplazar el mecanismo de emparejamiento por una device-token-table, las cajas apagadas durante el fin de semana quedan inutilizables al lunes hasta re-login de admin.
 
 **Regla de aislamiento (no-negociable):** un token de un realm nunca valida en otro. Los tres realms están aislados por secret + cookie + claim `iss`. Para POS y panel, `JWT_SECRET` es COMPARTIDO — el claim `iss` es la barrera que previene la confusión de privilegios (commit 2de4231, 2026-05-31).
 
@@ -91,7 +101,8 @@ Cada middleware compara `($payload['iss'] ?? '') !== '<realm>'` y rechaza con 40
 - **F0 HECHA (commit 01a8929):** tabla `admin_user` + `bootstrap_seed.php` + vars `.env`. La tabla existe pero nada del runtime actual la usa.
 - **F1 HECHA (commit 96f8b8f):** auth propia `/admin` — `v1/admin/login.php` (público, rate-limit) + `v1/admin/me.php` (gated) + `adminMiddleware()` + BFF `bff/admin/{login,me,logout}.php` + front estático standalone `admin/login.html` + `admin/home.html`. Cookie `_jwt_admin` HttpOnly, token no llega al browser como JSON. Aislamiento verificado E2E (token cruzado → 401 en ambas direcciones).
 - **F2 HECHA (commit 89e7388):** CRUD de super-admins — stack 3 capas: `panel/lib/admin/AdminUserService.php` (list/get/create/update/setStatus; reglas: email único case-insensitive, password >=8, no desactivar el último admin activo ni a uno mismo) + `panel/API/v1/admin/users.php` (gateado por `adminMiddleware()`) + `panel/bff/admin/users.php` + `panel/admin/users.html` + `panel/admin/scripts/users.js` (standalone, todo con `esc()`). Router `/admin/users`. `home.html` linkea al CRUD. Verificado E2E (list/create/dup-email 422/pass-corto 422/update/setStatus/auto-desactivación 422/get single).
-- **F3 = SIGUIENTE; F4–F6 pendientes:** ver `10-roadmap.md § Admin realm`.
+- **F3.1 HECHA (commit 747384d, 2026-06-05):** Companies CRUD read-only — `panel/lib/admin/CompanyAdminService.php` (listAll/get/getCounts/getOwnersBatched/getCountsBatched; owners + counts con IN() — no N+1; filtro post-fetch en PHP; total = count del set filtrado) + `panel/API/v1/admin/companies.php` + `panel/bff/admin/companies.php` + `panel/admin/companies.html` + `panel/admin/scripts/companies.js` (vanilla JS, dark theme, drawer detalle role=dialog aria-modal, `esc()` en todo output). Router `/admin/companies`. `home.html` card "Empresas". Campo `externalCustomerId` (no `encomCustomerId`). **Patrón nuevo**: `mergeConfig()` inline en `CompanyAdminService` aplana el JSONB `company.config` (post-migración PG §22.8) sin importar `functions.php` desde el realm aislado. Ver §27 en `08-convenciones.md`.
+- **F3.2–F3.5 + F4–F6 pendientes:** ver `10-roadmap.md § Admin realm`.
 
 ### MASTER\_COMPANY\_ID — rol post-F0
 

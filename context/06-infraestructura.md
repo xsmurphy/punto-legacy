@@ -48,17 +48,29 @@ Archivo: `.env` (no commiteado). Template: `.env.example`
 | `REDIS_HOST` | Host Redis | `127.0.0.1` / `redis` (Docker) |
 | `REDIS_PORT` | Puerto Redis | `6379` |
 | `JWT_SECRET` | Secret para JWT HS256 | (random 64 chars) |
-| `JWT_TTL` | TTL del token en segundos | `28800` (8h) |
+| `JWT_TTL` | TTL del JWT de /app en segundos — **modelo "device pairing"** (ver nota abajo) | `315360000` (10 años) |
+| `ADMIN_JWT_TTL` | TTL del JWT de /admin en segundos — sesión real del super-admin | `28800` (8h) |
 | `HASHIDS_SALT` | Salt legacy (todavía referenciado) | (random) |
 | `APP_ENV` | Entorno | `local` / `production` |
 | `APP_DEBUG` | Debug mode | `true` / `false` |
+
+**Nota — modelo "device pairing" de /app (commit 7e1b26f, 2026-06-06):**
+El `JWT_TTL` de `/app` es intencionalmente largo (10 años). El JWT de /app NO es una sesión de usuario — es un *device pairing*: el admin activa la caja una sola vez con user+password (cookie `_jwt`) y queda permanentemente asociada a esa empresa/outlet. Los cajeros no tocan ese JWT; entran y salen con un PIN de 4 dígitos (mecanismo separado: `ncmAuth.activeUser` + `lockPad` en el front).
+
+Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el lunes hasta que un admin re-loguee — en cadenas con muchos locales esto para ventas. Con 10 años, el pareamiento sobrevive cualquier apagón.
+
+**Revocación masiva**: rotar `JWT_SECRET` invalida todos los JWTs de /app en un solo paso. No hay revocación per-device (esa granularidad requeriría una "device token table" — deuda futura si se necesita).
+
+**ADMIN_JWT_TTL** (8h) sigue siendo correcto: el super-admin sí tiene una sesión real (abre el panel desde su browser personal).
 
 ### APIs externas
 
 | Variable | Servicio |
 |----------|----------|
 | `TWILIO_SID` + `TWILIO_AUTH_TOKEN` | SMS via Twilio |
-| `SENDGRID_API_KEY` | Email via SendGrid |
+| `SENDGRID_API_KEY` | Email via SendGrid (API key) |
+| `SENDGRID_SMTP_USER` + `SENDGRID_SMTP_PASS` | Email via SendGrid SMTP (`Notification::sendSMTP`). Definidos en `app/` y `panel/includes/simple.config.php`. (agregado commit e51d5e7, 2026-06-05) |
+| `NCM_SMS_API_KEY` + `NCM_SMS_COMPANY_ID` | SMS via NCM (`Notification::sendNCMSMS`). Definidos en `app/` y `panel/includes/simple.config.php`. (agregado commit e51d5e7, 2026-06-05) |
 | `MAILGUN_TOKEN` | Email via Mailgun |
 | `INFOBIP_AUTH` | SMS/RCS via Infobip |
 | `BANCARD_CARD_API_TOKEN` | Pagos tarjeta |

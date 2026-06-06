@@ -220,12 +220,15 @@ reportes, configuración de módulos, usuarios.
 | Users API | `panel/API/v1/admin/users.php` | CRUD de super-admins (list/get/create/update/setStatus) gateado |
 | Users BFF | `panel/bff/admin/users.php` | Proxy BFF reenvía cookie `_jwt_admin` |
 | Users domain | `panel/lib/admin/AdminUserService.php` | Reglas de negocio: email único case-insensitive, password >=8, no desactivar el último admin activo ni a uno mismo. Usa `$db->Insert()+Insert_ID()` (no `INSERT…RETURNING` — ver gotcha en `10-roadmap.md § Notas técnicas F2`) |
-| Front | `panel/admin/login.html`, `panel/admin/home.html`, `panel/admin/users.html` | Fronts estáticos standalone (sin shell tenant) |
-| Front scripts | `panel/admin/scripts/login.js`, `panel/admin/scripts/users.js` | JS del realm admin — todo output escapado con `esc()` |
+| Companies API | `panel/API/v1/admin/companies.php` | GET list / GET ?id= — gateado por `adminMiddleware()`. Soporta limit/offset/filter. |
+| Companies BFF | `panel/bff/admin/companies.php` | Proxy con `_jwt_admin`. |
+| Companies domain | `panel/lib/admin/CompanyAdminService.php` | listAll(limit, offset, filter) / get(id) / getCounts(id) / getOwnersBatched / getCountsBatched. Owners + counts con IN() batched — sin N+1. Filtro post-fetch en PHP; total = count del set filtrado. `mergeConfig()` inline aplana JSONB `company.config` sin importar `functions.php` (ver §27 en `08-convenciones.md`). Campo API: `externalCustomerId`. (F3.1, commit 747384d, 2026-06-05) |
+| Front | `panel/admin/login.html`, `panel/admin/home.html`, `panel/admin/users.html`, `panel/admin/companies.html` | Fronts estáticos standalone (sin shell tenant) |
+| Front scripts | `panel/admin/scripts/login.js`, `panel/admin/scripts/users.js`, `panel/admin/scripts/companies.js` | JS del realm admin — todo output escapado con `esc()`. `companies.js`: tabla + drawer detalle, dark theme, búsqueda case-insensitive, role=dialog aria-modal, focus management. |
 
-**Router** (`panel/router.php`): `/admin` + `/admin/login` → `panel/admin/home.html` / `panel/admin/login.html`; `/admin/users` → `panel/admin/users.html`.
+**Router** (`panel/router.php`): `/admin` + `/admin/login` → `panel/admin/home.html` / `panel/admin/login.html`; `/admin/users` → `panel/admin/users.html`; `/admin/companies` → `panel/admin/companies.html`.
 
-**Estado**: F0 (tabla+seed) ✅, F1 (auth) ✅, F2 (CRUD super-admins) ✅ — F3 siguiente (companies+billing desde `main.php`). Ver plan completo en `10-roadmap.md § Admin realm`.
+**Estado**: F0 (tabla+seed) ✅, F1 (auth) ✅, F2 (CRUD super-admins) ✅, F3.1 (companies read-only) ✅ — F3.2 siguiente (update company). Ver plan completo en `10-roadmap.md § Admin realm`.
 
 ---
 

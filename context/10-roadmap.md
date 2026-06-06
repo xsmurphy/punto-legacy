@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-05 (PSR-4 Slices 11-15 — `Document` + `Money` + `Inventory` + `GiftCard` + `Notification`, commits 2cae098..532be24)
+> **Última actualización:** 2026-06-05 (F3.1 Companies read-only + SMTP/NCM creds → env, commits e51d5e7..747384d)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -145,7 +145,7 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 | **F0** | Tabla `admin_user` (migración 09) + `bootstrap_seed.php` (CLI idempotente, bcrypt) + vars `.env` (`ADMIN_JWT_SECRET/TTL`, `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`). Verificado E2E en DB local. | ✅ HECHA (commit 01a8929, 2026-05-28) |
 | **F1** | Auth del realm `/admin`: login email+pass, JWT propio (`_jwt_admin`, `aud:"admin"`), `adminMiddleware`, `login.html` estático + BFF, rate-limit. | ✅ HECHA (commit 96f8b8f, 2026-05-28) |
 | **F2** | CRUD de admins en `/admin` (modelo BFF 3 capas). No permitir desactivar el último admin activo. | ✅ HECHA (commit 89e7388, 2026-05-28) |
-| **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | **SIGUIENTE** |
+| **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | **✅ PARCIAL — F3.1 deployable (commit 747384d, 2026-06-05)** |
 | **F4** | ⚠️ RIESGO ALTO — desacoplar `SAAS_ADM`/`MASTER_COMPANY_ID` del panel tenant (quitar redirect `@.php:11`, limpiar `config.php`). Va ÚLTIMO porque rompe el gate de identidad legacy. | Pendiente |
 | **F5** | Login de tenant por teléfono (no email) — independiente de F1–F4. | Pendiente |
 | **F6** | Decommission de `main.php` como admin + hardening + verificar aislamiento de realms E2E. | Pendiente |
@@ -154,6 +154,21 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 - `admin_user`: UUID PK, email único case-insensitive (`lower(email)`), `passwordHash` bcrypt, `status` 1/0, `createdBy` self-FK, `lastLoginAt`, timestamps. Sin `companyId`.
 - `bootstrap_seed.php`: CLI-only (`PHP_SAPI === 'cli'`), no loguea el password, no-op si el admin ya existe.
 - `MASTER_COMPANY_ID` **no es más gate de identidad** post-F4, pero sigue intacto hasta entonces. No tocar el redirect de `@.php:11` ni `SAAS_ADM` hasta F4.
+
+**Notas técnicas F3.1 (commit 747384d, 2026-06-05):**
+- Stack BFF 3 capas: `panel/lib/admin/CompanyAdminService.php` (listAll/get/getCounts; owners + counts BATCHED — IN() — no N+1; filtro post-fetch en PHP, total = count del set filtrado; `mergeConfig()` inline para aplanar JSONB company.config sin importar functions.php — ver §27 en `08-convenciones.md`) + `panel/API/v1/admin/companies.php` (GET list/single, gateado por `adminMiddleware()`) + `panel/bff/admin/companies.php` (proxy `_jwt_admin`) + `panel/admin/companies.html` + `panel/admin/scripts/companies.js` (tabla + drawer detalle, vanilla JS, dark theme, role=dialog aria-modal, focus management, búsqueda case-insensitive, todo con `esc()`). Router `/admin/companies → panel/admin/companies.html`. `home.html` con card "Empresas".
+- Campo API: `externalCustomerId` (NO `encomCustomerId`) — decisión de marca (CLAUDE.md regla #2).
+- E2E verificado: list 4 empresas, search, paginación, 404 UUID inexistente, 405 POST, 401 sin JWT.
+
+**Sub-fases de F3 (5 restantes):**
+
+| Sub-fase | Qué | Estado |
+|----------|-----|--------|
+| **F3.1** | Companies CRUD read-only — listar y consultar todas las companies del SaaS (CompanyAdminService: listAll/get/getCounts). | ✅ HECHA (commit 747384d, 2026-06-05) |
+| **F3.2** | Update company — editar nombre/config/settings/módulos en una única transacción. | **SIGUIENTE** |
+| **F3.3** | Delete cascade — baja de company (soft/hard, cascade a contacts/transactions/etc.). | Pendiente |
+| **F3.4** | Billing — view/edit del plan y créditos por company (hoy en `main.php`). | Pendiente |
+| **F3.5** | Migración completa de `main.php` cross-tenant a `lib/admin` — eliminar el acceso cross-tenant desde el realm tenant. | Pendiente (pre-F4) |
 
 **Notas técnicas F2:**
 - Stack BFF 3 capas completo: `panel/lib/admin/AdminUserService.php` (data layer — list/get/create/update/setStatus) + `panel/API/v1/admin/users.php` (gateado por `adminMiddleware()`, `_jwt_admin`, `aud:"admin"`) + `panel/bff/admin/users.php` (proxy cookie) + `panel/admin/users.html` + `panel/admin/scripts/users.js` (front standalone, todo escapado con `esc()`). Router: `/admin/users → /admin/users.html`. `home.html` linkea al CRUD.
