@@ -4341,12 +4341,51 @@ var ncmEvents = {
                 ncmDrawerManager.control();
             });
         } else if (hash == 'reset') {
-            ncmAlerts.alert({ title: "¿Realmente quiere desinstalar ENCOM?" }, function (result) {
-                if (result) {
-                    ncmEvents.unHashUrl();
-                    ncmStorage.nuke();//flush local db nuke
+            ncmAlerts.alert({ title: "¿Realmente quiere desinstalar Punto?" }, function (result) {
+                if (!result) { return; }
+
+                ncmEvents.unHashUrl();
+
+                // Función de cleanup local — corre SI o SI (incluso si el endpoint falla),
+                // así un device sin conexión también puede "desinstalar" localmente.
+                var cleanupLocal = function () {
+                    try { ncmStorage.nuke(); } catch (e) {}
+                    try { localStorage.clear(); } catch (e) {}
+                    try { sessionStorage.clear(); } catch (e) {}
+                    // Limpiar cookies visibles desde JS (`_jwt` es HttpOnly, la mata el server)
+                    try {
+                        document.cookie.split(';').forEach(function (c) {
+                            var eq = c.indexOf('=');
+                            var n  = (eq > -1 ? c.substr(0, eq) : c).trim();
+                            document.cookie = n + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                        });
+                    } catch (e) {}
+                    // Unregister service worker + clear caches por las dudas
+                    try {
+                        if (navigator.serviceWorker) {
+                            navigator.serviceWorker.getRegistrations().then(function (rs) {
+                                rs.forEach(function (r) { r.unregister(); });
+                            });
+                        }
+                        if (window.caches) {
+                            caches.keys().then(function (ks) {
+                                ks.forEach(function (k) { caches.delete(k); });
+                            });
+                        }
+                    } catch (e) {}
                     location.reload();
-                }
+                };
+
+                // Endpoint server-side: revoca el device row + mata la cookie _jwt HttpOnly.
+                // Sin esto, la cookie sigue válida hasta su TTL (10 años) y la próxima vez
+                // que se cargue /app, el JWT existente re-autenticaría.
+                $.ajax({
+                    url: window.masterUrl + 'API/logout',
+                    type: 'POST',
+                    timeout: 5000,
+                    xhrFields: { withCredentials: true },
+                    complete: cleanupLocal  // SI o SI corre (success o fail)
+                });
             });
         }
     },
