@@ -35,6 +35,7 @@ final class Money
     {
         global $DECIMAL, $THOUSAND_SEPARATOR;
 
+        $number = (float) $number;
         if (!$number) {
             $number = 0;
         }
