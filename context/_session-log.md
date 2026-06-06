@@ -3,6 +3,31 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-06 — Bug bashing post-PSR-4 + DX en localhost (commits 4f28aa3..46468e2)
+
+- **5 bugs cazados durante un debug session del POS** (PHP 8 hardening + JSONB-demote + UX) — ninguno individual ameritó context-updater pero el cumulativo da contexto del por qué del día:
+  - `4f28aa3` action.php processData: PHP 8 endureció `array_key_exists()` (rechaza null) → 500 en cada sync vacío del front. Guard `is_array($data)` antes del chain.
+  - `2c3eb49` fetchs.php pings spammeaban 401 "nnd": el query SELECTeaba columnas (`companyLastUpdate`, `itemsLastUpdate`, `customersLastUpdate`) **demoted a JSONB** (§22.8) → silent fail → `strtotime(null)=0` → siempre rejected. Fix: `SELECT *` para que `_flattenJsonb` exponga las keys.
+  - `7ac6de9` `Arr::sizeOf()` TypeError con strings numéricos — el return type `int|float` (introducido en Slice 6) rechazaba el string crudo que el legacy `counts()` devolvía. Fix: `$val + 0` (coerción que preserva int/float).
+  - `789c4a1` UI bloqueante "Puede añadir hasta artículos" cuando `settingItemsSaleLimit` venía `""` (demoted a JSONB sin valor) → `&&` short-circuitaba a falsy → spam de alert vacío en cada add. Fix: `parseInt + !(limit > 0)` para tratar vacío como "sin límite".
+  - `46468e2` localhost dev: deshabilitar SW registration en `checkIfUrlDebug()` + emitir `Cache-Control: no-store` en TODAS las respuestas (`router.php` sirve estáticos manualmente con MIME map). Adiós cache hell entre reloads.
+- **Causa común**: el endurecimiento PHP 8 + return types del refactor PSR-4 (Slices 3/6/15) expusieron varios bugs latentes que el legacy disimulaba con warnings silenciosos.
+- **DX adicional descubierta**: el server `:8002` se moría repetido por `getFileContent()` (cerrado después en `7bfb800`). Workaround temporal hasta ese commit: `php -d max_execution_time=0 -S localhost:8002 router.php`.
+
+## 2026-06-06 — "Eliminar Punto de este dispositivo" — auto-revoke device + rebrand (commit 70dbc22)
+
+- **feat(auth): user-initiated revoke (70dbc22):** cierra el flow del device pairing del lado del usuario. `app/API/logout.php` (POST-only, evita CSRF hot-link por GET): decode JWT, UPDATE device status=0 + revokedBy=userId propio, `jwtInvalidateDeviceCache()` (efecto inmediato), mata cookie `_jwt` (expires=1970), responde `{ok:true}` aun sin token. GET → 405. Handler `#reset` en `app.js`: POST con timeout 5s; callback `complete` corre `cleanupLocal` siempre (offline también puede desinstalar) — `ncmStorage.nuke + localStorage.clear + sessionStorage.clear + barrer cookies JS + unregister SW + caches.delete + reload`. E2E: 6 escenarios.
+- **Rebrand ENCOM→Punto** en 3 puntos de UI: `app/index.html` L2490, `app/index.php` L2515, alert title en `app.js`. String canónico: "Eliminar Punto de este dispositivo".
+- **Deuda que cierra:** user-initiated revoke del slice device pairing. Queda pendiente: UI panel del tenant (admin-initiated, diferida a React).
+- **Docs actualizados:** `05-modulos-clave.md` (logout.php en app/API/), `08-convenciones.md` (§29.B — flow user-initiated + string canónico), `10-roadmap.md` (✅ user-initiated revoke en entrada device pairing).
+
+## 2026-06-06 — Device pairing backend completo + fix getFileContent timeout (commits 7bfb800 + a3fefb4)
+
+- **feat(auth): device pairing — revocación per-dispositivo (a3fefb4):** cierra la deuda enunciada en §28 post-JWT_TTL=10y. Tabla `device` (migración 11, aplicada manual), helper `app/includes/device.php`, `deviceRegister()` llamado desde login + auth.php → claim `did` en JWT. `jwt_middleware.php` valida `device.status` con cache file 60s + modo conservador si BD no disponible. `refresh.php` chequea device antes de re-emitir. Backwards compat: tokens sin `did` siguen pasando. E2E: 7 escenarios.
+- **fix(app): getFileContent timeout 5s + ignore_errors (7bfb800):** `file_get_contents` en `getFileContent()` esperaba hasta `max_execution_time` (30s) si la URL externa no respondía → mataba el server built-in single-thread. Fix: stream context `http.timeout=5` + `ignore_errors=true`. Callers: login.php (validación SMS 2FA). Bug fix puro, no cambia arquitectura.
+- **Deuda pendiente de este slice:** UI panel para listar/revocar devices (diferida a React); migration runner automático sigue como deuda abierta.
+- **Docs actualizados:** `02-arquitectura.md` (device pairing completado), `04-modelo-de-dominio.md` (tabla device + migración 11), `05-modulos-clave.md` (device.php + jwt_middleware actualizado), `08-convenciones.md` (§28 actualizado + §29 nuevo sobre revocación), `10-roadmap.md` (entrada ✅ device pairing backend).
+
 ## 2026-06-06 — JWT_TTL /app subido a 10 años — modelo device pairing (commit 7e1b26f)
 
 - **Cambio**: `JWT_TTL` en `.env.example` pasa de `28800` (8h) a `315360000` (10 años). `ADMIN_JWT_TTL` queda en 8h.
