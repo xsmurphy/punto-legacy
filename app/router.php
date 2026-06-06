@@ -19,8 +19,48 @@ header('Referrer-Policy: strict-origin-when-cross-origin');
 $uri = $_SERVER['REQUEST_URI'];
 $path = parse_url($uri, PHP_URL_PATH);
 
+// DEV: en localhost desactivamos TODO el cache HTTP del browser para que
+// cada hard-reload traiga la versión fresca del disco. En prod el cache lo
+// resuelve el reverse proxy / CDN, no este router.
+$isLocalhost = strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') !== false
+            || strpos($_SERVER['HTTP_HOST'] ?? '', '127.0.0.1') !== false;
+if ($isLocalhost) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+}
+
 // Servir archivos estaticos que existen (css, js, images, fonts)
 if ($path !== '/' && file_exists(__DIR__ . $path)) {
+    // En localhost servimos manualmente para preservar los headers de
+    // no-cache emitidos arriba — el `return false` cede al PHP built-in
+    // server y descarta nuestros headers HTTP.
+    if ($isLocalhost) {
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $mime = [
+            'js'    => 'application/javascript',
+            'css'   => 'text/css',
+            'html'  => 'text/html',
+            'json'  => 'application/json',
+            'png'   => 'image/png',
+            'jpg'   => 'image/jpeg', 'jpeg' => 'image/jpeg',
+            'gif'   => 'image/gif',
+            'svg'   => 'image/svg+xml',
+            'ico'   => 'image/x-icon',
+            'webp'  => 'image/webp',
+            'woff'  => 'font/woff', 'woff2' => 'font/woff2',
+            'ttf'   => 'font/ttf', 'otf'   => 'font/otf',
+            'eot'   => 'application/vnd.ms-fontobject',
+            'mp3'   => 'audio/mpeg', 'wav' => 'audio/wav',
+            'mp4'   => 'video/mp4',  'webm' => 'video/webm',
+            'pdf'   => 'application/pdf',
+            'txt'   => 'text/plain', 'xml' => 'application/xml',
+            'map'   => 'application/json',
+        ][$ext] ?? 'application/octet-stream';
+        header('Content-Type: ' . $mime);
+        readfile(__DIR__ . $path);
+        return true;
+    }
     return false; // PHP built-in server sirve el archivo directamente
 }
 
@@ -40,7 +80,11 @@ if (strpos($path, '/assets/') === 0) {
             'ttf'  => 'font/ttf',
         ];
         header('Content-Type: ' . ($mimeTypes[$ext] ?? 'application/octet-stream'));
-        header('Cache-Control: public, max-age=31536000, immutable');
+        // Solo cache largo en prod; en localhost ya seteamos no-store arriba
+        // y NO queremos pisarlo. `header()` sin chequeo sobrescribiría.
+        if (!$isLocalhost) {
+            header('Cache-Control: public, max-age=31536000, immutable');
+        }
         readfile($assetFile);
         return true;
     }

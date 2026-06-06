@@ -24217,6 +24217,11 @@ var checkIfUrlDebug = function () {
         return true;
     else if (window.encomInApp)
         return true;
+    // DEV: en localhost / 127.0.0.1 NO registrar el Service Worker — evita
+    // que cachee respuestas viejas (incluyendo errores 500 que sirve después
+    // como "Service Unavailable") y nos obligue a manual unregister cada vez.
+    else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        return true;
     return false
 }
 
