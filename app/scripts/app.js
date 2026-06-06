@@ -21772,7 +21772,12 @@ var ncmItems = {
                 object.currency = ncmGlobals.currency;
             }
 
-            if (ncmGlobals.settings[0].itemsSaleLimit && itemsObj.length < ncmGlobals.settings[0].itemsSaleLimit) {
+            // itemsSaleLimit puede venir "" / null / 0 cuando NO hay límite configurado.
+            // El check anterior `if (limit && length < limit)` caía al else en ese caso
+            // y mostraba "Puede añadir hasta <vacío> artículos" — bloqueando ventas.
+            // Semántica correcta: si no hay límite válido (>0), permitir agregar.
+            var itemsLimit = parseInt(ncmGlobals.settings[0].itemsSaleLimit, 10);
+            if (!(itemsLimit > 0) || itemsObj.length < itemsLimit) {
                 var index = itemsObj.push(object) - 1;
                 //si inserta regreso su index
 
@@ -21784,7 +21789,7 @@ var ncmItems = {
 
                 return index;
             } else {
-                ncmAlerts.nativeAlert('Puede añadir hasta ' + ncmGlobals.settings[0].itemsSaleLimit + ' artículos', 'warning');
+                ncmAlerts.nativeAlert('Puede añadir hasta ' + itemsLimit + ' artículos', 'warning');
                 return false;
             }
         }
