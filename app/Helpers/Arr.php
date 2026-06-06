@@ -36,7 +36,12 @@ final class Arr
     public static function sizeOf(mixed $val): int|float
     {
         if (is_numeric($val)) {
-            return $val;
+            // is_numeric($val)=true incluye strings ("123", "1e10"). El legacy
+            // `counts()` sin return-type devolvía el string tal cual; con el
+            // hint estricto eso es TypeError. Coerción `+0` preserva el tipo
+            // numérico exacto: int si era int o string entero, float si era
+            // float o notación científica.
+            return $val + 0;
         }
         if (is_string($val)) {
             return strlen($val);
