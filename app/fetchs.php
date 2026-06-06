@@ -29,6 +29,15 @@ function checkExecTime($reference = false){
 
 require_once('includes/jwt_middleware.php');
 
+// Health check GET — mismo comportamiento que ping.php pero desde esta ruta.
+// El JS del front llama esto como POST autenticado (companyId+outletId+JWT).
+// Un GET sin body devolvía 401 del else-final; ahora devuelve 200.
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && ($_GET['load'] ?? '') === 'ping') {
+    http_response_code(200);
+    header('Content-Type: application/json');
+    die(json_encode(['ok' => true]));
+}
+
 if(isset($_POST['companyId']) && isset($_POST['outletId'])){
   $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 
