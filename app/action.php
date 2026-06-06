@@ -57,10 +57,18 @@ if ($action) {
   if ($action == 'processData') {
 
     $dataArray      = validateHttp('data', 'post');
-    $data           = json_decode($dataArray[0], true);
+    $data           = json_decode($dataArray[0] ?? '', true);
     $totalAmount    = 0;
     $totalTax       = 0;
     $totalDiscount  = 0;
+
+    // PHP 8 endureció array_key_exists() — exige array, ya no acepta null.
+    // Si llega processData sin payload válido (sync vacío, health check,
+    // o decode fallido), contestamos "Incomple Data" para no spammear 500s.
+    // Mismo mensaje que la línea 981 dentro del flow normal.
+    if (!is_array($data)) {
+      jsonDieMsg('Incomple Data', 200, 'success');
+    }
 
     if (array_key_exists('transaction', $data)) {
       $data = $data['transaction'];
