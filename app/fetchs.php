@@ -73,15 +73,23 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
   //si no hay fecha puede ser un refresh del browser, entonces dejo que cargue todo
   if(validateHttp('lastUpdate','post') && validateHttp('lastUpdate','post') != 'false'){
-  
-    $lastUpdateApp        = validateHttp('lastUpdate','post');
-    $lstUpdt              = ncmExecute("SELECT companyLastUpdate, itemsLastUpdate, customersLastUpdate FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
-    
-    $lastUpdateServ       = $lstUpdt['companyLastUpdate'];
-    $lastUpdateItems      = $lstUpdt['itemsLastUpdate'];
-    $lastUpdateCustomers  = $lstUpdt['customersLastUpdate'];
 
-    if(strtotime($lastUpdateApp) > strtotime($lastUpdateServ)){
+    $lastUpdateApp        = validateHttp('lastUpdate','post');
+    // PG §22.8: companyLastUpdate/itemsLastUpdate/customersLastUpdate fueron DEMOTED
+    // a company.config JSONB. Un SELECT de esas columnas falla silenciosamente y
+    // $lstUpdt[*] queda null → strtotime(null)=0 → cualquier lastUpdate del front >0
+    // → $login_ok=false → 401 "nnd" en cada ping. Usar SELECT * que ncmExecute
+    // pasa por _flattenJsonb, exponiendo las keys del JSONB como propiedades.
+    $lstUpdt              = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1",[COMPANY_ID]);
+
+    $lastUpdateServ       = $lstUpdt['companyLastUpdate']   ?? null;
+    $lastUpdateItems      = $lstUpdt['itemsLastUpdate']     ?? null;
+    $lastUpdateCustomers  = $lstUpdt['customersLastUpdate'] ?? null;
+
+    // Si el server no tiene timestamp (instalación recién seedeada o JSONB
+    // sin esa key), tratamos como "no mismatch" — el cliente seguirá adelante
+    // y el server le mandará data completa abajo.
+    if($lastUpdateServ && strtotime($lastUpdateApp) > strtotime($lastUpdateServ)){
       $login_ok   = false;
     }
   }
