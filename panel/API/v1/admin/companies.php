@@ -16,6 +16,9 @@
  * F3.4 — billing:
  *   GET ?plans=1              → lista de planes (code/name/price) para selector
  *   GET ?id=<uuid>&billing=1  → datos de facturación (balance, plan, cpayments)
+ *
+ * F3.5 — entrar como empresa (impersonar):
+ *   POST ?id=<uuid>&action=enter → genera JWT _jwt_panel del propietario
  */
 
 require_once __DIR__ . '/../../../includes/db.php';
@@ -111,6 +114,22 @@ if ($method === 'DELETE') {
         apiError($result['error'] ?? 'error', $result['code'] ?? 422);
     }
     apiOk(['deleted' => $type]);
+}
+
+if ($method === 'POST') {
+    // F3.5 — generar JWT panel para propietario de la empresa (impersonación admin).
+    $id     = trim((string) ($_GET['id']     ?? ''));
+    $action = trim((string) ($_GET['action'] ?? ''));
+
+    if ($id === '' || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id) || $action !== 'enter') {
+        apiError('Parámetros inválidos: se requiere ?id=<uuid>&action=enter', 400);
+    }
+
+    $tokenData = $svc->getEnterToken($id);
+    if (!$tokenData) {
+        apiNotFound('Empresa no encontrada o sin propietario activo');
+    }
+    apiOk(['token' => $tokenData['token'], 'expiresIn' => $tokenData['expiresIn']]);
 }
 
 apiError('Método no permitido', 405);

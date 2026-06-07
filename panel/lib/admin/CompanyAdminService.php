@@ -672,6 +672,74 @@ class CompanyAdminService
         ];
     }
 
+    // --- F3.5: entrar como empresa (impersonar) ---------------------------------
+
+    /**
+     * Genera un JWT `_jwt_panel` para el propietario de la empresa indicada.
+     *
+     * El token es idéntico al que emite `issueJwtPanel()` en functions.php,
+     * pero aquí se construye sin setcookie() — el BFF lo lee del JSON y lo
+     * inyecta en la respuesta al browser.
+     *
+     * Usa JWT_SECRET (panel tenant), no ADMIN_JWT_SECRET.
+     * Requiere include de jwt.php para jwtEncode().
+     *
+     * Devuelve null si la empresa no existe o no tiene propietario.
+     */
+    public function getEnterToken(string $id): ?array
+    {
+        global $db;
+
+        $company = $db->Execute(
+            'SELECT companyId FROM company WHERE companyId = ? LIMIT 1',
+            [$id]
+        );
+        if (!$company || $company->EOF) {
+            return null;
+        }
+
+        // Propietario principal (role=1, main=true, type=0).
+        $contact = $db->Execute(
+            "SELECT contactId, companyId, role FROM contact
+             WHERE companyId = ? AND role = 1 AND main = 'true' AND type = 0
+             LIMIT 1",
+            [$id]
+        );
+        if (!$contact || $contact->EOF) {
+            return null;
+        }
+        $cf = $contact->fields;
+
+        // Primer outlet activo.
+        $outlet = $db->Execute(
+            'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
+            [$id]
+        );
+        $outletId = ($outlet && !$outlet->EOF) ? (string) ($outlet->fields['outletid'] ?? '') : '';
+
+        $secret = $_ENV['JWT_SECRET'] ?? '';
+        if (!$secret) {
+            return null;
+        }
+
+        require_once __DIR__ . '/../../includes/jwt.php';
+
+        $ttl   = (int) ($_ENV['JWT_TTL'] ?? 28800);
+        $now   = time();
+        $token = jwtEncode([
+            'iss'  => 'panel',
+            'sub'  => (string) ($cf['contactid'] ?? ''),
+            'cid'  => (string) ($cf['companyid'] ?? ''),
+            'oid'  => $outletId,
+            'rid'  => '',
+            'role' => (int) ($cf['role']      ?? 1),
+            'iat'  => $now,
+            'exp'  => $now + $ttl,
+        ], $secret);
+
+        return ['token' => $token, 'expiresIn' => $ttl];
+    }
+
     // --- internos -----------------------------------------------------------
 
     private function getOwner(string $companyId): ?array

@@ -1,11 +1,12 @@
 /**
- * companies.js — front estático del CRUD de empresas (realm /admin, F3.1-F3.4).
+ * companies.js — front estático del CRUD de empresas (realm /admin, F3.1-F3.5).
  *
  * Habla solo con /bff/admin/companies.php.
  * F3.1: list + drawer detalle.
  * F3.2: PATCH — edición de campos de la empresa (incluye plan, balance).
  * F3.3: DELETE — suspensión suave (soft) y eliminación permanente (hard).
  * F3.4: Billing — selector de plan, balance, historial de cpayments.
+ * F3.5: Ingresar como empresa — genera _jwt_panel, abre panel en nueva pestaña.
  *
  * Patrón heredado de users.js: esc() everywhere, redirect 401/403 → /admin/login.
  */
@@ -467,6 +468,7 @@
 
         drawerBodyEl.innerHTML =
             '<div class="drawer-toolbar">' +
+                '<button class="btn-link" id="enterBtn">Ingresar</button>' +
                 '<button class="btn-link" id="billingBtn">Facturación</button>' +
                 '<button class="btn-link" id="editBtn">Editar</button>' +
             '</div>' +
@@ -527,6 +529,34 @@
                     '<button class="btn-danger" id="hardDeleteBtn">Eliminar</button>' +
                 '</div>' +
             '</div>';
+
+        document.getElementById('enterBtn').addEventListener('click', function () {
+            var btn = this;
+            btn.disabled = true;
+            btn.textContent = 'Ingresando…';
+            fetch('/bff/admin/companies.php?id=' + encodeURIComponent(c.id) + '&action=enter', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+            }).then(function (r) {
+                if (r.status === 401 || r.status === 403) { redirectToLogin(); return Promise.reject('auth'); }
+                return r.json();
+            }).then(function (j) {
+                btn.disabled = false;
+                btn.textContent = 'Ingresar';
+                if (!j.ok) {
+                    toast('Error: ' + esc(j.error || 'no se pudo ingresar'));
+                    return;
+                }
+                // Abre el panel de la empresa en nueva pestaña (el _jwt_panel ya fue
+                // inyectado en la cookie por el BFF). El admin sigue en /admin.
+                window.open(j.redirectUrl || '/@#dashboard', '_blank', 'noopener');
+            }).catch(function () {
+                btn.disabled = false;
+                btn.textContent = 'Ingresar';
+            });
+        });
 
         document.getElementById('billingBtn').addEventListener('click', function () {
             renderBilling(c.id);
