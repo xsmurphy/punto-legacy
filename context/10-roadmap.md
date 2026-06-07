@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-07 (F3.5 impersonación JWT + F3 COMPLETO, commit 456092f)
+> **Última actualización:** 2026-06-07 (F4+F5+F6 COMPLETO — admin realm 100% done, commits ea7b67f..d310fe4)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -155,9 +155,9 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 | **F1** | Auth del realm `/admin`: login email+pass, JWT propio (`_jwt_admin`, `aud:"admin"`), `adminMiddleware`, `login.html` estático + BFF, rate-limit. | ✅ HECHA (commit 96f8b8f, 2026-05-28) |
 | **F2** | CRUD de admins en `/admin` (modelo BFF 3 capas). No permitir desactivar el último admin activo. | ✅ HECHA (commit 89e7388, 2026-05-28) |
 | **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | **✅ COMPLETA — F3.1+F3.2+F3.3+F3.4+F3.5 hechas** |
-| **F4** | ⚠️ RIESGO ALTO — desacoplar `SAAS_ADM`/`MASTER_COMPANY_ID` del panel tenant (quitar redirect `@.php:11`, limpiar `config.php`). Va ÚLTIMO porque rompe el gate de identidad legacy. | Pendiente |
-| **F5** | Login de tenant por teléfono (no email) — independiente de F1–F4. | Pendiente |
-| **F6** | Decommission de `main.php` como admin + hardening + verificar aislamiento de realms E2E. | Pendiente |
+| **F4** | ⚠️ RIESGO ALTO — desacoplar `SAAS_ADM`/`MASTER_COMPANY_ID` del panel tenant (quitar redirect `@.php:11`, limpiar `config.php`). Va ÚLTIMO porque rompe el gate de identidad legacy. | **✅ HECHA (commit ea7b67f, 2026-06-07)** |
+| **F5** | Login de tenant por teléfono (no email) — independiente de F1–F4. | **✅ HECHA (commit ccfa676, 2026-06-07)** |
+| **F6** | Decommission de `main.php` como admin + hardening + verificar aislamiento de realms E2E. | **✅ HECHA (commit d310fe4, 2026-06-07)** |
 
 **Notas técnicas F0:**
 - `admin_user`: UUID PK, email único case-insensitive (`lower(email)`), `passwordHash` bcrypt, `status` 1/0, `createdBy` self-FK, `lastLoginAt`, timestamps. Sin `companyId`.
