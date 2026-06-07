@@ -9117,23 +9117,23 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			return 'true';
 		}
 
-		function findEmailOrPhoneLogin($email)
+		function findEmailOrPhoneLogin($identifier)
 		{
 			$result = ncmExecute("SELECT
                           *
                         FROM contact
-                        WHERE contactEmail = ? 
+                        WHERE contactPhone = ?
                         AND role IN (0,1,2,7)
                         AND type = 0
-                        LIMIT 1", [$email]);
+                        LIMIT 1", [$identifier]);
 			if (!$result) {
 				$result = ncmExecute("SELECT
 		                      *
 		                    FROM contact
-		                    WHERE contactPhone = ? 
+		                    WHERE contactEmail = ?
 		                    AND role IN (0,1,2,7)
-		                    AND type = 0 
-		                    LIMIT 1", [$email]);
+		                    AND type = 0
+		                    LIMIT 1", [$identifier]);
 			}
 
 			return $result;

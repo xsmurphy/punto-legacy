@@ -84,7 +84,10 @@ if(validateHttp('recovery')){
 
 		if($update !== false){
 			
-			if(validity($result['contactEmail'],'email')){
+			if( validity($result['contactPhone']) ){
+				$companyData = ncmExecute('SELECT settingCountry FROM company WHERE companyId = ? LIMIT 1', [$result['companyId']]);
+				$sent = sendSMS($result['contactPhone'], '[' . APP_NAME . '] Su nueva contraseña es ' . $newPass, $companyData['settingCountry'], 100, 16);
+			}else if(validity($result['contactEmail'],'email')){
 				$meta['subject'] = '[' . APP_NAME . '] Su nueva contraseña';
 				$meta['to']      = $result['contactEmail'];
 				$meta['fromName']= APP_NAME;
@@ -93,12 +96,7 @@ if(validateHttp('recovery')){
 				                    "companyname" => APP_NAME,
 				                    "companylogo" => '/assets/150-150/0/' . enc(MASTER_COMPANY_ID) . '.jpg'
 				                	];
-
 				$sent = sendEmails($meta);
-			}else if( validity($result['contactPhone']) ){
-
-				$companyData = ncmExecute( 'SELECT settingCountry FROM company WHERE companyId = ? LIMIT 1',[$result['contactPhone']] );
-				$sent = sendSMS($result['contactPhone'],'[' . APP_NAME . '] Su nueva contraseña es ' . $newPass,$companyData['settingCountry'],100,16);
 			}
 
 			echo 'true';

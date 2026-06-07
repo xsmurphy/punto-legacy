@@ -44,11 +44,11 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
     $result = findEmailOrPhoneLogin(db_prepare($email));
 
     if (!$result) {
-        apiUnauthorized('Email o contraseña incorrectos');
+        apiUnauthorized('Teléfono/email o contraseña incorrectos');
     }
 
     if (checkForPassword(db_prepare($pass), $result['salt']) !== rtrim($result['contactPassword'])) {
-        apiUnauthorized('Email o contraseña incorrectos');
+        apiUnauthorized('Teléfono/email o contraseña incorrectos');
     }
 
     // Chequear status ANTES de loginPart() para evitar su dai() que rompería el envelope
