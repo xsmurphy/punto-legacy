@@ -1267,38 +1267,72 @@ if ($action) {
       }
     } else if (array_key_exists('updateCustomerRecord', $data)) {
       $dataSet    = $data['updateCustomerRecord'];
-      $customerId = db_prepare(dec($dataSet['customerId']));
-      $list       = $dataSet['data'];
+      $customerId = (string) ($dataSet['customerId'] ?? '');
+      $list       = $dataSet['data'] ?? [];
 
-      foreach ($list as $i => $val) {
+      // PG: customerId es UUID NOT NULL — "0" o vacío es inválido.
+      if (!$customerId || $customerId === '0') {
+        jsonDieMsg('Cliente requerido', 422, 'error');
+      }
+
+      // Tenant-scope P0: verificar que el cliente pertenece a este tenant.
+      $contactOwner = ncmExecute(
+        'SELECT contactId FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+        [$customerId, COMPANY_ID]
+      );
+      if (!$contactOwner) {
+        jsonDieMsg('Cliente no encontrado', 404, 'error');
+      }
+
+      // Pre-cargar campos válidos del tenant (cRecordField → customerRecord.companyId)
+      // para validar cada $decField en el loop sin N queries adicionales.
+      $validFieldsRs = $db->Execute(
+        'SELECT cf.cRecordFieldId FROM cRecordField cf JOIN customerRecord cr ON cf.customerRecordId = cr.customerRecordId WHERE cr.companyId = ?',
+        [COMPANY_ID]
+      );
+      $validFieldSet = [];
+      if ($validFieldsRs === false) {
+        jsonDieMsg($db->ErrorMsg());
+      }
+      if (!$validFieldsRs->EOF) {
+        while (!$validFieldsRs->EOF) {
+          $validFieldSet[(string) $validFieldsRs->fields['cRecordFieldId']] = true;
+          $validFieldsRs->MoveNext();
+        }
+      }
+
+      foreach ($list as $val) {
         $record   = [];
-        $decField = db_prepare(dec($val['id']));
-        $value    = strip_tags($val['value']);
-        $progress = ($val['progress'] > 0) ? true : false;
+        $decField = (string) ($val['id'] ?? '');
+        $value    = strip_tags($val['value'] ?? '');
+        $progress = (($val['progress'] ?? 0) > 0) ? true : false;
         $insertIt = true;
 
-        $select   = ncmExecute(
-          "SELECT cRecordValueName 
-                                FROM cRecordValue 
-                                WHERE cRecordFieldId = ? 
-                                AND customerId = ? 
-                                ORDER BY cRecordValueDate DESC 
-                                LIMIT 1",
+        // PG: cRecordFieldId UUID + tenant-scope — skip si inválido o no pertenece al tenant.
+        if (!$decField || $decField === '0' || !isset($validFieldSet[$decField])) {
+          continue;
+        }
+
+        $select = ncmExecute(
+          'SELECT cRecordValueName FROM cRecordValue WHERE cRecordFieldId = ? AND customerId = ? ORDER BY cRecordValueDate DESC LIMIT 1',
           [$decField, $customerId]
         );
 
         if ($select && !$progress) {
-          //existe actualizo
-          $record['cRecordValueName'] = $value;
-          $update = $db->AutoExecute('cRecordValue', $record, 'UPDATE', 'cRecordFieldId = "' . $decField . '" AND customerId = ' . $customerId);
+          // existe → actualizo. FIX PG: parameterizado — la interpolación anterior
+          // ('cRecordFieldId = "..."') usaba doble comilla → identifier, no literal.
+          $update = $db->Execute(
+            'UPDATE cRecordValue SET cRecordValueName = ? WHERE cRecordFieldId = ? AND customerId = ?',
+            [$value, $decField, $customerId]
+          );
           if ($update === false) {
             jsonDieMsg($db->ErrorMsg());
           }
         } else {
-          //no existe o es progreso
+          // no existe o es progreso
 
-          //verifico si es igual al dato anterior para no duplicar
-          if ($progress && ($select['cRecordValueName'] == $value)) {
+          // verifico si es igual al dato anterior para no duplicar
+          if ($progress && $select && ($select['cRecordValueName'] == $value)) {
             $insertIt = false;
           }
 
