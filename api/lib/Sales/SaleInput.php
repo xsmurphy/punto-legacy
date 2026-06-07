@@ -215,7 +215,8 @@ final class SaleInput
      */
     private static function normalizeStatus(mixed $raw): ?int
     {
-        if ($raw === null || $raw === '') {
+        // El front manda `false` (booleano JS) para "sin valor" — tratar igual que null.
+        if ($raw === null || $raw === '' || $raw === false) {
             return null;
         }
         if (!is_numeric($raw)) {
