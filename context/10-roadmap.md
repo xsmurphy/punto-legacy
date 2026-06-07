@@ -121,32 +121,19 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 
 # Prioridad ALTA (próximas 4-8 semanas)
 
-## Migración endpoints legacy MySQL → PostgreSQL (P0 seguridad + funcional)
+## ✅ Migración endpoints legacy MySQL → PostgreSQL — COMPLETO (commit 5e48ba7)
 
-**Problema**: 19 archivos PHP (endpoints API públicos + crons + utilities) usan conexión MySQL hardcoded a una BD que ya no existe (`incomepo_905`, `incomepo_rucpy`). Las credenciales están en el repo Git e historial. **Los endpoints están desplegados y se usan, pero todos fallan al conectar.**
+~~Problema~~: 19 archivos PHP usaban conexión MySQL hardcoded a BDs muertas.
 
-**Decisión del usuario (2026-05-16)**: NO BORRAR los archivos — son endpoints vivos. Migrar la referencia de BD.
+**Resolución final (commit 5e48ba7, 2026-05-16)**: ELIMINADOS todos los archivos — no había valor en migrarlos; eran endpoints rotos sin callers activos y arrastraban credenciales en el historial. Cerrado con `git rm` de 29 archivos (-3469 líneas).
 
-**Lista exacta** (auditada 2026-05-16):
-- EASY (5): `panel/API/get_payment_methods.php` ✅, `get_check_issuing.php` ✅, `edit_inventory.php`, `edit_customers_test.php`, `add_customers_test.php`
-- MEDIUM (9): `panel/API/add_items[_test].php`, `add_inventory[_test].php`, `edit_items.php`, `panel/crons/cronTrialAboutToExpire.php`, `cronCreateInvoices.php`, `app/tin.php`, `app/rucs.php`
-- HARD (5): `panel/API/delete_items.php` (función mal nombrada), `delete_inventory.php` (llama `createInventory()` que NO existe — bug fatal), `dbcreator.php`/`dbcopier.php` (DDL MySQL hardcoded), `panel/API/get_inventory.php` (`die()` arriba)
+- B2-B4 (panel/API/add_*/edit_*/delete_* items/inventory, get_inventory, get_payment_methods, get_check_issuing, curl.php, getBySlug.php) → **ELIMINADOS** ✅
+- B5 (crons cronCreateInvoices/cronTrialAboutToExpire, dbcreator/dbcopier, get_access_keys) → **ELIMINADOS** ✅
+- Bugs documentados (createInventory() inexistente, editItem() mal nombrada, outletId hardcodeado) → resueltos por eliminación ✅
+- Archivos de DB obsoletos (db.local/pdo/postgres para app y panel) → consolidados en `includes/db.php` ✅
 
-**Bugs preexistentes detectados durante auditoría**:
-- `delete_inventory.php:69`: llama función inexistente `createInventory()` → endpoint nunca ejecuta DELETE
-- `delete_items.php`: función interna mal nombrada `editItem()` (debería ser `deleteItem()`)
-- `add_inventory_test.php:42`: `outletId = 2446` hardcodeado
-
-**Plan — 5 batches**:
-1. **B1** ✅ COMPLETO: Crear `panel/API/lib/legacy_db.php` helper que reemplaza el bloque MySQL hardcoded
-2. **B2 EASY**: Aplicar helper a los 5 EASY. **Estado: 2/5 migrados** (`get_payment_methods.php`, `get_check_issuing.php`)
-3. **B3 MEDIUM**: Crons + APIs simples (5 archivos)
-4. **B4 MEDIUM+HARD**: Inventory APIs + arreglar los 2 bugs en delete_*
-5. **B5 Decisión separada**: `tin.php`/`rucs.php` (recrear `incomepo_rucpy` en PG o descontinuar fallback), `dbcreator/dbcopier` (deprecar o reescribir), endpoints con `die()` (reactivar o limpiar)
-
-**Esfuerzo total**: ~12-15 horas (sin B5)
-
-**Riesgos**: Estos endpoints son API pública para integraciones externas. Cualquier cambio de comportamiento puede romper apps cliente. Mitigar: tests con curl + payloads ejemplo antes/después.
+**Quedan con MySQL en otros paths** (fuera del scope original, documentado):
+- `panel/crons/cronPayPendingInvoices.php`, `panel/includes/emailtemplates.php`, `panel/includes/invoicetemplates.php`, `panel/thirdparty/callCrearComprobante.php`, `panel/user-register.php` — a migrar oportunísticamente.
 
 ---
 
@@ -187,7 +174,7 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 | Sub-fase | Qué | Estado |
 |----------|-----|--------|
 | **F3.1** | Companies CRUD read-only — listar y consultar todas las companies del SaaS (CompanyAdminService: listAll/get/getCounts). | ✅ HECHA (commit 747384d, 2026-06-05) |
-| **F3.2** | Update company — editar nombre/config/settings/módulos en una única transacción. | **SIGUIENTE** |
+| **F3.2** | Update company — editar nombre/config/settings/módulos en una única transacción. | **✅ HECHA (2026-06-07)** |
 | **F3.3** | Delete cascade — baja de company (soft/hard, cascade a contacts/transactions/etc.). | Pendiente |
 | **F3.4** | Billing — view/edit del plan y créditos por company (hoy en `main.php`). | Pendiente |
 | **F3.5** | Migración completa de `main.php` cross-tenant a `lib/admin` — eliminar el acceso cross-tenant desde el realm tenant. | Pendiente (pre-F4) |

@@ -20,6 +20,7 @@
 
     var debounceTimer = null;
     var lastQuery = '';
+    var currentCompany = null; // empresa cargada en el drawer (detail o edit)
 
     function redirectToLogin() { window.location.href = '/admin/login'; }
 
@@ -127,7 +128,6 @@
         drawerEl.setAttribute('aria-hidden', 'false');
         drawerTitleEl.textContent = 'Detalle';
         drawerBodyEl.innerHTML = '<p class="loading">Cargando…</p>';
-        // Focus al botón de cierre para que Esc/Tab funcione desde el drawer.
         var closeBtn = document.getElementById('closeDrawer');
         if (closeBtn) { closeBtn.focus(); }
 
@@ -136,7 +136,8 @@
                 drawerBodyEl.innerHTML = '<p class="empty">Empresa no encontrada</p>';
                 return;
             }
-            renderDetail(res.body.data);
+            currentCompany = res.body.data;
+            renderDetail(currentCompany);
         }).catch(function () {});
     }
 
@@ -150,7 +151,125 @@
         }
     }
 
+    /* ── Edit mode (F3.2) ──────────────────────────────────────────────── */
+
+    function renderEdit(c) {
+        drawerTitleEl.textContent = 'Editar empresa';
+
+        var expiresVal = '';
+        if (c.expiresAt) {
+            // datetime-local espera "YYYY-MM-DDTHH:MM"
+            try { expiresVal = new Date(c.expiresAt).toISOString().slice(0, 16); } catch (e) {}
+        }
+
+        drawerBodyEl.innerHTML =
+            '<form class="edit-form" id="editForm" novalidate>' +
+            '<div class="form-group">' +
+                '<label for="ef_name">Nombre de la empresa</label>' +
+                '<input id="ef_name" name="settingName" type="text" value="' + esc(c.settingName || c.name) + '">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="ef_country">País</label>' +
+                '<input id="ef_country" name="settingCountry" type="text" maxlength="10" value="' + esc(c.country) + '">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="ef_status">Estado</label>' +
+                '<select id="ef_status" name="status">' +
+                    ['active', 'suspended', 'cancelled'].map(function (v) {
+                        return '<option value="' + v + '"' + (c.status === v ? ' selected' : '') + '>' + v + '</option>';
+                    }).join('') +
+                '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="ef_plan">Plan</label>' +
+                '<input id="ef_plan" name="plan" type="number" min="0" step="1" value="' + esc(c.plan != null ? c.plan : '') + '">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="ef_sms">Crédito SMS</label>' +
+                '<input id="ef_sms" name="smsCredit" type="number" min="0" step="1" value="' + esc(c.smsCredit != null ? c.smsCredit : 0) + '">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="ef_discount">Descuento (%)</label>' +
+                '<input id="ef_discount" name="discount" type="number" min="0" step="0.01" value="' + esc(c.discount != null ? c.discount : 0) + '">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="ef_expires">Vencimiento (opcional)</label>' +
+                '<input id="ef_expires" name="expiresAt" type="datetime-local" value="' + esc(expiresVal) + '">' +
+            '</div>' +
+            '<div class="form-group check-row">' +
+                '<input id="ef_blocked" name="blocked" type="checkbox"' + (c.blocked ? ' checked' : '') + '>' +
+                '<label for="ef_blocked">Bloqueada</label>' +
+            '</div>' +
+            '<div class="form-group check-row">' +
+                '<input id="ef_planExpired" name="planExpired" type="checkbox"' + (c.planExpired ? ' checked' : '') + '>' +
+                '<label for="ef_planExpired">Plan expirado</label>' +
+            '</div>' +
+            '<div class="form-group check-row">' +
+                '<input id="ef_isTrial" name="isTrial" type="checkbox"' + (c.isTrial ? ' checked' : '') + '>' +
+                '<label for="ef_isTrial">Es trial</label>' +
+            '</div>' +
+            '<div class="form-actions">' +
+                '<button type="submit" class="btn-primary" id="saveEditBtn">Guardar</button>' +
+                '<button type="button" class="btn-secondary" id="cancelEditBtn">Cancelar</button>' +
+            '</div>' +
+            '</form>';
+
+        document.getElementById('cancelEditBtn').addEventListener('click', function () {
+            renderDetail(currentCompany);
+        });
+
+        document.getElementById('editForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            saveCompany(c.id, this);
+        });
+    }
+
+    function saveCompany(id, form) {
+        var saveBtn = document.getElementById('saveEditBtn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Guardando…';
+
+        var payload = {
+            settingName:  form.settingName.value.trim(),
+            settingCountry: form.settingCountry.value.trim(),
+            status:       form.status.value,
+            plan:         parseInt(form.plan.value, 10) || 0,
+            smsCredit:    parseInt(form.smsCredit.value, 10) || 0,
+            discount:     parseFloat(form.discount.value) || 0,
+            expiresAt:    form.expiresAt.value || null,
+            blocked:      form.blocked.checked ? 1 : 0,
+            planExpired:  form.planExpired.checked,
+            isTrial:      form.isTrial.checked,
+        };
+
+        fetch('/bff/admin/companies.php?id=' + encodeURIComponent(id), {
+            method: 'PATCH',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        }).then(function (r) {
+            if (r.status === 401 || r.status === 403) { redirectToLogin(); return Promise.reject('auth'); }
+            return r.json();
+        }).then(function (j) {
+            if (!j.ok) {
+                toast('Error: ' + esc(j.error || 'no se pudo guardar'));
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Guardar';
+                return;
+            }
+            toast('Empresa actualizada');
+            openDrawer(id);   // recarga detalle fresco
+            load(lastQuery);  // actualiza la tabla
+        }).catch(function () {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Guardar';
+        });
+    }
+
+    /* ── Detail mode ───────────────────────────────────────────────────── */
+
     function renderDetail(c) {
+        currentCompany = c;
         drawerTitleEl.textContent = c.settingName || c.name || 'Detalle';
 
         var owner = c.owner || {};
@@ -185,6 +304,9 @@
         }
 
         drawerBodyEl.innerHTML =
+            '<div class="drawer-toolbar">' +
+                '<button class="btn-link" id="editBtn">Editar</button>' +
+            '</div>' +
             '<dl class="kv">' +
                 '<dt>ID</dt><dd><code>' + esc(c.id) + '</code></dd>' +
                 '<dt>Nombre</dt><dd>' + esc(c.settingName || c.name) + '</dd>' +
@@ -223,6 +345,10 @@
             (eposEntries
                 ? '<div class="section-title">ePOS (eposData)</div><dl class="kv">' + eposEntries + '</dl>'
                 : '');
+
+        document.getElementById('editBtn').addEventListener('click', function () {
+            renderEdit(currentCompany);
+        });
     }
 
     // --- listeners ---------------------------------------------------------

@@ -238,6 +238,104 @@ class CompanyAdminService
         return $out;
     }
 
+    // --- F3.2: update -------------------------------------------------------
+
+    /**
+     * Actualiza campos de una empresa. Solo los campos presentes en `$input`
+     * son tocados (PATCH semántico — no reemplaza todo el row).
+     *
+     * Columnas directas soportadas: status, plan, blocked, planExpired, isTrial,
+     *   smsCredit, discount, expiresAt.
+     * Columnas JSONB (config merge): settingName, settingCountry.
+     *
+     * Devuelve ['ok'=>true] o ['ok'=>false,'error'=>'…','code'=>NNN].
+     */
+    public function update(string $id, array $input): array
+    {
+        global $db;
+
+        $exists = $db->Execute('SELECT 1 FROM company WHERE companyId = ? LIMIT 1', [$id]);
+        if (!$exists || $exists->EOF) {
+            return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+        }
+
+        $sets  = [];
+        $binds = [];
+
+        // ── status ─────────────────────────────────────────────────────────
+        if (array_key_exists('status', $input)) {
+            $v = (string) $input['status'];
+            if (!in_array($v, ['active', 'suspended', 'cancelled'], true)) {
+                return ['ok' => false, 'error' => "status inválido: {$v}", 'code' => 422];
+            }
+            $sets[] = 'status = ?';
+            $binds[] = $v;
+        }
+
+        // ── enteros ────────────────────────────────────────────────────────
+        foreach (['plan', 'blocked', 'smsCredit'] as $col) {
+            if (!array_key_exists($col, $input)) { continue; }
+            $v = (int) $input[$col];
+            if ($col === 'blocked' && !in_array($v, [0, 1], true)) {
+                return ['ok' => false, 'error' => 'blocked debe ser 0 o 1', 'code' => 422];
+            }
+            if ($col === 'plan' && $v < 0) {
+                return ['ok' => false, 'error' => 'plan no puede ser negativo', 'code' => 422];
+            }
+            $sets[] = "$col = ?";
+            $binds[] = $v;
+        }
+
+        // ── decimales ──────────────────────────────────────────────────────
+        if (array_key_exists('discount', $input)) {
+            $sets[] = 'discount = ?';
+            $binds[] = (float) $input['discount'];
+        }
+
+        // ── booleanos ──────────────────────────────────────────────────────
+        foreach (['planExpired', 'isTrial'] as $col) {
+            if (!array_key_exists($col, $input)) { continue; }
+            $sets[] = "$col = ?";
+            $binds[] = filter_var($input[$col], FILTER_VALIDATE_BOOLEAN);
+        }
+
+        // ── timestamp nullable ─────────────────────────────────────────────
+        if (array_key_exists('expiresAt', $input)) {
+            $v = ($input['expiresAt'] === null || $input['expiresAt'] === '') ? null : (string) $input['expiresAt'];
+            $sets[] = 'expiresAt = ?';
+            $binds[] = $v;
+        }
+
+        // ── config JSONB — merge parcial ───────────────────────────────────
+        $configPatch = [];
+        foreach (['settingName', 'settingCountry'] as $key) {
+            if (array_key_exists($key, $input)) {
+                $configPatch[$key] = (string) $input[$key];
+            }
+        }
+        if ($configPatch) {
+            $sets[] = 'config = config || ?::jsonb';
+            $binds[] = json_encode($configPatch, JSON_UNESCAPED_UNICODE);
+        }
+
+        if (!$sets) {
+            return ['ok' => true]; // noop — nada que actualizar
+        }
+
+        $sets[] = 'updatedAt = now()';
+        $binds[] = $id;
+
+        $r = $db->Execute(
+            'UPDATE company SET ' . implode(', ', $sets) . ' WHERE companyId = ?',
+            $binds
+        );
+
+        if ($r === false) {
+            return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
+        }
+        return ['ok' => true];
+    }
+
     // --- internos -----------------------------------------------------------
 
     private function getOwner(string $companyId): ?array
