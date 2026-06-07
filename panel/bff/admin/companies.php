@@ -5,8 +5,11 @@
  *
  * NO toca BD: reenvía a la API v1 con la cookie _jwt_admin.
  *
- * GET             → list / detalle (F3.1)
+ * GET                        → list / detalle (F3.1)
+ * GET ?plans=1               → lista de planes (F3.4)
+ * GET ?id=<uuid>&billing=1   → datos de facturación (F3.4)
  * PATCH ?id=<uuid> body JSON → update empresa (F3.2)
+ * DELETE ?id=<uuid>&type=soft|hard → eliminar empresa (F3.3)
  */
 
 require_once __DIR__ . '/../lib/api_client.php';
@@ -19,8 +22,21 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
     $query = [];
+
+    // F3.4 — planes (selector UI).
+    if (!empty($_GET['plans'])) {
+        $query['plans'] = '1';
+        $res = bffApiGet('v1/admin/companies.php', $query, '_jwt_admin');
+        if (!$res['ok']) { bffFailFromApi($res); }
+        bffJson(['ok' => true, 'data' => $res['data']]);
+    }
+
     if (!empty($_GET['id'])) {
         $query['id'] = $_GET['id'];
+        // F3.4 — billing detail.
+        if (!empty($_GET['billing'])) {
+            $query['billing'] = '1';
+        }
     } else {
         if (isset($_GET['limit']))  { $query['limit']  = $_GET['limit']; }
         if (isset($_GET['offset'])) { $query['offset'] = $_GET['offset']; }

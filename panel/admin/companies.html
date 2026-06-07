@@ -198,6 +198,22 @@
         .btn-link:hover { background: rgba(59,130,246,.1); }
         .drawer-toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 
+        /* Billing table (F3.4) */
+        .billing-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+        .billing-table th {
+            text-align: left; padding: 6px 8px; font-size: 10px;
+            text-transform: uppercase; letter-spacing: .04em;
+            color: var(--muted); border-bottom: 1px solid var(--border);
+        }
+        .billing-table td { padding: 7px 8px; border-bottom: 1px solid rgba(51,65,85,.4); }
+        .billing-table tbody tr:hover { background: rgba(59,130,246,.04); }
+        .billing-table td.num { text-align: right; }
+        .billing-stat { display: flex; gap: 16px; flex-wrap: wrap; margin: 6px 0 14px; }
+        .billing-stat-item { display: flex; flex-direction: column; gap: 2px; }
+        .billing-stat-item .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing:.04em; }
+        .billing-stat-item .value { font-size: 18px; font-weight: 700; color: var(--text); }
+        .billing-stat-item .sub   { font-size: 11px; color: var(--muted); }
+
         /* Zona de peligro (F3.3) */
         .danger-zone { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
         .danger-item {

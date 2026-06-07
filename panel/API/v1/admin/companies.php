@@ -12,6 +12,10 @@
  *
  * F3.2 — escritura:
  *   PATCH ?id=<uuid>  body JSON → actualiza campos de la empresa (PATCH semántico)
+ *
+ * F3.4 — billing:
+ *   GET ?plans=1              → lista de planes (code/name/price) para selector
+ *   GET ?id=<uuid>&billing=1  → datos de facturación (balance, plan, cpayments)
  */
 
 require_once __DIR__ . '/../../../includes/db.php';
@@ -24,8 +28,22 @@ $svc    = new CompanyAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
+    // F3.4 — lista de planes (selector UI).
+    if (!empty($_GET['plans'])) {
+        apiOk($svc->listPlans());
+    }
+
     $id = trim((string) ($_GET['id'] ?? ''));
     if ($id !== '') {
+        // F3.4 — datos de facturación.
+        if (!empty($_GET['billing'])) {
+            $billing = $svc->getBilling($id);
+            if (!$billing) {
+                apiNotFound('Empresa no encontrada');
+            }
+            apiOk($billing);
+        }
+
         $company = $svc->get($id);
         if (!$company) {
             apiNotFound('Empresa no encontrada');

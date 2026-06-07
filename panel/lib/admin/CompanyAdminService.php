@@ -96,13 +96,25 @@ class CompanyAdminService
         $moduleData = $this->jsonOrArr($this->pick($flat, 'moduleData'));
         $eposData   = $this->jsonOrArr($this->pick($flat, 'eposData'));
 
+        // Nombre del plan (lookup por plan_code; plan es SMALLINT, no UUID).
+        $planCode   = (int) ($this->pick($flat, 'plan') ?? 0);
+        $planRow    = $db->Execute(
+            'SELECT name, price FROM plans WHERE plan_code = ? LIMIT 1',
+            [$planCode]
+        );
+        $planName   = ($planRow && !$planRow->EOF) ? (string) ($planRow->fields['name']  ?? '') : '';
+        $planPrice  = ($planRow && !$planRow->EOF) ? (float)  ($planRow->fields['price'] ?? 0)  : 0.0;
+
         return [
             'id'                  => (string) ($this->pick($flat, 'companyId') ?? $id),
             'name'                => (string) ($this->pick($flat, 'companyName') ?? ''),
             'settingName'         => (string) ($this->pick($flat, 'settingName') ?? ''),
             'slug'                => (string) ($this->pick($flat, 'slug') ?? ''),
             'status'              => (string) ($this->pick($flat, 'status') ?? ''),
-            'plan'                => $this->pick($flat, 'plan'),
+            'plan'                => $planCode,
+            'planName'            => $planName,
+            'planPrice'           => $planPrice,
+            'balance'             => (float) ($this->pick($flat, 'balance') ?? 0),
             'discount'            => $this->pick($flat, 'discount'),
             'smsCredit'           => $this->pick($flat, 'smsCredit'),
             'country'             => (string) ($this->pick($flat, 'settingCountry') ?? ''),
@@ -516,9 +528,10 @@ class CompanyAdminService
         }
 
         // ── decimales ──────────────────────────────────────────────────────
-        if (array_key_exists('discount', $input)) {
-            $sets[] = 'discount = ?';
-            $binds[] = (float) $input['discount'];
+        foreach (['discount', 'balance'] as $col) {
+            if (!array_key_exists($col, $input)) { continue; }
+            $sets[]  = "$col = ?";
+            $binds[] = (float) $input[$col];
         }
 
         // ── booleanos ──────────────────────────────────────────────────────
@@ -563,6 +576,100 @@ class CompanyAdminService
             return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
         }
         return ['ok' => true];
+    }
+
+    // --- F3.4: billing ------------------------------------------------------
+
+    /**
+     * Lista de planes del sistema (code → name/price) para el selector de edición.
+     * Devuelve array de ['code'=>int, 'name'=>string, 'price'=>float].
+     */
+    public function listPlans(): array
+    {
+        global $db;
+
+        $r = $db->Execute(
+            'SELECT plan_code, name, price FROM plans WHERE plan_code != 0 ORDER BY plan_code ASC'
+        );
+        $out = [];
+        if ($r) {
+            while (!$r->EOF) {
+                $f      = $r->fields;
+                $out[]  = [
+                    'code'  => (int)   ($f['plan_code'] ?? 0),
+                    'name'  => (string) ($f['name']      ?? ''),
+                    'price' => (float)  ($f['price']     ?? 0),
+                ];
+                $r->MoveNext();
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Datos de facturación de una empresa: balance, plan (con nombre+precio)
+     * y los últimos 50 registros de cpayments.
+     *
+     * Devuelve null si la empresa no existe.
+     */
+    public function getBilling(string $id): ?array
+    {
+        global $db;
+
+        $row = $db->Execute(
+            'SELECT balance, plan FROM company WHERE companyId = ? LIMIT 1',
+            [$id]
+        );
+        if (!$row || $row->EOF) {
+            return null;
+        }
+
+        $planCode = (int)   ($row->fields['plan']    ?? 0);
+        $balance  = (float) ($row->fields['balance'] ?? 0);
+
+        // Nombre y precio del plan actual.
+        $planRow   = $db->Execute(
+            'SELECT name, price FROM plans WHERE plan_code = ? LIMIT 1',
+            [$planCode]
+        );
+        $planName  = '';
+        $planPrice = 0.0;
+        if ($planRow && !$planRow->EOF) {
+            $planName  = (string) ($planRow->fields['name']  ?? '');
+            $planPrice = (float)  ($planRow->fields['price'] ?? 0);
+        }
+
+        // Historial de pagos.
+        $payments = [];
+        $r = $db->Execute(
+            'SELECT cpaymentsId, cpaymentsDate, cpaymentsAmount, ' .
+            '       cpaymentsOrder, cpaymentsInvoice, cpaymentsStatus ' .
+            'FROM cpayments WHERE companyId = ? ORDER BY cpaymentsDate DESC LIMIT 50',
+            [$id]
+        );
+        if ($r) {
+            while (!$r->EOF) {
+                $f         = $r->fields;
+                // ADOdb con PG devuelve column names en lowercase.
+                $payments[] = [
+                    'id'      => (string) ($f['cpaymentsid']      ?? ''),
+                    'date'    =>          ($f['cpaymentsdate']     ?? null),
+                    'amount'  => (float)  ($f['cpaymentsamount']   ?? 0),
+                    'order'   => (int)    ($f['cpaymentsorder']    ?? 0),
+                    'invoice' => (int)    ($f['cpaymentsinvoice']  ?? 0),
+                    'status'  => (int)    ($f['cpaymentsstatus']   ?? 0),
+                ];
+                $r->MoveNext();
+            }
+        }
+
+        return [
+            'balance'   => $balance,
+            'planCode'  => $planCode,
+            'planName'  => $planName,
+            'planPrice' => $planPrice,
+            'payments'  => $payments,
+        ];
     }
 
     // --- internos -----------------------------------------------------------

@@ -1,10 +1,11 @@
 /**
- * companies.js — front estático del CRUD de empresas (realm /admin, F3.1-F3.3).
+ * companies.js — front estático del CRUD de empresas (realm /admin, F3.1-F3.4).
  *
  * Habla solo con /bff/admin/companies.php.
  * F3.1: list + drawer detalle.
- * F3.2: PATCH — edición de campos de la empresa.
+ * F3.2: PATCH — edición de campos de la empresa (incluye plan, balance).
  * F3.3: DELETE — suspensión suave (soft) y eliminación permanente (hard).
+ * F3.4: Billing — selector de plan, balance, historial de cpayments.
  *
  * Patrón heredado de users.js: esc() everywhere, redirect 401/403 → /admin/login.
  */
@@ -160,69 +161,89 @@
 
         var expiresVal = '';
         if (c.expiresAt) {
-            // datetime-local espera "YYYY-MM-DDTHH:MM"
             try { expiresVal = new Date(c.expiresAt).toISOString().slice(0, 16); } catch (e) {}
         }
 
-        drawerBodyEl.innerHTML =
-            '<form class="edit-form" id="editForm" novalidate>' +
-            '<div class="form-group">' +
-                '<label for="ef_name">Nombre de la empresa</label>' +
-                '<input id="ef_name" name="settingName" type="text" value="' + esc(c.settingName || c.name) + '">' +
-            '</div>' +
-            '<div class="form-group">' +
-                '<label for="ef_country">País</label>' +
-                '<input id="ef_country" name="settingCountry" type="text" maxlength="10" value="' + esc(c.country) + '">' +
-            '</div>' +
-            '<div class="form-group">' +
-                '<label for="ef_status">Estado</label>' +
-                '<select id="ef_status" name="status">' +
-                    ['active', 'suspended', 'cancelled'].map(function (v) {
-                        return '<option value="' + v + '"' + (c.status === v ? ' selected' : '') + '>' + v + '</option>';
-                    }).join('') +
-                '</select>' +
-            '</div>' +
-            '<div class="form-group">' +
-                '<label for="ef_plan">Plan</label>' +
-                '<input id="ef_plan" name="plan" type="number" min="0" step="1" value="' + esc(c.plan != null ? c.plan : '') + '">' +
-            '</div>' +
-            '<div class="form-group">' +
-                '<label for="ef_sms">Crédito SMS</label>' +
-                '<input id="ef_sms" name="smsCredit" type="number" min="0" step="1" value="' + esc(c.smsCredit != null ? c.smsCredit : 0) + '">' +
-            '</div>' +
-            '<div class="form-group">' +
-                '<label for="ef_discount">Descuento (%)</label>' +
-                '<input id="ef_discount" name="discount" type="number" min="0" step="0.01" value="' + esc(c.discount != null ? c.discount : 0) + '">' +
-            '</div>' +
-            '<div class="form-group">' +
-                '<label for="ef_expires">Vencimiento (opcional)</label>' +
-                '<input id="ef_expires" name="expiresAt" type="datetime-local" value="' + esc(expiresVal) + '">' +
-            '</div>' +
-            '<div class="form-group check-row">' +
-                '<input id="ef_blocked" name="blocked" type="checkbox"' + (c.blocked ? ' checked' : '') + '>' +
-                '<label for="ef_blocked">Bloqueada</label>' +
-            '</div>' +
-            '<div class="form-group check-row">' +
-                '<input id="ef_planExpired" name="planExpired" type="checkbox"' + (c.planExpired ? ' checked' : '') + '>' +
-                '<label for="ef_planExpired">Plan expirado</label>' +
-            '</div>' +
-            '<div class="form-group check-row">' +
-                '<input id="ef_isTrial" name="isTrial" type="checkbox"' + (c.isTrial ? ' checked' : '') + '>' +
-                '<label for="ef_isTrial">Es trial</label>' +
-            '</div>' +
-            '<div class="form-actions">' +
-                '<button type="submit" class="btn-primary" id="saveEditBtn">Guardar</button>' +
-                '<button type="button" class="btn-secondary" id="cancelEditBtn">Cancelar</button>' +
-            '</div>' +
-            '</form>';
+        function buildForm(planOptions) {
+            var planSelect = '<select id="ef_plan" name="plan">' +
+                planOptions.map(function (p) {
+                    var sel = (p.code === c.plan) ? ' selected' : '';
+                    return '<option value="' + esc(p.code) + '"' + sel + '>' +
+                           esc(p.name) + ' — $' + esc((+p.price || 0).toFixed(2)) + '</option>';
+                }).join('') +
+                '</select>';
 
-        document.getElementById('cancelEditBtn').addEventListener('click', function () {
-            renderDetail(currentCompany);
-        });
+            drawerBodyEl.innerHTML =
+                '<form class="edit-form" id="editForm" novalidate>' +
+                '<div class="form-group">' +
+                    '<label for="ef_name">Nombre de la empresa</label>' +
+                    '<input id="ef_name" name="settingName" type="text" value="' + esc(c.settingName || c.name) + '">' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label for="ef_country">País</label>' +
+                    '<input id="ef_country" name="settingCountry" type="text" maxlength="10" value="' + esc(c.country || '') + '">' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label for="ef_status">Estado</label>' +
+                    '<select id="ef_status" name="status">' +
+                        ['active', 'suspended', 'cancelled'].map(function (v) {
+                            return '<option value="' + v + '"' + (c.status === v ? ' selected' : '') + '>' + v + '</option>';
+                        }).join('') +
+                    '</select>' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label for="ef_plan">Plan</label>' +
+                    (planOptions.length ? planSelect : '<input id="ef_plan" name="plan" type="number" min="0" step="1" value="' + esc(c.plan != null ? c.plan : '') + '">') +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label for="ef_balance">Balance ($)</label>' +
+                    '<input id="ef_balance" name="balance" type="number" step="0.01" value="' + esc((+c.balance || 0).toFixed(2)) + '">' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label for="ef_sms">Crédito SMS</label>' +
+                    '<input id="ef_sms" name="smsCredit" type="number" min="0" step="1" value="' + esc(c.smsCredit != null ? c.smsCredit : 0) + '">' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label for="ef_discount">Descuento (%)</label>' +
+                    '<input id="ef_discount" name="discount" type="number" min="0" step="0.01" value="' + esc(c.discount != null ? c.discount : 0) + '">' +
+                '</div>' +
+                '<div class="form-group">' +
+                    '<label for="ef_expires">Vencimiento (opcional)</label>' +
+                    '<input id="ef_expires" name="expiresAt" type="datetime-local" value="' + esc(expiresVal) + '">' +
+                '</div>' +
+                '<div class="form-group check-row">' +
+                    '<input id="ef_blocked" name="blocked" type="checkbox"' + (c.blocked ? ' checked' : '') + '>' +
+                    '<label for="ef_blocked">Bloqueada</label>' +
+                '</div>' +
+                '<div class="form-group check-row">' +
+                    '<input id="ef_planExpired" name="planExpired" type="checkbox"' + (c.planExpired ? ' checked' : '') + '>' +
+                    '<label for="ef_planExpired">Plan expirado</label>' +
+                '</div>' +
+                '<div class="form-group check-row">' +
+                    '<input id="ef_isTrial" name="isTrial" type="checkbox"' + (c.isTrial ? ' checked' : '') + '>' +
+                    '<label for="ef_isTrial">Es trial</label>' +
+                '</div>' +
+                '<div class="form-actions">' +
+                    '<button type="submit" class="btn-primary" id="saveEditBtn">Guardar</button>' +
+                    '<button type="button" class="btn-secondary" id="cancelEditBtn">Cancelar</button>' +
+                '</div>' +
+                '</form>';
 
-        document.getElementById('editForm').addEventListener('submit', function (e) {
-            e.preventDefault();
-            saveCompany(c.id, this);
+            document.getElementById('cancelEditBtn').addEventListener('click', function () {
+                renderDetail(currentCompany);
+            });
+            document.getElementById('editForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                saveCompany(c.id, this);
+            });
+        }
+
+        // Cargar planes del servidor para el selector; si falla, fallback a input numérico.
+        drawerBodyEl.innerHTML = '<p class="loading">Cargando…</p>';
+        api('/bff/admin/companies.php?plans=1').then(function (res) {
+            buildForm((res.body.ok && Array.isArray(res.body.data)) ? res.body.data : []);
+        }).catch(function () {
+            buildForm([]);
         });
     }
 
@@ -236,6 +257,7 @@
             settingCountry: form.settingCountry.value.trim(),
             status:       form.status.value,
             plan:         parseInt(form.plan.value, 10) || 0,
+            balance:      parseFloat(form.balance.value) || 0,
             smsCredit:    parseInt(form.smsCredit.value, 10) || 0,
             discount:     parseFloat(form.discount.value) || 0,
             expiresAt:    form.expiresAt.value || null,
@@ -265,6 +287,68 @@
         }).catch(function () {
             saveBtn.disabled = false;
             saveBtn.textContent = 'Guardar';
+        });
+    }
+
+    /* ── Billing (F3.4) ────────────────────────────────────────────────── */
+
+    function renderBilling(id) {
+        drawerTitleEl.textContent = 'Facturación';
+        drawerBodyEl.innerHTML = '<p class="loading">Cargando…</p>';
+
+        api('/bff/admin/companies.php?id=' + encodeURIComponent(id) + '&billing=1').then(function (res) {
+            if (!res.body.ok) {
+                drawerBodyEl.innerHTML = '<p class="empty">Error al cargar facturación</p>';
+                return;
+            }
+            var b = res.body.data;
+            var payments = b.payments || [];
+
+            var rows = payments.length
+                ? payments.map(function (p) {
+                    var statusLabel = p.status === 1 ? '<span class="pill active">Pagado</span>'
+                        : p.status === 2 ? '<span class="pill blocked">Reembolsado</span>'
+                        : '<span class="pill pending">Pendiente</span>';
+                    var date = p.date ? new Date(p.date).toLocaleDateString('es', { year: '2-digit', month: 'short', day: 'numeric' }) : '—';
+                    return '<tr>' +
+                        '<td>' + esc(date) + '</td>' +
+                        '<td class="num">$' + esc((+p.amount || 0).toFixed(2)) + '</td>' +
+                        '<td class="num">' + esc(p.order || '—') + '</td>' +
+                        '<td class="num">' + esc(p.invoice || '—') + '</td>' +
+                        '<td>' + statusLabel + '</td>' +
+                        '</tr>';
+                }).join('')
+                : '<tr><td colspan="5" class="empty" style="text-align:center;padding:16px">Sin registros</td></tr>';
+
+            drawerBodyEl.innerHTML =
+                '<div class="drawer-toolbar">' +
+                    '<button class="btn-secondary" id="backToDetailBtn" style="padding:5px 12px;font-size:12px">← Volver</button>' +
+                '</div>' +
+                '<div class="billing-stat">' +
+                    '<div class="billing-stat-item">' +
+                        '<span class="label">Balance</span>' +
+                        '<span class="value">$' + esc((+b.balance || 0).toFixed(2)) + '</span>' +
+                    '</div>' +
+                    '<div class="billing-stat-item">' +
+                        '<span class="label">Plan</span>' +
+                        '<span class="value">' + esc(b.planName || '—') + '</span>' +
+                        '<span class="sub">$' + esc((+b.planPrice || 0).toFixed(2)) + ' / mes</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="section-title">Historial de pagos</div>' +
+                '<table class="billing-table">' +
+                    '<thead><tr>' +
+                        '<th>Fecha</th><th class="num">Monto</th>' +
+                        '<th class="num">Orden</th><th class="num">Factura</th><th>Estado</th>' +
+                    '</tr></thead>' +
+                    '<tbody>' + rows + '</tbody>' +
+                '</table>';
+
+            document.getElementById('backToDetailBtn').addEventListener('click', function () {
+                renderDetail(currentCompany);
+            });
+        }).catch(function () {
+            drawerBodyEl.innerHTML = '<p class="empty">Error de red</p>';
         });
     }
 
@@ -379,8 +463,11 @@
             });
         }
 
+        var planDisplay = (c.planName ? esc(c.planName) + ' <span class="pill inactive">' + esc(c.plan) + '</span>' : planLabel(c.plan));
+
         drawerBodyEl.innerHTML =
             '<div class="drawer-toolbar">' +
+                '<button class="btn-link" id="billingBtn">Facturación</button>' +
                 '<button class="btn-link" id="editBtn">Editar</button>' +
             '</div>' +
             '<dl class="kv">' +
@@ -388,10 +475,11 @@
                 '<dt>Nombre</dt><dd>' + esc(c.settingName || c.name) + '</dd>' +
                 '<dt>Slug</dt><dd>' + esc(c.slug) + '</dd>' +
                 '<dt>Estado</dt><dd>' + statusPill(c.status, c.blocked) + '</dd>' +
-                '<dt>Plan</dt><dd>' + planLabel(c.plan) + '</dd>' +
-                '<dt>Descuento</dt><dd>' + esc(c.discount || '—') + '</dd>' +
-                '<dt>SMS credit</dt><dd>' + esc(c.smsCredit || '—') + '</dd>' +
-                '<dt>País</dt><dd>' + esc(c.country) + '</dd>' +
+                '<dt>Plan</dt><dd>' + planDisplay + '</dd>' +
+                '<dt>Balance</dt><dd>$' + esc((+c.balance || 0).toFixed(2)) + '</dd>' +
+                '<dt>Descuento</dt><dd>' + esc(c.discount != null ? c.discount + '%' : '—') + '</dd>' +
+                '<dt>SMS credit</dt><dd>' + esc(c.smsCredit != null ? c.smsCredit : '—') + '</dd>' +
+                '<dt>País</dt><dd>' + esc(c.country || '—') + '</dd>' +
                 '<dt>ID externo</dt><dd>' + esc(c.externalCustomerId || '—') + '</dd>' +
                 '<dt>Bloqueada</dt><dd>' + (c.blocked ? 'Sí' : 'No') + '</dd>' +
                 '<dt>Plan expirado</dt><dd>' + (c.planExpired ? 'Sí' : 'No') + '</dd>' +
@@ -439,6 +527,10 @@
                     '<button class="btn-danger" id="hardDeleteBtn">Eliminar</button>' +
                 '</div>' +
             '</div>';
+
+        document.getElementById('billingBtn').addEventListener('click', function () {
+            renderBilling(c.id);
+        });
 
         document.getElementById('editBtn').addEventListener('click', function () {
             renderEdit(currentCompany);
