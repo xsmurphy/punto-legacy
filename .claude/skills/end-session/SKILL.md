@@ -28,12 +28,19 @@ Cierra una jornada de trabajo escribiendo un bullet-list de 2-5 líneas en `cont
 - **Atención**: el agent escalate_to_human ahora deja nota interna cuando la notificación falla — verificar después del próximo deploy.
 ```
 
-4. Mantener el log en orden CRONOLÓGICO INVERSO (más reciente arriba).
-5. Cap del archivo: si pasa de ~200 líneas, archivar las primeras a `context/_session-log-archive-YYYY-MM.md` y dejar solo las últimas 3 semanas en el principal.
+4. **Sincronizar `/context/` y graphify** — después de escribir el entry, consolidar doc-sync de toda la sesión:
+   a. Listar commits de la sesión: `git log --oneline <hash-del-entry-anterior>..HEAD`
+   b. Evaluar cuáles califican como "cambio relevante" per CLAUDE.md (schema/migrations, auth/JWT, módulos nuevos, infra, convenciones, roadmap, términos del dominio).
+   c. Si hay al menos uno → invocar `Agent(subagent_type="context-updater")` **UNA SOLA VEZ**, pasando en el prompt la lista de commits + resumen de lo que cambió.
+   d. Si todos son triviales (UI/copy/fixes menores/wip) → skip. Anotar en el entry: `- Docs: sin cambios para /context/ (solo fixes menores).`
+   e. Reportar al usuario qué actualizó el context-updater (o confirmar skip con razón).
+5. Mantener el log en orden CRONOLÓGICO INVERSO (más reciente arriba).
+6. Cap del archivo: si pasa de ~200 líneas, archivar las primeras a `context/_session-log-archive-YYYY-MM.md` y dejar solo las últimas 3 semanas en el principal.
 
 ## Reglas estrictas
 
-- **No tocar otros docs de `/context/`** — el `/end-session` solo escribe en `_session-log.md`. Si algo amerita actualizar `04-modelo-de-dominio.md` o similar, ESO va por `context-updater` agent en su momento, no acá.
+- **`/end-session` es el único momento para context-updater.** No invocar el agente después de commits individuales — eso se consolidó acá. Una sola llamada al cierre cubre toda la sesión.
+- **No editar otros docs de `/context/` directamente** — eso es trabajo del context-updater agent invocado en el paso 4. El `/end-session` solo orquesta, no edita.
 - **No filtrar techstack** al log. El log es interno, pero igual: usar lenguaje de negocio cuando sea posible.
 - **Conciso**. 2-5 bullets máximo por entry. Si hubo más, sintetizar — no transcribir cada commit.
 - **Si la sesión fue trivial** (un fix chico, sin decisiones) NO escribir entry. Saturar el log con ruido lo vuelve inútil.

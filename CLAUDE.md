@@ -119,10 +119,14 @@ El subagente `context-updater` ya lo regenera automáticamente cuando lo invocá
 
 **Trabajamos siempre en `main`. No usar feature branches ni worktrees aislados.**
 
-1. **Antes del commit**: ejecutar `Agent(subagent_type="code-reviewer")` sobre el diff staged. Si P0, parar y arreglar. Si P1, justificar.
+1. **Antes del commit**: ejecutar `Agent(subagent_type="code-reviewer")` sobre el diff staged **solo si el commit es de alto riesgo**. Si P0, parar y arreglar. Si P1, justificar.
+   - **Alto riesgo** (reviewer obligatorio): schema/migrations, auth/JWT, admin realm, aislamiento multi-tenant, billing/pagos, hard-delete, cambios en CORS o permisos.
+   - **Trivial** (skip reviewer): UI/copy, bug fix de 1 archivo sin lógica de negocio, comentarios, refactors de estilo, commits `wip:`.
 2. **Commit inmediato** — no acumular cambios sin commitear.
 3. **Push inmediato** después del commit — no acumular commits locales.
 4. **Excepción**: commits con prefix `wip:` pueden saltearse el reviewer (pero NO el push).
+5. **context-updater al CIERRE, no por commit.** Durante la sesión tomá nota de qué calificó como cambio relevante. `/end-session` consolida y corre el agente UNA sola vez al cerrar.
+   - Caso borde: si la sesión cierra sin `/end-session`, al arrancar la próxima corré `git log` desde el último entry del session-log e invocá context-updater manualmente si hay cambios relevantes.
 
 Si una sesión te coloca en un worktree o branch distinta de `main`:
 - Hacer el trabajo igual (no es bloqueante).

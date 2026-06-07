@@ -28,7 +28,7 @@
           {
             "type": "command",
             "if": "Bash(git push*)",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"git push completed. If the just-landed commit was a cambio relevante per CLAUDE.md (new module, schema change, plan/pricing change, new convention, god-node refactor, infra/env-var change, new product term), invoke the context-updater subagent now via Agent(subagent_type: \\\"context-updater\\\") to sync /context/ docs and rebuild graphify. Skip for bug fixes, single-file refactors, copy/UI tweaks. The pipeline is YOUR call — no spawn happens automatically.\"}}'"
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"git push completed. Tomá nota si fue un cambio relevante per CLAUDE.md (schema, auth/JWT, módulo nuevo, infra, convención, roadmap). NO invoques context-updater por commit — /end-session lo consolida en UNA sola llamada al cierre de la sesión. Si la sesión cierra sin /end-session, al inicio de la próxima verificá git log desde el último entry del session-log y correlo manualmente.\"}}'"
           }
         ]
       }
