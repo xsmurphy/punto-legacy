@@ -439,22 +439,23 @@ $existingData = json_decode($res->fields['data'] ?? '{}', true) ?: [];
 
 ## §13 — Flujo commit + push con agentes (REGLA OBLIGATORIA)
 
-**Regla**: Toda corrección o mejora pasa por el flujo `edit → code-reviewer → commit → context-updater → push`. El push es inmediato, no se acumulan commits locales.
+**Regla**: Toda corrección o mejora pasa por el flujo `edit → (code-reviewer si alto riesgo) → commit → push`. El context-updater se corre al CIERRE via `/end-session`, no por commit. El push es inmediato, no se acumulan commits locales.
 
-**Por qué**: el kit incluye agentes especialistas (`code-reviewer`, `context-updater`) precisamente para que cada cambio sea auditado y para mantener `/context/` sincronizado con el código. En sesiones previas se acumularon 10+ commits sin push y sin reviewer; esta regla cierra ese gap.
+**Por qué**: el code-reviewer tiene mayor ROI en commits de alto riesgo (auth/BD/dinero). Correrlo en cada commit trivial es overhead sin beneficio. El context-updater al cierre consolida todos los cambios de la sesión en una sola pasada, reduciendo ruido y actualizaciones parciales.
 
 **Diagrama**:
 
 ```
 edit/escribir código
    ↓
-Agent(subagent_type="code-reviewer")     ← ANTES de commit
-   ↓ (si P0/P1 OK)
+Agent(subagent_type="code-reviewer")     ← ANTES de commit, SOLO si es alto riesgo (ver §30.1)
+   ↓ (si P0/P1 OK, o si se omitió por ser trivial)
 git commit
    ↓
-Agent(subagent_type="context-updater")   ← ANTES de push (si el cambio amerita update de /context/)
-   ↓
 git push                                  ← INMEDIATAMENTE después del commit
+   ↓
+(al cerrar la sesión)
+/end-session  →  context-updater          ← UNA sola vez al cierre
    ↓
 (opcional) gh pr create                   ← si es PR-worthy
 ```
@@ -462,8 +463,8 @@ git push                                  ← INMEDIATAMENTE después del commit
 **Reglas no negociables**:
 
 1. **NO acumular commits sin pushear.** Cada commit lógico se pushea inmediatamente.
-2. **NO commitear sin `code-reviewer`.** El agente devuelve P0/P1/P2. Si hay P0, parar y arreglar. Si hay P1, justificar.
-3. **NO pushear sin verificar context.** Si el cambio amerita update de `/context/` (ver §1-§12 + REGLA #2 en CLAUDE.md), correr `context-updater` antes del push.
+2. **code-reviewer solo en alto riesgo.** Ver §30.1 para la lista de categorías. Commits triviales o `wip:` lo omiten explícitamente.
+3. **context-updater al cierre, no por commit.** Correrlo vía `/end-session`. Ver §30.3.
 4. **Excepción única**: commits de WIP marcados explícitamente (`wip:` prefix). Pueden saltarse el reviewer pero NO el push.
 
 **Refuerzo automático**: `.claude/settings.json` tiene un hook `PreToolUse:Bash` que detecta `git commit` y `git push` (regex anclada al inicio del comando, no matchea greps/edits) y emite un recordatorio. Si aparece el recordatorio y no corriste el agente, parar y correrlo antes de seguir.
@@ -1387,6 +1388,42 @@ El propio usuario puede revocar su device desde el menú del POS. El handler `#r
 **Deuda pendiente**:
 - **UI panel del tenant**: pantalla para listar y revocar devices (ver `10-roadmap.md`). Diferida al ciclo de React del panel.
 - **Migration runner**: `11_device.sql` se aplicó manualmente. La deuda del runner automático está en `06-infraestructura.md`.
+
+---
+
+## §30 — Workflow de commits: code-reviewer selectivo + context-updater al cierre (establecido commit ba385cb, 2026-06-07)
+
+**Regla**: el agente `code-reviewer` se corre ANTES de commit **solo en commits de alto riesgo**. El agente `context-updater` se corre UNA SOLA VEZ al cierre de la sesión (vía `/end-session`), no por commit.
+
+### §30.1 — Commits de alto riesgo (code-reviewer OBLIGATORIO)
+
+| Categoría | Ejemplos |
+|-----------|---------|
+| Schema / migrations | Nuevas tablas, ALTER TABLE, índices |
+| Auth / JWT | Emisión de tokens, middlewares de auth, claims |
+| Admin realm | Cualquier cambio en `panel/API/v1/admin/`, `panel/lib/admin/`, `panel/bff/admin/` |
+| Aislamiento multi-tenant | Queries cross-tenant, cambios en companyId scoping |
+| Billing / pagos | Money path, transacciones financieras, cpayments |
+| Hard-delete | DELETEs irreversibles en cascada |
+| CORS / permisos | Cambios en allowlists, headers de seguridad |
+
+### §30.2 — Commits que OMITEN el code-reviewer (skip explícito)
+
+- UI / copy / estilos sin lógica de negocio
+- Bug fix de 1 archivo sin lógica de negocio (ej: texto de label, color de botón)
+- Comentarios, refactors de estilo, renombrado de variable local
+- Commits con prefix `wip:`
+- Actualizaciones de documentación (`docs:` prefix)
+
+**Criterio práctico**: si el commit toca auth, BD, dinero o aislamiento de tenant → siempre reviewer. Si es visual o trivial → skip con justificación explícita en el commit message.
+
+### §30.3 — context-updater al cierre, no por commit
+
+Durante la sesión: tomar nota mentalmente de qué cambios califican como relevantes (ver tabla en CLAUDE.md § Mantenimiento del vault). Al cerrar con `/end-session`, el skill `end-session` consolida y corre context-updater UNA sola vez. Esto evita el overhead de corridas intermedias por cada commit y reduce el riesgo de actualizaciones parciales.
+
+**Caso borde**: si la sesión cierra sin `/end-session`, al arrancar la próxima sesión correr `git log` desde el último entry del `_session-log.md` e invocar el context-updater manualmente si hay cambios relevantes no documentados.
+
+**Fuente canónica**: CLAUDE.md § Workflow de Git, reglas 1 (code-reviewer selectivo) y 5 (context-updater al cierre).
 
 ---
 

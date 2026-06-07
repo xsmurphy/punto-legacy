@@ -89,7 +89,7 @@ El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet"
 | Valor | Emitido por | Validado en |
 |-------|-------------|-------------|
 | `'pos-app'` | `app/API/auth.php`, `app/API/refresh.php`, `app/login.php`, cron service tokens | `app/includes/jwt_middleware.php` |
-| `'panel'` | `panel/includes/functions.php` (login tenant) | `panel/API/lib/api_middleware.php`, `panel/upload.php` |
+| `'panel'` | `panel/includes/functions.php` (login tenant) + **`CompanyAdminService::getEnterToken()`** (impersonación F3.5) | `panel/API/lib/api_middleware.php`, `panel/upload.php` |
 | `'admin'` | `panel/API/lib/admin_auth.php` | `panel/API/lib/admin_auth.php` (suma al `aud='admin'`) |
 
 Cada middleware compara `($payload['iss'] ?? '') !== '<realm>'` y rechaza con 401 si no coincide. Tokens sin `iss` (emitidos antes del fix) → 401 — pre-producción, forzar re-login es aceptable.
@@ -102,7 +102,40 @@ Cada middleware compara `($payload['iss'] ?? '') !== '<realm>'` y rechaza con 40
 - **F1 HECHA (commit 96f8b8f):** auth propia `/admin` — `v1/admin/login.php` (público, rate-limit) + `v1/admin/me.php` (gated) + `adminMiddleware()` + BFF `bff/admin/{login,me,logout}.php` + front estático standalone `admin/login.html` + `admin/home.html`. Cookie `_jwt_admin` HttpOnly, token no llega al browser como JSON. Aislamiento verificado E2E (token cruzado → 401 en ambas direcciones).
 - **F2 HECHA (commit 89e7388):** CRUD de super-admins — stack 3 capas: `panel/lib/admin/AdminUserService.php` (list/get/create/update/setStatus; reglas: email único case-insensitive, password >=8, no desactivar el último admin activo ni a uno mismo) + `panel/API/v1/admin/users.php` (gateado por `adminMiddleware()`) + `panel/bff/admin/users.php` + `panel/admin/users.html` + `panel/admin/scripts/users.js` (standalone, todo con `esc()`). Router `/admin/users`. `home.html` linkea al CRUD. Verificado E2E (list/create/dup-email 422/pass-corto 422/update/setStatus/auto-desactivación 422/get single).
 - **F3.1 HECHA (commit 747384d, 2026-06-05):** Companies CRUD read-only — `panel/lib/admin/CompanyAdminService.php` (listAll/get/getCounts/getOwnersBatched/getCountsBatched; owners + counts con IN() — no N+1; filtro post-fetch en PHP; total = count del set filtrado) + `panel/API/v1/admin/companies.php` + `panel/bff/admin/companies.php` + `panel/admin/companies.html` + `panel/admin/scripts/companies.js` (vanilla JS, dark theme, drawer detalle role=dialog aria-modal, `esc()` en todo output). Router `/admin/companies`. `home.html` card "Empresas". Campo `externalCustomerId` (no `encomCustomerId`). **Patrón nuevo**: `mergeConfig()` inline en `CompanyAdminService` aplana el JSONB `company.config` (post-migración PG §22.8) sin importar `functions.php` desde el realm aislado. Ver §27 en `08-convenciones.md`.
-- **F3.2–F3.5 + F4–F6 pendientes:** ver `10-roadmap.md § Admin realm`.
+- **F3.2 HECHA (commit 5fe4b39, 2026-06-07):** update company — PATCH semántico, 10 campos, JSONB config merge.
+- **F3.3 HECHA (commit 5a6e4ab, 2026-06-07):** delete cascade soft+hard — ~57 DELETEs en TX PG única.
+- **F3.4 HECHA (commit fb4a691, 2026-06-07):** billing view — `listPlans()` + `getBilling()` (balance, plan, últimos 50 cpayments). `get()` ahora incluye planName/planPrice/balance.
+- **F3.5 HECHA (commit 456092f, 2026-06-07): impersonación JWT — "Ingresar como empresa".** Ver patrón abajo.
+- **F3 COMPLETO. F4–F6 pendientes:** ver `10-roadmap.md § Admin realm`.
+
+### Patrón de impersonación JWT (F3.5 — decisión arquitectónica)
+
+El admin puede "entrar" al panel de una empresa sin conocer sus credenciales. El flujo es:
+
+```
+Admin (browser)
+  ↓ POST /bff/admin/companies?id=<uuid>&action=enter  (cookie _jwt_admin)
+BFF panel/bff/admin/companies.php
+  ↓ reenvía POST con _jwt_admin a la API
+API panel/API/v1/admin/companies.php  [gateado por adminMiddleware()]
+  ↓ llama CompanyAdminService::getEnterToken(id)
+Service panel/lib/admin/CompanyAdminService.php
+  → genera JWT _jwt_panel (iss='panel', JWT_SECRET)
+    para el contacto principal (role=1, main=true, type=0)
+    con primer outlet activo como oid
+    SIN setcookie() — retorna {token, expiresIn}
+API → BFF (token en JSON)
+BFF → setcookie('_jwt_panel', token, HttpOnly, SameSite:Strict)
+     → falla 502 si token === '' (P0 code-review fix)
+     → retorna {ok:true, redirectUrl:'/@#dashboard'}
+Browser → window.open(redirectUrl, '_blank', 'noopener')
+```
+
+**Invariante de aislamiento mantenido**: `getEnterToken()` emite `_jwt_panel` usando `JWT_SECRET` (el mismo secret del realm tenant). El claim `iss='panel'` es la barrera que diferencia este token del `_jwt_admin` (`ADMIN_JWT_SECRET`, `iss='admin'`). Los dos realms siguen aislados — el admin no obtiene un `_jwt_admin` para el tenant, sino un `_jwt_panel` legítimo del tenant. El token que genera `getEnterToken` es indistinguible de un token emitido por el propio panel de la empresa.
+
+**Por qué el Service NO hace setcookie()**: el Service vive en el realm admin (`panel/lib/admin/`) y no debe mezclar concerns de respuesta HTTP. El BFF es quien tiene el contexto de HTTP response; centralizar el `setcookie()` ahí es correcto (mismo patrón que el BFF de login del realm tenant).
+
+**UUID validation en API**: `preg_match('/^[0-9a-f-]{36}$/i', $_GET['id'])` antes del lookup — previene inyección y mejora los mensajes de error (P1 code-review fix).
 
 ### MASTER\_COMPANY\_ID — rol post-F0
 

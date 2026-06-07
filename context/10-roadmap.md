@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-05 (F3.1 Companies read-only + SMTP/NCM creds → env, commits e51d5e7..747384d)
+> **Última actualización:** 2026-06-07 (F3.5 impersonación JWT + F3 COMPLETO, commit 456092f)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -154,7 +154,7 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 | **F0** | Tabla `admin_user` (migración 09) + `bootstrap_seed.php` (CLI idempotente, bcrypt) + vars `.env` (`ADMIN_JWT_SECRET/TTL`, `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`). Verificado E2E en DB local. | ✅ HECHA (commit 01a8929, 2026-05-28) |
 | **F1** | Auth del realm `/admin`: login email+pass, JWT propio (`_jwt_admin`, `aud:"admin"`), `adminMiddleware`, `login.html` estático + BFF, rate-limit. | ✅ HECHA (commit 96f8b8f, 2026-05-28) |
 | **F2** | CRUD de admins en `/admin` (modelo BFF 3 capas). No permitir desactivar el último admin activo. | ✅ HECHA (commit 89e7388, 2026-05-28) |
-| **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | **✅ PARCIAL — F3.1 deployable (commit 747384d, 2026-06-05)** |
+| **F3** | Home `/admin` + migrar gestión de companies + billing desde `main.php` (queries cross-tenant aisladas en `lib/admin`). | **✅ COMPLETA — F3.1+F3.2+F3.3+F3.4+F3.5 hechas** |
 | **F4** | ⚠️ RIESGO ALTO — desacoplar `SAAS_ADM`/`MASTER_COMPANY_ID` del panel tenant (quitar redirect `@.php:11`, limpiar `config.php`). Va ÚLTIMO porque rompe el gate de identidad legacy. | Pendiente |
 | **F5** | Login de tenant por teléfono (no email) — independiente de F1–F4. | Pendiente |
 | **F6** | Decommission de `main.php` como admin + hardening + verificar aislamiento de realms E2E. | Pendiente |
@@ -175,9 +175,40 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 |----------|-----|--------|
 | **F3.1** | Companies CRUD read-only — listar y consultar todas las companies del SaaS (CompanyAdminService: listAll/get/getCounts). | ✅ HECHA (commit 747384d, 2026-06-05) |
 | **F3.2** | Update company — editar nombre/config/settings/módulos en una única transacción. | **✅ HECHA (2026-06-07)** |
-| **F3.3** | Delete cascade — baja de company (soft/hard, cascade a contacts/transactions/etc.). | Pendiente |
-| **F3.4** | Billing — view/edit del plan y créditos por company (hoy en `main.php`). | Pendiente |
-| **F3.5** | Migración completa de `main.php` cross-tenant a `lib/admin` — eliminar el acceso cross-tenant desde el realm tenant. | Pendiente (pre-F4) |
+| **F3.3** | Delete cascade — baja de company (soft/hard, cascade a contacts/transactions/etc.). | **✅ HECHA (2026-06-07)** |
+| **F3.4** | Billing — view/edit del plan y créditos por company (hoy en `main.php`). | **✅ HECHA (commit fb4a691, 2026-06-07)** |
+| **F3.5** | Impersonación JWT — "Ingresar como empresa" desde el admin realm. `getEnterToken()` genera `_jwt_panel` para el contacto principal; BFF inyecta la cookie HttpOnly; front abre nueva pestaña con `window.open(..., 'noopener')`. | **✅ HECHA (commit 456092f, 2026-06-07)** |
+
+**Notas técnicas F3.2 (commit 5fe4b39, 2026-06-07):**
+- `CompanyAdminService::update(id, payload)` — PATCH semántico con whitelist de columnas directas: `status` (enum guard: active/inactive/suspended), `plan`, `blocked` (cast 0/1), `smsCredit`, `discount`, `planExpired`, `isTrial`, `expiresAt` (nullable ISO-8601). JSONB config merge vía `config = config || ?::jsonb` para los campos `settingName` y `settingCountry`. Devuelve `['ok'=>true]` o `['ok'=>false,'error','code']` (404/422/500). Solo construye SET si hay columnas que cambiar (no-op seguro).
+- `panel/API/v1/admin/companies.php` — agrega PATCH: lee `php://input` JSON, valida que `id` exista, llama `$svc->update()`, gateado por `adminMiddleware()`.
+- `panel/bff/admin/companies.php` — agrega PATCH: curl inline con body JSON, cookie `_jwt_admin`, pass-through de 4xx para evitar colapso a 502 y facilitar feedback en el form.
+- UI `panel/admin/companies.html` + `panel/admin/scripts/companies.js` — botón "Editar" en el drawer de detalle → `renderEdit()`: form con 10 campos (nombre, país, status, plan, smsCredit, descuento, expiresAt, bloqueada, planExpired, isTrial). `currentCompany` guardado en closure para re-render sin fetch adicional. Save via `fetch PATCH`; 401/403 → `redirectToLogin()`; éxito → recarga detalle + tabla.
+- E2E verificado: PATCH campos directos, PATCH config JSONB, 404 UUID inexistente, 405 GET/PUT.
+
+**Notas técnicas F3.3 (commit 5a6e4ab, 2026-06-07):**
+- `CompanyAdminService::softDelete(id)` — `status='cancelled'` + `blocked=1`. Reversible (no borra datos).
+- `CompanyAdminService::hardDelete(id)` — ~57 DELETEs ordenados por dependencia de FK en una única transacción PG; ROLLBACK en cualquier error. Cubre las 38+ tablas que referencian `company`. Self-referential FKs NULLed en paso previo a los DELETEs (`transaction.transactionParentId`, `contact.parentId+userId`, `item.itemParentId`, `accountCategory.accountCategoryParentId`, `outlet.taxId` circular). Tablas polimórficas scoped por subqueries. La tabla `device` se borra automáticamente por ON DELETE CASCADE.
+- `panel/API/v1/admin/companies.php` — agrega DELETE: `?type=soft` → `softDelete()`; `?type=hard` requiere body `{"confirm":"<company-name>"}` y hace match del nombre antes de llamar `hardDelete()`. Gateado por `adminMiddleware()`.
+- `panel/bff/admin/companies.php` — proxy DELETE con `timeout: 60s` (hardDelete puede ser lento en tenants grandes).
+- UI — "danger zone" al final del drawer de detalle: botón "Suspender" con `confirm()` dialog → soft delete; botón "Eliminar" → `renderDeleteConfirm(c)` (form inline type-name-to-confirm). `doDeleteCompany(id, type, confirmName)` hace fetch DELETE. CSS: `.danger-zone`, `.danger-item`, `.btn-warn`, `.btn-danger`, `.btn-danger-primary`, `.danger-notice`.
+
+**Notas técnicas F3.4 (commit fb4a691, 2026-06-07):**
+- `CompanyAdminService::listPlans()` — SELECT plan_code/name/price de tabla `plans` (excluye code=0, ORDER BY plan_code ASC). Devuelve array plano de `{code,name,price}` para el `<select>` del form de edición.
+- `CompanyAdminService::getBilling(id)` — SELECT balance+plan de `company` + lookup planName/planPrice contra `plans` + últimos 50 `cpayments` (cpaymentId/date/amount/type/description ORDER BY date DESC). Retorna null si empresa inexistente.
+- `CompanyAdminService::get(id)` — ahora incluye `planName`, `planPrice` y `balance` en el shape de detalle (lookup a `plans` por `plan_code`).
+- `CompanyAdminService::update(id, payload)` — whitelist decimal extendida: `['discount', 'balance']` (antes solo `discount`). Permite editar el balance directamente desde el form admin.
+- `panel/API/v1/admin/companies.php` — dos rutas nuevas GET: `?plans=1` → `listPlans()`; `?id&billing=1` → `getBilling()`. Ambas gateadas por `adminMiddleware()`.
+- `panel/bff/admin/companies.php` — proxy GET para ambas rutas nuevas, reenvía `_jwt_admin`.
+- UI `panel/admin/scripts/companies.js` — `renderBilling()`: stat cards (balance, plan+precio) + tabla `.billing-table` con 50 cpayments. `renderEdit()` ahora async: carga planes con `?plans=1`, renderiza `<select>` de planes + campo balance en el form. `saveCompany()` incluye `balance` en el payload PATCH. CSS: `.billing-table` / `.billing-stat` en `panel/admin/companies.html`.
+
+**Notas técnicas F3.5 (commit 456092f, 2026-06-07):**
+- `CompanyAdminService::getEnterToken(string $id): ?array` — genera JWT `_jwt_panel` (iss=`'panel'`, `JWT_SECRET`) para el contacto principal de la empresa (role=1, main=true, type=0) con el primer outlet activo como `oid`. Retorna `{token, expiresIn}` o null si no hay contacto principal con outlet activo. NO hace `setcookie()` — el BFF inyecta la cookie.
+- `panel/API/v1/admin/companies.php` — agrega `POST ?id=<uuid>&action=enter`: gateado por `adminMiddleware()`, UUID validado con regex `'/^[0-9a-f-]{36}$/i'` (fix P1), retorna `{token, expiresIn}`.
+- `panel/bff/admin/companies.php` — proxy POST: reenvía con `_jwt_admin`, `setcookie('_jwt_panel', token, HttpOnly, SameSite:Strict)`, falla 502 si token === '' (fix P0), retorna `{ok:true, redirectUrl:'/@#dashboard'}` (hardcoded — deuda menor).
+- UI `panel/admin/scripts/companies.js` — botón "Ingresar" en toolbar del drawer: fetch POST → `window.open(redirectUrl, '_blank', 'noopener')` (fix P2 — `noopener` previene reverse-tabnabbing).
+- Aislamiento mantenido: `getEnterToken()` emite `_jwt_panel` con `JWT_SECRET` (mismo que el realm tenant) pero el claim `iss='panel'` lo hace indistinguible de un token de login normal. El admin no obtiene privilegios de otro realm — impersona como usuario legítimo de la empresa. Ver `02-arquitectura.md § Patrón de impersonación JWT`.
+- E2E verificado (fixes P0/P1/P2 del code-review pre-commit incluidos).
 
 **Notas técnicas F2:**
 - Stack BFF 3 capas completo: `panel/lib/admin/AdminUserService.php` (data layer — list/get/create/update/setStatus) + `panel/API/v1/admin/users.php` (gateado por `adminMiddleware()`, `_jwt_admin`, `aud:"admin"`) + `panel/bff/admin/users.php` (proxy cookie) + `panel/admin/users.html` + `panel/admin/scripts/users.js` (front standalone, todo escapado con `esc()`). Router: `/admin/users → /admin/users.html`. `home.html` linkea al CRUD.
