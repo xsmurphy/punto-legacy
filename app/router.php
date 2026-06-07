@@ -31,12 +31,14 @@ if ($isLocalhost) {
 }
 
 // Servir archivos estaticos que existen (css, js, images, fonts)
-if ($path !== '/' && file_exists(__DIR__ . $path)) {
+// EXCLUIR .php — deben ejecutarse, no servirse como texto plano.
+$_pathExt = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+if ($path !== '/' && $_pathExt !== 'php' && file_exists(__DIR__ . $path)) {
     // En localhost servimos manualmente para preservar los headers de
     // no-cache emitidos arriba — el `return false` cede al PHP built-in
     // server y descarta nuestros headers HTTP.
     if ($isLocalhost) {
-        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $ext = $_pathExt; // ya calculado arriba (y sin .php)
         $mime = [
             'js'    => 'application/javascript',
             'css'   => 'text/css',
@@ -86,6 +88,17 @@ if (strpos($path, '/assets/') === 0) {
             header('Cache-Control: public, max-age=31536000, immutable');
         }
         readfile($assetFile);
+        return true;
+    }
+}
+
+// Regla: archivos .php explícitos — SOLO directorios de entrypoints conocidos.
+// Includes, bootstrap y partials NO deben ejecutarse por URL directa.
+// realpath() + comprobación inside __DIR__ para prevenir path traversal.
+if ($_pathExt === 'php' && preg_match('#^/(API|bff)/#i', $path)) {
+    $phpFile = realpath(__DIR__ . $path);
+    if ($phpFile !== false && str_starts_with($phpFile, __DIR__ . DIRECTORY_SEPARATOR)) {
+        require $phpFile;
         return true;
     }
 }
