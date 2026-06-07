@@ -204,14 +204,23 @@ final class Notification
      */
     public static function sendWS(array $ops = []): mixed
     {
-        $data = [
-            'api_key'    => API_KEY,
-            'company_id' => enc(COMPANY_ID),
-            'channel'    => $ops['channel'],
-            'event'      => $ops['event'],
-            'message'    => $ops['message'],
-        ];
+        // FIX PG/dev-server: directo a Redis via wsPublish() — elimina la llamada
+        // curl a send_webSocket.php que deadlockeaba el servidor built-in.
+        require_once __DIR__ . '/../includes/ws_publish.php';
 
-        return curlContents(API_URL . '/send_webSocket.php', 'POST', $data);
+        $channel = (string) ($ops['channel'] ?? '');
+        $event   = (string) ($ops['event']   ?? '');
+        $message = (string) ($ops['message'] ?? '');
+
+        // Replicar la lógica de send_webSocket.php: si message es JSON, desempaquetar;
+        // si es escalar, envolver en ['message' => valor] igual que el endpoint previo.
+        $data = [];
+        if ($message !== '') {
+            $decoded = json_decode($message, true);
+            $data = is_array($decoded) ? $decoded : ['message' => $message];
+        }
+
+        wsPublish($channel, $event, $data);
+        return true;
     }
 }
