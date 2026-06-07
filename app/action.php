@@ -1385,7 +1385,8 @@ if ($action) {
         $record['drawerCloseAmount']  = $drawer['amount'];
         $record['drawerUserClose']    = USER_ID;
 
-        $drawerAction                 = $db->AutoExecute('drawer', $record, 'UPDATE', 'drawerId = ' . $drawerSave['drawerId']);
+        // PG: drawerId es UUID — necesita comillas simples en el WHERE literal.
+        $drawerAction                 = $db->AutoExecute('drawer', $record, 'UPDATE', "drawerId = '" . $drawerSave['drawerId'] . "'");
 
         $etotal                       = CURRENCY . formatCurrentNumber($drawer['amount'], $compDecimal, $compThousand);
         $etitle                       = 'Cierre de Caja';
@@ -1400,8 +1401,10 @@ if ($action) {
         $record['drawerOpenDate']   = iftn($drawer['date'], TODAY);
         $record['drawerOpenAmount'] = $drawer['amount'];
         $record['drawerUserOpen']   = USER_ID;
-        $record['drawerUserClose']  = 0;
-        $record['drawerUID']        = 0;
+        // PG: drawerUserClose es UUID nullable — NULL mientras el drawer está abierto.
+        // El legacy usaba 0 (int) como "sin valor"; PG rechaza "0" en columna UUID.
+        $record['drawerUserClose']  = null;
+        $record['drawerUID']        = 0; // BIGINT — 0 es válido
 
         $record['registerId']       = REGISTER_ID;
         $record['outletId']         = OUTLET_ID;
