@@ -132,7 +132,7 @@ if (validateHttp('action') == 'update' && validateHttp('cid', 'post')) {
 //enter company
 if (validateHttp('url')) {
   $_SESSION['ncmCache']             = false;
-  $sess = getCompanyLoginSession(dec(validateHttp('companyId')), true);
+  $sess = getCompanyLoginSession(dec(validateHttp('companyId')));
 
   //echo json_encode($sess);
   //dai();

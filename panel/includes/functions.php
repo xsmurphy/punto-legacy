@@ -5465,10 +5465,6 @@ function allowUser($section, $action, $boolean = false)
 	if ($section && $action && !validateHttp('widget')) {
 		$company = COMPANY_ID;
 
-		if (SAAS_ADM) {
-			$company = 15;
-		}
-
 		$permissions 	= getRolePermissions(ROLE_ID, $company);
 		$permissions 	= is_array($permissions) ? ($permissions['panel'] ?? []) : [];
 		$check = false;
@@ -5509,9 +5505,6 @@ function topHook()
 		theErrorHandler(); //error handler
 	}
 
-	if (ROLE_ID > 1 && COMPANY_ID == MASTER_COMPANY_ID) {
-		//    header('location:/main');
-	}
 }
 
 function mainAlerts()
@@ -5626,16 +5619,6 @@ function leftMenu($isoutlet = false, $register = false, $submenu = false)
 					<ul class="nav" data-ride="collapse">
 
 						<?php
-
-						if (SAAS_ADM) {
-							$main = 'main';
-						?>
-							<li>
-								<a href="/main?backToSaaS=true"> <i class="material-icons">store</i> <span class="font-bold text-u-c">Empresas</span> </a>
-							</li>
-						<?php
-						}
-
 						?>
 
 						<li>
@@ -5804,14 +5787,6 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			<div class="col-xs-12 no-padder">
 
 				<?php
-				if (SAAS_ADM) {
-					$main = 'main';
-				?>
-					<a href="/main?backToSaaS=true" class="block wrapper-md hoverMenu text-md">
-						<i class="material-icons text-muted m-r-sm m-l">store</i> <span class="text-white">Empresas</span>
-					</a>
-				<?php
-				}
 				?>
 
 				<a href="/@#items" class="block wrapper-md hoverMenu text-md mmnItemsBtn">
@@ -6667,9 +6642,6 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 					header('location:/billing?viewplans=1');
 					return false;
 				}
-			}
-			if (ROLE_ID > 1 && COMPANY_ID == MASTER_COMPANY_ID) {
-				header('location:/main');
 			}
 		}
 
@@ -9137,7 +9109,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			$_SESSION['user']['outletsCount'] 	= $oCount;
 			$_SESSION['user']['startDate'] 		= false;
 			$_SESSION['user']['endDate'] 		= false;
-			$_SESSION['user']['SAAS_ADM']    	= ($result['companyId'] == MASTER_COMPANY_ID) ? true : false;
+			$_SESSION['user']['SAAS_ADM']    	= false;
 
 			// Emitir JWT además de la sesión PHP — ambos coexisten durante la transición
 			$GLOBALS['_last_jwt_panel'] = issueJwtPanel($result);

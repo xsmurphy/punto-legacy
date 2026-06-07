@@ -112,7 +112,7 @@ function getCompanyLoginSession($companyId,$encomADM = false){
 		$_SESSION['user']['outletsCount'] = $outletCount->fields['count'];
 		$_SESSION['user']['startDate']    = false;
 		$_SESSION['user']['endDate']      = false;
-		$_SESSION['user']['SAAS_ADM']    = $encomADM;
+		$_SESSION['user']['SAAS_ADM']    = false;
 
 	}
 
@@ -141,17 +141,7 @@ if(isset($_SESSION['user'])){
 	define('PLAN', printSessionData(dec($sU['plan']))); //0 free, 1 Company, 2 full, 3 trial, 4 Privilege, 5 Starter, 6 Nada, 7 Micro
 	define('PLAN_EXPIRING_DATE', printSessionData($sU['planExpires']));
 
-	if($sU['SAAS_ADM']){
-		if($_GET['backToSaaS'] == 'true'){
-			getCompanyLoginSession(MASTER_COMPANY_ID, true);
-			header('location:/main');
-  			die();
-		}else{
-			define('SAAS_ADM', true);
-		}
-	}else{
-		define('SAAS_ADM', false);
-	}
+	define('SAAS_ADM', false);
 
 	if(isset($sU['companySettings'])){
 		$_cmpSettings 	= $sU['companySettings'];
