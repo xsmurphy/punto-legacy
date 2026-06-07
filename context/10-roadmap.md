@@ -49,6 +49,28 @@ Ver `08-convenciones.md §22.13` para la receta completa y `02-arquitectura.md �
 
 ---
 
+## ✅ Device pairing — revocación per-dispositivo (backend) (commit a3fefb4, 2026-06-06)
+
+Cierra la deuda del modelo device pairing enunciada en §28 de `08-convenciones.md`: "empleado que renuncia se lleva /app logueada en su celular personal".
+
+| Componente | Qué | Estado |
+|-----------|-----|--------|
+| `database/migrations/postgres/11_device.sql` | Tabla `device` (UUID PK, companyId FK ON DELETE CASCADE, userId, outletId/registerId, deviceName, userAgent, ipFirst/ipLast INET, lastSeenAt, status 0/1, revokedAt, revokedBy, createdAt) + 3 índices | ✅ |
+| `app/includes/device.php` | `deviceRegister($companyId, $userId, $outletId, $registerId): ?string` — INSERT + retorna deviceId | ✅ |
+| `app/includes/jwt_middleware.php` | Valida `device.status` si JWT trae `did`. Cache file 60s. `jwtIsDeviceRevoked()`, `jwtInvalidateDeviceCache()`, `AUTHED_DEVICE_ID`. Modo conservador si BD no disponible. Backwards compat tokens sin `did`. | ✅ |
+| `app/login.php` + `app/API/auth.php` | Llaman `deviceRegister()` + agregan claim `did` al JWT | ✅ |
+| `app/API/refresh.php` | Chequea device.status antes de re-emitir token; preserva `did` | ✅ |
+
+**E2E verificado** (7 escenarios): login→did, ping con cache, revoke+TTL, cache miss→401 device_revoked, refresh con device revocado→401, backwards compat sin did, re-activación+invalidar cache→200.
+
+**User-initiated revoke — ✅ COMPLETADO (commit 70dbc22, 2026-06-06):** el link "Eliminar Punto de este dispositivo" en el menú del POS ahora revoca el device en la BD (`revokedBy = userId propio`), invalida el cache inmediatamente, mata la cookie `_jwt` y limpia todo el estado local (SW, caches, localStorage, cookies JS). E2E verificado (6 escenarios): POST con cookie → 200 + BD revocada; misma cookie post-logout → 401 device_revoked; GET → 405; POST sin cookie → 200 graceful. Incluye rebrand "ENCOM" → "Punto" en 3 puntos de la UI (`index.html`, `index.php`, alert title en `app.js`). Ver `08-convenciones.md §29.B` para el flow completo.
+
+**Deuda pendiente de este slice:**
+- **UI panel del tenant** para listar y revocar devices (admin-initiated) — diferida al ciclo de React del panel.
+- **Migration runner**: `11_device.sql` se aplicó manualmente con `php -r` parseando por `;`. La deuda del runner automático sigue abierta (ver sección "Migraciones — runner pendiente" en `06-infraestructura.md`).
+
+---
+
 ## Principios del roadmap
 
 - **Progresivo**: cada fase es independientemente deployable.
@@ -64,7 +86,7 @@ Ver `08-convenciones.md §22.13` para la receta completa y `02-arquitectura.md �
 | Backend | PHP 8.x, sin framework, archivos monolíticos |
 | DB | PostgreSQL 16 vía ADOdb + Docker ✅ |
 | Frontend | Bootstrap 3 + jQuery, HTML mezclado con PHP |
-| Auth (app) | JWT HS256 ✅ — cookie `_jwt` HttpOnly. Fallback Hashids legacy **ELIMINADO** (commit 2aa149f, 2026-06-04). `fetchs.php` JWT-only; `fetch.php` eliminado. |
+| Auth (app) | JWT HS256 ✅ — cookie `_jwt` HttpOnly. Fallback Hashids legacy **ELIMINADO** (commit 2aa149f, 2026-06-04). `fetchs.php` JWT-only; `fetch.php` eliminado. Revocación per-device ✅ (tabla `device`, commit a3fefb4, 2026-06-06). |
 | Auth (panel) | JWT HS256 ✅ — 68/68 endpoints con apiMiddleware() |
 | IDs | UUID v7 ✅ — enc()/dec() identity, ncmInsert auto-genera PK |
 | API | ~68 endpoints en `panel/API/*.php`, todos con envelope canónico ✅ |
@@ -1154,6 +1176,31 @@ enc()/dec() convertidas a identity functions (sin Hashids). UUID v7 auto-generad
 | U.3 | `ncmInsert` auto-genera UUID v7 en la PK correcta por tabla | ✅ |
 | U.4 | JWT payload cambiado de int a string para cid/oid/rid/sub | ✅ |
 | U.5 | `contactUID` eliminado — reemplazado por `contactId` en ~103 archivos | ✅ |
+
+### Deuda técnica: calls a `enc()`/`dec()` (P2 — limpieza gradual)
+
+**Contexto (2026-06-06):** `enc()` y `dec()` eran wrappers de Hashids que ofuscaban los IDs enteros de MySQL antes de exponerlos al cliente. Con la migración a UUIDs (Phase UUID), se convirtieron en identity casts:
+
+```php
+// app/head.php y app/fetchs.php — definición actual
+function enc($str): string { return (string)$str; }
+function dec($str): string { return (string)$str; }
+```
+
+**Por qué importa:**
+- Cientos de calls a `enc()` y `dec()` en el codebase (grep da ≥500/≥300, incluyendo falsos positivos de sufijos) — semántica **engañosa**: el lector asume que hay encoding/decoding cuando no hay ninguno.
+- **Bug activo documentado**: `dec(0)` devuelve `"0"` (string). Si ese valor se pasa a una columna `UUID` de PostgreSQL, falla con `SQLSTATE[22P02]: invalid input syntax for type uuid: "0"`. Esta fue la causa raíz de múltiples bugs corregidos el 2026-06-06 (`openCloseDrawer`, `updateCustomerRecord` y otros).
+- El patrón `DB::AutoExecute` usa **orden de inserción del array PHP** para los parámetros `$N` de PG — si el `"0"` de `dec()` queda en posición `$4`, el error de PG apunta a `$4 = '...'` pero la causa es el call a `dec()` varias líneas arriba.
+
+**Estrategia (NO mass-refactor):**
+- Limpiar `enc()`/`dec()` de forma incremental cada vez que se toca el archivo involucrado.
+- Patrón de reemplazo:
+  - `enc($id)` → `(string)$id` (o simplemente `$id` si ya es string/UUID)
+  - `dec($val)` en columna UUID → validar que sea UUID real antes de pasar a DB; si puede ser vacío/cero, usar `null` (columna nullable) o generar UUID con `generateUuidV7()`.
+  - `dec($val)` en columna BIGINT/INT → `(int)$val` es suficiente.
+- Nunca reemplazar con un find-replace ciego — el tipo de columna de destino determina el reemplazo correcto.
+
+**Estado:** ongoing — no hay milestone cerrado, se elimina oportunísticamente.
 
 ## Phase PG — MySQL → PostgreSQL ✅
 

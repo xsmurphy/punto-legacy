@@ -175,6 +175,45 @@ Creada en **migración 09** (`09_admin_user.sql`, 2026-05-28). Es la base del *a
 
 **Qué NO hace esta tabla todavía (F0):** el login `/admin`, el BFF, el CRUD de admins y la auth JWT del realm están en fases F1–F2 (ver `10-roadmap.md § Admin realm`).
 
+### Tabla `device` — dispositivos del POS (device pairing, commit a3fefb4, 2026-06-06)
+
+Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación per-device del realm POS: el admin puede deshabilitar una caja específica sin afectar otras ni rotar el `JWT_SECRET`.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `deviceId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `companyId` | UUID NOT NULL | FK → `company(companyId) ON DELETE CASCADE`. Multi-tenant scope. |
+| `userId` | UUID NOT NULL | Admin que activó el device (sin FK — `contact` puede borrarse) |
+| `outletId` | UUID NULL | Outlet al que está asignado |
+| `registerId` | UUID NULL | Caja/terminal asociada |
+| `deviceName` | TEXT NOT NULL DEFAULT '' | Nombre editable por el admin |
+| `userAgent` | TEXT NULL | User-Agent del browser al momento del login |
+| `ipFirst` | INET NULL | IP del primer login (validada con `filter_var` antes del INSERT) |
+| `ipLast` | INET NULL | IP del último ping/refresh |
+| `lastSeenAt` | TIMESTAMPTZ NULL | Última vez que el device fue validado |
+| `status` | SMALLINT NOT NULL DEFAULT 1 | 1 = activo, 0 = revocado. CHECK (status IN (0,1)) |
+| `revokedAt` | TIMESTAMPTZ NULL | Timestamp de revocación |
+| `revokedBy` | UUID NULL | Admin que revocó (sin FK — `contact` puede borrarse) |
+| `createdAt` | TIMESTAMPTZ | Timestamp de creación |
+
+**Índices**: `idx_device_company` (companyId), `idx_device_company_status` (companyId, status), `idx_device_user` (userId).
+
+**Soft-delete**: revocación por `status=0` — no DELETE físico. Preserva historial forense (quién/cuándo/desde dónde).
+
+**Flujo de uso**:
+1. Al login (`app/login.php` o `app/API/auth.php`), se llama `deviceRegister($companyId, $userId, $outletId, $registerId)` → INSERT row → retorna `deviceId` UUID.
+2. El `deviceId` se incluye como claim `did` en el JWT emitido.
+3. En cada request, `jwtAuthenticate()` en `app/includes/jwt_middleware.php` verifica `device.status` si el JWT trae `did`. Cache file 60s en `sys_get_temp_dir/punto_device_status/{deviceId}_{companyId}.dat`. Si status=0 → 401 `device_revoked`.
+4. `app/API/refresh.php` también chequea device antes de emitir token nuevo y preserva `did` en el payload renovado.
+
+**Revocación per-device**: `UPDATE device SET status=0, revokedAt=NOW(), revokedBy=? WHERE deviceId=? AND companyId=?`. Llamar `jwtInvalidateDeviceCache($deviceId)` (1 arg) para forzar invalidación inmediata del cache de archivo (sin esperar el TTL de 60s).
+
+**Backwards compat**: tokens sin claim `did` (emitidos antes del feat) siguen pasando sin validar `device.status`.
+
+**Deuda pendiente**:
+- **UI panel del tenant**: pantalla para listar y revocar devices. Diferida al ciclo de React del panel.
+- **Migration runner**: `11_device.sql` se aplicó manualmente con `php -r` parseando por `;`. Ver deuda de runner en `06-infraestructura.md`.
+
 ### Extensiones PostgreSQL activas
 
 - `pgcrypto` — gen_random_uuid()
@@ -196,5 +235,6 @@ Creada en **migración 09** (`09_admin_user.sql`, 2026-05-28). Es la base del *a
 | 08 | `08_franchiser_to_tenant.sql` | Crea tabla puente de acceso N→N franquiciador→tenant + backfill desde `company.parentId` | Aplicada local 2026-05-26 |
 | 09 | `09_admin_user.sql` | Crea tabla `admin_user` para super-admins de plataforma (admin realm separado, bcrypt, sin companyId) | Aplicada local 2026-05-28 |
 | 10 | `10_plans_code.sql` | Agrega columna `plan_code smallint NOT NULL DEFAULT 0` a tabla `plans` + índice único parcial `WHERE plan_code > 0`. Resuelve el mismatch `company.plan smallint` → `plans.id UUID` que hacía que `getAllPlans(1)` nunca matcheara (LIMIT 0) | Aplicada local 2026-05-30 |
+| 11 | `11_device.sql` | Crea tabla `device` para el modelo device pairing / revocación per-dispositivo (ver §device abajo). Aplicada manualmente (`php -r` parseando por `;`). | Aplicada local 2026-06-06 |
 
 **Patrón atómico de demotion:** backfill UPDATE no-destructivo (NULLIF para no inflar con defaults; booleans como JSON booleans, no strings) + DROP atómico en el mismo script. Requiere ser owner de la tabla en PG (el usuario `punto` de la app no lo es — ver `06-infraestructura.md §Privilegio de owner para DDL`).

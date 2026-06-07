@@ -53,14 +53,16 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 - `auth.php` — Login, emite JWT
 - `config.php` — Configuración del tenant para el POS
 - `refresh.php` — Refresh token
+- `logout.php` — **NUEVO (commit 70dbc22, 2026-06-06)** POST-only. Cierra el ciclo del modelo device pairing del lado del usuario ("Eliminar Punto de este dispositivo"). Decode JWT desde cookie/header/POST; si trae `did`+`cid` válidos (regex UUID): `UPDATE device SET status=0, revokedAt=NOW(), revokedBy=<userId>` (doble guard tenant); llama `jwtInvalidateDeviceCache($did)` (efecto inmediato, no espera TTL 60s); mata cookie `_jwt` (setcookie con expires=1); responde `{ok:true}` incluso sin token (no leakea estado). GET → 405. Es POST-only para evitar CSRF hot-link por GET.
 - ~~`v1/customer_address.php`~~ — **movido a `/api/v1/customer_address.php` (commit d75dd0b)**
 
-**Nota (2026-05-28):** Los endpoints de los slices de desacople YA NO ESTÁN en `/app/API/v1/`. Fueron movidos a la API compartida `/api/v1/` (commit d75dd0b). `/app/API/` conserva solo `auth.php`, `config.php`, `refresh.php`.
+**Nota (2026-05-28):** Los endpoints de los slices de desacople YA NO ESTÁN en `/app/API/v1/`. Fueron movidos a la API compartida `/api/v1/` (commit d75dd0b). `/app/API/` conserva `auth.php`, `config.php`, `refresh.php`, `logout.php`.
 
 **Archivos clave**:
 - `app/includes/functions.php` — Utilidades (pagos, formateo, roles)
 - `app/includes/jwt.php` — JWT HS256 encode/decode
-- `app/includes/jwt_middleware.php` — Validación de JWT (también usada por `/api/bootstrap.php` vía chdir)
+- `app/includes/jwt_middleware.php` — Validación de JWT (también usada por `/api/bootstrap.php` vía chdir). **Desde commit a3fefb4 (2026-06-06):** además de validar firma + realm, valida `device.status` si el JWT trae claim `did`. Cache file 60s. Expone `jwtIsDeviceRevoked()`, `jwtInvalidateDeviceCache()` y constante `AUTHED_DEVICE_ID`. Modo conservador si BD no disponible.
+- `app/includes/device.php` — **NUEVO (commit a3fefb4, 2026-06-06)**. Helper de device pairing. `deviceRegister($companyId, $userId, $outletId, $registerId): ?string` — INSERT en tabla `device` + retorna `deviceId` UUID. Llamado desde `login.php` y `API/auth.php` antes de emitir el JWT.
 - `app/includes/ws_publish.php` — Publica eventos a Redis
 - `app/includes/db.postgres.php` — Conexión a PostgreSQL
 - `app/scripts/ncm-ws.js` — Cliente WebSocket

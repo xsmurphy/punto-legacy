@@ -1311,24 +1311,82 @@ private function mergeConfig(array $row): array {
 
 ---
 
-## §28 — Modelo de auth de /app: device pairing ≠ sesión (establecido commit 7e1b26f, 2026-06-06)
+## §28 — Modelo de auth de /app: device pairing ≠ sesión (establecido commit 7e1b26f, completado a3fefb4, 2026-06-06)
 
-**Regla**: el JWT de `/app` (`_jwt`) NO es una sesión de usuario. Es un **device pairing**: certifica que "este dispositivo está autorizado a operar como caja de esta empresa". No acortar `JWT_TTL` (actualmente 10 años) sin antes implementar un mecanismo alternativo de revocación por dispositivo (device-token-table).
+**Regla**: el JWT de `/app` (`_jwt`) NO es una sesión de usuario. Es un **device pairing**: certifica que "este dispositivo está autorizado a operar como caja de esta empresa". No acortar `JWT_TTL` (actualmente 10 años) — la revocación per-device ya está implementada vía la tabla `device` (ver §29 abajo).
 
 **Los dos niveles de auth de /app — distinción crítica:**
 
 | Nivel | Nombre | Mecanismo | Quién lo activa | TTL | Cuándo caduca |
 |-------|--------|-----------|-----------------|-----|--------------|
-| **Capa dispositivo** | Device pairing | JWT `_jwt` firmado con `JWT_SECRET` | Admin (user+password, una vez por dispositivo) | `JWT_TTL` = 10 años | Solo al rotar `JWT_SECRET` (revocación masiva) |
+| **Capa dispositivo** | Device pairing | JWT `_jwt` + claim `did` (deviceId) | Admin (user+password, una vez por dispositivo) | `JWT_TTL` = 10 años | Al revocar el device (status=0) o al rotar `JWT_SECRET` |
 | **Capa cajero** | Sesión de turno | PIN de 4 dígitos → `ncmAuth.activeUser` + `lockPad` en JS | Cajero (entrada/salida por turno) | Por turno — no persiste | Al salir del turno / bloquear la pantalla |
 
 **Por qué `JWT_TTL=10y`**: una caja apagada un fin de semana o en una sucursal sin admin presente no debe quedar inutilizable el lunes. El PIN maneja el acceso por turno; el JWT maneja el emparejamiento del dispositivo. Son concerns distintos y no se deben colapsar.
 
-**Revocación hoy**: rotar `JWT_SECRET` invalida TODOS los JWTs de /app y /panel en un paso. Es una revocación global, no per-device. Si se necesita revocar un dispositivo individual (robo, baja de sucursal) sin afectar al resto, el mecanismo correcto es una **device-token-table** (deuda futura — no implementada aún).
+**Revocación per-device (IMPLEMENTADA — commit a3fefb4, 2026-06-06)**: la tabla `device` permite revocar un dispositivo individual sin afectar al resto. Ver §29 para el procedimiento. La revocación global (rotar `JWT_SECRET`) sigue disponible como medida de emergencia masiva.
 
 **Contraste con /admin**: `ADMIN_JWT_TTL=8h` porque el super-admin SÍ tiene una sesión real: abre el panel de administración desde su browser personal y espera que expire al cabo del día. El modelo de su auth es el modelo clásico de sesión web.
 
 **Anti-patrón a evitar**: nunca ajustar `JWT_TTL` de /app pensando en "seguridad de sesión". La seguridad de acceso por turno la provee el PIN. El JWT de /app es análogo a un certificado de dispositivo — su vigencia no cambia el riesgo de acceso no autorizado por un cajero.
+
+---
+
+## §29 — Revocación per-device en /app (implementado commit a3fefb4, 2026-06-06)
+
+**Contexto**: cierra el escenario "empleado que renuncia se lleva /app logueada en su celular". El modelo anterior solo permitía revocación global (rotar JWT_SECRET, afecta a TODOS los devices). El modelo nuevo permite revocar un device específico sin interrumpir las demás cajas.
+
+**Componentes**:
+
+| Componente | Archivo | Responsabilidad |
+|-----------|---------|----------------|
+| Migración | `database/migrations/postgres/11_device.sql` | Tabla `device` (UUID PK, companyId FK ON DELETE CASCADE, userId, outletId, registerId, deviceName, userAgent, ipFirst INET, ipLast INET, lastSeenAt, status SMALLINT 0/1, revokedAt, revokedBy, createdAt) + 3 índices |
+| Helper | `app/includes/device.php` | `deviceRegister($companyId, $userId, $outletId, $registerId): ?string` — INSERT row + retorna deviceId UUID |
+| Middleware | `app/includes/jwt_middleware.php` | Valida `device.status` si JWT trae claim `did`. Cache file 60s. Nuevas: `jwtIsDeviceRevoked()`, `jwtInvalidateDeviceCache()`, constante `AUTHED_DEVICE_ID` |
+| Login | `app/login.php`, `app/API/auth.php` | Llaman `deviceRegister()` antes de emitir JWT; agregan `did` al payload |
+| Refresh | `app/API/refresh.php` | Chequea device.status antes de emitir token nuevo; preserva `did` en el payload renovado |
+
+**Dos vías de revocación**:
+
+#### A — Admin-initiated (SQL directo o futura UI panel)
+
+```sql
+-- 1. Revocar en BD
+UPDATE device SET status=0, revokedAt=NOW(), revokedBy='<adminUUID>'
+WHERE deviceId='<deviceId>' AND companyId='<companyId>';
+```
+
+```php
+// 2. Forzar invalidación inmediata del cache (opcional — sin esto, el TTL de 60s corre)
+jwtInvalidateDeviceCache($deviceId); // 1 arg — glob {deviceId}_*.dat, cubre todos los tenants
+```
+
+Si no se llama `jwtInvalidateDeviceCache()`, el device sigue pasando hasta que el cache de 60s expire. Para revocaciones urgentes (robo), invalidar el cache.
+
+#### B — User-initiated: "Eliminar Punto de este dispositivo" (commit 70dbc22, 2026-06-06)
+
+El propio usuario puede revocar su device desde el menú del POS. El handler `#reset` en `app/scripts/app.js` hace POST a `/API/logout` con timeout 5s y `withCredentials`. El callback `complete` corre `cleanupLocal` **siempre** (success o fail) — los devices offline también pueden "desinstalar" localmente.
+
+`app/API/logout.php` (POST-only):
+1. Decode JWT del cookie/header/POST.
+2. Si tiene `did`+`cid` UUID válidos: `UPDATE device SET status=0, revokedAt=NOW(), revokedBy=<userId del propio JWT>` (doble guard tenant — el JWT está firmado pero defense-in-depth igualmente).
+3. `jwtInvalidateDeviceCache($did)` → efecto inmediato.
+4. Mata cookie `_jwt` (setcookie con expires=1970, mismos flags que `jwtSetCookie`).
+5. Responde `{ok:true}` incluso sin token (no leakea estado).
+
+`cleanupLocal` (ejecuta siempre, incluso ante fallo de red): `ncmStorage.nuke + localStorage.clear + sessionStorage.clear + barrer cookies JS-visibles + unregister SW + caches.delete + reload`.
+
+**String canónico UI**: "Eliminar Punto de este dispositivo" (rebrand de "ENCOM" → "Punto", commit 70dbc22, aplica en `app/index.html` L2490, `app/index.php` L2515 y el alert title de `app.js`).
+
+**Cache de validación**: archivo en `sys_get_temp_dir()/punto_device_status/{deviceId}_{companyId}.dat`. El `companyId` en el nombre del archivo es defense-in-depth (evita que un deviceId de otro tenant colisione). TTL 60s. Si el archivo no existe o expiró → SELECT a BD + regeneración del cache.
+
+**Modo conservador**: si la BD no está disponible al validar, el middleware usa el cache previo si existe, o deja pasar el request (para no paralizar el POS ante un flap de BD). Ante BD caída, la revocación no surte efecto hasta que la BD vuelva.
+
+**Backwards compat**: tokens JWT sin claim `did` (emitidos antes del feat a3fefb4) siguen pasando sin validar `device.status`. No hay breaking change para devices existentes logueados antes del feat.
+
+**Deuda pendiente**:
+- **UI panel del tenant**: pantalla para listar y revocar devices (ver `10-roadmap.md`). Diferida al ciclo de React del panel.
+- **Migration runner**: `11_device.sql` se aplicó manualmente. La deuda del runner automático está en `06-infraestructura.md`.
 
 ---
 

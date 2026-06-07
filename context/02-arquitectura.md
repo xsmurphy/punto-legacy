@@ -73,14 +73,14 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 | `companyId` | Siempre presente | Siempre presente | Ausente |
 | Accede a | POS (app/action.php + /api) | Panel de tenant | Cross-tenant (todas las companies) |
 
-**Modelo "device pairing" de /app vs sesiones de cajero (commit 7e1b26f, 2026-06-06):** el realm POS tiene DOS mecanismos de auth superpuestos que NO se deben confundir:
+**Modelo "device pairing" de /app vs sesiones de cajero (commit 7e1b26f + a3fefb4, 2026-06-06):** el realm POS tiene DOS mecanismos de auth superpuestos que NO se deben confundir:
 
 | Nivel | Quién | Mecanismo | Persistencia |
 |-------|-------|-----------|-------------|
-| **Activación de caja** | Admin | JWT (`_jwt`, `JWT_TTL=10y`) | Permanente mientras el secret no rote. Análogo a Apple TV pareado a una cuenta. |
+| **Activación de caja** | Admin | JWT (`_jwt`, `JWT_TTL=10y`) + claim `did` (deviceId UUID) | Permanente mientras el secret no rote. Análogo a Apple TV pareado a una cuenta. |
 | **Acceso del cajero** | Cajero | PIN de 4 dígitos → `ncmAuth.activeUser` + `lockPad` en JS | Transitorio por turno — el JWT del dispositivo NO se toca. |
 
-El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet". No es una sesión de usuario. Si se acorta el `JWT_TTL` sin reemplazar el mecanismo de emparejamiento por una device-token-table, las cajas apagadas durante el fin de semana quedan inutilizables al lunes hasta re-login de admin.
+El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet". No es una sesión de usuario. El TTL largo (10 años) está justificado porque la revocación per-device ya existe vía la **tabla `device`** (migración 11, commit a3fefb4): el middleware valida `device.status` si el JWT trae claim `did`, con cache de archivo 60s en `sys_get_temp_dir/punto_device_status/{deviceId}_{companyId}.dat`. Para revocar un dispositivo individual: `UPDATE device SET status=0 WHERE deviceId=? AND companyId=?` y opcionalmente llamar `jwtInvalidateDeviceCache()`. Tokens sin `did` (legacy anterior al feat) siguen pasando (backwards compat).
 
 **Regla de aislamiento (no-negociable):** un token de un realm nunca valida en otro. Los tres realms están aislados por secret + cookie + claim `iss`. Para POS y panel, `JWT_SECRET` es COMPARTIDO — el claim `iss` es la barrera que previene la confusión de privilegios (commit 2de4231, 2026-05-31).
 
