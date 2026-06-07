@@ -238,6 +238,235 @@ class CompanyAdminService
         return $out;
     }
 
+    // --- F3.3: delete -------------------------------------------------------
+
+    /**
+     * Suspensión suave: status='cancelled' + blocked=1. Reversible desde update().
+     * No toca datos de negocio — solo impide el acceso al tenant.
+     *
+     * Devuelve ['ok'=>true] o ['ok'=>false,'error'=>'…','code'=>NNN].
+     */
+    public function softDelete(string $id): array
+    {
+        global $db;
+
+        $exists = $db->Execute('SELECT 1 FROM company WHERE companyId = ? LIMIT 1', [$id]);
+        if (!$exists || $exists->EOF) {
+            return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+        }
+
+        $r = $db->Execute(
+            "UPDATE company SET status = 'cancelled', blocked = 1, updatedAt = now() WHERE companyId = ?",
+            [$id]
+        );
+        if ($r === false) {
+            return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
+        }
+        return ['ok' => true];
+    }
+
+    /**
+     * Eliminación permanente en cascada de una empresa y TODOS sus datos.
+     *
+     * IRREVERSIBLE. Ejecuta ~55 statements en una única transacción PG ordenados
+     * por dependencias de FK. En caso de cualquier error, hace ROLLBACK completo.
+     *
+     * Orden de eliminación:
+     *   0. NULL self-referential FKs (transaction.transactionParentId, contact.parentId+userId,
+     *      item.itemParentId, accountCategory.accountCategoryParentId, outlet.taxId←circular)
+     *   1. Tablas que referencian transaction (itemSold, toTransaction, toTaxObj, toAddress,
+     *      toScheduleUID, giftCardSold, satisfaction, vPayments, comission, stock, printServer)
+     *   2. Tablas que referencian contact/item/register (cRecordValue→cRecordField→customerRecord,
+     *      customerAddress, contactNote, campaign, drawer, toContact, production, reminder,
+     *      activityLog, attendance, inventory, inventoryCount)
+     *   3. Join tables polimórficas sin companyId (toTag, toCategory, toPaymentMethod,
+     *      tableTags, toLocation, stockTrigger, toCompound)
+     *   4. Tablas simples con companyId (itemLocation, upsell, itemDeleted, accountCategory, notify,
+     *      files, paymentMethods, priceList, processorId, recurring, expenses, tasks, cpayments)
+     *   5. Tablas core (transaction → item → contact → taxonomy → register → outlet)
+     *   6. Empresa (NULL company.parentId de hijos, DELETE company — device via ON DELETE CASCADE)
+     *
+     * Devuelve ['ok'=>true] o ['ok'=>false,'error'=>'…','code'=>NNN].
+     */
+    public function hardDelete(string $id): array
+    {
+        global $db;
+
+        $exists = $db->Execute('SELECT 1 FROM company WHERE companyId = ? LIMIT 1', [$id]);
+        if (!$exists || $exists->EOF) {
+            return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+        }
+
+        $db->BeginTrans();
+        try {
+            // Lanza RuntimeException en cualquier fallo de BD.
+            $run = function (string $sql, array $binds = []) use ($db): void {
+                $r = $db->Execute($sql, $binds);
+                if ($r === false) {
+                    throw new \RuntimeException('BD: ' . $db->ErrorMsg() . ' — SQL: ' . substr($sql, 0, 120));
+                }
+            };
+
+            // ── Paso 0: romper FKs auto-referenciales ──────────────────────────
+            $run('UPDATE transaction     SET transactionParentId      = NULL WHERE companyId = ?', [$id]);
+            $run('UPDATE contact         SET parentId = NULL, userId  = NULL WHERE companyId = ?', [$id]);
+            $run('UPDATE item            SET itemParentId              = NULL WHERE companyId = ?', [$id]);
+            $run('UPDATE accountCategory SET accountCategoryParentId  = NULL WHERE companyId = ?', [$id]);
+            // outlet.taxId → taxonomy y taxonomy.outletId → outlet forman un ciclo;
+            // nullificar taxId en outlet primero, así podemos borrar taxonomy antes que outlet.
+            $run('UPDATE outlet SET taxId = NULL WHERE companyId = ?', [$id]);
+
+            // ── Paso 1: tablas que referencian transaction ─────────────────────
+            $run(
+                'DELETE FROM itemSold WHERE transactionId IN ' .
+                '(SELECT transactionId FROM transaction WHERE companyId = ?)',
+                [$id]
+            );
+            $run(
+                'DELETE FROM toTransaction ' .
+                'WHERE parentId     IN (SELECT transactionId FROM transaction WHERE companyId = ?) ' .
+                '   OR transactionId IN (SELECT transactionId FROM transaction WHERE companyId = ?)',
+                [$id, $id]
+            );
+            $run('DELETE FROM toTaxObj   WHERE companyId = ?', [$id]);
+            $run(
+                'DELETE FROM toAddress WHERE transactionId IN ' .
+                '(SELECT transactionId FROM transaction WHERE companyId = ?)',
+                [$id]
+            );
+            $run(
+                'DELETE FROM toScheduleUID WHERE transactionUID IN ' .
+                '(SELECT transactionUID FROM transaction WHERE companyId = ? AND transactionUID IS NOT NULL)',
+                [$id]
+            );
+            $run('DELETE FROM giftCardSold WHERE companyId = ?', [$id]);
+            $run('DELETE FROM satisfaction WHERE companyId = ?', [$id]);
+            $run('DELETE FROM vPayments    WHERE companyId = ?', [$id]);
+            $run('DELETE FROM comission    WHERE companyId = ?', [$id]);
+            $run('DELETE FROM stock        WHERE companyId = ?', [$id]);
+            $run('DELETE FROM printServer  WHERE companyId = ?', [$id]);
+
+            // ── Paso 2: tablas que referencian contact / item / register ───────
+            $run(
+                'DELETE FROM cRecordValue WHERE customerId IN ' .
+                '(SELECT contactId FROM contact WHERE companyId = ?)',
+                [$id]
+            );
+            $run(
+                'DELETE FROM cRecordField WHERE customerRecordId IN ' .
+                '(SELECT customerRecordId FROM customerRecord WHERE companyId = ?)',
+                [$id]
+            );
+            $run('DELETE FROM customerRecord  WHERE companyId = ?', [$id]);
+            $run('DELETE FROM customerAddress WHERE companyId = ?', [$id]);
+            $run('DELETE FROM contactNote     WHERE companyId = ?', [$id]);
+            $run('DELETE FROM campaign        WHERE companyId = ?', [$id]);
+            $run('DELETE FROM drawer          WHERE companyId = ?', [$id]);
+            $run(
+                'DELETE FROM toContact ' .
+                'WHERE parentId  IN (SELECT contactId FROM contact WHERE companyId = ?) ' .
+                '   OR contactId IN (SELECT contactId FROM contact WHERE companyId = ?)',
+                [$id, $id]
+            );
+            $run('DELETE FROM production    WHERE companyId = ?', [$id]);
+            $run('DELETE FROM reminder      WHERE companyId = ?', [$id]);
+            $run('DELETE FROM activityLog   WHERE companyId = ?', [$id]);
+            $run('DELETE FROM attendance    WHERE companyId = ?', [$id]);
+            $run('DELETE FROM inventory     WHERE companyId = ?', [$id]);
+            $run('DELETE FROM inventoryCount WHERE companyId = ?', [$id]);
+
+            // ── Paso 3: join tables polimórficas (sin companyId propio) ────────
+            $run(
+                'DELETE FROM toTag WHERE parentId IN (' .
+                '    SELECT transactionId FROM transaction WHERE companyId = ? ' .
+                '    UNION ALL SELECT contactId FROM contact WHERE companyId = ? ' .
+                '    UNION ALL SELECT itemId FROM item WHERE companyId = ?' .
+                ')',
+                [$id, $id, $id]
+            );
+            $run(
+                'DELETE FROM toCategory WHERE parentId IN (' .
+                '    SELECT itemId FROM item WHERE companyId = ? ' .
+                '    UNION ALL SELECT outletId FROM outlet WHERE companyId = ?' .
+                ')',
+                [$id, $id]
+            );
+            $run(
+                'DELETE FROM toPaymentMethod WHERE parentId IN ' .
+                '(SELECT outletId FROM outlet WHERE companyId = ?)',
+                [$id]
+            );
+            $run(
+                'DELETE FROM tableTags WHERE tableId IN (' .
+                '    SELECT outletId FROM outlet WHERE companyId = ? ' .
+                '    UNION ALL SELECT registerId FROM register WHERE companyId = ?' .
+                ')',
+                [$id, $id]
+            );
+            // toLocation: outletId y itemId son nullable; locationId (→taxonomy) NOT NULL siempre presente.
+            // Cubrir los tres para evitar filas huérfanas si alguno es NULL.
+            $run(
+                'DELETE FROM toLocation ' .
+                'WHERE outletId    IN (SELECT outletId    FROM outlet    WHERE companyId = ?) ' .
+                '   OR itemId      IN (SELECT itemId      FROM item      WHERE companyId = ?) ' .
+                '   OR locationId  IN (SELECT taxonomyId  FROM taxonomy  WHERE companyId = ?)',
+                [$id, $id, $id]
+            );
+            $run(
+                'DELETE FROM stockTrigger WHERE outletId IN ' .
+                '(SELECT outletId FROM outlet WHERE companyId = ?)',
+                [$id]
+            );
+            $run(
+                'DELETE FROM toCompound WHERE compoundId IN ' .
+                '(SELECT itemId FROM item WHERE companyId = ?)',
+                [$id]
+            );
+
+            // ── Paso 4: tablas simples con companyId ───────────────────────────
+            // itemLocation: itemId tiene ON DELETE CASCADE (se borra con item en paso 5),
+            // pero outletId NO tiene cascade. Borrar explícitamente antes del core delete
+            // para que DELETE FROM outlet no choque con FK de outletId.
+            $run('DELETE FROM itemLocation    WHERE companyId = ?', [$id]);
+            $run('DELETE FROM upsell          WHERE companyId = ?', [$id]);
+            $run('DELETE FROM itemDeleted     WHERE companyId = ?', [$id]);
+            $run('DELETE FROM accountCategory WHERE companyId = ?', [$id]);
+            $run('DELETE FROM notify          WHERE companyId = ?', [$id]);
+            $run('DELETE FROM files           WHERE companyId = ?', [$id]);
+            $run('DELETE FROM paymentMethods  WHERE companyId = ?', [$id]);
+            $run('DELETE FROM priceList       WHERE companyId = ?', [$id]);
+            $run('DELETE FROM processorId     WHERE companyId = ?', [$id]);
+            $run('DELETE FROM recurring       WHERE companyId = ?', [$id]);
+            $run('DELETE FROM expenses        WHERE companyId = ?', [$id]);
+            $run('DELETE FROM tasks           WHERE companyId = ?', [$id]);
+            $run('DELETE FROM cpayments       WHERE companyId = ?', [$id]);
+
+            // ── Paso 5: tablas core (order = FK dependency graph) ──────────────
+            // transaction antes que item/contact/register/outlet
+            $run('DELETE FROM transaction WHERE companyId = ?', [$id]);
+            // item antes que contact (item.supplierId → contact nullable)
+            $run('DELETE FROM item        WHERE companyId = ?', [$id]);
+            // contact antes que taxonomy (contact.categoryId → taxonomy nullable)
+            $run('DELETE FROM contact     WHERE companyId = ?', [$id]);
+            // taxonomy antes que outlet (taxonomy.outletId → outlet; taxId ya NULLed en paso 0)
+            $run('DELETE FROM taxonomy    WHERE companyId = ?', [$id]);
+            // register antes que outlet (register.outletId NOT NULL)
+            $run('DELETE FROM register    WHERE companyId = ?', [$id]);
+            $run('DELETE FROM outlet      WHERE companyId = ?', [$id]);
+
+            // ── Paso 6: empresa (device via ON DELETE CASCADE) ─────────────────
+            $run('UPDATE company SET parentId = NULL WHERE parentId = ?', [$id]);
+            $run('DELETE FROM company WHERE companyId = ?', [$id]);
+
+            $db->CommitTrans();
+            return ['ok' => true];
+
+        } catch (\Throwable $e) {
+            $db->RollbackTrans();
+            return ['ok' => false, 'error' => 'Error en cascada: ' . $e->getMessage(), 'code' => 500];
+        }
+    }
+
     // --- F3.2: update -------------------------------------------------------
 
     /**

@@ -77,4 +77,49 @@ if ($method === 'PATCH') {
     bffJson(['ok' => false, 'error' => $json['error'] ?? 'error'], $passthrough);
 }
 
+if ($method === 'DELETE') {
+    $id = trim((string) ($_GET['id'] ?? ''));
+    if ($id === '') {
+        bffJson(['ok' => false, 'error' => 'falta id'], 400);
+    }
+
+    $type = trim((string) ($_GET['type'] ?? 'soft'));
+    $body = (in_array($type, ['soft', 'hard'], true) && $type === 'hard')
+        ? (string) file_get_contents('php://input')
+        : '{}';
+    $jwt  = $_COOKIE['_jwt_admin'] ?? '';
+
+    $url = bffApiBase() . '/v1/admin/companies.php?id=' . urlencode($id) . '&type=' . urlencode($type);
+    $ch  = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 60,   // hard delete puede tardar en empresas grandes
+        CURLOPT_CUSTOMREQUEST  => 'DELETE',
+        CURLOPT_POSTFIELDS     => $body,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Cookie: _jwt_admin=' . rawurlencode($jwt),
+        ],
+    ]);
+    $resp   = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlEr = curl_error($ch);
+    curl_close($ch);
+
+    if ($resp === false || $curlEr) {
+        bffJson(['ok' => false, 'error' => 'transport error'], 502);
+    }
+    $json = json_decode($resp, true);
+    if (!is_array($json)) {
+        bffJson(['ok' => false, 'error' => 'respuesta no-JSON de la API'], 502);
+    }
+    if (!empty($json['ok'])) {
+        bffJson(['ok' => true, 'deleted' => $json['deleted'] ?? $type]);
+    }
+    $passthrough = ($status === 401 || $status === 403) ? $status
+        : (($status >= 400 && $status < 500) ? $status : 502);
+    bffJson(['ok' => false, 'error' => $json['error'] ?? 'error'], $passthrough);
+}
+
 bffJson(['ok' => false, 'error' => 'método no permitido'], 405);

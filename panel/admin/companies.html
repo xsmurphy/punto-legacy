@@ -197,6 +197,48 @@
         }
         .btn-link:hover { background: rgba(59,130,246,.1); }
         .drawer-toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+
+        /* Zona de peligro (F3.3) */
+        .danger-zone { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+        .danger-item {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 10px 12px;
+            background: rgba(239, 68, 68, .05);
+            border: 1px solid rgba(239, 68, 68, .2);
+            border-radius: 8px;
+        }
+        .danger-info { display: flex; flex-direction: column; gap: 2px; }
+        .danger-info strong { font-size: 13px; color: var(--text); }
+        .danger-info span   { font-size: 12px; color: var(--muted); }
+        .btn-warn {
+            padding: 7px 14px; border-radius: 6px;
+            background: transparent;
+            border: 1px solid var(--warn); color: var(--warn);
+            font-size: 13px; cursor: pointer; white-space: nowrap;
+        }
+        .btn-warn:hover { background: rgba(245, 158, 11, .1); }
+        .btn-danger {
+            padding: 7px 14px; border-radius: 6px;
+            background: transparent;
+            border: 1px solid var(--danger); color: var(--danger);
+            font-size: 13px; cursor: pointer; white-space: nowrap;
+        }
+        .btn-danger:hover { background: rgba(239, 68, 68, .1); }
+        .btn-danger-primary {
+            flex: 1; padding: 9px 16px;
+            background: var(--danger); color: #fff;
+            border: none; border-radius: 6px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        .btn-danger-primary:disabled { opacity: .4; cursor: not-allowed; }
+        .danger-notice {
+            background: rgba(239, 68, 68, .08);
+            border: 1px solid rgba(239, 68, 68, .3);
+            border-radius: 8px; padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+        .danger-notice strong { color: var(--danger); font-size: 14px; display: block; margin-bottom: 6px; }
+        .danger-notice p { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0; }
     </style>
 </head>
 

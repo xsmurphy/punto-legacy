@@ -1,10 +1,12 @@
 /**
- * companies.js — front estático del CRUD de empresas (realm /admin, F3.1).
+ * companies.js — front estático del CRUD de empresas (realm /admin, F3.1-F3.3).
  *
- * Habla solo con /bff/admin/companies.php. Lectura por ahora (list + drawer detalle).
- * Write ops (update/delete) vienen en F3.2/F3.3.
+ * Habla solo con /bff/admin/companies.php.
+ * F3.1: list + drawer detalle.
+ * F3.2: PATCH — edición de campos de la empresa.
+ * F3.3: DELETE — suspensión suave (soft) y eliminación permanente (hard).
  *
- * Patrón heredado de users.js: esc() everywhere, redirect 401 → /admin/login.
+ * Patrón heredado de users.js: esc() everywhere, redirect 401/403 → /admin/login.
  */
 (function () {
     'use strict';
@@ -266,6 +268,80 @@
         });
     }
 
+    /* ── Delete (F3.3) ─────────────────────────────────────────────────── */
+
+    function renderDeleteConfirm(c) {
+        var name = (c.settingName || c.name || '').trim();
+        drawerTitleEl.textContent = 'Eliminar empresa';
+
+        drawerBodyEl.innerHTML =
+            '<div class="danger-notice">' +
+                '<strong>⚠ Acción irreversible</strong>' +
+                '<p>Se eliminarán permanentemente todos los datos de esta empresa: ' +
+                'transacciones, contactos, ítems, inventario, sucursales, usuarios y configuración. ' +
+                'No es posible recuperar los datos.</p>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label>Escribe <strong>' + esc(name) + '</strong> para confirmar</label>' +
+                '<input id="deleteConfirmInput" type="text" autocomplete="off" ' +
+                    'placeholder="' + esc(name) + '" style="margin-top:6px">' +
+            '</div>' +
+            '<div class="form-actions" style="margin-top:14px">' +
+                '<button class="btn-danger-primary" id="confirmDeleteBtn" disabled>Eliminar permanentemente</button>' +
+                '<button class="btn-secondary" id="cancelDeleteBtn">Cancelar</button>' +
+            '</div>';
+
+        var input      = document.getElementById('deleteConfirmInput');
+        var confirmBtn = document.getElementById('confirmDeleteBtn');
+
+        input.addEventListener('input', function () {
+            confirmBtn.disabled = (input.value !== name);
+        });
+        confirmBtn.addEventListener('click', function () {
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Eliminando…';
+            doDeleteCompany(c.id, 'hard', name);
+        });
+        document.getElementById('cancelDeleteBtn').addEventListener('click', function () {
+            renderDetail(currentCompany);
+        });
+    }
+
+    function doDeleteCompany(id, type, confirmName) {
+        var url = '/bff/admin/companies.php?id=' + encodeURIComponent(id) +
+                  '&type=' + encodeURIComponent(type);
+        var body = (type === 'hard')
+            ? JSON.stringify({ confirm: confirmName })
+            : '{}';
+
+        fetch(url, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: body,
+        }).then(function (r) {
+            if (r.status === 401 || r.status === 403) { redirectToLogin(); return Promise.reject('auth'); }
+            return r.json();
+        }).then(function (j) {
+            if (!j.ok) {
+                toast('Error: ' + esc(j.error || 'no se pudo completar'));
+                // Para soft: volver al detalle; para hard: volver al form de confirmación (ya está ahí)
+                if (type === 'soft') { openDrawer(id); }
+                return;
+            }
+            if (type === 'hard') {
+                toast('Empresa eliminada permanentemente');
+                closeDrawer();
+            } else {
+                toast('Empresa suspendida');
+                openDrawer(id);   // recarga detalle con nuevo status
+            }
+            load(lastQuery);
+        }).catch(function () {
+            toast('Error de red al intentar eliminar');
+        });
+    }
+
     /* ── Detail mode ───────────────────────────────────────────────────── */
 
     function renderDetail(c) {
@@ -344,10 +420,40 @@
 
             (eposEntries
                 ? '<div class="section-title">ePOS (eposData)</div><dl class="kv">' + eposEntries + '</dl>'
-                : '');
+                : '') +
+
+            '<div class="section-title">Zona de peligro</div>' +
+            '<div class="danger-zone">' +
+                '<div class="danger-item">' +
+                    '<div class="danger-info">' +
+                        '<strong>Suspender empresa</strong>' +
+                        '<span>Cambia estado a "cancelled" y bloquea el acceso. Reversible desde Editar.</span>' +
+                    '</div>' +
+                    '<button class="btn-warn" id="suspendBtn">Suspender</button>' +
+                '</div>' +
+                '<div class="danger-item">' +
+                    '<div class="danger-info">' +
+                        '<strong>Eliminar permanentemente</strong>' +
+                        '<span>Borra todos los datos de la empresa. Irreversible.</span>' +
+                    '</div>' +
+                    '<button class="btn-danger" id="hardDeleteBtn">Eliminar</button>' +
+                '</div>' +
+            '</div>';
 
         document.getElementById('editBtn').addEventListener('click', function () {
             renderEdit(currentCompany);
+        });
+
+        document.getElementById('suspendBtn').addEventListener('click', function () {
+            var name = (c.settingName || c.name || c.id).trim();
+            if (!confirm('¿Suspender "' + name + '"?\n\nEsto cambia el estado a "cancelled" y bloquea el acceso.\nSe puede revertir desde Editar.')) {
+                return;
+            }
+            doDeleteCompany(c.id, 'soft', null);
+        });
+
+        document.getElementById('hardDeleteBtn').addEventListener('click', function () {
+            renderDeleteConfirm(c);
         });
     }
 

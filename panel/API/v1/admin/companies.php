@@ -59,4 +59,40 @@ if ($method === 'PATCH') {
     apiOk(['updated' => true]);
 }
 
+if ($method === 'DELETE') {
+    $id = trim((string) ($_GET['id'] ?? ''));
+    if ($id === '') {
+        apiError('Falta id', 400);
+    }
+
+    $type = trim((string) ($_GET['type'] ?? 'soft'));
+
+    if ($type === 'hard') {
+        // Verificar que el cliente mandó confirm = nombre exacto de la empresa.
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input) || !isset($input['confirm']) || trim((string) $input['confirm']) === '') {
+            apiError('Se requiere {"confirm":"<nombre>"} para eliminar permanentemente', 400);
+        }
+
+        $company = $svc->get($id);
+        if (!$company) {
+            apiNotFound('Empresa no encontrada');
+        }
+        $expectedName = trim((string) ($company['settingName'] ?: $company['name']));
+        if (trim((string) $input['confirm']) !== $expectedName) {
+            apiError('El nombre no coincide — confirmación incorrecta', 422);
+        }
+
+        $result = $svc->hardDelete($id);
+    } else {
+        $result = $svc->softDelete($id);
+    }
+
+    if (!$result['ok']) {
+        apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+    }
+    apiOk(['deleted' => $type]);
+}
+
 apiError('Método no permitido', 405);
