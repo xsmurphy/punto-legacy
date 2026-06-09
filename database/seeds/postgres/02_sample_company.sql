@@ -77,7 +77,7 @@ INSERT INTO contact (
 ) VALUES (
     'cb9afd35-a374-4080-873c-6d141070b92e',
     'Demo Admin',
-    '+5950991234567',
+    '+595991234567',
     'demo@local.test',
     'd1e425ce2c0b4f5f4bbead2ab72bba98e5764600864c3cfb54f69491c1625bfa',
     '18d31afc38712036',

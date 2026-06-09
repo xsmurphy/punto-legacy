@@ -340,13 +340,18 @@ $tips = [
 									enabledText : 'Ingresar'
 								});
 
+			// Normaliza un nro local a E.164: solo dígitos, strip leading zero (trunk),
+			// prepende código de país. Aceptamos tanto "0991234567" como "991234567".
+			function toE164(local, code) {
+				var digits = String(local || '').replace(/\D/g, '').replace(/^0+/, '');
+				return (code || '+595') + digits;
+			}
+
 			$(document).on('submit','#loginForm',function(e) {
 
 				// Tenant login: SOLO por número de celular (E.164).
-				// El input pide solo dígitos locales; siempre prepende el código de país.
-				var localNum    = $('#loginForm .loginEmail').val().replace(/\D/g, '');
 				var pCode       = $('#loginForm .selectedPhoneCode').text() || '+595';
-				var phone       = pCode + localNum;
+				var phone       = toE164($('#loginForm .loginEmail').val(), pCode);
 				var pass        = $('#password').val();
 				var loginUrl    = $(this).attr('action');
 
@@ -397,9 +402,8 @@ $tips = [
 												'load' 			: true
 											});
 
-				var localNum    = $('#recoverForm .recoveryEmail').val().replace(/\D/g, '');
 				var pCode       = $('#recoverForm .selectedPhoneCode').text() || '+595';
-				var phone       = pCode + localNum;
+				var phone       = toE164($('#recoverForm .recoveryEmail').val(), pCode);
 
 				helpers.btnIndicator({
 										btn 			: $('#btn-recover'),
