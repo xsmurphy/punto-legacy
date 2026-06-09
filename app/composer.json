@@ -10,7 +10,8 @@
         "filp/whoops": "^2.15",
         "twilio/sdk": "^8.0",
         "phpmailer/phpmailer": "^6.9",
-        "hashids/hashids": "^4.1"
+        "hashids/hashids": "^4.1",
+        "giggsey/libphonenumber-for-php": "^8.13"
     },
     "autoload": {
         "psr-4": {

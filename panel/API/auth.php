@@ -27,10 +27,11 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
     $input = json_decode($body, true) ?: $_POST;
 
     // Accept 'phone' (canónico) o 'email' (legacy back-compat para clients viejos)
-    $phone = strtolower(trim($input['phone'] ?? $input['email'] ?? ''));
-    $pass  = $input['password'] ?? '';
+    $rawPhone = trim($input['phone'] ?? $input['email'] ?? '');
+    $iso      = strtoupper(trim($input['iso'] ?? 'PY'));
+    $pass     = $input['password'] ?? '';
 
-    if (!$phone || !$pass) {
+    if (!$rawPhone || !$pass) {
         apiError('Debe completar todos los campos', 422);
     }
 
@@ -43,7 +44,13 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
         apiError('JWT no configurado en el servidor', 501);
     }
 
-    $result = findPhoneLogin(db_prepare($phone));
+    // Normalizar a E.164 con libphonenumber antes de buscar
+    $phoneE164 = phoneToE164($rawPhone, $iso);
+    if ($phoneE164 === null) {
+        apiUnauthorized('Teléfono o contraseña incorrectos');
+    }
+
+    $result = findPhoneLogin(db_prepare($phoneE164));
 
     if (!$result) {
         apiUnauthorized('Teléfono o contraseña incorrectos');

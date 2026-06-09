@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/phone.php';
+
 // enc()/dec() son identity functions post-Phase UUID. Se definen aquí con guard
 // porque varios bootstrap (api_middleware, api_head, cronHead, config, etc.)
 // también las definen — el primero que cargue gana. Garantía: cualquier código

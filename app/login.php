@@ -9,15 +9,22 @@ $get    = $_GET;
 $post   = $_POST;
 
 // Tenants login SOLO por teléfono. Accept 'phone' (nuevo) o 'email' (legacy/back-compat).
-$phone  = strtolower($post['phone'] ?? $post['email'] ?? '');
-$pass   = $post['password'];
+$rawPhone = $post['phone'] ?? $post['email'] ?? '';
+$iso      = strtoupper($post['iso'] ?? 'PY');
+$pass     = $post['password'];
 
-if($phone && $pass){
+if($rawPhone && $pass){
 
   $rateLimiterId = $_SERVER['REMOTE_ADDR'];
   include_once('head.php');
 
-  $phone  = db_prepare($phone);
+  // Normalizar a E.164 con libphonenumber antes de buscar.
+  $phoneE164 = phoneToE164($rawPhone, $iso);
+  if ($phoneE164 === null) {
+    jsonDieMsg("Teléfono o contraseña incorrectos");
+  }
+
+  $phone  = db_prepare($phoneE164);
   $pass   = db_prepare($pass);
   $result = findPhoneLogin($phone);
   

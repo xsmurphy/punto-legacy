@@ -40,15 +40,23 @@ if (empty($_POST) && !empty($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTEN
 }
 
 // Accept 'phone' (canónico) o 'email' (legacy back-compat para clients viejos)
-$phone = strtolower(trim(db_prepare($_POST['phone'] ?? $_POST['email'] ?? '')));
-$pass  = db_prepare($_POST['password'] ?? '');
+$rawPhone = trim($_POST['phone'] ?? $_POST['email'] ?? '');
+$iso      = strtoupper(trim($_POST['iso'] ?? 'PY'));
+$pass     = db_prepare($_POST['password'] ?? '');
 
-if (!$phone || !$pass) {
+if (!$rawPhone || !$pass) {
     http_response_code(422);
     die(json_encode(['error' => 'Teléfono y contraseña requeridos']));
 }
 
-$result = findPhoneLogin($phone);
+// Normalizar a E.164 con libphonenumber antes de buscar
+$phoneE164 = phoneToE164($rawPhone, $iso);
+if ($phoneE164 === null) {
+    http_response_code(401);
+    die(json_encode(['error' => 'Credenciales inválidas']));
+}
+
+$result = findPhoneLogin(db_prepare($phoneE164));
 
 // contactPassword es CHAR(68) padded con espacios → rtrim antes de comparar.
 // Mismo patrón que panel/API/auth.php tras el refactor JWT.

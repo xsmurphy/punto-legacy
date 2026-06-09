@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/phone.php';
 
 use Mailgun\Mailgun as MailgunClient;
 use PHPMailer\PHPMailer\PHPMailer;

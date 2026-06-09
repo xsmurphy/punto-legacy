@@ -1448,3 +1448,39 @@ bg `#f7f7f7`, superficies dark `#232c32`/`#3b464d`/`#5a6a7a`, fuente Source Sans
 `brand-manual` lo dispara). (2) Clonar el markup del componente legacy si existe. (3) Usar las
 clases BS3/app.css del manual; si falta un patrón, **documentarlo en el manual**, no inline.
 (4) Frontend nuevo = Bootstrap 3 + jQuery (§11).
+
+---
+
+## §31 — Números de teléfono: SIEMPRE E.164 storage, libphonenumber para conversión (establecido 2026-06-09)
+
+**Regla absoluta** (system-wide):
+
+1. **Storage en DB y queries**: SIEMPRE formato E.164 internacional con `+` y código de país.
+   Ej: `+595991234567`, `+5511987654321`. Nunca `0991234567`, nunca `991234567`, nunca sin `+`.
+2. **Display al usuario**: SIEMPRE formato nacional vía `phoneFormatNational()`. Ej: `0991 234567`.
+3. **Validación / parsing**: SIEMPRE vía libphonenumber. Backend usa `phoneToE164($input, $iso)`
+   en `panel/includes/phone.php` y `app/includes/phone.php` (giggsey/libphonenumber-for-php).
+   Frontend usa `window.libphonenumber.parsePhoneNumberFromString(input, iso)` del bundle
+   `assets/vendor/js/libphonenumber-1.6.8.min.js`.
+4. **PROHIBIDO**: concatenar `+`, `0` o código de país a mano (`'+595' + phone`, etc.) en
+   cualquier parte del código. Esto rompe en países con trunk prefix distinto y produce
+   falsos negativos en queries (`+5950991234567` ≠ `+595991234567`).
+5. **El ISO del país viaja con el phone** en el payload: `{phone: '+595991234567', iso: 'PY'}`.
+   El backend re-valida E.164 con `phoneToE164()` aunque el cliente ya lo haya parseado.
+
+**Helpers PHP** (`panel/includes/phone.php`, `app/includes/phone.php`):
+- `phoneToE164(string $input, string $defaultIso = 'PY'): ?string` — normaliza cualquier
+  formato a E.164. Devuelve `null` si no es número válido (rechaza emails, strings cortos, etc).
+- `phoneFormatNational(string $e164): ?string` — para display al usuario.
+- `phoneIsMobile(string $input, string $defaultIso = 'PY'): bool` — valida que sea celular
+  (MOBILE o FIXED_LINE_OR_MOBILE), no fijo. Usar para signup donde se manda SMS.
+
+**Schema invariante**: índice UNIQUE parcial `idx_contact_phone_tenant_unique` sobre
+`contactPhone` para tenants (role IN (0,1,2,7) AND type=0). Garantiza que un número no
+pueda repetirse entre tenants → resuelve no-determinismo en `findPhoneLogin()`.
+Ver `database/migrations/postgres/12_contact_phone_unique.sql`.
+
+**Por qué la regla es estricta**: incidente 2026-06-09 — el Demo Admin se cargó con
+`+5950991234567` (formato nacional pegado al `+595`) y el login no funcionaba porque
+el usuario escribía `991234567` → `+595991234567` (E.164 correcto) ≠ `+5950991234567` (BD).
+Cualquier concat manual está fuera de la convención.

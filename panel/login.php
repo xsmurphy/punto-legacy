@@ -71,7 +71,13 @@ if(validateHttp('token')){
 
 if(validateHttp('recovery')){
 	// Recovery solo por teléfono → SMS. Email del contact es opcional y no se usa.
-	$result = findPhoneLogin( validateHttp('phone','post') );
+	// Normalizamos a E.164 con libphonenumber antes de buscar (defensa: aunque el JS
+	// ya manda E.164, validamos server-side para bloquear payloads malformados).
+	$phoneE164 = phoneToE164( validateHttp('phone','post'), validateHttp('iso','post') ?: 'PY' );
+	if ($phoneE164 === null) {
+		dai('Número de teléfono inválido');
+	}
+	$result = findPhoneLogin($phoneE164);
 
 	if($result){
 		$newPass 			= random_password();
@@ -110,10 +116,15 @@ if(validateHttp('recovery')){
 // This if statement checks to determine whether the login form has been submitted
 // If it has, then the login code is run, otherwise the form is displayed
 if(validateHttp('login')){
-	$phone 	= validateHttp('phone','post');
-	$pass 	= validateHttp('password','post');
+	// Normalizar a E.164 con libphonenumber. Storage en BD es siempre E.164.
+	$phoneE164 = phoneToE164( validateHttp('phone','post'), validateHttp('iso','post') ?: 'PY' );
+	$pass 	   = validateHttp('password','post');
 
-	$result = findPhoneLogin($phone);
+	if ($phoneE164 === null) {
+		dai('Número de teléfono inválido');
+	}
+
+	$result = findPhoneLogin($phoneE164);
 	
 	// This variable tells us whether the user has successfully logged in or not.
 	// We initialize it to false, assuming they have not.
@@ -340,20 +351,31 @@ $tips = [
 									enabledText : 'Ingresar'
 								});
 
-			// Normaliza un nro local a E.164: solo dígitos, strip leading zero (trunk),
-			// prepende código de país. Aceptamos tanto "0991234567" como "991234567".
-			function toE164(local, code) {
-				var digits = String(local || '').replace(/\D/g, '').replace(/^0+/, '');
-				return (code || '+595') + digits;
+			// Normaliza un input local a E.164 vía libphonenumber-js. Acepta cualquier
+			// formato razonable ("0991234567", "991 123 4567", "+595991234567") y devuelve
+			// "+595991234567" si es un número telefónico válido para el país; null si no.
+			// NUNCA concatenar "+" o "0" a mano — libphonenumber maneja edge cases (área,
+			// trunk prefix por país, longitud, validación).
+			function toE164(input, iso) {
+				if (!window.libphonenumber || !window.libphonenumber.parsePhoneNumberFromString) {
+					return null;
+				}
+				var parsed = window.libphonenumber.parsePhoneNumberFromString(String(input || ''), iso || 'PY');
+				if (!parsed || !parsed.isValid()) return null;
+				return parsed.number; // E.164 con "+"
 			}
 
 			$(document).on('submit','#loginForm',function(e) {
 
-				// Tenant login: SOLO por número de celular (E.164).
-				var pCode       = $('#loginForm .selectedPhoneCode').text() || '+595';
-				var phone       = toE164($('#loginForm .loginEmail').val(), pCode);
+				var iso         = $('#loginForm .selectedPhoneCode').data('country') || 'PY';
+				var phone       = toE164($('#loginForm .loginEmail').val(), iso);
 				var pass        = $('#password').val();
 				var loginUrl    = $(this).attr('action');
+
+				if (!phone) {
+					ncmDialogs.alert('Número de teléfono inválido', 'danger');
+					return false;
+				}
 
 				helpers.btnIndicator({
 										btn 			: $('#btn-login'),
@@ -363,7 +385,7 @@ $tips = [
 
 				helpers.load({
 								url 	: loginUrl,
-								data 	: {'phone' : phone, 'password' : pass},
+								data 	: {'phone' : phone, 'iso' : iso, 'password' : pass},
 								success : function(response) {
 											if(response == 'true'){
 												helpers.btnIndicator({
@@ -402,8 +424,13 @@ $tips = [
 												'load' 			: true
 											});
 
-				var pCode       = $('#recoverForm .selectedPhoneCode').text() || '+595';
-				var phone       = toE164($('#recoverForm .recoveryEmail').val(), pCode);
+				var iso         = $('#recoverForm .selectedPhoneCode').data('country') || 'PY';
+				var phone       = toE164($('#recoverForm .recoveryEmail').val(), iso);
+
+				if (!phone) {
+					ncmDialogs.alert('Número de teléfono inválido', 'danger');
+					return false;
+				}
 
 				helpers.btnIndicator({
 										btn 			: $('#btn-recover'),
@@ -413,7 +440,7 @@ $tips = [
 
 				helpers.load({
 								url 	: tis.attr('action'),
-								data 	: {'phone' : phone},
+								data 	: {'phone' : phone, 'iso' : iso},
 								success : function(response) {
 											if(response == 'true'){
 												$('#loginBlock, #recover').toggle();
