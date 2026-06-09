@@ -427,13 +427,23 @@
 	// Init exactamente 1× por instancia. mountUI() corre el setup que requiere DOM.
 	function setupDashboard(root) {
 		if (!root || !window.Alpine || root._puntoInited) return false;
+		if (typeof window.dashboard !== 'function') {
+			// El componente debió cargarse vía script tag — defensa para race rara.
+			console.warn('[dashboard] window.dashboard no está listo, skipping init');
+			return false;
+		}
 		root._puntoInited = true;
 		var fresh = root.cloneNode(true);
 		fresh.removeAttribute('x-ignore');
 		fresh.setAttribute('x-data', 'dashboard()');
-		Alpine.initTree(fresh);
-		root.parentNode.replaceChild(fresh, root);
-		Alpine.$data(fresh).mountUI();
+		try {
+			Alpine.initTree(fresh);
+			root.parentNode.replaceChild(fresh, root);
+			var data = Alpine.$data(fresh);
+			if (data && typeof data.mountUI === 'function') data.mountUI();
+		} catch (err) {
+			console.error('[dashboard] init failed', err);
+		}
 		return true;
 	}
 
