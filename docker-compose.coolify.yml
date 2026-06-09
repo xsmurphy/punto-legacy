@@ -27,9 +27,6 @@ services:
       dockerfile: panel/Dockerfile
     restart: unless-stopped
     env_file: .env
-    environment:
-      APP_ENV: production
-      PHP_CLI_SERVER_WORKERS: "8"
     expose:
       - "80"
     depends_on:
@@ -69,9 +66,6 @@ services:
       dockerfile: app/Dockerfile
     restart: unless-stopped
     env_file: .env
-    environment:
-      APP_ENV: production
-      PHP_CLI_SERVER_WORKERS: "8"
     expose:
       - "80"
     depends_on:
@@ -95,9 +89,6 @@ services:
       dockerfile: api/Dockerfile
     restart: unless-stopped
     env_file: .env
-    environment:
-      APP_ENV: production
-      PHP_CLI_SERVER_WORKERS: "8"
     expose:
       - "80"
     depends_on:
