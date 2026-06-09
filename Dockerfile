@@ -46,38 +46,23 @@ RUN bash build.sh app
 # ─── Stage 2: runtime PHP ────────────────────────────────────────────────────
 FROM php:8.4-cli-alpine AS runtime
 
+# install-php-extensions de mlocati: instala extensiones pre-compiladas cuando
+# puede, compila si no. Mucho más rápido y confiable que docker-php-ext-install
+# manual + apk build-deps (que tarda 5+ min compilando gd/intl desde source).
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+
 RUN set -eux; \
-    apk add --no-cache --virtual .build-deps \
-        $PHPIZE_DEPS \
-        postgresql-dev \
-        libpng-dev \
-        libjpeg-turbo-dev \
-        freetype-dev \
-        icu-dev \
-        libzip-dev \
-        oniguruma-dev \
-        linux-headers; \
-    apk add --no-cache \
-        postgresql-libs \
-        libpng \
-        libjpeg-turbo \
-        freetype \
-        icu-libs \
-        libzip \
-        bash \
-        curl \
-        tini; \
-    docker-php-ext-configure gd --with-freetype --with-jpeg; \
-    docker-php-ext-install -j1 \
+    chmod +x /usr/local/bin/install-php-extensions; \
+    apk add --no-cache bash curl tini; \
+    install-php-extensions \
         pdo \
         pdo_pgsql \
         gd \
         intl \
         zip \
         opcache \
-        bcmath; \
-    pecl install redis && docker-php-ext-enable redis; \
-    apk del --no-network .build-deps
+        bcmath \
+        redis
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
