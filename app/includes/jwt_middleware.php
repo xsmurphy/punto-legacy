@@ -197,12 +197,18 @@ function jwtSetCookie(string $token, int $ttl): void
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
 
+    // TTL=0 → JWT eterno (sin claim `exp`). Para que el cookie tampoco se borre
+    // antes de tiempo, usamos 400 días que es el máximo que Chrome respeta desde
+    // 2022 (RFC 6265bis). Al expirar el cookie, el user se re-loguea, pero el
+    // token podría ser refrescado server-side antes de eso si se implementa.
+    $cookieMaxAge = ($ttl > 0) ? $ttl : (400 * 86400);
+
     // SameSite=Lax (no Strict): Strict bloquea la cookie en navegaciones top-level
     // cross-origin (ej. user llega de un email/redirect post-login) y ha causado
     // bugs raros con XHR en algunos browsers. Lax es seguro para flujos normales
     // y es el default de Chrome moderno.
     setcookie('_jwt', $token, [
-        'expires'  => time() + $ttl,
+        'expires'  => time() + $cookieMaxAge,
         'path'     => '/',
         'httponly' => true,
         'samesite' => 'Lax',

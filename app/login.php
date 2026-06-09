@@ -70,11 +70,15 @@ if($rawPhone && $pass){
       require_once __DIR__ . '/includes/device.php';
       $deviceId = deviceRegister($companyId, $userId, $outletId, $registerId);
 
-      // Emitir JWT y establecer cookie HttpOnly
+      // Emitir JWT y establecer cookie HttpOnly.
+      // El JWT del POS sigue el modelo "device pairing" (§28): un dispositivo se
+      // empareja UNA vez y queda autenticado para siempre — los cajeros entran y
+      // salen con PIN, no con re-login. Por eso TTL=0 (sin `exp` claim) es válido
+      // y deseado. Revocación masiva: rotar JWT_SECRET; por-device: tabla device.
       $jwtSecret = $_ENV['JWT_SECRET'] ?? '';
       $jwtToken  = '';
       if ($jwtSecret) {
-          $ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
+          $ttl = (int)($_ENV['JWT_TTL'] ?? 0); // 0 = eterno (sin exp claim)
           $now = time();
           $jwtPayload = [
               'iss'  => 'pos-app', // realm: separa tokens POS de panel/admin
@@ -84,8 +88,10 @@ if($rawPhone && $pass){
               'rid'  => $registerId,
               'role' => (int)$result['role'],
               'iat'  => $now,
-              'exp'  => $now + $ttl,
           ];
+          if ($ttl > 0) {
+              $jwtPayload['exp'] = $now + $ttl;
+          }
           if ($deviceId) {
               $jwtPayload['did'] = $deviceId;
           }
