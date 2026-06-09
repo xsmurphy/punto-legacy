@@ -85,10 +85,15 @@ if(validateHttp('recovery')){
 
 		if($update !== false){
 
-			if( validity($result['contactPhone']) ){
-				$companyData = ncmExecute('SELECT settingCountry FROM company WHERE companyId = ? LIMIT 1', [$result['companyId']]);
-				$sent = sendSMS($result['contactPhone'], '[' . APP_NAME . '] Su nueva contraseña es ' . $newPass, $companyData['settingCountry'], 100, 16);
+			if( !validity($result['contactPhone']) ){
+				// User legacy sin contactPhone — no podemos enviar SMS.
+				// Devolver error explícito en vez de "true" silencioso.
+				error_log("[recovery] contact " . $result['contactId'] . " sin contactPhone, no se pudo enviar SMS");
+				dai('No podemos recuperar esta cuenta automáticamente. Contáctenos a soporte.');
 			}
+
+			$companyData = ncmExecute('SELECT settingCountry FROM company WHERE companyId = ? LIMIT 1', [$result['companyId']]);
+			$sent = sendSMS($result['contactPhone'], '[' . APP_NAME . '] Su nueva contraseña es ' . $newPass, $companyData['settingCountry'], 100, 16);
 
 			echo 'true';
 			
@@ -258,7 +263,7 @@ $tips = [
 			                      </ul>
 			                    </div>
 			                    <div class="col-xs-9 no-padder emailWrap">
-			                      <input  name="recoverPhone" type="tel" inputmode="numeric" pattern="[0-9]*" class="form-control input-lg no-border no-bg b-b recoveryEmail" placeholder="Nro de celular" required>
+			                      <input  name="phone" type="tel" inputmode="numeric" pattern="[0-9]*" class="form-control input-lg no-border no-bg b-b recoveryEmail" placeholder="Nro de celular" required>
 			                    </div>
 			                    
 			                </div>
