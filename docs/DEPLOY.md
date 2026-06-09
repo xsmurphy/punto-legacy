@@ -1,18 +1,20 @@
 # Deploy a Coolify
 
-Guía para levantar Punto en un servidor Coolify (staging / beta). El target son
-los 4 subdominios:
+Guía para levantar Punto en un servidor Coolify (staging / beta).
 
-| Subdomain          | Servicio | Build                |
-| ------------------ | -------- | -------------------- |
-| `panel.punto.la`   | panel    | `panel/Dockerfile`   |
-| `admin.punto.la`   | panel*   | `panel/Dockerfile`   |
-| `app.punto.la`     | app      | `app/Dockerfile`     |
-| `api.punto.la`     | api      | `api/Dockerfile`     |
-| `ws.punto.la`      | ws       | `ws-server/Dockerfile` |
+**Arquitectura del deploy**: **un solo container PHP** (`Dockerfile` al root) atiende los 4 subdominios + un container Node para WS. Postgres y Redis son recursos managed de Coolify.
 
-\* `admin.*` no es un container aparte — apunta al mismo container del panel y
-Traefik prefija `/admin` para todas sus requests (ver `docker-compose.coolify.yml`).
+| Subdomain          | Servicio | Container       |
+| ------------------ | -------- | --------------- |
+| `panel.punto.la`   | panel    | `punto-php`     |
+| `admin.punto.la`   | admin*   | `punto-php`     |
+| `app.punto.la`     | app      | `punto-php`     |
+| `api.punto.la`     | api      | `punto-php`     |
+| `ws.punto.la`      | ws       | `punto-ws`      |
+
+\* `admin.*` no es un container aparte — es el mismo `punto-php`. El `router.php` raíz despacha por `Host:` header: si es `admin.*` → carpeta `/panel` con `/admin` path prefix forzado.
+
+Hay también Dockerfiles por módulo (`panel/Dockerfile`, `app/Dockerfile`, `api/Dockerfile`) para deploy split — quedaron en el repo como alternativa si en el futuro se necesita escalar módulos por separado, pero el deploy default es el **container único** del Dockerfile root.
 
 ---
 
@@ -25,45 +27,64 @@ Traefik prefija `/admin` para todas sus requests (ver `docker-compose.coolify.ym
   - `app.punto.la` → IP del server
   - `api.punto.la` → IP del server
   - `ws.punto.la` → IP del server
-- **Postgres managed** provisionado en Coolify (recomendado) o un PG accesible
-  desde el server. Tomar nota del **host interno** que Coolify expone.
+- **Postgres y Redis** provisionados desde Coolify como recursos managed (`+ New Database → PostgreSQL` y `Redis`). Coolify expone los hosts internos vía env vars; ambos viven en la misma red Docker que las apps.
 
 ---
 
-## 2 · Configurar el proyecto en Coolify
+## 2 · Configurar el container PHP en Coolify
 
-1. **New Resource → Docker Compose**.
+### 2.1 · Crear el recurso
+
+1. **Project → + New Resource → Dockerfile**.
 2. **Repository**: `https://github.com/xsmurphy/punto-legacy.git`, branch `main`.
-3. **Compose file**: `docker-compose.coolify.yml`.
-4. **Auto-deploy on push**: ✅ (recomendado para iterar rápido en staging).
+3. **Build pack**: Dockerfile (auto-detectado del root del repo).
+4. **Dockerfile location**: `/Dockerfile` (root).
+5. **Auto-deploy on push**: ✅
+6. **Domains** (asignar los 4 al mismo recurso):
+   - `https://panel.punto.la`
+   - `https://admin.punto.la`
+   - `https://app.punto.la`
+   - `https://api.punto.la`
 
-### 2.1 · Variables de entorno
+Coolify configura Traefik automáticamente: los 4 hosts apuntan al mismo container y el `router.php` raíz despacha internamente.
 
-Pegar el contenido de `.env.example` en el panel de Coolify y completar los
-valores. Las **críticas** para arrancar:
+### 2.2 · Container WS (aparte)
+
+1. **+ New Resource → Dockerfile**.
+2. **Dockerfile location**: `ws-server/Dockerfile`.
+3. **Domain**: `https://ws.punto.la` (Coolify configura el upgrade WebSocket automático).
+4. **Env vars**: `WS_PORT=6001`, `REDIS_URL=redis://<host>:6379` (apuntar al Redis managed).
+
+### 2.3 · Variables de entorno
+
+Pegar en el panel del recurso `punto-php` (las críticas para arrancar):
 
 | Variable | Valor staging | Notas |
 |---|---|---|
 | `APP_ENV` | `production` | |
 | `APP_DEBUG` | `true` | shortcircuita el PIN del signup a `0000`. Cambiar a `false` cuando se configure Evolution API real |
-| `POSTGRES_HOST` | host interno de Coolify | NO `localhost` |
-| `POSTGRES_DB` | `puntoDB` | |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` | (de Coolify) | |
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/puntoDB` | Coolify la inyecta automático si linkeás el Postgres managed |
+| `REDIS_URL` | `redis://host:6379` | idem — desde Coolify Redis managed |
 | `JWT_SECRET` | **rotar** — `openssl rand -hex 32` | |
 | `ADMIN_JWT_SECRET` | **rotar** — `openssl rand -hex 32` | distinto del tenant |
 | `HASHIDS_SALT` | rotar | |
 | `NCM_SECRET` | rotar | |
 | `ADMIN_BOOTSTRAP_EMAIL` | tu email | |
 | `ADMIN_BOOTSTRAP_PASSWORD` | password fuerte | usado solo la primera vez |
-| `PUNTO_API_BASE` | `https://api.punto.la` | el panel/app llaman a este host |
+| `PUNTO_API_BASE` | `https://api.punto.la` | el panel/app llaman a este host (mismo container) |
 | `WS_URL` | `wss://ws.punto.la` | |
 | `PANEL_URL` | `https://panel.punto.la` | |
 | `APP_URL` | `https://app.punto.la` | |
 | `ADMIN_URL` | `https://admin.punto.la` | |
 | `API_URL` | `https://api.punto.la` | |
 | `CORS_ALLOWED_ORIGINS` | `https://panel.punto.la,https://app.punto.la,https://admin.punto.la,https://api.punto.la` | comma-separated |
-| `REDIS_HOST` | `redis` | usa el container interno |
-| `REDIS_PORT` | `6379` | |
+| `PHP_CLI_SERVER_WORKERS` | `8` | requerido para que el self-HTTP entre módulos no haga deadlock |
+
+**Compatibilidad con vars legacy**: si en vez de `DATABASE_URL` / `REDIS_URL` querés usar vars individuales, también funcionan:
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `REDIS_HOST`, `REDIS_PORT`
+
+Las URLs tienen prioridad si están seteadas.
 
 **Críticas para mensajería** (si querés WhatsApp/SMS funcional):
 
@@ -101,9 +122,7 @@ done
 ```
 
 > ⚠️ Algunas migraciones con DDL (`DROP COLUMN`, `ALTER TABLE`) requieren
-> usuario **OWNER** de las tablas, no el user de app. Si Coolify provisiona
-> con un user "superuser" extra usalo para estas — sino, ejecutarlas directo
-> contra el host PG con el user `postgres` superuser.
+> usuario **OWNER** de las tablas, no el user de app.
 
 ### 3.3 · Seeds (opcional para staging)
 
@@ -111,60 +130,45 @@ done
 cd database/seeds && PG_URL="..." ./run_seeds.sh
 ```
 
-Los seeds insertan: master company, plan de dev, catálogos, sample items.
-
 ### 3.4 · Super-admin
 
 El super-admin se siembra automáticamente al primer hit a
-`/admin/bootstrap_seed.php` (idempotente) usando `ADMIN_BOOTSTRAP_EMAIL` y
-`ADMIN_BOOTSTRAP_PASSWORD` del `.env`. Después del primer login, **cambiá el
-password** desde `/admin/users` y limpiá las dos env vars de Coolify.
+`https://admin.punto.la/bootstrap_seed` (idempotente) usando
+`ADMIN_BOOTSTRAP_EMAIL` y `ADMIN_BOOTSTRAP_PASSWORD` del `.env`. Después del
+primer login, **cambiá el password** y limpiá las dos env vars.
 
 ---
 
 ## 4 · Verificación post-deploy
 
-Una vez que Coolify reporta los 4 containers running:
-
 ```bash
-# 1. Healthchecks Docker (Coolify los muestra en la UI)
-# 2. Smoke tests HTTP
+# Smoke tests HTTP
 curl -fsS https://api.punto.la/v1/bootstrap         # → 401 (auth required) = OK
 curl -fsS https://panel.punto.la/login              # → 200
 curl -fsS https://admin.punto.la/login              # → 200 (admin login)
 curl -fsS https://app.punto.la/login                # → 200
 ```
 
-Si `panel.punto.la/bff/bootstrap.php` cuelga 15s y devuelve timeout → el panel
-no puede llegar al `api` container. Revisar `PUNTO_API_BASE` y que el container
-api esté corriendo (no se pueden hacer self-HTTP entre containers a través de
-domain externo si el DNS aún no propagó — usar la IP del network interno o
-esperar propagación).
+Si alguno devuelve 404 → revisar `router.php` raíz: el match por Host debe
+incluir el subdomain exacto.
 
 ---
 
 ## 5 · Aplicar migraciones nuevas (después del deploy inicial)
-
-Cada nuevo archivo en `database/migrations/postgres/NN_*.sql`:
 
 ```bash
 psql "$PG_URL" < database/migrations/postgres/12_new_thing.sql
 ```
 
 > **TO-DO infra**: agregar runner automático que checkee `schema_migrations`
-> y aplique pendientes en el entrypoint del container `panel` o `api`. Por
-> ahora es manual.
+> y aplique pendientes en el entrypoint del container.
 
 ---
 
 ## 6 · Rebuild + redeploy
 
-Coolify rebuildea + redeploya automáticamente en cada push a `main` si está
-configurado. Sino, manualmente:
-
-```
-Coolify UI → Project → Redeploy
-```
+Coolify rebuildea + redeploya automáticamente en cada push a `main`. Sino,
+manual: `Coolify UI → Project → Redeploy`.
 
 El multi-stage de Docker cachea las layers pesadas (extensiones PHP, composer
 deps, node_modules) — un rebuild típico tarda 1-2 min sobre el primer build
@@ -174,39 +178,57 @@ deps, node_modules) — un rebuild típico tarda 1-2 min sobre el primer build
 
 ## 7 · Troubleshooting
 
-### `502 Bad Gateway` en panel.punto.la
+### `502 Bad Gateway` en cualquiera de los 4 dominios
 
 - Container no arrancó. `docker logs <container>` en el server.
-- `php -S` necesita `PHP_CLI_SERVER_WORKERS=8` — verificar la env.
+- `PHP_CLI_SERVER_WORKERS=8` debe estar en env vars (sin esto: deadlock).
 
-### Signup falla con "No se pudo conectar"
+### Subdomain `admin.*` me lleva al dashboard del panel
 
-- `APP_DEBUG=false` y `EVOLUTION_API_URL` no configurado. Setear `APP_DEBUG=true`
-  o configurar Evolution.
+- El `router.php` raíz no detectó el host. Verificar que `HTTP_HOST` llegue
+  correctamente (Traefik default lo preserva). En Coolify, el dominio debe
+  estar en el mismo recurso que `panel.*`.
 
 ### CORS errors en el browser
 
 - `CORS_ALLOWED_ORIGINS` no incluye el origen real. Verificar exact match
   (incluyendo `https://` y sin trailing slash).
 
-### Admin landing page muestra el dashboard del panel
+### Signup falla con "No se pudo conectar"
 
-- El middleware Traefik `admin-strip+admin-add` no aplicó. Verificar que las
-  labels del servicio `panel` están bien en `docker-compose.coolify.yml`.
+- `APP_DEBUG=false` y `EVOLUTION_API_URL` no configurado. Setear
+  `APP_DEBUG=true` o configurar Evolution.
 
-### "Operation timed out" en `bff/bootstrap.php`
+### `php -S` deadlock en self-HTTP
 
-- `PUNTO_API_BASE` apunta al mismo host que sirve el BFF — self-HTTP. Hay que
-  apuntar al container `api` (vía `https://api.punto.la` o vía network interno
-  `http://api`).
+- BFF panel → API self-HTTP necesita workers > 1. `PHP_CLI_SERVER_WORKERS=8`.
 
 ---
 
-## 8 · TODO infra
+## 8 · Cuando escalar: split por módulo
 
-- [ ] Runner automático de migraciones (entrypoint del container o init job)
+Si en el futuro un módulo (típicamente `/app` por carga POS) necesita escalar
+solo, los Dockerfiles por módulo siguen en el repo:
+
+- `panel/Dockerfile` → solo panel + admin
+- `app/Dockerfile` → solo app POS
+- `api/Dockerfile` → solo API
+
+Pasar de "1 container" a "N containers" es solo:
+1. Crear N recursos Dockerfile en Coolify apuntando a cada path.
+2. Reasignar los dominios a cada recurso.
+3. El `router.php` raíz queda en desuso (no se ejecuta porque cada container
+   atiende un solo Host).
+
+Ningún código de los módulos cambia.
+
+---
+
+## 9 · TODO infra
+
+- [ ] Runner automático de migraciones (entrypoint del container)
 - [ ] Migrar `php -S` → nginx + php-fpm cuando carga >10 reqs/s concurrentes
-- [ ] Healthcheck endpoint dedicado (`/health` con status JSON) en lugar de `/login`
-- [ ] Centralizar logs (Loki o similar — Coolify lo facilita)
-- [ ] Backup automático del PG (si Coolify no lo provee con el plan)
+- [ ] Healthcheck endpoint dedicado (`/health` con status JSON)
+- [ ] Centralizar logs (Loki o similar)
+- [ ] Backup automático del PG
 - [ ] Asset CDN (DigitalOcean Spaces ya está configurado, falta wirearlo)
