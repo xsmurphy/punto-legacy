@@ -9029,7 +9029,11 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				[$user['companyId']]
 			);
 
-			$ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
+			// TTL del JWT del panel — separado del JWT_TTL del POS app (que es 10 años por
+			// el modelo "device pairing", inadecuado para sesión interactiva del panel).
+			// Default 86400s (24h) para que el operador no se quede colgado a mitad de
+			// jornada perdiendo trabajo. Override con env var PANEL_JWT_TTL si hace falta.
+			$ttl = (int)($_ENV['PANEL_JWT_TTL'] ?? 86400);
 			$now = time();
 
 			$token = jwtEncode([

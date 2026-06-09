@@ -1138,6 +1138,36 @@ $(document).ready(function(){
 	// loading state for buttons
 	$.ajaxSetup({timeout:50000}); //timeout para ajax requests
 
+	// Handler global de sesión expirada (401).
+	// Antes: cuando el JWT vencía a mitad de jornada, los XHR fallaban silenciosamente
+	// y el operador perdía el trabajo (un guardado que parecía OK pero el server respondió
+	// 401). Ahora detectamos 401 globalmente y avisamos.
+	//
+	// Solo intercepta requests al mismo origen (panel). Excluye /login y /bff/* (algunos
+	// son auth-public). El user ve un dialog modal — no auto-redirect — para que tenga
+	// tiempo de copiar lo que necesite antes de re-loguear.
+	(function () {
+		var alreadyShown = false;
+		$(document).ajaxError(function (event, xhr, settings) {
+			if (xhr.status !== 401 || alreadyShown) return;
+			var url = String(settings && settings.url || '');
+			// No molestar en endpoints que pueden devolver 401 legítimamente sin sesión.
+			if (/^\/?(login|logout|signup|user-register)\b/.test(url)) return;
+			if (/^\/?bff\/admin\/(login|logout)\b/.test(url)) return;
+			alreadyShown = true;
+			var msg = 'Tu sesión expiró. Copiá los datos del formulario actual si los necesitás. Al continuar te llevamos al login.';
+			if (typeof ncmDialogs !== 'undefined' && ncmDialogs.confirm) {
+				ncmDialogs.confirm('Sesión expirada', msg, 'warning', function (ok) {
+					if (ok) window.location.href = '/login?expired=1';
+					else alreadyShown = false; // permitir que vuelva a aparecer si vuelve a fallar
+				});
+			} else {
+				if (confirm(msg)) window.location.href = '/login?expired=1';
+				else alreadyShown = false;
+			}
+		});
+	})();
+
 	if(jQuery().tooltip) {
     	$('[data-toggle="tooltip"]').tooltip({
 		  content: function () {
