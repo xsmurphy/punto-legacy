@@ -9594,6 +9594,15 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 									contactEmail = ?", [$email]);
 			} else {
 				$isEmail = false;
+				// CONVENCIÓN §31: contactPhone storage SIEMPRE E.164 vía libphonenumber.
+				// Normalizamos acá ANTES de buscar duplicados y antes de insertar para que
+				// signUp y login compartan exactamente la misma representación del número.
+				$isoCountry  = strtoupper($post['country'] ?? 'PY');
+				$normalized  = phoneToE164($email, $isoCountry);
+				if ($normalized === null) {
+					return "Número de teléfono inválido";
+				}
+				$email = $normalized; // a partir de acá $email es el phone en E.164
 				$resultEmail 	= ncmExecute("SELECT
 										*
 									FROM contact

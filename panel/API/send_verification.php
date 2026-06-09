@@ -35,12 +35,15 @@ if (!strlen($phone)) {
 
 // En debug: evitar self-request HTTP (deadlock en php -S single-threaded)
 if ($isDebug) {
-    $digits = preg_replace('/\D/', '', $phone);
-    if (strlen($digits) < 6) {
+    // CONVENCIÓN §31: normalizar a E.164 con libphonenumber, no concat manual.
+    // El user mete "0991742353" (con 0 trunk) o "991742353" o "+595991742353" —
+    // siempre devolvemos +595991742353. signUp() y login() después matchean.
+    $e164 = phoneToE164($phone, $country);
+    if ($e164 === null) {
         http_response_code(400);
         die(json_encode(['error' => 'Número de teléfono inválido']));
     }
-    die(json_encode(['success' => true, 'phone' => '+' . $digits, 'code' => '0000']));
+    die(json_encode(['success' => true, 'phone' => $e164, 'code' => '0000']));
 }
 
 // Validar y formatear el número
