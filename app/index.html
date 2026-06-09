@@ -1,9 +1,45 @@
 <!DOCTYPE html>
 <html class="noscroll bg-white">
-<head>  
+<head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>ENCOM</title>
+  <title>Punto</title>
+
+  <!-- DEBUG: error overlay para detectar errores JS sin DevTools en mobile.
+       Remover este bloque una vez encontrado y corregido el problema. -->
+  <script>
+  (function() {
+    function showErr(msg) {
+      var div = document.getElementById('__err_overlay__');
+      if (!div) {
+        div = document.createElement('div');
+        div.id = '__err_overlay__';
+        div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#c00;color:#fff;font:12px/1.4 monospace;padding:8px;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-word;';
+        if (document.body) document.body.appendChild(div);
+        else document.addEventListener('DOMContentLoaded', function(){ document.body && document.body.appendChild(div); });
+      }
+      div.textContent += msg + '\n---\n';
+    }
+    window.addEventListener('error', function(e) {
+      showErr('[' + (e.filename || '?') + ':' + (e.lineno||'?') + '] ' + (e.message || 'unknown error'));
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      showErr('[promise] ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason || 'unhandled rejection'));
+    });
+    // Network: XHR fallidos (status >= 400 o transport error)
+    var origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      this.addEventListener('load', function() {
+        if (this.status >= 400) showErr('[xhr ' + this.status + '] ' + method + ' ' + url);
+      });
+      this.addEventListener('error', function() {
+        showErr('[xhr fail] ' + method + ' ' + url);
+      });
+      return origOpen.apply(this, arguments);
+    };
+  })();
+  </script>
+
   
   <link rel="apple-touch-icon" sizes="57x57" href="/assets/icons/apple-touch-icon-57x57.png" />
   <link rel="apple-touch-icon" sizes="114x114" href="/assets/icons/apple-touch-icon-114x114.png" />
