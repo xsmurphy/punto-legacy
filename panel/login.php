@@ -351,18 +351,29 @@ $tips = [
 									enabledText : 'Ingresar'
 								});
 
-			// Normaliza un input local a E.164 vía libphonenumber-js. Acepta cualquier
-			// formato razonable ("0991234567", "991 123 4567", "+595991234567") y devuelve
-			// "+595991234567" si es un número telefónico válido para el país; null si no.
-			// NUNCA concatenar "+" o "0" a mano — libphonenumber maneja edge cases (área,
-			// trunk prefix por país, longitud, validación).
+			// Normaliza un input local a E.164 vía libphonenumber-js (bundle 1.6.8 expuesto
+			// como window.libphonenumber). Acepta cualquier formato razonable ("0991234567",
+			// "991 123 4567", "+595991234567") y devuelve "+595991234567" si es válido para
+			// el país; null si no. NUNCA concatenar "+" o "0" a mano — libphonenumber maneja
+			// edge cases (área, trunk prefix por país, longitud, validación).
 			function toE164(input, iso) {
-				if (!window.libphonenumber || !window.libphonenumber.parsePhoneNumberFromString) {
-					return null;
-				}
-				var parsed = window.libphonenumber.parsePhoneNumberFromString(String(input || ''), iso || 'PY');
-				if (!parsed || !parsed.isValid()) return null;
-				return parsed.number; // E.164 con "+"
+				var lp = window.libphonenumber;
+				if (!lp) return null;
+				var raw = String(input || '');
+				if (!raw) return null;
+				try {
+					// 1.6.8 expone parsePhoneNumber (no parsePhoneNumberFromString del 1.7+)
+					if (typeof lp.parsePhoneNumber === 'function') {
+						var parsed = lp.parsePhoneNumber(raw, iso || 'PY');
+						if (parsed && parsed.isValid && parsed.isValid() && parsed.number) return parsed.number;
+					}
+					// Fallback al API low-level del mismo bundle: parseNumber + format E.164
+					if (typeof lp.parseNumber === 'function' && typeof lp.format === 'function') {
+						var p = lp.parseNumber(raw, iso || 'PY');
+						if (p && p.country && p.phone) return lp.format(p, 'E.164');
+					}
+				} catch (e) { /* malformed → null */ }
+				return null;
 			}
 
 			$(document).on('submit','#loginForm',function(e) {
