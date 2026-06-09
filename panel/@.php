@@ -127,28 +127,35 @@ if (!empty($_GET['update'])) {
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 	<title>Panel de Control - <?= APP_NAME ?></title>
 
-	<link rel="apple-touch-icon-precomposed" sizes="57x57" href="<?= APP_URL ?>/apple-touch-icon-57x57.png" />
-	<link rel="apple-touch-icon-precomposed" sizes="114x114" href="<?= APP_URL ?>/apple-touch-icon-114x114.png" />
-	<link rel="apple-touch-icon-precomposed" sizes="72x72" href="<?= APP_URL ?>/apple-touch-icon-72x72.png" />
-	<link rel="apple-touch-icon-precomposed" sizes="144x144" href="<?= APP_URL ?>/apple-touch-icon-144x144.png" />
-	<link rel="apple-touch-icon-precomposed" sizes="60x60" href="<?= APP_URL ?>/apple-touch-icon-60x60.png" />
-	<link rel="apple-touch-icon-precomposed" sizes="120x120" href="<?= APP_URL ?>/apple-touch-icon-120x120.png" />
-	<link rel="apple-touch-icon-precomposed" sizes="76x76" href="<?= APP_URL ?>/apple-touch-icon-76x76.png" />
-	<link rel="apple-touch-icon-precomposed" sizes="152x152" href="<?= APP_URL ?>/apple-touch-icon-152x152.png" />
-	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-196x196.png" sizes="196x196" />
-	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-96x96.png" sizes="96x96" />
-	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-32x32.png" sizes="32x32" />
-	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-16x16.png" sizes="16x16" />
-	<link rel="icon" type="image/png" href="<?= APP_URL ?>/favicon-128.png" sizes="128x128" />
+	<link rel="apple-touch-icon-precomposed" sizes="57x57" href="/apple-touch-icon-57x57.png" />
+	<link rel="apple-touch-icon-precomposed" sizes="114x114" href="/apple-touch-icon-114x114.png" />
+	<link rel="apple-touch-icon-precomposed" sizes="72x72" href="/apple-touch-icon-72x72.png" />
+	<link rel="apple-touch-icon-precomposed" sizes="144x144" href="/apple-touch-icon-144x144.png" />
+	<link rel="apple-touch-icon-precomposed" sizes="60x60" href="/apple-touch-icon-60x60.png" />
+	<link rel="apple-touch-icon-precomposed" sizes="120x120" href="/apple-touch-icon-120x120.png" />
+	<link rel="apple-touch-icon-precomposed" sizes="76x76" href="/apple-touch-icon-76x76.png" />
+	<link rel="apple-touch-icon-precomposed" sizes="152x152" href="/apple-touch-icon-152x152.png" />
+	<link rel="icon" type="image/png" href="/favicon-196x196.png" sizes="196x196" />
+	<link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+	<link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
+	<link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16" />
+	<link rel="icon" type="image/png" href="/favicon-128.png" sizes="128x128" />
 	<meta name="application-name" content=APP_NAME />
 	<meta name="msapplication-TileColor" content="#FFFFFF" />
-	<meta name="msapplication-TileImage" content="<?= APP_URL ?>/mstile-144x144.png" />
-	<meta name="msapplication-square70x70logo" content="<?= APP_URL ?>/mstile-70x70.png" />
-	<meta name="msapplication-square150x150logo" content="<?= APP_URL ?>/mstile-150x150.png" />
-	<meta name="msapplication-wide310x150logo" content="<?= APP_URL ?>/mstile-310x150.png" />
-	<meta name="msapplication-square310x310logo" content="<?= APP_URL ?>/mstile-310x310.png" />
+	<meta name="msapplication-TileImage" content="/mstile-144x144.png" />
+	<meta name="msapplication-square70x70logo" content="/mstile-70x70.png" />
+	<meta name="msapplication-square150x150logo" content="/mstile-150x150.png" />
+	<meta name="msapplication-wide310x150logo" content="/mstile-310x150.png" />
+	<meta name="msapplication-square310x310logo" content="/mstile-310x310.png" />
 
-	<link rel="preconnect" href="https://fonts.gstatic.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<!-- Google Fonts cargados directo desde el browser. El bundle local no los
+	     incluye (build.sh solo concatena CSS locales) y getFileContent en runtime
+	     fallaba en producción porque Google content-negotiate por User-Agent. -->
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;700;900&display=swap">
+	<link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=VT323&display=swap">
 	<link rel="stylesheet" href="/css/ncm.css?<?= date('d.H') ?>" type="text/css" />
 	<link rel="manifest" href="/manifest.json" />
 

@@ -5200,16 +5200,27 @@ function curlContents($url, $method = 'GET', $data = false, $headers = false, $r
 }
 
 function getFileContent($url)
-{ //usar solo con urls propias y controladas por encom
-	$ops = 	[
-		"ssl" => [
-			"verify_peer" 		=> false,
-			"verify_peer_name" 	=> false,
+{
+	// User-Agent es OBLIGATORIO para Google Fonts y otros CDNs que content-negotiate:
+	// sin él devuelven CSS vacío (content-length: 0) → bundle sin @font-face →
+	// Material Icons no carga. UA pretende ser un Chrome moderno para evitar fallbacks
+	// a fuentes legacy (TTF en vez de WOFF2).
+	$headers   = [];
+	$headers[] = 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+	$headers[] = 'Accept: text/css,*/*;q=0.1';
+	if (!empty($_SERVER['HTTP_COOKIE'])) {
+		$headers[] = 'Cookie: ' . $_SERVER['HTTP_COOKIE'];
+	}
+
+	$ops = [
+		"ssl"  => [
+			"verify_peer"      => false,
+			"verify_peer_name" => false,
 		],
 		'http' => [
-			'header' 			=>
-			'Cookie: ' . $_SERVER['HTTP_COOKIE'] . "\r\n"
-		]
+			'header'  => implode("\r\n", $headers) . "\r\n",
+			'timeout' => 10,
+		],
 	];
 
 	return file_get_contents($url, false, stream_context_create($ops));
