@@ -1,0 +1,163 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Punto — Compose para Coolify (staging / beta)
+#
+# Servicios:
+#   panel  → https://panel.punto.la  (también atiende admin.punto.la — mismo
+#                                     container, Traefik prefija /admin para
+#                                     todas las requests del subdomain admin)
+#   app    → https://app.punto.la
+#   api    → https://api.punto.la    (consumida por panel/app vía PUNTO_API_BASE)
+#   ws     → https://ws.punto.la     (WebSocket WSS, Node 20)
+#
+# Postgres se asume MANAGED por Coolify (POSTGRES_HOST en env apunta al host
+# que Coolify expone). Redis se levanta acá porque no requiere persistencia
+# crítica para el cache + WS pubsub.
+#
+# Build context = ROOT del repo. Cada servicio referencia su Dockerfile.
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: '3.8'
+
+services:
+
+  # ── Panel (panel.punto.la + admin.punto.la) ────────────────────────────────
+  panel:
+    build:
+      context: .
+      dockerfile: panel/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      PHP_CLI_SERVER_WORKERS: "8"
+    expose:
+      - "80"
+    depends_on:
+      - redis
+    networks:
+      - punto_net
+    labels:
+      - "traefik.enable=true"
+
+      # Router 1: panel.punto.la (sin rewrite — sirve /panel directo)
+      - "traefik.http.routers.panel.rule=Host(`panel.punto.la`)"
+      - "traefik.http.routers.panel.entrypoints=https"
+      - "traefik.http.routers.panel.tls=true"
+      - "traefik.http.routers.panel.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.panel.service=panel-svc"
+
+      # Router 2: admin.punto.la → mismo container, Traefik prefija /admin
+      # Chain (stripPrefix→addPrefix) garantiza que el backend siempre vea /admin/*,
+      # tanto si el browser pide /login (→/admin/login) como /admin/users (→strip a /users →add /admin/users).
+      # Go regex no tiene lookahead negativo, por eso usamos el chain.
+      - "traefik.http.routers.admin.rule=Host(`admin.punto.la`)"
+      - "traefik.http.routers.admin.entrypoints=https"
+      - "traefik.http.routers.admin.tls=true"
+      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.admin.service=panel-svc"
+      - "traefik.http.routers.admin.middlewares=admin-strip,admin-add"
+      - "traefik.http.middlewares.admin-strip.stripprefix.prefixes=/admin"
+      - "traefik.http.middlewares.admin-add.addprefix.prefix=/admin"
+
+      - "traefik.http.services.panel-svc.loadbalancer.server.port=80"
+
+
+  # ── App POS (app.punto.la) ──────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      PHP_CLI_SERVER_WORKERS: "8"
+    expose:
+      - "80"
+    depends_on:
+      - redis
+    networks:
+      - punto_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`app.punto.la`)"
+      - "traefik.http.routers.app.entrypoints=https"
+      - "traefik.http.routers.app.tls=true"
+      - "traefik.http.routers.app.tls.certresolver=letsencrypt"
+      - "traefik.http.services.app-svc.loadbalancer.server.port=80"
+      - "traefik.http.routers.app.service=app-svc"
+
+
+  # ── API compartida (api.punto.la) ───────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      PHP_CLI_SERVER_WORKERS: "8"
+    expose:
+      - "80"
+    depends_on:
+      - redis
+    networks:
+      - punto_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.punto.la`)"
+      - "traefik.http.routers.api.entrypoints=https"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api-svc.loadbalancer.server.port=80"
+      - "traefik.http.routers.api.service=api-svc"
+
+
+  # ── WebSocket server (ws.punto.la) ──────────────────────────────────────────
+  ws:
+    build:
+      context: ./ws-server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      WS_PORT: "6001"
+      REDIS_URL: redis://redis:6379
+    expose:
+      - "6001"
+    depends_on:
+      - redis
+    networks:
+      - punto_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ws.rule=Host(`ws.punto.la`)"
+      - "traefik.http.routers.ws.entrypoints=https"
+      - "traefik.http.routers.ws.tls=true"
+      - "traefik.http.routers.ws.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ws-svc.loadbalancer.server.port=6001"
+      - "traefik.http.routers.ws.service=ws-svc"
+
+
+  # ── Redis (cache + WS pubsub) ───────────────────────────────────────────────
+  # Postgres viene managed por Coolify; Redis lo levantamos acá porque el data
+  # es efímero (cache + WS).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    networks:
+      - punto_net
+
+
+volumes:
+  redis_data:
+    driver: local
+
+
+networks:
+  punto_net:
+    driver: bridge

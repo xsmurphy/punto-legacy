@@ -327,7 +327,7 @@ $installConfig = [
 						]
 					],
 		'modules' => [
-						'tables', 'ordersPanel', 'proiduction', 'kds','feedback'
+						'tables', 'ordersPanel', 'production', 'kds','feedback'
 					]
 	],
 	[
@@ -355,7 +355,7 @@ $installConfig = [
 						]
 					],
 		'modules' => [
-						'tables', 'ordersPanel', 'proiduction', 'kds','feedback'
+						'tables', 'ordersPanel', 'production', 'kds','feedback'
 					]
 	],
 	[
@@ -375,7 +375,7 @@ $installConfig = [
 						]
 					],
 		'modules' => [
-						'tables', 'ordersPanel', 'proiduction', 'kds','feedback'
+						'tables', 'ordersPanel', 'production', 'kds','feedback'
 					]
 	],
 	[

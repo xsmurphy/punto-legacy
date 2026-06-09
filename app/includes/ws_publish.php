@@ -22,6 +22,12 @@
  */
 function wsPublish(string $channel, string $event, array $data = []): void
 {
+    // Soporte para REDIS_URL (Coolify style): redis://host:6379
+    if (!empty($_ENV['REDIS_URL'])) {
+        $ru = parse_url($_ENV['REDIS_URL']);
+        $_ENV['REDIS_HOST'] = $ru['host'] ?? '127.0.0.1';
+        $_ENV['REDIS_PORT'] = $ru['port'] ?? 6379;
+    }
     $host    = $_ENV['REDIS_HOST'] ?? '127.0.0.1';
     $port    = (int)($_ENV['REDIS_PORT'] ?? 6379);
     $prefix  = 'punto:channel:';

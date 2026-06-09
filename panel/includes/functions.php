@@ -6273,14 +6273,14 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			return $string;
 		}
 
-		function createSlug($name = false, $slug = false, $companyId)
+		function createSlug($companyId, $name = false, $slug = false)
 		{
 			global $db;
 
 			$slug   = db_prepare(($slug) ? $slug : slugify($name));
 			$isSlug = ncmExecute('SELECT companyId FROM company WHERE slug = ? AND companyId != ? LIMIT 1', [$slug, $companyId]);
 			if ($isSlug) { // si ya existe una empresa con este slug
-				createSlug('', $slug . '-' . mt_rand(5, 90), $companyId);
+				createSlug($companyId, '', $slug . '-' . mt_rand(5, 90));
 			} else {
 				$db->Execute("UPDATE company SET slug = ? WHERE companyId = ?", [$slug, $companyId]);
 			}
@@ -9642,7 +9642,7 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 				$companyRecord['expiresAt'] 	= date('Y-m-d 00:00:00', strtotime("+14 days"));
 				$companyRecord['accountId'] 			= $accountId;
 
-				if ($post['parent']) {
+				if (!empty($post['parent'])) {
 					$companyRecord['parentId'] 			= dec($post['parent']);
 				}
 
@@ -9669,17 +9669,20 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 
 				//
 				$countryCode = strtoupper($post['country']);
-				$cSymbol 	= $countries[$countryCode]['currency']['symbol'];
-				$lang 		= explode(',', $countries[$countryCode]['languages']);
-				$decim 		= ($countries[$countryCode]['currency']['decimal_digits'] < 1) ? 'no' : 'yes';
-				$taxName 	= $countries[$countryCode]['currency']['vat_name'];
-				$tin 		= $countries[$countryCode]['tin'];
+				$countryData = $countries[$countryCode] ?? $countries['PY'];
+				$cSymbol 	= $countryData['currency']['symbol'];
+				$decimals 	= (int)$countryData['currency']['decimal_digits'];
+				$lang 		= explode(',', $countryData['languages']);
+				$decim 		= ($decimals < 1) ? 'no' : 'yes';
+				$taxName 	= $countryData['currency']['vat_name'];
+				$tin 		= $countryData['tin'];
+				$timezone 	= $countryData['timezone'] ?? 'America/Asuncion';
 
 				$settingRecord['settingName']           = $storeName;
 				$settingRecord['settingCurrency']       = iftn($cSymbol, '$');
 				$settingRecord['settingCountry']        = $countryCode;
 				$settingRecord['settingLanguage']       = iftn($lang[0], 'es');
-				$settingRecord['settingTimeZone']       = 'America/Asuncion';
+				$settingRecord['settingTimeZone']       = $timezone;
 				$settingRecord['settingAcceptedTerms']  = 1;
 
 				$settingRecord['settingBillTemplate']   	= 'ticket';
@@ -9697,9 +9700,9 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 					'where'   => "companyId = '" . $company . "'",
 				]);
 
-				createSlug($storeName, false, $company);
+				createSlug($company, $storeName);
 
-				$vat 			= iftn($countries[$countryCode]['currency']['vat'], false);
+				$vat 			= iftn($countryData['currency']['vat'], false);
 				if ($vat) {
 					$taxonomyRecord['taxonomyName']	= $vat;
 					$taxonomyRecord['taxonomyType']	= 'tax';
@@ -9746,6 +9749,11 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 				$moduleUpdate 	= ncmUpdate(['records' => $moduleRecord, 'table' => 'company', 'where' => 'companyId = ' . $db->qstr($company)]);
 				//		
 
+				// Precios demo base están en guaraníes (PYG, sin decimales). Para monedas
+				// con decimales (USD/MXN/BRL/etc.) dividimos por 100 para que el ejemplo
+				// no muestre "MX$ 12.000" en un Pan Francés. El tenant borra los demos.
+				$priceScale = ($decimals >= 2) ? 0.01 : 1;
+
 				//productos y servicios
 				foreach ($installConfig as $key => $val) {
 					$match = $val['match'];
@@ -9756,9 +9764,9 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 							$itemRecord['itemName'] 		= $item['name'];
 							$itemRecord['itemSKU'] 			= "PS 00" . $i;
 							$itemRecord['itemStatus'] 		= 1;
-							$itemRecord['taxId'] 			= $taxonomyInsert;
+							$itemRecord['taxId'] 			= $taxonomyInsert ?? null;
 							$itemRecord['itemImage'] 		= false;
-							$itemRecord['itemPrice'] 		= $item['price'];
+							$itemRecord['itemPrice'] 		= round($item['price'] * $priceScale, $decimals);
 
 							$itemRecord['companyId'] 		= $company;
 

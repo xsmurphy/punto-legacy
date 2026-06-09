@@ -1,0 +1,41 @@
+# Files NOT incluidos en el build context (acelera builds y evita filtrar secrets).
+# IMPORTANTE: `panel/assets` y `app/assets` son symlinks. Docker los preserva como
+# links siempre que la target (../assets) también esté en el contexto.
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Secrets — JAMÁS en una imagen
+.env
+.env.*
+!.env.example
+
+# Build artifacts (los regeneramos en el Dockerfile)
+node_modules
+panel/vendor
+app/vendor
+
+# Cache
+cache/
+graphify-out/
+**/*.log
+**/.DS_Store
+
+# Tooling y docs locales
+.claude/
+.vscode/
+.idea/
+mempalace.yaml
+context/
+docs/
+screens/
+
+# Skill / dev only
+skills-lock.json
+.editorconfig
+
+# Local DB dumps
+*.sql.bak
+*.dump

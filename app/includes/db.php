@@ -30,6 +30,17 @@ if (file_exists($envFile)) {
     }
 }
 
+// Soporte para DATABASE_URL (Coolify / Railway / Heroku style)
+// postgresql://user:password@host:5432/dbname — tiene prioridad sobre vars individuales
+if (!empty($_ENV['DATABASE_URL'])) {
+    $u = parse_url($_ENV['DATABASE_URL']);
+    $_ENV['POSTGRES_HOST']     = $u['host']                         ?? 'localhost';
+    $_ENV['POSTGRES_USER']     = isset($u['user'])     ? urldecode($u['user'])     : 'punto';
+    $_ENV['POSTGRES_PASSWORD'] = isset($u['pass'])     ? urldecode($u['pass'])     : '';
+    $_ENV['POSTGRES_DB']       = isset($u['path'])     ? ltrim($u['path'], '/')    : 'puntoDB';
+    $_ENV['POSTGRES_PORT']     = $u['port']                         ?? 5432;
+}
+
 $servername = $_ENV['POSTGRES_HOST']     ?? 'localhost';
 $username   = $_ENV['POSTGRES_USER']     ?? 'punto';
 $password   = $_ENV['POSTGRES_PASSWORD'] ?? 'punto123';
