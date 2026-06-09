@@ -47,7 +47,20 @@ if (str_starts_with($host, 'admin.') && !str_starts_with($path, '/admin')) {
 // Servir estáticos del módulo (CSS, JS, imágenes, fonts).
 // PHP -S sirve estáticos desde su docroot fijo (-t flag), pero nuestro docroot
 // "real" depende del Host. Por eso los servimos a mano vía readfile.
+//
+// Caso especial admin.*: si el prepend /admin transformó /scripts/foo.js en
+// /admin/scripts/foo.js pero el archivo NO existe en panel/admin/scripts/, hacer
+// fallback a panel/scripts/ — los assets comunes (jquery, bootstrap, common.js)
+// viven en panel/, no en panel/admin/.
 $staticFile = __DIR__ . '/' . $module . $path;
+if (!is_file($staticFile) && str_starts_with($host, 'admin.') && str_starts_with($path, '/admin/')) {
+    $fallbackPath = substr($path, 6); // strip "/admin"
+    $fallback = __DIR__ . '/' . $module . $fallbackPath;
+    if (is_file($fallback)) {
+        $staticFile = $fallback;
+        $path = $fallbackPath;
+    }
+}
 if ($path !== '/' && is_file($staticFile)) {
     $mime = match (strtolower(pathinfo($path, PATHINFO_EXTENSION))) {
         'css'           => 'text/css',

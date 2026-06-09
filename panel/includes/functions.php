@@ -5065,7 +5065,7 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 		//	$rand = '';
 		//}
 
-		$defaultLast = [APP_URL . '/scripts/common.js' . $rand];
+		$defaultLast = ['/scripts/common.js' . $rand];
 	} else if ($type == 'css') {
 		$default = [
 			'https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;900&display=swap',
@@ -5073,15 +5073,15 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 			'https://fonts.googleapis.com/css2?family=Shadows+Into+Light&display=swap',
 			"$_v/css/bootstrap-3.4.1.min.css",
 			"$_v/css/simple-line-icons-2.4.1.css",
-			APP_URL . '/css/font.css',
+			'/css/font.css',
 			"$_v/css/daterangepicker-3.1.css",
 			"$_v/css/animate-3.5.2.min.css",
 			"$_v/css/jquery.toast-1.3.2.min.css"
 		];
-		$defaultLast = [APP_URL . '/css/app.css', APP_URL . '/css/style.css?' . mt_rand()];
+		$defaultLast = ['/css/app.css', '/css/style.css?' . mt_rand()];
 
 		//FAVICONS
-		$_faviconBase = APP_URL;
+		$_faviconBase = '';
 		echo '<link rel="apple-touch-icon-precomposed" sizes="57x57" href="' . $_faviconBase . '/apple-touch-icon-57x57.png" />
 	    <link rel="apple-touch-icon-precomposed" sizes="114x114" href="' . $_faviconBase . '/apple-touch-icon-114x114.png" />
 	    <link rel="apple-touch-icon-precomposed" sizes="72x72" href="' . $_faviconBase . '/apple-touch-icon-72x72.png" />
