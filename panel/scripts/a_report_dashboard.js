@@ -419,21 +419,39 @@
 	// Componente global (lo resuelve x-data="dashboard()").
 	window.dashboard = dashboardComponent;
 
-	// Init determinista (ver cabecera). Cuando el shell inyecta el fragmento, el MutationObserver de
-	// Alpine ya "visitó" el subtree SIN x-data (el <script> aún no había definido el componente) y
-	// marcó los nodos. Si inicializáramos in-place, o insertáramos y dejáramos que el observer +
-	// un initTree corrieran, habría DOBLE init (duplica filas en x-for/x-if). Solución determinista:
-	// clonar a un nodo FRESCO (los expandos _x_ no se clonan), ponerle x-data e inicializarlo con
-	// Alpine.initTree mientras está DETACHED (el observer no lo ve). Al reinsertarlo ya está marcado
-	// → el observer lo saltea. Init exactamente 1×. mountUI() corre el setup que requiere DOM.
-	$(function () {
-		var root = document.getElementById('dashboardRoot');
-		if (!root || !window.Alpine) { return; }
+	// Init determinista (ver cabecera). El fragmento HTML tiene `x-ignore` en el root para
+	// prevenir que Alpine intente evaluar `x-text="cfg.companyName"` antes de que tengamos el
+	// componente wireado. El init real: clonar a un nodo FRESCO (los expandos _x_ no se clonan),
+	// quitarle x-ignore, ponerle x-data e inicializarlo con Alpine.initTree mientras está
+	// DETACHED (el observer no lo ve). Al reinsertarlo ya está marcado → el observer lo saltea.
+	// Init exactamente 1× por instancia. mountUI() corre el setup que requiere DOM.
+	function setupDashboard(root) {
+		if (!root || !window.Alpine || root._puntoInited) return false;
+		root._puntoInited = true;
 		var fresh = root.cloneNode(true);
+		fresh.removeAttribute('x-ignore');
 		fresh.setAttribute('x-data', 'dashboard()');
-		Alpine.initTree(fresh);                       // detached → wirea + corre init() 1×
-		root.parentNode.replaceChild(fresh, root);    // ya marcado → el observer lo saltea
-		Alpine.$data(fresh).mountUI();                // setup que requiere el nodo en el documento
+		Alpine.initTree(fresh);
+		root.parentNode.replaceChild(fresh, root);
+		Alpine.$data(fresh).mountUI();
+		return true;
+	}
+
+	// Doble entry: (a) intentar en $(ready) por si el shell ya inyectó el fragmento (entrada directa
+	// a /@#dashboard con prefetch, dev local con server-side render); (b) MutationObserver sobre
+	// #bodyContent para detectar cuando el shell inyecta el dashboard vía hashchange (caso default
+	// en prod). El observer queda vivo por la vida de la página — al user volver al dashboard, el
+	// shell reemplaza #bodyContent y un nuevo #dashboardRoot dispara setup() otra vez.
+	$(function () {
+		if (!window.Alpine) return;
+		if (setupDashboard(document.getElementById('dashboardRoot'))) return;
+
+		var bodyContent = document.getElementById('bodyContent') || document.body;
+		var observer = new MutationObserver(function () {
+			var root = document.getElementById('dashboardRoot');
+			if (root && !root._puntoInited) setupDashboard(root);
+		});
+		observer.observe(bodyContent, { childList: true, subtree: true });
 	});
 
 })();
