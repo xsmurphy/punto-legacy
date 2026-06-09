@@ -10,9 +10,16 @@
 function bffApiBase(): string
 {
     // API compartida del sistema (/api), backend único que /panel y /app consumen.
-    // Hoy en dev corre en :8000 (ver .claude/launch.json "Punto API"); mañana en un
-    // server dedicado → sólo cambia PUNTO_API_BASE. Ver context/02-arquitectura.md.
-    $base = getenv('PUNTO_API_BASE') ?: 'http://localhost:8000';
+    //
+    // OJO con la nomenclatura: el panel BFF apunta a SU PROPIA API local (/panel/API/v1)
+    // usando PUNTO_API_BASE. El app BFF apunta a la API compartida (/api/v1) — son dos
+    // backends distintos. En single-container deploy ambas comparten el mismo port pero
+    // se sirven con paths distintos según el Host header.
+    //
+    // PUNTO_SHARED_API_BASE — opcional, recomendado en deploys single-container — apunta
+    // a la API compartida (ej. https://api.punto.la o http://localhost:3000 + Host header).
+    // Si no está, fallback a PUNTO_API_BASE (legacy) y luego a localhost:8000 (dev).
+    $base = getenv('PUNTO_SHARED_API_BASE') ?: (getenv('PUNTO_API_BASE') ?: 'http://localhost:8000');
     return rtrim($base, '/');
 }
 
