@@ -111,13 +111,14 @@ RUN cd app   && composer dump-autoload --no-dev --optimize --classmap-authoritat
 ENV PHP_CLI_SERVER_WORKERS=8 \
     APP_ENV=production
 
-# Healthcheck: el dispatcher rutea por Host, así que sin Host header le falla.
-# Mandamos uno explícito para validar el path completo.
+# Puerto 3000 — es el default que Coolify configura en Traefik para apps
+# tipo "Dockerfile resource". Cambiarlo en la UI también funciona, pero
+# escuchar en 3000 evita tener que tocar config externa.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS -H "Host: panel.punto.la" http://localhost:80/login > /dev/null || exit 1
+    CMD curl -fsS -H "Host: panel.punto.la" http://localhost:3000/login > /dev/null || exit 1
 
-EXPOSE 80
+EXPOSE 3000
 WORKDIR /var/www
 
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["php", "-S", "0.0.0.0:80", "router.php"]
+CMD ["php", "-S", "0.0.0.0:3000", "router.php"]
