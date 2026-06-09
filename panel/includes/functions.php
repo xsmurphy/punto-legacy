@@ -5659,7 +5659,9 @@ function leftMenu($isoutlet = false, $register = false, $submenu = false)
 							$_posBase = defined('APP_URL') && APP_URL ? APP_URL : (defined('POS_URL') ? POS_URL : '');
 							$ssoHref   = $_posBase;
 							$jwtSecret = $_ENV['JWT_SECRET'] ?? '';
-							$_userId   = (string)($_SESSION['user']['contactId'] ?? '');
+							// loginPart() guarda el UUID del user en 'userId', no 'contactId'
+							// (línea ~9139). El valor ya viene enc()ado — identity post-Phase UUID.
+							$_userId   = (string)($_SESSION['user']['userId'] ?? '');
 							$_cid      = defined('COMPANY_ID') ? (string)COMPANY_ID : '';
 							$_oid      = defined('OUTLET_ID')  ? (string)OUTLET_ID  : '';
 							// Guard P1: si la sesión está incompleta, no emitir handoff con identidad vacía.
