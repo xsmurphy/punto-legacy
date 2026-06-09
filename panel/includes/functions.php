@@ -5648,9 +5648,36 @@ function leftMenu($isoutlet = false, $register = false, $submenu = false)
 
 						<li class="hidden-xs">
 							<?php
-							$based 	= '?i=' . base64_encode(enc(COMPANY_ID) . ',' . enc(OUTLET_ID));
+							// SSO handoff al app/POS: emitimos un JWT pos-app de 60s y lo pasamos a
+							// app/handoff.php, que lo valida, setea cookie HttpOnly y redirige a /.
+							// Antes pasábamos solo ?i=<base64(cid,oid)> a la home del app — en deploy
+							// con subdominios separados (panel.punto.la / app.punto.la) las cookies no
+							// se comparten, así que sin token el primer XHR caía con 401.
+							$ssoHref = POS_URL;
+							$jwtSecret = $_ENV['JWT_SECRET'] ?? '';
+							if ($jwtSecret) {
+								require_once __DIR__ . '/jwt.php';
+								$_outletId = OUTLET_ID;
+								$_userId   = (string)($_SESSION['user']['contactId'] ?? '');
+								$_role     = (int)($_SESSION['user']['role'] ?? 1);
+								// Resolver registerId del outlet (primer register activo)
+								$_reg = ncmExecute("SELECT registerId FROM register WHERE outletId = ? ORDER BY registerId ASC LIMIT 1", [$_outletId]);
+								$_registerId = $_reg ? (string)$_reg['registerId'] : '';
+								$_now = time();
+								$_ssoToken = jwtEncode([
+									'iss'  => 'pos-app',
+									'sub'  => $_userId,
+									'cid'  => (string)COMPANY_ID,
+									'oid'  => (string)$_outletId,
+									'rid'  => $_registerId,
+									'role' => $_role,
+									'iat'  => $_now,
+									'exp'  => $_now + 60, // ventana corta — el handoff lo refresca a TTL real
+								], $jwtSecret);
+								$ssoHref = POS_URL . '/handoff.php?t=' . rawurlencode($_ssoToken);
+							}
 							?>
-							<a href="<?= POS_URL ?><?= $based; ?>" target="_blank" class="mnPOSBtn"> <i class="material-icons">chrome_reader_mode</i> <span class="font-bold text-u-c">Caja</span> </a>
+							<a href="<?= htmlspecialchars($ssoHref, ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="mnPOSBtn"> <i class="material-icons">chrome_reader_mode</i> <span class="font-bold text-u-c">Caja</span> </a>
 						</li>
 
 					</ul>
