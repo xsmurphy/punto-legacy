@@ -23,12 +23,14 @@ if (!$res['ok'] || empty($res['data']['token'])) {
 }
 
 $ttl     = (int) (getenv('ADMIN_JWT_TTL') ?: ($_ENV['ADMIN_JWT_TTL'] ?? 28800));
-$isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+// HTTPS detection detrás de Traefik/proxy via X-Forwarded-Proto.
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
 setcookie('_jwt_admin', $res['data']['token'], [
     'expires'  => time() + $ttl,
     'path'     => '/',
     'httponly' => true,
-    'samesite' => 'Strict',
+    'samesite' => 'Lax',
     'secure'   => $isHttps,
 ]);
 

@@ -9011,13 +9011,17 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 				'exp'  => $now + $ttl,
 			], $secret);
 
-			// Cookie HttpOnly — el browser la enviará automáticamente en requests same-origin
-			$isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+			// Cookie HttpOnly — el browser la enviará automáticamente en requests same-origin.
+			// Detección HTTPS via X-Forwarded-Proto (Traefik agrega ese header detrás de TLS termination).
+			// SameSite=Lax porque Strict bloquea la cookie en flujos cross-origin top-level
+			// (links de email, redirects post-OAuth, etc.) y rompe XHR en algunos browsers.
+			$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+			        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
 			setcookie('_jwt_panel', $token, [
 				'expires'  => $now + $ttl,
 				'path'     => '/',
 				'httponly' => true,
-				'samesite' => 'Strict',
+				'samesite' => 'Lax',
 				'secure'   => $isHttps,
 			]);
 

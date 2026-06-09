@@ -190,12 +190,22 @@ function jwtInvalidateDeviceCache(string $deviceId): void
  */
 function jwtSetCookie(string $token, int $ttl): void
 {
-    $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    // Detección HTTPS correcta detrás de reverse proxy (Traefik en Coolify, nginx,
+    // Cloudflare, etc.). $_SERVER['HTTPS'] es false porque PHP-S no termina TLS;
+    // X-Forwarded-Proto es el header estándar que Traefik agrega para indicar el
+    // protocolo original del cliente.
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+
+    // SameSite=Lax (no Strict): Strict bloquea la cookie en navegaciones top-level
+    // cross-origin (ej. user llega de un email/redirect post-login) y ha causado
+    // bugs raros con XHR en algunos browsers. Lax es seguro para flujos normales
+    // y es el default de Chrome moderno.
     setcookie('_jwt', $token, [
         'expires'  => time() + $ttl,
         'path'     => '/',
         'httponly' => true,
-        'samesite' => 'Strict',
+        'samesite' => 'Lax',
         'secure'   => $isHttps,
     ]);
 }
