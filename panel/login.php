@@ -351,29 +351,38 @@ $tips = [
 									enabledText : 'Ingresar'
 								});
 
-			// Normaliza un input local a E.164 vía libphonenumber-js (bundle 1.6.8 expuesto
-			// como window.libphonenumber). Acepta cualquier formato razonable ("0991234567",
-			// "991 123 4567", "+595991234567") y devuelve "+595991234567" si es válido para
-			// el país; null si no. NUNCA concatenar "+" o "0" a mano — libphonenumber maneja
-			// edge cases (área, trunk prefix por país, longitud, validación).
+			// Best-effort normalization client-side. Mejor caso: libphonenumber-js parsea
+			// y devuelve E.164. Si falla por cualquier motivo, mandamos el input crudo +
+			// iso al backend, que tiene libphonenumber-for-php (API moderna y robusta) como
+			// fuente de verdad: ahí phoneToE164() valida y normaliza, o devuelve error claro.
+			// Devuelve string vacío solo si el input es vacío — eso sí lo cortamos local.
 			function toE164(input, iso) {
-				var lp = window.libphonenumber;
-				if (!lp) return null;
-				var raw = String(input || '');
+				var raw = String(input || '').trim();
 				if (!raw) return null;
+				var lp = window.libphonenumber;
 				try {
-					// 1.6.8 expone parsePhoneNumber (no parsePhoneNumberFromString del 1.7+)
-					if (typeof lp.parsePhoneNumber === 'function') {
-						var parsed = lp.parsePhoneNumber(raw, iso || 'PY');
-						if (parsed && parsed.isValid && parsed.isValid() && parsed.number) return parsed.number;
+					if (lp) {
+						// 1.6.8 expone parsePhoneNumber (no parsePhoneNumberFromString del 1.7+)
+						if (typeof lp.parsePhoneNumber === 'function') {
+							var parsed = lp.parsePhoneNumber(raw, iso || 'PY');
+							if (parsed && parsed.number && (!parsed.isValid || parsed.isValid())) {
+								return parsed.number;
+							}
+						}
+						// API estable del bundle 1.6.x: parseNumber + formatNumber
+						if (typeof lp.parseNumber === 'function' && typeof lp.formatNumber === 'function') {
+							var p = lp.parseNumber(raw, iso || 'PY');
+							if (p && p.country && p.phone) {
+								var out = lp.formatNumber(p, 'E.164');
+								if (out) return out;
+							}
+						}
 					}
-					// Fallback al API low-level del mismo bundle: parseNumber + format E.164
-					if (typeof lp.parseNumber === 'function' && typeof lp.format === 'function') {
-						var p = lp.parseNumber(raw, iso || 'PY');
-						if (p && p.country && p.phone) return lp.format(p, 'E.164');
-					}
-				} catch (e) { /* malformed → null */ }
-				return null;
+				} catch (e) {
+					if (window.console) console.warn('[toE164] libphonenumber-js failed, falling back to backend:', e);
+				}
+				// Backend re-valida con libphonenumber-for-php — siempre confiable
+				return raw;
 			}
 
 			$(document).on('submit','#loginForm',function(e) {
