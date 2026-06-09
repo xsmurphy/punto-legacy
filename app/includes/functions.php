@@ -2242,26 +2242,17 @@ function passBuilder($pass,$salt,$hashTimes = HASH_TIMES){
     return $check_password;
 }
 
-function findEmailOrPhoneLogin($email){
-	$result = ncmExecute("SELECT
+function findPhoneLogin($phone){
+	// Tenants login SOLO por teléfono (E.164 con prefijo de país).
+	// El email del contact es opcional, NO se usa para autenticar tenants.
+	// Para super-admins del SaaS (admin realm) ver admin_user / admin/login.
+	return ncmExecute("SELECT
                           *
                         FROM contact
-                        WHERE contactEmail = ?
+                        WHERE contactPhone = ?
                         AND role = 1
                         AND type = 0
-                        LIMIT 1",[$email]);
-
-	if(!$result){
-		$result = ncmExecute("SELECT
-	                      *
-	                    FROM contact
-	                    WHERE contactPhone = ? 
-	                    AND role = 1
-	                    AND type = 0 
-	                    LIMIT 1",[$email]);
-	}
-
-	return $result;
+                        LIMIT 1",[$phone]);
 }
 
 /**

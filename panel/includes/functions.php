@@ -9117,26 +9117,18 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			return 'true';
 		}
 
-		function findEmailOrPhoneLogin($identifier)
+		function findPhoneLogin($phone)
 		{
-			$result = ncmExecute("SELECT
+			// Tenants login SOLO por teléfono (E.164 con prefijo de país).
+			// El email del contact es opcional, NO se usa para autenticar tenants.
+			// Para super-admins del SaaS (admin realm) ver admin_user / admin/login.
+			return ncmExecute("SELECT
                           *
                         FROM contact
                         WHERE contactPhone = ?
                         AND role IN (0,1,2,7)
                         AND type = 0
-                        LIMIT 1", [$identifier]);
-			if (!$result) {
-				$result = ncmExecute("SELECT
-		                      *
-		                    FROM contact
-		                    WHERE contactEmail = ?
-		                    AND role IN (0,1,2,7)
-		                    AND type = 0
-		                    LIMIT 1", [$identifier]);
-			}
-
-			return $result;
+                        LIMIT 1", [$phone]);
 		}
 
 		function getUserIpAddr()
@@ -9818,7 +9810,8 @@ function sendEmail($to, $subject, $body, $altbody, $from = EMAIL_FROM, $smtp = t
 					if (!$failedTransaction) {
 
 						if ($login) {
-							$result = findEmailOrPhoneLogin($email);
+							// $email aquí contiene el teléfono — signUp guarda contactPhone = $email
+							$result = findPhoneLogin($email);
 							return loginPart($result);
 						} else {
 							return 'true';

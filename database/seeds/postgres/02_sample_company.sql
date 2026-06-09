@@ -67,15 +67,17 @@ INSERT INTO outlet (
 ) ON CONFLICT (outletId) DO UPDATE
     SET outletName = EXCLUDED.outletName;
 
--- Usuario admin de la empresa demo (admin123)
+-- Usuario admin de la empresa demo (login: +5950991234567 / admin123)
+-- Tenants login SOLO por teléfono (E.164). Email queda como dato opcional del perfil.
 INSERT INTO contact (
-    contactId, contactName, contactEmail,
+    contactId, contactName, contactPhone, contactEmail,
     contactPassword, salt,
     contactStatus, type, main, role,
     outletId, companyId
 ) VALUES (
     'cb9afd35-a374-4080-873c-6d141070b92e',
     'Demo Admin',
+    '+5950991234567',
     'demo@local.test',
     'd1e425ce2c0b4f5f4bbead2ab72bba98e5764600864c3cfb54f69491c1625bfa',
     '18d31afc38712036',
@@ -83,7 +85,8 @@ INSERT INTO contact (
     'ff8470f8-5952-4297-9ce0-fda08c701c21',
     '2cffe736-f5dc-4876-9752-ea5f0db24757'
 ) ON CONFLICT (contactId) DO UPDATE
-    SET contactEmail    = EXCLUDED.contactEmail,
+    SET contactPhone    = EXCLUDED.contactPhone,
+        contactEmail    = EXCLUDED.contactEmail,
         contactPassword = EXCLUDED.contactPassword,
         salt            = EXCLUDED.salt,
         contactStatus   = EXCLUDED.contactStatus,

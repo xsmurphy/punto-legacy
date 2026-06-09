@@ -2,7 +2,8 @@
 /**
  * Endpoint de autenticación del panel.
  *
- * POST /API/auth  → email + password → emite JWT + sesión PHP + cookie _jwt_panel
+ * POST /API/auth  → phone + password → emite JWT + sesión PHP + cookie _jwt_panel
+ *                   (tenants login SOLO por teléfono; ver admin/login para super-admins SaaS)
  * GET  /API/auth  (legacy)  → valida api_key + company_id
  *
  * Respuesta canónica:
@@ -25,10 +26,11 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
     $body  = file_get_contents('php://input');
     $input = json_decode($body, true) ?: $_POST;
 
-    $email = strtolower(trim($input['email'] ?? ''));
+    // Accept 'phone' (canónico) o 'email' (legacy back-compat para clients viejos)
+    $phone = strtolower(trim($input['phone'] ?? $input['email'] ?? ''));
     $pass  = $input['password'] ?? '';
 
-    if (!$email || !$pass) {
+    if (!$phone || !$pass) {
         apiError('Debe completar todos los campos', 422);
     }
 
@@ -41,14 +43,14 @@ if ($method === 'POST' && !isset($_POST['api_key'])) {
         apiError('JWT no configurado en el servidor', 501);
     }
 
-    $result = findEmailOrPhoneLogin(db_prepare($email));
+    $result = findPhoneLogin(db_prepare($phone));
 
     if (!$result) {
-        apiUnauthorized('Teléfono/email o contraseña incorrectos');
+        apiUnauthorized('Teléfono o contraseña incorrectos');
     }
 
     if (checkForPassword(db_prepare($pass), $result['salt']) !== rtrim($result['contactPassword'])) {
-        apiUnauthorized('Teléfono/email o contraseña incorrectos');
+        apiUnauthorized('Teléfono o contraseña incorrectos');
     }
 
     // Chequear status ANTES de loginPart() para evitar su dai() que rompería el envelope

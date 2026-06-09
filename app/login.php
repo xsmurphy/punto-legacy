@@ -8,19 +8,18 @@ require_once('includes/jwt_middleware.php');
 $get    = $_GET;
 $post   = $_POST;
 
-$email  = strtolower($post['email']);
+// Tenants login SOLO por teléfono. Accept 'phone' (nuevo) o 'email' (legacy/back-compat).
+$phone  = strtolower($post['phone'] ?? $post['email'] ?? '');
 $pass   = $post['password'];
 
-if($email && $pass){
-
-  //check if email or phone
+if($phone && $pass){
 
   $rateLimiterId = $_SERVER['REMOTE_ADDR'];
   include_once('head.php');
 
-  $email  = db_prepare($email);
+  $phone  = db_prepare($phone);
   $pass   = db_prepare($pass);
-  $result = findEmailOrPhoneLogin($email);
+  $result = findPhoneLogin($phone);
   
   if($result){
 

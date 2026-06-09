@@ -70,7 +70,8 @@ if(validateHttp('token')){
 }
 
 if(validateHttp('recovery')){
-	$result = findEmailOrPhoneLogin( validateHttp('email','post') );
+	// Recovery solo por teléfono → SMS. Email del contact es opcional y no se usa.
+	$result = findPhoneLogin( validateHttp('phone','post') );
 
 	if($result){
 		$newPass 			= random_password();
@@ -83,20 +84,10 @@ if(validateHttp('recovery')){
 		$update = ncmUpdate(['records' => $record, 'table' => 'contact', 'where' => 'contactId = ' . $result['contactId']]);
 
 		if($update !== false){
-			
+
 			if( validity($result['contactPhone']) ){
 				$companyData = ncmExecute('SELECT settingCountry FROM company WHERE companyId = ? LIMIT 1', [$result['companyId']]);
 				$sent = sendSMS($result['contactPhone'], '[' . APP_NAME . '] Su nueva contraseña es ' . $newPass, $companyData['settingCountry'], 100, 16);
-			}else if(validity($result['contactEmail'],'email')){
-				$meta['subject'] = '[' . APP_NAME . '] Su nueva contraseña';
-				$meta['to']      = $result['contactEmail'];
-				$meta['fromName']= APP_NAME;
-				$meta['data']    = [
-				                    "message"     => 'Su nueva contraseña es <strong>' . $newPass . '</strong>, una vez que haya ingresado a su cuenta vuelva a cambiarla ingresando a Contactos > Usuarios',
-				                    "companyname" => APP_NAME,
-				                    "companylogo" => '/assets/150-150/0/' . enc(MASTER_COMPANY_ID) . '.jpg'
-				                	];
-				$sent = sendEmails($meta);
 			}
 
 			echo 'true';
@@ -107,17 +98,17 @@ if(validateHttp('recovery')){
 
 		dai();
 	}else{
-		dai('No existe un usuario con ese (email / nro. de celular) o no posee permisos para ingresar al panel');
+		dai('No existe un usuario con ese número de celular o no posee permisos para ingresar al panel');
 	}
 }
 
 // This if statement checks to determine whether the login form has been submitted
 // If it has, then the login code is run, otherwise the form is displayed
 if(validateHttp('login')){
-	$email 	= validateHttp('email','post');
+	$phone 	= validateHttp('phone','post');
 	$pass 	= validateHttp('password','post');
- 
-	$result = findEmailOrPhoneLogin($email);
+
+	$result = findPhoneLogin($phone);
 	
 	// This variable tells us whether the user has successfully logged in or not.
 	// We initialize it to false, assuming they have not.
@@ -204,10 +195,10 @@ $tips = [
 				
 				<form role="form" id="loginForm" method="post" action="?login=true">
 					<div class="col-xs-12 no-padder panel-body no-border">
-						<label class="block font-bold text-u-c text-xs">Celular o eMail</label>
+						<label class="block font-bold text-u-c text-xs">Celular</label>
 						<div class="col-xs-12 no-padder m-b-md">
 
-		                    <div class="col-xs-3 no-padder animated fadeInLeft speedUpAnimation loginEmailCountryCodes"> 
+		                    <div class="col-xs-3 no-padder animated fadeInLeft speedUpAnimation loginEmailCountryCodes">
 		                      <button type="button" class="btn btn-default dropdown-toggle btn-lg no-border no-bg countriesBtn" data-toggle="dropdown">
 		                        +595
 		                      </button>
@@ -215,7 +206,7 @@ $tips = [
 		                      </ul>
 		                    </div>
 		                    <div class="col-xs-9 no-padder emailWrap">
-		                      <input  name="email" type="text" class="form-control input-lg no-border no-bg b-b loginEmail" placeholder="Nro de celular o e-mail" value="<?=validateHttp('email')?>" required>
+		                      <input  name="phone" type="tel" inputmode="numeric" pattern="[0-9]*" class="form-control input-lg no-border no-bg b-b loginEmail" placeholder="Nro de celular" value="<?=validateHttp('phone')?>" required>
 		                    </div>
 		                    
 		                </div>
@@ -256,10 +247,10 @@ $tips = [
 					<form role="form" id="recoverForm" method="post" action="?recovery=true">
 						<div class="col-xs-12 panel-body no-border">
 
-							<div class="text-xs font-bold text-u-c">Nro de celular o e-mail</div>
+							<div class="text-xs font-bold text-u-c">Nro de celular</div>
 							<div class="col-xs-12 no-padder m-b">
 
-			                    <div class="col-xs-3 no-padder animated fadeInLeft speedUpAnimation loginEmailCountryCodes"> 
+			                    <div class="col-xs-3 no-padder animated fadeInLeft speedUpAnimation loginEmailCountryCodes">
 			                      <button type="button" class="btn btn-default dropdown-toggle btn-lg no-border no-bg countriesBtn" data-toggle="dropdown">
 			                        +595
 			                      </button>
@@ -267,7 +258,7 @@ $tips = [
 			                      </ul>
 			                    </div>
 			                    <div class="col-xs-9 no-padder emailWrap">
-			                      <input  name="recoverEmail" type="text" class="form-control input-lg no-border no-bg b-b recoveryEmail" placeholder="Nro de celular o e-mail" required>
+			                      <input  name="recoverPhone" type="tel" inputmode="numeric" pattern="[0-9]*" class="form-control input-lg no-border no-bg b-b recoveryEmail" placeholder="Nro de celular" required>
 			                    </div>
 			                    
 			                </div>
@@ -346,18 +337,13 @@ $tips = [
 
 			$(document).on('submit','#loginForm',function(e) {
 
-				var emailVal 	= $('#loginForm .loginEmail').val();
-				var pCode 		= $('#loginForm .selectedPhoneCode').text();
-				pCode 			= pCode ? pCode : '+595';
-
-				var phoneCode 	= ($('#loginForm .loginEmailCountryCodes').is(':visible') && $.isNumeric(emailVal)) ? pCode : '';
-
-
-				var email 		= phoneCode + emailVal;
-				var pass 		= $('#password').val();
-				var loginUrl 	= $(this).attr('action');
-
-				console.log('pCode ' + pCode + ' phoneCode ' + phoneCode + ' email ' + email + ' emailVal ' + emailVal);
+				// Tenant login: SOLO por número de celular (E.164).
+				// El input pide solo dígitos locales; siempre prepende el código de país.
+				var localNum    = $('#loginForm .loginEmail').val().replace(/\D/g, '');
+				var pCode       = $('#loginForm .selectedPhoneCode').text() || '+595';
+				var phone       = pCode + localNum;
+				var pass        = $('#password').val();
+				var loginUrl    = $(this).attr('action');
 
 				helpers.btnIndicator({
 										btn 			: $('#btn-login'),
@@ -367,7 +353,7 @@ $tips = [
 
 				helpers.load({
 								url 	: loginUrl,
-								data 	: {'email' : email, 'password' : pass},
+								data 	: {'phone' : phone, 'password' : pass},
 								success : function(response) {
 											if(response == 'true'){
 												helpers.btnIndicator({
@@ -406,12 +392,9 @@ $tips = [
 												'load' 			: true
 											});
 
-				var pCode 		= $('#recoverForm .selectedPhoneCode').text();
-				pCode 			= pCode ? pCode : '+595';
-
-
-				var phoneCode 	= ($('#recoverForm .loginEmailCountryCodes').is(':visible') && $.isNumeric(emailVal)) ? pCode : '';
-				var email 		= phoneCode + $('#recoverForm .recoveryEmail').val();
+				var localNum    = $('#recoverForm .recoveryEmail').val().replace(/\D/g, '');
+				var pCode       = $('#recoverForm .selectedPhoneCode').text() || '+595';
+				var phone       = pCode + localNum;
 
 				helpers.btnIndicator({
 										btn 			: $('#btn-recover'),
@@ -421,11 +404,11 @@ $tips = [
 
 				helpers.load({
 								url 	: tis.attr('action'),
-								data 	: {'email' : email},
+								data 	: {'phone' : phone},
 								success : function(response) {
 											if(response == 'true'){
 												$('#loginBlock, #recover').toggle();
-												ncmDialogs.alert('Hemos enviado una nueva contraseña a su celular/email');
+												ncmDialogs.alert('Hemos enviado una nueva contraseña a su celular');
 											}else if(response == 'false'){
 												ncmDialogs.alert('Error al intentar procesar su petición');
 											}else{
