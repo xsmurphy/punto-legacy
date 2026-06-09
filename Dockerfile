@@ -68,7 +68,7 @@ RUN set -eux; \
         curl \
         tini; \
     docker-php-ext-configure gd --with-freetype --with-jpeg; \
-    docker-php-ext-install -j"$(nproc)" \
+    docker-php-ext-install -j1 \
         pdo \
         pdo_pgsql \
         gd \
