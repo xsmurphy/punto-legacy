@@ -9,20 +9,16 @@ if( headers_sent() ){
     $encoding = false;
 }
 
-$contents = ob_get_contents();
-ob_get_clean();
-//$contents   = preg_replace('/\v(?:[\v\h]+)/', '', $contents);
-$size       = strlen($contents);
-$contents   = substr($contents, 0, $size);
-//$contents   = str_replace("\n",' ',$contents); //sacamos espacios del contenido
-//$contents   = preg_replace("/\s\s+/", " ",$contents); //sacamos saltos de pagina del contenido
-//$contents   = gzcompress($contents, 9);
+// ob_get_clean() ya hace el end + clean en una operación. El ob_end_flush()
+// original lanzaba E_NOTICE "no buffer to delete or flush" en PHP 8.x porque
+// el buffer ya estaba cerrado — Whoops lo elevaba a excepción → "Oops" page.
+// Defensive: solo cerrar buffer si efectivamente hay uno activo.
+$contents = ob_get_level() > 0 ? ob_get_clean() : '';
 
 if($encoding){
     //header('Content-Encoding: ' . $encoding);
 }
 
 echo $contents;
-ob_end_flush();
 exit();
 ?>
