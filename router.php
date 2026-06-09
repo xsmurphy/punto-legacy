@@ -44,25 +44,41 @@ if (str_starts_with($host, 'admin.') && !str_starts_with($path, '/admin')) {
     $path = $newPath;
 }
 
-// Servir estáticos del módulo (CSS, JS, imágenes, fonts).
-// PHP -S sirve estáticos desde su docroot fijo (-t flag), pero nuestro docroot
-// "real" depende del Host. Por eso los servimos a mano vía readfile.
-//
-// Caso especial admin.*: si el prepend /admin transformó /scripts/foo.js en
-// /admin/scripts/foo.js pero el archivo NO existe en panel/admin/scripts/, hacer
-// fallback a panel/scripts/ — los assets comunes (jquery, bootstrap, common.js)
-// viven en panel/, no en panel/admin/.
-$staticFile = __DIR__ . '/' . $module . $path;
-if (!is_file($staticFile) && str_starts_with($host, 'admin.') && str_starts_with($path, '/admin/')) {
+// Resolver archivo del módulo. Caso especial admin.*: si el prepend /admin
+// transformó /scripts/foo.js en /admin/scripts/foo.js pero el archivo NO existe
+// en panel/admin/scripts/, hacer fallback a panel/scripts/ — los assets comunes
+// (jquery, bootstrap, common.js) viven en panel/, no en panel/admin/.
+$resolvedPath = $path;
+$moduleDir    = __DIR__ . '/' . $module;
+$resolvedFile = $moduleDir . $resolvedPath;
+if (!is_file($resolvedFile) && str_starts_with($host, 'admin.') && str_starts_with($path, '/admin/')) {
     $fallbackPath = substr($path, 6); // strip "/admin"
-    $fallback = __DIR__ . '/' . $module . $fallbackPath;
+    $fallback = $moduleDir . $fallbackPath;
     if (is_file($fallback)) {
-        $staticFile = $fallback;
-        $path = $fallbackPath;
+        $resolvedFile = $fallback;
+        $resolvedPath = $fallbackPath;
     }
 }
-if ($path !== '/' && is_file($staticFile)) {
-    $mime = match (strtolower(pathinfo($path, PATHINFO_EXTENSION))) {
+
+$ext = strtolower(pathinfo($resolvedPath, PATHINFO_EXTENSION));
+$isPhpExecutable = in_array($ext, ['php', 'phtml', 'phar', 'php3', 'php4', 'php5', 'php7', 'php8'], true);
+
+// CRÍTICO: paths a .php SIEMPRE se ejecutan vía require, NUNCA via readfile.
+// Si los servimos como estático leakeamos el source PHP entero (info disclosure P0).
+// El módulo's router.php hace `return false` para estos, asumiendo que PHP-S los
+// sirve desde docroot — pero nuestro docroot es /var/www (no /var/www/panel),
+// así que PHP-S no los encuentra. Por eso los ejecutamos acá explícitamente.
+if ($isPhpExecutable && $path !== '/' && is_file($resolvedFile)) {
+    chdir($moduleDir);
+    require $resolvedFile;
+    return true;
+}
+
+// Servir estáticos del módulo (CSS, JS, imágenes, fonts) por readfile, porque
+// PHP-S sirve estáticos desde su docroot fijo y nuestro docroot "real" depende
+// del Host.
+if (!$isPhpExecutable && $path !== '/' && is_file($resolvedFile)) {
+    $mime = match ($ext) {
         'css'           => 'text/css',
         'js', 'mjs'     => 'application/javascript',
         'json'          => 'application/json',
@@ -89,14 +105,20 @@ if ($path !== '/' && is_file($staticFile)) {
         default         => 'application/octet-stream',
     };
     header('Content-Type: ' . $mime);
-    header('Content-Length: ' . filesize($staticFile));
-    readfile($staticFile);
+    header('Content-Length: ' . filesize($resolvedFile));
+    readfile($resolvedFile);
     return true;
 }
 
-// Delegar al router del módulo. chdir() para que __DIR__ relativos sigan ok,
-// y require para que el módulo gobierne completo desde su propia lógica.
-$moduleDir = __DIR__ . '/' . $module;
+// Si el path se resolvió a admin/ fallback (admin.* → panel/), persistirlo en
+// $_SERVER para que el módulo router vea el path correcto.
+if ($resolvedPath !== $path) {
+    $qs = $_SERVER['QUERY_STRING'] ?? '';
+    $_SERVER['REQUEST_URI'] = $resolvedPath . ($qs !== '' ? '?' . $qs : '');
+}
+
+// Delegar al router del módulo para paths no resueltos (extension-less que mapean
+// a .php, default index, 404, etc.). chdir() para que __DIR__ relativos sigan ok.
 chdir($moduleDir);
 require $moduleDir . '/router.php';
 return true;
