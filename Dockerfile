@@ -111,6 +111,11 @@ RUN cd app   && composer dump-autoload --no-dev --optimize --classmap-authoritat
 ENV PHP_CLI_SERVER_WORKERS=8 \
     APP_ENV=production
 
+# Entrypoint: configura PHP sessions en Redis al boot (sino se pierden en cada
+# deploy → user re-loguea cada vez que pusheamos).
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Puerto 3000 — es el default que Coolify configura en Traefik para apps
 # tipo "Dockerfile resource". Cambiarlo en la UI también funciona, pero
 # escuchar en 3000 evita tener que tocar config externa.
@@ -120,5 +125,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 EXPOSE 3000
 WORKDIR /var/www
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "/sbin/tini", "--"]
 CMD ["php", "-S", "0.0.0.0:3000", "router.php"]

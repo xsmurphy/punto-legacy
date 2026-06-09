@@ -1,0 +1,66 @@
+#!/bin/sh
+# Punto — entrypoint del container PHP.
+#
+# Configura PHP en runtime para usar Redis como session handler. Sin esto las
+# sesiones PHP viven en /tmp/sess_* y se PIERDEN en cada deploy (el container
+# se recrea desde cero), forzando al user a re-loguear cada vez. Con Redis,
+# las sesiones persisten porque Redis sigue corriendo independiente.
+#
+# REDIS_URL formato Coolify: redis://[user[:pass]@]host[:port][/db]
+# PHP redis session save_path formato: tcp://host:port?auth=pass&database=db
+
+set -e
+
+# Parsear REDIS_URL si está seteada. Si no, dejar PHP con files default.
+if [ -n "$REDIS_URL" ]; then
+    # Strip scheme
+    _url="${REDIS_URL#redis://}"
+    _url="${_url#rediss://}"
+
+    # Extraer credenciales si hay @
+    case "$_url" in
+        *@*)
+            _creds="${_url%%@*}"
+            _hostpart="${_url#*@}"
+            # user:pass o solo pass
+            case "$_creds" in
+                *:*) _pass="${_creds#*:}" ;;
+                *)   _pass="$_creds" ;;
+            esac
+            ;;
+        *)
+            _pass=""
+            _hostpart="$_url"
+            ;;
+    esac
+
+    # Extraer db si hay /
+    case "$_hostpart" in
+        */*)
+            _db="${_hostpart#*/}"
+            _hostport="${_hostpart%%/*}"
+            ;;
+        *)
+            _db="0"
+            _hostport="$_hostpart"
+            ;;
+    esac
+
+    # Armar save_path
+    _save_path="tcp://${_hostport}?database=${_db}"
+    if [ -n "$_pass" ]; then
+        _save_path="${_save_path}&auth=${_pass}"
+    fi
+
+    cat > /usr/local/etc/php/conf.d/session-redis.ini <<EOF
+session.save_handler = redis
+session.save_path    = "${_save_path}"
+EOF
+
+    echo "[entrypoint] PHP sessions → Redis (${_hostport} db=${_db})"
+else
+    echo "[entrypoint] REDIS_URL no seteada — sessions en /tmp (se pierden por deploy)"
+fi
+
+# Ejecutar el CMD original (tini + php -S)
+exec "$@"
