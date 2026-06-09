@@ -55,6 +55,17 @@ if (!isset($payload['exp']) || $payload['exp'] < time()) {
     die('handoff: token expirado');
 }
 
+// P1 guard: rechazar tokens con identidad vacía (sub/cid/oid).
+// Un panel con sesión rota podría firmar un token con strings vacíos y dejar
+// al user "autenticado" en el POS sin company → datos vacíos en /fetchs.
+$_sub = (string)($payload['sub'] ?? '');
+$_cid = (string)($payload['cid'] ?? '');
+$_oid = (string)($payload['oid'] ?? '');
+if ($_sub === '' || $_cid === '' || $_oid === '') {
+    http_response_code(401);
+    die('handoff: token sin identidad completa');
+}
+
 // Reemitimos el cookie con TTL real del POS (no el corto del handoff).
 // Esto evita que el user se quede con un cookie de 60s post-redirect.
 $ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
