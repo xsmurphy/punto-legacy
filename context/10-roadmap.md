@@ -480,7 +480,7 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 | Fase | Qué | Estado |
 |------|-----|--------|
 | **F0** | Plumbing multi-realm: `jwtAuthenticate($allowedRealms)` + `AUTHED_REALM` + `apiAuthTenant($realms)` con fallback de outlet para `oid=''` + cliente BFF panel con base `'shared'` (Bearer `_jwt_panel`) | ✅ commit c4d3231 |
-| **F1** | Piloto end-to-end: **expenses** (`api/lib/Reports/ExpensesService` + `api/v1/reports/expenses.php` `['panel']` + repuntar `panel/bff/reports/expenses.php` a base `'shared'` + migrar writes delete/update). Banks se descartó como piloto (código muerto — ver backlog). | ⬜ |
+| **F1** | Piloto end-to-end: **expenses** (`api/lib/Reports/ExpensesService` + `api/v1/reports/expenses.php` `['panel']` + repuntar `panel/bff/reports/expenses.php` a base `'shared'`; read+write). Banks se descartó como piloto (código muerto — ver backlog). | ✅ commit ade6a76 |
 | **F2** | Mover 33 `panel/API/v1` + 38 `panel/lib` services a /api (copy + namespace `Punto\Api\<Area>`); BFF repunta endpoint-por-endpoint; `admin/*` NO se mueve (queda hasta tener `apiAuthAdmin()` en /api) | ⬜ |
 | **F3** | Oleadas legacy ~20K líneas: A=cerrar parciales (writes de giftcards/schedule/production/purchases/transactions + outlets/settings) · B=huérfanos chicos · C=CRUDs grandes (contacts, items al final) | ⬜ |
 | **F4** | Shell `@.php` → estático + `/bff/bootstrap` + kill `$_SESSION` (F-auth-jwt-only fase 2) — AL FINAL | ⬜ |
