@@ -5084,7 +5084,7 @@ function loadCDNFiles($urls = [], $type = 'js', $manifest = '/manifest.json')
 		$defaultLast = ['/css/app.css', '/css/style.css?' . mt_rand()];
 
 		//FAVICONS
-		$_faviconBase = '';
+		$_faviconBase = '/assets/icons';
 		echo '<link rel="apple-touch-icon-precomposed" sizes="57x57" href="' . $_faviconBase . '/apple-touch-icon-57x57.png" />
 	    <link rel="apple-touch-icon-precomposed" sizes="114x114" href="' . $_faviconBase . '/apple-touch-icon-114x114.png" />
 	    <link rel="apple-touch-icon-precomposed" sizes="72x72" href="' . $_faviconBase . '/apple-touch-icon-72x72.png" />
@@ -5629,7 +5629,7 @@ function leftMenu($isoutlet = false, $register = false, $submenu = false)
 		<section class="vbox bg-black lter rounded animated fadeInLeft speed-3x hidden">
 			<section class="w-f-md">
 				<nav class="nav-primary">
-					<a href="/@#dashboard" class="wrapper block"> <img src="/images/iconincomesmwhite.png" alt=APP_NAME width="35" id="toastnlogo"> </a>
+					<a href="/@#dashboard" class="wrapper block"> <img src="/images/icon_bg_dark.png" alt=APP_NAME width="35" id="toastnlogo"> </a>
 					<ul class="nav" data-ride="collapse">
 
 						<?php
@@ -5889,7 +5889,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			</div>
 			<div class="col-xs-4 wrapper-xs text-center">
 				<a href="/@#dashboard">
-					<img src="/images/iconincomesmwhite.png" height="35">
+					<img src="/images/icon_bg_dark.png" height="35">
 				</a>
 			</div>
 			<div class="col-xs-4 no-padder text-right">

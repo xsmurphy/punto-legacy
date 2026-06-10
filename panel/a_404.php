@@ -1,6 +1,6 @@
 <div class="col-xs-12 bg-white text-center" style="padding:0 0 100px 0;top:0;left:0;z-index:2000;position:fixed;height:100vh">
 	<div class="col-xs-12 wrapper" style="margin-bottom:8%;">
-		<img src="/images/iconincomesm.png" width="50">
+		<img src="/images/icon_bg_light.png" width="50">
 	</div>
 	<div class="col-xs-12 text-center wrapper-lg">
 		<img src="/images/emptystate6.png" width="250">

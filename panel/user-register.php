@@ -63,7 +63,7 @@ dai();
 	<div class="col-sm-3"></div>
 
 	<div class="col-sm-6 text-center m-t-lg">
-		<img src="/images/incomeLogoLgDark.png" width="120" style="margin-top:10%;"> 
+		<img src="/images/logo_bg_dark.png" width="120" style="margin-top:10%;"> 
 		<h5 class="font-thin padder">Crear Cuenta</h5>
 	
 		<form action="/user-register?signup=1" method="POST" id="newAccount" name="newAccount" class="text-left m-t-lg">

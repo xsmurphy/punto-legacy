@@ -921,7 +921,7 @@ var ncmDialogs = {
 function message(message,type,duration){
 	ncmDialogs.toast(message,type,duration);
 	return;
-	var logo 	= '/images/iconincomesmwhite.png';
+	var logo 	= '/images/icon_bg_dark.png';
 	var danger 	= '/images/toast_danger.png';
 	var success = '/images/toast_success.png';
 	var textual = '<div class="wrapper-xs wrap-l-sm wrap-r-sm bg-dark rounded text-white text-sm animated fadeInLeft speed-3x" id="toastnlogomsg" style="position:absolute;left:80px;top:30px;">' + message + '</div>';

@@ -12,8 +12,8 @@ self.addEventListener('push', function(event) {
     const title   = data.title   || 'Punto';
     const options = {
         body:  data.message || '',
-        icon:  '/images/iconincomesm.png',
-        badge: '/images/iconincomesm.png',
+        icon:  '/images/icon_bg_light.png',
+        badge: '/images/icon_bg_light.png',
         data:  { url: data.url || '/' },
     };
 

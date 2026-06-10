@@ -111,7 +111,7 @@ $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 
 <div class="signup-wrap">
     <div class="signup-logo">
-        <img src="/images/incomeLogoLgDark.png" height="30" alt="<?= APP_NAME ?>">
+        <img src="/images/logo_bg_dark.png" height="30" alt="<?= APP_NAME ?>">
     </div>
 
     <div class="signup-card">

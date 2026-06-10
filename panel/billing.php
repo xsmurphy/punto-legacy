@@ -114,7 +114,7 @@ if (validateBool('action') == 'makePayment') {
   <div class="modal-body no-padder clear r-24x bg-white">
 
     <div class="col-sm-4 col-md-3 wrapper bg-grad-info hidden-xs text-center" style="min-height:520px;">
-      <img src="/images/iconincomesmwhite.png" width="30%" style="margin-top:140px;">
+      <img src="/images/icon_bg_dark.png" width="30%" style="margin-top:140px;">
       <div class="m-b text-white text-xs">
         <strong class="text-md"><?= APP_NAME ?></strong>
         <br> Av. Aviadores del Chaco
