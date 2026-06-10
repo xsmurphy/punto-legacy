@@ -1,17 +1,17 @@
 <?php
 /**
- * REST canónico — Dashboard del panel (motor ERP, raw).
+ * REST canónico (API compartida /api) — Dashboard del panel (raw).
  *
- *   GET /API/v1/reports/dashboard?widget=<nombre>&from=&to=[&week&prev&type]
+ *   GET /v1/reports/dashboard?widget=<nombre>&from=&to=[&week&prev&type]
  *       → datos CRUDOS del widget pedido.
  *
- * Read-only. Sin formatear: el front formatea + arma cada widget. Auth: JWT. Ver REGLA RAÍZ 2.
+ * Read-only. Sin formatear: el front formatea + arma cada widget. Auth: realm `panel`.
  */
 
-require_once __DIR__ . '/../../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../../bootstrap.php';
 
-require_once __DIR__ . '/../../../lib/reports/ReportDashboardService.php';
+$ctx = apiAuthTenant(['panel']);
+$svc = new \Punto\Api\Reports\DashboardService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
@@ -44,5 +44,17 @@ $opts = [
     'type' => preg_replace('/[^a-zA-Z0-9_]/', '', (string) (validateHttp('type') ?: '')),
 ];
 
-$svc = new ReportDashboardService();
-apiOk($svc->widget($widget, $opts));
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
+}
+
+apiOk($svc->widget(
+    $widget,
+    $opts,
+    $roc,
+    (string) COMPANY_ID,
+    (string) OUTLET_ID,
+    (string) $ctx['userId']
+));

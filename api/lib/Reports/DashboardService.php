@@ -1,72 +1,79 @@
 <?php
-/**
- * Dominio de Reportes — Dashboard del panel (capa API, motor ERP).
- *
- * El dashboard es una COMPOSICIÓN de widgets; cada uno se pide por separado:
- *   GET /API/v1/reports/dashboard?widget=<nombre>&from=&to=[&week&prev&type]
- *
- * Widgets: info, incomeOutcomeStats, paymentStatus, customers, customersRates, topItems,
- * topHours, topCategories, topBrands, topPayments, satisfaction, orders, tables, schedule,
- * notifications, notificationsCount, getReminders.
- *
- * Devuelve datos CRUDOS (números, sin formatear, sin HTML); el front formatea + arma cada widget.
- * Read-only (el único write del legacy, `?action=tutorial`, queda fuera). Ver REGLA RAÍZ 2.
- *
- * GLOBALS DE PÁGINA RESUELTOS (el dashboard legacy depende de config.php, que el middleware de la
- * API v1 NO carga): `$_modules`/`$_cmpSettings`/plan/OUTLETS_COUNT → vía `company.config` (lookup
- * cacheado en `companyMeta()`); `$plansValues` → global de functions.php; `API_KEY` → computado
- * (sha1 config.accountId); `USER_ID` → `PANEL_AUTHED_USER`.
- *
- * Fixes PG: `FORCE INDEX` (MySQL) eliminado; `HOUR()` → `EXTRACT(HOUR FROM ...)`; `contactInCalendar`
- * demovido a `data` JSONB → `data->>'contactInCalendar'`; `customerId > 1` (UUID vs int) → `IS NOT NULL`.
- *
- * Tenant: $roc (getROC) por query; companyId bound en cada lookup.
- */
-class ReportDashboardService
-{
-    private $meta = null;   // fila company.config (flatten) cacheada
+declare(strict_types=1);
 
-    /** Despacha el widget pedido. */
-    public function widget($name, array $opts)
+namespace Punto\Api\Reports;
+
+/**
+ * Dominio de Reportes — Dashboard del panel (API compartida, motor ERP).
+ *
+ * Port FIEL de panel/lib/reports/ReportDashboardService.php (Fase 2 batch 15 — FINAL F2).
+ * Cambios vs el original:
+ *  - namespace + `final`
+ *  - ROC, companyId, outletId, userId por PARÁMETRO (no globals).
+ *  - `lessInternalTotals`, `getSalesByPayment`, `getPreviousPeriod` (panel-only / rotos en
+ *    /app) → `NonAddingSales::*` (helper compartido, expuestos public static en batches
+ *    previos: lessInternalTotals y previousPeriod en batch 14, salesByPayment en batch 8).
+ *  - `getAllToPayTransactions` (en /app pero lee `$_SESSION` y `COMPANY_ID` interpolado en
+ *    el SQL) → `payedByParent()` private inline parametrizado.
+ *  - `getItemData` (panel-only) → `itemData()` private inline.
+ *  - `getCustomersRate` (panel-only, contiene `COMPANY_ID` interpolado sin comillas →
+ *    roto en PG) → `customersRate()` private inline con bound params.
+ *  - `getTaxonomyName` → lookup directo bindeado por companyId (fix preventivo aplicado
+ *    en batch 14 + commit fix 348b4ba; ver ProductsService::tname).
+ *  - `enc` → identity en PG (mismo patrón que otros services).
+ *  - `getAllPlans`, `getPaymentMethodName`, `curlContents`, `toUTF8` resuelven por
+ *    fallback de namespace (en /app).
+ *
+ * 17 widgets (uno por llamada GET); el dashboard del panel compone llamando varios.
+ * Read-only. Tenant: $roc por query; companyId bound en cada lookup.
+ *
+ * Fixes PG heredados del original: `FORCE INDEX` MySQL eliminado; `HOUR()` →
+ * `EXTRACT(HOUR FROM ...)`; `contactInCalendar` JSONB; `customerId > 1` (UUID vs int)
+ * → `customerId IS NOT NULL`.
+ */
+final class DashboardService
+{
+    private mixed $meta = null;   // CaseInsensitiveArray (ADOdb) o []
+    private array $taxonomyCache = [];
+
+    public function widget(string $name, array $opts, string $roc, string $companyId, string $outletId, string $userId): array
     {
         switch ($name) {
-            case 'info':                return $this->info();
-            case 'incomeOutcomeStats':  return $this->incomeOutcomeStats($opts);
-            case 'paymentStatus':       return $this->paymentStatus($opts);
-            case 'customers':           return $this->customers($opts);
-            case 'customersRates':      return $this->customersRates($opts);
-            case 'topItems':            return $this->topItems($opts);
-            case 'topHours':            return $this->topHours($opts);
-            case 'topCategories':       return $this->topCategories($opts);
-            case 'topBrands':           return $this->topBrands($opts);
-            case 'topPayments':         return $this->topPayments($opts);
-            case 'satisfaction':        return $this->satisfaction($opts);
-            case 'orders':              return $this->orders();
-            case 'tables':              return $this->tables();
-            case 'schedule':            return $this->schedule($opts);
-            case 'notifications':       return $this->notifications($opts);
-            case 'notificationsCount':  return $this->notificationsCount($opts);
-            case 'getReminders':        return [];   // legacy: hardcodeado a una company → muerto
-            default:                    return null; // el endpoint responde 422
+            case 'info':                return $this->info($roc, $companyId);
+            case 'incomeOutcomeStats':  return $this->incomeOutcomeStats($opts, $roc);
+            case 'paymentStatus':       return $this->paymentStatus($opts, $roc, $companyId);
+            case 'customers':           return $this->customers($opts, $roc, $companyId);
+            case 'customersRates':      return $this->customersRates($opts, $roc, $companyId);
+            case 'topItems':            return $this->topItems($opts, $roc, $companyId);
+            case 'topHours':            return $this->topHours($opts, $roc);
+            case 'topCategories':       return $this->topTaxonomy($opts, 'categoryId', 'Sin categoría', $roc, $companyId);
+            case 'topBrands':           return $this->topTaxonomy($opts, 'brandId', 'Sin marca', $roc, $companyId);
+            case 'topPayments':         return $this->topPayments($opts, $roc);
+            case 'satisfaction':        return $this->satisfaction($opts, $roc, $companyId);
+            case 'orders':              return $this->orders($roc, $companyId);
+            case 'tables':              return $this->tables($roc, $companyId);
+            case 'schedule':            return $this->schedule($opts, $roc, $companyId, $outletId);
+            case 'notifications':       return $this->notifyGateway('get_notifications',       $opts, $companyId, $outletId, $userId);
+            case 'notificationsCount':  return $this->notifyGateway('get_notifications_count', $opts, $companyId, $outletId, $userId);
+            case 'getReminders':        return [];
+            default:                    return [];
         }
     }
 
-    /* ───────────────────────── widgets de stats ───────────────────────── */
+    /* ───────────── widgets de stats ───────────── */
 
-    /** Contadores generales + límites del plan. */
-    private function info()
+    private function info(string $roc, string $companyId): array
     {
-        $roc = getROC(1);
         $gift  = ncmExecute("SELECT COUNT(*) as count FROM giftCardSold WHERE transactionId IS NOT NULL AND giftCardSoldValue > 0" . $roc);
-        $users = ncmExecute("SELECT COUNT(*) as count FROM contact WHERE type = 0 AND companyId = ?", [COMPANY_ID]);
-        $items = ncmExecute("SELECT COUNT(*) as count FROM item WHERE companyId = ?", [COMPANY_ID]);
+        $users = ncmExecute("SELECT COUNT(*) as count FROM contact WHERE type = 0 AND companyId = ?", [$companyId]);
+        $items = ncmExecute("SELECT COUNT(*) as count FROM item WHERE companyId = ?", [$companyId]);
         $draw  = ncmExecute("SELECT COUNT(*) as count FROM drawer WHERE (drawerCloseDate IS NULL OR drawerCloseDate < '2010-01-01 00:00:00')" . $roc . " LIMIT 10");
         $startD = date('Y-m-01 00:00:00');
         $endD   = date('Y-m-t 23:59:59');
-        $trans = ncmExecute("SELECT COUNT(*) as count FROM transaction WHERE companyId = ? AND transactionDate BETWEEN ? AND ?", [COMPANY_ID, $startD, $endD]);
+        $trans = ncmExecute("SELECT COUNT(*) as count FROM transaction WHERE companyId = ? AND transactionDate BETWEEN ? AND ?", [$companyId, $startD, $endD]);
 
-        $m = $this->companyMeta();
-        $outlets = (int) $this->scalar("SELECT COUNT(*) as count FROM outlet WHERE companyId = ?", [COMPANY_ID]);
+        $m = $this->companyMeta($companyId);
+        $outlets = (int) $this->scalar("SELECT COUNT(*) as count FROM outlet WHERE companyId = ?", [$companyId]);
         global $plansValues;
         if (!is_array($plansValues) || !$plansValues) {
             $plansValues = function_exists('getAllPlans') ? getAllPlans() : [];
@@ -87,10 +94,8 @@ class ReportDashboardService
         ];
     }
 
-    /** Ingresos/egresos/revenue/margen/ticket promedio del período (+week, +prev). */
-    private function incomeOutcomeStats(array $opts)
+    private function incomeOutcomeStats(array $opts, string $roc): array
     {
-        $roc = getROC(1);
         [$from, $to] = $this->range($opts);
 
         $sales = ncmExecute(
@@ -100,7 +105,7 @@ class ReportDashboardService
              AND transactionDate >= ? AND transactionDate <= ?" . $roc,
             [$from, $to]
         );
-        $internals = lessInternalTotals($roc, $from, $to);
+        $internals = NonAddingSales::lessInternalTotals($roc, $from, $to);
         $finalTotal = $sales ? (((float) $sales['total'] - (float) $sales['discount']) - (float) ($internals['total'] ?? 0)) : 0.0;
         $count = $sales ? (int) $sales['count'] : 0;
         $customerAverage = ($sales && $count) ? ((float) $sales['total'] / $count) : 0.0;
@@ -125,14 +130,8 @@ class ReportDashboardService
         ];
     }
 
-    /**
-     * Contado/crédito/cobrado/por-cobrar (totales + conteos) del período.
-     * Reimplementado: el getAllTransactions del legacy usa `global $startDate/$endDate` (no
-     * existen en el contexto API → query con BETWEEN NULL) → se consulta acá con from/to explícito.
-     */
-    private function paymentStatus(array $opts)
+    private function paymentStatus(array $opts, string $roc, string $companyId): array
     {
-        $roc = getROC(1);
         [$from, $to] = $this->range($opts);
         $res = ncmExecute(
             "SELECT transactionId, transactionTotal, transactionDiscount, transactionType
@@ -140,8 +139,7 @@ class ReportDashboardService
             [$from, $to], false, false, true
         );
         $res  = is_array($res) ? $res : [];
-        $paid = getAllToPayTransactions(true);   // pagos acumulados por parentId (sin filtro de fecha, como el legacy)
-        $paid = is_array($paid) ? $paid : [];
+        $paid = $this->payedByParent($companyId);
 
         $contado = 0.0; $credito = 0.0; $cobrado = 0.0;
         $coCount = 0; $cCount = 0; $cobCount = 0; $porCount = 0;
@@ -166,19 +164,16 @@ class ReportDashboardService
         ];
     }
 
-    /** Clientes: total, nuevos del período, recurrentes, tasa de retorno (+week, +prev). */
-    private function customers(array $opts)
+    private function customers(array $opts, string $roc, string $companyId): array
     {
-        $roc = getROC(1);
         [$from, $to] = $this->range($opts);
 
-        $total = (int) $this->scalar("SELECT COUNT(contactId) as count FROM contact WHERE type = 1 AND companyId = ?", [COMPANY_ID]);
+        $total = (int) $this->scalar("SELECT COUNT(contactId) as count FROM contact WHERE type = 1 AND companyId = ?", [$companyId]);
         $new   = (int) $this->scalar(
             "SELECT COUNT(contactId) as count FROM contact WHERE type = 1 AND contactDate BETWEEN ? AND ? AND companyId = ?",
-            [$from, $to, COMPANY_ID]
+            [$from, $to, $companyId]
         );
-        // Recurrentes: clientes (creados antes del período) con ventas en el período.
-        // Fix PG: `customerId > 1` (UUID vs int) → customerId IS NOT NULL.
+
         $rocA = str_replace(['outletId', 'companyId'], ['a.outletId', 'a.companyId'], $roc);
         $res = ncmExecute(
             "SELECT COUNT(DISTINCT a.customerId) as count
@@ -199,20 +194,16 @@ class ReportDashboardService
         ];
     }
 
-    /** Tasas de clientes (helper de dominio). */
-    private function customersRates(array $opts)
+    private function customersRates(array $opts, string $roc, string $companyId): array
     {
         [$from, $to] = $this->range($opts);
-        $out = getCustomersRate($from, $to);
-        return is_array($out) ? $out : [];
+        return $this->customersRate($from, $to, $roc, $companyId);
     }
 
-    /* ───────────────────────── widgets "top" ───────────────────────── */
+    /* ───────────── widgets "top" ───────────── */
 
-    /** Top 6 horas por unidades. Fix PG: HOUR()→EXTRACT, sin FORCE INDEX. */
-    private function topHours(array $opts)
+    private function topHours(array $opts, string $roc): array
     {
-        $roc = getROC(1);
         [$from, $to] = $this->range($opts);
         $res = ncmExecute(
             "SELECT EXTRACT(HOUR FROM transactionDate)::int as hora, COUNT(transactionId) as total,
@@ -230,15 +221,14 @@ class ReportDashboardService
         return ['hour' => $hour, 'total' => $total];
     }
 
-    /** Top 5 artículos por unidades vendidas. */
-    private function topItems(array $opts)
+    private function topItems(array $opts, string $roc, string $companyId): array
     {
-        $roc = str_replace(['outletId', 'companyId'], ['b.outletId', 'b.companyId'], getROC(1));
+        $rocB = str_replace(['outletId', 'companyId'], ['b.outletId', 'b.companyId'], $roc);
         [$from, $to] = $this->range($opts);
         $res = ncmExecute(
             "SELECT a.itemId as id, SUM(a.itemSoldUnits) as count, SUM(a.itemSoldTotal) as total
              FROM itemSold a, transaction b
-             WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $roc . "
+             WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
              AND a.transactionId = b.transactionId AND a.itemSoldTotal > 0
              GROUP BY a.itemId ORDER BY count DESC LIMIT 5",
             [$from, $to], false, false, true
@@ -246,7 +236,7 @@ class ReportDashboardService
         $res = is_array($res) ? $res : [];
         $out = [];
         foreach ($res as $r) {
-            $item = getItemData((string) $r['id']);
+            $item = $this->itemData((string) $r['id'], $companyId);
             $out[] = [
                 'name'  => $item ? (string) ($item['itemName'] ?? '') : '',
                 'count' => (float) $r['count'],
@@ -256,47 +246,31 @@ class ReportDashboardService
         return $out;
     }
 
-    /** Top categorías por unidades. Reimplementado: el helper legacy SELECTea `a.itemId` sin
-     *  agruparlo (rompe en PG); acá GROUP BY categoryId limpio (categoryId es columna real). */
-    private function topCategories(array $opts)
+    private function topTaxonomy(array $opts, string $col, string $emptyLabel, string $roc, string $companyId): array
     {
-        return $this->topTaxonomy($opts, 'categoryId', 'Sin categoría');
-    }
-
-    /** Top marcas por unidades (mismo fix PG que topCategories; brandId es columna real). */
-    private function topBrands(array $opts)
-    {
-        return $this->topTaxonomy($opts, 'brandId', 'Sin marca');
-    }
-
-    private function topTaxonomy(array $opts, $col, $emptyLabel)
-    {
-        $roc = str_replace(['outletId', 'companyId'], ['c.outletId', 'c.companyId'], getROC(1));
+        $rocC = str_replace(['outletId', 'companyId'], ['c.outletId', 'c.companyId'], $roc);
         [$from, $to] = $this->range($opts);
         $res = ncmExecute(
             "SELECT b.$col as tax, SUM(a.itemSoldUnits) as usold
              FROM itemSold a, item b, transaction c
              WHERE a.itemId = b.itemId AND a.itemSoldDate BETWEEN ? AND ?
-             AND c.transactionType IN (0,3) AND a.transactionId = c.transactionId" . $roc . "
+             AND c.transactionType IN (0,3) AND a.transactionId = c.transactionId" . $rocC . "
              GROUP BY b.$col ORDER BY usold DESC LIMIT 10",
             [$from, $to], false, false, true
         );
         $res = is_array($res) ? $res : [];
         $out = [];
         foreach ($res as $r) {
-            $name = (string) getTaxonomyName((string) $r['tax']);
+            $name = $this->tname((string) $r['tax'], $companyId);
             $out[] = ['title' => ($name === 'None' || $name === '') ? $emptyLabel : $name, 'total' => round((float) $r['usold'], 2)];
         }
         return $out;
     }
 
-    /** Ventas por medio de pago (helper de dominio), ordenadas desc. */
-    private function topPayments(array $opts)
+    private function topPayments(array $opts, string $roc): array
     {
-        $roc = getROC(1);
         [$from, $to] = $this->range($opts);
-        $top = getSalesByPayment($from, $to, $roc);
-        $top = is_array($top) ? $top : [];
+        $top = NonAddingSales::salesByPayment($from, $to, $roc);
         usort($top, fn($a, $b) => (float) $b['price'] <=> (float) $a['price']);
         $out = ['title' => [], 'amount' => []];
         foreach ($top as $m) {
@@ -306,13 +280,11 @@ class ReportDashboardService
         return $out;
     }
 
-    /** Satisfacción (NPS): detractores/pasivos/promotores. Gateado por módulo feedback. */
-    private function satisfaction(array $opts)
+    private function satisfaction(array $opts, string $roc, string $companyId): array
     {
-        if (!$this->moduleOn('feedback')) {
+        if (!$this->moduleOn('feedback', $companyId)) {
             return [];
         }
-        $roc = getROC(1);
         [$from, $to] = $this->range($opts);
         $lvl = function ($n) use ($roc, $from, $to) {
             return (int) $this->scalar(
@@ -329,30 +301,26 @@ class ReportDashboardService
         ];
     }
 
-    /* ───────────────────────── widgets gateados por módulo ───────────────────────── */
+    /* ───────────── widgets gateados por módulo ───────────── */
 
-    /** Órdenes (tipo 12). Gateado por módulo ordersPanel. */
-    private function orders()
+    private function orders(string $roc, string $companyId): array
     {
-        if (!$this->moduleOn('ordersPanel')) {
+        if (!$this->moduleOn('ordersPanel', $companyId)) {
             return [];
         }
-        $roc = getROC(1);
         return [
             'ordersCount' => (int) $this->scalar("SELECT COUNT(*) as count FROM transaction WHERE transactionType = 12 AND transactionStatus IN (0,1,2,3,5)" . $roc),
             'onlineCount' => (int) $this->scalar("SELECT COUNT(*) as count FROM transaction WHERE transactionType = 12 AND transactionStatus IN (0,1,2,3,5) AND transactionName = 'ecom'" . $roc),
         ];
     }
 
-    /** Mesas (tipo 11). Gateado por módulo tables. */
-    private function tables()
+    private function tables(string $roc, string $companyId): array
     {
-        if (!$this->moduleOn('tables')) {
+        if (!$this->moduleOn('tables', $companyId)) {
             return [];
         }
-        $roc = getROC(1);
         $occup = (int) $this->scalar("SELECT COUNT(*) as count FROM transaction WHERE transactionType = 11 AND transactionName > 0" . $roc);
-        $m = $this->companyMeta();
+        $m = $this->companyMeta($companyId);
         $totalTables = (int) ($m['tablesCount'] ?? 0) ?: 90;
         return [
             'tablesCount' => $occup,
@@ -362,16 +330,12 @@ class ReportDashboardService
         ];
     }
 
-    /** Agenda (tipo 13): ocupación de horas. Gateado por módulo calendar. */
-    private function schedule(array $opts)
+    private function schedule(array $opts, string $roc, string $companyId, string $outletId): array
     {
-        if (!$this->moduleOn('calendar')) {
+        if (!$this->moduleOn('calendar', $companyId)) {
             return [];
         }
-        $roc = getROC(1);
         [$from, $to] = $this->range($opts);
-        // Itera el recordset (forceObj), NO getAssoc: GetAssoc keyea por la 1ª columna (fromDate) y
-        // colapsaría las citas que comparten hora de inicio. Ver nota homóloga en ReportScheduleService.
         $res = ncmExecute(
             "SELECT fromDate, toDate, transactionStatus FROM transaction
              WHERE transactionType = 13 AND fromDate >= ? AND toDate <= ?
@@ -390,14 +354,13 @@ class ReportDashboardService
             $res->Close();
         }
 
-        // Usuarios agendables. Fix PG: contactInCalendar demovido a data JSONB.
         $agendables = (int) $this->scalar(
             "SELECT COUNT(*) as count FROM contact
              WHERE type = 0 AND contactStatus > 0 AND data->>'contactInCalendar' = '1' AND companyId = ?
              AND (outletId = ? OR outletId IS NULL)",
-            [COMPANY_ID, OUTLET_ID]
+            [$companyId, $outletId]
         );
-        $m = $this->companyMeta();
+        $m = $this->companyMeta($companyId);
         $openFrom = (string) ($m['settingOpenFrom'] ?? '08');
         $openTo   = (string) ($m['settingOpenTo'] ?? '20');
         $openHours = max(0, (int) $openTo - (int) $openFrom);
@@ -414,38 +377,25 @@ class ReportDashboardService
         ];
     }
 
-    /* ───────────────────────── widgets gateway (API externa) ───────────────────────── */
+    /* ───────────── widgets gateway (API externa) ───────────── */
 
-    /** Notificaciones (gateway a la API legacy get_notifications). */
-    private function notifications(array $opts)
-    {
-        return $this->notifyGateway('get_notifications', $opts);
-    }
-
-    /** Conteo de notificaciones (gateway). */
-    private function notificationsCount(array $opts)
-    {
-        return $this->notifyGateway('get_notifications_count', $opts);
-    }
-
-    private function notifyGateway($endpoint, array $opts)
+    private function notifyGateway(string $endpoint, array $opts, string $companyId, string $outletId, string $userId): array
     {
         $data = [
-            'api_key'    => $this->apiKey(),
-            'company_id' => enc(COMPANY_ID),
-            'user'       => enc(PANEL_AUTHED_USER),   // §14: en la API es PANEL_AUTHED_USER, no USER_ID
+            'api_key'    => $this->apiKey($companyId),
+            'company_id' => self::enc($companyId),
+            'user'       => self::enc($userId),
             'type'       => $opts['type'] ?: 'notes',
-            'outlet'     => enc(OUTLET_ID),
+            'outlet'     => self::enc($outletId),
         ];
         $raw = curlContents(API_URL . '/' . $endpoint, 'POST', $data);
         $res = json_decode((string) $raw, true);
         return is_array($res) ? $res : [];
     }
 
-    /* ───────────────────────── helpers ───────────────────────── */
+    /* ───────────── helpers ───────────── */
 
-    /** Rango de fechas resuelto: week → última semana; prev → período anterior espejado. */
-    private function range(array $opts)
+    private function range(array $opts): array
     {
         $from = $opts['from']; $to = $opts['to'];
         if (!empty($opts['week'])) {
@@ -460,44 +410,154 @@ class ReportDashboardService
         return [$from, $to];
     }
 
-    /** Fila company.config (flatten) cacheada — fuente de módulos/settings/plan. */
-    private function companyMeta()
+    /** Retorna el ROW de company (CaseInsensitiveArray de ADOdb) — NO castear a (array) porque
+     *  el cast pierde el lookup case-insensitive y devuelve campos vacíos. */
+    private function companyMeta(string $companyId)
     {
         if ($this->meta === null) {
-            $row = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1", [COMPANY_ID]);
+            $row = ncmExecute("SELECT * FROM company WHERE companyId = ? LIMIT 1", [$companyId]);
             $this->meta = ($row && (is_object($row) || is_array($row))) ? $row : [];
         }
         return $this->meta;
     }
 
-    /** ¿Módulo activo? Lee el flag del company.config (= $_modules del legacy). */
-    private function moduleOn($key)
+    private function moduleOn(string $key, string $companyId): bool
     {
-        $m = $this->companyMeta();
+        $m = $this->companyMeta($companyId);
         $v = $m[$key] ?? null;
         return $v && $v !== '0' && $v !== 'false' && $v !== 'null';
     }
 
-    /** api_key del gateway: sha1(company.config.accountId) — igual que config.php (define API_KEY). */
-    private function apiKey()
+    private function apiKey(string $companyId): string
     {
         if (defined('API_KEY')) {
             return API_KEY;
         }
-        $m = $this->companyMeta();
+        $m = $this->companyMeta($companyId);
         return sha1((string) ($m['accountId'] ?? ''));
     }
 
-    /** Escalar de un SELECT agregado (siempre aliaseado `as count`). */
-    private function scalar($sql, array $params = [])
+    private function scalar(string $sql, array $params = []): mixed
     {
         $row = ncmExecute($sql, $params);
         return $row ? ($row['count'] ?? 0) : 0;
     }
 
-    /** División segura. */
-    private function div($a, $b)
+    private function div($a, $b): float
     {
-        return ($b == 0) ? 0 : ($a / $b);
+        return ($b == 0) ? 0.0 : ($a / $b);
+    }
+
+    /**
+     * Port inline de getAllToPayTransactions del panel: SUM(ABS) por transactionParentId.
+     * (El global lee `COMPANY_ID` interpolado + cache `$_SESSION` — incompatible con /api).
+     */
+    private function payedByParent(string $companyId): array
+    {
+        $res = ncmExecute(
+            "SELECT transactionParentId, SUM(ABS(transactionTotal)) as payed
+             FROM transaction WHERE transactionType IN (5,6) AND companyId = ?
+             GROUP BY transactionParentId",
+            [$companyId], false, false, true
+        );
+        $res = is_array($res) ? $res : [];
+        $map = [];
+        foreach ($res as $r) {
+            $map[(string) $r['transactionParentId']] = abs((float) ($r['payed'] ?? 0));
+        }
+        return $map;
+    }
+
+    /** Port inline de getItemData (panel-only): lookup item por id+companyId.
+     *  Retorna el CaseInsensitiveArray de ADOdb sin cast — el cast pierde campos. */
+    private function itemData(string $itemId, string $companyId)
+    {
+        $r = ncmExecute(
+            "SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1",
+            [$itemId, $companyId]
+        );
+        return $r ?: [];
+    }
+
+    /**
+     * Port inline de getCustomersRate (panel-only). Fix vs el original: el legacy interpola
+     * COMPANY_ID en el SQL `companyId = " . COMPANY_ID` sin comillas → roto en PG (UUID).
+     * Acá bindeado.
+     */
+    private function customersRate(string $from, string $to, string $roc, string $companyId): array
+    {
+        $rocC = str_replace(['companyId', 'outletId'], ['c.companyId', 'c.outletId'], $roc);
+        [$backStart, $backEnd] = NonAddingSales::previousPeriod($from, $to);
+
+        $newC = ncmExecute(
+            "SELECT COUNT(contactId) as count FROM contact
+             WHERE type = 1 AND contactDate BETWEEN ? AND ? AND companyId = ?",
+            [$from, $to, $companyId]
+        );
+        $acquired = $newC ? (int) $newC['count'] : 0;
+
+        $sql = 'SELECT COUNT(c.contactId) as count
+                FROM contact c
+                WHERE c.contactDate < ?' . $rocC . '
+                AND EXISTS (
+                    SELECT 1 FROM transaction t
+                    WHERE t.transactionDate BETWEEN ? AND ?
+                    AND t.transactionType IN (0,3)
+                    AND t.customerId = c.contactId
+                )';
+
+        $resPast = ncmExecute($sql, [$backStart, $backStart, $backEnd]);
+        $customerStart = $resPast ? (int) ($resPast['count'] ?? 0) : 0;
+
+        $resNow = ncmExecute($sql, [$from, $from, $to]);
+        $customerEnd = $resNow ? (int) ($resNow['count'] ?? 0) : 0;
+
+        // Réplica fiel del bug histórico: el legacy resetea $acquired = 0 antes de los cálculos.
+        $acquired = 0;
+
+        $custGrowth = $customerEnd - $customerStart;
+        $growthR    = $this->div($custGrowth, $customerStart) * 100;
+        $churn      = $customerEnd - $acquired - $customerStart;
+        $churn      = $churn > 0 ? 0 : abs($churn);
+        $churnR     = $this->div($churn, $customerStart) * 100;
+        $retentionR = $this->div(($customerEnd - $acquired), $customerStart) * 100;
+
+        return [
+            'churn_rate'           => round($churnR, 2),
+            'churn'                => round($churn, 2),
+            'retention_rate'       => round($retentionR - $growthR, 2),
+            'customer_growth'      => round($custGrowth, 2),
+            'customer_growth_rate' => round($growthR, 2),
+            'start_count'          => $customerStart,
+            'end_count'            => $customerEnd,
+            'new_count'            => $acquired,
+        ];
+    }
+
+    /**
+     * Lookup directo de taxonomyName bindeado por companyId. NO usa el global
+     * getTaxonomyName (delega a /app que lee $SQLcompanyId vacío → 'None' silente).
+     * Fix preventivo establecido en batch 14 / commit fix 348b4ba.
+     */
+    private function tname(string $id, string $companyId): string
+    {
+        if ($id === '') {
+            return '';
+        }
+        if (!array_key_exists($id, $this->taxonomyCache)) {
+            $r = ncmExecute(
+                "SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1",
+                [$id, $companyId]
+            );
+            $name = $r ? (string) ($r['taxonomyName'] ?? '') : '';
+            $this->taxonomyCache[$id] = ($name === '' || $name === 'None') ? '' : toUTF8($name);
+        }
+        return $this->taxonomyCache[$id];
+    }
+
+    /** Port fiel de enc (identity en PG). */
+    private static function enc(string $str): string
+    {
+        return $str;
     }
 }

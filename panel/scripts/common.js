@@ -5828,7 +5828,7 @@ var ncmNotify = {
 
 			if($notify.is(':visible')){
 				spinner('#notify', 'show');
-				$.get('/a_dashboard?widget=notifications&type=notes',function(result){
+				$.get('/bff/reports/dashboard.php?widget=notifications&type=notes',function(result){
 					spinner('#notify', 'hide');
 					var list = ncmNotify.buildNotifyLists(result);
 					if(list){
@@ -5853,7 +5853,7 @@ var ncmNotify = {
 
 			if($notify.is(':visible') && !displayed){
 				spinner('#notify', 'show');
-				$.get('/a_dashboard?widget=notifications&type=news',function(result){
+				$.get('/bff/reports/dashboard.php?widget=notifications&type=news',function(result){
 					spinner('#notify', 'hide');
 					var list = ncmNotify.buildNotifyLists(result);
 					if(list){
@@ -5866,7 +5866,7 @@ var ncmNotify = {
 	},
 	checkNewNotify : function(){
 		if(window.isUserActive && !window.standAlone){
-			$.get('/a_dashboard?widget=notificationsCount',function(result){
+			$.get('/bff/reports/dashboard.php?widget=notificationsCount',function(result){
 				if(validity(result.count) > 0){
 					$('.notifybtncount').removeClass('hidden').text(result.count);
 				}else{
@@ -6042,7 +6042,7 @@ ncmHelpers.onClickWrap('a.ncmDarkMode',function(e,tis){
 //Reminders 
 var checkReminder = function(){
 	if(window.isUserActive && !window.standAlone){
-		$.get('/a_dashboard?widget=getReminders',function(result){
+		$.get('/bff/reports/dashboard.php?widget=getReminders',function(result){
 			if(result){
 				$.each(result,function(key,val){
 					var bg = 'gradBgGray';

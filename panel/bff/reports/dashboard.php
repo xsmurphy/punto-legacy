@@ -23,7 +23,7 @@ $query = array_filter([
     'type'   => $_GET['type']   ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/dashboard.php', $query);
+$res = bffApiGet('v1/reports/dashboard.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
