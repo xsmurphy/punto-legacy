@@ -1,30 +1,33 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Resumen Anual de Ingresos y Egresos (capa API, motor ERP).
+ * Dominio de Reportes — Resumen Anual de Ingresos y Egresos (API compartida, motor ERP).
  *
- * Por cada mes con ventas en el año: agregados de ventas (tipos 0,3) + gastos (1,4) +
- * devoluciones (6, magnitud) + clientes nuevos (contact type=1) + ventas que NO suman
- * (gift card / crédito interno / puntos, vía getNonAddingToSales). Filas CRUDAS (números),
- * sin formatear, sin HTML. El BFF deriva netTotal/revenue/margen + promedio; el front
- * formatea, mapea mes→nombre y arma tabla + chart. Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/reports/ReportSummaryYearService.php (Fase 2 batch 7). Cambios vs original:
+ *  - namespace + `final`
+ *  - el ROC se recibe por PARÁMETRO (no `getROC(1)` interno)
+ *  - `getNonAddingToSales` (sólo en panel, cadena profunda con `getSalesByPayment` +
+ *    `lessInternalTotals` que en /app están latente rotos en PG) → reemplazado por
+ *    `NonAddingSales::compute()` (helper compartido del namespace).
  *
- * Reemplaza la lógica inline de panel/a_report_summary_year.php (action=generalTable).
+ * Por cada mes del año con ventas: agregados de ventas (tipos 0,3) + gastos (1,4) +
+ * devoluciones (6, magnitud) + clientes nuevos (contact type=1) + ventas que NO suman.
  *
- * Fixes PG vs legacy: `MONTH(transactionDate)` → `EXTRACT(MONTH FROM transactionDate)::int`;
- * sin `USE INDEX` (idiom MySQL); se elimina el `transactionDate as date` no agrupado (PG rechaza
- * columnas fuera del GROUP BY) — las fronteras del mes se derivan del año+mes en PHP. El `LIMIT
- * max_customers` sobre un COUNT (no-op) se omite.
- *
- * Tenant: $roc (getROC) en las queries de transacciones/contactos; companyId para createdAt.
+ * Tenant: $roc en queries de transactions; companyId bound en contact + company.
+ * Fixes PG: EXTRACT(MONTH ...) en vez de MONTH(); sin USE INDEX; sin LIMIT en COUNT.
  */
-class ReportSummaryYearService
+final class SummaryYearService
 {
-    /** @return array {year, years:[int], months:[{month,usold,count,discount,tax,salesTotal,expensesTotal,returnsTotal,nonAddingTotal,customers}]} */
-    public function yearly($year, $roc, $companyId)
+    public function __construct(private readonly NonAddingSales $nonAdding = new NonAddingSales()) {}
+
+    /** @return array {year, years:[int], months:[{...}]} */
+    public function yearly($year, string $roc, string $companyId): array
     {
         $year      = (int) $year;
         $startYear = sprintf('%04d-01-01 00:00:00', $year);
-        // Año en curso: hasta hoy; años pasados: hasta fin de año.
         $endYear   = ($year < (int) date('Y'))
             ? sprintf('%04d-12-31 23:59:59', $year)
             : date('Y-m-d 23:59:59');
@@ -60,7 +63,7 @@ class ReportSummaryYearService
                     'tax'            => (float) ($f['tax'] ?? 0),
                     'salesTotal'     => (float) ($f['total'] ?? 0),
                     'expensesTotal'  => $this->expensesTotal($ms, $me, $roc),
-                    'returnsTotal'   => $this->returnsTotal($ms, $me, $roc),  // magnitud (positiva)
+                    'returnsTotal'   => $this->returnsTotal($ms, $me, $roc),
                     'nonAddingTotal' => $this->nonAddingTotal($ms, $me, $roc),
                     'customers'      => $this->newCustomers($ms, $me, $roc),
                 ];
@@ -76,8 +79,7 @@ class ReportSummaryYearService
         ];
     }
 
-    /** Gastos (tipos 1=gasto, 4=retiro) en el período. */
-    private function expensesTotal($from, $to, $roc)
+    private function expensesTotal($from, $to, $roc): float
     {
         $r = ncmExecute(
             'SELECT COALESCE(SUM(transactionTotal), 0) AS total FROM transaction
@@ -88,7 +90,7 @@ class ReportSummaryYearService
     }
 
     /** Devoluciones (tipo 6) — magnitud positiva (SUM(ABS)). */
-    private function returnsTotal($from, $to, $roc)
+    private function returnsTotal($from, $to, $roc): float
     {
         $r = ncmExecute(
             'SELECT COALESCE(SUM(ABS(transactionTotal)), 0) AS total FROM transaction
@@ -98,21 +100,20 @@ class ReportSummaryYearService
         return (float) ($r['total'] ?? 0);
     }
 
-    /** Ventas que NO suman al total (gift card / crédito interno / puntos). */
-    private function nonAddingTotal($from, $to, $roc)
+    /** Ventas que NO suman (gift card / crédito interno / puntos). Vía NonAddingSales helper. */
+    private function nonAddingTotal(string $from, string $to, string $roc): float
     {
-        $na = getNonAddingToSales([
-            'startDate' => $from,
-            'endDate'   => $to,
-            'roc'       => $roc,
-            'backThen'  => false,
-            'cache'     => true,
-        ]);
+        $na = $this->nonAdding->compute($from, $to, $roc, false, 1);
         return (float) ($na['total'] ?? 0);
     }
 
-    /** Clientes nuevos (contact type=1) creados en el período. */
-    private function newCustomers($from, $to, $roc)
+    /**
+     * Clientes nuevos (contact type=1) creados en el período. PORT FIEL del legacy: usa el
+     * $roc completo (companyId + outletId) → solo cuenta los clientes registrados en la
+     * sucursal actual del usuario. Si producto decide "por toda la company", el cambio es
+     * cambiar $roc por bound `companyId = ?` acá — deuda registrada como mejora opcional.
+     */
+    private function newCustomers($from, $to, string $roc): int
     {
         $r = ncmExecute(
             'SELECT COUNT(contactId) AS total FROM contact
@@ -123,7 +124,7 @@ class ReportSummaryYearService
     }
 
     /** Lista de años desde la creación de la company hasta hoy (desc), para el selector. */
-    private function yearsSince($companyId)
+    private function yearsSince(string $companyId): array
     {
         $r = ncmExecute('SELECT createdAt FROM company WHERE companyId = ?', [$companyId]);
         $created = ($r && !empty($r['createdAt'])) ? (int) date('Y', strtotime($r['createdAt'])) : (int) date('Y');

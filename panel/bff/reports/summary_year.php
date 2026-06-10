@@ -21,7 +21,7 @@ if (empty($_COOKIE['_jwt_panel'])) {
 
 $year = $_GET['y'] ?? date('Y');
 
-$res = bffApiGet('v1/reports/summary_year.php', ['y' => $year]);
+$res = bffApiGet('v1/reports/summary_year.php', ['y' => $year], '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
