@@ -62,6 +62,11 @@ El monolito `action.php`/`load.php` se migra concern-por-concern al mismo patró
 - `app/includes/functions.php` — Utilidades (pagos, formateo, roles)
 - `app/includes/jwt.php` — JWT HS256 encode/decode
 - `app/includes/jwt_middleware.php` — Validación de JWT (también usada por `/api/bootstrap.php` vía chdir). **Desde commit a3fefb4 (2026-06-06):** además de validar firma + realm, valida `device.status` si el JWT trae claim `did`. Cache file 60s. Expone `jwtIsDeviceRevoked()`, `jwtInvalidateDeviceCache()` y constante `AUTHED_DEVICE_ID`. Modo conservador si BD no disponible.
+- `app/handoff.php` — **NUEVO (commit 01d02a3, 2026-06-09)**. Endpoint SSO que recibe un JWT corto emitido por el panel (TTL 60s, iss=`'pos-app'`), lo valida y re-emite una cookie HttpOnly `_jwt` de larga duración. Punto de entrada cuando el usuario presiona "Caja" en el sidebar del panel. Ver `02-arquitectura.md § SSO handoff panel→app`.
+- `app/includes/phone.php` — **NUEVO (commit d828b02, 2026-06-09)**. Helper de libphonenumber: `phoneToE164($input, $iso): ?string` — parsea cualquier formato y devuelve E.164 o null. Ver §31 en `08-convenciones.md`.
+- `panel/includes/phone.php` — **NUEVO (commit d828b02, 2026-06-09)**. Idéntico al de app/. Mismo helper para el realm panel.
+- `docker-entrypoint.sh` — **NUEVO en raíz (commit 5ea3a2d, 2026-06-09)**. Entrypoint del container Coolify. Parsea `REDIS_URL` y configura `session.save_handler=redis` antes de lanzar PHP built-in server. Sin esto las sesiones se pierden en cada deploy.
+- `router.php` — **NUEVO en raíz (commit 82a376b, 2026-06-09)**. Dispatcher por `Host:` header para el deploy single-container. Despacha a `/panel`, `/app` o `/api` según subdominio. God-node en producción. Ver `02-arquitectura.md § Deploy single-container`.
 - `app/includes/device.php` — **NUEVO (commit a3fefb4, 2026-06-06)**. Helper de device pairing. `deviceRegister($companyId, $userId, $outletId, $registerId): ?string` — INSERT en tabla `device` + retorna `deviceId` UUID. Llamado desde `login.php` y `API/auth.php` antes de emitir el JWT.
 - `app/includes/ws_publish.php` — Publica eventos a Redis
 - `app/includes/db.postgres.php` — Conexión a PostgreSQL

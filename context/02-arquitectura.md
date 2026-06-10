@@ -35,12 +35,30 @@
 │   companyId en cada tabla)           │  │         │
 └──────────────────────────────────────┘  └─────────┘
                                                ▲
-                                               │ Pub/Sub
+                                               │ Pub/Sub + Sessions
                                     ┌──────────┘
                                     │
-                              PHP wsPublish()
-                          (fsockopen → RESP raw)
+                              PHP wsPublish() / PHP sessions
+                          (fsockopen → RESP raw / session.save_handler=redis)
 ```
+
+## Deploy single-container (Coolify, 2026-06-09)
+
+**Arquitectura de producción**: un solo container PHP sirve los 4 subdominios. El despacho por subdominio lo hace `router.php` en la raíz del repo, leyendo el header `Host:`.
+
+```
+panel.punto.la  → /panel    (panel de tenant + realm admin)
+admin.punto.la  → /panel    (mismo codebase, path /admin forzado)
+app.punto.la    → /app      (POS)
+api.punto.la    → /api      (API compartida)
+ws.punto.la     → ws-server (contenedor Node.js separado)
+```
+
+**`router.php` raíz** es un nuevo god-node de routing en prod. Recibe cada request, determina el módulo por `$_SERVER['HTTP_HOST']`, hace `chdir()` al directorio del módulo y delega al `router.php` del módulo correspondiente. Maneja también archivos estáticos (que `php -S` normalmente serviría del docroot fijo). **Regla de seguridad (commit 352285f)**: el router raíz nunca sirve `.php` como estático — previene source leak.
+
+**PHP sessions en Redis (commit 5ea3a2d)**: el `docker-entrypoint.sh` raíz parsea `REDIS_URL` al arrancar y configura `session.save_handler=redis` + `session.save_path=tcp://host:port?auth=...` en el php.ini runtime. Sin esto las sesiones viven en `/tmp/sess_*` y se pierden en cada deploy (el container se recrea). Con Redis, las sesiones persisten entre deploys.
+
+**Dev local**: sigue funcionando con 4 servidores PHP independientes por puerto (panel:8001, app:8002, api:8000). `router.php` raíz es solo para prod single-container.
 
 ## Flujo de datos principal
 
@@ -65,7 +83,7 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 | Ruta de login | `/app/login.php` · `/app/API/auth.php` | `/panel/API/auth.php` | `/admin/login` |
 | Cookie JWT | `_jwt` | `_jwt_panel` | `_jwt_admin` |
 | Secret env | `JWT_SECRET` | `JWT_SECRET` | `ADMIN_JWT_SECRET` |
-| TTL env var | `JWT_TTL` — **10 años** (device pairing) | `JWT_TTL` — **10 años** | `ADMIN_JWT_TTL` — **8h** (sesión real) |
+| TTL env var | `JWT_TTL` — **0 = eterno (recomendado POS)** o cualquier valor en segundos (device pairing) | `PANEL_JWT_TTL` — **86400 = 24h** (sesión real del tenant). Si ausente, fallback a `JWT_TTL`. | `ADMIN_JWT_TTL` — **8h** (sesión real del super-admin) |
 | Claim `iss` | `'pos-app'` | `'panel'` | `'admin'` |
 | Claim `aud` | — | — | `"admin"` |
 | Tabla de usuarios | `contact` (POS employees) | `contact` (tenant employees) | `admin_user` (plataforma) |
@@ -81,6 +99,33 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 | **Acceso del cajero** | Cajero | PIN de 4 dígitos → `ncmAuth.activeUser` + `lockPad` en JS | Transitorio por turno — el JWT del dispositivo NO se toca. |
 
 El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet". No es una sesión de usuario. El TTL largo (10 años) está justificado porque la revocación per-device ya existe vía la **tabla `device`** (migración 11, commit a3fefb4): el middleware valida `device.status` si el JWT trae claim `did`, con cache de archivo 60s en `sys_get_temp_dir/punto_device_status/{deviceId}_{companyId}.dat`. Para revocar un dispositivo individual: `UPDATE device SET status=0 WHERE deviceId=? AND companyId=?` y opcionalmente llamar `jwtInvalidateDeviceCache()`. Tokens sin `did` (legacy anterior al feat) siguen pasando (backwards compat).
+
+### SSO handoff panel→app (commit 01d02a3, 2026-06-09)
+
+El link "Caja" del sidebar del panel abre `app.punto.la`. Como los subdominios son distintos, las cookies no se comparten. El handoff resuelve esto server-side:
+
+```
+Panel JS (panel.punto.la)
+  → POST /bff/admin/handoff (cookie _jwt_panel)
+BFF panel/bff/handoff.php
+  → llama a panel/API/v1/handoff.php
+API
+  → emite JWT corto (iss='pos-app', TTL 60s, claim did=null) con JWT_SECRET
+  → retorna {token}
+BFF → retorna {handoffUrl: "https://app.punto.la/handoff.php?t=<token>"}
+Panel JS → window.open(handoffUrl, '_blank')
+
+app/handoff.php (app.punto.la)
+  → valida iss='pos-app' + exp (60s)
+  → setcookie('_jwt', token_long, HttpOnly, SameSite=Lax)
+  → redirect a /
+```
+
+**JWT del POS eterno (commit b5c483a):** cuando `JWT_TTL=0`, `app/handoff.php` y `app/API/auth.php` emiten tokens **sin claim `exp`** — el token nunca vence. Útil para tablets/cajas que no se re-loguean nunca. Si `JWT_TTL > 0`, se incluye `exp` normal. Coolify recomienda `JWT_TTL=0` para producción POS.
+
+**SameSite=Lax (commit 38928d7):** todos los `setcookie()` de JWT usan `SameSite=Lax` (no Strict). Strict bloqueaba el redirect cross-origin del handoff (el browser no enviaba la cookie al cargar `app.punto.la` llegando desde `panel.punto.la`). Lax permite la cookie en top-level navigation cross-site.
+
+**Detección de HTTPS vía X-Forwarded-Proto (commit 38928d7):** Coolify/Traefik termina TLS y hace forward a PHP con HTTP. `$_SERVER['HTTPS']` no está seteado. La detección correcta es `($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'` para setear el flag `Secure` en las cookies.
 
 **Regla de aislamiento (no-negociable):** un token de un realm nunca valida en otro. Los tres realms están aislados por secret + cookie + claim `iss`. Para POS y panel, `JWT_SECRET` es COMPARTIDO — el claim `iss` es la barrera que previene la confusión de privilegios (commit 2de4231, 2026-05-31).
 
@@ -137,9 +182,9 @@ Browser → window.open(redirectUrl, '_blank', 'noopener')
 
 **UUID validation en API**: `preg_match('/^[0-9a-f-]{36}$/i', $_GET['id'])` antes del lookup — previene inyección y mejora los mensajes de error (P1 code-review fix).
 
-### MASTER\_COMPANY\_ID — rol post-F0
+### MASTER\_COMPANY\_ID — rol post-F4 (desacoplado en commit ea7b67f, 2026-06-07)
 
-`MASTER_COMPANY_ID` (env var) **deja de ser gate de IDENTIDAD** para los super-admins. Su rol futuro es scope de billing/datos de plataforma. El flag `SAAS_ADM` + el redirect de `@.php:11` (que hoy gatean como "super-admin = empresa MASTER") **siguen intactos hasta F4**, que los desacopla. No tocar esa lógica hasta entonces.
+`MASTER_COMPANY_ID` (env var) **ya NO es gate de IDENTIDAD** para los super-admins (F4 hecha). El flag `SAAS_ADM` + el redirect de `@.php:11` fueron eliminados (commit d310fe4 — F6). Su rol restante es scope de billing/datos de plataforma si aplica. El env var sigue presente pero no condiciona el flujo de autenticación.
 
 ### Realm franchiser — NO es /admin
 

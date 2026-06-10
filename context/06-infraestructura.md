@@ -3,7 +3,7 @@
 
 # 06 — Infraestructura
 
-## Arquitectura de deploy
+## Arquitectura de deploy (actualizada 2026-06-09 — Coolify single-container)
 
 ```
 GitHub (repo: xsmurphy/punto-legacy)
@@ -11,15 +11,30 @@ GitHub (repo: xsmurphy/punto-legacy)
     ▼ push a main
 Coolify (PaaS en DigitalOcean Droplet)
     │
-    ▼ auto-deploy
-Docker Compose (4 servicios)
-    ├── PHP (app + panel) — servido por PHP built-in server o nginx
-    ├── PostgreSQL 16
-    ├── Redis 7
-    └── ws-server (Node.js 20)
+    ▼ auto-deploy (Dockerfile raíz)
+Container PHP único (panel + admin + app + api)
+    │  puerto 3000 expuesto a Traefik (Coolify default)
+    │  router.php raíz despacha por Host: header
+    ├── panel.punto.la → /panel
+    ├── admin.punto.la → /panel (path /admin)
+    ├── app.punto.la   → /app
+    └── api.punto.la   → /api
+
+Container Node.js (ws-server) — recurso separado en Coolify
+    │  ws.punto.la → port 6001
+    └── Redis (managed o container)
+
+PostgreSQL 16 — base de datos (managed o container)
+Redis 7       — sessions + Pub/Sub (managed o container)
 ```
 
-## Docker Compose — Servicios
+**Entrypoint de producción:** `docker-entrypoint.sh` (raíz) configura `session.save_handler=redis` parseando `REDIS_URL` y luego lanza `php -S 0.0.0.0:3000 router.php`.
+
+**Nota importante:** el puerto expuesto es **3000** (commit 347aa88) — Coolify lo usa como upstream de Traefik por default. Si se cambia, actualizar en la config de Coolify también.
+
+**Deploy local (dev):** sigue igual — 4 servidores PHP independientes en puertos distintos. `router.php` raíz es solo para prod.
+
+## Docker Compose — Servicios (solo para dev local)
 
 | Servicio | Imagen | Puerto | Container |
 |----------|--------|--------|-----------|
@@ -47,21 +62,26 @@ Archivo: `.env` (no commiteado). Template: `.env.example`
 | `POSTGRES_PASSWORD` | Password BD | (secret) |
 | `REDIS_HOST` | Host Redis | `127.0.0.1` / `redis` (Docker) |
 | `REDIS_PORT` | Puerto Redis | `6379` |
-| `JWT_SECRET` | Secret para JWT HS256 | (random 64 chars) |
-| `JWT_TTL` | TTL del JWT de /app en segundos — **modelo "device pairing"** (ver nota abajo) | `315360000` (10 años) |
+| `JWT_SECRET` | Secret para JWT HS256 (compartido entre /app y /panel) | (random 64 chars) |
+| `JWT_TTL` | TTL del JWT de /app en segundos — **modelo "device pairing"**. `0` = token eterno sin claim `exp` (recomendado para POS). | `0` (eterno, recomendado) o `315360000` (10 años) |
+| `PANEL_JWT_TTL` | TTL del JWT de /panel en segundos — sesión real del tenant. Separado de `JWT_TTL` para evitar que cambiar el TTL del POS afecte el panel. | `86400` (24h) |
 | `ADMIN_JWT_TTL` | TTL del JWT de /admin en segundos — sesión real del super-admin | `28800` (8h) |
+| `MASTER_COMPANY_ID` | UUID de la company maestra (plataforma). Post-F4 ya no es gate de identidad — su rol es scope de billing/plataforma. | `00000000-0000-0000-0000-000000000001` |
+| `CORS_ALLOWED_ORIGINS` | Lista de origins permitidos por CORS, separados por coma. Parametriza el allowlist que antes estaba hardcodeado en `cors.php`. | `https://panel.punto.la,https://app.punto.la,...` |
 | `HASHIDS_SALT` | Salt legacy (todavía referenciado) | (random) |
 | `APP_ENV` | Entorno | `local` / `production` |
 | `APP_DEBUG` | Debug mode | `true` / `false` |
 
-**Nota — modelo "device pairing" de /app (commit 7e1b26f, 2026-06-06):**
-El `JWT_TTL` de `/app` es intencionalmente largo (10 años). El JWT de /app NO es una sesión de usuario — es un *device pairing*: el admin activa la caja una sola vez con user+password (cookie `_jwt`) y queda permanentemente asociada a esa empresa/outlet. Los cajeros no tocan ese JWT; entran y salen con un PIN de 4 dígitos (mecanismo separado: `ncmAuth.activeUser` + `lockPad` en el front).
+**Nota — modelo "device pairing" de /app (actualizado 2026-06-09):**
+El `JWT_TTL=0` (token eterno sin `exp`) es el valor recomendado para producción POS. El JWT de /app NO es una sesión de usuario — es un *device pairing*: el admin activa la caja una sola vez con user+password (cookie `_jwt`) y queda permanentemente asociada a esa empresa/outlet. Los cajeros no tocan ese JWT; entran y salen con un PIN de 4 dígitos (mecanismo separado: `ncmAuth.activeUser` + `lockPad` en el front).
 
-Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el lunes hasta que un admin re-loguee — en cadenas con muchos locales esto para ventas. Con 10 años, el pareamiento sobrevive cualquier apagón.
+Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el lunes hasta que un admin re-loguee — en cadenas con muchos locales esto para ventas. Con `JWT_TTL=0`, el pareamiento es permanente hasta que se revoque explícitamente.
 
-**Revocación masiva**: rotar `JWT_SECRET` invalida todos los JWTs de /app en un solo paso. No hay revocación per-device (esa granularidad requeriría una "device token table" — deuda futura si se necesita).
+**Revocación per-device**: `UPDATE device SET status=0` (tabla `device`, migración 11) + llamar `jwtInvalidateDeviceCache($did)`. La revocación masiva se logra rotando `JWT_SECRET`.
 
-**ADMIN_JWT_TTL** (8h) sigue siendo correcto: el super-admin sí tiene una sesión real (abre el panel desde su browser personal).
+**PANEL_JWT_TTL** (86400 = 24h): sesión real del tenant. El panel tiene TTL separado del POS.
+
+**ADMIN_JWT_TTL** (28800 = 8h): sesión del super-admin. El /admin tiene su propio JWT.
 
 ### APIs externas
 
@@ -92,9 +112,14 @@ Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el 
 
 | Variable | Descripción | Ejemplo |
 |----------|-------------|---------|
-| `PUNTO_API_BASE` | URL base de la API compartida; los BFFs de /app y /panel apuntan acá | `http://localhost:8000` (dev) / `https://api.punto.com` (prod) |
+| `PUNTO_API_BASE` | URL base de la API local del panel; los BFFs del **panel** apuntan acá. En single-container apunta a `http://localhost:3000/API` (el propio proceso). | `http://localhost:8000` (dev) / `http://localhost:3000/API` (prod single-container) |
+| `PUNTO_SHARED_API_BASE` | URL de la API compartida para los BFFs de **app**. Apunta a `api.punto.la` (subdominio de la API compartida). Separado de `PUNTO_API_BASE` para evitar confusión entre la API local del panel y la API compartida. (commit 78ce497) | `https://api.punto.la` |
 
-**Dirección futura**: la API compartida (`/api`) se moverá a un server dedicado. En ese momento cambiar `PUNTO_API_BASE` en /app y /panel es suficiente — sin cambios de código. Los BFFs de /app ya usan `PUNTO_API_BASE` desde `app/bff/lib/api_client.php`.
+**Distinción crítica (commit 78ce497, 2026-06-09):**
+- `PUNTO_API_BASE` → panel BFF → API local `/panel/API/v1/` (in-process en single-container)
+- `PUNTO_SHARED_API_BASE` → app BFF → API compartida `/api/v1/` (`api.punto.la`)
+
+Antes había una sola variable `PUNTO_API_BASE` que servía para ambos, lo que causaba confusión sobre qué API consumía cada BFF.
 
 ## Desarrollo local
 

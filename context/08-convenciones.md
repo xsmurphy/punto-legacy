@@ -1484,3 +1484,19 @@ Ver `database/migrations/postgres/12_contact_phone_unique.sql`.
 `+5950991234567` (formato nacional pegado al `+595`) y el login no funcionaba porque
 el usuario escribía `991234567` → `+595991234567` (E.164 correcto) ≠ `+5950991234567` (BD).
 Cualquier concat manual está fuera de la convención.
+
+---
+
+## §32 — Cookies JWT detrás de proxy (Coolify/Traefik): HTTPS + SameSite (establecido 2026-06-09, commit 38928d7)
+
+**Problema**: Coolify/Traefik termina TLS y hace forward al container PHP por HTTP. `$_SERVER['HTTPS']` no está seteado → el flag `Secure` no se incluye en las cookies → el browser las rechaza.
+
+**Detección correcta de HTTPS detrás de proxy**:
+```php
+$isSecure = ($_SERVER['HTTPS'] ?? '') === 'on'
+          || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+```
+
+**SameSite=Lax (no Strict)**: el handoff SSO panel→app es un redirect cross-origin (`panel.punto.la` → `app.punto.la`). Con `SameSite=Strict`, el browser NO envía la cookie en top-level navigation cross-site (el primer request de `app.punto.la` al volver del redirect no traería la cookie `_jwt` recién seteada). Con `SameSite=Lax`, las cookies se envían en top-level GET cross-site → el handoff funciona.
+
+**Regla**: todos los `setcookie()` de JWT en este proyecto usan `SameSite=Lax`. La excepción serían cookies dentro del mismo dominio (first-party), donde Strict sería más seguro, pero con subdominios separados Lax es el balance correcto seguridad/funcionalidad.

@@ -53,14 +53,23 @@ el front legacy depende de comportamiento congelado. `select2`/`fastclick` y lib
 (bootstrap, daterangepicker, snap, jsrsasign, qz-tray, fingerprintjs, etc.) quedan como archivos
 versionados. Alpine queda con `^` (fuera del freeze legacy).
 
+## Dependencias PHP (Composer)
+
+| Paquete | Versión | Dónde | Propósito |
+|---------|---------|-------|-----------|
+| `giggsey/libphonenumber-for-php` | `^8.13` | `app/composer.json` + `panel/composer.json` | Parseo y normalización de números de teléfono a E.164. Ver §31 en `08-convenciones.md`. |
+
+**Bundle JS de libphonenumber**: `assets/vendor/js/libphonenumber-1.6.8.min.js` (versión 1.6.8 exacta, vendoreada via npm Fase B). La API pública de la 1.6.8 usa `parsePhoneNumber(input, iso)` — distinta a la 1.7+ (`parsePhoneNumberFromString`). No confundir al actualizar.
+
 ## Infraestructura
 
 | Servicio | Detalle |
 |----------|---------|
 | Hosting | DigitalOcean Droplet |
 | PaaS | Coolify |
-| Containers | Docker Compose (4 servicios) |
-| CI/CD | Coolify auto-deploy desde git |
+| Containers | **Single container PHP** (panel+app+api) + container Node.js (ws-server). Deploy via Dockerfile raíz, no Docker Compose. Ver `docs/DEPLOY.md`. |
+| CI/CD | Coolify auto-deploy desde git (push a main) |
+| Build PHP | `install-php-extensions` de mlocati (commit 9bf9c68) — reemplaza compilación manual de extensiones (gd/intl/pdo_pgsql/etc). Mucho más rápido en droplets pequeños. |
 
 ## Auth & Seguridad
 

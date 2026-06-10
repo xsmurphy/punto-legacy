@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-07 (F4+F5+F6 COMPLETO — admin realm 100% done, commits ea7b67f..d310fe4)
+> **Última actualización:** 2026-06-09 (Deploy Coolify single-container + SSO panel→app + phone auth + Redis sessions, commits 91cc3ba..b5c483a)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -70,6 +70,61 @@ Cierra la deuda del modelo device pairing enunciada en §28 de `08-convenciones.
 - **Migration runner**: `11_device.sql` se aplicó manualmente con `php -r` parseando por `;`. La deuda del runner automático sigue abierta (ver sección "Migraciones — runner pendiente" en `06-infraestructura.md`).
 
 ---
+
+## ✅ Deploy Coolify single-container (2026-06-09, commits 91cc3ba..347aa88)
+
+Paso de dev local → producción en Coolify en un solo container PHP.
+
+| Componente | Qué | Estado |
+|-----------|-----|--------|
+| `Dockerfile` raíz | Container único PHP 8.4-cli-alpine + assets Node build-stage + install-php-extensions (mlocati) para gd/intl/pdo_pgsql/redis/etc. | ✅ |
+| `router.php` raíz | Dispatcher por `Host:` header — despacha a /panel, /app, /api según subdominio. God-node de routing en prod. Fix security (352285f): nunca sirve `.php` como estático. | ✅ |
+| `docker-entrypoint.sh` | Configura `session.save_handler=redis` parseando `REDIS_URL` → PHP sessions sobreviven deploys. | ✅ |
+| Puerto 3000 expuesto | Default que Coolify/Traefik usa como upstream. | ✅ |
+| `docs/DEPLOY.md` | Reescrito para la arquitectura single-container. | ✅ |
+
+## ✅ SSO handoff panel→app (2026-06-09, commits 01d02a3..aa79af4)
+
+El link "Caja" del sidebar del panel ahora loguea al usuario en el POS sin re-ingresar credenciales.
+
+| Componente | Estado |
+|-----------|--------|
+| `app/handoff.php` — endpoint SSO, valida JWT corto (60s), emite cookie `_jwt` de larga duración | ✅ |
+| `panel/bff/handoff.php` + `panel/API/v1/handoff.php` — emite JWT corto para /app | ✅ |
+| JWT `JWT_TTL=0` (POS eterno, sin `exp`) — `app/handoff.php` y `app/API/auth.php` | ✅ |
+| `PANEL_JWT_TTL=86400` (24h separado del POS) — `panel/API/auth.php` | ✅ |
+| SameSite=Lax + detección HTTPS vía X-Forwarded-Proto (commit 38928d7) | ✅ |
+| Fix leer `userId` (no `contactId`) del SESSION en el sidebar (commit aeb4dbc) | ✅ |
+| Fix usar `APP_URL` como base del POS cuando `POS_URL` no está seteada (commit 6529a65) | ✅ |
+
+## ✅ Phone-first auth (2026-06-07..2026-06-09, commits ccfa676..9adc667)
+
+Login de tenant por teléfono (E.164) como identificador canónico, con hardening de schema.
+
+| Componente | Estado |
+|-----------|--------|
+| `panel/API/auth.php:findPhoneLogin()` — login por `phone`+`iso`, normaliza a E.164 server-side | ✅ |
+| `panel/includes/phone.php` + `app/includes/phone.php` — helpers libphonenumber | ✅ |
+| `giggsey/libphonenumber-for-php ^8.13` en app/panel composer.json | ✅ |
+| Migration 12: UNIQUE INDEX parcial `idx_contact_phone_tenant_unique` — teléfono único entre tenants | ✅ |
+| Migration 13: seed `plan_code=0` (free) y `plan_code=3` (trial) — desbloquea POS post-signup | ✅ |
+| Fix JS `toE164` usa API 1.6.8 (`parsePhoneNumber`), no 1.7+ (`parsePhoneNumberFromString`) | ✅ |
+
+## Pendiente: F-auth-jwt-only — eliminar `$_SESSION` de /app y /panel
+
+**Objetivo**: todas las rutas de auth usan JWT puro (cookie HttpOnly). `$_SESSION` se usa hoy para almacenar datos del tenant en `panel/` y algo en `app/`. Con Redis sessions ya configurado, las sesiones son más confiables, pero la deuda arquitectónica sigue siendo que session y JWT coexisten.
+
+**Alcance estimado**:
+1. **Fase 1 (`/app`)**: `app/handoff.php` ya no necesita `$_SESSION` — JWT es la única fuente de verdad del device pairing. Identificar los `$_SESSION` restantes en `/app` y migrar a claims del JWT o a endpoints del BFF.
+2. **Fase 2 (`/panel`)**: el panel usa `$_SESSION` para datos del tenant (company, outlet, user). Migrar a un endpoint BFF bootstrap que los BFFs pidan por JWT. `session_start()` desaparece del setup del panel.
+
+**Beneficio**: container PHP truly stateless — sin sesiones PHP ni en disco ni en Redis para la app lógica (Redis sessions sigue necesario si se quiere clustering, pero no debería ser un requisito de funcionalidad).
+
+**Deuda transitoria registrada** (no bloquea ningún trabajo actual):
+- `panel/bff/handoff.php` genera `redirectUrl='/@#dashboard'` hardcoded (deuda menor — deberá venir de config o del JWT).
+- `app/bff/electronic_invoice.php` expone `send_verification.php` directamente sin pasar por el BFF canónico (deuda arquitectónica).
+- Algunos paths legacy en `/app` y `/panel` aún tienen `APP_URL` hardcodeado en strings (deuda del de-hardcode de dominios).
+- Runner automático de migraciones sigue pendiente (ver sección Migration Runner).
 
 ## Principios del roadmap
 
@@ -417,6 +472,19 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 ### Migración de panel/API → /api (gradual, pendiente)
 
 `panel/API/*` (~93 endpoints) permanece en su lugar y funciona. Se migra gradualmente a `/api/v1/` conforme se tocan módulos. No hay timeline definido — se hace concern-por-concern.
+
+### Cluster: Desacople completo de /panel → Front estático + BFF + /api compartida (plan 2026-06-09)
+
+**Plan maestro en [docs/PLAN_panel_desacople.md](../docs/PLAN_panel_desacople.md).** Decisiones tomadas: alcance completo (todo `a_*.php` → `.html` + BFF + /api), auth **multi-realm con allowlist por endpoint** (`apiAuthTenant(array $realms = ['pos-app'])` — endpoints del panel declaran `['panel']`; los tokens POS eternos NO pegan a endpoints administrativos), plumbing primero.
+
+| Fase | Qué | Estado |
+|------|-----|--------|
+| **F0** | Plumbing multi-realm: `jwtAuthenticate($allowedRealms)` + `AUTHED_REALM` + `apiAuthTenant($realms)` con fallback de outlet para `oid=''` + cliente BFF panel con base `'shared'` (Bearer `_jwt_panel`) | ⬜ |
+| **F1** | Piloto end-to-end: banks (`api/lib/Banks/BankService` + `api/v1/banks.php` `['panel']` + `panel/bff/banks.php` + `views/banks.html` Alpine) — borra `a_banks.php` + 6 endpoints legacy | ⬜ |
+| **F2** | Mover 33 `panel/API/v1` + 38 `panel/lib` services a /api (copy + namespace `Punto\Api\<Area>`); BFF repunta endpoint-por-endpoint; `admin/*` NO se mueve (queda hasta tener `apiAuthAdmin()` en /api) | ⬜ |
+| **F3** | Oleadas legacy ~20K líneas: A=cerrar parciales (writes de giftcards/schedule/production/purchases/transactions + outlets/settings) · B=huérfanos chicos · C=CRUDs grandes (contacts, items al final) | ⬜ |
+| **F4** | Shell `@.php` → estático + `/bff/bootstrap` + kill `$_SESSION` (F-auth-jwt-only fase 2) — AL FINAL | ⬜ |
+| **F5** | 73 endpoints legacy `panel/API/`: congelar, inventario de consumers (KDS/CDS/crons), borrar huérfanos por slice; migración de KDS/CDS = plan separado | ⬜ |
 
 ### Consolidar /api/includes canónico (deuda transitoria — para el SERVER-SPLIT, no perf)
 

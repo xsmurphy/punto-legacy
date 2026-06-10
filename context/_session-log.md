@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-09 — Deploy a Coolify single-container + onboarding production (commits ea7b67f..5ea3a2d)
+
+- **infra(deploy)**: pasaje de docker-compose 4-services a **container ÚNICO** con `router.php` raíz que despacha por `Host:` header (`panel.*`→`/panel`, `admin.*`→`/panel` con `/admin` prefix forzado, `app.*`→`/app`, `api.*`→`/api`). Puerto 3000 (default de Coolify para Traefik upstream). `install-php-extensions` de mlocati reemplaza compilación de extensiones (8min→30s, OOM eliminado). `ws-server/` queda como container Node aparte.
+- **auth(phone-first system-wide)**: convención §31 — `contactPhone` SIEMPRE en E.164, conversión vía `libphonenumber` (giggsey/PHP + bundle JS 1.6.8). Helpers `phoneToE164/phoneFormatNational/phoneIsMobile` en `panel/includes/phone.php` y `app/includes/phone.php`. `findEmailOrPhoneLogin` → `findPhoneLogin` (solo phone). Migration 12: UNIQUE INDEX parcial sobre `contactPhone` para tenants. `signUp` + `send_verification` normalizan server-side. `iso` viaja con phone en payloads.
+- **sso(panel→app)**: link "Caja" del sidebar emite JWT pos-app de 15s firmado con `JWT_SECRET` → `app.punto.la/handoff.php` (módulo nuevo) valida `iss`+`exp`+identidad no-vacía, reemite cookie HttpOnly `_jwt` con TTL real, redirige a `/?i=<base64>`. Resuelve no-cross-subdomain cookies entre panel y app.
+- **auth(TTLs)**: JWT del POS **eterno** por default (`JWT_TTL=0` → sin claim `exp`, modelo device-pairing §28). JWT del panel separado en `PANEL_JWT_TTL=86400` (24h). Handler global `$(document).ajaxError` en panel detecta 401 y muestra dialog "sesión expirada" antes de hacer logout (evita pérdida silenciosa de trabajo).
+- **infra(sessions)**: `docker-entrypoint.sh` nuevo parsea `REDIS_URL` y configura PHP `session.save_handler=redis` en boot → sesiones sobreviven deploys (sino `/tmp` se borra y todos se des-loguean). **Próximo: refactor a JWT-only auth** — empezando por `app/` (26 usos en 3 archivos), después `panel/` (165 usos en 26 archivos). Decisión: NO meter caché al JWT, mover a Redis directo.
+- **Bugs notables**: P0 security — router raíz servía `.php` como estático leakeando source (fix: detectar extension PHP y `require` en lugar de `readfile`). `compression_end.php` llamaba `ob_end_flush` sobre buffer ya cerrado → "Oops algo sucedió" en panel. Dashboard Alpine init nunca corría con hash navigation → MutationObserver pattern. Migration 13: seed `plan_code=0` (free) y `=3` (trial) que faltaban → POS quedaba con `users=[]` post-signup.
+- **Env vars nuevas / críticas en Coolify**: `PUNTO_API_BASE=http://localhost:3000/API` (panel BFF), `PUNTO_SHARED_API_BASE=https://api.punto.la` (app BFF — distinta API), `JWT_TTL=0` (POS eterno), `PANEL_JWT_TTL=86400`, `MASTER_COMPANY_ID`. Cookies con `SameSite=Lax` y detección HTTPS via `X-Forwarded-Proto` (no `$_SERVER['HTTPS']`).
+
 ## 2026-06-07 — F3.4 fix + F3.5 impersonación JWT + workflow optimization (commits fb4a691..456092f)
 
 - **feat(F3.4 fix)**: `saveCompany()` no incluía `balance` en el payload PATCH — agregado. F3.4 queda completo.
