@@ -152,8 +152,17 @@ final class Query
         $table    = $options['table'];
         $record   = $options['records'];
         $where    = $options['where'];
+        // whereParams: si el caller pasa el WHERE con placeholders (?), AutoExecute necesita
+        // los valores para bindearlos. Sin esto el SQL queda con N placeholders pero solo se
+        // bindean los del SET → "bind message supplies X parameters, but prepared statement
+        // requires Y" 500 silente. Afecta a los Services que parametrizan el WHERE
+        // (ContactRepository, ItemRepository, SettingsService, panel/a_modules, …) — el
+        // smoke F2 cazó la regresión con contacts PUT.
+        $whereParams = isset($options['whereParams']) && is_array($options['whereParams'])
+            ? $options['whereParams']
+            : [];
 
-        $update   = $db->AutoExecute($table, $record, 'UPDATE', $where);
+        $update   = $db->AutoExecute($table, $record, 'UPDATE', $where, $whereParams);
         $updateId = $db->Insert_ID();
 
         if ($update !== false) {
