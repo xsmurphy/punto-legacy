@@ -11,11 +11,13 @@
 
 require_once __DIR__ . '/lib/api_client.php';
 
+const BOOTSTRAP_API = ['base' => 'shared'];
+
 if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
 }
 
-$res = bffApiGet('v1/bootstrap.php');
+$res = bffApiGet('v1/bootstrap.php', [], '_jwt_panel', BOOTSTRAP_API);
 
 if (!$res['ok']) {
     bffFailFromApi($res);

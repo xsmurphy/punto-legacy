@@ -1,20 +1,26 @@
 <?php
 /**
- * REST canónico — Bootstrap de config para el front.
+ * REST canónico (API compartida /api) — Bootstrap de config para el front.
  *
- *   GET /API/v1/bootstrap → config de la empresa (currency, decimales, taxName, …)
+ *   GET /v1/bootstrap → config de la empresa (currency, decimales, taxName, …)
  *       + datos básicos del usuario logueado.
  *
  * El front (.html estático) NO puede recibir estas constantes por PHP (PHP nunca
  * sirve HTML). Las pide acá, vía el BFF, al cargar — y con ellas formatea números
  * y pinta el chrome (título, currency). La API es la única capa con BD.
  *
- * Auth: JWT (cookie _jwt_panel / Bearer / POST _jwt). Tenant por COMPANY_ID del JWT.
+ * Auth: realm `panel` (apiAuthTenant(['panel'])). Tenant por COMPANY_ID del JWT.
  * Respuesta: envelope canónico { ok, data, meta }.
+ *
+ * Port FIEL de panel/API/v1/bootstrap.php (Fase 2 del desacople de /panel). Cambios:
+ * `apiMiddleware()` → `apiAuthTenant(['panel'])`; `PANEL_AUTHED_USER`/`PANEL_AUTHED_ROLE`
+ * → `$ctx['userId']`/`$ctx['roleId']`. SQL y shape de respuesta idénticos — el front
+ * (muchos a_*.js) depende del shape exacto.
  */
 
-require_once __DIR__ . '/../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../bootstrap.php';
+
+$ctx = apiAuthTenant(['panel']);
 
 $row = ncmExecute(
     "SELECT
@@ -51,7 +57,7 @@ apiOk([
     // Base de las pantallas standalone (PUBLIC_URL = <host>/screens) — para links del front.
     'publicUrl'   => defined('PUBLIC_URL') ? PUBLIC_URL : '',
     'user'        => [
-        'id'   => PANEL_AUTHED_USER,
-        'role' => PANEL_AUTHED_ROLE,
+        'id'   => $ctx['userId'],
+        'role' => $ctx['roleId'],
     ],
 ]);
