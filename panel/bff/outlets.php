@@ -7,9 +7,14 @@
  *
  * Gateway fino sobre la API (NO toca BD, NO formatea). Reenvía el JWT. El front formatea + arma.
  * El blank-insert y el delete quedan en el PHP legacy `a_outlets.php` vía `?action=`.
+ *
+ * Fase 2 del desacople: consume la /api COMPARTIDA (base 'shared') vía Bearer header — el
+ * cookie _jwt_panel se reenvía como Authorization. Antes pegaba a panel/API/v1/ local.
  */
 
 require_once __DIR__ . '/lib/api_client.php';
+
+const OUTLETS_API = ['base' => 'shared'];
 
 if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
@@ -38,7 +43,7 @@ if ($method === 'POST') {
         'businessHours'   => $_POST['businessHours']   ?? '',
     ], fn($v) => $v !== '');
 
-    $res = bffApiPost('v1/outlets.php', $payload);
+    $res = bffApiPost('v1/outlets.php', $payload, '_jwt_panel', OUTLETS_API);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }
@@ -47,7 +52,7 @@ if ($method === 'POST') {
 
 $query = array_filter(['id' => $_GET['id'] ?? ''], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/outlets.php', $query);
+$res = bffApiGet('v1/outlets.php', $query, '_jwt_panel', OUTLETS_API);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

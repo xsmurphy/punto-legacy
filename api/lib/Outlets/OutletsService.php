@@ -1,24 +1,40 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Outlets;
+
 /**
- * Dominio de Sucursales (Outlets) — capa API, motor ERP.
+ * Dominio de Sucursales (Outlets) — API compartida (motor ERP).
  *
  *   GET  list  → todas las sucursales de la company (crudas, para la tabla)
  *   GET  get   → una sucursal por id (campos completos, para el form de edición)
  *   POST update→ actualiza los campos editables de una sucursal
  *
- * Read-only + UPDATE. El blank-insert (`?action=insert`, cascadea register + inventory vía
- * helpers god) y el delete (cascading `deleteOutlet`) quedan en el PHP legacy `a_outlets.php`
- * vía `?action=` — son operaciones pesadas/destructivas mejor servidas por el path probado.
- * La gestión de depósitos (`adm()`/`?tableExtra=`) también queda legacy (infra compartida).
+ * Read + UPDATE. El blank-insert (`?action=insert`, cascadea register + inventory vía helpers
+ * god) y el delete (cascading `deleteOutlet`) quedan en el PHP legacy `a_outlets.php` vía
+ * `?action=` — son operaciones pesadas/destructivas mejor servidas por el path probado, y
+ * dependen de globals del panel (`$plansValues`, `deleteOutlet()`) no portados a /api. La
+ * gestión de depósitos (`adm()`/`?tableExtra=`) también queda legacy (infra compartida).
  *
- * Tenant: companyId bound en cada query (nunca interpolado). Devuelve datos CRUDOS (sin
+ * Port FIEL de panel/lib/outlets/OutletsService.php (Fase 2 del desacople de /panel). Únicos
+ * cambios respecto al original: namespace, `final`, `declare(strict_types=1)`. Dos métodos
+ * (`create`/`delete`) traen lógica inline porque dependían de globals del panel:
+ *  - `create()`: el guard `$plansValues[PLAN]['inventory']` → sub-query directa a `plans` por
+ *    el plan_code de la company. Mismo comportamiento, menos acoplamiento.
+ *  - `delete()`: el cascade vivía en `deleteOutlet()` de panel/includes/functions.php; portado
+ *    como `cascadeDelete()` privado, idéntico al original (mismas tablas, mismo orden, misma TX).
+ *
+ * Tenant: companyId bindeado en cada query (nunca interpolado). Devuelve datos CRUDOS (sin
  * formatear, sin HTML); el front formatea + arma la tabla y el form. Ver REGLA RAÍZ 2.
  *
  * Schema PG (tabla `outlet`): columnas reales (outletName/Status/Address/Phone/WhatsApp/Email/
  * BillingName/RUC/LatLng/Description/PurchaseOrderNo, taxId, companyId) + `data` JSONB que
  * absorbe outletEcom / outletBusinessHours / itemsTaxIncluded.
+ *
+ * Nota namespace: las funciones globales (ncmExecute, _flattenJsonb) y `global $db` resuelven
+ * a la global por fallback de PHP — no requieren `use`.
  */
-class OutletsService
+final class OutletsService
 {
     /** Todas las sucursales de la company. Forma reducida para la tabla. */
     public function listAll($companyId)
@@ -104,7 +120,7 @@ class OutletsService
      */
     public function create($companyId)
     {
-        global $db, $plansValues;
+        global $db;
 
         $db->StartTrans();
 
@@ -132,8 +148,22 @@ class OutletsService
             [$outletId, $companyId]
         );
 
-        $planKey = defined('PLAN') ? PLAN : '';
-        if (!empty($plansValues[$planKey]['inventory'])) {
+        // Inventory blank-rows: solo si el plan de la company incluye `inventory`. Antes esto
+        // venía de `$plansValues[PLAN]['inventory']` (global del panel, cargado desde
+        // `getAllPlans()` que hace `SELECT * FROM plans` y aplana JSONB). Ahora va por sub-query
+        // directa: `plans` se joinea por `plan_code = company.plan`. CRÍTICO: `inventory` vive
+        // dentro del JSONB `features` (db-schema-postgres.sql:78), NO como columna top — leer
+        // con `features->>'inventory'`. Match-fail → null → 0 = no insertar (comportamiento
+        // conservador, mismo que el panel original cuando `$plansValues[PLAN]` no existe).
+        $planRow = ncmExecute(
+            "SELECT COALESCE((p.features->>'inventory')::int, 0) AS inventory
+               FROM company c JOIN plans p ON p.plan_code = c.plan
+              WHERE c.companyId = ? LIMIT 1",
+            [$companyId]
+        );
+        $allowsInventory = (int) ($planRow['inventory'] ?? 0);
+
+        if ($allowsInventory > 0) {
             $db->Execute(
                 "INSERT INTO inventory (inventoryCount, itemId, inventorySource, companyId, outletId)
                  SELECT 0, itemId, 'new_outlet', ?, ?
@@ -149,19 +179,63 @@ class OutletsService
     }
 
     /**
-     * Elimina una sucursal y su cascada completa dentro de una transacción.
-     * Verifica ownership por $companyId; delega el cascade a deleteOutlet() (god-function con StartTrans).
-     * El caller debe verificar que $id != OUTLET_ID (no borrar el outlet activo).
+     * Elimina una sucursal y su cascada completa dentro de una transacción. Verifica ownership
+     * por $companyId. El caller debe verificar que $id != OUTLET_ID (no borrar el outlet activo).
+     *
+     * Port FIEL de `deleteOutlet()` (panel/includes/functions.php:3035): mismas tablas, mismo
+     * orden, misma TX. `$companyId` parametrizado en vez de leer `COMPANY_ID` global.
      * @return bool
      */
     public function delete($id, $companyId)
     {
+        global $db;
+
+        // Ownership: la sucursal pertenece al tenant que pide el borrado.
         $outlet = ncmExecute(
             'SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ?',
             [$id, $companyId]
         );
         if (!$outlet) { return false; }
-        return deleteOutlet($id) !== false;
+
+        return $this->cascadeDelete($id);
+    }
+
+    /** Cascade DELETE — copia exacta del cuerpo de deleteOutlet() del panel. */
+    private function cascadeDelete($id, $fullDelete = false)
+    {
+        global $db;
+
+        $db->StartTrans();
+
+        $db->Execute('DELETE FROM drawer WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM expenses WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM inventory WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM register WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM taxonomy WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM stock WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM stockTrigger WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM satisfaction WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM production WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM notify WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM giftCardSold WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM comission WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM toItemLocation WHERE outletId = ?', [$id]);
+
+        if (!$fullDelete) {
+            $db->Execute('UPDATE item SET outletId = NULL WHERE outletId = ?', [$id]);
+            $db->Execute('UPDATE contact SET outletId = NULL WHERE outletId = ?', [$id]);
+        }
+
+        $db->Execute(
+            'DELETE FROM itemSold WHERE transactionId IN (SELECT transactionId FROM transaction WHERE outletId = ?)',
+            [$id]
+        );
+        $db->Execute('DELETE FROM transaction WHERE outletId = ?', [$id]);
+        $db->Execute('DELETE FROM outlet WHERE outletId = ?', [$id]);
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        return !$failed;
     }
 
     /** Impuestos de venta de la company (para el dropdown del form). */

@@ -1,27 +1,31 @@
 <?php
 /**
- * REST canónico — Sucursales (motor ERP, raw).
+ * REST canónico (API compartida /api) — Sucursales (motor ERP, raw).
  *
- *   GET  /API/v1/outlets                 → lista de sucursales de la company (CRUDA).
- *   GET  /API/v1/outlets?id=<uuid>        → una sucursal (campos completos para el form).
- *   POST /API/v1/outlets (action=update&id=<uuid> + campos) → actualiza.
+ *   GET  /v1/outlets                 → lista de sucursales de la company (CRUDA).
+ *   GET  /v1/outlets?id=<uuid>        → una sucursal (campos completos para el form).
+ *   POST /v1/outlets (action=update&id=<uuid> + campos) → actualiza.
  *
- * El blank-insert y el delete (cascading) siguen en el PHP legacy vía `?action=`. Lectura sin
- * formatear/HTML (el front formatea + arma). Escritura scopeada por COMPANY_ID del JWT. Auth: JWT.
+ * Lectura sin formatear/HTML (el front formatea + arma). Escritura scopeada por COMPANY_ID del
+ * JWT. Auth: realm `panel` (apiAuthTenant(['panel'])).
+ *
+ * Port FIEL de panel/API/v1/outlets.php (Fase 2 del desacople de /panel). Cambios respecto al
+ * original: `apiMiddleware()` → `apiAuthTenant(['panel'])`; `PANEL_AUTHED_ROLE` → `$ctx['roleId']`;
+ * service en namespace `Punto\Api\Outlets`. El contrato (acciones, shape, status codes) es
+ * idéntico — el JS de a_outlets.js depende de él (createOutlet/removeOutlet usan action=create
+ * y action=delete contra este endpoint vía /bff/outlets.php).
  */
 
-require_once __DIR__ . '/../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../../lib/outlets/OutletsService.php';
-
+$ctx    = apiAuthTenant(['panel']);
+$svc    = new \Punto\Api\Outlets\OutletsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$svc    = new OutletsService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 if ($method === 'POST') {
     // Permiso de escritura: bloquea el rol read-only (7) — misma convención que los reportes con WRITE.
-    if ((int) PANEL_AUTHED_ROLE === 7) {
+    if ((int) $ctx['roleId'] === 7) {
         apiError('Sin permiso para esta acción', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
@@ -51,6 +55,7 @@ if ($method === 'POST') {
         apiOk(['id' => $id]);
     }
 
+    // action === 'update'
     $id = (string) (validateHttp('id', 'post') ?: '');
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 422);
