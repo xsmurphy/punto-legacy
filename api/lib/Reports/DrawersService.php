@@ -1,30 +1,36 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Cierres de Caja / Drawers (capa API, motor ERP).
+ * Dominio de Reportes — Cierres de Caja / Drawers (API compartida, motor ERP).
  *
- * Lectura: sesiones de caja (apertura/cierre) con sus componentes CRUDOS (monto apertura/cierre,
- * vendido, extracciones, ingresos, devoluciones) + detalle por caja con desglose por medio de pago.
- * Escritura: cerrar caja, corregir cierre, eliminar. Sin formatear, sin HTML. El front arma el
- * markup, formatea montos/fechas, mapea usuarios y calcula la diferencia + colores. Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/reports/ReportDrawersService.php (Fase 2 batch 9). Cambios vs original:
+ *  - namespace + `final`
+ *  - el ROC se recibe por PARÁMETRO en `listMovements` (no `getROC(1)` interno)
+ *  - `getAllSalesByDrawerPeriod` (sólo en panel) → portado como `salesByDrawerPeriod()` privado
+ *    que recibe `$roc` (no usa getROC interno). Mismo SQL y semántica.
+ *  - `sumTotalBetweenDateRanges` (sólo en panel) → portado como `sumForRegister()` privado.
+ *  - `getSalesByPayment($from, $to, $register, false)` (resolvería a la versión de /app: firma
+ *    `($from,$to,$regId)` — funciona pero filtra tipo 6 además de 0,5, semántica distinta a la
+ *    panel) → reemplazado por `NonAddingSales::salesByPayment` con $roc register-scoped.
  *
- * Reemplaza la lógica inline de panel/a_report_drawers.php (table/viewData/closeRegister/
- * correctClosure/delete).
+ * Tenant: $roc en lista; companyId SIEMPRE bound en lookups y WRITE. Helpers globales
+ * usados (existen en /app): isInternalSale, isParentInternalSale, groupByPaymentMethod,
+ * getPaymentMethodName.
  *
- * SEGURIDAD (endurecimientos vs legacy):
- *  - El detalle ya NO confía en un blob base64 del cliente (`?d=`): se re-consulta TODO por
- *    drawerId scopeado a companyId. El cliente solo manda el id.
- *  - `remove()` ahora scopea por companyId (el legacy hacía `DELETE ... WHERE drawerId = ? LIMIT 1`
- *    sin companyId = IDOR; y `LIMIT` no existe en DELETE de PG).
- *  - Las sumas de expenses (extracciones/ingresos) ahora filtran por companyId además de registerId.
- *
- * Tenant: $roc (getROC) en la lista; companyId bound en lookups y SIEMPRE en los WRITE.
- * Reusa helpers PG-safe ya arreglados: getAllSalesByDrawerPeriod / sumTotalBetweenDateRanges
- * (vendido por caja) y getSalesByPayment (desglose por medio de pago) — todos scopean por getROC.
+ * Endurecimientos vs legacy (heredados del panel original):
+ *  - El detalle se re-consulta por id (no confía en blob del cliente).
+ *  - `remove()` scopea por companyId (legacy era IDOR + LIMIT roto en PG).
+ *  - Las sumas de expenses (extracciones/ingresos) filtran por companyId además de registerId.
  */
-class ReportDrawersService
+final class DrawersService
 {
-    /** @return array filas de cajas con componentes crudos (front calcula total/diferencia/colores). */
-    public function listMovements($from, $to, $roc, $companyId)
+    private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+
+    /** @return array filas de cajas con componentes crudos. */
+    public function listMovements($from, $to, string $roc, string $companyId): array
     {
         $res = ncmExecute(
             "SELECT drawerId, registerId, outletId,
@@ -71,14 +77,14 @@ class ReportDrawersService
         $registers = $this->nameMap('register', 'registerId', 'registerName', array_keys($registerIds), $companyId);
         $users     = $this->contactNames(array_keys($userIds), $companyId);
 
-        // Ventas por caja del período (una sola query; getROC adentro scopea por companyId+outlet).
-        $allSales = getAllSalesByDrawerPeriod($from, $to);
+        // Ventas por caja del período (una sola query, scopeada por $roc del caller).
+        $allSales = $this->salesByDrawerPeriod($from, $to, $roc);
 
         $rows = [];
         foreach ($raw as $r) {
             $isClosed = $r['closeDate'] !== '';
             $closeBound = $isClosed ? $r['closeDate'] : date('Y-m-d 23:59:59', strtotime(TODAY));
-            $t = $this->componentsFor($r['openDate'], $closeBound, $r['registerId'], $companyId, $allSales);
+            $t = $this->componentsFor($r['openDate'], $closeBound, $r['registerId'], $companyId, $allSales, $roc);
 
             $rows[] = [
                 'drawerId'     => $r['drawerId'],
@@ -101,12 +107,8 @@ class ReportDrawersService
         return $rows;
     }
 
-    /**
-     * Detalle de una caja por id (re-consultado, NO de un blob del cliente). Devuelve la fila + los
-     * componentes crudos + el desglose por medio de pago. SCOPEADO por companyId.
-     * @return array|null
-     */
-    public function detail($drawerId, $companyId)
+    /** Detalle de una caja (re-consultado, no blob del cliente). SCOPEADO por companyId. */
+    public function detail(string $drawerId, string $companyId, string $roc): ?array
     {
         $d = ncmExecute(
             "SELECT drawerId, registerId, outletId,
@@ -115,7 +117,6 @@ class ReportDrawersService
              FROM drawer WHERE drawerId = ? AND companyId = ? LIMIT 1",
             [$drawerId, $companyId]
         );
-        // ncmExecute single-row → CaseInsensitiveArray (objeto, no array PHP) si hay fila; 0/false si no.
         if (!$d) {
             return null;
         }
@@ -133,17 +134,20 @@ class ReportDrawersService
         $outlets   = $this->nameMap('outlet',   'outletId',   'outletName',   [$outlet],   $companyId);
         $registers = $this->nameMap('register', 'registerId', 'registerName', [$register], $companyId);
 
-        $t = $this->componentsFor($openDate, $closeBound, $register, $companyId, null);
+        $t = $this->componentsFor($openDate, $closeBound, $register, $companyId, null, $roc);
 
-        // Desglose por medio de pago (getSalesByPayment scopea por companyId+register vía getROC).
+        // Desglose por medio de pago — $roc scopeado al register de esta caja específica.
+        // NonAddingSales::salesByPayment usa los tipos 0,5 (igual que la versión panel; la
+        // versión de /app incluye tipo 6 = devoluciones, que NO se quieren acá).
         $payments = [];
-        $byMethod = getSalesByPayment($openDate, $isClosed ? $closeDate : false, $register, false);
-        if (is_array($byMethod)) {
-            foreach ($byMethod as $p) {
-                $code = (string) ($p['type'] ?? '');   // código crudo (cash/creditcard/… o taxonomy custom)
+        $regRoc = $this->buildRegisterRoc($companyId, $register);
+        if ($regRoc !== '') {
+            $closeArg = $isClosed ? $closeDate : '';
+            foreach (NonAddingSales::salesByPayment($openDate, $closeArg, $regRoc) as $p) {
+                $code = (string) ($p['type'] ?? '');
                 $payments[] = [
-                    'type'  => $code,                                  // el front identifica 'cash' por código
-                    'label' => getPaymentMethodName($code),            // etiqueta resuelta (custom → taxonomy)
+                    'type'  => $code,
+                    'label' => getPaymentMethodName($code),
                     'price' => (float) ($p['price'] ?? 0),
                 ];
             }
@@ -168,8 +172,8 @@ class ReportDrawersService
         ];
     }
 
-    /** Cierra una caja (monto + fecha de cierre + usuario actual). SCOPEADO por companyId. */
-    public function close($drawerId, $companyId, $date, $amount, $userId)
+    /** Cierra una caja. SCOPEADO por companyId. */
+    public function close(string $drawerId, string $companyId, string $date, float $amount, string $userId): bool
     {
         global $db;
         $r = $db->Execute(
@@ -181,7 +185,7 @@ class ReportDrawersService
     }
 
     /** Corrige fechas/montos de apertura y cierre. SCOPEADO por companyId. */
-    public function correct($drawerId, $companyId, $openDate, $closeDate, $openAmount, $closeAmount)
+    public function correct(string $drawerId, string $companyId, string $openDate, string $closeDate, float $openAmount, float $closeAmount): bool
     {
         global $db;
         $r = $db->Execute(
@@ -193,7 +197,7 @@ class ReportDrawersService
     }
 
     /** Elimina una caja. SCOPEADO por companyId (legacy era IDOR + LIMIT roto en PG). */
-    public function remove($drawerId, $companyId)
+    public function remove(string $drawerId, string $companyId): bool
     {
         global $db;
         $r = $db->Execute('DELETE FROM drawer WHERE drawerId = ? AND companyId = ?', [$drawerId, $companyId]);
@@ -201,15 +205,14 @@ class ReportDrawersService
     }
 
     /** Vendido / extracciones / ingresos / devoluciones para una caja [open, closeBound]. */
-    private function componentsFor($openDate, $closeBound, $registerId, $companyId, $allSales)
+    private function componentsFor(string $openDate, string $closeBound, string $registerId, string $companyId, ?array $allSales, string $roc): array
     {
         if ($allSales === null) {
-            $allSales = getAllSalesByDrawerPeriod($openDate, $closeBound);
+            $allSales = $this->salesByDrawerPeriod($openDate, $closeBound, $roc);
         }
-        $sold = (float) sumTotalBetweenDateRanges($allSales, $registerId, $openDate, $closeBound);
+        $sold = $this->sumForRegister($allSales, $registerId, $openDate, $closeBound);
 
         // type IS NULL = extracción; type IS NOT NULL = ingreso (semántica legacy).
-        // ncmExecute single-row (SUM) → CaseInsensitiveArray (objeto, no array PHP); acceso por clave OK.
         $exp = ncmExecute(
             "SELECT SUM(expensesAmount) AS v FROM expenses
              WHERE expensesDate > ? AND expensesDate < ? AND type IS NULL AND registerId = ? AND companyId = ?",
@@ -234,8 +237,77 @@ class ReportDrawersService
         return ['sold' => $sold, 'expense' => $expense, 'income' => $income, 'return' => $return];
     }
 
-    /** Lookup batch id→name de una tabla simple (outlet/register), scopeado por companyId. */
-    private function nameMap($table, $idCol, $nameCol, array $ids, $companyId)
+    /**
+     * Port fiel de getAllSalesByDrawerPeriod() del panel — sólo el ROC se recibe por parámetro
+     * (no se recalcula adentro). Devuelve por registerId: lista de {date, total} (total=
+     * transactionTotal - transactionDiscount) filtrando ventas internas.
+     *
+     * @return array<string, array<int, array{date:string,total:float}>>
+     */
+    private function salesByDrawerPeriod(string $from, string $to, string $roc): array
+    {
+        $sql = "SELECT transactionTotal as total, transactionDiscount as discount, registerId,
+                       transactionDate, transactionParentId, transactionType, meta->>'tags' AS tags
+                FROM transaction
+                WHERE transactionDate BETWEEN ? AND ?
+                  AND transactionType IN (0,5,6)" . $roc;
+
+        $result = ncmExecute($sql, [$from, $to], false, true);
+        if (!$result) {
+            return [];
+        }
+
+        $a = [];
+        while (!$result->EOF) {
+            $f = $result->fields;
+            if ((int) $f['transactionType'] === 5) {
+                $ignore = isParentInternalSale($f['transactionParentId']);
+            } else {
+                $tags   = json_decode((string) ($f['tags'] ?? ''), true);
+                $ignore = isInternalSale($tags);
+            }
+            if (!$ignore) {
+                $reg = (string) ($f['registerId'] ?? '');
+                $a[$reg][] = [
+                    'date'  => (string) $f['transactionDate'],
+                    'total' => (float) $f['total'] - (float) $f['discount'],
+                ];
+            }
+            $result->MoveNext();
+        }
+        $result->Close();
+        return $a;
+    }
+
+    /** Port fiel de sumTotalBetweenDateRanges() del panel. */
+    private function sumForRegister(array $allSales, string $registerId, string $from, string $to): float
+    {
+        if ($to === '0000-00-00 00:00:00' || $to === '') {
+            $to = TODAY;
+        }
+        $total = 0.0;
+        foreach ($allSales as $reg => $values) {
+            if ($reg !== $registerId) { continue; }
+            foreach ($values as $data) {
+                if ($data['date'] > $from && $data['date'] < $to) {
+                    $total += (float) $data['total'];
+                }
+            }
+        }
+        return $total;
+    }
+
+    /** ROC scoped a register específico (companyId + registerId). Sólo si ambos son UUID. */
+    private function buildRegisterRoc(string $companyId, string $registerId): string
+    {
+        if (!preg_match(self::UUID_RE, $companyId) || !preg_match(self::UUID_RE, $registerId)) {
+            return '';
+        }
+        return " AND companyId = '" . $companyId . "' AND registerId = '" . $registerId . "'";
+    }
+
+    /** Lookup batch id→name de outlet/register, scopeado por companyId. */
+    private function nameMap(string $table, string $idCol, string $nameCol, array $ids, string $companyId): array
     {
         if (!$ids) {
             return [];
@@ -254,7 +326,7 @@ class ReportDrawersService
     }
 
     /** Lookup batch contactId → nombre completo, scopeado por companyId. */
-    private function contactNames(array $ids, $companyId)
+    private function contactNames(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {

@@ -27,7 +27,7 @@ if ($method === 'POST') {
         'openAmount'  => $_POST['openAmount'] ?? '',
         'closeAmount' => $_POST['closeAmount'] ?? '',
     ];
-    $res = bffApiPost('v1/reports/drawers.php', $payload);
+    $res = bffApiPost('v1/reports/drawers.php', $payload, '_jwt_panel', ['base' => 'shared']);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }
@@ -36,7 +36,7 @@ if ($method === 'POST') {
 
 /* ───────────── lectura: detalle por id ───────────── */
 if (!empty($_GET['id'])) {
-    $res = bffApiGet('v1/reports/drawers.php', ['id' => $_GET['id']]);
+    $res = bffApiGet('v1/reports/drawers.php', ['id' => $_GET['id']], '_jwt_panel', ['base' => 'shared']);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }
@@ -47,7 +47,7 @@ if (!empty($_GET['id'])) {
 $from = $_GET['from'] ?? date('Y-m-d 00:00:00', strtotime('-7 days'));
 $to   = $_GET['to']   ?? date('Y-m-d 23:59:59');
 
-$res = bffApiGet('v1/reports/drawers.php', ['from' => $from, 'to' => $to]);
+$res = bffApiGet('v1/reports/drawers.php', ['from' => $from, 'to' => $to], '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

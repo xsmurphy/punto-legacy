@@ -1,29 +1,24 @@
 <?php
 /**
- * REST canónico — Cierres de Caja / Drawers (motor ERP, raw).
+ * REST canónico (API compartida /api) — Cierres de Caja / Drawers (raw).
  *
- *   GET  /API/v1/reports/drawers?from=&to=          → { rows } CRUDO (lista de cajas).
- *   GET  /API/v1/reports/drawers?id=<uuid>          → { detail } CRUDO (una caja + desglose de pagos).
- *   POST /API/v1/reports/drawers (action=close|correct|delete&id=<uuid> …) → muta.
+ *   GET  /v1/reports/drawers?from=&to=             → { rows } CRUDO.
+ *   GET  /v1/reports/drawers?id=<uuid>             → { detail } CRUDO.
+ *   POST /v1/reports/drawers (action=close|correct|delete&id=<uuid> …) → muta.
  *
- * Lectura sin formatear/HTML (el front arma/formatea). Escritura scopeada por COMPANY_ID del JWT.
- * Auth: JWT. Tenant por COMPANY_ID + roc. El detalle se re-consulta por id (no se confía en un
- * blob del cliente, a diferencia del legacy). Ver REGLA RAÍZ 2.
+ * Auth: realm `panel`. Tenant por COMPANY_ID + outlet. Writes scopeados por companyId del JWT.
  */
 
-require_once __DIR__ . '/../../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../../bootstrap.php';
 
-require_once __DIR__ . '/../../../lib/reports/ReportDrawersService.php';
-
+$ctx    = apiAuthTenant(['panel']);
+$svc    = new \Punto\Api\Reports\DrawersService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$svc    = new ReportDrawersService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 $dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
 
 if ($method === 'POST') {
-    // Permiso de escritura: bloquea el rol read-only (7) — misma convención que recurring/expenses.
-    if ((int) PANEL_AUTHED_ROLE === 7) {
+    if ((int) $ctx['roleId'] === 7) {
         apiError('Sin permiso para esta acción', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
@@ -36,13 +31,12 @@ if ($method === 'POST') {
     }
 
     if ($action === 'delete') {
-        if (!$svc->remove($id, COMPANY_ID)) {
+        if (!$svc->remove($id, (string) COMPANY_ID)) {
             apiError('No se pudo eliminar', 500);
         }
         apiOk(['id' => $id, 'action' => 'delete']);
     }
 
-    // montos: número plano (parseo de locale en el front; ver REGLA RAÍZ 2).
     $closeAmount = (string) (validateHttp('closeAmount', 'post') ?: '0');
     if (!is_numeric($closeAmount)) {
         apiError('monto de cierre inválido', 422);
@@ -56,13 +50,12 @@ if ($method === 'POST') {
         if ($closeDate === '') {
             apiError('fecha de cierre requerida', 422);
         }
-        // Usuario que cierra = sub del JWT (PANEL_AUTHED_USER). Sólo si es un UUID válido
-        // (en la ruta legacy api_key es 0) → si no, se guarda NULL (drawerUserClose es nullable).
-        $closer = (string) PANEL_AUTHED_USER;
+        // Usuario que cierra = sub del JWT. Si no es UUID → NULL.
+        $closer = (string) $ctx['userId'];
         if (!preg_match($uuidRe, $closer)) {
             $closer = '';
         }
-        if (!$svc->close($id, COMPANY_ID, $closeDate, (float) $closeAmount, $closer)) {
+        if (!$svc->close($id, (string) COMPANY_ID, $closeDate, (float) $closeAmount, $closer)) {
             apiError('No se pudo cerrar la caja', 500);
         }
         apiOk(['id' => $id, 'action' => 'close']);
@@ -77,7 +70,7 @@ if ($method === 'POST') {
     if (!is_numeric($openAmount)) {
         apiError('monto de apertura inválido', 422);
     }
-    if (!$svc->correct($id, COMPANY_ID, $openDate, $closeDate, (float) $openAmount, (float) $closeAmount)) {
+    if (!$svc->correct($id, (string) COMPANY_ID, $openDate, $closeDate, (float) $openAmount, (float) $closeAmount)) {
         apiError('No se pudo corregir el cierre', 500);
     }
     apiOk(['id' => $id, 'action' => 'correct']);
@@ -87,15 +80,21 @@ if ($method !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
+}
+
 // Detalle de una caja.
 $id = (string) (validateHttp('id') ?: '');
 if ($id !== '') {
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 422);
     }
-    $detail = $svc->detail($id, COMPANY_ID);
+    $detail = $svc->detail($id, (string) COMPANY_ID, $roc);
     if ($detail === null) {
-        apiNotFound('Caja no encontrada');
+        apiError('Caja no encontrada', 404);
     }
     apiOk(['detail' => $detail]);
 }
@@ -109,5 +108,4 @@ if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
     apiError('Formato de fecha inválido', 422);
 }
 
-$roc = getROC(1);
-apiOk(['rows' => $svc->listMovements($from, $to, $roc, COMPANY_ID)]);
+apiOk(['rows' => $svc->listMovements($from, $to, $roc, (string) COMPANY_ID)]);
