@@ -1,18 +1,18 @@
 <?php
 /**
- * REST canónico — Reporte de Artículos / Productos (motor ERP, raw).
+ * REST canónico (API compartida /api) — Reporte de Artículos / Productos (raw).
  *
- *   GET /API/v1/reports/products?view=general|detail|combos&from=&to=
- *       [&cusId=&usrId=&itmId=&month=&year=&src=]   → datos CRUDOS según la vista.
+ *   GET /v1/reports/products?view=general|detail|combos&from=&to=
+ *       [&cusId=&usrId=&itmId=&month=&year=&src=]
  *
- * Read-only (el self-heal de tax del legacy se eliminó). Sin formatear/HTML: el BFF calcula
- * utilidad/KPIs/chart y el front formatea. Auth: JWT. Tenant por COMPANY_ID + roc. Ver REGLA RAÍZ 2.
+ * Read-only. Sin formatear/HTML: el BFF calcula utilidad/KPIs/chart, el front formatea.
+ * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
  */
 
-require_once __DIR__ . '/../../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../../bootstrap.php';
 
-require_once __DIR__ . '/../../../lib/reports/ReportProductsService.php';
+$ctx = apiAuthTenant(['panel']);
+$svc = new \Punto\Api\Reports\ProductsService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
@@ -34,7 +34,6 @@ if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
     apiError('Formato de fecha inválido', 422);
 }
 
-// Filtros opcionales. Los ids deben ser UUID válidos (o vacío).
 $uuidOrEmpty = function ($v) use ($uuidRe) {
     $v = (string) ($v ?: '');
     return ($v !== '' && preg_match($uuidRe, $v)) ? $v : '';
@@ -49,12 +48,18 @@ $filters = [
     'src'   => trim((string) (validateHttp('src') ?: '')),
 ];
 
-$svc = new ReportProductsService();
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
+}
+
+$companyId = (string) COMPANY_ID;
 
 if ($view === 'detail') {
-    apiOk($svc->detail($filters, $from, $to));
+    apiOk($svc->detail($filters, $from, $to, $roc, $companyId));
 } elseif ($view === 'combos') {
-    apiOk($svc->combos($filters, $from, $to));
+    apiOk($svc->combos($filters, $from, $to, $roc, $companyId));
 } else {
-    apiOk($svc->general($filters, $from, $to));
+    apiOk($svc->general($filters, $from, $to, $roc, $companyId));
 }

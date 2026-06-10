@@ -42,7 +42,7 @@ final class NonAddingSales
         ];
 
         if ($backThen) {
-            [$fromB, $toB] = $this->previousPeriod($from, $to);
+            [$fromB, $toB] = self::previousPeriod($from, $to);
             $prev = $this->summarize($fromB, $toB, $roc, $cache);
             $out['totalB']           = $prev['gift'] + $prev['credit'] + $prev['points'] + $prev['internal'];
             $out['totalGiftCardsB']  = $prev['gift'];
@@ -65,7 +65,7 @@ final class NonAddingSales
             elseif ($type === 'storeCredit')  { $credit += $price; }
             elseif ($type === 'points')       { $points += $price; }
         }
-        $internal = $this->lessInternalTotals($roc, $from, $to);
+        $internal = self::lessInternalTotals($roc, $from, $to);
         return ['gift' => $gift, 'credit' => $credit, 'points' => $points, 'internal' => (float) ($internal['total'] ?? 0)];
     }
 
@@ -123,8 +123,10 @@ final class NonAddingSales
     /**
      * Port fiel de lessInternalTotals del panel (versión PG-correcta: meta->>'tags', sin
      * USE INDEX, ints parametrizados). La de /app está rota en PG: no se usa.
+     *
+     * Público porque también lo usa ProductsService::internals (batch 14).
      */
-    private function lessInternalTotals(string $roc, string $from, string $to, $tTypes = false): array
+    public static function lessInternalTotals(string $roc, string $from, string $to, $tTypes = false): array
     {
         global $_fullSettings;
 
@@ -164,8 +166,12 @@ final class NonAddingSales
         return ['total' => $total, 'discount' => $discount, 'tax' => $tax, 'qty' => $qty, 'count' => (float) $count];
     }
 
-    /** Port fiel de getPreviousPeriod del panel: mismo intervalo desplazado hacia atrás. */
-    private function previousPeriod(string $start, string $end): array
+    /**
+     * Port fiel de getPreviousPeriod del panel: mismo intervalo desplazado hacia atrás.
+     *
+     * Público porque también lo usa ProductsService::general (batch 14).
+     */
+    public static function previousPeriod(string $start, string $end): array
     {
         $startF    = strtotime($start);
         $endF      = strtotime($end);

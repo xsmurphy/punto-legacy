@@ -1,73 +1,62 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Productos / Reporte de Artículos (capa API, motor ERP).
+ * Dominio de Reportes — Productos (API compartida, motor ERP).
  *
- * Tres vistas, todas sobre itemSold ⋈ transaction (tipos 0,3,6):
- *   - general(): agregado por producto (unidades, total, tax, COGS, comisión, descuento) +
- *     período anterior (modo default) + internas (lessInternalTotals). Modos de filtro:
- *     default (período + anterior), cusId (cliente, all-time), usrId (usuario, período),
- *     itmId (un ítem), itmId+month (desglose mensual del año).
- *   - detail(): líneas de venta crudas (una por itemSold) con meta + nombres resueltos.
- *   - combos(): igual que general pero sólo ítems combo/precombo/comboAddons.
+ * Port FIEL de panel/lib/reports/ReportProductsService.php (Fase 2 batch 14). Cambios vs original:
+ *  - namespace + `final`
+ *  - ROC y companyId por PARÁMETRO en las 3 vistas (no globals).
+ *  - `getPreviousPeriod` y `lessInternalTotals` (panel-only) → `NonAddingSales::previousPeriod`
+ *    y `NonAddingSales::lessInternalTotals` (helper compartido del batch 7, expuestos públicos
+ *    en este batch — mismo patrón que `salesByPayment` en batch 8).
+ *  - `getAllItems(false, true, $ids, true)` → `itemMeta` lookup batch directo (sólo se usan
+ *    itemName, itemSKU, itemPrice, itemType, brandId, categoryId, taxId).
+ *  - `getAllTax()` (panel-only) → `taxNames($companyId)` private inline.
+ *  - `getTaxOfPrice` (panel-only) → `taxOfPrice` private static (port fiel, 7 líneas).
+ *  - `getAllCombosCompoundsDiscount` (roto en PG en el panel) → no se porta (mismo comentario
+ *    del panel original: "se OMITE, igual que brands/categories").
+ *  - `getTaxValue`, `getTaxonomyName` resuelven por fallback de namespace (en /app).
  *
- * Devuelve datos CRUDOS (números, sin formatear, sin HTML). El BFF calcula utilidad/KPIs/chart
- * y el front formatea + arma tablas/tabs. Ver REGLA RAÍZ 2.
+ * 3 vistas: general (agregado por producto + período anterior + internas), detail (líneas
+ * crudas con meta), combos (igual que general pero sólo ítems combo/precombo/comboAddons).
  *
- * Reemplaza panel/a_report_products.php (action=generalTable/detailTable/combosTable).
- *
- * Fixes PG (las queries legacy estaban rotas en Postgres):
- *  - `USE INDEX(...)` (MySQL) eliminado.
- *  - `MONTH()`/`YEAR()` → EXTRACT(MONTH/YEAR FROM ...) (modo mensual).
- *  - detail default seleccionaba `a.tags` (columna movida a `meta` JSONB) → no se selecciona.
- *  - búsqueda `src` legacy tenía el término LITERAL dentro de un string single-quote
- *    (`'... LIKE \'%\' . $word . \'%\''` no interpolaba) → acá es un ILIKE parametrizado.
- *  - getAllCombosCompoundsDiscount() está roto en PG (`itemSoldParent != 0`: UUID vs int) →
- *    se OMITE (compoundsDiscount = []), igual que brands/categories. Afecta sólo el ajuste de
- *    combos en el período anterior (flechas de comparación), no los totales mostrados.
- *  - el self-heal de itemSoldTax (ncmUpdate durante el read, sin companyId + LIMIT inválido en
- *    PG DELETE/UPDATE) se elimina: el tax corregido se calcula sólo para DISPLAY, sin escribir.
- *
- * Tenant: $roc (getROC) calificado por alias de la tabla transaction en cada query; companyId
- * bound en los lookups de meta.
+ * Tenant: $roc por query; companyId bound en lookups.
  */
-class ReportProductsService
+final class ProductsService
 {
     private const TX_TYPES = '0,3,6';
 
-    /** getROC(1) con companyId/outletId/registerId calificados para el alias de `transaction`. */
-    private function roc($alias)
+    private array $taxonomyCache = [];
+
+    /** $roc del endpoint, calificado por alias de la tabla `transaction`. */
+    private function rocAlias(string $roc, string $alias): string
     {
         return str_replace(
             ['registerId', 'outletId', 'companyId'],
             [$alias . '.registerId', $alias . '.outletId', $alias . '.companyId'],
-            getROC(1)
+            $roc
         );
     }
 
-    /**
-     * Vista agregada por producto. $filters: ['cusId'=>uuid, 'usrId'=>uuid, 'itmId'=>uuid,
-     * 'month'=>bool, 'year'=>int]. Devuelve filas crudas + meta; en modo default agrega `prev`
-     * (totales del período anterior) e `internals`.
-     */
-    public function general(array $filters, $from, $to)
+    /** Vista agregada. */
+    public function general(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, false);
-        $withMeta = $this->attachMeta($rows);
-        // Utilidad general = (total − COGS) − comisión (el tax NO se resta; el legacy main loop
-        // no aplica zeroing de combos — sólo el período anterior lo hace, ver prevTotals()).
+        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, $roc);
+        $withMeta = $this->attachMeta($rows, $companyId);
         foreach ($withMeta as &$gr) {
             $gr['utility'] = ($gr['total'] - $gr['cogs']) - $gr['comission'];
         }
         unset($gr);
         $out = ['rows' => $withMeta, 'month' => $isMonth];
 
-        // Período anterior + internas: sólo en el modo default (sin filtros de cliente/usuario/ítem).
         if (!$filters['cusId'] && !$filters['usrId'] && !$filters['itmId']) {
-            [$prevStart, $prevEnd] = getPreviousPeriod($from, $to);
-            [$prevRows] = $this->aggregate($filters, $prevStart, $prevEnd, false);
-            $out['prev']      = $this->prevTotals($prevRows);
-            $out['internals'] = $this->internals($from, $to);
-            // usold previo por itemId (para la línea de comparación del chart).
+            [$prevStart, $prevEnd] = NonAddingSales::previousPeriod($from, $to);
+            [$prevRows] = $this->aggregate($filters, $prevStart, $prevEnd, $roc);
+            $out['prev']      = $this->prevTotals($prevRows, $companyId);
+            $out['internals'] = $this->internals($from, $to, $roc);
             $byItem = [];
             foreach ($prevRows as $pr) {
                 if ($pr['total'] > 0) { $byItem[$pr['id']] = $pr['usold']; }
@@ -79,15 +68,14 @@ class ReportProductsService
     }
 
     /** Igual que general() pero sólo ítems combo/precombo/comboAddons. */
-    public function combos(array $filters, $from, $to)
+    public function combos(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, false);
-        $withMeta = $this->attachMeta($rows);
+        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, $roc);
+        $withMeta = $this->attachMeta($rows, $companyId);
         $combo = array_values(array_filter(
             $withMeta,
             fn($r) => in_array($r['itemType'], ['combo', 'precombo', 'comboAddons'], true)
         ));
-        // Utilidad combos = ((total − tax) − COGS) − comisión (el tax SÍ se resta, a diferencia de general).
         foreach ($combo as &$cr) {
             $cr['utility'] = (($cr['total'] - $cr['tax']) - $cr['cogs']) - $cr['comission'];
         }
@@ -95,13 +83,12 @@ class ReportProductsService
         return ['rows' => $combo, 'month' => $isMonth];
     }
 
-    /** Construye el agregado por producto según el modo de filtro. @return [rows[], isMonth bool] */
-    private function aggregate(array $f, $from, $to, $unusedCombos)
+    /** Construye el agregado por producto según el modo de filtro. */
+    private function aggregate(array $f, $from, $to, string $roc): array
     {
-        $roc     = $this->roc('b');
+        $rocB    = $this->rocAlias($roc, 'b');
         $isMonth = false;
-        // COGS y descuento: en los modos cliente/usuario el legacy NO multiplica por unidades;
-        // en default/ítem/mensual SÍ (`* a.itemSoldUnits`). Se respeta esa asimetría (afecta los números).
+
         $selFlat  = "SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldTotal) as total,
                      SUM(a.itemSoldTax) as tax, SUM(ABS(a.itemSoldCOGS)) as cogs,
                      SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount) as discount";
@@ -110,19 +97,17 @@ class ReportProductsService
                      SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount * a.itemSoldUnits) as discount";
 
         if ($f['cusId']) {
-            // Cliente: all-time (el legacy no filtra fecha en este modo). SUM sin *units.
             $sql = "SELECT a.itemId as id, $selFlat
                     FROM itemSold a, transaction b
-                    WHERE b.transactionType IN (" . self::TX_TYPES . ") AND b.customerId = ?" . $roc . "
+                    WHERE b.transactionType IN (" . self::TX_TYPES . ") AND b.customerId = ?" . $rocB . "
                     AND b.transactionId = a.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$f['cusId']];
         } elseif ($f['usrId']) {
-            // Usuario: SUM sin *units.
             $sql = "SELECT a.itemId as id, $selFlat
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
-                    AND b.transactionDate BETWEEN ? AND ? AND b.userId = ?" . $roc . "
+                    AND b.transactionDate BETWEEN ? AND ? AND b.userId = ?" . $rocB . "
                     AND a.transactionId = b.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$from, $to, $f['usrId']];
@@ -132,7 +117,7 @@ class ReportProductsService
             $year    = (int) ($f['year'] ?: date('Y'));
             $sql = "SELECT a.itemId as id, EXTRACT(MONTH FROM a.itemSoldDate)::int as smonth, $sel
                     FROM itemSold a, transaction b
-                    WHERE b.transactionType IN (" . self::TX_TYPES . ")" . $roc . "
+                    WHERE b.transactionType IN (" . self::TX_TYPES . ")" . $rocB . "
                     AND a.transactionId = b.transactionId
                     AND EXTRACT(YEAR FROM a.itemSoldDate) = ? AND a.itemId = ?
                     GROUP BY smonth, id ORDER BY smonth ASC";
@@ -140,7 +125,7 @@ class ReportProductsService
         } elseif ($f['itmId']) {
             $sql = "SELECT a.itemId as id, $selUnits
                     FROM itemSold a, transaction b
-                    WHERE b.transactionType IN (" . self::TX_TYPES . ")" . $roc . "
+                    WHERE b.transactionType IN (" . self::TX_TYPES . ")" . $rocB . "
                     AND a.itemId = ? AND a.transactionId = b.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$f['itmId']];
@@ -148,7 +133,7 @@ class ReportProductsService
             $sql = "SELECT a.itemId as id, $selUnits
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
-                    AND b.transactionDate BETWEEN ? AND ?" . $roc . "
+                    AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
                     AND a.transactionId = b.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$from, $to];
@@ -176,19 +161,18 @@ class ReportProductsService
         return [$rows, $isMonth];
     }
 
-    /** Totales del período anterior (combos en 0, igual que el legacy resultB). */
-    private function prevTotals(array $rows)
+    private function prevTotals(array $rows, string $companyId): array
     {
         if (!$rows) {
             return ['total' => 0, 'cogs' => 0, 'tax' => 0, 'discount' => 0, 'comission' => 0, 'usold' => 0, 'utility' => 0];
         }
-        $meta = $this->itemMeta(array_column($rows, 'id'));
+        $meta = $this->itemMeta(array_column($rows, 'id'), $companyId);
         $t = ['total' => 0, 'cogs' => 0, 'tax' => 0, 'discount' => 0, 'comission' => 0, 'usold' => 0, 'utility' => 0];
         foreach ($rows as $r) {
             $type = $meta[$r['id']]['itemType'] ?? '';
             $uSold = $r['usold']; $discount = $r['discount']; $total = $r['total'];
             $comission = $r['comission']; $tax = $r['tax']; $cogs = $r['cogs'];
-            $utility = (($total - $tax) - $cogs) - $comission;   // fórmula del período anterior (legacy)
+            $utility = (($total - $tax) - $cogs) - $comission;
             if (in_array($type, ['precombo', 'combo'], true)) {
                 $discount = 0; $comission = 0; $utility = 0; $cogs = 0; $tax = 0;
             }
@@ -198,10 +182,10 @@ class ReportProductsService
         return $t;
     }
 
-    /** Ventas internas a restar de los totales (lessInternalTotals ya es PG-safe). */
-    private function internals($from, $to)
+    /** Internas (lessInternalTotals del helper compartido NonAddingSales — PG-correcto). */
+    private function internals($from, $to, string $roc): array
     {
-        $i = lessInternalTotals(getROC(1), $from, $to);
+        $i = NonAddingSales::lessInternalTotals($roc, $from, $to);
         return [
             'total'    => (float) ($i['total'] ?? 0),
             'qty'      => (float) ($i['qty'] ?? 0),
@@ -210,10 +194,10 @@ class ReportProductsService
         ];
     }
 
-    /** Vista detallada: una fila por línea de venta. $filters como general + 'src' (búsqueda). */
-    public function detail(array $filters, $from, $to)
+    /** Vista detallada: una fila por línea de venta. */
+    public function detail(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        $roc = $this->roc('a');   // en detail, transaction es el alias `a`
+        $rocA = $this->rocAlias($roc, 'a');
         $sel = "a.customerId as customer, a.userId as trsUser, a.outletId, a.registerId,
                 a.invoiceNo, a.invoicePrefix, a.transactionType, a.transactionId,
                 b.itemSoldId, b.itemId, b.itemSoldUnits, b.itemSoldTotal, b.itemSoldTax,
@@ -221,33 +205,32 @@ class ReportProductsService
                 ABS(b.itemSoldCOGS) as itemSoldCOGS, b.itemSoldComission, b.userId as itemUser";
 
         if ($filters['src']) {
-            // Búsqueda por nombre/SKU: subquery de itemIds parametrizada (el legacy tenía el término literal).
             $like = '%' . $filters['src'] . '%';
             $sql = "SELECT $sel
                     FROM transaction a, itemSold b
-                    WHERE a.transactionDate BETWEEN ? AND ?" . $roc . "
+                    WHERE a.transactionDate BETWEEN ? AND ?" . $rocA . "
                     AND a.transactionType IN (" . self::TX_TYPES . ") AND a.transactionId = b.transactionId
                     AND b.itemId IN (SELECT itemId FROM item WHERE (itemName ILIKE ? OR itemSKU ILIKE ?) AND companyId = ? AND itemStatus = 1)
                     ORDER BY a.transactionDate DESC LIMIT 2000";
-            $params = [$from, $to, $like, $like, COMPANY_ID];
+            $params = [$from, $to, $like, $like, $companyId];
         } elseif ($filters['cusId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
-                    WHERE a.transactionType IN (" . self::TX_TYPES . ") AND a.customerId = ?" . $roc . "
+                    WHERE a.transactionType IN (" . self::TX_TYPES . ") AND a.customerId = ?" . $rocA . "
                     AND a.transactionId = b.transactionId ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$filters['cusId']];
         } elseif ($filters['usrId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
-                    WHERE a.transactionDate BETWEEN ? AND ? AND a.transactionType IN (" . self::TX_TYPES . ")" . $roc . "
+                    WHERE a.transactionDate BETWEEN ? AND ? AND a.transactionType IN (" . self::TX_TYPES . ")" . $rocA . "
                     AND a.transactionId = b.transactionId AND b.userId = ? ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$from, $to, $filters['usrId']];
         } elseif ($filters['itmId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
-                    WHERE a.transactionType IN (" . self::TX_TYPES . ") AND b.itemId = ?" . $roc . "
+                    WHERE a.transactionType IN (" . self::TX_TYPES . ") AND b.itemId = ?" . $rocA . "
                     AND a.transactionId = b.transactionId ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$filters['itmId']];
         } else {
             $sql = "SELECT $sel FROM transaction a, itemSold b
-                    WHERE a.transactionDate BETWEEN ? AND ?" . $roc . "
+                    WHERE a.transactionDate BETWEEN ? AND ?" . $rocA . "
                     AND a.transactionType IN (" . self::TX_TYPES . ") AND a.transactionId = b.transactionId
                     ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$from, $to];
@@ -265,15 +248,14 @@ class ReportProductsService
         }
         $res->Close();
 
-        // Resolución de meta en batch.
-        $items   = $this->itemMeta(array_map(fn($l) => (string) $l['itemId'], $lines));
+        $items   = $this->itemMeta(array_map(fn($l) => (string) $l['itemId'], $lines), $companyId);
         $custIds = array_values(array_unique(array_filter(array_map(fn($l) => (string) $l['customer'], $lines))));
-        $custs   = $this->contactNames($custIds);
+        $custs   = $this->contactNames($custIds, $companyId);
         $userIds = array_values(array_unique(array_filter(array_map(fn($l) => (string) ($l['itemUser'] ?: $l['trsUser']), $lines))));
-        $users   = $this->contactNames($userIds);
-        $outlets = $this->nameMap('outlet',   'outletId',   'outletName',   array_map(fn($l) => (string) $l['outletId'], $lines));
-        $regs    = $this->nameMap('register', 'registerId', 'registerName', array_map(fn($l) => (string) $l['registerId'], $lines));
-        $taxes   = getAllTax();
+        $users   = $this->contactNames($userIds, $companyId);
+        $outlets = $this->nameMap('outlet',   'outletId',   'outletName',   array_map(fn($l) => (string) $l['outletId'], $lines), $companyId);
+        $regs    = $this->nameMap('register', 'registerId', 'registerName', array_map(fn($l) => (string) $l['registerId'], $lines), $companyId);
+        $taxes   = $this->taxNames($companyId);
 
         $rows = [];
         foreach ($lines as $l) {
@@ -284,26 +266,20 @@ class ReportProductsService
             $total = (float) $l['itemSoldTotal'];
             $tax   = (float) $l['itemSoldTax'];
 
-            // Self-heal de display (sin escribir): si el tax guardado es >= total, se recalcula.
             if ($tax >= $total && $itm) {
-                $tax = (float) getTaxOfPrice(getTaxValue($itm['taxId'] ?? null), $total);
+                $tax = self::taxOfPrice((float) getTaxValue($itm['taxId'] ?? null), $total);
             }
 
             $cogs      = (float) $l['itemSoldCOGS'] * $uSold;
             $comission = (float) $l['itemSoldComission'];
             $discount  = (float) $l['itemSoldDiscount'] * $uSold;
             $name      = $itm ? (string) $itm['itemName'] : ((!$l['itemId'] && $l['itemSoldDescription']) ? (string) $l['itemSoldDescription'] : '');
-            // Utilidad detalle = (total − COGS) − comisión (sin tax, igual que general).
             $utility   = ($total - $cogs) - $comission;
 
-            // Special-casing del legacy: combos no aportan costos/utilidad; las líneas hijas
-            // (itemSoldParent) no aportan total/utilidad (se contabilizan en el combo padre).
             $parent = (string) ($l['itemSoldParent'] ?? '');
             if (in_array($type, ['precombo', 'combo'], true)) {
                 $cogs = 0; $tax = 0; $discount = 0; $comission = 0; $utility = 0;
             } elseif ($parent !== '' && $type !== 'comboAddons') {
-                // El legacy captura comboAddons en una rama previa (no zerea); sólo ítems "planos"
-                // con parent se contabilizan en el combo padre (utility/total = 0).
                 $utility = 0; $total = 0;
                 $name = '↳ ' . $name;
             }
@@ -320,8 +296,8 @@ class ReportProductsService
                 'name'          => $name,
                 'deleted'       => $itm ? false : (bool) ($l['itemId'] && !$l['itemSoldDescription']),
                 'sku'           => $itm ? (string) ($itm['itemSKU'] ?? '') : '',
-                'brand'         => $itm ? ($this->taxonomyName($itm['brandId'] ?? null)) : '',
-                'category'      => $itm ? ($this->taxonomyName($itm['categoryId'] ?? null)) : '',
+                'brand'         => $itm ? ($this->tname($itm['brandId'] ?? null, $companyId)) : '',
+                'category'      => $itm ? ($this->tname($itm['categoryId'] ?? null, $companyId)) : '',
                 'usold'         => $uSold,
                 'comission'     => $comission,
                 'cogs'          => $cogs,
@@ -336,16 +312,15 @@ class ReportProductsService
         return ['rows' => $rows];
     }
 
-    /* ─────────────── helpers de meta (lookups batch parametrizados) ─────────────── */
+    /* ───────────── helpers ───────────── */
 
-    /** Adjunta meta (nombre/sku/marca/categoría/precio/tax/tipo) a filas agregadas por itemId. */
-    private function attachMeta(array $rows)
+    private function attachMeta(array $rows, string $companyId): array
     {
         if (!$rows) {
             return [];
         }
-        $meta  = $this->itemMeta(array_column($rows, 'id'));
-        $taxes = getAllTax();
+        $meta  = $this->itemMeta(array_column($rows, 'id'), $companyId);
+        $taxes = $this->taxNames($companyId);
         $out = [];
         foreach ($rows as $r) {
             $m = $meta[$r['id']] ?? null;
@@ -353,8 +328,8 @@ class ReportProductsService
                 'name'     => $m ? (string) $m['itemName'] : '',
                 'deleted'  => $m ? false : true,
                 'sku'      => $m ? (string) ($m['itemSKU'] ?? '') : '',
-                'brand'    => $m ? $this->taxonomyName($m['brandId'] ?? null) : '',
-                'category' => $m ? $this->taxonomyName($m['categoryId'] ?? null) : '',
+                'brand'    => $m ? $this->tname($m['brandId'] ?? null, $companyId) : '',
+                'category' => $m ? $this->tname($m['categoryId'] ?? null, $companyId) : '',
                 'price'    => $m ? (float) ($m['itemPrice'] ?? 0) : 0,
                 'taxName'  => $m ? (string) ($taxes[$m['taxId']]['name'] ?? '') : '',
                 'itemType' => $m ? (string) ($m['itemType'] ?? '') : '',
@@ -363,32 +338,78 @@ class ReportProductsService
         return $out;
     }
 
-    /** itemId → fila item completa (getAllItems ya es PG-safe: companyId bound, IN parametrizado). */
-    private function itemMeta(array $ids)
+    /**
+     * Lookup batch itemId → meta. Reemplaza getAllItems(false, true, $ids, true).
+     * Devuelve TODOS los campos del item (igual que el original) para que attachMeta y prevTotals
+     * accedan a itemName/itemSKU/itemPrice/itemType/brandId/categoryId/taxId.
+     */
+    private function itemMeta(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
             return [];
         }
-        return getAllItems(false, true, implode(',', $ids), true);
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $res = ncmExecute(
+            "SELECT * FROM item WHERE companyId = ? AND itemId IN ($ph)",
+            array_merge([$companyId], $ids), false, false, true
+        );
+        $res = is_array($res) ? $res : [];
+        $map = [];
+        foreach ($res as $r) {
+            $map[(string) $r['itemId']] = $r;
+        }
+        return $map;
     }
 
-    /** Nombre de taxonomía (marca/categoría) cacheado. */
-    private $taxonomyCache = [];
-    private function taxonomyName($id)
+    /** Taxes (taxonomy type='tax') → taxonomyId → {name}. Reemplaza getAllTax(). */
+    private function taxNames(string $companyId): array
+    {
+        $res = ncmExecute(
+            "SELECT taxonomyName, taxonomyId FROM taxonomy WHERE taxonomyType = 'tax' AND companyId = ? ORDER BY taxonomyName ASC LIMIT 100",
+            [$companyId], false, true
+        );
+        $tax = [];
+        $added = [];
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $f = $res->fields;
+                if (!in_array($f['taxonomyName'], $added, true)) {
+                    $tax[(string) $f['taxonomyId']] = ['name' => toUTF8($f['taxonomyName'])];
+                    $added[] = $f['taxonomyName'];
+                }
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+        return $tax;
+    }
+
+    /**
+     * Lookup directo por id (sin getTaxonomyName global): la versión moderna en /app delega a
+     * `Punto\App\Domain\Taxonomy::getName` que lee `$SQLcompanyId` del global. En /api, ese
+     * global está vacío (apiAuthTenant define $SQLcompanyId como local de función) → la query
+     * sale `WHERE taxonomyId = ? AND ` (sintaxis rota) → null → 'None'. Acá hacemos un SELECT
+     * directo bindeado por companyId del contexto.
+     */
+    private function tname($id, string $companyId): string
     {
         $id = (string) $id;
         if ($id === '') {
             return '';
         }
         if (!array_key_exists($id, $this->taxonomyCache)) {
-            $this->taxonomyCache[$id] = (string) getTaxonomyName($id, false, false, true);
+            $r = ncmExecute(
+                "SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1",
+                [$id, $companyId]
+            );
+            $name = $r ? (string) ($r['taxonomyName'] ?? '') : '';
+            $this->taxonomyCache[$id] = $name !== '' ? toUTF8($name) : 'None';
         }
         return $this->taxonomyCache[$id];
     }
 
-    /** Lookup batch contactId → nombre completo, scopeado por companyId. */
-    private function contactNames(array $ids)
+    private function contactNames(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -397,7 +418,7 @@ class ReportProductsService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT contactId, contactName, contactSecondName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -407,8 +428,7 @@ class ReportProductsService
         return $map;
     }
 
-    /** Lookup batch id→name de outlet/register, scopeado por companyId. */
-    private function nameMap($table, $idCol, $nameCol, array $ids)
+    private function nameMap(string $table, string $idCol, string $nameCol, array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -417,7 +437,7 @@ class ReportProductsService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT $idCol, $nameCol FROM $table WHERE companyId = ? AND $idCol IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -425,5 +445,16 @@ class ReportProductsService
             $map[(string) $r[$idCol]] = (string) ($r[$nameCol] ?? '');
         }
         return $map;
+    }
+
+    /** Port fiel de getTaxOfPrice del panel (tax includido en precio → magnitud del IVA). */
+    private static function taxOfPrice(float $tax, float $price): float
+    {
+        if ($tax > 0 && $price) {
+            $taxVal = $price / (1 + ($tax / 100));
+            $total  = $price - $taxVal;
+            return $total > 0 ? $total : 0.0;
+        }
+        return 0.0;
     }
 }
