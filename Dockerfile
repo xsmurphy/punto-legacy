@@ -68,6 +68,10 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 RUN { \
     echo 'opcache.enable=1'; \
+    # CRÍTICO: el server corre con `php -S` (CLI SAPI), no FPM. Sin enable_cli=1
+    # opcache queda inactivo y cada request recompila functions.php (10k+ líneas),
+    # countries.php, timezone.php y la página entera → HTML lento en todas las páginas.
+    echo 'opcache.enable_cli=1'; \
     echo 'opcache.validate_timestamps=1'; \
     echo 'opcache.revalidate_freq=2'; \
     echo 'opcache.memory_consumption=128'; \
