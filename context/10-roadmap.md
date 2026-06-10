@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-09 (Deploy Coolify single-container + SSO panel→app + phone auth + Redis sessions, commits 91cc3ba..b5c483a)
+> **Última actualización:** 2026-06-10 (Desacople /panel → /api compartida: F0/F1/F2 completas — multi-realm auth + 21/23 reportes migrados a `Punto\Api\Reports`, commits c4d3231..2f27fdd)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---

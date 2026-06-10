@@ -158,7 +158,24 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/v1/bancard.php` | Bancard QR: POST `{type: create\|refresh\|cancel}` → `apiOk` con respuesta de Bancard. (Slice 43) |
 | `api/v1/pix.php` | Pix QR: POST `{type: create\|verify}` → `apiOk` con respuesta de Pix. (Slice 43) |
 
-**Clientes actuales**: `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`). `/panel/bff/*` aún no consume /api (usa panel/API/ in-process); la migración es gradual.
+**Clientes actuales**: `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`). `/panel/bff/*` consume /api para los reportes migrados en F2 (Bearer `_jwt_panel` vía base `'shared'` en `panel/bff/lib/api_client.php`); el resto del panel sigue usando `panel/API/` in-process.
+
+### Namespace `Punto\Api\Reports\*` — cluster de reportes del panel (F2, commits c4d3231..36fc3e3, 2026-06-10)
+
+24 services + 3 helpers migrados desde `panel/lib/reports/` al patrón moderno de /api. Todos bajo `namespace Punto\Api\Reports`, `final class`, ROC y `$companyId` por parámetro (sin globals).
+
+**Services** (uno por tipo de reporte): `BrandsService`, `CashflowService`, `CategoriesService`, `CustomersService`, `DashboardService`, `DrawersService`, `ExpensesService`, `GiftcardsService`, `InventoryService`, `OpenInvoicesService`, `PaymentMethodsService`, `ProductionService`, `ProductsService`, `PurchasesService`, `RecurringService`, `SalesService`, `SatisfactionService`, `ScheduleService`, `StockDayService`, `StockService`, `SummaryYearService`, `TransactionsService`, `UsersService`.
+
+**Helpers compartidos**:
+- `Roc.php` — `Roc::build($cid, $oid, $alias='')`: construye el ROC scoped por company/outlet con guard UUID y prefijo de alias para JOINs.
+- `NonAddingSales.php` — `compute()`, `salesByPayment()`, `lessInternalTotals()`, `previousPeriod()`: la cadena `getNonAddingToSales` del panel. Las versiones del legacy de /app están rotas en PG (USE INDEX MySQL, columna `tags` literal, sin discount).
+- `Taxonomy.php` — helper de taxonomies brand/category.
+
+**Endpoints**: `api/v1/reports/<nombre>.php` con `apiAuthTenant(['panel'])`. BFFs en `panel/bff/reports/<nombre>.php` repuntados a base `'shared'`.
+
+**Reportes NO migrados** (pendientes): `vpayments` (proxy a gateway externo `panel/API/get_vpayments.php` — out-of-scope F2, ver F5 del desacople) y `inventory widget` (KPI semántica por definir con producto — BFF ramifica: `widget→panel`, `movements→/api`).
+
+**Gotcha crítico (batch 14, commits en F2):** `getTaxonomyName()` del global resuelve a `/app/Domain/Taxonomy::getName` que lee `global $SQLcompanyId`. Pero `apiAuthTenant()` define `$SQLcompanyId` como variable LOCAL de función → la query sale con trailing AND roto → null → `'None'` silente para TODAS las categorías/marcas. Fix preventivo: usar lookup directo bindeado por `$companyId` del JWT (no el global). Ver convención §33 en `08-convenciones.md`.
 
 **Deuda transitoria**: `api/bootstrap.php` hace `chdir(/app)` y reusa los includes de /app (`db/functions/jwt_middleware/head.php/data.php`) vía rutas absolutas. La consolidación de un `/api/includes` canónico es la tarea pendiente antes de que /api pueda vivir en su propio server.
 

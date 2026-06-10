@@ -1500,3 +1500,45 @@ $isSecure = ($_SERVER['HTTPS'] ?? '') === 'on'
 **SameSite=Lax (no Strict)**: el handoff SSO panel→app es un redirect cross-origin (`panel.punto.la` → `app.punto.la`). Con `SameSite=Strict`, el browser NO envía la cookie en top-level navigation cross-site (el primer request de `app.punto.la` al volver del redirect no traería la cookie `_jwt` recién seteada). Con `SameSite=Lax`, las cookies se envían en top-level GET cross-site → el handoff funciona.
 
 **Regla**: todos los `setcookie()` de JWT en este proyecto usan `SameSite=Lax`. La excepción serían cookies dentro del mismo dominio (first-party), donde Strict sería más seguro, pero con subdominios separados Lax es el balance correcto seguridad/funcionalidad.
+
+---
+
+## §33 — Declarar realm por endpoint en /api; prohibido `$SQLcompanyId` global en services (F0/F2, commits c4d3231..36fc3e3, 2026-06-10)
+
+### §33.1 — `apiAuthTenant(array $realms)`: declarar explícitamente el realm aceptado
+
+**Regla**: todo endpoint nuevo en `api/v1/` DEBE declarar qué realm(s) acepta pasando el array a `apiAuthTenant()`. No usar el default `['pos-app']` en silencio.
+
+| Tipo de endpoint | Declaración correcta |
+|-----------------|---------------------|
+| Solo para el panel de tenant | `apiAuthTenant(['panel'])` |
+| Solo para el POS | `apiAuthTenant(['pos-app'])` (o default) |
+| Ambos (mixto) | `apiAuthTenant(['pos-app', 'panel'])` |
+
+**Por qué**: los tokens POS son **eternos** (device pairing). Si un endpoint del panel no declara `['panel']`, cualquier token de caja podría autenticar en él — abriendo privilegios administrativos a dispositivos de cajero. La allowlist cierra ese vector.
+
+**Constante resultante**: `AUTHED_REALM` — disponible en el endpoint tras `apiAuthTenant()`. Útil si el mismo endpoint sirve a dos realms con lógica levemente distinta.
+
+**Fallback de outlet**: si el JWT panel trae `oid=''` (usuario sin outlet asignado), `apiAuthTenant()` intenta obtener el primer outlet activo de la empresa como fallback. El realm panel puede operar sin `oid` fijo en el JWT.
+
+**BFF panel → /api**: usar base `'shared'` en `panel/bff/lib/api_client.php` + `Authorization: Bearer <_jwt_panel>` (no cookie). La cookie `_jwt_panel` no se reenvía directamente porque en el mismo browser puede coexistir con `_jwt` del POS.
+
+### §33.2 — PROHIBIDO `$SQLcompanyId` global en services de `api/lib/Reports/`
+
+**Regla**: los services bajo `api/lib/Reports/` (y cualquier service nuevo en /api) **no deben leer `$SQLcompanyId` como variable global** para filtrar queries. Deben recibir `$companyId` por parámetro (del JWT, vía `TenantContext` o argumento explícito).
+
+**El bug**: `getTaxonomyName()` del global en `/app/Domain/Taxonomy::getName` lee `global $SQLcompanyId`. `apiAuthTenant()` define esa variable como local de función — no se propaga como global. Resultado: la query sale con `WHERE companyId = AND ...` (trailing AND, sintaxis rota) → devuelve null → todas las categorías/marcas/tags muestran `'None'` de forma silente.
+
+```php
+// MAL — $SQLcompanyId no existe como global en el contexto de /api
+$name = getTaxonomyName($taxonomyId);  // interno: global $SQLcompanyId → null → SQL roto
+
+// BIEN — lookup directo con el $companyId del JWT
+$row = $db->Execute(
+    "SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ?",
+    [$taxonomyId, $companyId]
+);
+$name = $row ? $row->fields['taxonomyname'] : 'None';
+```
+
+**Dónde aplica**: cualquier helper que internamente lea `global $SQLcompanyId`, `global $COMPANY_ID` u otro global de contexto de panel/app (`$SQLoutletId`, `global $db` configurado por `data.php`, etc.). En el contexto de /api esos globals no están inicializados o están en scope incorrecto. Siempre inyectar por parámetro desde el JWT.
