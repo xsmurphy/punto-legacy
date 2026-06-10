@@ -97,6 +97,73 @@ class OutletsService
         return $r !== false;
     }
 
+    /**
+     * Crea una sucursal en blanco: outlet + caja + filas de inventario a 0 para items rastreados.
+     * Usa RETURNING para obtener el UUID generado (compatible con PG; Insert_ID() no funciona con UUIDs).
+     * @return string|null UUID de la nueva sucursal, null en error.
+     */
+    public function create($companyId)
+    {
+        global $db, $plansValues;
+
+        $db->StartTrans();
+
+        $res = $db->Execute(
+            "INSERT INTO outlet (outletName, outletStatus, companyId, itemsTaxIncluded, data)
+             VALUES ('Nueva Sucursal', 1, ?, 1, ?)
+             RETURNING outletId",
+            [$companyId, json_encode(['itemsTaxIncluded' => 1])]
+        );
+
+        // Read UUID by name (PG lowercases column names in result sets)
+        $outletId = '';
+        if ($res && !$res->EOF) {
+            $outletId = (string) ($res->fields['outletid'] ?? $res->fields['outletId'] ?? $res->fields[0] ?? '');
+        }
+
+        if (!$outletId) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return null;
+        }
+
+        $db->Execute(
+            "INSERT INTO register (registerName, registerStatus, outletId, companyId) VALUES ('Nueva Caja', 1, ?, ?)",
+            [$outletId, $companyId]
+        );
+
+        $planKey = defined('PLAN') ? PLAN : '';
+        if (!empty($plansValues[$planKey]['inventory'])) {
+            $db->Execute(
+                "INSERT INTO inventory (inventoryCount, itemId, inventorySource, companyId, outletId)
+                 SELECT 0, itemId, 'new_outlet', ?, ?
+                 FROM item
+                 WHERE companyId = ? AND itemTrackInventory > 0 AND itemStatus = 1",
+                [$companyId, $outletId, $companyId]
+            );
+        }
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        return $failed ? null : $outletId;
+    }
+
+    /**
+     * Elimina una sucursal y su cascada completa dentro de una transacción.
+     * Verifica ownership por $companyId; delega el cascade a deleteOutlet() (god-function con StartTrans).
+     * El caller debe verificar que $id != OUTLET_ID (no borrar el outlet activo).
+     * @return bool
+     */
+    public function delete($id, $companyId)
+    {
+        $outlet = ncmExecute(
+            'SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ?',
+            [$id, $companyId]
+        );
+        if (!$outlet) { return false; }
+        return deleteOutlet($id) !== false;
+    }
+
     /** Impuestos de venta de la company (para el dropdown del form). */
     public function taxes($companyId)
     {

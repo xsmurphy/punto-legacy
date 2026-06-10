@@ -25,9 +25,32 @@ if ($method === 'POST') {
         apiError('Sin permiso para esta acción', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
-    if ($action !== 'update') {
+    if (!in_array($action, ['update', 'create', 'delete'], true)) {
         apiError('Acción no soportada', 422);
     }
+
+    if ($action === 'create') {
+        $newId = $svc->create(COMPANY_ID);
+        if ($newId === null) {
+            apiError('No se pudo crear la sucursal', 500);
+        }
+        apiOk(['id' => $newId]);
+    }
+
+    if ($action === 'delete') {
+        $id = (string) (validateHttp('id', 'post') ?: '');
+        if (!preg_match($uuidRe, $id)) {
+            apiError('id inválido', 422);
+        }
+        if ($id === OUTLET_ID) {
+            apiError('No se puede eliminar la sucursal activa', 422);
+        }
+        if (!$svc->delete($id, COMPANY_ID)) {
+            apiError('No se pudo eliminar la sucursal', 500);
+        }
+        apiOk(['id' => $id]);
+    }
+
     $id = (string) (validateHttp('id', 'post') ?: '');
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 422);

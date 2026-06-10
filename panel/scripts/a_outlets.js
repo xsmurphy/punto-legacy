@@ -163,12 +163,21 @@
 
 			createOutlet: function () {
 				var self = this;
-				// Blank-insert legacy (cascadea register+inventory) → abrir el form Alpine con el id nuevo.
-				$.get(LEGACY + '?action=insert', function (resp) {
-					var parts = String(resp).split('|');
-					if (parts[0] === 'true' && parts[2]) { self.openEdit(parts[2]); }
-					else if (typeof message === 'function') { message('No se pudo crear la sucursal', 'danger'); }
+				var xhr = ncmHelpers.load({
+					url: BFF, httpType: 'POST', type: 'json', hideLoader: false, warnTimeout: false,
+					data: { action: 'create' },
+					success: function (res) {
+						if (res && res.ok && res.data && res.data.id) {
+							self.openEdit(res.data.id);
+						} else if (typeof message === 'function') {
+							message('No se pudo crear la sucursal', 'danger');
+						}
+					},
+					error: function () {
+						if (typeof message === 'function') { message('No se pudo crear la sucursal', 'danger'); }
+					}
 				});
+				window.xhrs.push(xhr);
 			},
 
 			removeOutlet: function () {
@@ -176,16 +185,28 @@
 				var id = self.editing.id;
 				ncmDialogs.confirm('¿Seguro que desea continuar?', 'TODO lo relacionado a esta sucursal será eliminado para siempre', 'warning', function (a) {
 					if (!a) { return; }
-					if (typeof spinner === 'function') { spinner('body', 'show'); }
-					$.get(LEGACY + '?action=delete&id=' + encodeURIComponent(id), function (resp) {
-						if (typeof spinner === 'function') { spinner('body', 'hide'); }
-						if (resp === 'true' || resp === true) {
-							$('#outletEditModal').modal('hide');
-							if (typeof message === 'function') { message('Sucursal eliminada', 'success'); }
-							self.loadList();
-						} else if (typeof message === 'function') {
-							message('Error al eliminar', 'danger');
-						}
+					ncmDialogs.confirm('¿Seguro que desea continuar?', 'Se eliminarán reportes, transacciones, usuarios, cajas, inventario y más', 'warning', function (b) {
+						if (!b) { return; }
+						if (typeof spinner === 'function') { spinner('body', 'show'); }
+						var xhr = ncmHelpers.load({
+							url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+							data: { action: 'delete', id: id },
+							success: function (res) {
+								if (typeof spinner === 'function') { spinner('body', 'hide'); }
+								if (res && res.ok) {
+									$('#outletEditModal').modal('hide');
+									if (typeof message === 'function') { message('Sucursal eliminada', 'success'); }
+									self.loadList();
+								} else if (typeof message === 'function') {
+									message('Error al eliminar', 'danger');
+								}
+							},
+							error: function () {
+								if (typeof spinner === 'function') { spinner('body', 'hide'); }
+								if (typeof message === 'function') { message('Error al eliminar', 'danger'); }
+							}
+						});
+						window.xhrs.push(xhr);
 					});
 				});
 			},

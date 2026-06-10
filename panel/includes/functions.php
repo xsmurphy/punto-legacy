@@ -3040,7 +3040,7 @@ function deleteOutlet($id, $fulldelete = false)
 	$outlet = ncmExecute('SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ?', [$id, COMPANY_ID]);
 
 	if ($outlet) {
-		//$id = $outlet['outeltId'];
+		$db->StartTrans();
 
 		$db->Execute('DELETE FROM drawer WHERE outletId = ?', [$id]);
 		$db->Execute('DELETE FROM expenses WHERE outletId = ?', [$id]);
@@ -3061,15 +3061,16 @@ function deleteOutlet($id, $fulldelete = false)
 			$db->Execute('UPDATE contact SET outletId = NULL WHERE outletId = ?', [$id]);
 		}
 
-		$result = ncmExecute('SELECT STRING_AGG(transactionId::text, \',\') as ids FROM transaction WHERE outletId = ? AND companyId = ?', [$id, COMPANY_ID]);
+		$db->Execute(
+			'DELETE FROM itemSold WHERE transactionId IN (SELECT transactionId FROM transaction WHERE outletId = ?)',
+			[$id]
+		);
+		$db->Execute('DELETE FROM transaction WHERE outletId = ?', [$id]);
+		$db->Execute('DELETE FROM outlet WHERE outletId = ?', [$id]);
 
-		if ($result) {
-			$db->Execute('DELETE FROM itemSold WHERE transactionId IN(' . $result['ids'] . ')');
-			$db->Execute('DELETE FROM transaction WHERE outletId = ?', [$id]);
-		}
-
-		$delete = $db->Execute('DELETE FROM outlet WHERE outletId = ? LIMIT 1', [$id]);
-		return $delete;
+		$failed = $db->HasFailedTrans();
+		$db->CompleteTrans();
+		return !$failed;
 	} else {
 		return false;
 	}
