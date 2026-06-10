@@ -59,12 +59,18 @@ if (empty($_POST) && in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['PUT', 'DELE
 }
 
 /**
- * Autentica el JWT de tenant y prepara el contexto POS (COMPANY_ID, OUTLET_ID, TODAY,
+ * Autentica el JWT de tenant y prepara el contexto (COMPANY_ID, OUTLET_ID, TODAY,
  * settings, COMPANY_NAME…). Corta 401/403 si falla. Devuelve los ids del token.
+ *
+ * Multi-realm con allowlist por endpoint: cada endpoint declara qué realms acepta —
+ * `apiAuthTenant(['panel'])` para endpoints del panel, `apiAuthTenant(['panel','pos-app'])`
+ * para recursos compartidos. Default `['pos-app']` (los endpoints POS existentes no
+ * cambian). Los tokens POS son eternos (device pairing): NO deben autenticar en
+ * endpoints administrativos del panel. Ver docs/PLAN_panel_desacople.md § Fase 0.
  */
-function apiAuthTenant(): array
+function apiAuthTenant(array $realms = ['pos-app']): array
 {
-    if (!jwtAuthenticate()) {
+    if (!jwtAuthenticate($realms)) {
         apiError('Autenticación requerida', 401);
     }
 
@@ -73,13 +79,26 @@ function apiAuthTenant(): array
     $userId     = AUTHED_USER_ID;
     $registerId = AUTHED_REGISTER_ID;
     $roleId     = AUTHED_ROLE_ID;
+    $realm      = AUTHED_REALM;
 
     if (!checkCompanyStatus($companyId)) {
         apiError('Company Blocked', 403);
     }
 
+    // El JWT del panel puede traer `oid` vacío (empresa sin outlet al loguear) y trae
+    // `rid` siempre vacío. data.php llama getAllOutletData(OUTLET_ID) — resolvemos el
+    // primer outlet activo (misma resolución que issueJwtPanel) ANTES de cargarlo.
+    // `rid=''` es tolerable: los endpoints del panel scopean por parámetros.
+    if ($outletId === '') {
+        $row = ncmExecute(
+            'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
+            [$companyId]
+        );
+        $outletId = (string)($row['outletId'] ?? '');
+    }
+
     // data.php define COMPANY_ID/OUTLET_ID/TODAY/COMPANY_NAME/etc. desde estas locales.
     require API_APP_DIR . '/data.php';
 
-    return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId');
+    return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm');
 }

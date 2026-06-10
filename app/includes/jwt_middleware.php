@@ -15,7 +15,7 @@
  * Dependencias: jwt.php, simple.config.php (para leer JWT_SECRET desde $_ENV)
  */
 
-function jwtAuthenticate(): bool
+function jwtAuthenticate(array $allowedRealms = ['pos-app']): bool
 {
     require_once __DIR__ . '/jwt.php';
 
@@ -47,8 +47,11 @@ function jwtAuthenticate(): bool
     // Realm gate: JWT_SECRET es COMPARTIDO entre POS y panel; el claim `iss`
     // separa los realms para que un token panel NO autentique en /app/action.php
     // /load.php/etc. (privilege confusion). Tokens sin `iss` (emitidos antes del
-    // fix) → rechazados; pre-producción, forzar re-login es aceptable.
-    if (($payload['iss'] ?? '') !== 'pos-app') {
+    // fix) → rechazados ($allowedRealms nunca contiene ''); pre-producción, forzar
+    // re-login es aceptable. La allowlist la declara cada endpoint (default POS):
+    // los tokens POS son eternos (device pairing) y NO deben autenticar en
+    // endpoints administrativos del panel — fail-closed por call-site.
+    if (!in_array($payload['iss'] ?? '', $allowedRealms, true)) {
         http_response_code(401);
         header('Content-Type: application/json');
         die(json_encode([
@@ -79,6 +82,7 @@ function jwtAuthenticate(): bool
     define('AUTHED_REGISTER_ID', (string)($payload['rid']  ?? ''));
     define('AUTHED_ROLE_ID',     (int)($payload['role'] ?? 0));
     define('AUTHED_DEVICE_ID',   $deviceId);
+    define('AUTHED_REALM',       (string)($payload['iss'] ?? ''));
 
     return true;
 }
