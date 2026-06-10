@@ -1,35 +1,34 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Cuentas por Cobrar/Pagar / Open Invoices (capa API, motor ERP).
+ * Dominio de Reportes — Cuentas por Cobrar/Pagar / Open Invoices (API compartida, motor ERP).
  *
- * UNA vista de lectura: general($state) — facturas a crédito sin completar (transactionComplete < 1)
- * agrupadas por contacto, con sus facturas, total comprado/pagado/adeudado y estado de vencimiento.
- *   - state='income'  (default): ventas a crédito (tipo 3) → cuentas por COBRAR (clientes).
- *   - state='outcome':           compras a crédito (tipo 4) → cuentas por PAGAR (proveedores).
+ * Port FIEL de panel/lib/reports/ReportOpenInvoicesService.php (Fase 2 batch 3). Único cambio
+ * vs el original: namespace + `final` + recibe $companyId por parámetro en vez de leerlo
+ * de la constante global (mejor higiene multi-tenant; el endpoint pasa COMPANY_ID).
  *
- * Read-only. Devuelve datos CRUDOS (números + estructura contacto→facturas); el front formatea +
- * arma la tabla anidada + KPIs. Ver REGLA RAÍZ 2.
+ * Read-only. Sin ROC (companyId siempre bound en cada SELECT). Helpers globales usados:
+ * getContactData, getCustomerName — ambos viven en app/includes/functions.php.
  *
- * El "self-heal write" del legacy (marcar transactionComplete=1 durante el GET si la deuda ~0)
- * se ELIMINA por convención §16 (nunca escribir en un read; además los contactos totalmente
- * pagados ya quedan ocultos por el filtro needsTopay).
- *
- * Estado de vencimiento — réplica fiel del legacy (incluida su rareza): vencida si dueDate <= hoy
- * (o sin dueDate); en caso contrario "por vencer" (el legacy comparaba un timestamp contra una
- * duración → la rama "normal" nunca se daba, así que toda no-vencida es "por vencer").
- *
- * Tenant: companyId bound; getAllToPayTransactions / contactos scopeados por companyId.
+ * Réplica fiel del legacy:
+ *  - el "self-heal write" del legacy (marcar transactionComplete=1 durante el GET) se ELIMINA
+ *    (convención §16 — nunca escribir en un read; además los contactos totalmente pagados
+ *    ya quedan ocultos por el filtro needsTopay).
+ *  - estado de vencimiento: vencida si dueDate <= hoy (o sin dueDate); resto "por vencer"
+ *    (réplica de la rareza del legacy donde la rama "normal" nunca se daba).
  */
-class ReportOpenInvoicesService
+final class OpenInvoicesService
 {
     /** @param string $state 'income' (tipo 3, clientes) | 'outcome' (tipo 4, proveedores). */
-    public function general($state)
+    public function general($state, $companyId)
     {
-        $isToPay = ($state === 'outcome');
-        $type    = $isToPay ? 4 : 3;
+        $isToPay    = ($state === 'outcome');
+        $type       = $isToPay ? 4 : 3;
         $contactCol = $isToPay ? 'supplierId' : 'customerId';
 
-        // Facturas a crédito abiertas (complete < 1) del tipo correspondiente.
         $sql = "SELECT $contactCol as cid, transactionId as saleId, transactionDate as date,
                        transactionDueDate as dueDate, invoiceNo as invoice, invoicePrefix as prefix,
                        transactionTotal as total, transactionDiscount as discount,
@@ -37,18 +36,16 @@ class ReportOpenInvoicesService
                 FROM transaction
                 WHERE transactionComplete = false AND transactionType = ? AND companyId = ?
                 ORDER BY transactionDueDate DESC LIMIT 5000";
-        $res = ncmExecute($sql, [$type, COMPANY_ID], false, false, true);
+        $res = ncmExecute($sql, [$type, $companyId], false, false, true);
         $res = is_array($res) ? $res : [];
         if (!$res) {
             return ['rows' => [], 'kpi' => ['totalDebt' => 0, 'accounts' => 0, 'expired' => 0, 'toExpire' => 0]];
         }
 
-        // Agrupar por contacto + recolectar saleIds para el SUM de pagos (batch).
         $byContact = [];
         $saleIds = [];
         foreach ($res as $f) {
             $cid = (string) $f['cid'];
-            // total: en cuentas por pagar es el total; en cobrar es total − descuento (igual que el legacy).
             $total = $isToPay ? (float) $f['total'] : ((float) $f['total'] - (float) $f['discount']);
             $byContact[$cid][] = [
                 'invoiceNo' => (string) ($f['prefix'] ?? '') . (string) ($f['invoice'] ?? ''),
@@ -59,7 +56,7 @@ class ReportOpenInvoicesService
             ];
             $saleIds[] = (string) $f['saleId'];
         }
-        $payedMap = $this->payedByParent($saleIds);
+        $payedMap = $this->payedByParent($saleIds, $companyId);
 
         $today  = strtotime(date('Y-m-d 00:00:00'));
         $rows = [];
@@ -77,7 +74,6 @@ class ReportOpenInvoicesService
                 if ($topay > 0) { $needsTopay = true; }
 
                 $strDue = $inv['dueDate'] ? strtotime($inv['dueDate']) : 0;
-                // Réplica fiel: vencida si dueDate <= hoy (o sin fecha); si no, "por vencer".
                 $dueStatus = ($strDue <= $today) ? 'expired' : 'toExpire';
                 if ($dueStatus === 'expired') { $kExpired++; } else { $kToExpire++; }
                 $kAccounts++;
@@ -95,7 +91,7 @@ class ReportOpenInvoicesService
                 $totalSales += $inv['total']; $totalPaid += $payed; $totalDebt += $topay;
             }
 
-            if (!$needsTopay) { continue; }   // contactos totalmente pagados: ocultos (como el legacy)
+            if (!$needsTopay) { continue; }
             $kTotalDebt += $totalDebt;
 
             $rows[] = [
@@ -117,7 +113,7 @@ class ReportOpenInvoicesService
     }
 
     /** SUM(ABS) de pagos+devoluciones (tipo 5,6) por transactionParentId, scopeado por companyId. */
-    private function payedByParent(array $ids)
+    private function payedByParent(array $ids, $companyId)
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -128,7 +124,7 @@ class ReportOpenInvoicesService
             "SELECT transactionParentId, SUM(ABS(transactionTotal)) as payed
              FROM transaction WHERE transactionType IN (5,6) AND companyId = ? AND transactionParentId IN ($ph)
              GROUP BY transactionParentId",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];

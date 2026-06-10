@@ -1,19 +1,24 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Ventas por Medios de Pago (capa API, motor ERP).
+ * Dominio de Reportes — Ventas por Medios de Pago (API compartida, motor ERP).
  *
- * Devuelve datasets CRUDOS (números sin formatear, sin HTML): una lista DETALLE
- * (una fila por medio de pago de cada transacción, con datos ya resueltos: cliente,
- * sucursal, prefijo de factura, nombre del medio) y un RESUMEN agrupado por medio.
- * El formateo de montos vive en el BFF; el markup (tablas + chart) en el front.
- * Ver context/02-arquitectura.md § REGLA RAÍZ 2 y § BFF de 3 niveles.
+ * Port FIEL de panel/lib/reports/ReportPaymentMethodsService.php (Fase 2 batch 3).
+ * Cambios vs el original: namespace + `final` + `csvToBankData()` portado como método
+ * privado (sólo existe en panel/includes/functions.php). El resto de helpers
+ * (getCurrentOutletName, getCustomerData, getPaymentMethodName, groupByPaymentMethod,
+ * iftn, getTaxonomyName) ya viven en app/includes/functions.php → resuelven por global.
  *
- * La lógica que antes vivía inline en panel/a_report_p_methods.php (action=generalTable,
- * que armaba HTML) se consolida acá devolviendo arrays.
+ * Tenant: filtro $roc derivado de COMPANY_ID del JWT — nunca de input.
  *
- * Tenant: filtro $roc (getROC()) derivado de COMPANY_ID del JWT — nunca de input.
+ * DEUDA documentada: csvToBankData() devuelve markup HTML (badge span) — viola REGLA RAÍZ 2
+ * (API no emite presentación). Se preserva para mantener byte-diff con el legacy; el refactor
+ * a "devolver parts crudos + componer span en el front" es deuda separada.
  */
-class ReportPaymentMethodsService
+final class PaymentMethodsService
 {
     /**
      * Dataset del reporte de medios de pago en un período.
@@ -47,7 +52,6 @@ class ReportPaymentMethodsService
                 $customerTin  = $customer['ruc']  ?? '-';
                 $customerName = $customer['name'] ?? '';
 
-                // Prefijo de factura del register (cacheado por register).
                 $regId = $f['registerId'] ?? '';
                 if (!array_key_exists($regId, $prefixCache)) {
                     $reg = $regId
@@ -59,7 +63,7 @@ class ReportPaymentMethodsService
 
                 foreach ($methods as $meth) {
                     $extra = ($meth['type'] ?? '') === 'check'
-                        ? csvToBankData($meth['extra'] ?? '')
+                        ? $this->csvToBankData($meth['extra'] ?? '')
                         : ($meth['extra'] ?? '');
 
                     $detail[] = [
@@ -83,7 +87,6 @@ class ReportPaymentMethodsService
             $res->Close();
         }
 
-        // Resumen: agrupado por medio, ordenado por monto desc.
         usort($group, fn($a, $b) => ($b['price'] ?? 0) <=> ($a['price'] ?? 0));
 
         $summary = [];
@@ -96,5 +99,24 @@ class ReportPaymentMethodsService
         }
 
         return ['detail' => $detail, 'summary' => $summary];
+    }
+
+    /**
+     * Port fiel del csvToBankData del panel (no existe en /app). Devuelve markup HTML
+     * (deuda documentada arriba; mantiene byte-diff). validity() del panel chequea no-vacío
+     * — replicado inline para no arrastrar otra dependencia.
+     */
+    private function csvToBankData(string $data): string
+    {
+        $parts   = explode(';', $data);
+        $bankId  = $parts[0] ?? '';
+        $bank    = $bankId !== '' ? getTaxonomyName($bankId) : '';
+        $numChk  = $parts[1] ?? '';
+        $dueChck = $parts[2] ?? '';
+
+        if ($bank !== '' && $bank !== null) {
+            return $bank . ' <span class="badge">' . $numChk . '</span> ' . $dueChck;
+        }
+        return '';
     }
 }

@@ -21,7 +21,7 @@ $query = array_filter([
     'state' => $_GET['state'] ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/open_invoices.php', $query);
+$res = bffApiGet('v1/reports/open_invoices.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
