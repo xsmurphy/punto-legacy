@@ -11,9 +11,7 @@ namespace Punto\Api\Reports;
  *  - el ROC se recibe por PARÁMETRO (el original llamaba `getROC(1)` adentro)
  *  - los lookups batch reciben `$companyId` por parámetro en vez de leerlo de la constante
  *    global (mejor higiene multi-tenant, mismo patrón que OpenInvoicesService).
- *
- * Read-only. El form de edición (`giftcard`) y los writes (`update`, `delete`) siguen sirviéndose
- * por el PHP legacy de a_report_giftcards.php vía ?action= (migración parcial: ver router).
+ *  - F3 Oleada A: se agregan `delete()` y `update()` + `beneficiaryId` en el detalle.
  *
  * Tenant: $roc por query principal; companyId bound en cada lookup.
  */
@@ -51,14 +49,16 @@ final class GiftcardsService
 
         $rows = [];
         foreach ($res as $f) {
-            $tid = (string) $f['transactionId'];
+            $tid    = (string) $f['transactionId'];
+            $benefId = (string) ($f['giftCardSoldBeneficiaryId'] ?? '');
             $rows[] = [
                 'giftCardSoldId' => (string) $f['giftCardSoldId'],
                 'transactionId'  => $tid,
                 'doc'            => $docs[$tid] ?? '-',
-                'beneficiary'    => $benefs[(string) $f['giftCardSoldBeneficiaryId']] ?? '',
+                'beneficiaryId'  => $benefId,
+                'beneficiary'    => $benefs[$benefId] ?? '',
                 'expires'        => (string) ($f['giftCardSoldExpires'] ?? ''),
-                'code'           => (string) ($f['giftCardSoldCode'] ?? ''),
+                'code'           => (int) ($f['giftCardSoldCode'] ?? 0),
                 'ucode'          => (string) ($f['timestamp'] ?? ''),
                 'note'           => $this->decodeNote($f['giftCardSoldNote'] ?? ''),
                 'lastUsed'       => (string) ($f['giftCardSoldLastUsed'] ?? ''),
@@ -70,6 +70,45 @@ final class GiftcardsService
         }
 
         return ['rows' => $rows];
+    }
+
+    /** Elimina una gift card scopeada por companyId. */
+    public function delete(string $id, string $companyId): bool
+    {
+        global $db;
+        $r = $db->Execute(
+            'DELETE FROM giftCardSold WHERE giftCardSoldId = ? AND companyId = ?',
+            [$id, $companyId]
+        );
+        return $r !== false;
+    }
+
+    /**
+     * Actualiza campos editables de una gift card.
+     * $data: [code(int), value(float), expires(string|null), note(string),
+     *         sendDate(string|null), beneficiaryId(string|null)]
+     */
+    public function update(string $id, array $data, string $companyId): bool
+    {
+        global $db;
+        $note = isset($data['note']) ? base64_encode((string) $data['note']) : '';
+        $r = $db->Execute(
+            "UPDATE giftCardSold
+             SET giftCardSoldCode = ?, giftCardSoldValue = ?, giftCardSoldExpires = ?,
+                 giftCardSoldNote = ?, giftCardSoldSendDate = ?, giftCardSoldBeneficiaryId = ?
+             WHERE giftCardSoldId = ? AND companyId = ?",
+            [
+                (int) ($data['code'] ?? 0),
+                (float) ($data['value'] ?? 0),
+                ($data['expires'] !== '' ? ($data['expires'] ?: null) : null),
+                $note,
+                ($data['sendDate'] !== '' ? ($data['sendDate'] ?: null) : null),
+                ($data['beneficiaryId'] !== '' ? ($data['beneficiaryId'] ?: null) : null),
+                $id,
+                $companyId,
+            ]
+        );
+        return $r !== false;
     }
 
     /** Decodifica la nota (base64 con fallback a texto plano), como isBase64Decode del legacy. */

@@ -2,28 +2,50 @@
 /**
  * BFF — Reporte de Gift Cards.
  *
- *   GET /bff/reports/giftcards.php?view=detail[&singleRow=]
+ *   GET  /bff/reports/giftcards.php?view=detail[&singleRow=]
+ *   POST /bff/reports/giftcards.php (action=delete|update&id=…) → proxy a la API.
  *
  * Gateway sobre la API (NO toca BD) + DERIVADOS: computa los KPIs (vencidas/por-vencer/
  * canjeadas/vigentes + valor vigente CRUDO) a partir de las filas. El front formatea + arma
  * la tabla. Ver context/02-arquitectura.md § REGLA RAÍZ 2.
- *
- * El form de edición (`giftcard`) y los writes (`update`/`delete`) NO pasan por acá:
- * el front los pide al PHP legacy vía /a_report_giftcards?action=.
  */
 
 require_once __DIR__ . '/../lib/api_client.php';
+
+const GIFTCARDS_API = ['base' => 'shared'];
 
 if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
 }
 
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+/* ───────── write: eliminar / actualizar gift card ───────── */
+if ($method === 'POST') {
+    $payload = [
+        'action'        => $_POST['action']        ?? '',
+        'id'            => $_POST['id']            ?? '',
+        'code'          => $_POST['code']          ?? '',
+        'value'         => $_POST['value']         ?? '',
+        'expires'       => $_POST['expires']       ?? '',
+        'note'          => $_POST['note']          ?? '',
+        'sendDate'      => $_POST['sendDate']      ?? '',
+        'beneficiaryId' => $_POST['beneficiaryId'] ?? '',
+    ];
+    $res = bffApiPost('v1/reports/giftcards.php', $payload, '_jwt_panel', GIFTCARDS_API);
+    if (!$res['ok']) {
+        bffFailFromApi($res);
+    }
+    bffJson(['ok' => true, 'data' => $res['data']]);
+}
+
+/* ───────── lectura ───────── */
 $query = array_filter([
     'view'      => $_GET['view']      ?? 'detail',
     'singleRow' => $_GET['singleRow'] ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/giftcards.php', $query, '_jwt_panel', ['base' => 'shared']);
+$res = bffApiGet('v1/reports/giftcards.php', $query, '_jwt_panel', GIFTCARDS_API);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

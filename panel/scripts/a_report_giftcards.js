@@ -1,27 +1,37 @@
 /**
  * Front del reporte de Gift Cards (a_report_giftcards) — BFF de 3 niveles.
  *
- *   - config              ← GET /bff/bootstrap.php
- *   - detail (rows + kpi)  ← GET /bff/reports/giftcards.php?view=detail[&singleRow]
+ *   - config              ← GET  /bff/bootstrap.php
+ *   - detail (rows + kpi) ← GET  /bff/reports/giftcards.php?view=detail[&singleRow]
+ *   - delete / update     ← POST /bff/reports/giftcards.php (action=delete|update)
  *
- * El BFF devuelve filas CRUDAS + KPIs; este JS formatea TODO + arma la tabla y las tarjetas.
- * El form de edición y los writes NO se migraron: se sirven por el PHP legacy vía
- *   /a_report_giftcards?action=giftcard|update|delete
- * cargados en el modal global del shell (#modalSmall).
+ * El BFF devuelve filas CRUDAS + KPIs; este JS formatea TODO + arma la tabla, el modal de
+ * edición y las acciones. Select2 de beneficiario sigue en /a_contacts (endpoint legacy de
+ * búsqueda de contactos, sin BFF propio aún).
  */
 (function () {
 
 	var BFF       = '/bff/reports/giftcards.php';
 	var BOOTSTRAP = '/bff/bootstrap.php';
-	var LEGACY    = '/a_report_giftcards';
 
-	var RS = { currency: '', decimal: 'no', thousand: 'dot' };
+	var RS   = { currency: '', decimal: 'no', thousand: 'dot' };
+	var ROWS = {};   // giftCardSoldId → fila cruda (para hidratar el modal sin re-fetch)
 
 	function esc(s) {
 		return String(s == null ? '' : s)
 			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 	}
 	function fmt(n) { return formatNumber(n || 0, '', RS.decimal, RS.thousand); }
+	// Inverso de fmt: del valor enmascarado (locale) a número plano para el POST.
+	function parseAmount(str) {
+		str = String(str == null ? '' : str);
+		if (RS.thousand === 'dot') { str = str.replace(/\./g, '').replace(',', '.'); }
+		else                       { str = str.replace(/,/g, ''); }
+		str = str.replace(/[^0-9.\-]/g, '');
+		var n = parseFloat(str) || 0;
+		if (RS.decimal === 'no') { n = Math.trunc(n); }
+		return n;
+	}
 	function niceDate(iso, withTime) {
 		var m = moment(iso);
 		if (!m.isValid()) { return '-'; }
@@ -41,7 +51,7 @@
 			var safeColor = /^[0-9a-fA-F]{3,8}$/.test(r.color || '') ? r.color : '';
 			var color = safeColor ? ' style="color:#' + safeColor + '"' : '';
 			body +=
-				'<tr class="clickrow pointer" data-load="' + LEGACY + '?action=giftcard&id=' + esc(r.giftCardSoldId) + '">' +
+				'<tr class="clickrow pointer" data-id="' + esc(r.giftCardSoldId) + '">' +
 				'<td><i class="material-icons"' + color + '>card_giftcard</i></td>' +
 				'<td>' + esc(r.doc) + '</td>' +
 				'<td>' + esc(r.beneficiary || '-') + '</td>' +
@@ -68,34 +78,113 @@
 		$('.availableValue').text(fmt(k.availableValue));
 	}
 
-	var editWired = false;
-	function wireEditModal() {
-		if (editWired) { return; }
-		editWired = true;
-		$('#modalSmall').off('shown.bs.modal').on('shown.bs.modal', function () {
-			if (typeof select2Ajax === 'function') {
-				select2Ajax({ element: '.chosen-select', url: '/a_contacts?action=searchCustomerInputJson', type: 'contact' });
-			}
-			$('.datepicker').datetimepicker({ format: 'YYYY-MM-DD HH:mm:ss', showClear: true, ignoreReadonly: true });
-			masksCurrency($('.maskCurrency'), RS.thousand, RS.decimal);
-			masksCurrency($('.maskInteger'), RS.thousand, 'no');
-			submitForm('#editSale', function (tis, result) {
-				if (result) { $('#modalSmall').modal('hide'); loadDetail(); }
-			});
-			onClickWrap('.cancelItemView', function () { $('#modalSmall').modal('hide'); });
-			onClickWrap('.delete', function (event, tis) {
-				var id = tis.data('id');
-				ncmDialogs.confirm('¡No podrá deshacer esta acción!', '', 'warning', function (conf) {
-					if (conf) {
-						$('.modal').modal('hide');
-						$.get(LEGACY + '?action=delete&id=' + id, function (data) {
-							if (data === 'true' || data === true) { message('Eliminado', 'success'); loadDetail(); }
-							else { message('No se pudo eliminar', 'danger'); }
-						});
-					}
+	function editForm(r) {
+		// Pre-selecciona beneficiario existente: select2Ajax lo respeta si hay <option selected>.
+		var benefOpt = r.beneficiaryId
+			? '<option value="' + esc(r.beneficiaryId) + '" selected>' + esc(r.beneficiary || r.beneficiaryId) + '</option>'
+			: '';
+		return '' +
+			'<div class="modal-header">' +
+			'  <button type="button" class="close cancelItemView" aria-label="Cerrar"><span aria-hidden="true">&times;</span></button>' +
+			'  <h4 class="modal-title">Gift Card</h4>' +
+			'</div>' +
+			'<div class="modal-body">' +
+			'  <form id="editGC" class="form-horizontal">' +
+			'    <input type="hidden" name="id" value="' + esc(r.giftCardSoldId) + '">' +
+			'    <div class="form-group">' +
+			'      <label class="col-sm-3 control-label">Beneficiario</label>' +
+			'      <div class="col-sm-9"><select name="beneficiaryId" class="form-control chosen-select"><option value="">—</option>' + benefOpt + '</select></div>' +
+			'    </div>' +
+			'    <div class="form-group">' +
+			'      <label class="col-sm-3 control-label">Código</label>' +
+			'      <div class="col-sm-9"><input type="text" name="code" class="form-control maskInteger" value="' + esc(r.code || 0) + '" autocomplete="off"></div>' +
+			'    </div>' +
+			'    <div class="form-group">' +
+			'      <label class="col-sm-3 control-label">Saldo</label>' +
+			'      <div class="col-sm-9"><input type="text" name="value" class="form-control maskCurrency" value="' + esc(String(Math.round(num(r.value)))) + '" autocomplete="off"></div>' +
+			'    </div>' +
+			'    <div class="form-group">' +
+			'      <label class="col-sm-3 control-label">Vencimiento</label>' +
+			'      <div class="col-sm-9"><input type="text" name="expires" class="form-control datepicker" value="' + esc(r.expires || '') + '" autocomplete="off" readonly></div>' +
+			'    </div>' +
+			'    <div class="form-group">' +
+			'      <label class="col-sm-3 control-label">Fecha envío</label>' +
+			'      <div class="col-sm-9"><input type="text" name="sendDate" class="form-control datepicker" value="' + esc(r.sendDate || '') + '" autocomplete="off" readonly></div>' +
+			'    </div>' +
+			'    <div class="form-group">' +
+			'      <label class="col-sm-3 control-label">Nota</label>' +
+			'      <div class="col-sm-9"><input type="text" name="note" class="form-control" value="' + esc(r.note || '') + '" autocomplete="off"></div>' +
+			'    </div>' +
+			'  </form>' +
+			'</div>' +
+			'<div class="modal-footer">' +
+			'  <button type="button" class="btn btn-danger pull-left deleteGC" data-id="' + esc(r.giftCardSoldId) + '">Eliminar</button>' +
+			'  <button type="button" class="btn btn-default cancelItemView">Cancelar</button>' +
+			'  <button type="button" class="btn btn-primary saveGC">Guardar</button>' +
+			'</div>';
+	}
+
+	function saveGC() {
+		var f = $('#editGC');
+		ncmHelpers.load({
+			url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+			data: {
+				action:        'update',
+				id:            f.find('[name=id]').val(),
+				code:          parseInt(f.find('[name=code]').val().replace(/[^0-9]/g, ''), 10) || 0,
+				value:         parseAmount(f.find('[name=value]').val()),
+				expires:       f.find('[name=expires]').val(),
+				note:          f.find('[name=note]').val(),
+				sendDate:      f.find('[name=sendDate]').val(),
+				beneficiaryId: f.find('[name=beneficiaryId]').val() || ''
+			},
+			success: function (resp) {
+				if (resp && resp.ok) {
+					message('Guardado', 'success');
+					$('#modalSmall').modal('hide');
+					loadDetail();
+				} else {
+					message('Error al guardar', 'danger');
+				}
+			},
+			fail: function () { message('Error al guardar', 'danger'); }
+		});
+	}
+
+	function openEdit(id) {
+		var r = ROWS[id];
+		if (!r) { return; }
+		$('#modalSmall .modal-content').html(editForm(r));
+		$('#modalSmall').modal('show');
+
+		if (typeof select2Ajax === 'function') {
+			select2Ajax({ element: '.chosen-select', url: '/a_contacts?action=searchCustomerInputJson', type: 'contact' });
+		}
+		$('.datepicker').datetimepicker({ format: 'YYYY-MM-DD HH:mm:ss', showClear: true, ignoreReadonly: true });
+		masksCurrency($('.maskCurrency'), RS.thousand, RS.decimal);
+		masksCurrency($('.maskInteger'), RS.thousand, 'no');
+
+		onClickWrap('.cancelItemView', function () { $('#modalSmall').modal('hide'); });
+
+		onClickWrap('.deleteGC', function (event, tis) {
+			var delId = tis.data('id');
+			ncmDialogs.confirm('¡No podrá deshacer esta acción!', '', 'warning', function (conf) {
+				if (!conf) { return; }
+				$('.modal').modal('hide');
+				ncmHelpers.load({
+					url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+					data: { action: 'delete', id: delId },
+					success: function (resp) {
+						if (resp && resp.ok) { message('Gift card eliminada.', 'success'); loadDetail(); }
+						else { message('No se pudo eliminar.', 'danger'); }
+					},
+					fail: function () { message('No se pudo eliminar.', 'danger'); }
 				});
 			});
 		});
+
+		$('#editGC').off('submit').on('submit', function (e) { e.preventDefault(); saveGC(); return false; });
+		onClickWrap('.saveGC', function () { saveGC(); });
 	}
 
 	function loadDetail() {
@@ -104,6 +193,8 @@
 			url: url, httpType: 'GET', hideLoader: true, type: 'json', warnTimeout: false,
 			success: function (res) {
 				if (!res || !res.ok) { return; }
+				ROWS = {};
+				$.each(res.data.rows || [], function (i, r) { ROWS[r.giftCardSoldId] = r; });
 				ncmDataTables({
 					"container": "#tableContainer", "url": url, "iniData": buildTable(res.data.rows || []),
 					"table": ".table1", "sort": 2, "footerSumCol": [10],
@@ -119,11 +210,10 @@
 						{ index: 10, name: 'Saldo', visible: true }
 					] },
 					"clickCB": function (event, tis) {
-						var load = tis.attr('data-load');
-						loadForm(load, '#modalSmall .modal-content', function () { $('#modalSmall').modal('show'); });
+						openEdit(tis.attr('data-id'));
 					}
 				}, function () {
-					wireEditModal();
+					onClickWrap('.exportTable', function (event, tis) { table2Xlsx(tis.data('table'), tis.data('name')); }, false, true);
 				});
 				renderKpis(res.data.kpi);
 			}
