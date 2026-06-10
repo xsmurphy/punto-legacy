@@ -25,7 +25,7 @@ $query = array_filter([
     'byDay' => $_GET['byDay'] ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/production.php', $query);
+$res = bffApiGet('v1/reports/production.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
