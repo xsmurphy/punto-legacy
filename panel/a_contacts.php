@@ -24,11 +24,14 @@ $offsetDetail		= 0;
 $_rol 				= iftn(validateHttp('rol'),'customer');
 
 // ── BFF del editform v2 (rol customer): el front (form.js) habla ACÁ, no a /API/v1 ──
-// Por ahora usa ContactService in-process. Cuando separemos App/API en servidores
+// Por ahora usa ContactService in-process desde la /api compartida (F2 del desacople — el
+// Service vive en api/lib/Contacts/, namespace Punto\Api\Contacts). Cuando F3 migre el front
+// estático, estos handlers ?action= se eliminan y form.js pasa a hablar HTTP con /bff/contacts.
 // distintos, esto pasará a consumir la API por HTTP (ver 02-arquitectura.md § BFF).
 if(validateHttp('action') == 'getContact'){
-	require_once __DIR__ . '/lib/contacts/ContactService.php';
-	$svc     = new ContactService(new ContactRepository($db));
+	require_once __DIR__ . '/../api/lib/Contacts/ContactRepository.php';
+	require_once __DIR__ . '/../api/lib/Contacts/ContactService.php';
+	$svc     = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
 	$id      = dec(validateHttp('id'));
 	$contact = $id ? $svc->getCustomer($id, COMPANY_ID) : null;
 	if($contact === null){
@@ -41,8 +44,9 @@ if(validateHttp('action') == 'saveContact'){
 	if(!allowUser('contacts','edit',true)){
 		jsonDieResult(['error' => 'Sin permisos']);
 	}
-	require_once __DIR__ . '/lib/contacts/ContactService.php';
-	$svc = new ContactService(new ContactRepository($db));
+	require_once __DIR__ . '/../api/lib/Contacts/ContactRepository.php';
+	require_once __DIR__ . '/../api/lib/Contacts/ContactService.php';
+	$svc = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
 	$id  = validateHttp('id','post') ? dec(validateHttp('id','post')) : null;
 	try {
 		if($id){
@@ -64,8 +68,9 @@ if(validateHttp('action') == 'archiveContact'){
 	if(!allowUser('contacts','edit',true)){
 		jsonDieResult(['error' => 'Sin permisos']);
 	}
-	require_once __DIR__ . '/lib/contacts/ContactService.php';
-	$svc = new ContactService(new ContactRepository($db));
+	require_once __DIR__ . '/../api/lib/Contacts/ContactRepository.php';
+	require_once __DIR__ . '/../api/lib/Contacts/ContactService.php';
+	$svc = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
 	$id  = dec(validateHttp('id','post'));
 	if(!$id || !$svc->archive($id, COMPANY_ID)){
 		jsonDieResult(['error' => 'No se pudo archivar el contacto']);

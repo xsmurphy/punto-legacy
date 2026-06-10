@@ -1,4 +1,9 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Contacts;
+
+use CaseInsensitiveArray;
 
 /**
  * ContactRepository — acceso a las tablas `contact` y `customerAddress` con SQL parametrizado.
@@ -8,8 +13,15 @@
  *
  * `type` discrimina el rol del registro en la tabla `contact`:
  *   0 = usuario interno, 1 = cliente/proveedor.
+ *
+ * Port FIEL de panel/lib/contacts/ContactRepository.php (Fase 2 del desacople de /panel).
+ * Cambios respecto al original: namespace, `declare(strict_types=1)`, `use CaseInsensitiveArray`
+ * (clase global). SQL y comportamiento idénticos.
+ *
+ * Nota namespace: funciones globales (ncmInsert, ncmUpdate, _flattenJsonb) resuelven a sus
+ * globales por fallback de PHP — no requieren `use`.
  */
-class ContactRepository
+final class ContactRepository
 {
     private $db;
 

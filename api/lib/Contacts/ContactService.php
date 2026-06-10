@@ -1,9 +1,17 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Contacts;
+
+use CaseInsensitiveArray;
+use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * ContactService — orquesta CRUD de contactos (clientes/proveedores) + reglas de negocio.
  *
- * Punto de entrada para panel/API/v1/contacts.php y, a futuro, los handlers de a_contacts.php.
+ * Punto de entrada para api/v1/contacts.php y el legacy panel/a_contacts.php (in-process,
+ * hasta que F3 migre el front estático y los handlers se eliminen).
  * Delega persistencia en ContactRepository. NO genera output HTTP — solo retorna data o tira.
  *
  * Convención del "shape público" (lo que recibe/devuelve la API), heredado de los
@@ -15,11 +23,16 @@
  *   bday       → contactBirthDay
  *   + note, city, location, country, address, phone, phone2, email,
  *     status, storeCredit, loyalty, loyaltyAmount, lat/lng
+ *
+ * Port FIEL de panel/lib/contacts/ContactService.php (Fase 2 del desacople de /panel).
+ * Cambios respecto al original: namespace, `final`, `declare(strict_types=1)`, `use` de
+ * `CaseInsensitiveArray`/`InvalidArgumentException`/`RuntimeException` (globales). Lógica
+ * y shape de respuesta idénticos.
+ *
+ * Nota namespace: ContactRepository vive en el mismo namespace — sin `use` necesario.
+ * Funciones globales (toUTF8, TODAY) resuelven por fallback de PHP.
  */
-
-require_once __DIR__ . '/ContactRepository.php';
-
-class ContactService
+final class ContactService
 {
     /** type=1 en la tabla `contact` cubre cliente/proveedor. */
     const TYPE_CUSTOMER = 1;
