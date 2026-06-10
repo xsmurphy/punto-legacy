@@ -1,26 +1,20 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Facturas Recurrentes (capa API, motor ERP).
+ * Dominio de Reportes — Facturas Recurrentes (API compartida, motor ERP).
  *
- * Lectura: filas CRUDAS de suscripciones/recurrencias (cliente, documento inicial, próxima
- * fecha, finalización, frecuencia, estado, total). Escritura: pausar / activar / eliminar.
- * Sin formatear, sin HTML. El front mapea frecuencia→label y estado→{label,color}, formatea
- * fechas + total y arma los links/botones de acción. Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/reports/ReportRecurringService.php (Fase 2 batch 4). Único cambio
+ * vs el original: namespace + `final`. SQL idéntico, incluye la lectura del payload de venta
+ * desde `data->>'recurringSaleData'` (texto JSON-encoded) y el lookup batch parametrizado
+ * de nombres por contactId (sin getAllContacts).
  *
- * Reemplaza la lógica inline de panel/a_report_recurring.php (action=generalTable/pause/activate/remove).
- *
- * Tenant: SOLO `companyId` (la tabla `recurring` NO tiene outletId → no se usa $roc, igual que
- * el legacy). El payload de la venta vive en `data->>'recurringSaleData'`: la vieja columna
- * recurringSaleData fue absorbida por el JSONB `data` vía _routeToJsonb, que la guarda como un
- * VALOR STRING (el writer hace `json_encode($sale)` — ver cronCreateRecurringInvoice.php:103 y
- * app/action.php:2502). Por eso se lee `data->>'recurringSaleData'` (texto) y se `json_decode` en
- * PHP, igual que el reader legacy. `->>` devuelve el texto tanto si el valor es string-de-json
- * como si fuera un objeto anidado → robusto a ambas formas. Trae total + client (contactId) +
- * uid (tx) + invoiceno. El nombre del cliente se resuelve con un lookup parametrizado por IN
- * (no via getAllContacts, god function).
- * Seguridad: todo WRITE exige `companyId = ?` (aislamiento de tenant), igual que el legacy.
+ * Tenant: SOLO companyId (la tabla `recurring` no tiene outletId → sin ROC). Writes
+ * (pause/activate/remove) siempre bindean companyId (aislamiento de tenant).
  */
-class ReportRecurringService
+final class RecurringService
 {
     /** @return array filas [{recurringId, clientId, clientName, invoiceNo, txUid, nextDate, endDate, frecuency, status, total}] */
     public function listAll($companyId)
@@ -76,8 +70,8 @@ class ReportRecurringService
                 'clientSecondName' => $names[$client]['secondName'] ?? '',
                 'invoiceNo'        => (string) ($sale['invoiceno'] ?? ''),
                 'txUid'            => (string) ($sale['uid'] ?? ''),
-                'nextDate'         => $r['nextDate'],   // ISO crudo
-                'endDate'          => $r['endDate'],    // ISO crudo (NULL = nunca)
+                'nextDate'         => $r['nextDate'],
+                'endDate'          => $r['endDate'],
                 'frecuency'        => $r['frecuency'],
                 'status'           => $r['status'],
                 'total'            => (float) ($sale['total'] ?? 0),
@@ -94,8 +88,6 @@ class ReportRecurringService
             return [];
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
-        // getAssoc=true (5º arg) → array de filas; en ncmExecute getAssoc tiene prioridad sobre
-        // forceObj, por eso el 4º arg va en false.
         $res = ncmExecute(
             "SELECT contactId, contactName, contactSecondName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
             array_merge([$companyId], $ids), false, false, true
@@ -113,15 +105,12 @@ class ReportRecurringService
     }
 
     /**
-     * Cambia el estado de una recurrencia o la elimina. SCOPEADO por companyId.
-     *   pause → status 2, activate → status 1, remove → DELETE.
-     * Devuelve true si ok.
+     * pause → status 2, activate → status 1, remove → DELETE. SCOPEADO por companyId.
+     * @return bool
      */
     public function mutate($action, $id, $companyId)
     {
         global $db;
-        // $db->Execute (no ncmExecute): UPDATE/DELETE no son SELECT → ncmExecute devuelve false
-        // aunque la operación funcione. ADOdb Execute devuelve objeto en éxito, false en error.
         if ($action === 'pause' || $action === 'activate') {
             $status = $action === 'pause' ? 2 : 1;
             $r = $db->Execute(

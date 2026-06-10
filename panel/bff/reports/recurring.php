@@ -20,7 +20,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'POST') {
     $action = $_POST['action'] ?? '';
     $id     = $_POST['id'] ?? '';
-    $res    = bffApiPost('v1/reports/recurring.php', ['action' => $action, 'id' => $id]);
+    $res    = bffApiPost('v1/reports/recurring.php', ['action' => $action, 'id' => $id], '_jwt_panel', ['base' => 'shared']);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }
@@ -28,7 +28,7 @@ if ($method === 'POST') {
 }
 
 /* ───────────── lectura: lista de recurrencias ───────────── */
-$res = bffApiGet('v1/reports/recurring.php');
+$res = bffApiGet('v1/reports/recurring.php', [], '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

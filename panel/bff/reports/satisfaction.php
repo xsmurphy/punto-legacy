@@ -20,7 +20,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 /* ───────────── escritura: borrar un voto ───────────── */
 if ($method === 'POST' && ($_POST['action'] ?? '') === 'delete') {
     $id  = $_POST['id'] ?? '';
-    $res = bffApiPost('v1/reports/satisfaction.php', ['action' => 'delete', 'id' => $id]);
+    $res = bffApiPost('v1/reports/satisfaction.php', ['action' => 'delete', 'id' => $id], '_jwt_panel', ['base' => 'shared']);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }
@@ -31,7 +31,7 @@ if ($method === 'POST' && ($_POST['action'] ?? '') === 'delete') {
 $from = $_GET['from'] ?? date('Y-m-d 00:00:00', strtotime('-7 days'));
 $to   = $_GET['to']   ?? date('Y-m-d 23:59:59');
 
-$res = bffApiGet('v1/reports/satisfaction.php', ['from' => $from, 'to' => $to]);
+$res = bffApiGet('v1/reports/satisfaction.php', ['from' => $from, 'to' => $to], '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

@@ -19,7 +19,7 @@ $query = array_filter([
     'to'   => $_GET['to']   ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/cashflow.php', $query);
+$res = bffApiGet('v1/reports/cashflow.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
