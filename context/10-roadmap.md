@@ -126,6 +126,30 @@ Login de tenant por teléfono (E.164) como identificador canónico, con hardenin
 - Algunos paths legacy en `/app` y `/panel` aún tienen `APP_URL` hardcodeado en strings (deuda del de-hardcode de dominios).
 - Runner automático de migraciones sigue pendiente (ver sección Migration Runner).
 
+## Schema consolidation — campos no-queryables → JSONB (post-F4)
+
+**Idea (charlada 2026-06-10):** generalizar el patrón ya aplicado a `company.config`/
+`outlet.data`/`plans.features` (columnas indexables + JSONB para el resto) a las dos tablas
+grandes restantes: `contact` (~25 cols) e `item` (~30 cols). El objetivo es flexibilidad y
+schema evolution sin migraciones por cada flag nuevo.
+
+**Tradeoff crítico — NO mover todo:** la regla es **indexable y queryable** se queda en
+columna; el resto va a `data` JSONB. Hoy `contact` tiene 6 índices específicos
+(`idx_contact_phone_company`, `idx_contact_email`, `idx_contact_tin`, `idx_contact_name`...)
+porque la app filtra por esos campos — moverlos a JSONB rompería los índices y los casts
+`->>` no siempre usan GIN (lo descubrimos cuando `p.features->>'inventory'` necesitó
+`COALESCE((...)::int, 0)`).
+
+**Proceso por tabla:**
+1. Auditar con `pg_stat_user_indexes` qué columnas se usan realmente en WHERE/JOIN.
+2. Migración: `ALTER TABLE` agrega `data JSONB`, backfill no-destructivo desde columnas,
+   los `_flattenJsonb` ya re-exponen las keys como propiedades (lectura sigue funcionando).
+3. WRITE de cada Service actualizado para enrutar las keys movidas a `data`.
+4. `DROP COLUMN` de las viejas en una segunda migración tras N releases (deuda controlada).
+
+**Timing:** post-F4 (cuando el shell `@.php` esté desacoplado y `$_SESSION` muerto). Hacerlo
+mid-F2/F3 sería migrar blanco móvil.
+
 ## Principios del roadmap
 
 - **Progresivo**: cada fase es independientemente deployable.
