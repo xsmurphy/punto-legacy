@@ -457,6 +457,17 @@ final class ScheduleService
         return $map;
     }
 
+    /** Elimina una cita (transaction type 13) scopeada por companyId. */
+    public function deleteAppointment(string $id, string $companyId): bool
+    {
+        global $db;
+        $r = $db->Execute(
+            'DELETE FROM transaction WHERE transactionId = ? AND companyId = ?',
+            [$id, $companyId]
+        );
+        return $r !== false;
+    }
+
     /** Port fiel de dec (identity en PG — historicamente base64). */
     private static function dec(string $str): string
     {

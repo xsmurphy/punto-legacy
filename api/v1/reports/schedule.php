@@ -2,18 +2,39 @@
 /**
  * REST canónico (API compartida /api) — Reporte de Agendamientos (raw).
  *
- *   GET /v1/reports/schedule?view=detail|stats|sessions&from=&to=[&ui=&uit=usr|cus]
+ *   GET  /v1/reports/schedule?view=detail|stats|sessions&from=&to=[&ui=&uit=usr|cus]
+ *   POST /v1/reports/schedule (action=delete&id=<uuid>) → elimina la cita.
  *
- * SOLO las 3 vistas de LECTURA. El modal de sesiones por id y el write (delete) siguen
- * en el panel legacy vía ?action=. Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
-$svc = new \Punto\Api\Reports\ScheduleService();
+$ctx    = apiAuthTenant(['panel']);
+$svc    = new \Punto\Api\Reports\ScheduleService();
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+/* ───────── write: eliminar cita ───────── */
+if ($method === 'POST') {
+    if ((int) $ctx['roleId'] === 7) {
+        apiError('Sin permiso para esta acción', 403);
+    }
+    $action = (string) (validateHttp('action', 'post') ?: '');
+    if ($action !== 'delete') {
+        apiError('Acción no soportada', 422);
+    }
+    $id = (string) (validateHttp('id', 'post') ?: '');
+    if (!preg_match($uuidRe, $id)) {
+        apiError('id inválido', 422);
+    }
+    if (!$svc->deleteAppointment($id, (string) COMPANY_ID)) {
+        apiError('No se pudo eliminar', 500);
+    }
+    apiOk(['id' => $id, 'action' => 'delete']);
+}
+
+if ($method !== 'GET') {
     apiError('Método no permitido', 405);
 }
 

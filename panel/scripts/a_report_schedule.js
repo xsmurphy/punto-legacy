@@ -1,15 +1,16 @@
 /**
  * Front del reporte de Agendamientos (a_report_schedule) — BFF de 3 niveles.
  *
- *   - config                      ← GET /bff/bootstrap.php
- *   - detail (rows + summary)      ← GET /bff/reports/schedule.php?view=detail&from&to[&ui]
- *   - stats / cusStats (rows)      ← GET /bff/reports/schedule.php?view=stats&...&uit=usr|cus
- *   - sessions (rows)              ← GET /bff/reports/schedule.php?view=sessions&...
+ *   - config                      ← GET  /bff/bootstrap.php
+ *   - detail (rows + summary)      ← GET  /bff/reports/schedule.php?view=detail&from&to[&ui]
+ *   - stats / cusStats (rows)      ← GET  /bff/reports/schedule.php?view=stats&...&uit=usr|cus
+ *   - sessions (rows)              ← GET  /bff/reports/schedule.php?view=sessions&...
+ *   - delete                       ← POST /bff/reports/schedule.php (action=delete&id=)
  *
  * El BFF/Service devuelven datos CRUDOS; este JS formatea TODO + arma tablas/KPIs/donut. esc() en datos.
- * El modal de sesiones (detail por id) y el write (delete) NO se migraron: se sirven por el PHP legacy
- * vía /a_report_schedule?action=. El click en una fila de detalle abre el form de TRANSACTIONS legacy
- * (/a_report_transactions?action=edit). Drill-down por query/hash: ui=userId.
+ * El modal de sesiones (detail por id) sigue en el panel legacy vía /a_report_schedule?action=detail.
+ * El click en una fila de detalle abre el form de TRANSACTIONS legacy (/a_report_transactions?action=edit).
+ * Drill-down por query/hash: ui=userId.
  */
 (function () {
 
@@ -99,7 +100,7 @@
 				'<td><span class="label bg-light">' + duration(r.fromDate, r.toDate) + '</span></td>' +
 				'<td class="text-right bg-light lter" data-order="' + num(r.total) + '" data-format="money">' + fmt(r.total) + '</td>' +
 				'<td class="text-center">' + attended + '</td>' +
-				'<td class="text-center"><a href="' + LEGACY + '?action=delete&id=' + esc(r.transactionId) + '" data-id="' + esc(r.transactionId) + '" class="delete hidden-print"><i class="material-icons text-danger">close</i></a></td>' +
+				'<td class="text-center"><a href="#" data-id="' + esc(r.transactionId) + '" class="delete hidden-print"><i class="material-icons text-danger">close</i></a></td>' +
 				'</tr>';
 		});
 		var foot = '</tbody><tfoot><tr><th colspan="13">TOTALES:</th><th class="text-right"></th><th colspan="3"></th></tr></tfoot>';
@@ -210,14 +211,19 @@
 						loadForm(load, '#modalLarge .modal-content', function () { $('#modalLarge').modal('show'); });
 					}, false, true);
 					onClickWrap('.delete', function (event, tis) {
-						var href = tis.attr('href');
-						var $row = $('.row' + tis.data('id'));
+						var id   = tis.data('id');
+						var $row = $('.row' + id);
 						ncmDialogs.confirm('¿Realmente desea eliminar la transacción?', '', 'warning', function (conf) {
 							if (conf) {
 								oTable.row($row).remove().draw();
-								$.get(href, function (data) {
-									if (data === 'true' || data === true) { message('La transacción fue eliminada con éxito.', 'success'); }
-									else { message('No se pudo eliminar la transacción.', 'danger'); }
+								ncmHelpers.load({
+									url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+									data: { action: 'delete', id: id },
+									success: function (resp) {
+										if (resp && resp.ok) { message('La transacción fue eliminada con éxito.', 'success'); }
+										else { message('No se pudo eliminar la transacción.', 'danger'); }
+									},
+									fail: function () { message('No se pudo eliminar la transacción.', 'danger'); }
 								});
 							}
 						});
