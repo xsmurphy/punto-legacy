@@ -311,8 +311,6 @@ if (!empty($_GET['update'])) {
 							$('#nav section.vbox').removeClass('animated');
 							$('#bodyContent').prepend(mainAlerts);
 						}, 300);
-						//prefetch popular pages
-						ncmHelpers.preCachePages(['reports', 'items', 'contacts', 'purchase']);
 					}
 				});
 			};
