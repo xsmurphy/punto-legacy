@@ -1,24 +1,18 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Niveles de Stock (multi-depósito) (capa API, motor ERP).
+ * Dominio de Reportes — Niveles de Stock (multi-depósito) (API compartida, motor ERP).
  *
- * Por cada ítem que rastrea inventario: existencia total + valor al costo + desglose por
- * depósito (cantidad en cada `toLocation` + stock mínimo de `stockTrigger`) + fila "Principal"
- * (lo no asignado a depósitos). Filas CRUDAS (números), sin formatear, sin HTML. El front
- * formatea y calcula los colores/% de las barras de alerta. Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/reports/ReportStockService.php (Fase 2 batch 2). Único cambio
+ * vs el original: namespace + `final`. SQL idéntico (incluye fixes PG documentados:
+ * `itemTrackInventory = true`, última fila de stock por FECHA, principal.count = onHand − Σ depósitos).
  *
- * Reemplaza la lógica inline de panel/a_report_stock.php (action=generalTable).
- *
- * Fixes PG: `itemTrackInventory = 1` (bool=int) → `= true`. El gate `OUTLET_ID < 2` (uuid<int,
- * roto en PG → siempre "seleccione sucursal") se reemplaza por un check de outlet válido en el
- * endpoint (flag needsOutlet). El stock total/costo se computa con la ÚLTIMA fila de `stock` por
- * FECHA (no via getAllItemStock, que ordena por stockId — uuid aleatorio en PG → no cronológico).
- * Desviación del legacy: `principal.count` = onHand − Σ(depósitos) (lo correcto); el legacy
- * restaba solo el último depósito (bug, además nunca corría en PG).
- *
- * Tenant: companyId bound + $roc (getROC) en taxonomy y en la sub-query de stock.
+ * Tenant: companyId bound + $roc en taxonomy y en la sub-query de stock.
  */
-class ReportStockService
+final class StockService
 {
     /** @return array filas [{itemId, name, sku, onHand, cogs, depots:[{locationId,locationName,min,count}], principal:{min,count}}] */
     public function levels($roc, $companyId, $outletId)
@@ -46,7 +40,6 @@ class ReportStockService
             $f  = $items->fields;
             $id = (string) $f['itemId'];
 
-            // Stock total/costo = última fila de stock por FECHA (no por stockId uuid), scopeado por outlet.
             $st     = ncmExecute(
                 'SELECT stockOnHand, stockOnHandCOGS FROM stock WHERE itemId = ?' . $roc . ' ORDER BY stockDate DESC LIMIT 1',
                 [$id], true

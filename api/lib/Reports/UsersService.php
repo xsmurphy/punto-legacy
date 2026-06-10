@@ -1,25 +1,24 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Ventas por Usuarios / Recursos (capa API, motor ERP).
+ * Dominio de Reportes — Ventas por Usuarios / Recursos (API compartida, motor ERP).
  *
- * Devuelve filas CRUDAS por usuario (vendido, total, comisión, descuento, # ventas) en un
- * período, incluyendo a los usuarios sin actividad (en 0). Sin formatear, sin HTML.
- * El BFF suma los totales; el front formatea y arma tabla/KPIs/chart. Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/reports/ReportUsersService.php (Fase 2 batch 2). Único cambio
+ * vs el original: namespace + `final`. SQL idéntico (sin ROC: companyId siempre bound).
  *
- * Reemplaza la lógica inline de panel/a_report_users.php (action=generalTable, que armaba HTML).
- * El filtro de outlet del legacy (`OUTLET_ID > 0`) era un no-op (UUID comparado como int → 0)
- * → se omite, igual que el comportamiento efectivo del legacy.
- *
- * Tenant: companyId del JWT, siempre bound.
+ * Incluye usuarios sin actividad (en 0). El filtro de outlet del legacy era no-op (uuid
+ * vs int → 0), se omite por paridad con el comportamiento efectivo del legacy.
  */
-class ReportUsersService
+final class UsersService
 {
     /** @return array filas [{userId, name, usold, total, comission, discount, count}] */
     public function salesByUser($from, $to, $companyId)
     {
         $rows = [];
 
-        // 1) Agregados por usuario desde itemSold ⋈ transaction ⋈ contact (ventas tipos 0,3,6).
         $sql = 'SELECT i.userId AS userid,
                        c.contactName AS name,
                        SUM(i.itemSoldUnits)     AS usold,
@@ -64,7 +63,6 @@ class ReportUsersService
             $res->Close();
         }
 
-        // 2) Todos los usuarios activos (los sin actividad entran en 0).
         $resU = ncmExecute(
             'SELECT contactId, contactName FROM contact WHERE companyId = ? AND contactStatus = 1 AND type = 0',
             [$companyId], false, true

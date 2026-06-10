@@ -14,7 +14,7 @@ if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
 }
 
-$res = bffApiGet('v1/reports/stock.php');
+$res = bffApiGet('v1/reports/stock.php', [], '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
