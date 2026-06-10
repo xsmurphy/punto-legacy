@@ -278,7 +278,7 @@
 
 				var ctxA = $('#chart-contado')[0].getContext('2d');
 				var gradA = ctxA.createLinearGradient(500, 0, 100, 0);
-				gradA.addColorStop(0, '#4cb6cb'); gradA.addColorStop(1, '#54cfc7');
+				gradA.addColorStop(0, '#01D7A1'); gradA.addColorStop(1, '#54cfc7');
 				self._destroy('contado');
 				self._charts.contado = new Chart(ctxA, {
 					type: 'doughnut',
@@ -288,7 +288,7 @@
 
 				var ctxB = $('#chart-porcobrar')[0].getContext('2d');
 				var gradB = ctxB.createLinearGradient(500, 0, 100, 0);
-				gradB.addColorStop(0, '#4cb6cb'); gradB.addColorStop(1, '#54cfc7');
+				gradB.addColorStop(0, '#01D7A1'); gradB.addColorStop(1, '#54cfc7');
 				self._destroy('porcobrar');
 				self._charts.porcobrar = new Chart(ctxB, {
 					type: 'doughnut',
@@ -311,7 +311,7 @@
 				var self = this;
 				var ctx  = $('#topCategoriesChart')[0].getContext('2d');
 				var grad = ctx.createLinearGradient(500, 0, 100, 0);
-				grad.addColorStop(0, '#4cb6cb'); grad.addColorStop(1, '#54cfc7');
+				grad.addColorStop(0, '#01D7A1'); grad.addColorStop(1, '#54cfc7');
 
 				var tips = ncmHelpers.cloneObj(chartTooltipStyle);
 				tips.tooltips.callbacks.title = function () { return false; };
@@ -346,7 +346,7 @@
 				var self = this;
 				var ctx  = $('#topHoursChart')[0].getContext('2d');
 				var grad = ctx.createLinearGradient(300, 0, 100, 0);
-				grad.addColorStop(0, '#4cb6cb'); grad.addColorStop(1, '#54cfc7');
+				grad.addColorStop(0, '#01D7A1'); grad.addColorStop(1, '#54cfc7');
 				self._destroy('hours');
 				self._charts.hours = new Chart(ctx, {
 					type: 'polarArea',
@@ -389,7 +389,7 @@
 				Chart.defaults.global.legend.display = true;
 				var ctx  = $('#summaryChart')[0].getContext('2d');
 				var grad = ctx.createLinearGradient(1600, 0, 0, 0);
-				grad.addColorStop(0, '#4cb6cb'); grad.addColorStop(0.5, '#54cfc7'); grad.addColorStop(1, '#54cfc7');
+				grad.addColorStop(0, '#01D7A1'); grad.addColorStop(0.5, '#54cfc7'); grad.addColorStop(1, '#54cfc7');
 
 				var data = {
 					labels: labels,

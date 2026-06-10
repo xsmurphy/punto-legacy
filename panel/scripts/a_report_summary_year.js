@@ -120,7 +120,7 @@
 					pointColor: '#FF9469', pointHoverRadius: 8, pointHoverBorderColor: '#fff',
 					pointHoverBackgroundColor: '#FF9469', pointBorderColor: '#FF9469', pointBackgroundColor: '#FF9469',
 					pointRadius: 3, pointHoverBorderWidth: 3, pointBorderWidth: 1, pointHitRadius: 20, borderWidth: 3, fill: false },
-				{ label: 'Ingresos', data: data, backgroundColor: '#4cb6cb' }
+				{ label: 'Ingresos', data: data, backgroundColor: '#01D7A1' }
 			]
 		};
 

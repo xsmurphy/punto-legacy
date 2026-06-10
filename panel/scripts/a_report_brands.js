@@ -77,7 +77,7 @@
 
 		var ctx = document.getElementById('myChart').getContext('2d');
 		var gradientStroke = ctx.createLinearGradient(300, 0, 100, 0);
-		gradientStroke.addColorStop(0, '#4cb6cb');
+		gradientStroke.addColorStop(0, '#01D7A1');
 		gradientStroke.addColorStop(1, '#54cfc7');
 
 		setTimeout(function () {

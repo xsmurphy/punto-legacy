@@ -160,7 +160,7 @@
 		if (!chart || !chart.data || !chart.data.length) { return; }
 		var ctx = document.getElementById('myChart').getContext('2d');
 		var grad = ctx.createLinearGradient(300, 0, 100, 0);
-		grad.addColorStop(0, '#4cb6cb'); grad.addColorStop(1, '#54cfc7');
+		grad.addColorStop(0, '#01D7A1'); grad.addColorStop(1, '#54cfc7');
 		Chart.defaults.global.responsive = true;
 		Chart.defaults.global.maintainAspectRatio = false;
 		if (Chart.defaults.global.legend) { Chart.defaults.global.legend.display = false; }

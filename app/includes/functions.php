@@ -1736,7 +1736,7 @@ function getPhoneFormat($number,$countryCode=false,$returnField='phone_number'){
 
 function makeEmailActionBtn($url,$txt){
 	return 	'<div style="text-align:center;padding:10px">' .
-            ' <a href="' . $url . '" style="color:white;background-color:#4CB6CB;padding:13px 25px;text-decoration:none;text-transform: uppercase;font-family:Arial;font-size:0.9em;border-radius:100px;font-weight:bold;">' .
+            ' <a href="' . $url . '" style="color:white;background-color:#01D7A1;padding:13px 25px;text-decoration:none;text-transform: uppercase;font-family:Arial;font-size:0.9em;border-radius:100px;font-weight:bold;">' .
             	$txt . 
             ' </a>' .
             '</div>';

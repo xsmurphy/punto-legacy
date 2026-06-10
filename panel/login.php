@@ -171,7 +171,7 @@ $tips = [
     <title>Ingresar</title>
 	<meta name="viewport" content="user-scalable=no, initial-scale=1, minimum-scale=1, width=device-width" />
 	<meta property="og:title" content="<?= APP_NAME ?> - Panel de Control" />
-  	<meta property="og:image" content="/images/icon_bg_light.png" />
+  	<meta property="og:image" content="/images/logo_bg_dark.png" />
    <?php
 	loadCDNFiles(['/assets/vendor/css/sweetalert2-7.33.1.min.css'],'css');
 	?>
@@ -195,8 +195,8 @@ $tips = [
 	
 
 	<div class="col-md-7 col-sm-5 col-xs-12 no-padder bg-dark gradBgBlack animateBg text-center hidden-xs" style="height: 100vh;">
-		<img src="/images/icon_bg_light.png" class="m-t" height="30" style="margin-top: 43vh;">
-		<div class="text-center text-white font-bold text-u-c m-t-xs">Tu negocio en tus manos</div>
+		<img src="/images/logo_bg_dark.png" class="m-t" height="30" style="margin-top: 43vh;">
+		<div class="text-center text-white font-bold text-u-c m-t-xs">Tu negocio más inteligente</div>
 	</div>
 
 
@@ -204,7 +204,7 @@ $tips = [
 		<div class="col-md-10 col-md-offset-1 col-xs-12 no-padder">
 			<div class="col-xs-12 no-padder bg-white r-3x" id="loginBlock" style="margin-top: 23vh;">
 				<div class="text-center m-b-lg">
-					<img src="/images/logo_bg_dark.png" height="30">
+					<img src="/images/logo_bg_light.png" height="30">
 				</div>
 
 				<h5 class="padder font-bold text-u-c text-center m-b-md hidden">Bienvenido al panel de control</h5>	

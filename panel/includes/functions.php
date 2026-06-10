@@ -363,7 +363,7 @@ function getImage($name, $w, $h)
 function makeEmailActionBtn($url, $txt)
 {
 	return 	'<div style="text-align:center;padding:10px">' .
-		' <a href="' . $url . '" style="color:white;background-color:#4CB6CB;padding:13px 25px;text-decoration:none;text-transform: uppercase;font-family:Arial;font-size:0.9em;border-radius:100px;font-weight:bold;">' .
+		' <a href="' . $url . '" style="color:white;background-color:#01D7A1;padding:13px 25px;text-decoration:none;text-transform: uppercase;font-family:Arial;font-size:0.9em;border-radius:100px;font-weight:bold;">' .
 		$txt .
 		' </a>' .
 		'</div>';
@@ -7244,7 +7244,7 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			}
 			arsort($arrProd);
 			$i = 0;
-			$colors = array('#4cb6cb', '#2f3940', '#405161', '#778490', '#d7e5e8');
+			$colors = array('#01D7A1', '#2f3940', '#405161', '#778490', '#d7e5e8');
 			foreach ($arrProd as $key => $val) {
 				$list .= '<li class="list-group-item">
                   <div class="clear"> 

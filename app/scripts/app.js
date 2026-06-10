@@ -8347,7 +8347,7 @@ var ncmCalendar = {
             if (ncmCalendar.currentView == 'weeks') {
                 if (rawDate == ncmCalendar.today) {
                     bWeight = '2px';
-                    bColorCode = '#4cb6cb';
+                    bColorCode = '#01D7A1';
                 } else {
                     bWeight = '1px';
                 }
@@ -12452,7 +12452,7 @@ var ncmAlerts = {
             textColor: '#ffffff',  // Text color of the toast
             textAlign: 'left',  // Text alignment i.e. left, right or center
             loader: false,  // Whether to show loader or not. True by default
-            loaderBg: '#4cb6cb',  // Background color of the toast loader
+            loaderBg: '#01D7A1',  // Background color of the toast loader
             beforeShow: function () { }, // will be triggered before the toast is shown
             afterShown: function () { }, // will be triggered after the toat has been shown
             beforeHide: function () { }, // will be triggered before the toast gets hidden
@@ -14794,10 +14794,10 @@ var ncmTutorial = {
         modalTypeColor: '#9badb9',
         bgColor: '#3b464d',
         titleColor: '#fff',
-        btnColor: '#4cb6cb',
+        btnColor: '#01D7A1',
         btnHoverColor: '#3f9eb1',
-        paginationColor: '#4cb6cb',
-        timerColor: '#4cb6cb',
+        paginationColor: '#01D7A1',
+        timerColor: '#01D7A1',
         keyboard: false,
         overlayClickable: false,
         pagination: true,
@@ -19255,8 +19255,8 @@ var ncmMaps = {
         var coverage = ncmGlobals.settings[0].ecomData.tiers;
         var circles = false;
         var oCoors = ncmHelpers.getOutletLatLng();
-        var borders = ['#4cb6cb', '#fad733', '#f05050'];
-        var fills = ['#4cb6cb', '', ''];//['#4cb6cb','#fad733','#f05050'];
+        var borders = ['#01D7A1', '#fad733', '#f05050'];
+        var fills = ['#01D7A1', '', ''];//['#01D7A1','#fad733','#f05050'];
         var ix = 0;
 
         if (oCoors) {

@@ -515,7 +515,7 @@ loadCDNFiles([],'css');
                           {
                             label   : "Total Actual",
                             data    : barData,
-                            backgroundColor: '#4cb6cb'
+                            backgroundColor: '#01D7A1'
                           },
                           {
                             label   : "Total Anterior",

@@ -65,7 +65,7 @@ $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 
         .step-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 22px; }
         .dot { width: 8px; height: 8px; border-radius: 50%; background: #dde1e9; transition: background .2s; }
-        .dot.active { background: #4cb6cb; }
+        .dot.active { background: #01D7A1; }
 
         .step { display: none; }
         .step.active { display: block; }
@@ -82,27 +82,27 @@ $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
         /* pin */
         .pin-wrap { display: flex; justify-content: center; margin: 16px 0 8px; }
         .pin-input { font-size: 32px; font-weight: 700; letter-spacing: 12px; text-align: center; width: 200px; border: 2px solid #dde1e9; border-radius: 12px; padding: 14px 0; }
-        .pin-input.ok  { border-color: #4cb6cb; color: #4cb6cb; }
+        .pin-input.ok  { border-color: #01D7A1; color: #01D7A1; }
         .pin-input.err { border-color: #e55; color: #e55; animation: shake .4s; }
         @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
         .pin-status { text-align: center; font-size: 13px; color: #888; min-height: 20px; }
         .resend { text-align: center; margin-top: 12px; }
-        .resend a { font-size: 13px; color: #4cb6cb; cursor: pointer; }
+        .resend a { font-size: 13px; color: #01D7A1; cursor: pointer; }
 
         /* step 3 */
         .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         .form-group { margin-bottom: 14px; }
         .form-group label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #555; margin-bottom: 5px; }
         .form-group input, .form-group select { width: 100%; padding: 10px 13px; border: 1.5px solid #dde1e9; border-radius: 9px; font-size: 14px; background: #fff; }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4cb6cb; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #01D7A1; }
 
-        .btn-signup { width: 100%; padding: 13px; border: none; border-radius: 9px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; background: #4cb6cb; color: #fff; transition: background .15s, opacity .15s; }
+        .btn-signup { width: 100%; padding: 13px; border: none; border-radius: 9px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; background: #01D7A1; color: #fff; transition: background .15s, opacity .15s; }
         .btn-signup:hover { background: #3ca4b8; }
         .btn-signup:disabled { opacity: .55; cursor: not-allowed; }
 
         .debug-bar { background: #fff8e1; border: 1px solid #ffc107; border-radius: 8px; padding: 8px 14px; font-size: 12px; color: #856404; margin-bottom: 18px; }
         .footer-link { text-align: center; font-size: 13px; color: #888; margin-top: 18px; }
-        .footer-link a { color: #4cb6cb; text-decoration: none; font-weight: 600; }
+        .footer-link a { color: #01D7A1; text-decoration: none; font-weight: 600; }
         .terms { font-size: 11px; text-align: center; color: #aaa; margin-top: 12px; }
         .terms a { color: #aaa; }
     </style>

@@ -809,7 +809,7 @@ $menu 		= 'reports';
 		<?php
 		    $val = getPaymentTypes($startDate,$endDate);
 		    $keys = array('Efectivo','T. de Crédito','T. de Débito','Cheque','Otros');
-		    $colors = array('#4cb6cb','#2f3940','#405161','#778490','#d7e5e8');
+		    $colors = array('#01D7A1','#2f3940','#405161','#778490','#d7e5e8');
 			
 			for($z=0;$z<count($val);$z++){
 				$doughnut .= '
@@ -849,9 +849,9 @@ $menu 		= 'reports';
 		    datasets: [
 		        		{
 				            label: "Semana",
-				            fillColor: "#4cb6cb",
-				            strokeColor: "#4cb6cb",
-				            highlightFill: "#4cb6cb",
+				            fillColor: "#01D7A1",
+				            strokeColor: "#01D7A1",
+				            highlightFill: "#01D7A1",
 				            highlightStroke: "#fff",
 				            data: [<?=$data?>]
 				        }

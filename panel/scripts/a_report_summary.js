@@ -286,7 +286,7 @@
 
 		var myChart 		= $('#summaryChart')[0].getContext("2d");
 		var gradientStroke 	= myChart.createLinearGradient(1600, 0, 0, 0);
-		gradientStroke.addColorStop(0, "#4cb6cb");
+		gradientStroke.addColorStop(0, "#01D7A1");
 		gradientStroke.addColorStop(0.5, "#54cfc7");
 		gradientStroke.addColorStop(1, "#54cfc7");
 
@@ -404,7 +404,7 @@
 		if (ch.daysData && ch.daysData.length) {
 			var days 			= $('#days')[0].getContext("2d");
 			var gradientStroke2 = days.createLinearGradient(300, 0, 100, 0);
-			gradientStroke2.addColorStop(0, "#4cb6cb");
+			gradientStroke2.addColorStop(0, "#01D7A1");
 			gradientStroke2.addColorStop(1, "#54cfc7");
 
 			Chart.defaults.global.responsive 			= true;
@@ -445,7 +445,7 @@
 
 		var hoursChart 		=$('#hours')[0].getContext("2d");
 		var gradientStroke 	= hoursChart.createLinearGradient(300, 0, 100, 0);
-		gradientStroke.addColorStop(0, "#4cb6cb");
+		gradientStroke.addColorStop(0, "#01D7A1");
 		gradientStroke.addColorStop(1, "#54cfc7");
 
 		var dataH = {

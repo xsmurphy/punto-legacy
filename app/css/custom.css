@@ -685,7 +685,7 @@ div:focus{
     color:white;
 }
 .gradBgBlue {
-    background: linear-gradient(314deg, #6BC0D1, #54CFC7, #4CB6CB)!important;
+    background: linear-gradient(314deg, #6BC0D1, #54CFC7, #01D7A1)!important;
     background-size: 200% 200%!important;
     color:white;
 }
@@ -786,19 +786,19 @@ div:focus{
     margin-right: auto
 }
 .mobilePayBtnBgColor {
-    background: #4cb6cb;
+    background: #01D7A1;
     background: -moz-linear-gradient(top, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     background: -webkit-linear-gradient(top, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     background: linear-gradient(to bottom, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
-    filter: progid: DXImageTransform.Microsoft.gradient(startColorstr='#4cb6cb', endColorstr='#e3ebec', GradientType=0);
+    filter: progid: DXImageTransform.Microsoft.gradient(startColorstr='#01D7A1', endColorstr='#e3ebec', GradientType=0);
     color: #eaf6f9!important
 }
 .mobilePayBtnBgColorDark {
-    background: #4cb6cb;
+    background: #01D7A1;
     background: -moz-linear-gradient(top, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     background: -webkit-linear-gradient(top, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     background: linear-gradient(to bottom, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
-    filter: progid: DXImageTransform.Microsoft.gradient(startColorstr='#4cb6cb', endColorstr='#e3ebec', GradientType=0);
+    filter: progid: DXImageTransform.Microsoft.gradient(startColorstr='#01D7A1', endColorstr='#e3ebec', GradientType=0);
     color: #eaf6f9!important
 }
 .mobilePayBtnBgColor .text-muted {
@@ -1742,8 +1742,8 @@ button.swal2-styled {
 }
 
 button.swal2-confirm {
-  background-color: #4cb6cb!important;
-  border-color: #4cb6cb!important;
+  background-color: #01D7A1!important;
+  border-color: #01D7A1!important;
 }
 
 button.swal2-cancel {

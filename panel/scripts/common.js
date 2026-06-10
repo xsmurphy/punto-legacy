@@ -4,7 +4,7 @@ window.isUserActive = true;
 var colorPrimary 	= '#17c3e5';
 var colorDanger 	= '#f05050';
 var colorWarning 	= '#fad733';
-var colorInfo 		= '#4cb6cb';
+var colorInfo 		= '#01D7A1';
 var colorSuccess 	= '#1ab667';
 var colorDefaultBg	= '#e8eff0';
 var colorDark		= '#5a6a7a';
@@ -6153,10 +6153,10 @@ var ncmiGuiderConfig = {
     modalTypeColor  : '#9badb9',
     bgColor         : '#3b464d',
     titleColor      : '#fff',
-    btnColor        : '#4cb6cb',
+    btnColor        : '#01D7A1',
     btnHoverColor   : '#3f9eb1',
-    paginationColor : '#4cb6cb',
-    timerColor      : '#4cb6cb',
+    paginationColor : '#01D7A1',
+    timerColor      : '#01D7A1',
     keyboard 		: false,
     overlayClickable: false,
     intro    		: {},

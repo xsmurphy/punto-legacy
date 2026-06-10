@@ -97,7 +97,7 @@
 
 		var ctx = document.getElementById('customersChart').getContext('2d');
 		var grad = ctx.createLinearGradient(0, 0, 0, 300);
-		grad.addColorStop(0, '#4cb6cb');
+		grad.addColorStop(0, '#01D7A1');
 		grad.addColorStop(1, '#54cfc7');
 
 		Chart.defaults.global.responsive          = true;

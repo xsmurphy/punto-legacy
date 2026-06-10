@@ -399,8 +399,8 @@ select.form-control{
 
 .btn-info {
   color: #fff !important;
-  background-color: #4cb6cb;
-  border-color: #4cb6cb;
+  background-color: #01D7A1;
+  border-color: #01D7A1;
 }
 
 .backoverlay {
@@ -895,13 +895,13 @@ iframe::-webkit-scrollbar {
 }
 
 .daterangepicker .ranges ul li.active, .daterangepicker .drp-calendar .active{
-  background-color: #4cb6cb !important;
+  background-color: #01D7A1 !important;
   color : #fff !important;
 }
 
 .daterangepicker .drp-buttons .btn-primary{
-  background-color: #4cb6cb !important;
-  border-color: #4cb6cb !important;
+  background-color: #01D7A1 !important;
+  border-color: #01D7A1 !important;
 }
 
 .daterangepicker .ranges ul li:hover{
@@ -988,7 +988,7 @@ span.label.bg-success, span.label.bg-info{
 
 /*menu*/
 .menuTogglered a.text-info{
-  color: #4cb6cb!important;
+  color: #01D7A1!important;
 }
 
 .menuTogglered a.text-info:hover{
@@ -1089,7 +1089,7 @@ span.label.bg-success, span.label.bg-info{
     color:white;
 }
 .gradBgBlue {
-    background: linear-gradient(314deg, #6BC0D1, #54CFC7, #4CB6CB)!important;
+    background: linear-gradient(314deg, #6BC0D1, #54CFC7, #01D7A1)!important;
     background-size: 200% 200%!important;
     color:white;
 }
@@ -1207,7 +1207,7 @@ span.label.bg-success, span.label.bg-info{
 }
 
 .select2-container--bootstrap .select2-results__option--highlighted[aria-selected]{
-  background-color: #4cb6cb!important;
+  background-color: #01D7A1!important;
 }
 
 .select2-selection__arrow b{
@@ -1398,8 +1398,8 @@ button.swal2-styled {
 }
 
 button.swal2-confirm {
-  background-color: #4cb6cb!important;
-  border-color: #4cb6cb!important;
+  background-color: #01D7A1!important;
+  border-color: #01D7A1!important;
 }
 
 button.swal2-cancel {
