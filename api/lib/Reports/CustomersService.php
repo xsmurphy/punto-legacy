@@ -1,26 +1,20 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Clientes (capa API, motor ERP).
+ * Dominio de Reportes — Clientes (API compartida, motor ERP).
  *
- * Ranking de clientes por compras en un período: agregados de ventas (tipos 0,3) por
- * customerId + los datos del contacto (razón social, TIN, nombre, CI, cumpleaños, email,
- * teléfonos, dirección, localidad, ciudad, etiquetas, loyalty). Filas CRUDAS (números,
- * fechas ISO, tags como array). El BFF deriva neto/promedio + totales + chart; el front
- * formatea y arma la tabla/KPIs/chart. Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/reports/ReportCustomersService.php (Fase 2 batch 5). Único cambio
+ * vs el original: namespace + `final`. SQL idéntico, incluye fixes PG documentados
+ * (STRING_AGG(meta->>'tags',...) en vez de columna `tags`; lookup batch parametrizado de
+ * contactos con bound params, sin getContactData/getCustomerData del panel — el legacy de
+ * esos helpers tenía bug en PG).
  *
- * Reemplaza la lógica inline de panel/a_report_customers.php (action=generalTable).
- *
- * Fixes PG:
- *  - `tags` fue absorbida por `meta` (JSONB) → `STRING_AGG(meta->>'tags', ',')` (el legacy
- *    seleccionaba `tags`, columna inexistente en PG).
- *  - NO se usa getContactData/getCustomerData para resolver el cliente: arman `WHERE contactId =
- *    $id` interpolando el UUID SIN comillas ($db->Prepare devuelve el UUID crudo, pensado para
- *    placeholders `?`), lo que en PG es error de sintaxis → 'Sin Nombre'. BUG LATENTE de esa
- *    god-function en TODOS sus call-sites de PG. Acá se hace un lookup batch con bound params.
- *
- * Tenant: $roc (getROC) en la agregación; companyId bound en el lookup de contactos.
+ * Tenant: $roc en la agregación; companyId bound en el lookup de contactos.
  */
-class ReportCustomersService
+final class CustomersService
 {
     /** @return array filas crudas por cliente, ordenadas por total bruto desc. */
     public function ranking($from, $to, $roc, $companyId)
@@ -73,7 +67,7 @@ class ReportCustomersService
                 'secondName' => (string) ($c['contactSecondName'] ?? ''),
                 'ruc'        => (string) ($c['contactTIN'] ?? ''),
                 'ci'         => (string) ($c['contactCI'] ?? ''),
-                'bday'       => (string) ($c['contactBirthDay'] ?? ''),   // ISO crudo (o '')
+                'bday'       => (string) ($c['contactBirthDay'] ?? ''),
                 'email'      => (string) ($c['contactEmail'] ?? ''),
                 'phone'      => (string) ($c['contactPhone'] ?? ''),
                 'phone2'     => (string) ($c['contactPhone2'] ?? ''),
@@ -99,10 +93,6 @@ class ReportCustomersService
             return [];
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
-        // SELECT * + _flattenJsonb: varias columnas de contacto (contactAddress, contactLocation,
-        // contactCity, contactAddress2, …) fueron demovidas al JSONB `data` por la migración 06;
-        // el flatten las expone igual que las columnas reales (contactId/Name/TIN/CI/… siguen
-        // siendo columnas). Seleccionarlas explícitas rompía la query (undefined column en PG).
         $res = ncmExecute(
             "SELECT * FROM contact WHERE companyId = ? AND contactId IN ($ph)",
             array_merge([$companyId], $ids), false, false, true

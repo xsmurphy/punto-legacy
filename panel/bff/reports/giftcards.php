@@ -23,7 +23,7 @@ $query = array_filter([
     'singleRow' => $_GET['singleRow'] ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/giftcards.php', $query);
+$res = bffApiGet('v1/reports/giftcards.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

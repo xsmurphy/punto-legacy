@@ -1,28 +1,27 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Gift Cards (capa API, motor ERP).
+ * Dominio de Reportes — Gift Cards (API compartida, motor ERP).
  *
- * UNA vista de LECTURA: detail() — gift cards activadas (giftCardSold con transactionId)
- * con beneficiario/sucursal/documento resueltos. Devuelve datos CRUDOS; el BFF computa los
- * KPIs (vencidas/por-vencer/canjeadas/vigentes) y el front formatea + arma la tabla.
+ * Port FIEL de panel/lib/reports/ReportGiftcardsService.php (Fase 2 batch 5). Cambios vs original:
+ *  - namespace + `final`
+ *  - el ROC se recibe por PARÁMETRO (el original llamaba `getROC(1)` adentro)
+ *  - los lookups batch reciben `$companyId` por parámetro en vez de leerlo de la constante
+ *    global (mejor higiene multi-tenant, mismo patrón que OpenInvoicesService).
  *
- * NO se migran (siguen en el PHP legacy vía ?action=): el form de edición (`giftcard`) y los
- * writes (`update`, `delete`). El front los carga en el modal del shell.
+ * Read-only. El form de edición (`giftcard`) y los writes (`update`, `delete`) siguen sirviéndose
+ * por el PHP legacy de a_report_giftcards.php vía ?action= (migración parcial: ver router).
  *
- * Ver context/02-arquitectura.md § REGLA RAÍZ 2.
- *
- * Fixes PG: lookups de beneficiario/sucursal/documento batch parametrizados (el legacy hacía
- * getContactData + getValue por fila = N+1); note decodificado en el service.
- *
- * Tenant: $roc (getROC) por query; companyId bound en cada lookup.
+ * Tenant: $roc por query principal; companyId bound en cada lookup.
  */
-class ReportGiftcardsService
+final class GiftcardsService
 {
     /** Gift cards activadas. $filters: ['singleRow'=>uuid]. */
-    public function detail(array $filters)
+    public function detail(array $filters, string $roc, string $companyId)
     {
-        $roc = getROC(1);
-
         if ($filters['singleRow']) {
             $sql = "SELECT * FROM giftCardSold
                     WHERE transactionId IS NOT NULL AND giftCardSoldId = ?" . $roc;
@@ -40,16 +39,15 @@ class ReportGiftcardsService
             return ['rows' => []];
         }
 
-        // IDs para lookups batch (foreach, no array_map — ver nota en ReportTransactionsService).
         $benefIds = $outletIds = $txIds = [];
         foreach ($res as $f) {
             $benefIds[]  = (string) $f['giftCardSoldBeneficiaryId'];
             $outletIds[] = (string) $f['outletId'];
             $txIds[]     = (string) $f['transactionId'];
         }
-        $benefs  = $this->contactNames($benefIds);
-        $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds);
-        $docs    = $this->invoiceDocs($txIds);
+        $benefs  = $this->contactNames($benefIds, $companyId);
+        $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
+        $docs    = $this->invoiceDocs($txIds, $companyId);
 
         $rows = [];
         foreach ($res as $f) {
@@ -74,8 +72,6 @@ class ReportGiftcardsService
         return ['rows' => $rows];
     }
 
-    /* ───────────────────────── helpers ───────────────────────── */
-
     /** Decodifica la nota (base64 con fallback a texto plano), como isBase64Decode del legacy. */
     private function decodeNote($raw)
     {
@@ -88,7 +84,7 @@ class ReportGiftcardsService
     }
 
     /** Lookup batch contactId → nombre, scopeado por companyId. */
-    private function contactNames(array $ids)
+    private function contactNames(array $ids, $companyId)
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -97,7 +93,7 @@ class ReportGiftcardsService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT contactId, contactName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -108,7 +104,7 @@ class ReportGiftcardsService
     }
 
     /** Lookup batch transactionId → "invoicePrefix+invoiceNo", scopeado por companyId. */
-    private function invoiceDocs(array $ids)
+    private function invoiceDocs(array $ids, $companyId)
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -117,7 +113,7 @@ class ReportGiftcardsService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT transactionId, invoiceNo, invoicePrefix FROM transaction WHERE companyId = ? AND transactionId IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -129,7 +125,7 @@ class ReportGiftcardsService
     }
 
     /** Lookup batch id→name de outlet, scopeado por companyId. */
-    private function nameMap($table, $idCol, $nameCol, array $ids)
+    private function nameMap($table, $idCol, $nameCol, array $ids, $companyId)
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -138,7 +134,7 @@ class ReportGiftcardsService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT $idCol, $nameCol FROM $table WHERE companyId = ? AND $idCol IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
