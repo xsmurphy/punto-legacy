@@ -1,19 +1,18 @@
 <?php
 /**
- * REST canónico — Reporte de Compras y Gastos (motor ERP, raw).
+ * REST canónico (API compartida /api) — Reporte de Compras y Gastos (raw).
  *
- *   GET /API/v1/reports/purchases?view=general|cobros|detail&from=&to=
- *       [&supId=&itmId=&singleRow=&src=]   → datos CRUDOS según la vista.
+ *   GET /v1/reports/purchases?view=general|cobros|detail&from=&to=
+ *       [&supId=&itmId=&singleRow=&src=]
  *
- * SOLO las 3 vistas de LECTURA (el CRUD de edición y los fiscales rg90/libro-compra siguen
- * sirviéndose por el PHP legacy vía ?action=). Sin formatear/HTML: el front formatea.
- * Auth: JWT. Tenant por COMPANY_ID + roc. Ver REGLA RAÍZ 2.
+ * SOLO las 3 vistas de LECTURA. El CRUD de edición y los reportes fiscales (rg90, libro-compra)
+ * siguen en el panel legacy vía ?action=. Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
  */
 
-require_once __DIR__ . '/../../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../../bootstrap.php';
 
-require_once __DIR__ . '/../../../lib/reports/ReportPurchasesService.php';
+$ctx = apiAuthTenant(['panel']);
+$svc = new \Punto\Api\Reports\PurchasesService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
@@ -35,7 +34,6 @@ if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
     apiError('Formato de fecha inválido', 422);
 }
 
-// Filtros opcionales: ids deben ser UUID válidos (o vacío).
 $uuidOrEmpty = function ($v) use ($uuidRe) {
     $v = (string) ($v ?: '');
     return ($v !== '' && preg_match($uuidRe, $v)) ? $v : '';
@@ -48,12 +46,18 @@ $filters = [
     'src'       => trim((string) (validateHttp('src') ?: '')),
 ];
 
-$svc = new ReportPurchasesService();
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
+}
+
+$companyId = (string) COMPANY_ID;
 
 if ($view === 'cobros') {
-    apiOk($svc->cobros($filters, $from, $to));
+    apiOk($svc->cobros($filters, $from, $to, $roc, $companyId));
 } elseif ($view === 'detail') {
-    apiOk($svc->detail($filters, $from, $to));
+    apiOk($svc->detail($filters, $from, $to, $roc, $companyId));
 } else {
-    apiOk($svc->general($filters, $from, $to));
+    apiOk($svc->general($filters, $from, $to, $roc, $companyId));
 }

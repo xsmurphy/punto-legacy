@@ -29,7 +29,7 @@ $query = array_filter([
     'src'       => $_GET['src']       ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/purchases.php', $query);
+$res = bffApiGet('v1/reports/purchases.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
