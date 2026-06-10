@@ -5648,45 +5648,11 @@ function leftMenu($isoutlet = false, $register = false, $submenu = false)
 
 						<li class="hidden-xs">
 							<?php
-							// SSO handoff al app/POS: emitimos un JWT pos-app de 60s y lo pasamos a
-							// app/handoff.php, que lo valida, setea cookie HttpOnly y redirige a /.
-							// Antes pasábamos solo ?i=<base64(cid,oid)> a la home del app — en deploy
-							// con subdominios separados (panel.punto.la / app.punto.la) las cookies no
-							// se comparten, así que sin token el primer XHR caía con 401.
-							// Base URL del POS para el link y el handoff. APP_URL es el nombre canónico
-							// (matchea la env var); POS_URL es legacy/alias. Usar el primero que esté
-							// seteado; si ninguno, el link cae a panel.punto.la y queda colgado.
+							// El token SSO se genera en /bff/pos-redirect.php al momento del click
+							// (no al renderizar la página) para evitar que el TTL de 15s expire
+							// antes de que el usuario haga click. Ver panel/bff/pos-redirect.php.
 							$_posBase = defined('APP_URL') && APP_URL ? APP_URL : (defined('POS_URL') ? POS_URL : '');
-							$ssoHref   = $_posBase;
-							$jwtSecret = $_ENV['JWT_SECRET'] ?? '';
-							// loginPart() guarda el UUID del user en 'userId', no 'contactId'
-							// (línea ~9139). El valor ya viene enc()ado — identity post-Phase UUID.
-							$_userId   = (string)($_SESSION['user']['userId'] ?? '');
-							$_cid      = defined('COMPANY_ID') ? (string)COMPANY_ID : '';
-							$_oid      = defined('OUTLET_ID')  ? (string)OUTLET_ID  : '';
-							// Guard P1: si la sesión está incompleta, no emitir handoff con identidad vacía.
-							// Sin esto un user sin sesión podría llegar al POS con un token sub=""/cid=""
-							// y quedar "autenticado" pero sin data → mejor caer a /login.php del POS.
-							if ($_posBase !== '' && $jwtSecret && $_userId !== '' && $_cid !== '' && $_oid !== '') {
-								require_once __DIR__ . '/jwt.php';
-								$_role = (int)($_SESSION['user']['role'] ?? 1);
-								$_reg  = ncmExecute("SELECT registerId FROM register WHERE outletId = ? ORDER BY registerId ASC LIMIT 1", [$_oid]);
-								$_registerId = $_reg ? (string)$_reg['registerId'] : '';
-								$_now  = time();
-								// TTL 15s (P1): minimiza ventana de replay si el ?t= queda en logs de Traefik.
-								// El handoff reemite el cookie con TTL real (8h) en el primer hit.
-								$_ssoToken = jwtEncode([
-									'iss'  => 'pos-app',
-									'sub'  => $_userId,
-									'cid'  => $_cid,
-									'oid'  => $_oid,
-									'rid'  => $_registerId,
-									'role' => $_role,
-									'iat'  => $_now,
-									'exp'  => $_now + 15,
-								], $jwtSecret);
-								$ssoHref = $_posBase . '/handoff.php?t=' . rawurlencode($_ssoToken);
-							}
+							$ssoHref  = $_posBase !== '' ? '/bff/pos-redirect.php' : '#';
 							?>
 							<a href="<?= htmlspecialchars($ssoHref, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer" class="mnPOSBtn"> <i class="material-icons">chrome_reader_mode</i> <span class="font-bold text-u-c">Caja</span> </a>
 						</li>

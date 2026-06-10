@@ -37,6 +37,19 @@ if ($secret === '') {
     die('handoff: JWT no configurado');
 }
 
+// Verificar expiración antes de validar firma para dar un mensaje más preciso.
+// jwtDecode retorna null tanto por firma inválida como por token expirado, por lo
+// que el check de exp más abajo nunca era alcanzable para tokens con firma válida
+// pero vencidos. Esta comprobación usa claims sin verificar solo para el mensaje UX.
+$_rawParts = explode('.', $token);
+if (count($_rawParts) === 3) {
+    $_rawBody = json_decode(_jwtB64Decode($_rawParts[1]), true);
+    if (is_array($_rawBody) && isset($_rawBody['exp']) && (int)$_rawBody['exp'] < time()) {
+        http_response_code(401);
+        die('handoff: token expirado');
+    }
+}
+
 $payload = jwtDecode($token, $secret);
 if (!is_array($payload)) {
     http_response_code(401);
@@ -49,7 +62,7 @@ if (($payload['iss'] ?? '') !== 'pos-app') {
     die('handoff: realm incorrecto');
 }
 
-// El token de handoff es de uso corto — exigimos exp futuro.
+// Defensa en profundidad para tokens sin campo exp (jwtDecode los deja pasar).
 if (!isset($payload['exp']) || $payload['exp'] < time()) {
     http_response_code(401);
     die('handoff: token expirado');
