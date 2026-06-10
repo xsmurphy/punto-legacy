@@ -136,7 +136,6 @@
 			'</tr></thead><tbody>';
 		var body = '';
 		$.each(rows, function (i, r) {
-			var delUrl = LEGACY + '?action=delete&id=' + esc(r.transactionId) + '&outlet=' + esc(r.outletId) + '&type=' + esc(r.type) + '&parent=' + esc(r.parentId);
 			body +=
 				'<tr data-id="' + esc(r.parentId) + '" class="clickrow pointer" data-ro="true">' +
 				'<td class="text-right">' + esc(r.parentInvoice) + '</td>' +
@@ -148,7 +147,7 @@
 				'<td>' + esc(r.registerName) + '</td>' +
 				'<td>' + paymentLabels(r.payments) + '</td>' +
 				'<td class="text-right bg-light lter" data-order="' + num(r.total) + '" data-format="money">' + fmt(r.total) + '</td>' +
-				'<td class="text-center"><a href="' + delUrl + '" class="deletePayment hidden-print"><i class="material-icons text-danger">close</i></a></td>' +
+				'<td class="text-center"><a href="#" class="deletePayment hidden-print" data-id="' + esc(r.transactionId) + '" data-parent="' + esc(r.parentId || '') + '"><i class="material-icons text-danger">close</i></a></td>' +
 				'</tr>';
 		});
 		var foot = '</tbody><tfoot><tr><th colspan="8">TOTALES:</th><th class="text-right"></th><th></th></tr></tfoot>';
@@ -171,7 +170,6 @@
 			'</tr></thead><tbody>';
 		var body = '';
 		$.each(rows, function (i, r) {
-			var delUrl = LEGACY + '?action=delete&id=' + esc(r.transactionId) + '&outlet=' + esc(r.outletId) + '&type=' + esc(r.type);
 			body +=
 				'<tr data-id="' + esc(r.transactionId) + '" class="clickrow pointer" data-ro="true">' +
 				'<td class="text-right">' + esc(r.invoiceNo) + '</td>' +
@@ -182,7 +180,7 @@
 				'<td>' + esc(r.userName) + '</td>' +
 				'<td>' + esc(r.outletName) + '</td>' +
 				'<td class="text-right bg-light lter" data-order="' + num(r.total) + '" data-format="money">' + fmt(r.total) + '</td>' +
-				'<td class="text-center"><a href="' + delUrl + '" class="deleteQuote hidden-print"><i class="material-icons text-danger">close</i></a></td>' +
+				'<td class="text-center"><a href="#" class="deleteQuote hidden-print" data-id="' + esc(r.transactionId) + '"><i class="material-icons text-danger">close</i></a></td>' +
 				'</tr>';
 		});
 		var foot = '</tbody><tfoot><tr><th colspan="7">TOTALES:</th><th class="text-right"></th><th></th></tr></tfoot>';
@@ -266,13 +264,17 @@
 					"clickCB": function (event, tis) { return openEditModal(tis); }
 				}, function (oTable) {
 					onClickWrap('.deletePayment', function (event, tis) {
-						var href = tis.attr('href');
 						var $row = tis.closest('tr');
 						ncmDialogs.confirm('¿Desea eliminar este pago?', 'Esta acción no se puede revertir.', 'warning', function (conf) {
 							if (conf) {
-								$.get(href, function (data) {
-									if (data && data.success) { message('Pago eliminado.', 'success'); oTable.row($row).remove().draw(); }
-									else { message('No se pudo eliminar', 'danger'); }
+								ncmHelpers.load({
+									url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+									data: { action: 'deletePayment', id: tis.data('id'), parent: tis.data('parent') || '' },
+									success: function (resp) {
+										if (resp && resp.ok) { message('Pago eliminado.', 'success'); oTable.row($row).remove().draw(); }
+										else { message('No se pudo eliminar', 'danger'); }
+									},
+									fail: function () { message('No se pudo eliminar', 'danger'); }
 								});
 							}
 						});
@@ -303,13 +305,17 @@
 					"clickCB": function (event, tis) { return openEditModal(tis); }
 				}, function (oTable) {
 					onClickWrap('.deleteQuote', function (event, tis) {
-						var href = tis.attr('href');
 						var $row = tis.closest('tr');
 						ncmDialogs.confirm('¿Desea eliminar esta cotización?', 'Esta acción no se puede revertir.', 'warning', function (conf) {
 							if (conf) {
-								$.get(href, function (data) {
-									if (data === 'true' || data === true || (data && data.success)) { message('Cotización eliminada.', 'success'); oTable.row($row).remove().draw(); }
-									else { message('No se pudo eliminar', 'danger'); }
+								ncmHelpers.load({
+									url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+									data: { action: 'deleteQuote', id: tis.data('id') },
+									success: function (resp) {
+										if (resp && resp.ok) { message('Cotización eliminada.', 'success'); oTable.row($row).remove().draw(); }
+										else { message('No se pudo eliminar', 'danger'); }
+									},
+									fail: function () { message('No se pudo eliminar', 'danger'); }
 								});
 							}
 						});

@@ -2,24 +2,54 @@
 /**
  * REST canónico (API compartida /api) — Reporte de Pagos y Transacciones (raw).
  *
- *   GET /v1/reports/transactions?view=detail|cobros|quotes&from=&to=
- *       [&cusId=&src=&singleRow=]
+ *   GET  /v1/reports/transactions?view=detail|cobros|quotes&from=&to=
+ *        [&cusId=&src=&singleRow=]
+ *   POST /v1/reports/transactions (action=deletePayment|deleteQuote&id=…)
  *
- * SOLO las 3 vistas de LECTURA de BD. La vista feTable (API externa de FE), el CRUD de
- * edición y los reportes fiscales (rg90/libro-ventas/mcal/tusFacturas) + export siguen
- * en el panel legacy vía ?action=. Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Las 3 vistas de LECTURA + borrado de cobros/cotizaciones.
+ * El CRUD de edición, vista feTable y fiscales siguen en panel legacy.
+ * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
-$svc = new \Punto\Api\Reports\TransactionsService();
+$ctx    = apiAuthTenant(['panel']);
+$svc    = new \Punto\Api\Reports\TransactionsService();
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+/* ───────── write: eliminar cobro / cotización ───────── */
+if ($method === 'POST') {
+    if ((int) $ctx['roleId'] === 7) {
+        apiError('Sin permiso para esta acción', 403);
+    }
+    $action = (string) (validateHttp('action', 'post') ?: '');
+    if (!in_array($action, ['deletePayment', 'deleteQuote'], true)) {
+        apiError('Acción no soportada', 422);
+    }
+    $id = (string) (validateHttp('id', 'post') ?: '');
+    if (!preg_match($uuidRe, $id)) {
+        apiError('id inválido', 422);
+    }
+    if ($action === 'deletePayment') {
+        $parentRaw = (string) (validateHttp('parent', 'post') ?: '');
+        $parentId  = ($parentRaw !== '' && preg_match($uuidRe, $parentRaw)) ? $parentRaw : null;
+        if (!$svc->deletePayment($id, $parentId, (string) COMPANY_ID)) {
+            apiError('No se pudo eliminar', 500);
+        }
+        apiOk(['id' => $id, 'action' => 'deletePayment']);
+    }
+    // action === 'deleteQuote'
+    if (!$svc->deleteQuote($id, (string) COMPANY_ID)) {
+        apiError('No se pudo eliminar', 500);
+    }
+    apiOk(['id' => $id, 'action' => 'deleteQuote']);
+}
+
+if ($method !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
-$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 $dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
 
 $view = (string) (validateHttp('view') ?: 'detail');

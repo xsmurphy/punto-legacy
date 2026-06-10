@@ -299,6 +299,44 @@ final class TransactionsService
         return ['rows' => $rows];
     }
 
+    /**
+     * Elimina un cobro (tipo 5) y desmarca el crédito padre como no completado.
+     * Operación atómica: si el DELETE falla, el UPDATE del padre no se ejecuta.
+     */
+    public function deletePayment(string $id, ?string $parentId, string $companyId): bool
+    {
+        global $db;
+        $db->BeginTrans();
+        $r = $db->Execute(
+            'DELETE FROM transaction WHERE transactionId = ? AND companyId = ? AND transactionType = 5',
+            [$id, $companyId]
+        );
+        if ($r === false) {
+            $db->RollbackTrans();
+            return false;
+        }
+        if ($parentId) {
+            $db->Execute(
+                'UPDATE transaction SET transactionComplete = 0
+                 WHERE transactionId = ? AND companyId = ? AND transactionType IN (0,3)',
+                [$parentId, $companyId]
+            );
+        }
+        $db->CommitTrans();
+        return true;
+    }
+
+    /** Elimina una cotización (tipo 9). */
+    public function deleteQuote(string $id, string $companyId): bool
+    {
+        global $db;
+        $r = $db->Execute(
+            'DELETE FROM transaction WHERE transactionId = ? AND companyId = ? AND transactionType = 9',
+            [$id, $companyId]
+        );
+        return $r !== false;
+    }
+
     /* ───────────── helpers ───────────── */
 
     private function isComplete($v): bool
