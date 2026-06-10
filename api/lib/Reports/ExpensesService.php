@@ -1,23 +1,27 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Movimientos de Caja (capa API, motor ERP).
+ * Dominio de Reportes — Movimientos de Caja (API compartida, motor ERP).
  *
  * Lectura: filas CRUDAS de extracciones/ingresos de caja (fecha, sucursal, caja, usuario,
  * nota, tipo, monto). Escritura: editar (fecha/monto/nota/usuario) y eliminar. Sin formatear,
  * sin HTML. El front mapea type→{Ingreso|Extracción}, formatea fecha + monto y arma el modal
  * de edición + las acciones. Ver REGLA RAÍZ 2.
  *
- * Reemplaza la lógica inline de panel/a_report_expenses.php (action=generalTable/edit/update/delete).
+ * Port FIEL de panel/lib/reports/ReportExpensesService.php (Fase 1 del desacople de /panel —
+ * primer servicio del panel que vive en la /api compartida). El único cambio respecto al
+ * original es el namespace; la lógica SQL es idéntica.
  *
- * Tenant: $roc (getROC, companyId + outletId del JWT) en la lectura; companyId bound en los
- * lookups de nombres y SIEMPRE en los WRITE (aislamiento de tenant).
+ * Tenant: $roc (fragmento companyId + outletId del JWT, lo arma el endpoint) en la lectura;
+ * companyId bound en los lookups de nombres y SIEMPRE en los WRITE (aislamiento de tenant).
  *
- * Resolución de nombres (sucursal/caja/usuario): NO se JOINea — el fragmento $roc trae columnas
- * SIN calificar (companyId/outletId), ambiguas en un JOIN — así que la lectura corre sobre
- * `expenses` y los nombres se resuelven con lookups batch parametrizados (mismo patrón que
- * customers/recurring), evitando god-functions (getAllRegisters/getAllUsers/getCurrentOutletName).
+ * Nota namespace: las funciones globales (ncmExecute) y `global $db` resuelven a la global
+ * por fallback de PHP — no requieren `use`.
  */
-class ReportExpensesService
+final class ExpensesService
 {
     /** @return array filas [{expensesId, date, outletName, registerName, userId, userName, note, type, amount}] */
     public function listMovements($from, $to, $roc, $companyId)
