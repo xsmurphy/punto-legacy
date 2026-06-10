@@ -105,6 +105,23 @@ class DBResult
         }
     }
 
+    /**
+     * Rebobina el cursor al primer registro.
+     * Equivale a $rs->moveFirst() / $rs->MoveFirst() de ADOdb — PHP es
+     * case-insensitive en nombres de método, así que basta con uno.
+     */
+    public function MoveFirst(): void
+    {
+        $this->pos = 0;
+        if (count($this->rows) > 0) {
+            $this->EOF    = false;
+            $this->fields = new CaseInsensitiveArray($this->rows[0]);
+        } else {
+            $this->EOF    = true;
+            $this->fields = new CaseInsensitiveArray([]);
+        }
+    }
+
     /** Número total de filas. Equivale a $rs->RecordCount(). */
     public function RecordCount(): int
     {
@@ -124,14 +141,6 @@ class DBResult
         return $this->rows;
     }
 
-    /** Retrocede al primer registro. Equivale a $rs->MoveFirst(). */
-    public function MoveFirst(): void
-    {
-        $this->pos    = 0;
-        $this->EOF    = empty($this->rows);
-        $this->fields = new CaseInsensitiveArray($this->EOF ? [] : $this->rows[0]);
-    }
-
     /** No-op: compatibilidad ADOdb ($rs->Close()). */
     public function Close(): void {}
 }
@@ -145,7 +154,6 @@ class DB
     private string $lastError = '';
     private int    $lastErrNo = 0;
     private bool   $transOk  = true;
-    private ?string $_lastInsertId = null; // PK auto-generado por el último INSERT (UUID en PG)
 
     // Propiedades públicas de compatibilidad ADOdb
     public int    $port         = 5432;
@@ -153,6 +161,12 @@ class DB
     public bool   $debug        = false;
     public string $databaseType = 'postgres';
     public int    $fetchMode    = 2; // ADODB_FETCH_ASSOC
+
+    // Captura el PK auto-generado por el último AutoExecute INSERT.
+    // En PostgreSQL los PK son UUIDs (gen_random_uuid() default), así que
+    // PDO::lastInsertId() no funciona. Usamos RETURNING * y guardamos la
+    // primera columna del resultado.
+    private ?string $_lastInsertId = null;
 
     // ─── Conexión ──────────────────────────────────────────────────────────
 
@@ -205,16 +219,26 @@ class DB
             $params = [];
         }
 
+        // PG no acepta bool PHP en placeholders (false → "" vacío).
+        // Convertimos a 'true'/'false' textual aceptado por PG.
+        foreach ($params as $i => $v) {
+            if (is_bool($v)) $params[$i] = $v ? 'true' : 'false';
+        }
+
         try {
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute($params);
-            return new DBResult($stmt->fetchAll(PDO::FETCH_ASSOC));
+            // SELECT returns rows, INSERT/UPDATE/DELETE return empty result
+            $isSelect = stripos(ltrim($sql), 'SELECT') === 0 || stripos(ltrim($sql), 'WITH') === 0;
+            return new DBResult($isSelect ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
         } catch (PDOException $e) {
             $this->lastError = $e->getMessage();
             $this->lastErrNo = (int) $e->getCode();
-            if ($this->debug) {
-                error_log('[DB] Execute error: ' . $e->getMessage() . ' | SQL: ' . $sql);
+            // Mark transaction as failed so CompleteTrans rolls back
+            if ($this->pdo->inTransaction()) {
+                $this->transOk = false;
             }
+            error_log('[DB] Execute error: ' . $e->getMessage() . ' | SQL: ' . substr($sql, 0, 200));
             return false;
         }
     }
@@ -224,32 +248,57 @@ class DB
      * INSERT o UPDATE automático desde un array asociativo.
      * Equivale a ADOdb->AutoExecute($table, $data, 'INSERT'|'UPDATE', $where).
      */
-    public function AutoExecute(string $table, array $data, string $mode, string $where = ''): bool
+    public function AutoExecute(string $table, array $data, string $mode, string $where = '', array $whereParams = []): bool
     {
         $mode = strtoupper(trim($mode));
+
+        // PG rechaza booleanos PHP en placeholders genéricos (false → "" string vacío).
+        // Convertimos a 'true'/'false' textual que PG sí acepta como BOOLEAN.
+        foreach ($data as $k => $v) {
+            if (is_bool($v)) $data[$k] = $v ? 'true' : 'false';
+        }
 
         if ($mode === 'INSERT') {
             $cols         = implode(', ', array_keys($data));
             $placeholders = implode(', ', array_fill(0, count($data), '?'));
-            // RETURNING * permite capturar el PK auto-generado (UUID en PG) para Insert_ID().
+            // RETURNING * permite capturar el PK auto-generado (UUIDs en PG).
             $sql          = "INSERT INTO {$table} ({$cols}) VALUES ({$placeholders}) RETURNING *";
-            $res          = $this->Execute($sql, array_values($data));
-            if ($res === false) {
+            $params       = array_values($data);
+
+            try {
+                $stmt = $this->pdo->prepare($sql);
+                $ok   = $stmt->execute($params);
+                if ($ok) {
+                    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                    // PK siempre es la primera columna en este schema (convención
+                    // de los CREATE TABLE de db-schema-postgres.sql).
+                    $this->_lastInsertId = $row ? (string) array_values($row)[0] : null;
+                }
+                return $ok;
+            } catch (\PDOException $e) {
+                error_log('[DB] AutoExecute INSERT error: ' . $e->getMessage() . ' | SQL: ' . $sql);
                 $this->_lastInsertId = null;
                 return false;
             }
-            // PK = primera columna del row devuelto (convención de los CREATE TABLE del schema).
-            $rows = $res->GetRows();
-            $this->_lastInsertId = $rows ? (string) array_values($rows[0])[0] : null;
-            return true;
         } elseif ($mode === 'UPDATE') {
-            $this->_lastInsertId = null; // un UPDATE no genera PK → no devolver un id stale del INSERT previo
             $sets   = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
             $sql    = "UPDATE {$table} SET {$sets}" . ($where !== '' ? " WHERE {$where}" : '');
-            return $this->Execute($sql, array_values($data)) !== false;
+            // Si el caller pasó whereParams, se appendean a los params de SET.
+            $params = array_merge(array_values($data), $whereParams);
+            return $this->Execute($sql, $params) !== false;
         }
 
         return false;
+    }
+
+    /**
+     * Retorna el PK auto-generado por el último AutoExecute INSERT.
+     * Equivale a ADOdb->Insert_ID() / MySQL's LAST_INSERT_ID().
+     * En PostgreSQL con UUIDs, capturamos vía RETURNING *.
+     */
+    public function Insert_ID(): ?string
+    {
+        return $this->_lastInsertId;
     }
 
     /**
@@ -258,15 +307,6 @@ class DB
     public function Insert(string $table, array $data): bool
     {
         return $this->AutoExecute($table, $data, 'INSERT');
-    }
-
-    /**
-     * Retorna el PK auto-generado por el último AutoExecute/Insert INSERT.
-     * Equivale a ADOdb->Insert_ID(). En PG con UUIDs se captura vía RETURNING *.
-     */
-    public function Insert_ID(): ?string
-    {
-        return $this->_lastInsertId;
     }
 
     /**
@@ -348,10 +388,27 @@ class DB
      */
     public function Prepare(mixed $value): string
     {
+        // En ADOdb, Prepare() devuelve [$sql, false, false] para caching.
+        // En PDO no necesitamos ese wrapping — devolvemos el SQL directamente.
         if (is_array($value)) {
             return (string) $value[0];
         }
         $str = (string) $value;
+
+        // UUIDs y numéricos son SQL-safe y se usan como params de `?` placeholders.
+        // NO envolver en quotes — eso rompe PDO::bindValue (recibe "'uuid'" con
+        // comillas embebidas y postgres lo rechaza con "invalid uuid syntax").
+        // Detectar UUID v4/v7: 8-4-4-4-12 hex con guiones.
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $str)) {
+            return $str;
+        }
+        if (is_numeric($str)) {
+            return $str;
+        }
+
+        // Si parece un valor escalar (sin espacios ni ?), escaparlo como string literal.
+        // Mantenido para callers legacy que concatenan directo en SQL (deberían
+        // migrar a `?` placeholders — pendiente como deuda en roadmap).
         if (!str_contains($str, ' ') && !str_contains($str, '?')) {
             return $this->qstr($str);
         }

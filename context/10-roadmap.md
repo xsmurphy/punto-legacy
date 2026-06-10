@@ -125,6 +125,7 @@ Login de tenant por teléfono (E.164) como identificador canónico, con hardenin
 - `app/bff/electronic_invoice.php` expone `send_verification.php` directamente sin pasar por el BFF canónico (deuda arquitectónica).
 - Algunos paths legacy en `/app` y `/panel` aún tienen `APP_URL` hardcodeado en strings (deuda del de-hardcode de dominios).
 - Runner automático de migraciones sigue pendiente (ver sección Migration Runner).
+- **DB.php duplicado** (`/app/includes/lib/DB.php` ≡ `/panel/includes/lib/DB.php`): la deuda se manifestó cuando la copia de panel evolucionó (whereParams en AutoExecute) y la de app quedó atrás → bug 500 silente en TODOS los `ncmUpdate` con WHERE parametrizado. Sincronizadas en el commit del bug fix; **consolidar a un solo archivo compartido** (ej. `/shared/lib/DB.php` o composer autoload) para prevenir drift futuro. Mismo problema potencial con otros archivos duplicados del legacy (functions.php tiene subset overlap entre app/panel).
 
 ## Schema consolidation — campos no-queryables → JSONB (post-F4)
 
