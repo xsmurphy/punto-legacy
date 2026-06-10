@@ -486,6 +486,16 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 | **F4** | Shell `@.php` → estático + `/bff/bootstrap` + kill `$_SESSION` (F-auth-jwt-only fase 2) — AL FINAL | ⬜ |
 | **F5** | 73 endpoints legacy `panel/API/`: congelar, inventario de consumers (KDS/CDS/crons), borrar huérfanos por slice; migración de KDS/CDS = plan separado | ⬜ |
 
+### Deuda: corregir KPI widget del reporte de inventario (semántica con producto)
+
+`getAllInventoryAndItemsModule()` en `panel/includes/functions.php:2570` (KPI `{cost, sell, total}` del widget de inventory) está **latente roto en PG**: devuelve 0,0,0 incluso con datos reales (cadena profunda con `getAllItemStock` + `getAllItems` con bugs PG conocidos — ordering por uuid en stock, interpolación COMPANY_ID en IN, etc.).
+
+Durante el desacople F2 batch 6 (commit pendiente) se preparó una query LATERAL JOIN que produce los valores correctos (`{cost:13110000, sell:0, total:92}` con un item real con tracking en la BD master). Pero el reemplazo cambia la semántica del KPI:
+- **¿Suma por sucursal actual (OUTLET_ID) o por toda la company?** (el original implícitamente filtraba por sucursal vía cache de getAllItemStock)
+- **¿LATERAL "última fila por itemId" o suma de stockOnHand por (itemId, locationId)?** (multi-location colapsa)
+
+Como el legacy roto devolvía 0,0,0 nadie había notado el problema, así que el dataset `widget` se dejó sirviéndose desde el panel local (el BFF ramifica: `widget → panel`, `movements → /api compartida`). Al validar la semántica con producto: portar `widget()` al `Punto\Api\Reports\InventoryService`, eliminar la rama de panel del BFF y borrar `panel/{API/v1/reports/,lib/reports/Report,a_report_}inventory.php` con `git rm`.
+
 ### Backlog de producto: Cuentas y conciliación bancaria (feature a medio hacer)
 
 El módulo **banks** (`panel/a_banks.php` + 6 endpoints `panel/API/{get,add,edit,delete}_bank*.php`) quedó **a medias y es código muerto hoy**: la tabla `banks` solo tiene `bankId`+`bankName` (en MySQL original y en PG), está vacía y NO es multi-tenant (sin `companyId`); el legacy lee columnas que no existen (`bankData`/`bankBalance`/`outletId`/`companyId`). **NO borrar** — se retoma como feature:

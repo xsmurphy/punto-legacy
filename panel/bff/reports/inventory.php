@@ -25,7 +25,13 @@ if ($query['dataset'] === 'movements') {
     if (!empty($_GET['byDay']))  { $query['byDay']  = 1; }
 }
 
-$res = bffApiGet('v1/reports/inventory.php', $query);
+// MIGRACIÓN PARCIAL: movements → /api compartida; widget → panel local (legacy).
+// El cálculo del widget en el panel está latente roto en PG (devuelve 0,0,0 con datos
+// reales); corregirlo requiere validar la semántica (sucursal vs company, fila única vs
+// suma de locations) con producto. Cuando se cierre esa decisión, el widget migra y se
+// elimina esta rama. Ver docs/PLAN_panel_desacople.md § Fase 2 batch 6.
+$opts = $query['dataset'] === 'widget' ? [] : ['base' => 'shared'];
+$res  = bffApiGet('v1/reports/inventory.php', $query, '_jwt_panel', $opts);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
