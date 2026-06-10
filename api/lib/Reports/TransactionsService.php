@@ -123,7 +123,7 @@ final class TransactionsService
             if ($tagsArr && (in_array('166227', $tagsArr, false))) {
                 $invoicePrefix = ''; $invoiceAuth = ''; $paddedNo = $invoiceNo;
             }
-            $tagNames = $this->tagNames($tagsArr);
+            $tagNames = $this->tagNames($tagsArr, $companyId);
 
             $custId = (string) $f['customerId'];
             $usrId  = (string) $f['userId'];
@@ -464,7 +464,12 @@ final class TransactionsService
         return $map;
     }
 
-    private function tagNames(array $tagIds): array
+    /**
+     * Lookup directo bindeado por companyId: NO usa el global `getTaxonomyName` (que delega a
+     * Punto\App\Domain\Taxonomy y lee `$SQLcompanyId` del global vacío en /api → 'None' silente).
+     * Fix preventivo descubierto en batch 14 con ProductsService.
+     */
+    private function tagNames(array $tagIds, string $companyId): array
     {
         $out = [];
         foreach ($tagIds as $id) {
@@ -473,8 +478,12 @@ final class TransactionsService
                 continue;
             }
             if (!array_key_exists($id, $this->taxonomyCache)) {
-                $name = (string) getTaxonomyName($id, false, false, true);
-                $this->taxonomyCache[$id] = ($name === 'None') ? '' : $name;
+                $r = ncmExecute(
+                    "SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1",
+                    [$id, $companyId]
+                );
+                $name = $r ? (string) ($r['taxonomyName'] ?? '') : '';
+                $this->taxonomyCache[$id] = ($name === '' || $name === 'None') ? '' : toUTF8($name);
             }
             if ($this->taxonomyCache[$id] !== '') {
                 $out[] = $this->taxonomyCache[$id];

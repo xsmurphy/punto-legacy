@@ -107,7 +107,7 @@ final class PurchasesService
                 'transactionType'    => (int) $f['transactionType'],
                 'transactionComplete'=> $complete ? 1 : 0,
                 'transactionStatus'  => (string) ($f['transactionStatus'] ?? ''),
-                'category'           => $f['categoryTransId'] ? $this->taxonomyName($f['categoryTransId']) : '',
+                'category'           => $f['categoryTransId'] ? $this->taxonomyName($f['categoryTransId'], $companyId) : '',
                 'tax'                => (float) $f['transactionTax'],
                 'discount'           => (float) $f['transactionDiscount'],
                 'total'              => (float) $f['transactionTotal'],
@@ -248,7 +248,7 @@ final class PurchasesService
                     }
                 }
             }
-            $category = $cat ? $this->taxonomyName($cat) : '';
+            $category = $cat ? $this->taxonomyName($cat, $companyId) : '';
             if ($category === 'None') { $category = ''; }
 
             $uSold = (float) $l['itemSoldUnits'];
@@ -440,16 +440,26 @@ final class PurchasesService
         return $map;
     }
 
-    /** Cache por instancia del nombre de taxonomía. */
-    private function taxonomyName($id): string
+    /**
+     * Cache por instancia del nombre de taxonomía. Lookup directo bindeado por companyId del
+     * contexto: NO usa el global `getTaxonomyName` (que delega a Punto\App\Domain\Taxonomy y
+     * lee `$SQLcompanyId` del global — pero `apiAuthTenant` define ese SQL como variable local,
+     * por lo que el query saldría con WHERE roto y devolvería 'None' para todo). Bug descubierto
+     * en batch 14 con ProductsService; aplicado preventivamente acá.
+     */
+    private function taxonomyName($id, string $companyId): string
     {
         $id = (string) $id;
         if ($id === '') {
             return '';
         }
         if (!array_key_exists($id, $this->taxonomyCache)) {
-            $name = (string) getTaxonomyName($id, false, false, true);
-            $this->taxonomyCache[$id] = ($name === 'None') ? '' : $name;
+            $r = ncmExecute(
+                "SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1",
+                [$id, $companyId]
+            );
+            $name = $r ? (string) ($r['taxonomyName'] ?? '') : '';
+            $this->taxonomyCache[$id] = ($name === '' || $name === 'None') ? '' : toUTF8($name);
         }
         return $this->taxonomyCache[$id];
     }
