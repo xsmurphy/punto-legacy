@@ -1,45 +1,33 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Pagos y Transacciones / Transactions (capa API, motor ERP).
+ * Dominio de Reportes — Pagos y Transacciones / Transactions (API compartida, motor ERP).
  *
- * SOLO las 3 vistas de LECTURA basadas en BD del módulo legacy a_report_transactions.php:
- *   - detail(): ventas (transaction tipos 0=contado, 3=crédito, 6=devolución, 7=anulada,
- *     8=recursiva) con cliente/usuario/caja/medios de pago resueltos, deuda de crédito (batch),
- *     auth/prefijo/padding del comprobante (de la caja) y totales calculables por tipo.
- *   - cobros(): pagos de ventas a crédito (tipo 5) con su comprobante padre (tipo 0,3).
- *   - quotes(): cotizaciones (tipo 9) con estado.
+ * Port FIEL de panel/lib/reports/ReportTransactionsService.php (Fase 2 batch 13). Cambios vs original:
+ *  - namespace + `final`
+ *  - ROC y companyId por PARÁMETRO en las 3 vistas (no globals).
+ *  - `getPaymentMethodsInArray($json)` (panel-only) → `paymentsFromJson()` private inline
+ *    (mismo patrón aplicado en PurchasesService — sin enc, era no-op para UUIDs PG).
+ *  - `getTaxonomyName` resuelve por fallback de namespace (existe en /app).
  *
- * NO se migran (siguen en el PHP legacy vía ?action=): el CRUD de edición (edit/update/
- * updateItem/updateItemTotal/delete/addPayment/paymentForm), el export (download-report),
- * los fiscales (rg90, libro-ventas, mcal, tusFacturas) y la vista `feTable` (gateway a una API
- * externa de Facturación Electrónica, no verificable en dev — análogo a vpayments).
+ * 3 vistas: detail (ventas 0/3/6/7/8), cobros (pagos tipo 5), quotes (cotizaciones tipo 9).
+ * El CRUD de edición, los reportes fiscales (rg90/libro-ventas/mcal/tusFacturas) y la vista
+ * feTable (API externa) NO se migran (siguen en panel legacy vía ?action=).
  *
- * Devuelve datos CRUDOS (números, sin formatear, sin HTML). El front formatea + arma las tablas.
- * Ver context/02-arquitectura.md § REGLA RAÍZ 2.
- *
- * Fixes PG respecto del legacy:
- *  - `USE INDEX(...)` (MySQL) eliminado.
- *  - `tags` fue absorbido a `meta` JSONB → leer con `meta->>'tags'` (no SELECTear la columna).
- *  - búsqueda `src` legacy tenía el término LITERAL dentro de un string single-quote
- *    (`'... LIKE \'%\' . $word . \'%\''` nunca interpolaba) → acá subquery ILIKE parametrizada.
- *  - `invoiceNo = "word"` (comillas dobles = identificador en PG) → bound param numérico.
- *  - deuda de crédito vía un único SUM..GROUP BY parametrizado (legacy: getAllToPayTransactions
- *    con IN interpolado).
- *  - dato de caja por fila (N+1 en el legacy) → un solo lookup batch de registers.
- *
- * Tenant: $roc (getROC) por query; companyId bound en cada lookup.
+ * Tenant: $roc por query; companyId bound en cada lookup.
  */
-class ReportTransactionsService
+final class TransactionsService
 {
-    /** Tipos de transacción que son ventas (contado, crédito, devolución, anulada, recursiva). */
     private const TX_TYPES = '0,3,6,7,8';
 
-    /* ───────────────────────── detail (tab "Transacciones") ───────────────────────── */
+    private array $taxonomyCache = [];
 
-    /** Ventas. $filters: ['cusId'=>uuid, 'src'=>str, 'singleRow'=>uuid]. */
-    public function detail(array $filters, $from, $to)
+    /** Ventas. $filters: ['cusId','src','singleRow']. */
+    public function detail(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        $roc = getROC(1);
         $cols = "transactionId, transactionDate, transactionDiscount, transactionTax,
                  transactionTotal, transactionPaymentType, transactionType, transactionNote,
                  transactionDueDate, transactionStatus, transactionComplete, invoiceNo,
@@ -51,7 +39,6 @@ class ReportTransactionsService
                     ORDER BY transactionDate DESC";
             $params = [$filters['singleRow']];
         } elseif ($filters['src']) {
-            // Clientes (type 1) cuyo nombre/TIN/segundo-nombre matchea, + match por invoiceNo si es numérico.
             $like = '%' . $filters['src'] . '%';
             $isNum = ctype_digit($filters['src']);
             $invoiceClause = $isNum ? ' OR invoiceNo = ?' : '';
@@ -64,8 +51,8 @@ class ReportTransactionsService
                          )" . $invoiceClause . ")
                     ORDER BY transactionDate DESC LIMIT 5000";
             $params = $isNum
-                ? [COMPANY_ID, $like, $like, $like, (int) $filters['src']]
-                : [COMPANY_ID, $like, $like, $like];
+                ? [$companyId, $like, $like, $like, (int) $filters['src']]
+                : [$companyId, $like, $like, $like];
         } elseif ($filters['cusId']) {
             $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (" . self::TX_TYPES . ")" . $roc . "
@@ -85,8 +72,6 @@ class ReportTransactionsService
             return ['rows' => []];
         }
 
-        // IDs para lookups batch: recolectados con foreach (NO array_map — sobre filas getAssoc
-        // de ncmExecute/CaseInsensitiveArray el array_map lee mal algunas columnas; foreach es fiable).
         $txIds = $custIds = $usrIds = $outletIds = $regIds = [];
         foreach ($res as $f) {
             $txIds[]     = (string) $f['transactionId'];
@@ -96,10 +81,10 @@ class ReportTransactionsService
             $regIds[]    = (string) $f['registerId'];
         }
 
-        $payedMap  = $this->payedByParent($txIds);
-        $contacts  = $this->contactInfo(array_merge($custIds, $usrIds));
-        $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds);
-        $registers = $this->registerInfo($regIds);
+        $payedMap  = $this->payedByParent($txIds, $companyId);
+        $contacts  = $this->contactInfo(array_merge($custIds, $usrIds), $companyId);
+        $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
+        $registers = $this->registerInfo($regIds, $companyId);
 
         $rows = [];
         foreach ($res as $f) {
@@ -109,29 +94,24 @@ class ReportTransactionsService
             $tax      = (float) $f['transactionTax'];
             $netTotal = $total - $discount;
 
-            // Deuda restante (sólo crédito): netTotal − pagado.
             $topay = 0.0;
             if ($type === '3') {
                 $payed = $payedMap[(string) $f['transactionId']] ?? 0;
                 $topay = $netTotal - $payed;
             }
 
-            // Totales calculables: anulada (7) no aporta nada.
             if ($type === '7') {
                 $cDiscount = $cSubtotal = $cTax = $cNet = 0.0;
             } else {
                 $cDiscount = $discount; $cSubtotal = $total; $cTax = $tax; $cNet = $netTotal;
             }
 
-            // Comprobante: auth/prefijo/padding desde la caja, con casos especiales.
             $reg = $registers[(string) $f['registerId']] ?? [];
             $invoiceAuth   = (string) ($reg['invoiceAuth'] ?? '');
             $invoicePrefix = (string) ($f['invoicePrefix'] ?? '');
             if ($invoicePrefix === '') {
                 $invoicePrefix = (string) ($reg['invoicePrefix'] ?? '');
             }
-            // Devolución (6): usa el prefijo de devolución de la caja si la clave existe (aun
-            // vacía → limpia el prefijo), igual que el legacy (isset registerReturnPrefix).
             if ($type === '6' && ($reg['returnPrefix'] ?? null) !== null) {
                 $invoicePrefix = (string) $reg['returnPrefix'];
             }
@@ -139,9 +119,7 @@ class ReportTransactionsService
             $invoiceNo = (string) ($f['invoiceNo'] ?? '');
             $paddedNo  = $lead > 0 ? str_pad($invoiceNo, $lead, '0', STR_PAD_LEFT) : $invoiceNo;
 
-            // Tags (desde meta JSONB; el writer guarda un JSON string).
             $tagsArr = $this->decodeTags($f['tags'] ?? null);
-            // Etiqueta especial 166227 → sin prefijo/auth, número crudo (igual que el legacy).
             if ($tagsArr && (in_array('166227', $tagsArr, false))) {
                 $invoicePrefix = ''; $invoiceAuth = ''; $paddedNo = $invoiceNo;
             }
@@ -180,13 +158,9 @@ class ReportTransactionsService
         return ['rows' => $rows];
     }
 
-    /* ───────────────────────── cobros (tab "Pagos recibidos") ───────────────────────── */
-
-    /** Pagos de ventas a crédito (tipo 5). $filters: ['cusId'=>uuid, 'src'=>str]. */
-    public function cobros(array $filters, $from, $to)
+    /** Pagos de ventas a crédito (tipo 5). $filters: ['cusId','src']. */
+    public function cobros(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        $roc = getROC(1);
-
         if ($filters['src']) {
             $like = '%' . $filters['src'] . '%';
             $sql = "SELECT * FROM transaction
@@ -196,7 +170,7 @@ class ReportTransactionsService
                         AND (contactName ILIKE ? OR contactTIN ILIKE ? OR contactSecondName ILIKE ?)
                     )
                     ORDER BY transactionDate DESC LIMIT 5000";
-            $params = [COMPANY_ID, $like, $like, $like];
+            $params = [$companyId, $like, $like, $like];
         } elseif ($filters['cusId']) {
             $sql = "SELECT * FROM transaction
                     WHERE transactionType IN (5)" . $roc . "
@@ -216,7 +190,6 @@ class ReportTransactionsService
             return ['rows' => []];
         }
 
-        // IDs para lookups batch vía foreach (ver nota en detail() sobre array_map + getAssoc).
         $parentIds = $custIds = $usrIds = $outletIds = $regIds = [];
         foreach ($res as $f) {
             $parentIds[] = (string) $f['transactionParentId'];
@@ -226,12 +199,11 @@ class ReportTransactionsService
             $regIds[]    = (string) $f['registerId'];
         }
 
-        // El padre debe ser una venta (tipo 0,3); sólo esos pagos se listan.
-        $parents   = $this->parentInvoices($parentIds, '0,3');
-        $contacts  = $this->contactInfo(array_merge($custIds, $usrIds));
-        $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds);
+        $parents   = $this->parentInvoices($parentIds, '0,3', $companyId);
+        $contacts  = $this->contactInfo(array_merge($custIds, $usrIds), $companyId);
+        $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
         foreach ($parents as $p) { $regIds[] = (string) $p['registerId']; }
-        $registers = $this->registerInfo($regIds);
+        $registers = $this->registerInfo($regIds, $companyId);
 
         $rows = [];
         foreach ($res as $f) {
@@ -264,13 +236,9 @@ class ReportTransactionsService
         return ['rows' => $rows];
     }
 
-    /* ───────────────────────── quotes (tab "Cotizaciones") ───────────────────────── */
-
-    /** Cotizaciones (tipo 9). $filters: ['cusId'=>uuid, 'src'=>str]. */
-    public function quotes(array $filters, $from, $to)
+    /** Cotizaciones (tipo 9). $filters: ['cusId','src']. */
+    public function quotes(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        $roc = getROC(1);
-
         if ($filters['src']) {
             $like = '%' . $filters['src'] . '%';
             $sql = "SELECT * FROM transaction
@@ -280,7 +248,7 @@ class ReportTransactionsService
                         AND (contactName ILIKE ? OR contactTIN ILIKE ? OR contactSecondName ILIKE ?)
                     )
                     ORDER BY transactionDate DESC LIMIT 5000";
-            $params = [COMPANY_ID, $like, $like, $like];
+            $params = [$companyId, $like, $like, $like];
         } elseif ($filters['cusId']) {
             $sql = "SELECT * FROM transaction
                     WHERE transactionType IN (9)" . $roc . "
@@ -300,15 +268,14 @@ class ReportTransactionsService
             return ['rows' => []];
         }
 
-        // IDs para lookups batch vía foreach (ver nota en detail() sobre array_map + getAssoc).
         $custIds = $usrIds = $outletIds = [];
         foreach ($res as $f) {
             $custIds[]   = (string) $f['customerId'];
             $usrIds[]    = (string) $f['userId'];
             $outletIds[] = (string) $f['outletId'];
         }
-        $contacts = $this->contactInfo(array_merge($custIds, $usrIds));
-        $outlets  = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds);
+        $contacts = $this->contactInfo(array_merge($custIds, $usrIds), $companyId);
+        $outlets  = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
 
         $rows = [];
         foreach ($res as $f) {
@@ -332,10 +299,9 @@ class ReportTransactionsService
         return ['rows' => $rows];
     }
 
-    /* ───────────────────────── helpers ───────────────────────── */
+    /* ───────────── helpers ───────────── */
 
-    /** Normaliza el BOOLEAN PG `transactionComplete`, robusto al driver (ADOdb 1/0, PDO 't'/'f'). */
-    private function isComplete($v)
+    private function isComplete($v): bool
     {
         if (is_bool($v)) {
             return $v;
@@ -344,8 +310,7 @@ class ReportTransactionsService
         return $s === '1' || $s === 't' || $s === 'true';
     }
 
-    /** Decodifica `tags` (meta->>'tags'): JSON string → array de ids. */
-    private function decodeTags($raw)
+    private function decodeTags($raw): array
     {
         if (!$raw) {
             return [];
@@ -354,23 +319,40 @@ class ReportTransactionsService
         return is_array($arr) ? $arr : [];
     }
 
-    /** Medios de pago resueltos a [{name}], sólo los de total > 0. */
-    private function payments($json)
+    /** Medios de pago resueltos, sólo total > 0. */
+    private function payments($json): array
     {
-        $arr = getPaymentMethodsInArray($json);
+        $arr = $this->paymentsFromJson($json);
         $out = [];
-        if (is_array($arr)) {
-            foreach ($arr as $p) {
-                if (($p['total'] ?? 0) > 0) {
-                    $out[] = ['name' => (string) ($p['name'] ?? '')];
-                }
+        foreach ($arr as $p) {
+            if (($p['total'] ?? 0) > 0) {
+                $out[] = ['name' => (string) ($p['name'] ?? '')];
             }
         }
         return $out;
     }
 
-    /** SUM(ABS) de pagos+devoluciones (tipo 5,6) por transactionParentId, scopeado por companyId. */
-    private function payedByParent(array $ids)
+    /** Port inline de getPaymentMethodsInArray del panel (sin enc — no-op para UUIDs PG). */
+    private function paymentsFromJson($json): array
+    {
+        $array = json_decode($json ?: '{}', true);
+        if (!is_array($array) || !$array) {
+            return [];
+        }
+        $out = [];
+        foreach ($array as $value) {
+            $out[] = [
+                'type'  => $value['type'] ?? '',
+                'name'  => getPaymentMethodName($value['type'] ?? ''),
+                'price' => (float) ($value['price'] ?? 0),
+                'total' => (float) ($value['total'] ?? 0),
+                'extra' => $value['extra'] ?? 0,
+            ];
+        }
+        return $out;
+    }
+
+    private function payedByParent(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -381,7 +363,7 @@ class ReportTransactionsService
             "SELECT transactionParentId, SUM(ABS(transactionTotal)) as payed
              FROM transaction WHERE transactionType IN (5,6) AND companyId = ? AND transactionParentId IN ($ph)
              GROUP BY transactionParentId",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -391,8 +373,7 @@ class ReportTransactionsService
         return $map;
     }
 
-    /** Comprobantes padre por id → [id => {invoiceNo, invoicePrefix, registerId}], filtrado por tipos. */
-    private function parentInvoices(array $ids, $types)
+    private function parentInvoices(array $ids, $types, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -402,7 +383,7 @@ class ReportTransactionsService
         $res = ncmExecute(
             "SELECT transactionId, invoiceNo, invoicePrefix, registerId
              FROM transaction WHERE transactionId IN ($ph) AND transactionType IN ($types) AND companyId = ?",
-            array_merge($ids, [COMPANY_ID]), false, false, true
+            array_merge($ids, [$companyId]), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -412,8 +393,7 @@ class ReportTransactionsService
         return $map;
     }
 
-    /** Lookup batch contactId → ['name'=>contactName, 'tin'=>contactTIN], scopeado por companyId. */
-    private function contactInfo(array $ids)
+    private function contactInfo(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -422,7 +402,7 @@ class ReportTransactionsService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT contactId, contactName, contactTIN FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -435,8 +415,7 @@ class ReportTransactionsService
         return $map;
     }
 
-    /** Lookup batch id→name de outlet, scopeado por companyId. */
-    private function nameMap($table, $idCol, $nameCol, array $ids)
+    private function nameMap(string $table, string $idCol, string $nameCol, array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -445,7 +424,7 @@ class ReportTransactionsService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT $idCol, $nameCol FROM $table WHERE companyId = ? AND $idCol IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -455,11 +434,8 @@ class ReportTransactionsService
         return $map;
     }
 
-    /**
-     * Lookup batch de cajas → [registerId => {name, invoiceAuth, invoicePrefix, docsLeadingZeros,
-     * returnPrefix}]. returnPrefix vive en el `data` JSONB de la caja (no flatten) → json_decode.
-     */
-    private function registerInfo(array $ids)
+    /** registers → {name, invoiceAuth, invoicePrefix, docsLeadingZeros, returnPrefix} */
+    private function registerInfo(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -470,7 +446,7 @@ class ReportTransactionsService
             "SELECT registerId, registerName, registerInvoiceAuth, registerInvoicePrefix,
                     registerDocsLeadingZeros, data
              FROM register WHERE companyId = ? AND registerId IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -481,7 +457,6 @@ class ReportTransactionsService
                 'invoiceAuth'      => (string) ($r['registerInvoiceAuth'] ?? ''),
                 'invoicePrefix'    => (string) ($r['registerInvoicePrefix'] ?? ''),
                 'docsLeadingZeros' => (int) ($r['registerDocsLeadingZeros'] ?? 0),
-                // null = la clave no existe (no override); '' = existe vacía (limpia el prefijo).
                 'returnPrefix'     => (is_array($data) && array_key_exists('registerReturnPrefix', $data))
                     ? (string) $data['registerReturnPrefix'] : null,
             ];
@@ -489,9 +464,7 @@ class ReportTransactionsService
         return $map;
     }
 
-    /** Nombres de taxonomía (etiquetas) cacheados, ignorando 'None'. */
-    private $taxonomyCache = [];
-    private function tagNames(array $tagIds)
+    private function tagNames(array $tagIds): array
     {
         $out = [];
         foreach ($tagIds as $id) {

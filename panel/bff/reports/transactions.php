@@ -28,7 +28,7 @@ $query = array_filter([
     'singleRow' => $_GET['singleRow'] ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/transactions.php', $query);
+$res = bffApiGet('v1/reports/transactions.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

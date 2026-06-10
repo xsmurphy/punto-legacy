@@ -1,19 +1,19 @@
 <?php
 /**
- * REST canónico — Reporte de Pagos y Transacciones (motor ERP, raw).
+ * REST canónico (API compartida /api) — Reporte de Pagos y Transacciones (raw).
  *
- *   GET /API/v1/reports/transactions?view=detail|cobros|quotes&from=&to=
- *       [&cusId=&src=&singleRow=]   → datos CRUDOS según la vista.
+ *   GET /v1/reports/transactions?view=detail|cobros|quotes&from=&to=
+ *       [&cusId=&src=&singleRow=]
  *
- * SOLO las 3 vistas de LECTURA de BD (detail/cobros/quotes). La vista `feTable` (API externa
- * de Facturación Electrónica), el CRUD de edición y los fiscales (rg90/libro-ventas/mcal/
- * tusFacturas) + export siguen sirviéndose por el PHP legacy vía ?action=. Ver REGLA RAÍZ 2.
+ * SOLO las 3 vistas de LECTURA de BD. La vista feTable (API externa de FE), el CRUD de
+ * edición y los reportes fiscales (rg90/libro-ventas/mcal/tusFacturas) + export siguen
+ * en el panel legacy vía ?action=. Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
  */
 
-require_once __DIR__ . '/../../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../../bootstrap.php';
 
-require_once __DIR__ . '/../../../lib/reports/ReportTransactionsService.php';
+$ctx = apiAuthTenant(['panel']);
+$svc = new \Punto\Api\Reports\TransactionsService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
@@ -46,12 +46,18 @@ $filters = [
     'src'       => trim((string) (validateHttp('src') ?: '')),
 ];
 
-$svc = new ReportTransactionsService();
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
+}
+
+$companyId = (string) COMPANY_ID;
 
 if ($view === 'cobros') {
-    apiOk($svc->cobros($filters, $from, $to));
+    apiOk($svc->cobros($filters, $from, $to, $roc, $companyId));
 } elseif ($view === 'quotes') {
-    apiOk($svc->quotes($filters, $from, $to));
+    apiOk($svc->quotes($filters, $from, $to, $roc, $companyId));
 } else {
-    apiOk($svc->detail($filters, $from, $to));
+    apiOk($svc->detail($filters, $from, $to, $roc, $companyId));
 }
