@@ -51,10 +51,13 @@ if ($_posBase === '') {
 }
 
 // Primer registro del outlet (mirror del query original en functions.php).
-$_registerId = (string)($db->GetOne(
+$_registerResult = $db->Execute(
     'SELECT registerId FROM register WHERE outletId = ? ORDER BY registerId ASC LIMIT 1',
     [$_oid]
-) ?? '');
+);
+$_registerId = ($_registerResult && !$_registerResult->EOF)
+    ? (string)($_registerResult->fields['registerId'] ?? '')
+    : '';
 
 $_now  = time();
 $token = jwtEncode([
