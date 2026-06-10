@@ -11,6 +11,8 @@
 
 require_once __DIR__ . '/../lib/api_client.php';
 
+const VPAYMENTS_API = ['base' => 'shared'];
+
 if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
 }
@@ -20,7 +22,7 @@ $query = array_filter([
     'to'   => $_GET['to']   ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/vpayments.php', $query);
+$res = bffApiGet('v1/reports/vpayments.php', $query, '_jwt_panel', VPAYMENTS_API);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

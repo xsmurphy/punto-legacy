@@ -1,6 +1,10 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Pagos ePOS / vPayments (capa API, motor ERP).
+ * Dominio de Reportes — Pagos ePOS / vPayments (API compartida, motor ERP).
  *
  * UNA vista de lectura: general() — pagos electrónicos (ePOS / Bancard / Dinelco) del período.
  * Es un GATEWAY: los datos vienen de la API legacy `get_vpayments` (que a su vez consulta a los
@@ -11,15 +15,27 @@
  * ⚠️ NO verificable con datos en dev (sin credenciales Bancard/Dinelco) → se verifica a nivel
  *    estructural (la cadena ejecuta, devuelve `success` vacío sin romper). En prod devuelve registros.
  *
- * Tenant: company_id (enc) enviado a la API externa; api_key del entorno.
+ * Tenant: company_id (enc) enviado a la API externa; api_key del entorno (sha1 del accountId).
+ *
+ * Port FIEL de panel/lib/reports/ReportVpaymentsService.php (Fase 2 del desacople de /panel —
+ * último reporte pendiente). Cambios respecto al original: namespace `Punto\Api\Reports`
+ * (cae el prefijo `Report`, igual que ExpensesService y los otros 21 ya migrados), `final`,
+ * `declare(strict_types=1)`.
+ *
+ * Sigue siendo proxy a `panel/API/get_vpayments.php` (legacy) vía HTTP — esa migración a un
+ * endpoint nativo en /api se planifica en F5 (donde se inventarían y migran los 73 endpoints
+ * legacy de panel/API/).
+ *
+ * Nota namespace: funciones globales (curlContents, enc, ncmExecute) y constantes
+ * (API_URL, API_KEY) resuelven por fallback de PHP.
  */
-class ReportVpaymentsService
+final class VPaymentsService
 {
-    public function general($from, $to)
+    public function general($from, $to, $companyId)
     {
         $data = [
-            'api_key'    => $this->apiKey(),
-            'company_id' => enc(COMPANY_ID),
+            'api_key'    => $this->apiKey($companyId),
+            'company_id' => enc($companyId),
             'from'       => $from,
             'to'         => $to,
             'cache'      => 60,
@@ -80,12 +96,12 @@ class ReportVpaymentsService
      * Se computa acá porque el middleware de la API v1 carga simple.config.php, no config.php, así
      * que la constante API_KEY no existe en este contexto.
      */
-    private function apiKey()
+    private function apiKey($companyId)
     {
         if (defined('API_KEY')) {
             return API_KEY;
         }
-        $row = ncmExecute("SELECT config->>'accountId' as accountid FROM company WHERE companyId = ?", [COMPANY_ID]);
+        $row = ncmExecute("SELECT config->>'accountId' as accountid FROM company WHERE companyId = ?", [$companyId]);
         $accountId = $row ? (string) ($row['accountid'] ?? '') : '';
         return sha1($accountId);
     }
