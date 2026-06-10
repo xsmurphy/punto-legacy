@@ -479,12 +479,22 @@ Los **handlers limpios están agotados**. Lo restante son clusters con dependenc
 
 | Fase | Qué | Estado |
 |------|-----|--------|
-| **F0** | Plumbing multi-realm: `jwtAuthenticate($allowedRealms)` + `AUTHED_REALM` + `apiAuthTenant($realms)` con fallback de outlet para `oid=''` + cliente BFF panel con base `'shared'` (Bearer `_jwt_panel`) | ⬜ |
-| **F1** | Piloto end-to-end: banks (`api/lib/Banks/BankService` + `api/v1/banks.php` `['panel']` + `panel/bff/banks.php` + `views/banks.html` Alpine) — borra `a_banks.php` + 6 endpoints legacy | ⬜ |
+| **F0** | Plumbing multi-realm: `jwtAuthenticate($allowedRealms)` + `AUTHED_REALM` + `apiAuthTenant($realms)` con fallback de outlet para `oid=''` + cliente BFF panel con base `'shared'` (Bearer `_jwt_panel`) | ✅ commit c4d3231 |
+| **F1** | Piloto end-to-end: **expenses** (`api/lib/Reports/ExpensesService` + `api/v1/reports/expenses.php` `['panel']` + repuntar `panel/bff/reports/expenses.php` a base `'shared'` + migrar writes delete/update). Banks se descartó como piloto (código muerto — ver backlog). | ⬜ |
 | **F2** | Mover 33 `panel/API/v1` + 38 `panel/lib` services a /api (copy + namespace `Punto\Api\<Area>`); BFF repunta endpoint-por-endpoint; `admin/*` NO se mueve (queda hasta tener `apiAuthAdmin()` en /api) | ⬜ |
 | **F3** | Oleadas legacy ~20K líneas: A=cerrar parciales (writes de giftcards/schedule/production/purchases/transactions + outlets/settings) · B=huérfanos chicos · C=CRUDs grandes (contacts, items al final) | ⬜ |
 | **F4** | Shell `@.php` → estático + `/bff/bootstrap` + kill `$_SESSION` (F-auth-jwt-only fase 2) — AL FINAL | ⬜ |
 | **F5** | 73 endpoints legacy `panel/API/`: congelar, inventario de consumers (KDS/CDS/crons), borrar huérfanos por slice; migración de KDS/CDS = plan separado | ⬜ |
+
+### Backlog de producto: Cuentas y conciliación bancaria (feature a medio hacer)
+
+El módulo **banks** (`panel/a_banks.php` + 6 endpoints `panel/API/{get,add,edit,delete}_bank*.php`) quedó **a medias y es código muerto hoy**: la tabla `banks` solo tiene `bankId`+`bankName` (en MySQL original y en PG), está vacía y NO es multi-tenant (sin `companyId`); el legacy lee columnas que no existen (`bankData`/`bankBalance`/`outletId`/`companyId`). **NO borrar** — se retoma como feature:
+
+- Crear **cuentas** de distinto tipo: bancos, cooperativas, financieras, caja efectivo, etc.
+- Configurar que ciertos **medios de pago** (al vender o comprar) **muevan dinero a/desde** la cuenta asignada → el dinero de las ventas tiene dónde depositarse.
+- **Conciliación bancaria** para validar movimientos contra extractos.
+
+Requiere rediseño de schema (tabla `account` multi-tenant + relación medio-de-pago→cuenta + movimientos). Cuando se retome, va por el patrón Front+BFF+/api del desacople. No tiene timeline.
 
 ### Consolidar /api/includes canónico (deuda transitoria — para el SERVER-SPLIT, no perf)
 

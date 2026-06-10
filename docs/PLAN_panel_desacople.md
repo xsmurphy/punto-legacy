@@ -63,26 +63,34 @@ smoke /app completo (login → venta); **code-reviewer** (auth/JWT/multi-tenant)
 
 ---
 
-## Fase 1 — Piloto end-to-end: `a_banks.php` (211 líneas)
+## Fase 1 — Piloto end-to-end: `expenses`
 
-**Por qué banks**: CRUD completo (valida lectura Y escritura), greenfield en la capa API
-(valida el camino de las oleadas grandes), su legacy ya es proxy fino a 5 endpoints de
-`panel/API/` cuyo único consumer es `a_banks.php` (se borran sin riesgo KDS/CDS/crons),
-financiero pero de mínimo blast radius (1 tabla `banks`).
+> **Pivote (2026-06-09)**: el piloto planificado era `a_banks.php`, pero resultó ser **código
+> muerto** — la tabla `banks` nunca tuvo `companyId`/`bankBalance`/`bankData` (solo `bankId`+
+> `bankName`, vacía, en MySQL original y en PG); el legacy lee columnas inexistentes y no es
+> multi-tenant. banks NO se borra: es una feature a medio hacer que se retomará (cuentas
+> bancarias/cooperativas/caja, medios de pago que mueven dinero entre cuentas, conciliación —
+> ver backlog de producto en el roadmap). Piloto reemplazado por **expenses**.
+
+**Por qué expenses**: tabla sana y multi-tenant **con datos reales** (permite byte-diff de
+regresión); el read YA está migrado pero contra la API **local** → mover el Service a la /api
+compartida valida el patrón de Fase 2 sobre un módulo que funciona; conserva writes legacy
+(`update`/`delete` en `a_report_expenses.php`) → migrarlos valida el camino de escritura
+FAIL-CLOSED. Cubre read + write sobre un módulo intacto.
 
 | Capa | Archivo | Notas |
 |------|---------|-------|
-| Service | `api/lib/Banks/BankService.php` | `Punto\Api\Banks`, `final`, `TenantContext`; `list/get/create/update/updateBalance/delete`; `companyId` SIEMPRE del contexto |
-| API | `api/v1/banks.php` | `apiAuthTenant(['panel'])` — primer uso de la allowlist; REST por método; role 7 → 403 en writes |
-| BFF | `panel/bff/banks.php` | guard `_jwt_panel`; `['base'=>'shared']`; writes FAIL-CLOSED |
-| Front | `panel/views/banks.html` | Alpine.js (los templates Mustache del legacy se reescriben); formateo con `window.currency/decimal/…`; skill brand-manual |
-| Router | `panel/router.php` | `/a_banks` → `/views/banks.html` SIN condición `?action=` (migración total) |
-| Borrado | `panel/a_banks.php` + `panel/API/{get_banks,get_bank,add_bank,edit_bank,edit_bank_balance,delete_bank}.php` | grep de consumers antes de cada rm |
+| Service | `api/lib/Reports/ExpensesService.php` | `Punto\Api\Reports`, `final`, `TenantContext`; port de `panel/lib/reports/ReportExpensesService.php`; `companyId` SIEMPRE del contexto; agrega `delete`/`update` |
+| API | `api/v1/reports/expenses.php` | `apiAuthTenant(['panel'])` — primer uso de la allowlist; GET lista, DELETE/PUT writes; role read-only → 403 en writes |
+| BFF | `panel/bff/reports/expenses.php` | repuntar a `['base'=>'shared']`; writes FAIL-CLOSED |
+| Front | `panel/reports/expenses.html` | SIN cambios (el front ya existe) → byte-diff del JSON del BFF antes/después prueba la regresión |
+| Legacy | `panel/a_report_expenses.php` | quitar los handlers `?action=delete/update/edit` migrados; el router deja de necesitar el fallback parcial |
 
-**Verificación (plantilla para todas las oleadas)**: `php -l`; curl 3 capas (API directa con
-Bearer ambos realms — uno 200 / otro 401; BFF con cookie; front por router); shape-diff JSON
-nuevo vs legacy ANTES de borrar (cambio esperado: `balance` crudo); smoke browser CRUD completo;
-test multi-tenant (`id` de otro company → 404); code-reviewer en el commit del endpoint API.
+**Verificación (plantilla para todas las oleadas)**: `php -l`; capturar JSON del BFF (read) ANTES
+de repuntar → repuntar a shared → byte-diff (debe ser idéntico, front no cambia); curl 3 capas
+(API directa Bearer ambos realms — panel 200 / POS 401; BFF con cookie; front por router); smoke
+browser (listar + borrar/editar un expense); test multi-tenant (`id` de otro company → 404);
+code-reviewer en el commit del endpoint API (primer endpoint multi-realm + writes financieros).
 
 ---
 
