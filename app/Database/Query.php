@@ -138,38 +138,12 @@ final class Query
      */
     public static function update(array $options): array|false
     {
-        global $db;
-
-        if (
-            !validity($options, 'array') ||
-            !validity($options['records'], 'array') ||
-            !validity($options['table']) ||
-            !validity($options['where'])
-        ) {
-            return false;
-        }
-
-        $table    = $options['table'];
-        $record   = $options['records'];
-        $where    = $options['where'];
-        // whereParams: si el caller pasa el WHERE con placeholders (?), AutoExecute necesita
-        // los valores para bindearlos. Sin esto el SQL queda con N placeholders pero solo se
-        // bindean los del SET → "bind message supplies X parameters, but prepared statement
-        // requires Y" 500 silente. Afecta a los Services que parametrizan el WHERE
-        // (ContactRepository, ItemRepository, SettingsService, panel/a_modules, …) — el
-        // smoke F2 cazó la regresión con contacts PUT.
-        $whereParams = isset($options['whereParams']) && is_array($options['whereParams'])
-            ? $options['whereParams']
-            : [];
-
-        $update   = $db->AutoExecute($table, $record, 'UPDATE', $where, $whereParams);
-        $updateId = $db->Insert_ID();
-
-        if ($update !== false) {
-            return ['error' => false, 'id' => $updateId];
-        }
-
-        return ['error' => $db->ErrorMsg()];
+        // El slice 10 PSR-4 originalmente implementaba el UPDATE acá llamando a AutoExecute
+        // directo, pero NO hacía JSONB routing (campos demoted a `data` tiraban "column does
+        // not exist") ni whereParams binding (mismatch SET/WHERE → 500 silente). El cuerpo
+        // canónico vive ahora en `ncmUpdate()` en app/includes/functions.php — Query delega
+        // para que cualquier caller futuro (panel o /api) tenga el routing correcto.
+        return ncmUpdate($options);
     }
 
     /**
@@ -181,27 +155,9 @@ final class Query
      */
     public static function insert(array $options): mixed
     {
-        global $db;
-
-        if (
-            !validity($options, 'array') ||
-            !validity($options['records'], 'array') ||
-            !validity($options['table'])
-        ) {
-            return false;
-        }
-
-        $table      = $options['table'];
-        $record     = $options['records'];
-
-        $insert     = $db->AutoExecute($table, $record, 'INSERT');
-        $insertedId = $db->Insert_ID();
-
-        if ($insert !== false) {
-            return $insertedId;
-        }
-
-        return false;
+        // Mismo razonamiento que update(): el cuerpo canónico vive en ncmInsert(), que hace
+        // JSONB routing + UUID v7 auto-generation. Query delega para evitar drift.
+        return ncmInsert($options);
     }
 
     /**

@@ -1188,17 +1188,305 @@ function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $g
 }
 
 /**
- * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::update()`. ~69 callers.
+ * ncmUpdate con JSONB routing + non-destructive merge.
+ * Reemplaza el wrapper que delegaba a Query::update (que NO hacía routing → bug:
+ * campos demoted a JSONB caían como columnas inexistentes → 500 silente).
+ * Port FIEL del ncmUpdate de panel/includes/functions.php:4979.
+ *
+ * Estrategia:
+ *   1. Separar record en columnas reales vs JSONB (via _routeToJsonb).
+ *   2. UPDATE columnas reales via AutoExecute (con whereParams si vienen).
+ *   3. Si hay extras JSONB → segundo UPDATE con `jsonbCol = COALESCE(jsonbCol, '{}') || ?::jsonb`
+ *      (PG `||` operator hace merge no-destructivo: claves nuevas se agregan, las viejas
+ *      mantienen el valor previo si no están en el merge).
+ *
+ * @note El slice 10 PSR-4 hizo este wrapper delegar a `Query::update`, pero Query NO
+ *       hacía JSONB routing → bug 500 silente. Revertido al cuerpo completo del panel.
+ *       `Query::update` ahora delega de vuelta a esta función para evitar drift futuro.
  */
-function ncmUpdate($options){
-    return \Punto\App\Database\Query::update((array) $options);
+function ncmUpdate($options)
+{
+    global $db;
+
+    if (!validity($options, 'array') || !validity($options['records'], 'array') || !validity($options['table']) || !validity($options['where'])) {
+        return false;
+    }
+
+    $table       = $options['table'];
+    $record      = $options['records'];
+    $where       = $options['where'];
+    $whereParams = $options['whereParams'] ?? [];
+
+    // Enrutar campos desconocidos al JSONB de la tabla
+    [$cleanRecord, $jsonbExtra, $jsonbCol] = _routeToJsonb($table, $record);
+
+    // Actualizar columnas reales via AutoExecute (solo si hay campos reales)
+    $update   = true;
+    $updateId = null;
+    if (!empty($cleanRecord)) {
+        $update   = $db->AutoExecute($table, $cleanRecord, 'UPDATE', $where, $whereParams);
+        $updateId = $db->Insert_ID();
+    }
+
+    // Fusionar campos JSONB usando el operador || de PostgreSQL (non-destructive merge).
+    // COALESCE maneja el caso en que la columna sea NULL en la fila existente.
+    if ($update !== false && !empty($jsonbExtra)) {
+        $jsonSql    = "UPDATE $table SET $jsonbCol = COALESCE($jsonbCol, '{}') || ?::jsonb WHERE $where";
+        $jsonParams = array_merge([json_encode($jsonbExtra)], $whereParams);
+        $db->Execute($jsonSql, $jsonParams);
+    }
+
+    if ($update !== false) {
+        return ['error' => false, 'id' => $updateId];
+    }
+    return ['error' => $db->ErrorMsg()];
+}
+
+// ── JSONB routing helpers ────────────────────────────────────────────────────
+// Sin estas funciones, ncmInsert/ncmUpdate mandan TODAS las claves del record
+// como columnas SQL — y campos demoted a JSONB (itemTaxIncluded, itemImage, etc.)
+// tiran "column does not exist". Portados desde panel/includes/functions.php para
+// que el path /api (que carga este archivo) tenga el mismo comportamiento que el
+// path /panel. `function_exists` guard evita doble-definir cuando panel también
+// está en juego (impossible hoy: api/bootstrap.php carga este file y solo este).
+// Deuda: consolidar a un archivo compartido. Ver context/10-roadmap.md.
+
+if (!function_exists('generateUuidV7')) {
+    function generateUuidV7(): string
+    {
+        $timestamp = (int)(microtime(true) * 1000);
+        $timeHex   = str_pad(dechex($timestamp), 12, '0', STR_PAD_LEFT);
+
+        $rand = random_bytes(10);
+        $rand[0] = chr((ord($rand[0]) & 0x0f) | 0x70); // version 7
+        $rand[2] = chr((ord($rand[2]) & 0x3f) | 0x80); // variant
+
+        $randHex = bin2hex($rand);
+
+        return sprintf(
+            '%s-%s-%s-%s-%s',
+            substr($timeHex, 0, 8),
+            substr($timeHex, 8, 4),
+            substr($randHex, 0, 4),
+            substr($randHex, 4, 4),
+            substr($randHex, 8, 12)
+        );
+    }
+}
+
+if (!function_exists('_getTableSchema')) {
+    /**
+     * Registro de esquemas de tablas con columnas JSONB. PORT FIEL de
+     * panel/includes/functions.php:4632 — mismo map, mismo orden, misma semántica.
+     */
+    function _getTableSchema(): array
+    {
+        static $schema = null;
+        if ($schema !== null) {
+            return $schema;
+        }
+        $schema = [
+            'company' => [
+                'pk'       => 'companyId',
+                'jsonbCol' => 'config',
+                'columns'  => ['companyId', 'status', 'plan', 'balance', 'slug', 'blocked',
+                               'planExpired', 'isTrial', 'smsCredit', 'parentId', 'isParent',
+                               'createdAt', 'updatedAt', 'expiresAt', 'config'],
+            ],
+            'item' => [
+                'pk'       => 'itemId',
+                'jsonbCol' => 'data',
+                'columns'  => ['itemId', 'itemName', 'itemDate', 'itemSKU', 'itemCost', 'itemPrice',
+                               'itemIsParent', 'itemParentId', 'itemType', 'itemStatus',
+                               'itemTrackInventory', 'itemCanSale', 'itemSort', 'itemProduction',
+                               'taxId', 'brandId', 'categoryId', 'supplierId', 'locationId',
+                               'outletId', 'companyId', 'updated_at', 'data'],
+            ],
+            'contact' => [
+                'pk'       => 'contactId',
+                'jsonbCol' => 'data',
+                'columns'  => ['contactId', 'contactName', 'contactSecondName', 'contactEmail',
+                               'contactPhone', 'contactPhone2',
+                               'contactTIN', 'contactCI', 'contactDate', 'contactBirthDay',
+                               'contactPassword', 'contactLoyalty', 'contactLoyaltyAmount',
+                               'contactStoreCredit', 'contactCreditable', 'contactCreditLine',
+                               'contactStatus', 'contactLastNotificationSeen', 'debtLastNotify',
+                               'type', 'main', 'role', 'lockPass', 'salt', 'parentId', 'categoryId',
+                               'userId', 'outletId', 'companyId', 'updated_at', 'data'],
+            ],
+            'transaction' => [
+                'pk'       => 'transactionId',
+                'jsonbCol' => 'meta',
+                'columns'  => ['transactionId', 'transactionDate', 'transactionDiscount',
+                               'transactionTax', 'transactionTotal', 'transactionUnitsSold',
+                               'transactionNote', 'transactionStatus', 'transactionType',
+                               'transactionDoc', 'transactionDocNumber', 'transactionWriteOff',
+                               'transactionRecurringId', 'transactionPurpose',
+                               'transactionDeliveryDate', 'lastEditDate', 'lastUserId',
+                               'parentId', 'roundedAmount', 'taxAmount', 'discountAmount',
+                               'cashbackAmount', 'returnedAmount', 'customerId', 'supplierId',
+                               'userId', 'registerId', 'outletId', 'companyId',
+                               'transactionPaymentMethod', 'transactionPaymentDate',
+                               'updated_at', 'meta'],
+            ],
+            'outlet' => [
+                'pk'       => 'outletId',
+                'jsonbCol' => 'data',
+                'columns'  => ['outletId', 'outletName', 'outletStatus', 'outletAddress',
+                               'outletPhone', 'outletWhatsApp', 'outletEmail', 'outletBillingName',
+                               'outletRUC', 'outletLatLng', 'outletDescription',
+                               'outletNextExpirationDate', 'outletPurchaseOrderNo',
+                               'outletOrderTransferNo', 'taxId', 'companyId', 'data'],
+            ],
+            'register' => [
+                'pk'       => 'registerId',
+                'jsonbCol' => 'data',
+                'columns'  => ['registerId', 'registerName', 'registerStatus', 'registerCreationDate',
+                               'registerInvoiceAuth', 'registerInvoiceAuthExpiration',
+                               'registerInvoicePrefix', 'registerInvoiceSufix', 'registerInvoiceNumber',
+                               'registerRemitoNumber', 'registerQuoteNumber', 'registerReturnNumber',
+                               'registerTicketNumber', 'registerOrderNumber', 'registerPedidoNumber',
+                               'registerBoletaNumber', 'registerScheduleNumber',
+                               'registerDocsLeadingZeros', 'lastupdated', 'sessionId',
+                               'outletId', 'companyId', 'data'],
+            ],
+            'plans' => [
+                'pk'       => 'id',
+                'jsonbCol' => 'features',
+                'columns'  => ['id', 'name', 'type', 'price', 'duration_days', 'max_items',
+                               'max_users', 'max_customers', 'max_outlets', 'max_registers',
+                               'max_suppliers', 'max_categories', 'max_brands', 'features'],
+            ],
+            'recurring' => [
+                'pk'       => 'recurringId',
+                'jsonbCol' => 'data',
+                'columns'  => ['recurringId', 'recurringNextDate', 'recurringEndDate',
+                               'recurringFrecuency', 'recurringStatus', 'recurringTransactionData',
+                               'companyId', 'data'],
+            ],
+            'tasks' => [
+                'pk'       => 'ID',
+                'jsonbCol' => 'data',
+                'columns'  => ['ID', 'date', 'dueDate', 'type', 'sourceId', 'status',
+                               'outletId', 'companyId', 'data'],
+            ],
+            'customerRecord' => [
+                'pk'       => 'customerRecordId',
+                'jsonbCol' => 'data',
+                'columns'  => ['customerRecordId', 'customerRecordSort', 'customerRecordName',
+                               'companyId', 'data'],
+            ],
+            'inventoryCount' => [
+                'pk'       => 'inventoryCountId',
+                'jsonbCol' => 'data',
+                'columns'  => ['inventoryCountId', 'inventoryCountDate', 'inventoryCountUpdated',
+                               'inventoryCountName', 'inventoryCountStatus', 'inventoryCountCounted',
+                               'inventoryCountNote', 'inventoryCountBlind',
+                               'userId', 'outletId', 'companyId', 'data'],
+            ],
+            'priceList' => [
+                'pk'       => 'ID',
+                'jsonbCol' => 'data',
+                'columns'  => ['ID', 'data', 'companyId'],
+            ],
+            'vPayments' => [
+                'pk'       => 'ID',
+                'jsonbCol' => 'data',
+                'columns'  => ['ID', 'date', 'payoutDate', 'depositedDate', 'amount', 'payoutAmount',
+                               'comission', 'tax', 'deposited', 'orderNo', 'authCode', 'operationNo',
+                               'inBank', 'status', 'UID', 'source', 'transactionId', 'customerId',
+                               'userId', 'outletId', 'companyId', 'updated_at', 'data'],
+            ],
+            'taxonomy' => [
+                'pk'       => 'taxonomyId',
+                'jsonbCol' => 'taxonomyExtra',
+                'columns'  => ['taxonomyId', 'taxonomyName', 'taxonomyType', 'taxonomyExtra',
+                               'sourceId', 'outletId', 'companyId'],
+            ],
+            'customerAddress' => [
+                'pk'       => 'customerAddressId',
+                'jsonbCol' => 'data',
+                'columns'  => ['customerAddressId', 'customerAddressDate', 'customerAddressName',
+                               'customerAddressText', 'customerAddressLat', 'customerAddressLng',
+                               'customerAddressDefault', 'customerAddressLocation', 'customerAddressCity',
+                               'customerId', 'companyId', 'updated_at'],
+            ],
+        ];
+        return $schema;
+    }
+}
+
+if (!function_exists('_routeToJsonb')) {
+    /**
+     * Separa $record en columnas reales vs campos que van al JSONB.
+     * Port FIEL de panel/includes/functions.php:4804.
+     * @return array [$cleanRecord, $jsonbExtra, $jsonbCol]
+     */
+    function _routeToJsonb(string $table, array $record): array
+    {
+        $schema = _getTableSchema();
+        if (!isset($schema[$table])) {
+            return [$record, [], ''];
+        }
+        $jsonbCol  = $schema[$table]['jsonbCol'];
+        $knownCols = array_flip($schema[$table]['columns']);
+
+        $cleanRecord = [];
+        $jsonbExtra  = [];
+        foreach ($record as $key => $value) {
+            if (isset($knownCols[$key])) {
+                $cleanRecord[$key] = $value;
+            } else {
+                $jsonbExtra[$key] = $value;
+            }
+        }
+        return [$cleanRecord, $jsonbExtra, $jsonbCol];
+    }
 }
 
 /**
- * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::insert()`. ~47 callers.
+ * ncmInsert con JSONB routing + UUID v7 auto-generation.
+ * Reemplaza el wrapper que delegaba a Query::insert (que NO hacía routing → bug:
+ * itemTaxIncluded y otros campos demoted a `data` tiraban "column does not exist").
+ * Port FIEL del ncmInsert de panel/includes/functions.php:4932.
+ *
+ * @note El slice 10 PSR-4 hizo este wrapper delegar a `Query::insert`, pero Query NO
+ *       hacía JSONB routing ni UUID v7 → bug "column does not exist". Revertido al
+ *       cuerpo completo del panel. `Query::insert` ahora delega de vuelta a esta función
+ *       para evitar drift futuro.
  */
-function ncmInsert($options){
-    return \Punto\App\Database\Query::insert((array) $options);
+function ncmInsert($options)
+{
+    global $db;
+
+    if (!validity($options, 'array') || !validity($options['records'], 'array') || !validity($options['table'])) {
+        return false;
+    }
+
+    $table  = $options['table'];
+    $record = $options['records'];
+
+    // Determinar la columna PK de esta tabla (fallback 'id' para tablas no registradas)
+    $tableSchema = _getTableSchema();
+    $pkCol       = isset($tableSchema[$table]['pk']) ? $tableSchema[$table]['pk'] : 'id';
+
+    // Generar UUID v7 si el registro no trae el PK
+    if (empty($record[$pkCol])) {
+        $record[$pkCol] = generateUuidV7();
+    }
+
+    // Enrutar campos desconocidos al JSONB de la tabla
+    [$record, $jsonbExtra, $jsonbCol] = _routeToJsonb($table, $record);
+    if (!empty($jsonbExtra)) {
+        $existing = [];
+        if (isset($record[$jsonbCol]) && is_string($record[$jsonbCol])) {
+            $existing = json_decode($record[$jsonbCol], true) ?? [];
+        }
+        $record[$jsonbCol] = json_encode(array_merge($existing, $jsonbExtra));
+    }
+
+    $insert = $db->AutoExecute($table, $record, 'INSERT');
+    return $insert !== false ? $record[$pkCol] : false;
 }
 
 /**
