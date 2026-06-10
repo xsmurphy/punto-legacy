@@ -12,6 +12,8 @@
 
 require_once __DIR__ . '/lib/api_client.php';
 
+const SETTINGS_API = ['base' => 'shared'];
+
 if (empty($_COOKIE['_jwt_panel'])) {
     bffJson(['ok' => false, 'error' => 'no autenticado'], 401);
 }
@@ -21,7 +23,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'POST') {
     // Reenvía todos los campos del form (filtrando vacíos para que los toggles off no viajen).
     $payload = array_filter($_POST, fn($v) => $v !== '');
-    $res = bffApiPost('v1/settings.php', $payload);
+    $res = bffApiPost('v1/settings.php', $payload, '_jwt_panel', SETTINGS_API);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }
@@ -33,7 +35,7 @@ $query = array_filter([
     'type' => $_GET['type'] ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/settings.php', $query);
+$res = bffApiGet('v1/settings.php', $query, '_jwt_panel', SETTINGS_API);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

@@ -1,13 +1,21 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Settings;
+
+use DateTimeZone;
+
 /**
- * Dominio de Ajustes (Settings) — capa API, motor ERP.
+ * Dominio de Ajustes (Settings) — API compartida (motor ERP).
  *
  *   GET  general   → ajustes de la empresa (perfil + parámetros), CRUDOS
  *   GET  options   → listas para los selects (países, categorías, timezones, idiomas, separadores)
  *   GET  taxonomies→ items de taxonomía para los dropdowns adm (tax/category/tag/payment/bank)
  *   POST general   → guarda los ajustes en company.config JSONB
+ *   POST currencies→ guarda cotizaciones en settingObj.currencies (MERGE no-destructivo)
+ *   POST saveTemplate/removeTemplate → plantillas de impresión (taxonomy type=printTemplate)
  *
- * FIX PG CRÍTICO: el legacy `a_settings.php?action=update&type=setting` hace
+ * FIX PG CRÍTICO (heredado del original): el legacy `a_settings.php?action=update&type=setting` hace
  * `AutoExecute('setting', …)` pero la tabla `setting` fue ELIMINADA en Phase PG (todo vive en
  * `company.config` JSONB) → el guardado de ajustes está ROTO en PG. Acá se rutea a `company.config`
  * vía `ncmUpdate` (que enruta claves desconocidas al JSONB con merge `||` no-destructivo).
@@ -17,9 +25,18 @@
  * anidado). El write hace MERGE no-destructivo de settingObj (preserva currencies y claves
  * desconocidas) — a diferencia del legacy que hacía `settingObj = json_encode($_POST)` (clobber).
  *
- * Tenant: companyId bound en cada query. Datos CRUDOS (el front formatea). Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/settings/SettingsService.php (Fase 2 del desacople de /panel). Únicos
+ * cambios respecto al original: namespace, `final`, `declare(strict_types=1)`, `use DateTimeZone`,
+ * y los 3 resources estáticos (countries.php / company_categories.php / countries_hispanic.json)
+ * viajan en `resources/` del propio módulo para no depender de panel/libraries (mantiene /api
+ * self-contained — el plan declara independencia entre módulos).
+ *
+ * Tenant: companyId bindeado en cada query. Datos CRUDOS (el front formatea). Ver REGLA RAÍZ 2.
+ *
+ * Nota namespace: funciones globales (ncmExecute, ncmUpdate, ncmInsert, ncmDelete) y constantes
+ * (ASSETS_URL) resuelven a sus globales por fallback de PHP — no requieren `use`.
  */
-class SettingsService
+final class SettingsService
 {
     /** Ajustes de la empresa (perfil + parámetros) para el form. */
     public function general($companyId)
@@ -174,7 +191,7 @@ class SettingsService
     public function options()
     {
         $countries = [];
-        $cFile = __DIR__ . '/../../libraries/countries.php';
+        $cFile = __DIR__ . '/resources/countries.php';
         if (is_file($cFile)) {
             require $cFile;   // countries.php asigna $countries (no return) en este scope
         }
@@ -183,7 +200,7 @@ class SettingsService
             $countryOpts[] = ['code' => (string) $code, 'name' => (string) ($v['name'] ?? $code)];
         }
 
-        $catFile = __DIR__ . '/../../libraries/company_categories.php';
+        $catFile = __DIR__ . '/resources/company_categories.php';
         $categories = is_file($catFile) ? require $catFile : [];
 
         return [
@@ -247,7 +264,7 @@ class SettingsService
      */
     public function currencies($companyId)
     {
-        $cFile     = __DIR__ . '/../../libraries/countries_hispanic.json';
+        $cFile     = __DIR__ . '/resources/countries_hispanic.json';
         $countries = is_file($cFile) ? json_decode((string) file_get_contents($cFile), true) : [];
         if (!is_array($countries)) { $countries = []; }
 

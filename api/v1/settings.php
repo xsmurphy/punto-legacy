@@ -1,33 +1,37 @@
 <?php
 /**
- * REST canónico — Ajustes de la empresa (motor ERP, raw).
+ * REST canónico (API compartida /api) — Ajustes de la empresa (motor ERP, raw).
  *
- *   GET  /API/v1/settings?view=general                 → ajustes (perfil + parámetros), CRUDO.
- *   GET  /API/v1/settings?view=options                  → listas para selects.
- *   GET  /API/v1/settings?view=taxonomies&type=<t>       → items de taxonomía (tax/category/tag/...).
- *   GET  /API/v1/settings?view=currencies                → matriz de monedas (cotizaciones).
- *   GET  /API/v1/settings?view=templates                 → plantillas de impresión (taxonomy).
- *   POST /API/v1/settings (action=update&type=setting + campos)        → guarda en company.config.
- *   POST /API/v1/settings (action=update&type=currencies&currencies=…) → guarda cotizaciones (settingObj).
- *   POST /API/v1/settings (action=saveTemplate&data=…[&i=id])          → crea/actualiza plantilla.
- *   POST /API/v1/settings (action=removeTemplate&id=…)                 → elimina plantilla.
+ *   GET  /v1/settings?view=general                 → ajustes (perfil + parámetros), CRUDO.
+ *   GET  /v1/settings?view=options                  → listas para selects.
+ *   GET  /v1/settings?view=taxonomies&type=<t>       → items de taxonomía (tax/category/tag/...).
+ *   GET  /v1/settings?view=currencies                → matriz de monedas (cotizaciones).
+ *   GET  /v1/settings?view=templates                 → plantillas de impresión (taxonomy).
+ *   GET  /v1/settings?view=templateFields            → datos dinámicos del template builder.
+ *   POST /v1/settings (action=update&type=setting + campos)        → guarda en company.config.
+ *   POST /v1/settings (action=update&type=currencies&currencies=…) → guarda cotizaciones (settingObj).
+ *   POST /v1/settings (action=saveTemplate&data=…[&i=id])          → crea/actualiza plantilla.
+ *   POST /v1/settings (action=removeTemplate&id=…)                 → elimina plantilla.
  *
  * Arregla el guardado roto en PG (tabla `setting` eliminada → company.config; el save de monedas
  * legacy interpolaba COMPANY_ID sin comillas; el delete de plantillas usaba LIMIT 1 inválido en PG y
- * el update no scopeaba companyId → IDOR). Escritura scopeada por COMPANY_ID del JWT. Auth: JWT.
- * El front del template builder (widget jQuery) se recablea en un incremento siguiente.
+ * el update no scopeaba companyId → IDOR). Escritura scopeada por COMPANY_ID del JWT. Auth: realm
+ * `panel` (apiAuthTenant(['panel'])).
+ *
+ * Port FIEL de panel/API/v1/settings.php (Fase 2 del desacople de /panel). Cambios respecto al
+ * original: `apiMiddleware()` → `apiAuthTenant(['panel'])`; `PANEL_AUTHED_ROLE` → `$ctx['roleId']`;
+ * service en namespace `Punto\Api\Settings`. El contrato (vistas, acciones, shape, status codes)
+ * es idéntico — el JS de a_settings.js y a_settings_templates.js dependen de él.
  */
 
-require_once __DIR__ . '/../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../../lib/settings/SettingsService.php';
-
+$ctx    = apiAuthTenant(['panel']);
+$svc    = new \Punto\Api\Settings\SettingsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$svc    = new SettingsService();
 
 if ($method === 'POST') {
-    if ((int) PANEL_AUTHED_ROLE === 7) {
+    if ((int) $ctx['roleId'] === 7) {
         apiError('Sin permiso para esta acción', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
