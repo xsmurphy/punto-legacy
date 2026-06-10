@@ -1,23 +1,21 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Ventas por Marca (capa API, motor ERP).
+ * Dominio de Reportes — Ventas por Marca (API compartida, motor ERP).
  *
- * Filas CRUDAS por marca (unidades, total, IVA, costo, descuento) en un período, con el
- * nombre resuelto. Sin formatear, sin HTML. El BFF calcula % + subtotal + totales; el front
- * formatea y arma tabla/KPIs/treemap. Ver REGLA RAÍZ 2.
- *
- * Reemplaza la lógica inline de panel/a_report_brands.php (action=generalTable). El bloque
- * ad-hoc `?doit=beibe` del legacy (dump hardcodeado con USE INDEX) NO se migra.
- *
- * Fix PG (igual que categories): se quita el `SELECT a.itemId … GROUP BY brand` (error en PG;
- * PG no tiene MIN(uuid)) — se agrupa por `b.brandId` sin seleccionar itemId.
+ * Port FIEL de panel/lib/reports/ReportBrandsService.php (Fase 2 batch 1). Único cambio
+ * vs el original: namespace + `final` + `Taxonomy::brands($companyId)` en vez del helper
+ * global del panel (que no existe en /app — ver `Taxonomy`). SQL idéntico.
  *
  * Tenant: $roc (c-prefijado, transaction = alias c) derivado de COMPANY_ID del JWT.
  */
-class ReportBrandsService
+final class BrandsService
 {
     /** @return array filas [{brandId, name, usold, total, tax, cogs, discount}] ordenadas por usold desc */
-    public function salesByBrand($from, $to, $roc)
+    public function salesByBrand($from, $to, $roc, string $companyId)
     {
         $sql = 'SELECT SUM(a.itemSoldUnits)                   AS usold,
                        SUM(a.itemSoldTotal)                   AS total,
@@ -38,7 +36,7 @@ class ReportBrandsService
             return [];
         }
 
-        $brands = getAllItemBrands(); // taxonomyId → {name} (bound, PG-safe)
+        $brands = Taxonomy::brands($companyId);
 
         $rows = [];
         while (!$res->EOF) {

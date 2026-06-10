@@ -19,7 +19,7 @@ if (empty($_COOKIE['_jwt_panel'])) {
 $from = $_GET['from'] ?? date('Y-m-d 00:00:00', strtotime('-7 days'));
 $to   = $_GET['to']   ?? date('Y-m-d 23:59:59');
 
-$res = bffApiGet('v1/reports/brands.php', ['from' => $from, 'to' => $to]);
+$res = bffApiGet('v1/reports/brands.php', ['from' => $from, 'to' => $to], '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

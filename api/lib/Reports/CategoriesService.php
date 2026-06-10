@@ -1,26 +1,21 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Ventas por Categorías (capa API, motor ERP).
+ * Dominio de Reportes — Ventas por Categorías (API compartida, motor ERP).
  *
- * Devuelve filas CRUDAS por categoría (unidades, total, IVA, costo, descuento) en un período,
- * con el nombre de categoría ya resuelto. Sin formatear, sin HTML. El BFF calcula el % y los
- * totales; el front formatea y arma tabla/KPIs/treemap. Ver REGLA RAÍZ 2.
+ * Port FIEL de panel/lib/reports/ReportCategoriesService.php (Fase 2 batch 1). Único cambio
+ * vs el original: namespace + `final` + `Taxonomy::categories($companyId)` en vez del
+ * getter global del panel. SQL idéntico.
  *
- * Reemplaza la lógica inline de panel/a_report_categories.php (action=generalTable).
- *
- * Fixes PG: el legacy hacía `SELECT a.itemId … GROUP BY category` (válido en MySQL, error en
- * PG por columna no agrupada). Como la resta de descuentos de combos
- * (getAllCombosCompoundsDiscount) se OMITE (ese helper usa `itemSoldParent != 0` (uuid vs int)
- * → roto en PG, ya es no-op en el legacy actual), el `itemId` por grupo ya no hace falta →
- * la query agrupa por `c.categoryId` sin seleccionar itemId (PG no tiene MIN(uuid)).
- * Migrar la corrección de combos es un refinamiento aparte.
- *
- * Tenant: $roc (b-prefijado) derivado de COMPANY_ID del JWT.
+ * Tenant: $roc (b-prefijado, transaction = alias b) derivado de COMPANY_ID del JWT.
  */
-class ReportCategoriesService
+final class CategoriesService
 {
     /** @return array filas [{categoryId, name, usold, total, tax, cogs, comission, discount}] ordenadas por usold desc */
-    public function salesByCategory($from, $to, $roc)
+    public function salesByCategory($from, $to, $roc, string $companyId)
     {
         $sql = 'SELECT SUM(a.itemSoldUnits)                   AS usold,
                        SUM(a.itemSoldTotal)                   AS total,
@@ -42,7 +37,7 @@ class ReportCategoriesService
             return [];
         }
 
-        $categories = getAllItemCategories(); // taxonomyId → {name} (bound, PG-safe)
+        $categories = Taxonomy::categories($companyId);
 
         $rows = [];
         while (!$res->EOF) {

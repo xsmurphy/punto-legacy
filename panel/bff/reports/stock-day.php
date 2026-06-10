@@ -16,7 +16,7 @@ if (empty($_COOKIE['_jwt_panel'])) {
 
 $date = $_GET['date'] ?? date('Y-m-d 23:59:59');
 
-$res = bffApiGet('v1/reports/stock-day.php', ['date' => $date]);
+$res = bffApiGet('v1/reports/stock-day.php', ['date' => $date], '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }
