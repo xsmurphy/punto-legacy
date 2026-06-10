@@ -1,4 +1,7 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Items;
 
 /**
  * StockService — gestiona stock + stockTrigger asociados a un item.
@@ -7,8 +10,13 @@
  * `stock` y `stockTrigger` para no dejar datos huérfanos. Cuando sí
  * trackea, aplicamos los triggers (umbrales de reabastecimiento por outlet)
  * que vienen del form.
+ *
+ * Port FIEL de panel/lib/items/StockService.php (Fase 2 del desacople de /panel).
+ * Cambios: namespace, `final`, `declare(strict_types=1)`. El `stockTriggerManager()`
+ * global del panel queda INLINEADO acá: era 4 líneas de DELETE+INSERT, no vale la
+ * pena portar otra función global a /api solo por esto. Comportamiento idéntico.
  */
-class StockService
+final class StockService
 {
     private $db;
 
@@ -37,7 +45,21 @@ class StockService
     {
         foreach ($triggers as $key => $value) {
             if (!isset($locations[$key])) continue;
-            stockTriggerManager($itemId, $value, dec($locations[$key]));
+            $outletId = dec($locations[$key]);
+
+            // Inline de stockTriggerManager() (panel/includes/functions.php:8330):
+            // DELETE existente + INSERT si count > 0. Misma semántica byte-a-byte.
+            $this->db->Execute(
+                'DELETE FROM stockTrigger WHERE itemId = ? AND outletId = ?',
+                [$itemId, $outletId]
+            );
+            if ($value > 0) {
+                $this->db->AutoExecute('stockTrigger', [
+                    'itemId'            => $itemId,
+                    'stockTriggerCount' => $value,
+                    'outletId'          => $outletId,
+                ], 'INSERT');
+            }
         }
     }
 }

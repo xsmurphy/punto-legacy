@@ -3118,8 +3118,8 @@ function resolveItemLocation(string $itemId, ?string $outletId): ?string
 	global $db;
 	static $locSvc = null;
 	if ($locSvc === null) {
-		require_once __DIR__ . '/../lib/items/LocationService.php';
-		$locSvc = new LocationService($db);
+		require_once __DIR__ . '/../../api/lib/Items/LocationService.php';
+		$locSvc = new \Punto\Api\Items\LocationService($db);
 	}
 
 	$resolved = $locSvc->resolveFor($itemId, $outletId);

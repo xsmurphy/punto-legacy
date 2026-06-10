@@ -1,12 +1,19 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Items;
 
 /**
  * UpsellService — gestiona la tabla `upsell` (recomendaciones N-a-N entre items).
  *
  * Un item "padre" puede tener N "hijos" sugeridos en el checkout. La relación
  * vive en `upsell(upsellParentId, upsellChildId, companyId)`.
+ *
+ * Port FIEL de panel/lib/items/UpsellService.php (Fase 2 del desacople de /panel).
+ * Cambios: namespace, `final`, `declare(strict_types=1)`. `dec()` es función global
+ * (identity post-UUID) — resuelve por fallback de PHP.
  */
-class UpsellService
+final class UpsellService
 {
     private $db;
 

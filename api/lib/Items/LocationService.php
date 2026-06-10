@@ -1,4 +1,7 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Items;
 
 /**
  * LocationService — gestiona en qué depósitos vive un item (tabla `itemLocation`).
@@ -12,8 +15,11 @@
  *   solo un default por sucursal.
  *
  * Schema: ver database/migrations/postgres/05_item_location.sql
+ *
+ * Port FIEL de panel/lib/items/LocationService.php (Fase 2 del desacople de /panel).
+ * Cambios: namespace, `final`, `declare(strict_types=1)`. SQL y semántica idénticos.
  */
-class LocationService
+final class LocationService
 {
     private $db;
 

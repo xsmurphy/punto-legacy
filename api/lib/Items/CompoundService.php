@@ -1,4 +1,7 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Items;
 
 /**
  * CompoundService — gestiona la tabla `toCompound` (componentes de combos/producciones).
@@ -6,8 +9,12 @@
  * Un item tipo combo/precombo/comboAddons/production/direct_production
  * tiene N filas en toCompound apuntando a los items "hijos" (insumos o
  * sub-productos) con su cantidad y orden de presentación.
+ *
+ * Port FIEL de panel/lib/items/CompoundService.php (Fase 2 del desacople de /panel).
+ * Cambios: namespace, `final`, `declare(strict_types=1)`. Funciones globales (`dec`,
+ * `formatNumberToInsertDB`, `validity`, `ncmExecute`) resuelven por fallback de PHP.
  */
-class CompoundService
+final class CompoundService
 {
     private $db;
 

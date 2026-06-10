@@ -1,15 +1,27 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Items;
+
+use CaseInsensitiveArray;
 
 /**
- * ItemService — orquesta CRUD de item + aplica reglas de negocio.
+ * ItemService — orquesta CRUD de item + aplica reglas de negocio (admin panel).
  *
- * Punto de entrada para a_items.php (handlers HTTP) y panel/API/v1/items/*.
+ * Punto de entrada para api/v1/items.php (rama panel) y panel/a_items.php in-process
+ * (handlers HTTP del legacy, hasta que F3 migre el front estático).
  * Delega persistencia en ItemRepository. NO genera output HTTP — solo retorna data.
+ *
+ * Coexiste con `Punto\Api\Services\ItemService` (slice 25 del desacople de /app: get item
+ * info + inventory para el POS). Namespaces distintos los separan; ambos viven en /api/lib/.
+ *
+ * Port FIEL de panel/lib/items/ItemService.php (Fase 2 del desacople de /panel). Cambios:
+ * namespace, `final`, `declare(strict_types=1)`, `use CaseInsensitiveArray`. Lógica idéntica.
+ *
+ * Nota namespace: ItemRepository vive en el mismo namespace — sin `use` necesario.
+ * Funciones globales (TODAY) resuelven por fallback de PHP.
  */
-
-require_once __DIR__ . '/ItemRepository.php';
-
-class ItemService
+final class ItemService
 {
     private ItemRepository $repo;
 

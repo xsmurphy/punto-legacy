@@ -1,12 +1,21 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Items;
+
+use CaseInsensitiveArray;
 
 /**
  * ItemRepository — acceso a la tabla `item` con SQL parametrizado.
  *
  * Solo SQL. Sin reglas de negocio, sin defaults, sin side-effects.
  * Las reglas viven en ItemService. El JSONB routing lo hacen ncmInsert/ncmUpdate.
+ *
+ * Port FIEL de panel/lib/items/ItemRepository.php (Fase 2 del desacople de /panel).
+ * Cambios respecto al original: namespace, `final`, `declare(strict_types=1)`,
+ * `use CaseInsensitiveArray`. SQL idéntico.
  */
-class ItemRepository
+final class ItemRepository
 {
     private $db;
 

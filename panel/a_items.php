@@ -1,7 +1,11 @@
 <?php
 
 include_once('includes/top_includes.php');
-require_once __DIR__ . '/lib/items/ItemService.php';
+// F2 desacople: Services items movidos a /api/lib/Items con namespace Punto\Api\Items.
+// Los handlers ?action= legacy de este archivo siguen instanciándolos in-process; cuando
+// F3 migre el front estático, todo el archivo desaparece y pasa por /bff/items.
+require_once __DIR__ . '/../api/lib/Items/ItemRepository.php';
+require_once __DIR__ . '/../api/lib/Items/ItemService.php';
 topHook();
 allowUser('items', 'view');
 
@@ -446,8 +450,8 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 	// ── Modo JSON: datos del form para hidratar el template en el front ──
 	// Additivo: el HTML legacy (abajo) sigue intacto para ?action=editform sin format.
 	if (validateHttp('format') === 'json') {
-		require_once __DIR__ . '/lib/items/LocationService.php';
-		$locSvc = new LocationService($db);
+		require_once __DIR__ . '/../api/lib/Items/LocationService.php';
+		$locSvc = new \Punto\Api\Items\LocationService($db);
 
 		// Compuestos (receta de producción / combo)
 		$compounds = [];
@@ -1921,8 +1925,8 @@ if (validateHttp('action') == 'editform' && validateHttp('id')) {
 											// Multi-depósito: lista TODOS los outlets de la company con sus depósitos.
 											// Por cada depósito, checkbox para asignar + radio para marcar default
 											// por sucursal. La persistencia la hace LocationService::syncForItem().
-											require_once __DIR__ . '/lib/items/LocationService.php';
-											$_locSvc      = new LocationService($db);
+											require_once __DIR__ . '/../api/lib/Items/LocationService.php';
+											$_locSvc      = new \Punto\Api\Items\LocationService($db);
 											$_existing    = !empty($itemId) ? $_locSvc->listForItem($itemId) : [];
 											$_assigned    = [];
 											$_defaultByOu = [];
@@ -2356,7 +2360,7 @@ if (validateHttp('action') == 'insertBtn') {
 	else if (validateHttp('combo'))     $type = 'combo';
 	else if (validateHttp('giftcard'))  $type = 'giftcard';
 
-	$itemService = new ItemService(new ItemRepository($db));
+	$itemService = new \Punto\Api\Items\ItemService(new \Punto\Api\Items\ItemRepository($db));
 	$itemId      = $itemService->createBlank(COMPANY_ID, $type);
 
 	if ($itemId === false) {
@@ -2618,8 +2622,8 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 		$trackInventory = 0;
 	}
 
-	require_once __DIR__ . '/lib/items/StockService.php';
-	$stockService = new StockService($db);
+	require_once __DIR__ . '/../api/lib/Items/StockService.php';
+	$stockService = new \Punto\Api\Items\StockService($db);
 
 	if ($trackInventory < 1) {
 		$autoorder      = 0;
@@ -2637,8 +2641,8 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 		$deleteCompounds = true;
 	}
 
-	require_once __DIR__ . '/lib/items/CompoundService.php';
-	$compoundService = new CompoundService($db);
+	require_once __DIR__ . '/../api/lib/Items/CompoundService.php';
+	$compoundService = new \Punto\Api\Items\CompoundService($db);
 
 	$itemDiscount = $itemDiscount ?? 0;
 
@@ -2681,8 +2685,8 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 	}
 
 	if (validateHttp('upsell', 'post')) {
-		require_once __DIR__ . '/lib/items/UpsellService.php';
-		(new UpsellService($db))->replaceFor($id, COMPANY_ID, validateHttp('upsell', 'post'));
+		require_once __DIR__ . '/../api/lib/Items/UpsellService.php';
+		(new \Punto\Api\Items\UpsellService($db))->replaceFor($id, COMPANY_ID, validateHttp('upsell', 'post'));
 		if (validateHttp('upsellDescription', 'post')) {
 			$record['itemUpsellDescription'] = validateHttp('upsellDescription', 'post');
 		}
@@ -2694,8 +2698,8 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 	// va por LocationService::resolveFor() (ver Fase 1D-3).
 	$location = NULL;
 	if (isset($_POST['itemLocations']) && is_array($_POST['itemLocations'])) {
-		require_once __DIR__ . '/lib/items/LocationService.php';
-		$locSvc      = new LocationService($db);
+		require_once __DIR__ . '/../api/lib/Items/LocationService.php';
+		$locSvc      = new \Punto\Api\Items\LocationService($db);
 		$locationIds = array_values(array_filter(array_map('dec', $_POST['itemLocations'])));
 		$locSvc->syncForItem($id, COMPANY_ID, $locationIds);
 
@@ -2759,7 +2763,7 @@ if (validateHttp('action') == 'update' && validateHttp('id', 'post')) {
 		$record['itemSort'] = (int) preg_replace('/\D/', '', (string) $record['itemSort']);
 	}
 
-	$itemService = new ItemService(new ItemRepository($db));
+	$itemService = new \Punto\Api\Items\ItemService(new \Punto\Api\Items\ItemRepository($db));
 	$update      = $itemService->update($id, COMPANY_ID, $record);
 	if ($update === false) {
 		echo 'false';
