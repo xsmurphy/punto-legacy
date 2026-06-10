@@ -161,7 +161,6 @@
 			'</tr></thead><tbody>';
 		var body = '';
 		$.each(rows, function (i, r) {
-			var delUrl = LEGACY + '?action=delete&id=' + esc(r.transactionId) + '&outlet=' + esc(r.outletId) + '&type=' + esc(r.type) + '&parent=' + esc(r.parentId);
 			body +=
 				'<tr data-id="' + esc(r.parentId) + '" data-load="' + LEGACY + '?action=edit&id=' + esc(r.parentId) + '&ro=true" class="clickrow pointer">' +
 				'<td class="text-right">' + esc(r.parentInvoice) + '</td>' +
@@ -172,7 +171,7 @@
 				'<td>' + esc(r.note) + '</td>' +
 				'<td>' + paymentLabels(r.payments) + '</td>' +
 				'<td class="text-right bg-light lter" data-order="' + num(r.total) + '" data-format="money">' + fmt(r.total) + '</td>' +
-				'<td class="text-center"><a href="' + delUrl + '" class="deletePayment hidden-print"><i class="material-icons text-danger">close</i></a></td>' +
+				'<td class="text-center"><a href="#" class="deletePayment hidden-print" data-id="' + esc(r.transactionId) + '" data-parent="' + esc(r.parentId || '') + '"><i class="material-icons text-danger">close</i></a></td>' +
 				'</tr>';
 		});
 		var foot = '</tbody><tfoot><tr><th colspan="7">TOTALES:</th><th class="text-right"></th><th></th></tr></tfoot>';
@@ -267,19 +266,22 @@
 					"clickCB": function (event, tis) { return openEditModal(tis); }
 				}, function (oTable) {
 					onClickWrap('.deletePayment', function (event, tis) {
-						var href = tis.attr('href');
 						var $row = tis.closest('tr');
 						ncmDialogs.confirm('¿Desea eliminar este pago?', '', 'question', function (r) {
 							if (r === true) {
-								$.get(href, function (data) {
-									// el delete legacy responde true (texto) o {success:true}
-									if (data === 'true' || data === true || (data && data.success)) {
-										message('Pago eliminado.', 'success');
-										oTable.row($row).remove().draw();
-										loaded.detail = false;   // refrescar deuda en general al reabrir
-									} else {
-										message('Error, no pudimos eliminar el pago', 'danger');
-									}
+								ncmHelpers.load({
+									url: BFF, httpType: 'POST', type: 'json', hideLoader: true, warnTimeout: false,
+									data: { action: 'deletePayment', id: tis.data('id'), parent: tis.data('parent') || '' },
+									success: function (resp) {
+										if (resp && resp.ok) {
+											message('Pago eliminado.', 'success');
+											oTable.row($row).remove().draw();
+											loaded.detail = false;   // refrescar deuda en general al reabrir
+										} else {
+											message('Error, no pudimos eliminar el pago', 'danger');
+										}
+									},
+									fail: function () { message('Error, no pudimos eliminar el pago', 'danger'); }
 								});
 							}
 						});

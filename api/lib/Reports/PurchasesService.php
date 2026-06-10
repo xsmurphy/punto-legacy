@@ -279,6 +279,33 @@ final class PurchasesService
         return ['rows' => $rows];
     }
 
+    /**
+     * Elimina un pago a proveedor (tipo 5) y desmarca la compra a crédito padre.
+     * Operación atómica: si el DELETE falla, el UPDATE del padre no se ejecuta.
+     */
+    public function deletePayment(string $id, ?string $parentId, string $companyId): bool
+    {
+        global $db;
+        $db->BeginTrans();
+        $r = $db->Execute(
+            'DELETE FROM transaction WHERE transactionId = ? AND companyId = ? AND transactionType = 5',
+            [$id, $companyId]
+        );
+        if ($r === false) {
+            $db->RollbackTrans();
+            return false;
+        }
+        if ($parentId) {
+            $db->Execute(
+                'UPDATE transaction SET transactionComplete = 0
+                 WHERE transactionId = ? AND companyId = ? AND transactionType = 4',
+                [$parentId, $companyId]
+            );
+        }
+        $db->CommitTrans();
+        return true;
+    }
+
     /* ───────────── helpers ───────────── */
 
     private function isComplete($v): bool

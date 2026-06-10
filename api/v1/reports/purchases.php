@@ -2,23 +2,46 @@
 /**
  * REST canónico (API compartida /api) — Reporte de Compras y Gastos (raw).
  *
- *   GET /v1/reports/purchases?view=general|cobros|detail&from=&to=
- *       [&supId=&itmId=&singleRow=&src=]
+ *   GET  /v1/reports/purchases?view=general|cobros|detail&from=&to=
+ *        [&supId=&itmId=&singleRow=&src=]
+ *   POST /v1/reports/purchases (action=deletePayment&id=…)
  *
- * SOLO las 3 vistas de LECTURA. El CRUD de edición y los reportes fiscales (rg90, libro-compra)
- * siguen en el panel legacy vía ?action=. Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Las 3 vistas de LECTURA + borrado de pagos a proveedor.
+ * El CRUD de edición y los fiscales siguen en panel legacy.
+ * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
-$svc = new \Punto\Api\Reports\PurchasesService();
+$ctx    = apiAuthTenant(['panel']);
+$svc    = new \Punto\Api\Reports\PurchasesService();
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
-    apiError('Método no permitido', 405);
+/* ───────── write: eliminar pago a proveedor ───────── */
+if ($method === 'POST') {
+    if ((int) $ctx['roleId'] === 7) {
+        apiError('Sin permiso para esta acción', 403);
+    }
+    $action = (string) (validateHttp('action', 'post') ?: '');
+    if ($action !== 'deletePayment') {
+        apiError('Acción no soportada', 422);
+    }
+    $id = (string) (validateHttp('id', 'post') ?: '');
+    if (!preg_match($uuidRe, $id)) {
+        apiError('id inválido', 422);
+    }
+    $parentRaw = (string) (validateHttp('parent', 'post') ?: '');
+    $parentId  = ($parentRaw !== '' && preg_match($uuidRe, $parentRaw)) ? $parentRaw : null;
+    if (!$svc->deletePayment($id, $parentId, (string) COMPANY_ID)) {
+        apiError('No se pudo eliminar', 500);
+    }
+    apiOk(['id' => $id, 'action' => 'deletePayment']);
 }
 
-$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+if ($method !== 'GET') {
+    apiError('Método no permitido', 405);
+}
 $dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
 
 $view = (string) (validateHttp('view') ?: 'general');
