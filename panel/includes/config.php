@@ -8,6 +8,24 @@ date_default_timezone_set('America/Asuncion');//si no esta definido el timezone
 header('Content-Type: text/html; charset=utf-8');
 define('LANGUAGE', 'es'); // pongo fuera del check de session porque si no hay session da un error de que no encuentra el archivo
 
+// DIAGNÓSTICO (temporal): logger de requests lentos para cazar el cuelgue de ~40s
+// reportado en a_contacts/a_items la primera carga post-login. config.php lo incluyen
+// todas las páginas del panel, así que cubre el render completo. Si supera 5s, registra
+// método + URI + duración a stderr (→ docker logs). Cubre "lento sin excepción"; el
+// handler de Whoops más abajo cubre "lento con error".
+register_shutdown_function(function () {
+  $start = $_SERVER['REQUEST_TIME_FLOAT'] ?? null;
+  if ($start === null) return;
+  $dur = microtime(true) - $start;
+  if ($dur > 5) {
+    error_log(sprintf('[SLOWREQ %.1fs] %s %s',
+      $dur,
+      $_SERVER['REQUEST_METHOD'] ?? '?',
+      $_SERVER['REQUEST_URI'] ?? '?'
+    ));
+  }
+});
+
 function theErrorHandler($type=false){
   $whoops = new \Whoops\Run;
 
@@ -28,6 +46,19 @@ function theErrorHandler($type=false){
       $whoops->register();
     }else{
 	    $whoops->pushHandler(function($exception, $inspector, $run) {
+	        // DIAGNÓSTICO (temporal): registrar qué excepción dispara la página de error
+	        // y cuánto tardó el request antes de tirarla. Sirve para cazar el cuelgue de
+	        // ~40s reportado en a_contacts/a_items. error_log → stderr → docker logs.
+	        $_dur = isset($_SERVER['REQUEST_TIME_FLOAT']) ? round(microtime(true) - $_SERVER['REQUEST_TIME_FLOAT'], 2) : -1;
+	        error_log(sprintf("[WHOOPS %ss] %s %s → %s: %s @ %s:%d",
+	            $_dur,
+	            $_SERVER['REQUEST_METHOD'] ?? '?',
+	            $_SERVER['REQUEST_URI'] ?? '?',
+	            get_class($exception),
+	            $exception->getMessage(),
+	            $exception->getFile(),
+	            $exception->getLine()
+	        ));
 	        include_once(__DIR__ . '/errorPage.inc.php');
 	        return true;
 	    });
