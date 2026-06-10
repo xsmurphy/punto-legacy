@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-10 (Desacople /panel → /api compartida: F0/F1/F2 completas — multi-realm auth + 21/23 reportes migrados a `Punto\Api\Reports`, commits c4d3231..2f27fdd)
+> **Última actualización:** 2026-06-10 (Desacople /panel → /api compartida: F0/F1/F2 **completas al 97%** — multi-realm auth + 21+1 reportes + outlets + settings + bootstrap + contacts + items migrados, commits c4d3231..479887b. Único pendiente F2: inventory widget, bloqueado por decisión semántica de producto — ver "Inventory widget: deuda de semántica" más abajo.)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---
@@ -149,6 +149,161 @@ porque la app filtra por esos campos — moverlos a JSONB rompería los índices
 
 **Timing:** post-F4 (cuando el shell `@.php` esté desacoplado y `$_SESSION` muerto). Hacerlo
 mid-F2/F3 sería migrar blanco móvil.
+
+---
+
+## Análisis del módulo de inventario / producción / recetas (charlado 2026-06-10)
+
+### Inventory widget — deuda de semántica (bloqueante cierre F2)
+
+Único reporte que no migró en F2. `panel/lib/reports/ReportInventoryService::widget()` delega a
+`getAllInventoryAndItemsModule()` (panel/includes/functions.php:2570). El KPI declara "valor de
+inventario" (cost, sell, qty) pero su lógica tiene tres problemas:
+
+1. **Fuente cruzada**: itera `getAllItems()` y multiplica por `inventory[id]['cogs'] * inventory[id]['onHand']`,
+   donde `onHand` viene de `getAllItemStock` (que lee el ledger `stock`, no la tabla `inventory`).
+   Si `stock.stockOnHand` (denormalizado) divergió de `SUM(inventory.inventoryCount WHERE type=0)`,
+   el KPI miente sin error.
+2. **Sin scope de outlet**: el comentario dice "por sucursal" pero la función NO recibe outletId.
+   Suma TODOS los outlets. Para una company multi-sucursal el número es la suma del tenant, no de
+   la sucursal activa.
+3. **Bug PG conocido** (comentario del Service): el legacy usaba `BETWEEN "..."` con comillas dobles
+   que en PG son identificadores, no strings literales — devuelve 0/0/0 silencioso si no se arregló.
+
+**Decisión de producto pendiente:**
+- ¿El widget muestra "inventario total del tenant" o "inventario del outlet activo"? Distintos KPIs.
+- ¿Suma valor incluye sub-partición depósito? (no debería: el stock por location es sub-partición
+  del stock por outlet — sumarlos doble-cuenta. Ver [[project-jerarquia-dominio]]).
+- ¿Combos y precombos cuentan? Un combo no tiene stock propio (vende ingredientes); un precombo sí.
+  Si se incluyen ambos como "inventario", se valúa dos veces el mismo COGS.
+
+Hasta resolverlo, el widget queda en panel local. Migración técnica = 30 min cuando haya criterio.
+
+### Mapa del módulo (estado actual)
+
+**7 tablas con responsabilidades superpuestas:**
+
+| Tabla | Rol declarado | Quién la escribe | Problema |
+|---|---|---|---|
+| `inventory` | Batches físicos (count, COGS, expiration) | purchases, count, OutletsService::create, sale (`type=2`=sold) | Es batches FIFO/FEFO pero también tiene `inventoryType` con 3 estados (active/waste/sold) — mezcla concerns |
+| `stock` | Ledger de movimientos (event log) | manageStock (god-node, 27 callers), production handler | Tiene `stockOnHand` y `stockOnHandCOGS` denormalizados — running balance dentro del log → fuente cuádruple de "stock actual" |
+| `stockTrigger` | Materializado: stock actual por (item, outlet) | a_items.php triggers config, manejo de umbrales | Solo se usa para umbrales de reabastecimiento — su nombre confunde con "running total" |
+| `inventoryCount` | Sesiones de conteo físico (auditoría) | a_inventory_count.php | OK — concern aislado |
+| `toCompound` | Recetas (item → ingredientes con qty) | CompoundService (F2) | OK — relación N-a-N limpia |
+| `toLocation` | Sub-partición del stock por depósito | manageStock | Cumulativo por (item, location) — debería sumar al `stockOnHand` del outlet pero el código no garantiza la invariante |
+| `production` | Log de producciones ejecutadas | functions.php:8507 | Concurrencia con `stock` (cada producción escribe AMBAS) — audit duplicado |
+
+**Cuatro fuentes de verdad para "stock actual de item X en outlet Y":**
+1. `stock.stockOnHand` del último row (item, outlet) — ledger denormalizado
+2. `stockTrigger.stockTriggerCount` — materialized cache
+3. `SUM(inventory.inventoryCount) WHERE inventoryType=0` — batches activos
+4. `SUM(toLocation.toLocationCount)` — sub-partición depósito (debería ≤ 1, 2 y 3)
+
+**Estas 4 pueden divergir** (no hay constraint que las una). El POS y el panel usan distintas según
+el caller — getCurrentStock, getItemMainStock, getAllItemStock, displayableCompounds tienen lógica
+propia. Riesgo real de "el stock que ve el panel ≠ el stock que ve el POS".
+
+**God-node `manageStock`** (panel/includes/functions.php:8287 + duplicada en `app/Domain/Inventory.php:349`).
+27 callers. Centraliza la escritura del ledger + sub-partición — pero NO actualiza `stockTrigger`
+ni `inventory.inventoryCount`. Esas las actualizan otros handlers (purchase, inventory_count,
+production) por separado. Implícito y frágil.
+
+**Tipos de item con semántica de stock distinta** (sin clase central que los discrimine):
+- `product` → stock normal (descuenta al vender, suma al comprar)
+- `combo` → vende los ingredientes (toCompound); el item combo no tiene stock propio
+- `precombo` → producto pre-fabricado: se ejecuta producción → suma stock del precombo → al vender descuenta precombo
+- `comboAddons` → combo configurable; mismo concepto que combo + selección
+- `direct_production` → produce al vender (consume ingredientes al checkout, no antes)
+- `compound` → sub-componente; sí tiene stock propio
+- `discount`, `giftcard`, `dynamic`, `group` → no stock
+- Las reglas viven repartidas en strings inline en a_items.php / a_bulk_*.php / action.php
+
+### Problemas estructurales identificados
+
+1. **Drift entre las 4 fuentes**: nada garantiza consistencia. Una venta offline del POS, una compra
+   del panel y un conteo físico pueden dejar las 4 en estados distintos.
+2. **`manageStock` duplicada panel vs /app**: dos copias del god-node con riesgo de divergencia
+   funcional (ya pasó en el comment original de Inventory.php: "semántica preservada VERBATIM" —
+   pero verbatim hoy no garantiza verbatim mañana). Cualquier fix en uno hay que replicarlo.
+3. **Tipos de item sin discriminator**: la lógica "si itemType=combo entonces…" está esparcida en
+   ~30 lugares. Imposible agregar un tipo nuevo sin cazar todos los if/switch.
+4. **toLocation sin invariante**: la suma de `toLocationCount` por (item, outlet) debería igualar
+   `stockOnHand`, pero no hay constraint ni trigger. Una venta sin location_id deja la sub-partición
+   desactualizada.
+5. **Producción tiene dos audits** (production + stock): los reports usan stock con
+   `WHERE stockSource='production'` para reconstruir; bug latente si dejan de coincidir.
+6. **inventoryType triple-meaning**: 0/1/2 = active/waste/sold mezcla concerns. Sold debería ser un
+   evento del ledger, no un estado de batch.
+7. **COGS calculation en manageStock** (panel/includes/functions.php:8290 ss): cálculo running de
+   COGS promedio ponderado con casos especiales para stock negativo. Complejo y sin test unitario.
+   Es money path → cualquier regresión cambia márgenes reportados.
+
+### Propuesta — principios rectores
+
+**1. Una sola fuente de verdad para "stock actual"**. Las otras son **derivadas** con triggers o
+   materializaciones explícitas:
+   - **Opción A**: `stock` ledger es source of truth. Stock actual = `SELECT stockOnHand FROM stock
+     WHERE item, outlet ORDER BY stockDate DESC LIMIT 1`. `inventory` y `stockTrigger` se reconstruyen.
+   - **Opción B**: `inventory` batches es source of truth (FEFO/FIFO real). Stock actual =
+     `SUM(inventoryCount) WHERE active`. Ledger se mantiene como audit log derivado.
+   - **Opción C**: tabla nueva `itemStock(itemId, outletId, count, cost)` con UNIQUE — running total
+     materializado, ledger y batches alimentan vía triggers.
+
+   **Recomendación**: opción C. PostgreSQL tiene la herramienta (LISTEN/NOTIFY + triggers); separar
+   "balance actual" de "historial" elimina el riesgo de denormalización dentro del log.
+
+**2. `toLocation` con invariante garantizado**. Trigger PG: `SUM(toLocationCount) WHERE item, outlet
+   = itemStock.count`. Si el código quiere mover stock entre locations debe hacerlo vía función
+   atómica `transferLocation(item, fromLoc, toLoc, qty)`.
+
+**3. Discriminator de itemType**. Tabla `itemTypeRule(type, hasOwnStock, consumesOnSale,
+   producesStock, requiresCompound)` — los handlers leen la regla en vez de hardcodear if/else.
+   Agregar un tipo nuevo = un INSERT.
+
+**4. `manageStock` único en `/api/lib/Inventory/`** (movible a `Punto\Api\Inventory\Service`).
+   El panel y el POS llaman al mismo endpoint o al mismo Service in-process. Cero duplicación.
+
+**5. Eventos del ledger explícitos**:
+   - `purchase` → +itemStock, +inventory batch
+   - `sale` → -itemStock, -inventory batch (FEFO consume primero)
+   - `production` (precombo) → +itemStock(producto), -itemStock(ingredientes) por receta
+   - `directProduction` (al vender) → -itemStock(ingredientes), sin afectar item producido
+   - `transfer-outlet` → -outletA, +outletB (atómico)
+   - `transfer-location` → -locA, +locB (mismo outlet, atómico)
+   - `count` → ajuste delta = counted - current
+   - `waste` → -itemStock, +log
+   - `adjust` → manual
+
+   Cada uno es una función pública del Service con tests propios. `manageStock` legacy se vuelve
+   thin dispatcher.
+
+**6. Concurrency**: SELECT FOR UPDATE en itemStock antes de mutar. Hoy el POS offline puede generar
+   movimientos concurrentes al sincronizar — sin lock hay risk de last-write-wins silenciosa.
+
+### Plan de migración propuesto (incremental, no big-bang)
+
+| Fase | Qué | Riesgo | Reversible? |
+|---|---|---|---|
+| **I0** | Documentar invariantes esperados y escribir tests de regresión sobre stock actual para 5 escenarios reales (purchase → sale → production → count → transfer). Sin tocar código. | Bajo | N/A |
+| **I1** | Tabla nueva `itemStock` + backfill desde el ledger. Solo lectura por ahora — comparar contra las 3 fuentes existentes con un `/api/v1/diagnostics/stock-divergence` que cuenta divergencias. Telemetría. | Bajo (read-only) | Sí (drop table) |
+| **I2** | Servicio `Punto\Api\Inventory\StockService` con métodos por evento (purchase/sale/production/...). Endpoint `/api/v1/inventory/movements?event=X`. Convive con manageStock legacy. | Medio | Sí (revert) |
+| **I3** | Triggers PG que mantienen `stockTrigger`, `inventory` aggregate e `itemStock` sincronizados desde el ledger. La tabla `itemStock` pasa a writable solo vía el service. | Medio-alto (triggers en money path) | Trigger DROP |
+| **I4** | Itemtype discriminator → tabla + service. Refactor de los handlers que tienen `if itemType=combo`. | Alto (afecta a_items, action.php, bulk_*) | Por slice |
+| **I5** | Migración POS: `app/Domain/Inventory::manageStock` deja de escribir directo y llama al endpoint `/api/v1/inventory/movements`. La copia panel se elimina. | Alto (offline mode del POS) | Por endpoint |
+| **I6** | Concurrency: SELECT FOR UPDATE + retry policy. inventoryType colapsa a un solo concern (waste/sold pasan al ledger). | Alto | Difícil |
+
+**Timing**: NO ahora. F3 (oleadas legacy) sigue siendo prioridad — F3 toca a_items / a_purchase /
+a_bulk_* que son el mismo terreno, hacerlo en paralelo es migrar blanco móvil. Post-F4 es la
+ventana correcta. **I0 sí se puede hacer ahora** (documentación + tests sin tocar código) y queda
+de plataforma para los demás.
+
+### Pendientes de decisión antes de I0
+
+- ¿Producción y direct_production siguen siendo dos tipos distintos o se colapsan a uno con flag
+  "consume al vender vs pre-fabricar"?
+- ¿precombo es un caso especial o un alias de producción?
+- ¿Permitimos stock negativo en el ledger o lo rechazamos en el service?
+- ¿El conteo físico (inventoryCount) corrige hacia el counted o registra un evento "ajuste"?
 
 ## Principios del roadmap
 
