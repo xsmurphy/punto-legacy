@@ -12,9 +12,9 @@
  * Identidad desde la cookie firmada; registerId via query liviana a la BD.
  */
 
-require_once __DIR__ . '/../../includes/simple.config.php';
-require_once __DIR__ . '/../../includes/jwt.php';
-require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../includes/simple.config.php';
+require_once __DIR__ . '/../includes/jwt.php';
+require_once __DIR__ . '/../includes/db.php';
 
 $panelToken = $_COOKIE['_jwt_panel'] ?? '';
 if ($panelToken === '') {
