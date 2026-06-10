@@ -195,7 +195,7 @@ $tips = [
 	
 
 	<div class="col-md-7 col-sm-5 col-xs-12 no-padder bg-dark gradBgBlack animateBg text-center hidden-xs" style="height: 100vh;">
-		<img src="/images/logo_bg_dark.png" class="m-t" height="30" style="margin-top: 43vh;">
+		<img src="/images/logo_bg_dark.png" class="m-t" height="50" style="margin-top: 43vh;">
 		<div class="text-center text-white font-bold text-u-c m-t-xs">Tu negocio más inteligente</div>
 	</div>
 
@@ -204,7 +204,7 @@ $tips = [
 		<div class="col-md-10 col-md-offset-1 col-xs-12 no-padder">
 			<div class="col-xs-12 no-padder bg-white r-3x" id="loginBlock" style="margin-top: 23vh;">
 				<div class="text-center m-b-lg">
-					<img src="/images/logo_bg_light.png" height="30">
+					<img src="/images/logo_bg_light.png" height="40">
 				</div>
 
 				<h5 class="padder font-bold text-u-c text-center m-b-md hidden">Bienvenido al panel de control</h5>	
