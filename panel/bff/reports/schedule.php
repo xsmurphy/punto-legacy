@@ -26,7 +26,7 @@ $query = array_filter([
     'uit'  => $_GET['uit']  ?? '',
 ], fn($v) => $v !== '');
 
-$res = bffApiGet('v1/reports/schedule.php', $query);
+$res = bffApiGet('v1/reports/schedule.php', $query, '_jwt_panel', ['base' => 'shared']);
 if (!$res['ok']) {
     bffFailFromApi($res);
 }

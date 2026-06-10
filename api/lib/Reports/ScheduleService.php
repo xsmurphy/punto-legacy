@@ -1,37 +1,33 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes — Agendamientos / Schedule (capa API, motor ERP).
+ * Dominio de Reportes — Agendamientos / Schedule (API compartida, motor ERP).
  *
- * 3 vistas de LECTURA del módulo legacy a_report_schedule.php:
- *   - detail():   citas (transaction tipo 13) con cliente/usuario/responsable/sucursal/comprobante
- *     resueltos, duración, asistencia, lista de ítems, + summary de conteos por estado.
- *   - stats():    conteos de citas por contacto (usuarios con contactInCalendar, o clientes).
- *   - sessions(): paquetes con sesiones (ítems itemSessions > 1) y sesiones realizadas/pendientes.
+ * Port FIEL de panel/lib/reports/ReportScheduleService.php (Fase 2 batch 11). Cambios vs original:
+ *  - namespace + `final`
+ *  - el ROC y companyId se reciben por PARÁMETRO en las 3 vistas (no globals).
+ *  - `dec($str)` → `dec` private static (identity, mismo que el panel actual).
+ *  - `getAllItems(false, true, $ids, true)` (sólo para mapear itemId → itemName) →
+ *    reemplazado por lookup batch directo en `itemNames()` (mismo patrón que otros services).
  *
- * NO se migran (siguen en el PHP legacy vía ?action=): el modal de sesiones (`detail` por id) y el
- * write (`delete`). El click en una fila de detalle abre el form de edición de TRANSACTIONS (otro
- * módulo, legacy). Devuelve datos CRUDOS; el front formatea + arma tablas/KPIs/donut. Ver REGLA RAÍZ 2.
+ * 3 vistas: detail (citas tipo 13 con lookups), stats (conteos por contacto+estado),
+ * sessions (paquetes con sesiones). El modal de sesiones y el delete siguen en el panel
+ * legacy vía ?action= (migración parcial).
  *
- * Fixes PG respecto del legacy:
- *  - conteos por estado: el legacy usa getTotalScheduleByStatus() que interpola el contactId SIN
- *    comillas (UUID → error PG) y es N+1 por contacto. Acá: un único agregado parametrizado
- *    GROUP BY estado (y por contacto en stats).
- *  - `contactInCalendar` fue demovido a `data` JSONB → `data->>'contactInCalendar'`.
- *  - `transactionDetails` (lista de ítems) vive en `meta` JSONB → `meta->>'transactionDetails'`.
- *  - lookups de comprobante/ítems/asistencia batch parametrizados (eran N+1 por fila).
- *
- * Tenant: $roc (getROC) por query; companyId bound en cada lookup.
+ * Tenant: $roc por query; companyId bound en todos los lookups.
+ * Fixes PG ya en el original: contactInCalendar/transactionDetails en JSONB, lookups batch
+ * parametrizados (no N+1), agregado único por estado en statusTotals/countsByContact.
  */
-class ReportScheduleService
+final class ScheduleService
 {
     private const TX_TYPE = 13;
 
-    /* ───────────────────────── detail (tab "Detallado") ───────────────────────── */
-
     /** Citas. $filters: ['ui'=>userId uuid]. */
-    public function detail(array $filters, $from, $to)
+    public function detail(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        $roc = getROC(1);
         $userClause = '';
         $params = [$from, $to];
         if ($filters['ui']) {
@@ -56,7 +52,6 @@ class ReportScheduleService
             return ['rows' => [], 'summary' => $summary];
         }
 
-        // IDs para lookups batch (foreach, no array_map — ver nota en ReportTransactionsService).
         $apptIds = $parentIds = $custIds = $usrIds = $respIds = $outletIds = $itemIds = [];
         foreach ($res as $f) {
             $apptIds[]  = (string) $f['transactionId'];
@@ -72,12 +67,12 @@ class ReportScheduleService
             }
         }
 
-        $contacts  = $this->contactNames(array_merge($custIds, $usrIds, $respIds));
-        $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds);
-        $itemNames = $this->itemNames($itemIds);
+        $contacts  = $this->contactNames(array_merge($custIds, $usrIds, $respIds), $companyId);
+        $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
+        $itemNames = $this->itemNames($itemIds, $companyId);
         $attended  = $this->attendedSet($apptIds);
-        $docByParent = $this->invoiceByTxId($parentIds);
-        $docBySchedule = $this->invoiceBySchedule($apptIds);   // path toScheduleUID (citas sin parent)
+        $docByParent = $this->invoiceByTxId($parentIds, $companyId);
+        $docBySchedule = $this->invoiceBySchedule($apptIds, $companyId);
 
         $rows = [];
         foreach ($res as $f) {
@@ -85,7 +80,6 @@ class ReportScheduleService
             $usrId  = (string) $f['userId'];
             $respId = (string) $f['responsibleId'];
 
-            // Comprobante de venta vinculado: directo (parent) o vía toScheduleUID.
             $doc = null;
             if ($f['transactionParentId']) {
                 $doc = $docByParent[(string) $f['transactionParentId']] ?? null;
@@ -93,7 +87,6 @@ class ReportScheduleService
                 $doc = $docBySchedule[$apptId];
             }
 
-            // Lista de ítems (motivo).
             $itemsList = [];
             foreach ($this->decodeItemIds($f['transactionDetails'] ?? null) as $iid) {
                 if (isset($itemNames[$iid])) {
@@ -124,17 +117,14 @@ class ReportScheduleService
         return ['rows' => $rows, 'summary' => $summary];
     }
 
-    /* ───────────────────────── stats (tabs "Estadísticas" / "Clientes") ───────────────────────── */
-
     /** Conteos por contacto. $filters: ['uit'=>'usr'|'cus', 'ui'=>contactId]. */
-    public function stats(array $filters, $from, $to)
+    public function stats(array $filters, $from, $to, string $roc, string $companyId): array
     {
         $isCustomer = ($filters['uit'] === 'cus');
         $type = $isCustomer ? 1 : 0;
 
-        // Contactos (usuarios con contactInCalendar, o clientes), opcionalmente uno solo.
         $where  = "companyId = ? AND type = ?";
-        $params = [COMPANY_ID, $type];
+        $params = [$companyId, $type];
         if (!$isCustomer) {
             $where .= " AND data->>'contactInCalendar' = '1'";
         }
@@ -151,9 +141,8 @@ class ReportScheduleService
             return ['rows' => []];
         }
 
-        // Conteos por contacto+estado en un solo agregado (col según el tipo).
         $col = $isCustomer ? 'customerId' : 'userId';
-        $byContact = $this->countsByContact($col, $from, $to);
+        $byContact = $this->countsByContact($col, $from, $to, $roc);
 
         $rows = [];
         foreach ($contacts as $c) {
@@ -171,12 +160,9 @@ class ReportScheduleService
         return ['rows' => $rows];
     }
 
-    /* ───────────────────────── sessions (tab "Sesiones") ───────────────────────── */
-
     /** Paquetes con sesiones (ítems itemSessions > 1) y sesiones realizadas. */
-    public function sessions($from, $to)
+    public function sessions($from, $to, string $companyId): array
     {
-        // itemSessions fue demovido a item.data JSONB (Phase PG) → leerlo con data->>'itemSessions'.
         $sessExpr = "COALESCE(NULLIF(c.data->>'itemSessions',''),'0')::int";
         $sql = "SELECT a.invoiceNo, a.customerId, contact.contactName, b.itemSoldDate, b.itemId,
                        b.itemSoldId, c.itemName, $sessExpr as itemSessions
@@ -188,18 +174,17 @@ class ReportScheduleService
                 GROUP BY a.invoiceNo, a.customerId, contact.contactName, b.itemSoldDate, b.itemId,
                          b.itemSoldId, c.itemName, $sessExpr
                 LIMIT 2000";
-        $res = ncmExecute($sql, [COMPANY_ID, $from, $to], false, false, true);
+        $res = ncmExecute($sql, [$companyId, $from, $to], false, false, true);
         $res = is_array($res) ? $res : [];
         if (!$res) {
             return ['rows' => []];
         }
 
-        // Sesiones realizadas (tipo 13, estado 6) por packageId, en un solo agregado.
         $pkgIds = [];
         foreach ($res as $r) {
             $pkgIds[] = (string) $r['itemSoldId'];
         }
-        $donesMap = $this->donesByPackage($pkgIds);
+        $donesMap = $this->donesByPackage($pkgIds, $companyId);
 
         $rows = [];
         foreach ($res as $r) {
@@ -221,10 +206,9 @@ class ReportScheduleService
         return ['rows' => $rows];
     }
 
-    /* ───────────────────────── helpers ───────────────────────── */
+    /* ───────────── helpers ───────────── */
 
-    /** Totales por estado para el summary (un agregado parametrizado). */
-    private function statusTotals($from, $to, $roc, $userId)
+    private function statusTotals($from, $to, string $roc, $userId): array
     {
         $userClause = '';
         $params = [$from, $to];
@@ -256,14 +240,9 @@ class ReportScheduleService
         ];
     }
 
-    /**
-     * Conteos por contacto+estado (un agregado). @return map[contactId][status] = count
-     * Itera el recordset (forceObj), NO getAssoc: GetAssoc keyea por la 1ª columna y acá el
-     * contactId se repite por cada estado → colapsaría a 1 sola fila por contacto.
-     */
-    private function countsByContact($col, $from, $to)
+    /** Map[contactId][status] = count. forceObj para no colapsar filas por contactId duplicado. */
+    private function countsByContact(string $col, $from, $to, string $roc): array
     {
-        $roc = getROC(1);
         $res = ncmExecute(
             "SELECT $col as cid, transactionStatus, COUNT(*) as total FROM transaction
              WHERE transactionType = " . self::TX_TYPE . "
@@ -285,8 +264,7 @@ class ReportScheduleService
         return $map;
     }
 
-    /** Sesiones realizadas (tipo 13, estado 6) por packageId. @return map[packageId] = dones */
-    private function donesByPackage(array $ids)
+    private function donesByPackage(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -297,7 +275,7 @@ class ReportScheduleService
             "SELECT packageId, COUNT(transactionId) as dones FROM transaction
              WHERE companyId = ? AND transactionType = " . self::TX_TYPE . " AND transactionStatus = 6
              AND packageId IN ($ph) GROUP BY packageId",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -307,8 +285,8 @@ class ReportScheduleService
         return $map;
     }
 
-    /** Decodifica transactionDetails (meta JSONB) → array de itemIds (dec). */
-    private function decodeItemIds($raw)
+    /** Decodifica transactionDetails (meta JSONB) → itemIds. */
+    private function decodeItemIds($raw): array
     {
         if (!$raw) {
             return [];
@@ -320,14 +298,14 @@ class ReportScheduleService
         $out = [];
         foreach ($arr as $v) {
             if (!empty($v['itemId'])) {
-                $out[] = (string) dec($v['itemId']);
+                $out[] = (string) self::dec($v['itemId']);
             }
         }
         return $out;
     }
 
-    /** Set de appointment ids que tienen asistencia (taxonomy.sourceId). */
-    private function attendedSet(array $apptIds)
+    /** Set de appointment ids con asistencia. */
+    private function attendedSet(array $apptIds): array
     {
         $ids = array_values(array_unique(array_filter($apptIds)));
         if (!$ids) {
@@ -341,13 +319,12 @@ class ReportScheduleService
         $res = is_array($res) ? $res : [];
         $out = [];
         foreach ($res as $r) {
-            $out[(string) $r['sourceId']] = true;   // set asociativo → lookup O(1) con isset()
+            $out[(string) $r['sourceId']] = true;
         }
         return $out;
     }
 
-    /** Comprobantes por transactionId → [id => {invoice, txId}], scopeado por companyId. */
-    private function invoiceByTxId(array $ids)
+    private function invoiceByTxId(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -357,7 +334,7 @@ class ReportScheduleService
         $res = ncmExecute(
             "SELECT transactionId, invoiceNo, invoicePrefix FROM transaction
              WHERE companyId = ? AND transactionId IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -370,15 +347,13 @@ class ReportScheduleService
         return $map;
     }
 
-    /** Comprobante vía toScheduleUID (citas sin parent). @return map[scheduleId] = {invoice, txId} */
-    private function invoiceBySchedule(array $scheduleIds)
+    private function invoiceBySchedule(array $scheduleIds, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($scheduleIds)));
         if (!$ids) {
             return [];
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
-        // scheduleId → transactionUID
         $links = ncmExecute(
             "SELECT scheduleId, transactionUID FROM toScheduleUID WHERE scheduleId IN ($ph)",
             $ids, false, false, true
@@ -398,12 +373,11 @@ class ReportScheduleService
         if (!$uids) {
             return [];
         }
-        // transactionUID → transaction (invoice + id)
         $uph = implode(',', array_fill(0, count($uids), '?'));
         $txs = ncmExecute(
             "SELECT transactionUID, transactionId, invoiceNo, invoicePrefix FROM transaction
              WHERE companyId = ? AND transactionUID IN ($uph)",
-            array_merge([COMPANY_ID], $uids), false, false, true
+            array_merge([$companyId], $uids), false, false, true
         );
         $txs = is_array($txs) ? $txs : [];
         $byUid = [];
@@ -422,19 +396,16 @@ class ReportScheduleService
         return $map;
     }
 
-    /** Lookup batch contactId → nombre, scopeado por companyId. */
-    private function contactNames(array $ids)
+    private function contactNames(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
             return [];
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
-        // El legacy usa contactName (usuario/responsable) y getCustomerName (cliente: prefiere
-        // secondName si es largo). Para no duplicar nombres, devolvemos contactName a secas.
         $res = ncmExecute(
             "SELECT contactId, contactName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -444,24 +415,30 @@ class ReportScheduleService
         return $map;
     }
 
-    /** Lookup batch itemId → itemName (getAllItems ya es PG-safe). */
-    private function itemNames(array $ids)
+    /**
+     * Lookup batch itemId → itemName, scopeado por companyId. Reemplaza
+     * getAllItems(false, true, $ids, true) del panel — sólo necesitamos itemName.
+     */
+    private function itemNames(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
             return [];
         }
-        $items = getAllItems(false, true, implode(',', $ids), true);
-        $items = is_array($items) ? $items : [];
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $res = ncmExecute(
+            "SELECT itemId, itemName FROM item WHERE companyId = ? AND itemId IN ($ph)",
+            array_merge([$companyId], $ids), false, false, true
+        );
+        $res = is_array($res) ? $res : [];
         $map = [];
-        foreach ($items as $iid => $row) {
-            $map[(string) $iid] = (string) ($row['itemName'] ?? '');
+        foreach ($res as $r) {
+            $map[(string) $r['itemId']] = (string) ($r['itemName'] ?? '');
         }
         return $map;
     }
 
-    /** Lookup batch id→name de outlet, scopeado por companyId. */
-    private function nameMap($table, $idCol, $nameCol, array $ids)
+    private function nameMap(string $table, string $idCol, string $nameCol, array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -470,7 +447,7 @@ class ReportScheduleService
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
             "SELECT $idCol, $nameCol FROM $table WHERE companyId = ? AND $idCol IN ($ph)",
-            array_merge([COMPANY_ID], $ids), false, false, true
+            array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
@@ -478,5 +455,11 @@ class ReportScheduleService
             $map[(string) $r[$idCol]] = (string) ($r[$nameCol] ?? '');
         }
         return $map;
+    }
+
+    /** Port fiel de dec (identity en PG — historicamente base64). */
+    private static function dec(string $str): string
+    {
+        return $str;
     }
 }

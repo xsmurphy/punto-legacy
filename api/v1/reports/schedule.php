@@ -1,18 +1,17 @@
 <?php
 /**
- * REST canónico — Reporte de Agendamientos (motor ERP, raw).
+ * REST canónico (API compartida /api) — Reporte de Agendamientos (raw).
  *
- *   GET /API/v1/reports/schedule?view=detail|stats|sessions&from=&to=[&ui=&uit=usr|cus]
- *       → datos CRUDOS según la vista.
+ *   GET /v1/reports/schedule?view=detail|stats|sessions&from=&to=[&ui=&uit=usr|cus]
  *
- * SOLO las 3 vistas de LECTURA. El modal de sesiones (`detail` por id) y el write (`delete`)
- * siguen sirviéndose por el PHP legacy vía ?action=. Ver REGLA RAÍZ 2.
+ * SOLO las 3 vistas de LECTURA. El modal de sesiones por id y el write (delete) siguen
+ * en el panel legacy vía ?action=. Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
  */
 
-require_once __DIR__ . '/../../lib/api_middleware.php';
-apiMiddleware();
+require_once __DIR__ . '/../../bootstrap.php';
 
-require_once __DIR__ . '/../../../lib/reports/ReportScheduleService.php';
+$ctx = apiAuthTenant(['panel']);
+$svc = new \Punto\Api\Reports\ScheduleService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
@@ -38,12 +37,18 @@ $ui  = (string) (validateHttp('ui') ?: '');
 $ui  = ($ui !== '' && preg_match($uuidRe, $ui)) ? $ui : '';
 $uit = validateHttp('uit') === 'cus' ? 'cus' : 'usr';
 
-$svc = new ReportScheduleService();
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
+}
+
+$companyId = (string) COMPANY_ID;
 
 if ($view === 'stats') {
-    apiOk($svc->stats(['uit' => $uit, 'ui' => $ui], $from, $to));
+    apiOk($svc->stats(['uit' => $uit, 'ui' => $ui], $from, $to, $roc, $companyId));
 } elseif ($view === 'sessions') {
-    apiOk($svc->sessions($from, $to));
+    apiOk($svc->sessions($from, $to, $companyId));
 } else {
-    apiOk($svc->detail(['ui' => $ui], $from, $to));
+    apiOk($svc->detail(['ui' => $ui], $from, $to, $roc, $companyId));
 }
