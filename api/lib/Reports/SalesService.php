@@ -1,21 +1,32 @@
 <?php
+declare(strict_types=1);
+
+namespace Punto\Api\Reports;
+
 /**
- * Dominio de Reportes de Ventas — capa API (motor ERP, raw).
+ * Dominio de Reportes de Ventas (API compartida, motor ERP).
  *
- * Devuelve datasets CRUDOS (números, sin formatear, sin HTML). El formateo,
- * las comparaciones de período y la composición para la App Punto viven en el
- * BFF (panel/bff/reports/*.php). Ver context/02-arquitectura.md § BFF de 3 niveles.
+ * Port FIEL de panel/lib/reports/ReportSalesService.php (Fase 2 batch 8). Cambios vs original:
+ *  - namespace + `final`
+ *  - `getSalesByPayment($from, $to)` (resolvía a la versión de /app — firma 3-arg con
+ *    registerId, no aplica al panel) → reemplazado por `NonAddingSales::salesByPayment`
+ *    (port estático del panel, batch 7).
+ *  - `getNonAddingToSales(['startDate'=>...])` (sólo en panel) → reemplazado por
+ *    `NonAddingSales::compute` (helper compartido del batch 7).
+ *  - `getPaymentMethodName` ya existe en /app — resuelve por fallback de namespace.
+ *  - Todas las queries reciben `$roc` por parámetro (no globals).
  *
- * La SQL de agregación que antes vivía inline en panel/a_report_summary.php
- * (handlers action=getSales/getTypeSales/getGiftcards) se consolida acá.
+ * 4 datasets: summary, series, hours, byday — el front compone netSales/margin/comparaciones
+ * en el BFF y formatea + arma chart/tabla en el JS.
  *
- * Tenant: el filtro companyId/outlet/register llega como fragmento $roc
- * (getROC()), derivado de COMPANY_ID del JWT — nunca de input del usuario.
+ * Tenant: $roc del endpoint (Roc::build); companyId bound en queries que lo requieran.
  */
-class ReportSalesService
+final class SalesService
 {
+    public function __construct(private readonly NonAddingSales $nonAdding = new NonAddingSales()) {}
+
     /** Totales de ventas (tipos 0 = contado, 3 = crédito) en un período. */
-    public function salesTotals($from, $to, $roc)
+    public function salesTotals($from, $to, $roc): array
     {
         $sql = 'SELECT
                     COALESCE(SUM(transactionUnitsSold), 0) AS unitssold,
@@ -39,8 +50,8 @@ class ReportSalesService
         ];
     }
 
-    /** Total de devoluciones (tipo 6) en un período. Devuelve el total crudo (negativo en BD). */
-    public function returnsTotal($from, $to, $roc)
+    /** Total de devoluciones (tipo 6) en un período. */
+    public function returnsTotal($from, $to, $roc): float
     {
         $sql = 'SELECT COALESCE(SUM(transactionTotal), 0) AS returned
                 FROM transaction
@@ -49,12 +60,11 @@ class ReportSalesService
                 AND transactionDate <= ?' . $roc;
 
         $r = ncmExecute($sql, [$from, $to]);
-
         return (float) ($r['returned'] ?? 0);
     }
 
     /** Totales separados por tipo: contado (0) y crédito (3). */
-    public function salesByType($from, $to, $roc)
+    public function salesByType($from, $to, $roc): array
     {
         $sql = 'SELECT
                     COALESCE(SUM(transactionDiscount), 0) AS discount,
@@ -68,28 +78,22 @@ class ReportSalesService
         $credit = ncmExecute($sql, [3, $from, $to]);
 
         return [
-            'cash' => [
-                'total'    => (float) ($cash['total'] ?? 0),
-                'discount' => (float) ($cash['discount'] ?? 0),
-            ],
-            'credit' => [
-                'total'    => (float) ($credit['total'] ?? 0),
-                'discount' => (float) ($credit['discount'] ?? 0),
-            ],
+            'cash'   => ['total' => (float) ($cash['total'] ?? 0),   'discount' => (float) ($cash['discount'] ?? 0)],
+            'credit' => ['total' => (float) ($credit['total'] ?? 0), 'discount' => (float) ($credit['discount'] ?? 0)],
         ];
     }
 
-    /** Gift cards vendidas en un período (monto y unidades). */
-    public function giftcardsSold($from, $to, $companyId)
+    /** Gift cards vendidas en un período. */
+    public function giftcardsSold($from, $to, $companyId): array
     {
-        $sql = 'SELECT
+        $sql = "SELECT
                     COALESCE(SUM(b.itemSoldTotal), 0) AS total,
                     COALESCE(SUM(b.itemSoldUnits), 0) AS count
                 FROM item a, itemSold b
-                WHERE a.itemType = \'giftcard\'
+                WHERE a.itemType = 'giftcard'
                 AND a.itemId = b.itemId
                 AND a.companyId = ?
-                AND b.itemSoldDate BETWEEN ? AND ?';
+                AND b.itemSoldDate BETWEEN ? AND ?";
 
         $r = ncmExecute($sql, [$companyId, $from, $to]);
 
@@ -103,28 +107,19 @@ class ReportSalesService
      * Dataset crudo del resumen de ventas de UN período.
      * El BFF llama esto una vez por período (actual + anterior) y compone/formatea.
      */
-    public function summary($from, $to, $roc, $companyId)
+    public function summary($from, $to, $roc, $companyId): array
     {
-        // getSalesByPayment se auto-scopea por tenant (llama getROC con los globals
-        // OUTLET_ID/COMPANY_ID del JWT); no recibe el fragmento $roc.
         $payments = [];
-        foreach (getSalesByPayment($from, $to) as $m) {
+        foreach (NonAddingSales::salesByPayment($from, $to, $roc) as $m) {
             $payments[] = [
                 'type'  => $m['type'],
-                // El nombre del medio (incl. métodos custom de la company) sale de la BD
-                // → es dato del ERP, no presentación; lo resuelve la API. El front formatea el precio.
                 'name'  => getPaymentMethodName($m['type']),
                 'price' => (float) ($m['price'] ?? 0),
                 'total' => (float) ($m['total'] ?? 0),
             ];
         }
 
-        $nonAdding = getNonAddingToSales([
-            'startDate' => $from,
-            'endDate'   => $to,
-            'roc'       => $roc,
-            'backThen'  => false,
-        ]);
+        $nonAdding = $this->nonAdding->compute($from, $to, $roc, false, 0);
 
         return [
             'totals'    => $this->salesTotals($from, $to, $roc),
@@ -140,22 +135,14 @@ class ReportSalesService
     }
 
     /**
-     * Series crudas de UN período para el gráfico. El BFF llama esto una vez por
-     * período (actual + anterior) y compone labels/margin/byweek/anotaciones.
-     *
-     * Si el rango es de un solo día, agrupa por hora (bucket 0..23); si abarca
-     * varios días, agrupa por fecha (bucket 'Y-m-d'). Devuelve ventas (tipos
-     * 0,3,6) y egresos (tipos 1,4) — números crudos, sin formatear ni rellenar.
+     * Series crudas de UN período para el gráfico. Si el rango es de un solo día, agrupa
+     * por hora; si abarca varios, agrupa por fecha. Devuelve ventas (0,3,6) y egresos (1,4).
      */
-    public function series($from, $to, $roc, $isDay)
+    public function series($from, $to, $roc, $isDay): array
     {
-        if ($isDay) {
-            // Por hora del día (EXTRACT, no el HOUR() de MySQL).
-            $bucket = 'EXTRACT(HOUR FROM transactionDate)::int';
-        } else {
-            // Por fecha (cast ::date, no el DATE() de MySQL).
-            $bucket = 'transactionDate::date';
-        }
+        $bucket = $isDay
+            ? 'EXTRACT(HOUR FROM transactionDate)::int'
+            : 'transactionDate::date';
 
         $salesSql = 'SELECT ' . $bucket . ' AS bucket,
                         COUNT(transactionId)                   AS count,
@@ -188,7 +175,7 @@ class ReportSalesService
     }
 
     /** Conteo de ventas por hora del día (tipos 0,3) — para el gráfico "Ventas por Hora". */
-    public function hours($from, $to, $roc)
+    public function hours($from, $to, $roc): array
     {
         $sql = 'SELECT EXTRACT(HOUR FROM transactionDate)::int AS hour,
                     COUNT(transactionId)                   AS total,
@@ -203,12 +190,8 @@ class ReportSalesService
         return $this->rows($sql, [$from, $to], true);
     }
 
-    /**
-     * Filas crudas por día (tipos 0,3,6) para la pestaña "Por Día".
-     * La resta de ventas internas (lessInternalTotals) está desactivada salvo que
-     * la company tenga ignoreInternal — se deja al front/BFF cuando aplique.
-     */
-    public function byDay($from, $to, $roc)
+    /** Filas crudas por día (tipos 0,3,6) para la pestaña "Por Día". */
+    public function byDay($from, $to, $roc): array
     {
         $sql = 'SELECT transactionDate::date            AS bucket,
                     COALESCE(SUM(transactionUnitsSold), 0) AS units,
@@ -238,7 +221,7 @@ class ReportSalesService
     }
 
     /** Ejecuta una query multi-fila y la colecta en un array de filas crudas. */
-    private function rows($sql, array $params, $isDay)
+    private function rows($sql, array $params, $isDay): array
     {
         $res  = ncmExecute($sql, $params, false, true);
         $rows = [];

@@ -61,11 +61,11 @@ function bffWeekday($date)
 
 function bffFetchSummary($from, $to)
 {
-    return bffApiGet('v1/reports/sales.php', ['dataset' => 'summary', 'from' => $from, 'to' => $to]);
+    return bffApiGet('v1/reports/sales.php', ['dataset' => 'summary', 'from' => $from, 'to' => $to], '_jwt_panel', ['base' => 'shared']);
 }
 function bffFetchSeries($from, $to)
 {
-    return bffApiGet('v1/reports/sales.php', ['dataset' => 'series', 'from' => $from, 'to' => $to]);
+    return bffApiGet('v1/reports/sales.php', ['dataset' => 'series', 'from' => $from, 'to' => $to], '_jwt_panel', ['base' => 'shared']);
 }
 
 /* ───────────────────────── KPIs (default) ───────────────────────── */
@@ -275,7 +275,7 @@ function bffViewChart($from, $to)
 
 function bffViewHours($from, $to)
 {
-    $res = bffApiGet('v1/reports/sales.php', ['dataset' => 'hours', 'from' => $from, 'to' => $to]);
+    $res = bffApiGet('v1/reports/sales.php', ['dataset' => 'hours', 'from' => $from, 'to' => $to], '_jwt_panel', ['base' => 'shared']);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }
@@ -301,7 +301,7 @@ function bffViewHours($from, $to)
 
 function bffViewByDay($from, $to)
 {
-    $res = bffApiGet('v1/reports/sales.php', ['dataset' => 'byday', 'from' => $from, 'to' => $to]);
+    $res = bffApiGet('v1/reports/sales.php', ['dataset' => 'byday', 'from' => $from, 'to' => $to], '_jwt_panel', ['base' => 'shared']);
     if (!$res['ok']) {
         bffFailFromApi($res);
     }

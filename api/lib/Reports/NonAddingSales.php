@@ -56,7 +56,7 @@ final class NonAddingSales
     /** Devuelve [gift, credit, points, internal] para un período (usado por compute y backThen). */
     private function summarize(string $from, string $to, string $roc, int $cache): array
     {
-        $pmnts = $this->salesByPayment($from, $to, $roc, $cache);
+        $pmnts = self::salesByPayment($from, $to, $roc, $cache);
         $gift = $credit = $points = 0.0;
         foreach ($pmnts as $m) {
             $type = $m['type'] ?? '';
@@ -73,8 +73,12 @@ final class NonAddingSales
      * Port fiel de getSalesByPayment del panel (firma reducida: el `$regId` del original
      * se ignoraba en la práctica porque la función recalculaba `$roc` adentro). Tipo 0,5
      * + meta->>'tags' (Phase PG). Devuelve la lista agrupada por groupByPaymentMethod.
+     *
+     * Público porque también lo usa SalesService::summary (batch 8). En /api NO se puede
+     * llamar al global `getSalesByPayment()` porque resuelve a la versión de /app (firma
+     * 3-arg con registerId, que para el panel siempre llega vacío → query sin matches).
      */
-    private function salesByPayment(string $from, string $to, string $roc, int $cache): array
+    public static function salesByPayment(string $from, string $to, string $roc, int $cache = 0): array
     {
         if ($from === '') { return []; }
 
