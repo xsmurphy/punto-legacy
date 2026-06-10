@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Objetivo: modernizar progresivamente sin
 big-bang rewrites, manteniendo el sistema funcional en cada etapa.
 
-> **Última actualización:** 2026-06-10 (Desacople /panel → /api compartida: F0/F1/F2 **completas al 97%** — multi-realm auth + 21+1 reportes + outlets + settings + bootstrap + contacts + items migrados, commits c4d3231..479887b. Único pendiente F2: inventory widget, bloqueado por decisión semántica de producto — ver "Inventory widget: deuda de semántica" más abajo.)
+> **Última actualización:** 2026-06-10 (PIVOTE ARQUITECTÓNICO: el panel legacy se reescribe a React+Next+shadcn — ver [`context/12-panel-rewrite.md`](12-panel-rewrite.md). F3/F4/F5 del plan original del panel quedan **CANCELADOS**: ya no se transforma el legacy, se borra cuando el nuevo lo cubre al 100%. F2 cierra al 100% técnico: outlets/settings/bootstrap/contacts/items/vpayments + 21 reportes en /api compartida, multi-realm. Tres bugs cluster de duplicación /app↔/panel cazados por smoke F2 y arreglados: Query::update sin whereParams (553a8e1), DB.php divergido (6ed461a), JSONB routing perdido (a8c12a1). Commits c4d3231..a8c12a1.)
 > **Fuente histórica:** consolidado desde `MODERNIZATION.md` (eliminado)
 
 ---

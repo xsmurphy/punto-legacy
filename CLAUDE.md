@@ -52,6 +52,7 @@ Leer `context/README.md` primero (índice) y luego los archivos relevantes a la 
 | 09 | [context/09-costos-y-creditos.md](context/09-costos-y-creditos.md) | Para APIs pagas y modelo de créditos IA |
 | 10 | [context/10-roadmap.md](context/10-roadmap.md) | **Crítico** — backlog priorizado, fuente única de verdad del roadmap |
 | 11 | [context/11-design-system.md](context/11-design-system.md) | Manual de marca — reutilizar clases/colores existentes (BS3+app.css); skill `brand-manual`. Nunca inventar estilos ni rediseñar |
+| 12 | [context/12-panel-rewrite.md](context/12-panel-rewrite.md) | **Crítico desde 2026-06-10** — Plan del rewrite del panel a React+Next+shadcn (`panel-next/`). El panel legacy NO se mantiene; F3/F4/F5 del desacople original están cancelados |
 
 ### Mantenimiento del vault
 

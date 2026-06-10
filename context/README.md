@@ -18,6 +18,7 @@ Documentación viva del proyecto Punto POS. Se mantiene actualizada sesión a se
 | 09 | [09-costos-y-creditos.md](09-costos-y-creditos.md) | APIs pagas, modelo de créditos IA |
 | 10 | [10-roadmap.md](10-roadmap.md) | Backlog técnico priorizado |
 | 11 | [11-design-system.md](11-design-system.md) | Manual de marca: colores, tipografía y clases existentes (BS3 + app.css) |
+| 12 | [12-panel-rewrite.md](12-panel-rewrite.md) | **Plan rewrite panel React + Next + shadcn** (2026-06-10): el legacy se borra; stack, slices, sprint 0 |
 
 ## Reglas de mantenimiento
 

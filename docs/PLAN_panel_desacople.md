@@ -118,7 +118,26 @@ default del cliente flipeado a `'shared'`.
 
 ---
 
-## Fase 3 — Oleadas del legacy (~20K líneas)
+## ⛔ Fases 3/4/5 — CANCELADAS (2026-06-10, pivote arquitectónico)
+
+El plan F3 (oleadas legacy) / F4 (shell @.php) / F5 (congelar `panel/API/`) buscaba
+**transformar** el panel legacy a la nueva forma. Decisión del usuario 2026-06-10:
+el panel legacy se **REESCRIBE** desde cero a React + Next + shadcn (sin mantener
+el legacy en paralelo más allá de coexistencia temporal). Ver
+[`context/12-panel-rewrite.md`](../context/12-panel-rewrite.md).
+
+Lo que queda VIVO del plan F3 original: cuando un slice React del nuevo panel
+necesita una operación que hoy vive en un handler in-process `panel/a_X.php?action=Y`,
+ese handler se porta a `/api/v1/` **como dependencia del slice React correspondiente**
+— no como F3 separado. Esto se planifica en el documento de rewrite, no acá.
+
+El contenido original de F3/F4/F5 se preserva abajo solo como referencia histórica
+de qué hacían los handlers in-process del legacy (útil cuando un slice React
+necesita esa funcionalidad).
+
+---
+
+## Fase 3 — Oleadas del legacy (~20K líneas) [REFERENCIA HISTÓRICA]
 
 **Patrón por módulo** (aplica a todos): inventariar `?action=` del `a_X.php` → servicio(s) en
 `api/lib/<Modulo>/` → endpoint(s) granulares `api/v1/` con `apiAuthTenant(['panel'])` (o
