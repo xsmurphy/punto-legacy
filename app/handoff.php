@@ -81,7 +81,13 @@ if ($_sub === '' || $_cid === '' || $_oid === '') {
 
 // Reemitimos el cookie con TTL real del POS (no el corto del handoff).
 // Esto evita que el user se quede con un cookie de 60s post-redirect.
-$ttl = (int)($_ENV['JWT_TTL'] ?? 28800);
+//
+// CONVENCIÓN ttl=0 = token ETERNO (sin claim `exp`), igual que login.php:81-93.
+// Los tokens POS son device-pairing de larga vida (el operador sale con PIN, no
+// re-login), por eso JWT_TTL=0 en prod. El bug previo hacía `exp = now + 0 = now`
+// → el token expiraba el mismo segundo en que se emitía; jwtDecode lo rechazaba
+// apenas había latencia (Cloudflare) → 401 en /fetchs. Default 0 para alinear con login.
+$ttl = (int)($_ENV['JWT_TTL'] ?? 0);
 $now = time();
 $newPayload = [
     'iss'  => 'pos-app',
@@ -91,8 +97,10 @@ $newPayload = [
     'rid'  => (string)($payload['rid'] ?? ''),
     'role' => (int)($payload['role'] ?? 0),
     'iat'  => $now,
-    'exp'  => $now + $ttl,
 ];
+if ($ttl > 0) {
+    $newPayload['exp'] = $now + $ttl;
+}
 if (!empty($payload['did'])) {
     $newPayload['did'] = (string)$payload['did'];
 }
