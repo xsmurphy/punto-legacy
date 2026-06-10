@@ -1009,7 +1009,7 @@ span.label.bg-success, span.label.bg-info{
 }*/
 
 .bg-grad-info {
-    background: linear-gradient(314deg, #62bcce, #54cfc7);
+    background: linear-gradient(314deg, #4de5b8, #01cc97);
     background-size: 400% 400%;
     -webkit-animation: AnimationName 15s ease infinite;
     -moz-animation: AnimationName 15s ease infinite;
@@ -1039,7 +1039,7 @@ span.label.bg-success, span.label.bg-info{
 }
 
 .gradBg {
-    background: linear-gradient(314deg, #57c4d2, #54cfc7)!important;
+    background: linear-gradient(314deg, #57c4d2, #01cc97)!important;
     background-size: 200% 200%!important;
 }
 
@@ -1089,7 +1089,7 @@ span.label.bg-success, span.label.bg-info{
     color:white;
 }
 .gradBgBlue {
-    background: linear-gradient(314deg, #6BC0D1, #54CFC7, #01D7A1)!important;
+    background: linear-gradient(314deg, #01c090, #01cc97, #01D7A1)!important;
     background-size: 200% 200%!important;
     color:white;
 }

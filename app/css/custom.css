@@ -641,7 +641,7 @@ div:focus{
     background-image: url("../images/btnbg.png");
 }
 .gradBg {
-    background: linear-gradient(314deg, #57c4d2, #54cfc7)!important;
+    background: linear-gradient(314deg, #57c4d2, #01cc97)!important;
     background-size: 200% 200%!important;
 }
 
@@ -685,7 +685,7 @@ div:focus{
     color:white;
 }
 .gradBgBlue {
-    background: linear-gradient(314deg, #6BC0D1, #54CFC7, #01D7A1)!important;
+    background: linear-gradient(314deg, #01c090, #01cc97, #01D7A1)!important;
     background-size: 200% 200%!important;
     color:white;
 }
@@ -791,7 +791,7 @@ div:focus{
     background: -webkit-linear-gradient(top, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     background: linear-gradient(to bottom, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     filter: progid: DXImageTransform.Microsoft.gradient(startColorstr='#01D7A1', endColorstr='#e3ebec', GradientType=0);
-    color: #eaf6f9!important
+    color: #e0fdf5!important
 }
 .mobilePayBtnBgColorDark {
     background: #01D7A1;
@@ -799,7 +799,7 @@ div:focus{
     background: -webkit-linear-gradient(top, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     background: linear-gradient(to bottom, rgba(76, 182, 203, 1) 86%, rgba(227, 235, 236, 1) 99%);
     filter: progid: DXImageTransform.Microsoft.gradient(startColorstr='#01D7A1', endColorstr='#e3ebec', GradientType=0);
-    color: #eaf6f9!important
+    color: #e0fdf5!important
 }
 .mobilePayBtnBgColor .text-muted {
     color: #c3e6ed!important
