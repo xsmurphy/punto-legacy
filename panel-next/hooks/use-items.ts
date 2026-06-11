@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import {
   kindToBackendFields,
+  defaultAvailability,
+  type ItemAvailability,
   type ItemFormValues,
   type ItemFull,
   type ItemListItem,
@@ -93,6 +95,22 @@ export function useTaxonomiesByType(type: string) {
   }
 }
 
+/** Lista de monedas extranjeras del tenant con sus tasas. */
+export interface CurrencyEntry {
+  country?: string
+  code: string
+  rate?: number
+  symbol?: string
+  name?: string
+}
+export function useCurrencies() {
+  return useQuery<CurrencyEntry[]>({
+    queryKey: ["currencies"],
+    queryFn: () => api.get("/v1/currencies"),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function serialize(
@@ -130,5 +148,62 @@ function serialize(
     itemPriceType: values.priceType === "percent" ? 1 : 0,
     itemEcom: values.ecom ? 1 : 0,
     itemFeatured: values.featured ? 1 : 0,
+    itemProcedure: values.procedure,
+    // itemDateHour: serializa la availability como objeto JSONB. Si availability
+    // está deshabilitada, mandamos null para limpiar.
+    itemDateHour: values.availability.enabled
+      ? JSON.stringify(values.availability)
+      : null,
+    // itemCurrencies: mapa { codigoMoneda: precio }. Solo guardamos entradas
+    // con precio > 0 para no inflar el JSONB con ceros.
+    itemCurrencies: JSON.stringify(
+      Object.fromEntries(
+        Object.entries(values.currencies).filter(([, v]) => v && Number(v) > 0),
+      ),
+    ),
   }
+}
+
+export function parseAvailability(raw: unknown): ItemAvailability {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === "object" && "days" in parsed) {
+        return parsed as ItemAvailability
+      }
+    } catch {
+      /* fallthrough */
+    }
+  }
+  if (raw && typeof raw === "object" && "days" in (raw as Record<string, unknown>)) {
+    return raw as ItemAvailability
+  }
+  return defaultAvailability()
+}
+
+export function parseCurrencies(raw: unknown): Record<string, number> {
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === "object") {
+        return Object.fromEntries(
+          Object.entries(parsed as Record<string, unknown>).map(([k, v]) => [
+            k,
+            typeof v === "number" ? v : Number(v) || 0,
+          ]),
+        )
+      }
+    } catch {
+      /* fallthrough */
+    }
+  }
+  if (raw && typeof raw === "object") {
+    return Object.fromEntries(
+      Object.entries(raw as Record<string, unknown>).map(([k, v]) => [
+        k,
+        typeof v === "number" ? v : Number(v) || 0,
+      ]),
+    )
+  }
+  return {}
 }

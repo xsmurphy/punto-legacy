@@ -15,6 +15,8 @@ import {
   Settings as SettingsIcon,
   User,
   ChefHat,
+  Calendar,
+  Coins,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -60,8 +62,11 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import {
+  parseAvailability,
+  parseCurrencies,
   useArchiveItem,
   useCreateItem,
+  useCurrencies,
   useItem,
   useTaxonomiesByType,
   useUpdateItem,
@@ -72,6 +77,10 @@ import { formatMoney } from "@/lib/format"
 import {
   inferKind,
   KIND_META,
+  DAYS,
+  DAY_LABELS,
+  defaultAvailability,
+  type DayOfWeek,
   type ItemFormValues,
   type ItemKind,
   type KindFieldVisibility,
@@ -111,6 +120,19 @@ const itemSchema = z.object({
   priceType: z.enum(["fixed", "percent"]),
   ecom: z.boolean(),
   featured: z.boolean(),
+  procedure: z.string(),
+  availability: z.object({
+    enabled: z.boolean(),
+    days: z.record(
+      z.string(),
+      z.object({
+        enabled: z.boolean(),
+        from: z.string(),
+        to: z.string(),
+      }),
+    ),
+  }),
+  currencies: z.record(z.string(), z.number()),
 })
 
 type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
@@ -162,6 +184,9 @@ export default function ItemEditPage() {
       priceType: data.itemPriceType ? "percent" : "fixed",
       ecom: !!data.itemEcom,
       featured: !!data.itemFeatured,
+      procedure: typeof data.itemProcedure === "string" ? data.itemProcedure : "",
+      availability: parseAvailability(data.itemDateHour),
+      currencies: parseCurrencies(data.itemCurrencies),
     })
   }, [data, form, isNew])
 
@@ -263,7 +288,7 @@ export default function ItemEditPage() {
         </header>
 
         <Tabs defaultValue="perfil" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
             <TabsTrigger value="perfil" className="gap-1.5">
               <User className="size-3.5" />
               Perfil
@@ -271,6 +296,14 @@ export default function ItemEditPage() {
             <TabsTrigger value="config" className="gap-1.5">
               <SettingsIcon className="size-3.5" />
               Configuración
+            </TabsTrigger>
+            <TabsTrigger value="disponibilidad" className="gap-1.5">
+              <Calendar className="size-3.5" />
+              Disponibilidad
+            </TabsTrigger>
+            <TabsTrigger value="cotizaciones" className="gap-1.5">
+              <Coins className="size-3.5" />
+              Cotizaciones
             </TabsTrigger>
             <TabsTrigger value="stock" className="gap-1.5" disabled={isNew}>
               <Boxes className="size-3.5" />
@@ -288,11 +321,17 @@ export default function ItemEditPage() {
           <TabsContent value="config" className="mt-6">
             <ConfigTab form={form} visibility={visibility} kind={kind} />
           </TabsContent>
+          <TabsContent value="disponibilidad" className="mt-6">
+            <DisponibilidadTab form={form} />
+          </TabsContent>
+          <TabsContent value="cotizaciones" className="mt-6">
+            <CotizacionesTab form={form} />
+          </TabsContent>
           <TabsContent value="stock" className="mt-6">
             <StockTab id={id} isNew={isNew} />
           </TabsContent>
           <TabsContent value="produccion" className="mt-6">
-            <ProduccionTab id={id} isNew={isNew} visibility={visibility} />
+            <ProduccionTab form={form} id={id} isNew={isNew} visibility={visibility} />
           </TabsContent>
         </Tabs>
       </form>
@@ -1008,13 +1047,178 @@ function StockKpi({ label, value }: { label: string; value: string }) {
   )
 }
 
+// ── DISPONIBILIDAD TAB ──────────────────────────────────────────────────────
+
+function DisponibilidadTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
+  const availability = form.watch("availability")
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">Días y horarios disponibles</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <FormField
+          control={form.control}
+          name="availability.enabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+              <div>
+                <FormLabel className="text-sm">Limitar disponibilidad</FormLabel>
+                <FormDescription className="text-xs">
+                  Si está apagado, el ítem se vende todos los días sin restricción
+                  horaria. Encendido = solo los días y rangos configurados abajo.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch checked={field.value} onCheckedChange={field.onChange} />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        {availability?.enabled && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {DAYS.map((day) => (
+              <DaySchedule key={day} day={day} form={form} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function DaySchedule({
+  day,
+  form,
+}: {
+  day: DayOfWeek
+  form: UseFormReturn<ItemFormValues>
+}) {
+  const enabled = form.watch(`availability.days.${day}.enabled`)
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3">
+      <div className="flex items-center justify-between">
+        <FormLabel className="text-xs font-semibold uppercase tracking-wide">
+          {DAY_LABELS[day]}
+        </FormLabel>
+        <FormField
+          control={form.control}
+          name={`availability.days.${day}.enabled`}
+          render={({ field }) => (
+            <Switch checked={field.value} onCheckedChange={field.onChange} />
+          )}
+        />
+      </div>
+      {enabled && (
+        <div className="flex flex-col gap-2">
+          <FormField
+            control={form.control}
+            name={`availability.days.${day}.from`}
+            render={({ field }) => (
+              <Input
+                type="time"
+                className="tabular-nums h-8 text-xs"
+                {...field}
+              />
+            )}
+          />
+          <FormField
+            control={form.control}
+            name={`availability.days.${day}.to`}
+            render={({ field }) => (
+              <Input
+                type="time"
+                className="tabular-nums h-8 text-xs"
+                {...field}
+              />
+            )}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── COTIZACIONES TAB ────────────────────────────────────────────────────────
+
+function CotizacionesTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
+  const { data: currencies, isLoading } = useCurrencies()
+  const values = form.watch("currencies")
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">Precio por moneda extranjera</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <p className="text-xs text-muted-foreground">
+          Si vendés a clientes que pagan en moneda extranjera, definí acá el precio
+          de venta de este ítem en cada divisa. Cero o vacío = no se ofrece en esa
+          moneda. Las tasas de conversión se configuran en Configuración → Monedas.
+        </p>
+
+        {isLoading && (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        )}
+
+        {!isLoading && (!currencies || currencies.length === 0) && (
+          <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
+            No hay monedas extranjeras configuradas. Agregalas en Configuración →
+            Monedas para que aparezcan acá.
+          </p>
+        )}
+
+        {!isLoading && currencies && currencies.length > 0 && (
+          <div className="flex flex-col divide-y rounded-md border">
+            {currencies.map((c) => (
+              <div
+                key={c.code}
+                className="flex items-center justify-between gap-3 p-3"
+              >
+                <div className="flex flex-col">
+                  <div className="text-sm font-semibold tracking-wide">
+                    {c.code}
+                  </div>
+                  {c.name && (
+                    <div className="text-xs text-muted-foreground">{c.name}</div>
+                  )}
+                </div>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  placeholder="0"
+                  value={values?.[c.code] ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    form.setValue(`currencies.${c.code}` as never, (v === "" ? 0 : Number(v)) as never, { shouldDirty: true })
+                  }}
+                  className="tabular-nums w-40 text-right"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── PRODUCCIÓN TAB ──────────────────────────────────────────────────────────
 
 function ProduccionTab({
+  form,
   id,
   isNew,
   visibility,
 }: {
+  form: UseFormReturn<ItemFormValues>
   id: string
   isNew: boolean
   visibility: KindFieldVisibility
@@ -1024,7 +1228,7 @@ function ProduccionTab({
       <Card>
         <CardContent className="p-8 text-center text-sm text-muted-foreground">
           Primero creá el artículo. Una vez guardado, podés agregar ingredientes
-          (compounds) si el tipo lo requiere.
+          (compounds) y el procedimiento si el tipo lo requiere.
         </CardContent>
       </Card>
     )
@@ -1046,13 +1250,14 @@ function ProduccionTab({
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Ingredientes / Receta</CardTitle>
+          <CardTitle className="text-sm font-medium">Insumos / Receta</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            Los ingredientes definen qué insumos se consumen al producir o vender
-            este artículo. El editor de compounds aterriza en panel-next en un slice
-            futuro — por ahora usá el editor del panel legacy.
+            Los insumos definen qué materiales se consumen al producir o vender
+            este artículo. El editor de la receta + cálculo de costo total
+            aterriza en panel-next cuando portemos el endpoint de compounds
+            (items hijo con `itemParentId`). Por ahora usá el editor del panel legacy.
           </p>
           <Button asChild variant="outline" size="sm" className="w-fit">
             <a
@@ -1061,11 +1266,39 @@ function ProduccionTab({
               rel="noreferrer"
             >
               <ExternalLink className="size-3.5" />
-              Editar ingredientes en panel legacy
+              Editar receta en panel legacy
             </a>
           </Button>
         </CardContent>
       </Card>
+
+      <FormField
+        control={form.control}
+        name="procedure"
+        render={({ field }) => (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Procedimiento</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FormItem>
+                <FormControl>
+                  <Textarea
+                    rows={6}
+                    placeholder="Procedimiento para la elaboración (opcional)"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription className="text-xs">
+                  Instrucciones paso a paso de cómo preparar este ítem. Visible en el
+                  módulo de producción.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            </CardContent>
+          </Card>
+        )}
+      />
     </div>
   )
 }
@@ -1103,6 +1336,9 @@ function emptyValues(): ItemFormValues {
     priceType: "fixed",
     ecom: false,
     featured: false,
+    procedure: "",
+    availability: defaultAvailability(),
+    currencies: {},
   }
 }
 

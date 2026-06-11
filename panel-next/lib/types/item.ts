@@ -109,6 +109,49 @@ export interface ItemFormValues {
   ecom: boolean
   /** Item destacado (featured) en el catálogo. */
   featured: boolean
+
+  // Producción (se guarda en JSONB).
+  /** Procedimiento de elaboración (texto libre). */
+  procedure: string
+
+  // Disponibilidad (itemDateHour JSONB).
+  /** Disponibilidad por día de la semana. Si availability.enabled === false
+   *  el ítem se vende todos los días sin restricción horaria. */
+  availability: ItemAvailability
+
+  // Cotizaciones (itemCurrencies JSONB).
+  /** Precios por código de moneda (PYG, ARS, BRL, ...). */
+  currencies: Record<string, number>
+}
+
+/** Disponibilidad por día. `enabled` controla si la regla aplica;
+ *  false = el ítem se vende sin restricción de día/hora. */
+export interface ItemAvailability {
+  enabled: boolean
+  days: Record<DayOfWeek, { enabled: boolean; from: string; to: string }>
+}
+
+export type DayOfWeek = "lun" | "mar" | "mie" | "jue" | "vie" | "sab" | "dom"
+
+export const DAY_LABELS: Record<DayOfWeek, string> = {
+  lun: "Lun",
+  mar: "Mar",
+  mie: "Mié",
+  jue: "Jue",
+  vie: "Vie",
+  sab: "Sáb",
+  dom: "Dom",
+}
+
+export const DAYS: DayOfWeek[] = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"]
+
+export function defaultAvailability(): ItemAvailability {
+  return {
+    enabled: false,
+    days: Object.fromEntries(
+      DAYS.map((d) => [d, { enabled: true, from: "08:00", to: "20:00" }]),
+    ) as ItemAvailability["days"],
+  }
 }
 
 // ── Kind config: labels + visibility de secciones del form ────────────────
