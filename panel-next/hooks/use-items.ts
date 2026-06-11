@@ -117,5 +117,18 @@ function serialize(
     itemCanSale: flags.itemCanSale,
     itemTrackInventory: flags.itemTrackInventory,
     itemProduction: flags.itemProduction,
+    // Configuraciones extendidas — algunas son columnas (outletId, itemSort,
+    // supplierId), el resto rutea al JSONB `data` automáticamente porque no
+    // están en el _getTableSchema['item'] whitelist tras migration 07.
+    outletId: values.outletId || null,
+    supplierId: values.supplierId || null,
+    itemSort: values.sort ?? 99999,
+    itemWaste: values.waste ?? 0,
+    itemComissionPercent: values.commission ?? 0,
+    itemComissionType: values.commissionType === "percent" ? "0" : "1",
+    itemPricePercent: values.pricePercent ?? 0,
+    itemPriceType: values.priceType === "percent" ? 1 : 0,
+    itemEcom: values.ecom ? 1 : 0,
+    itemFeatured: values.featured ? 1 : 0,
   }
 }

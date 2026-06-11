@@ -87,6 +87,28 @@ export interface ItemFormValues {
   categoryId: string
   brandId: string
   status: boolean
+
+  // Configuraciones extendidas (en JSONB excepto outletId y itemSort).
+  /** Sucursal a la que pertenece el ítem ("" = todas las sucursales). */
+  outletId: string
+  /** Proveedor primario (FK al contacto type=2 — proveedor). */
+  supplierId: string
+  /** Merma % — porcentaje de pérdida en producción/stock. */
+  waste: number | null
+  /** Prioridad de ordenamiento — menor = más arriba (default 99999). */
+  sort: number | null
+  /** Comisión sobre la venta. */
+  commission: number | null
+  /** Tipo de comisión: '%' (porcentual) o 'fixed' (monto fijo). */
+  commissionType: "percent" | "fixed"
+  /** Si el precio se calcula como % sobre costo, este es el % a aplicar. */
+  pricePercent: number | null
+  /** Tipo de cálculo de precio: '' (fijo) o 'percent' (% sobre costo). */
+  priceType: "fixed" | "percent"
+  /** Item vendido online (ecommerce). */
+  ecom: boolean
+  /** Item destacado (featured) en el catálogo. */
+  featured: boolean
 }
 
 // ── Kind config: labels + visibility de secciones del form ────────────────
