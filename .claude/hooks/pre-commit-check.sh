@@ -128,8 +128,7 @@ PY
     exit 0
 fi
 
-# No blockers — surface a soft reminder to run the deeper review.
-cat <<'JSON'
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"pre-commit-check: static checks passed (no orphan FormField, no obvious secrets). For a deeper audit (multi-tenant leak, ai-billing-gate bypass, buildFlowFromAgent desync, TS regressions), invoke the code-reviewer subagent before this commit."}}
-JSON
+# No blockers — exit silently to avoid injecting context on every commit.
+# code-reviewer is invoked from CLAUDE.md on high-risk commits only,
+# not by this hook.
 exit 0
