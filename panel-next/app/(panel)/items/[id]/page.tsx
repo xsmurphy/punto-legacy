@@ -406,7 +406,7 @@ function PerfilTab({
                   </SelectContent>
                 </Select>
                 <FormDescription className="text-xs">
-                  {KIND_META[field.value as ItemKind].description}
+                  {(KIND_META[field.value as ItemKind] ?? KIND_META["producto"]).description}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
