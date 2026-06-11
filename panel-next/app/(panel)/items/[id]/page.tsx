@@ -640,14 +640,17 @@ function ConfigTab({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Sucursal</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
+                  <Select
+                    onValueChange={(v) => field.onChange(v === "_all" ? "" : v)}
+                    value={field.value || "_all"}
+                  >
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Todas las sucursales" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="">Todas las sucursales</SelectItem>
+                      <SelectItem value="_all">Todas las sucursales</SelectItem>
                       {(outlets?.rows ?? []).map((o) => (
                         <SelectItem key={o.id} value={o.id}>
                           {o.name}
