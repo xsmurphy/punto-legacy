@@ -37,13 +37,26 @@ async function request<T>(
   init: RequestInit & { jwt?: string } = {},
 ): Promise<T> {
   const { jwt, headers, ...rest } = init
+
+  // Content-Type SOLO cuando hay body. Mandarlo en GET convierte la request
+  // en "no-simple" (CORS) y triggea preflight OPTIONS innecesario — si el
+  // servidor preflight devuelve algo distinto a 204/2xx, la request real
+  // nunca arranca y el caller ve un 401/CORS error que NO es el problema
+  // real. Bug cazado en login → bootstrap (redirect loop).
+  const hasBody = "body" in rest && rest.body !== undefined && rest.body !== null
+  const baseHeaders: Record<string, string> = { Accept: "application/json" }
+  if (hasBody) {
+    baseHeaders["Content-Type"] = "application/json"
+  }
+  if (jwt) {
+    baseHeaders.Authorization = `Bearer ${jwt}`
+  }
+
   const res = await fetch(`${baseUrl()}${path}`, {
     ...rest,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+      ...baseHeaders,
       ...headers,
     },
   })
