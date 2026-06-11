@@ -39,11 +39,14 @@ spl_autoload_register(static function (string $class): void {
 $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 require_once API_APP_DIR . '/head.php'; // db, functions (ncm*, sendPush, checkCompanyStatus), config, enc/dec
 
-// Normaliza el body de PUT/DELETE/PATCH → $_POST. PHP sólo puebla $_POST en POST
-// form-encoded; en los demás verbos el body queda en php://input. Así los endpoints REST
-// leen $_POST uniformemente sin importar el verbo. (Mismo enfoque que panel api_middleware.)
-// El BFF de /app manda form-encoded (http_build_query); soportamos también JSON por las dudas.
-if (empty($_POST) && in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['PUT', 'DELETE', 'PATCH'], true)) {
+// Normaliza el body → $_POST para todos los verbos (POST/PUT/DELETE/PATCH).
+// PHP sólo puebla $_POST en POST form-encoded; en JSON o los demás verbos el body
+// queda en php://input. Así los endpoints REST leen $_POST uniformemente sin
+// importar el verbo ni el content-type. (Mismo enfoque que panel api_middleware.)
+// El BFF legacy de /app manda form-encoded (http_build_query) → $_POST ya
+// poblado, salteamos. El cliente nuevo de panel-next manda JSON en POST →
+// $_POST vacío, parseamos.
+if (empty($_POST) && in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT', 'DELETE', 'PATCH'], true)) {
     $rawBody = file_get_contents('php://input');
     if ($rawBody !== '' && $rawBody !== false) {
         $jsonBody = json_decode($rawBody, true);
