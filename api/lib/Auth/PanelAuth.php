@@ -51,8 +51,12 @@ final class PanelAuth
      * comportamiento histórico para local dev).
      *
      * Devuelve `['token' => string, 'expiresIn' => int]`.
+     *
+     * Acepta `array|\ArrayAccess` porque `findPhoneLogin()` y `ncmExecute()`
+     * devuelven `CaseInsensitiveArray` (objeto ADOdb con ArrayAccess), no un
+     * array plano. Matchea la firma de `issueJwtPanel()` del legacy.
      */
-    public static function issueJwt(array $user): array
+    public static function issueJwt(array|\ArrayAccess $user): array
     {
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
