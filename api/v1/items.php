@@ -35,6 +35,57 @@ require_once __DIR__ . '/../lib/services/ItemService.php';
 
 use Punto\Api\Context\TenantContext;
 
+/**
+ * Mapea una fila de `item` (lowercase desde PG + JSONB flatten) a camelCase
+ * canonical para el front. Sin esto, PG devuelve `itemid` y el front busca
+ * `itemId` → undefined → URLs rotas en panel-next.
+ *
+ * Los servicios canónicos (ContactService, OutletsService) tienen su propio
+ * presentRow; ItemService devuelve el row sin formatear, así que la
+ * normalización vive acá hasta que se mueva a un PresenterItem.
+ */
+function presentItem(array $row): array
+{
+    // Lowercase → camelCase mapping para las columnas que el front usa.
+    // Cualquier key no mapeada queda como vino (compat futura).
+    $map = [
+        'itemid'              => 'itemId',
+        'itemname'            => 'itemName',
+        'itemsku'             => 'itemSKU',
+        'itemcost'            => 'itemCost',
+        'itemprice'           => 'itemPrice',
+        'itemisparent'        => 'itemIsParent',
+        'itemparentid'        => 'itemParentId',
+        'itemtype'            => 'itemType',
+        'itemimage'           => 'itemImage',
+        'itemstatus'          => 'itemStatus',
+        'itemtrackinventory'  => 'itemTrackInventory',
+        'itemcansale'         => 'itemCanSale',
+        'itemtaxexcluded'     => 'itemTaxExcluded',
+        'itemdiscount'        => 'itemDiscount',
+        'itemuom'             => 'itemUOM',
+        'itemsort'            => 'itemSort',
+        'itemproduction'      => 'itemProduction',
+        'itemtaxincluded'     => 'itemTaxIncluded',
+        'itemdescription'     => 'itemDescription',
+        'itemdate'            => 'itemDate',
+        'taxid'               => 'taxId',
+        'brandid'             => 'brandId',
+        'categoryid'          => 'categoryId',
+        'supplierid'          => 'supplierId',
+        'locationid'          => 'locationId',
+        'outletid'            => 'outletId',
+        'companyid'           => 'companyId',
+    ];
+    $out = [];
+    foreach ($row as $k => $v) {
+        $kLower = strtolower((string) $k);
+        $key = $map[$kLower] ?? $k;
+        $out[$key] = $v;
+    }
+    return $out;
+}
+
 $ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
 
@@ -103,7 +154,7 @@ switch ($method) {
         if ($id !== null) {
             $item = $itemService->find($id, $companyId);
             if ($item === null) apiError('Item no encontrado', 404);
-            apiOk($item->toArray());
+            apiOk(presentItem($item->toArray()));
         }
 
         $limit  = max(1, min((int) ($_GET['limit'] ?? 50), 200));
@@ -132,7 +183,7 @@ switch ($method) {
         $items = [];
         if ($rs !== false) {
             foreach ($rs->GetRows() as $row) {
-                $items[] = _flattenJsonb($row)->toArray();
+                $items[] = presentItem(_flattenJsonb($row)->toArray());
             }
         }
 
@@ -166,7 +217,7 @@ switch ($method) {
         }
 
         $item = $itemService->find($newId, $companyId);
-        apiOk($item !== null ? $item->toArray() : ['itemId' => $newId], 201);
+        apiOk($item !== null ? presentItem($item->toArray()) : ['itemId' => $newId], 201);
         break;
 
     case 'PUT':
@@ -181,7 +232,7 @@ switch ($method) {
         if (!$ok) apiError('Update falló', 500);
 
         $item = $itemService->find($id, $companyId);
-        apiOk($item !== null ? $item->toArray() : ['itemId' => $id]);
+        apiOk($item !== null ? presentItem($item->toArray()) : ['itemId' => $id]);
         break;
 
     case 'DELETE':
