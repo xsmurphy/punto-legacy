@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -156,14 +156,23 @@ export default function ItemEditPage() {
   const id = params.id
   const isNew = id === "new"
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data, isLoading, error } = useItem(isNew ? undefined : id)
   const create = useCreateItem()
   const update = useUpdateItem()
   const archive = useArchiveItem()
 
+  // En modo creación, el dialog que abre el listado pasa ?kind=X para que el
+  // form arranque con el tipo elegido. Si el param es inválido, default 'producto'.
+  const initialKind: ItemKind = React.useMemo(() => {
+    if (!isNew) return "producto"
+    const k = searchParams.get("kind") as ItemKind | null
+    return k && KIND_META[k] ? k : "producto"
+  }, [isNew, searchParams])
+
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemSchema),
-    defaultValues: emptyValues(),
+    defaultValues: { ...emptyValues(), kind: initialKind },
   })
 
   React.useEffect(() => {

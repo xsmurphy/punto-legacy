@@ -333,7 +333,7 @@ export function DataTable<T>({
               value={String(table.getState().pagination.pageSize)}
               onValueChange={(v) => table.setPageSize(Number(v))}
             >
-              <SelectTrigger className="h-7 w-16">
+              <SelectTrigger className="h-7 w-20">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

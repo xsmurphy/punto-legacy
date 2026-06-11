@@ -32,6 +32,7 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useArchiveItem, useItems } from "@/hooks/use-items"
 import { ImportItemsDialog } from "@/components/items/import-dialog"
+import { NewItemKindDialog } from "@/components/items/new-item-kind-dialog"
 import { formatMoney } from "@/lib/format"
 import {
   KIND_META,
@@ -236,12 +237,7 @@ export default function ItemsPage() {
         </div>
         <div className="flex items-center gap-2">
           <ImportItemsDialog />
-          <Button asChild>
-            <Link href="/items/new">
-              <Plus className="size-4" />
-              Nuevo artículo
-            </Link>
-          </Button>
+          <NewItemKindDialog />
         </div>
       </header>
 
