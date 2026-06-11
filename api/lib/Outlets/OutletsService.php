@@ -156,10 +156,18 @@ final class OutletsService
             return null;
         }
 
-        $db->Execute(
-            "INSERT INTO register (registerName, registerStatus, outletId, companyId) VALUES ('Nueva Caja', 1, ?, ?)",
-            [$outletId, $companyId]
-        );
+        // `register.registerStatus` es BOOLEAN NOT NULL en PG (db-schema-postgres.sql:145).
+        // Pasar el integer 1 vía $db->Execute prepared statement no se coerciona en PG
+        // ("column is of type boolean but expression is of type integer") y el INSERT
+        // falla → todo el create rollbackea → 500 "No se pudo crear la sucursal".
+        // ncmInsert via AutoExecute SÍ coerciona el int→bool (lo confirma signUp() legacy
+        // que usa el mismo patrón con registerStatus=1 y funciona). Migrar acá también.
+        ncmInsert(['records' => [
+            'registerName'   => 'Nueva Caja',
+            'registerStatus' => 1,
+            'outletId'       => $outletId,
+            'companyId'      => $companyId,
+        ], 'table' => 'register']);
 
         // Inventory blank-rows: solo si el plan de la company incluye `inventory`. Antes esto
         // venía de `$plansValues[PLAN]['inventory']` (global del panel, cargado desde
