@@ -17,6 +17,7 @@ import {
   ChefHat,
   Calendar,
   Coins,
+  Images,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -87,6 +88,7 @@ import {
   type KindFieldVisibility,
 } from "@/lib/types/item"
 import { ItemGallery } from "@/components/items/item-gallery"
+import { ProductPhoto } from "@/components/items/product-photo"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -315,10 +317,14 @@ export default function ItemEditPage() {
         </header>
 
         <Tabs defaultValue="perfil" className="w-full">
-          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
+          <TabsList className="grid w-full grid-cols-7 max-w-4xl">
             <TabsTrigger value="perfil" className="gap-1.5">
               <User className="size-3.5" />
               Perfil
+            </TabsTrigger>
+            <TabsTrigger value="imagenes" className="gap-1.5" disabled={isNew}>
+              <Images className="size-3.5" />
+              Imágenes
             </TabsTrigger>
             <TabsTrigger value="config" className="gap-1.5">
               <SettingsIcon className="size-3.5" />
@@ -344,13 +350,24 @@ export default function ItemEditPage() {
 
           <TabsContent value="perfil" className="mt-6">
             <div className="flex flex-col gap-4">
-              <ItemGallery
-                itemId={isNew ? "" : id}
-                images={(data?.images as ItemImage[] | undefined) ?? []}
-                disabled={isNew}
-              />
+              <Card>
+                <CardContent className="p-4">
+                  <ProductPhoto
+                    itemId={isNew ? "" : id}
+                    images={(data?.images as ItemImage[] | undefined) ?? []}
+                    disabled={isNew}
+                  />
+                </CardContent>
+              </Card>
               <PerfilTab form={form} visibility={visibility} kind={kind} />
             </div>
+          </TabsContent>
+          <TabsContent value="imagenes" className="mt-6">
+            <ItemGallery
+              itemId={isNew ? "" : id}
+              images={(data?.images as ItemImage[] | undefined) ?? []}
+              disabled={isNew}
+            />
           </TabsContent>
           <TabsContent value="config" className="mt-6">
             <ConfigTab form={form} visibility={visibility} kind={kind} />

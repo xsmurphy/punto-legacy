@@ -156,6 +156,43 @@ export function useReorderItemImages() {
   })
 }
 
+/**
+ * Reemplaza la portada del item (image[0]). Si ya había una, la borra; sube la
+ * nueva; si quedan otras, reordena para que la nueva sea primera.
+ * Pensado para el ProductPhoto del perfil (un solo slot circular).
+ */
+export function useReplaceCoverImage() {
+  const qc = useQueryClient()
+  return useMutation<ItemImage, Error, { itemId: string; file: File; current: ItemImage[] }>({
+    mutationFn: async ({ itemId, file, current }) => {
+      const sorted = [...current].sort((a, b) => a.sort - b.sort)
+      const cover = sorted[0]
+      if (cover) {
+        await api.del(`/v1/items?id=${itemId}&resource=images&imageId=${cover.imageId}`)
+      }
+      const form = new FormData()
+      form.append("image", file)
+      const res = await api.postForm<{ image: ItemImage }>(
+        `/v1/items?id=${itemId}&resource=images`,
+        form,
+      )
+      const newImg = res.image
+      const others = sorted.slice(1).map((i) => i.imageId)
+      if (others.length > 0) {
+        await api.put<{ images: ItemImage[] }>(
+          `/v1/items?id=${itemId}&resource=images`,
+          { order: [newImg.imageId, ...others] },
+        )
+      }
+      return newImg
+    },
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
 export function useTaxonomies() {
   return useQuery<{ taxonomies: Taxonomy[] }>({
     queryKey: ["taxonomies"],
