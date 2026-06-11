@@ -228,12 +228,26 @@ function _jwtExtractToken(): ?string
         return $m[1];
     }
 
-    // 2. Cookie (browser envía automáticamente — cero cambios JS necesarios)
+    // 2. Cookie. Dos nombres distintos por realm:
+    //    - `_jwt_panel` → emitido por PanelAuth::issueJwt / issueJwtPanel (realm panel)
+    //    - `_jwt`       → emitido por el login del POS / app (realm pos-app)
+    // Cuando el browser visita /api/v1/bootstrap desde panel-next-dev.punto.la
+    // manda ambas si las tiene. Probamos primero `_jwt_panel` (sesión interactiva
+    // del panel, TTL 24h) y caemos a `_jwt` (device pairing del POS, TTL 10
+    // años). La validación del realm la hace jwtAuthenticate() con la allowlist
+    // del endpoint contra el claim `iss` — un token panel en endpoint POS y
+    // viceversa quedan rechazados aunque la cookie esté presente.
+    if (!empty($_COOKIE['_jwt_panel'])) {
+        return $_COOKIE['_jwt_panel'];
+    }
     if (!empty($_COOKIE['_jwt'])) {
         return $_COOKIE['_jwt'];
     }
 
     // 3. POST field (clientes programáticos)
+    if (!empty($_POST['_jwt_panel'])) {
+        return $_POST['_jwt_panel'];
+    }
     if (!empty($_POST['_jwt'])) {
         return $_POST['_jwt'];
     }
