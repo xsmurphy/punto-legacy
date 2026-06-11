@@ -50,12 +50,26 @@ export interface ItemListItem {
   categoryName: string | null
   brandName: string | null
   outletName: string | null
+  /** URL de la imagen de portada (sort=0). Null si no hay galería. */
+  coverImageUrl: string | null
   /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.
    * Incluyen itemUOM, itemDiscount, itemWaste, itemComissionPercent, itemEcom, etc. */
   itemUOM?: string | null
   itemDiscount?: number | string | null
   itemEcom?: number | boolean | null
   tags: string[]
+}
+
+/** Imagen de la galería de un item. */
+export interface ItemImage {
+  imageId: string
+  url: string
+  objectKey: string
+  width: number | null
+  height: number | null
+  sizeBytes: number | null
+  mime: string
+  sort: number
 }
 
 /** Shape del detalle — GET /v1/items?id=... */
@@ -77,6 +91,8 @@ export interface ItemFull extends ItemListItem {
   itemDescription: string | null
   /** Categorías m2m — disponibles en el detalle, vacío en el listado. */
   categories: ItemCategory[]
+  /** Galería de imágenes (0..5). Solo presente en el detalle. */
+  images: ItemImage[]
   /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.
    * Slice D los tipará por kind cuando los forms sean dedicados. */
   [key: string]: unknown

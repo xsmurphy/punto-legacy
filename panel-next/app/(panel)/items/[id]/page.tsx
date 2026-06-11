@@ -82,9 +82,11 @@ import {
   defaultAvailability,
   type DayOfWeek,
   type ItemFormValues,
+  type ItemImage,
   type ItemKind,
   type KindFieldVisibility,
 } from "@/lib/types/item"
+import { ItemGallery } from "@/components/items/item-gallery"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -332,7 +334,14 @@ export default function ItemEditPage() {
           </TabsList>
 
           <TabsContent value="perfil" className="mt-6">
-            <PerfilTab form={form} visibility={visibility} kind={kind} />
+            <div className="flex flex-col gap-4">
+              <ItemGallery
+                itemId={isNew ? "" : id}
+                images={(data?.images as ItemImage[] | undefined) ?? []}
+                disabled={isNew}
+              />
+              <PerfilTab form={form} visibility={visibility} kind={kind} />
+            </div>
           </TabsContent>
           <TabsContent value="config" className="mt-6">
             <ConfigTab form={form} visibility={visibility} kind={kind} />

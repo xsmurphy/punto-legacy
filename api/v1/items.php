@@ -71,6 +71,7 @@ function presentItem(array $row): array
         'categoryname'        => 'categoryName',
         'brandname'           => 'brandName',
         'outletname'          => 'outletName',
+        'coverimageurl'       => 'coverImageUrl',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -209,6 +210,42 @@ if ($resource === 'import') {
 
 $id = $_GET['id'] ?? null;
 
+// Sub-recurso: galería de imágenes (max 5 por item, persistido en item_image + DO Spaces).
+if ($id !== null && $resource === 'images') {
+    $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET);
+    $imgSvc = new \Punto\Api\Items\ItemImageService($db, $s3);
+
+    if ($method === 'GET') {
+        apiOk(['images' => $imgSvc->listForItem($id, $companyId)]);
+    }
+    if ($method === 'POST') {
+        if (empty($_FILES['image']['tmp_name'])) apiError('Falta archivo (campo "image")', 422);
+        try {
+            $img = $imgSvc->upload($id, $companyId, $_FILES['image']);
+            apiOk(['image' => $img], 201);
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+    if ($method === 'DELETE') {
+        $imageId = (string) ($_GET['imageId'] ?? '');
+        if ($imageId === '') apiError('Falta imageId', 422);
+        try {
+            $imgSvc->delete($id, $companyId, $imageId);
+            apiOk(['deleted' => true]);
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+    if ($method === 'PUT') {
+        $order = $_POST['order'] ?? [];
+        if (!is_array($order)) apiError('order debe ser array', 422);
+        $imgSvc->reorder($id, $companyId, $order);
+        apiOk(['images' => $imgSvc->listForItem($id, $companyId)]);
+    }
+    apiError('Method not allowed for /items/images', 405);
+}
+
 // Sub-recurso: depósitos
 if ($id !== null && $resource === 'locations') {
     if ($method === 'GET') {
@@ -237,6 +274,11 @@ switch ($method) {
             if ($item === null) apiError('Item no encontrado', 404);
             $presented = presentItem($item->toArray());
             $presented['categories'] = fetchItemCategories($id);
+            // Galería: 0..5 imágenes ordenadas. Si el caller solo quiere los datos
+            // del item sin tocar S3, esto es solo un SELECT — sin overhead extra.
+            $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET);
+            $imgSvc = new \Punto\Api\Items\ItemImageService($db, $s3);
+            $presented['images'] = $imgSvc->listForItem($id, $companyId);
             apiOk($presented);
         }
 
@@ -269,16 +311,24 @@ switch ($method) {
             implode(' AND ', $where)
         );
 
+        // coverImage: subquery DISTINCT ON para tomar la imagen sort=0 (o la
+        // primera por created_at si no hay sort=0). Evita N+1 contra item_image.
         $sql = "SELECT i.itemId, i.itemName, i.itemSKU, i.itemType, i.itemKind, i.itemStatus,
                        i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
                        i.categoryId, i.brandId, i.outletId, i.data,
                        cat.taxonomyName AS categoryName,
                        brand.taxonomyName AS brandName,
-                       o.outletName AS outletName
+                       o.outletName AS outletName,
+                       cov.url AS coverImageUrl
                   FROM item i
              LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
              LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
              LEFT JOIN outlet o       ON o.outletId       = i.outletId
+             LEFT JOIN LATERAL (
+                  SELECT url FROM item_image
+                   WHERE itemId = i.itemId
+                   ORDER BY sort ASC, created_at ASC LIMIT 1
+             ) cov ON true
                  WHERE $whereSql
                  ORDER BY i.itemDate DESC
                  LIMIT $limit OFFSET $offset";

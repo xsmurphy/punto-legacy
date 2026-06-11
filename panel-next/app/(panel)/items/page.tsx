@@ -60,13 +60,28 @@ export default function ItemsPage() {
         accessorKey: "itemName",
         header: "Nombre",
         cell: ({ row }) => (
-          <Link
-            href={`/items/${row.original.itemId}`}
-            className="font-medium hover:underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {row.original.itemName || "(sin nombre)"}
-          </Link>
+          <div className="flex items-center gap-2.5">
+            <div className="relative size-8 shrink-0 overflow-hidden rounded border bg-muted">
+              {row.original.coverImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={row.original.coverImageUrl}
+                  alt=""
+                  className="size-full object-cover"
+                  loading="lazy"
+                />
+              ) : (
+                <Package className="absolute inset-0 m-auto size-4 opacity-30" />
+              )}
+            </div>
+            <Link
+              href={`/items/${row.original.itemId}`}
+              className="font-medium hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {row.original.itemName || "(sin nombre)"}
+            </Link>
+          </div>
         ),
       },
       {

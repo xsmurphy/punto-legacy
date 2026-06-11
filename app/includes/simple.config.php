@@ -67,6 +67,13 @@ define('BANCARD_QR_API',         'https://integraciones.epagos.com.py/api/bancar
 define('BANCARD_QR_API_TOKEN',   $_ENV['BANCARD_QR_API_TOKEN']  ?? '');
 define('AUDITORIA_URL',          $_ENV['AUDITORIA_URL']         ?? '');
 define('AUDITORIA_TOKEN',        $_ENV['AUDITORIA_TOKEN_APP']   ?? '');
+
+// S3-compatible storage (DO Spaces por defecto — overridable por env).
+define('S3_ENDPOINT',  $_ENV['S3_ENDPOINT']  ?? 'https://nyc3.digitaloceanspaces.com');
+define('S3_REGION',    $_ENV['S3_REGION']    ?? 'us-east-1');
+define('S3_BUCKET',    $_ENV['S3_BUCKET']    ?? 'ncmaspace');
+define('S3_KEY',       $_ENV['S3_KEY']       ?? ($_ENV['DO_SPACES_ACCESS'] ?? ''));
+define('S3_SECRET',    $_ENV['S3_SECRET']    ?? ($_ENV['DO_SPACES_SECRET'] ?? ''));
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);
 define('API_PIX_SECRET',         $_ENV['API_PIX_SECRET']        ?? '');

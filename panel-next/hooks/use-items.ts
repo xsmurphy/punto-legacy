@@ -8,6 +8,7 @@ import {
   type ItemAvailability,
   type ItemFormValues,
   type ItemFull,
+  type ItemImage,
   type ItemListItem,
   type Taxonomy,
 } from "@/lib/types/item"
@@ -109,6 +110,50 @@ export function useImportItems() {
 /** URL absoluta para descargar la plantilla CSV. */
 export function importTemplateUrl(): string {
   return api.url("/v1/items?resource=template")
+}
+
+// ── Galería de imágenes ────────────────────────────────────────────────────
+
+export function useUploadItemImage() {
+  const qc = useQueryClient()
+  return useMutation<{ image: ItemImage }, Error, { itemId: string; file: File }>({
+    mutationFn: ({ itemId, file }) => {
+      const form = new FormData()
+      form.append("image", file)
+      return api.postForm<{ image: ItemImage }>(
+        `/v1/items?id=${itemId}&resource=images`,
+        form,
+      )
+    },
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
+export function useDeleteItemImage() {
+  const qc = useQueryClient()
+  return useMutation<{ deleted: boolean }, Error, { itemId: string; imageId: string }>({
+    mutationFn: ({ itemId, imageId }) =>
+      api.del(`/v1/items?id=${itemId}&resource=images&imageId=${imageId}`),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
+export function useReorderItemImages() {
+  const qc = useQueryClient()
+  return useMutation<{ images: ItemImage[] }, Error, { itemId: string; order: string[] }>({
+    mutationFn: ({ itemId, order }) =>
+      api.put<{ images: ItemImage[] }>(`/v1/items?id=${itemId}&resource=images`, { order }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
 }
 
 export function useTaxonomies() {
