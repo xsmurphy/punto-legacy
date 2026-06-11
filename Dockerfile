@@ -100,6 +100,10 @@ COPY app   ./app
 COPY api   ./api
 COPY assets ./assets
 
+# Migraciones SQL — corren via docker-entrypoint.sh al boot del container
+# (database/migrate.php trackea las aplicadas en `schema_migrations`).
+COPY database ./database
+
 # Bundles generados en stage 1 (sobreescriben lo que vino del COPY si existía)
 COPY --from=assets /build/panel/scripts ./panel/scripts
 COPY --from=assets /build/panel/css     ./panel/css

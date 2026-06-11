@@ -62,5 +62,22 @@ else
     echo "[entrypoint] REDIS_URL no seteada — sessions en /tmp (se pierden por deploy)"
 fi
 
+# Aplicar migraciones SQL pendientes antes de servir requests.
+# El script database/migrate.php es idempotente — trackea en schema_migrations
+# qué archivos ya corrieron. Bootstrap one-time marca 01-13 como already-applied
+# si detecta BD existente (no fuerza re-aplicar lo que ya se aplicó manualmente).
+#
+# Fail-fast: si una migración falla, el script exit 1 → entrypoint corta y el
+# container no arranca. Mejor que servir contra un schema a medio migrar.
+if [ -f /var/www/database/migrate.php ]; then
+    echo "[entrypoint] corriendo auto-migrate..."
+    php /var/www/database/migrate.php || {
+        echo "[entrypoint] auto-migrate FAILED — abortando boot del container" >&2
+        exit 1
+    }
+else
+    echo "[entrypoint] database/migrate.php no encontrado — skip"
+fi
+
 # Ejecutar el CMD original (tini + php -S)
 exec "$@"
