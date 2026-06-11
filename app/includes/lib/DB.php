@@ -228,9 +228,15 @@ class DB
         try {
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute($params);
-            // SELECT returns rows, INSERT/UPDATE/DELETE return empty result
-            $isSelect = stripos(ltrim($sql), 'SELECT') === 0 || stripos(ltrim($sql), 'WITH') === 0;
-            return new DBResult($isSelect ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
+            // SELECT/WITH siempre devuelven filas. INSERT/UPDATE/DELETE pueden
+            // devolver filas SI tienen cláusula RETURNING (PG-specific). Sin
+            // este chequeo, un `INSERT ... RETURNING id` parsea como
+            // "INSERT" (no SELECT) → wrapper descarta las filas → callers
+            // que dependen del id devuelto fallan silenciosamente.
+            $trimmed      = ltrim($sql);
+            $isSelect     = stripos($trimmed, 'SELECT') === 0 || stripos($trimmed, 'WITH') === 0;
+            $hasReturning = (bool) preg_match('/\bRETURNING\b/i', $sql);
+            return new DBResult(($isSelect || $hasReturning) ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
         } catch (PDOException $e) {
             $this->lastError = $e->getMessage();
             $this->lastErrNo = (int) $e->getCode();
