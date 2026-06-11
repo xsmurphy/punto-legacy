@@ -17,14 +17,19 @@ interface Props {
   images: ItemImage[]
   /** Si está en modo creación (sin id real), deshabilita uploads. */
   disabled?: boolean
+  /** Tamaño del círculo en px. Default 80. */
+  size?: number
 }
 
 /**
  * Foto principal del producto: dropzone redondo tipo avatar.
  * Muestra image[0] (la portada). Click → file picker; hover → opciones.
  * Para gestionar las otras 4 imágenes se usa la pestaña Imágenes.
+ *
+ * Compacto — sin texto descriptivo al lado. Pensado para vivir al lado del
+ * Nombre del producto dentro del card 'Datos básicos'. Hover muestra acciones.
  */
-export function ProductPhoto({ itemId, images, disabled }: Props) {
+export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = React.useState(false)
   const replace = useReplaceCoverImage()
@@ -65,12 +70,20 @@ export function ProductPhoto({ itemId, images, disabled }: Props) {
 
   const busy = replace.isPending || remove.isPending
 
+  const dimension = { width: size, height: size }
+  const tooltip = disabled
+    ? "Guardá el artículo primero para subir una foto"
+    : cover
+    ? "Click para reemplazar la foto"
+    : "Click o arrastrá una imagen (JPG / PNG / WEBP)"
+
   return (
-    <div className="flex items-center gap-4">
+    <div className="relative">
       <div
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-label={cover ? "Cambiar foto del producto" : "Subir foto del producto"}
+        title={tooltip}
         onClick={() => !disabled && inputRef.current?.click()}
         onKeyDown={(e) => {
           if (disabled) return
@@ -91,8 +104,9 @@ export function ProductPhoto({ itemId, images, disabled }: Props) {
           setDragOver(false)
           onPick(e.dataTransfer.files?.[0] ?? null)
         }}
+        style={dimension}
         className={cn(
-          "group relative flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition",
+          "group relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition",
           disabled
             ? "border-muted-foreground/15 bg-muted/30 cursor-not-allowed"
             : dragOver
@@ -108,48 +122,41 @@ export function ProductPhoto({ itemId, images, disabled }: Props) {
             className="size-full rounded-full object-cover"
           />
         ) : (
-          <div className="flex flex-col items-center gap-1 text-muted-foreground">
-            <ImagePlus className="size-7 opacity-60" />
-          </div>
+          <ImagePlus className="size-6 text-muted-foreground/60" />
         )}
 
-        {/* Overlay hover */}
+        {/* Overlay hover con icono de cámara */}
         {!disabled && cover && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 opacity-0 transition group-hover:bg-black/45 group-hover:opacity-100">
-            <Camera className="size-5 text-white" />
+          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 opacity-0 transition group-hover:bg-black/50 group-hover:opacity-100">
+            <Camera className="size-4 text-white" />
           </div>
         )}
 
         {busy && (
           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
-            <Loader2 className="size-5 animate-spin text-white" />
+            <Loader2 className="size-4 animate-spin text-white" />
           </div>
         )}
       </div>
 
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">Foto del producto</p>
-        <p className="text-xs text-muted-foreground">
-          {disabled
-            ? "Guardá el artículo primero para poder subir una foto."
-            : cover
-            ? "Click para reemplazar. Para más imágenes andá a la pestaña Imágenes."
-            : "Click o arrastrá una imagen. JPG / PNG / WEBP."}
-        </p>
-        {cover && !disabled && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-fit gap-1.5 text-xs text-destructive hover:text-destructive"
-            onClick={onRemove}
-            disabled={busy}
-          >
-            <Trash2 className="size-3.5" />
-            Eliminar foto
-          </Button>
-        )}
-      </div>
+      {/* Botón eliminar — esquina superior derecha, solo si hay foto y no está disabled */}
+      {cover && !disabled && (
+        <Button
+          type="button"
+          variant="destructive"
+          size="icon"
+          aria-label="Eliminar foto"
+          title="Eliminar foto"
+          className="absolute -right-1 -top-1 size-6 rounded-full opacity-0 shadow transition group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+          disabled={busy}
+        >
+          <Trash2 className="size-3" />
+        </Button>
+      )}
 
       <input
         ref={inputRef}

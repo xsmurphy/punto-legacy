@@ -349,18 +349,14 @@ export default function ItemEditPage() {
           </TabsList>
 
           <TabsContent value="perfil" className="mt-6">
-            <div className="flex flex-col gap-4">
-              <Card>
-                <CardContent className="p-4">
-                  <ProductPhoto
-                    itemId={isNew ? "" : id}
-                    images={(data?.images as ItemImage[] | undefined) ?? []}
-                    disabled={isNew}
-                  />
-                </CardContent>
-              </Card>
-              <PerfilTab form={form} visibility={visibility} kind={kind} />
-            </div>
+            <PerfilTab
+              form={form}
+              visibility={visibility}
+              kind={kind}
+              itemId={isNew ? "" : id}
+              images={(data?.images as ItemImage[] | undefined) ?? []}
+              isNew={isNew}
+            />
           </TabsContent>
           <TabsContent value="imagenes" className="mt-6">
             <ItemGallery
@@ -395,10 +391,16 @@ export default function ItemEditPage() {
 function PerfilTab({
   form,
   visibility,
+  itemId,
+  images,
+  isNew,
 }: {
   form: UseFormReturn<ItemFormValues>
   visibility: KindFieldVisibility
   kind: ItemKind
+  itemId: string
+  images: ItemImage[]
+  isNew: boolean
 }) {
   const { data: bootstrap } = useBootstrap()
   const price = form.watch("price") ?? 0
@@ -447,32 +449,39 @@ function PerfilTab({
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name="name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Nombre</FormLabel>
-                <FormControl>
-                  <Input placeholder="Ej: Café Espresso" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="sku"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>SKU / Código</FormLabel>
-                <FormControl>
-                  <Input placeholder="Código interno" className="tabular-nums" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {/* Foto + Nombre + SKU en una sola fila: la foto vive al lado del
+              nombre del producto (compacta, no consume todo el ancho). */}
+          <div className="flex items-start gap-3">
+            <ProductPhoto itemId={itemId} images={images} disabled={isNew} size={72} />
+            <div className="flex flex-1 flex-col gap-3">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nombre</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ej: Café Espresso" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="sku"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>SKU / Código</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Código interno" className="tabular-nums" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
           <FormField
             control={form.control}
             name="description"
