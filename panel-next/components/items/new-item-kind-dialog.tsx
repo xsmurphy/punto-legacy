@@ -42,47 +42,49 @@ export function NewItemKindDialog() {
           Nuevo artículo
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] w-[min(90vw,720px)] max-w-none flex-col gap-0 p-0 sm:max-w-none">
+        <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>¿Qué tipo de artículo querés crear?</DialogTitle>
           <DialogDescription>
-            Elegí la categoría que mejor describa lo que vas a vender o usar
-            como insumo. Vas a poder editar los detalles después.
+            Elegí la categoría que mejor describa el artículo. Podés editar los
+            detalles después.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5">
-          {GROUPS.map((g) => (
-            <div key={g.key} className="flex flex-col gap-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {g.key}
-              </p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {g.kinds.map((k) => {
-                  const meta = KIND_META[k]
-                  return (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => pick(k)}
-                      className={cn(
-                        "flex flex-col items-start gap-1 rounded-md border bg-card p-3 text-left transition",
-                        "hover:border-primary hover:bg-primary/5 hover:shadow-sm",
-                        "focus:outline-none focus:ring-2 focus:ring-primary/40",
-                      )}
-                    >
-                      <span className="text-sm font-medium leading-tight">
-                        {meta.label}
-                      </span>
-                      <span className="text-xs leading-snug text-muted-foreground">
-                        {meta.description}
-                      </span>
-                    </button>
-                  )
-                })}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex flex-col gap-5">
+            {GROUPS.map((g) => (
+              <div key={g.key} className="flex flex-col gap-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {g.key}
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {g.kinds.map((k) => {
+                    const meta = KIND_META[k]
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => pick(k)}
+                        className={cn(
+                          "flex flex-col items-start gap-1 rounded-md border bg-card p-3 text-left transition",
+                          "hover:border-primary hover:bg-primary/5 hover:shadow-sm",
+                          "focus:outline-none focus:ring-2 focus:ring-primary/40",
+                        )}
+                      >
+                        <span className="text-sm font-medium leading-tight">
+                          {meta.label}
+                        </span>
+                        <span className="text-xs leading-snug text-muted-foreground">
+                          {meta.description}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
