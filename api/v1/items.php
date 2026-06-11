@@ -286,7 +286,7 @@ switch ($method) {
         $legacyFlags = kindToLegacyFlags($kind);
         $record = array_merge(['itemKind' => $kind], $legacyFlags);
 
-        $newId = $itemService->createBlank($companyId, $legacyFlags['itemType'] ?? null);
+        $newId = $itemService->createBlank($companyId, $legacyFlags['itemType'] ?? null, $kind);
         if ($newId === false) apiError('No se pudo crear el item', 500);
 
         // Aplicar kind + extras al row recién creado.

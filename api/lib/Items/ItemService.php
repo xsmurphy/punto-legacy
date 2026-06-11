@@ -40,7 +40,7 @@ final class ItemService
      * @param string|null $type article|discount|combo|giftcard
      * @return string|false itemId del nuevo registro o false si falla.
      */
-    public function createBlank(string $companyId, ?string $type = null)
+    public function createBlank(string $companyId, ?string $type = null, ?string $kind = null)
     {
         $defaults = self::blankDefaults($type);
         $record = [
@@ -58,6 +58,14 @@ final class ItemService
         if (!empty($defaults['itemDescription'])) {
             $record['itemDescription'] = $defaults['itemDescription'];
         }
+        // itemKind — columna NOT NULL tras migration 15. Se infiere del type si no se pasa.
+        $kindFromType = [
+            'discount'   => 'descuento',
+            'combo'      => 'combo_fijo',
+            'giftcard'   => 'giftcard',
+            'production' => 'produccion_previa',
+        ];
+        $record['itemKind'] = $kind ?? $kindFromType[$type ?? ''] ?? 'producto';
         // itemTaxIncluded vive en data JSONB; ncmInsert lo enruta solo.
         $record['itemTaxIncluded'] = 1;
 

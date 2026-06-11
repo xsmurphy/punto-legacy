@@ -1297,7 +1297,7 @@ if (!function_exists('_getTableSchema')) {
                 'pk'       => 'itemId',
                 'jsonbCol' => 'data',
                 'columns'  => ['itemId', 'itemName', 'itemDate', 'itemSKU', 'itemCost', 'itemPrice',
-                               'itemIsParent', 'itemParentId', 'itemType', 'itemStatus',
+                               'itemIsParent', 'itemParentId', 'itemType', 'itemKind', 'itemStatus',
                                'itemTrackInventory', 'itemCanSale', 'itemSort', 'itemProduction',
                                'taxId', 'brandId', 'categoryId', 'supplierId', 'locationId',
                                'outletId', 'companyId', 'updated_at', 'data'],
