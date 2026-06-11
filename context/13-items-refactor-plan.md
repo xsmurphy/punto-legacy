@@ -1,6 +1,6 @@
 # Plan — Refactor del módulo de Artículos / Servicios
 
-> **Creado:** 2026-06-11. **Estado:** análisis cerrado, pendiente de confirmación final + ejecución.
+> **Creado:** 2026-06-11. **Estado:** Slice A ✅ (commit `b8b0abc`). Slice B es el próximo.
 >
 > Esta es la próxima ola grande del rewrite del panel después de Settings.
 > Se inicia tras tener Items CRUD básico funcional pero limitado (commits
@@ -312,14 +312,14 @@ ese kind.
 8. Tags como JSONB array.
 9. Many-to-many categorías con `isPrimary`.
 
-## Decisiones pendientes para arrancar codear
+## Decisiones confirmadas (2026-06-11)
 
-| # | Pregunta |
+| # | Decisión |
 |---|---|
-| 1 | `insumo_control`: ¿stock se decrementa con qué disparador exacto? cron, ajuste manual del operador, proporcional a compras? |
-| 2 | Combo viejo legacy `itemType='combo'` → ¿se migra a `combo_fijo` por default o pedimos al user que confirme cada uno? |
-| 3 | Para combos con servicios: ¿duración del combo = sumatoria de duraciones de servicios, o un campo override en el combo? |
-| 4 | ¿Hay alguna otra dimension del item que no esté en esta lista? (tiempo de espera entre sesiones de un pack, restricciones por cliente, edad mínima, etc.) |
+| 1 | `insumo_control` se decrementa igual que otros ítems: ventas POS, ajuste manual, conteo físico, producción. La diferencia es que NO va en recetas. |
+| 2 | Combos legacy → `combo_fijo` por default. Proyecto en desarrollo, no hay datos reales. |
+| 3 | Duración combos = sumatoria de duraciones de servicios componentes. |
+| 4 | Dimensiones extra confirmadas: `minDaysBetweenSessions` en `pack_session` (migration 18) + `validFrom/validUntil` en JSONB (sin migration). |
 
 ---
 
@@ -328,13 +328,13 @@ ese kind.
 Por slices independientes deployables. Cada uno commiteable sin romper
 el legacy gracias al dual-write y al keep de los flags antiguos.
 
-### Slice A — Schema + dual-write base
+### Slice A — Schema + dual-write base ✅ commit `b8b0abc`
 
-1. Migration 15 (itemKind canonical) + 16 (item_category m2m).
-2. Refactor `presentItem()` agrega `kind`, `categories[]`, `tags[]`.
-3. Endpoint POST/PUT mantiene los flags legacy en sync con `kind` (dual-write).
-4. UI panel-next lista usa `kind` directo, no `inferKind()`.
-5. Editor categorías m2m UI en panel-next.
+1. ✅ Migration 15 (itemKind canonical) + 16 (item_category m2m).
+2. ✅ `presentItem()` agrega `kind`, `categories[]`, `tags[]`.
+3. ✅ POST/PUT dual-write kind + flags legacy. PUT rechaza cambio de kind (409).
+4. ✅ UI panel-next lista usa `kind` directo. KIND_META con 12 kinds.
+5. ⬜ Editor categorías m2m UI (pendiente — requiere UI nueva en [id]/page.tsx).
 
 ### Slice B — Modifier groups (toppings + recetas + combos)
 
