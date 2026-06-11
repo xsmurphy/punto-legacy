@@ -124,9 +124,12 @@ final class OutletsService
 
         $db->StartTrans();
 
+        // `itemsTaxIncluded` está demoted al JSONB `data` (ver comentario del
+        // schema línea 132). Antes el INSERT lo listaba como columna y fallaba
+        // silenciosamente — la query revertía la TX y create() devolvía null.
         $res = $db->Execute(
-            "INSERT INTO outlet (outletName, outletStatus, companyId, itemsTaxIncluded, data)
-             VALUES ('Nueva Sucursal', 1, ?, 1, ?)
+            "INSERT INTO outlet (outletName, outletStatus, companyId, data)
+             VALUES ('Nueva Sucursal', 1, ?, ?)
              RETURNING outletId",
             [$companyId, json_encode(['itemsTaxIncluded' => 1])]
         );
