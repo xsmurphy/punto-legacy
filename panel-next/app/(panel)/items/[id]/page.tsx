@@ -160,22 +160,26 @@ export default function ItemEditPage() {
 
   React.useEffect(() => {
     if (isNew || !data) return
+    // El backend a veces devuelve `false` (bool PHP) en campos de texto que
+    // estaban null o vacíos en el JSONB legacy. `?? ""` no atrapa false
+    // (no es null/undefined), así que el form recibe `false` → input rompe.
+    // toStr() coerciona cualquier no-string a "".
     form.reset({
       kind: inferKind(data),
-      name: data.itemName ?? "",
-      sku: data.itemSKU ?? "",
-      description: data.itemDescription ?? "",
+      name: toStr(data.itemName),
+      sku: toStr(data.itemSKU),
+      description: toStr(data.itemDescription),
       price: toNum(data.itemPrice),
       cost: toNum(data.itemCost),
       discount: toNum(data.itemDiscount),
-      taxId: data.taxId ?? "",
+      taxId: toStr(data.taxId),
       taxIncluded: !!data.itemTaxIncluded,
-      uom: data.itemUOM ?? "",
-      categoryId: data.categoryId ?? "",
-      brandId: data.brandId ?? "",
-      status: (data.itemStatus ?? 1) === 1,
-      outletId: data.outletId ?? "",
-      supplierId: data.supplierId ?? "",
+      uom: toStr(data.itemUOM),
+      categoryId: toStr(data.categoryId),
+      brandId: toStr(data.brandId),
+      status: (toNum(data.itemStatus) ?? 1) === 1,
+      outletId: toStr(data.outletId),
+      supplierId: toStr(data.supplierId),
       waste: toNum(data.itemWaste),
       sort: toNum(data.itemSort) ?? 99999,
       commission: toNum(data.itemComissionPercent),
@@ -184,7 +188,7 @@ export default function ItemEditPage() {
       priceType: data.itemPriceType ? "percent" : "fixed",
       ecom: !!data.itemEcom,
       featured: !!data.itemFeatured,
-      procedure: typeof data.itemProcedure === "string" ? data.itemProcedure : "",
+      procedure: toStr(data.itemProcedure),
       availability: parseAvailability(data.itemDateHour),
       currencies: parseCurrencies(data.itemCurrencies),
     })
@@ -1307,8 +1311,23 @@ function ProduccionTab({
 
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null
+  if (typeof v === "boolean") return null
   const n = typeof v === "string" ? parseFloat(v) : (v as number)
   return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Coerce defensivo de unknown → string. El backend devuelve `false` (bool PHP)
+ * en campos de texto null/vacíos del JSONB legacy. `?? ""` deja pasar `false`
+ * y rompe los inputs. toStr atrapa esos casos.
+ */
+function toStr(v: unknown): string {
+  if (typeof v === "string") {
+    // Edge case: el backend a veces guarda el LITERAL string "false" en SKU
+    // o UOM cuando se serializó mal. Lo tratamos como vacío.
+    return v === "false" ? "" : v
+  }
+  return ""
 }
 
 function emptyValues(): ItemFormValues {

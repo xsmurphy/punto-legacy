@@ -4,6 +4,38 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import type { SettingsFormValues, SettingsGeneral } from "@/lib/types/settings"
 
+/** Una moneda con cotización configurable. ccode = código país (AR/BR/PY/...),
+ *  code = código ISO 4217 (ARS/BRL/PYG/...), value = tasa al PYG. */
+export interface SettingsCurrency {
+  ccode: string
+  code: string
+  value: number
+}
+
+export function useSettingsCurrencies() {
+  return useQuery<{ rows: SettingsCurrency[] }>({
+    queryKey: ["settings", "currencies"],
+    queryFn: () => api.get("/v1/settings?view=currencies"),
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useUpdateCurrencies() {
+  const qc = useQueryClient()
+  return useMutation<unknown, Error, SettingsCurrency[]>({
+    mutationFn: (currencies) =>
+      api.post("/v1/settings", {
+        action: "update",
+        type: "currencies",
+        currencies: JSON.stringify(currencies),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "currencies"] })
+      qc.invalidateQueries({ queryKey: ["currencies"] })
+    },
+  })
+}
+
 export function useSettings() {
   return useQuery<SettingsGeneral>({
     queryKey: ["settings", "general"],

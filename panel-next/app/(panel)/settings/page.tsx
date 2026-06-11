@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Share2 } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -32,7 +32,13 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { useSettings, useUpdateSettings } from "@/hooks/use-settings"
+import {
+  useSettings,
+  useUpdateSettings,
+  useSettingsCurrencies,
+  useUpdateCurrencies,
+  type SettingsCurrency,
+} from "@/hooks/use-settings"
 import { COMPANY_CATEGORIES } from "@/lib/company-categories"
 import type { SettingsFormValues } from "@/lib/types/settings"
 
@@ -175,7 +181,7 @@ export default function SettingsPage() {
         </header>
 
         <Tabs defaultValue="empresa" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
             <TabsTrigger value="empresa" className="gap-1.5">
               <Building2 className="size-3.5" />
               Empresa
@@ -186,7 +192,11 @@ export default function SettingsPage() {
             </TabsTrigger>
             <TabsTrigger value="pos" className="gap-1.5">
               <ScanLine className="size-3.5" />
-              Comportamiento POS
+              POS
+            </TabsTrigger>
+            <TabsTrigger value="monedas" className="gap-1.5">
+              <Coins className="size-3.5" />
+              Monedas
             </TabsTrigger>
             <TabsTrigger value="social" className="gap-1.5">
               <Share2 className="size-3.5" />
@@ -202,6 +212,9 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value="pos" className="mt-6">
             {isLoading ? <TabSkeleton /> : <PosTab form={form} />}
+          </TabsContent>
+          <TabsContent value="monedas" className="mt-6">
+            <MonedasTab />
           </TabsContent>
           <TabsContent value="social" className="mt-6">
             {isLoading ? <TabSkeleton /> : <SocialTab form={form} />}
@@ -749,6 +762,131 @@ function SocialTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
       </CardContent>
     </Card>
   )
+}
+
+// ── MONEDAS ─────────────────────────────────────────────────────────────────
+
+/**
+ * Editor de cotizaciones por moneda. UI Y mutación independientes del form
+ * de settings general — esto es una mutación aparte (action=update&type=currencies).
+ * El usuario puede tocar las dos cosas y guardar cada una con su propio botón
+ * para evitar pisar uno con el otro.
+ */
+function MonedasTab() {
+  const { data, isLoading, error } = useSettingsCurrencies()
+  const update = useUpdateCurrencies()
+  const [rows, setRows] = React.useState<SettingsCurrency[]>([])
+  const [savedAt, setSavedAt] = React.useState<number | null>(null)
+
+  React.useEffect(() => {
+    if (data?.rows) setRows(data.rows)
+  }, [data])
+
+  const onSave = async () => {
+    try {
+      await update.mutateAsync(rows)
+      setSavedAt(Date.now())
+      toast.success("Cotizaciones guardadas")
+    } catch (e) {
+      toast.error("No se pudieron guardar las cotizaciones", {
+        description: e instanceof Error ? e.message : undefined,
+      })
+    }
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          No se pudieron cargar las cotizaciones. {error.message}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <CardTitle className="text-sm font-medium">Cotizaciones por moneda</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Si vendés a clientes que pagan en moneda extranjera, ingresá la tasa de
+              cambio actual respecto a tu moneda local. Cero = la moneda no se ofrece.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={onSave}
+            disabled={update.isPending || isLoading}
+            size="sm"
+          >
+            {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {savedAt && !update.isPending && <Check className="mr-1 size-4" />}
+            Guardar cotizaciones
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading && (
+          <div className="flex flex-col gap-2">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        )}
+        {!isLoading && rows.length === 0 && (
+          <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
+            No hay monedas configuradas para tu país.
+          </p>
+        )}
+        {!isLoading && rows.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {rows.map((row, idx) => (
+              <div
+                key={`${row.ccode}-${row.code}-${idx}`}
+                className="flex items-center justify-between gap-3 rounded-md border p-3"
+              >
+                <div className="flex items-center gap-3">
+                  <CountryFlag code={row.ccode} />
+                  <div className="flex flex-col">
+                    <div className="text-sm font-semibold tracking-wide">
+                      {row.code}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{row.ccode}</div>
+                  </div>
+                </div>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.0001"
+                  placeholder="0"
+                  value={row.value || ""}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    const newRows = [...rows]
+                    newRows[idx] = { ...row, value: v === "" ? 0 : Number(v) }
+                    setRows(newRows)
+                  }}
+                  className="tabular-nums w-32 text-right"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function CountryFlag({ code }: { code: string }) {
+  // Emoji bandera desde código ISO 3166-1 alpha-2.
+  const flag = code
+    ? code
+        .toUpperCase()
+        .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
+    : "🌐"
+  return <span className="text-2xl leading-none">{flag}</span>
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
