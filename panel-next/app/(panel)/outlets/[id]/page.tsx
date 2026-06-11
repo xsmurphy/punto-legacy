@@ -431,11 +431,6 @@ export default function OutletEditPage() {
 
           {/* Ubicación */}
           <Section title="Ubicación">
-            <p className="text-xs text-muted-foreground">
-              Coordenadas usadas para calcular distancia entre cliente y sucursal
-              (delivery, sucursal más cercana). Si no las tenés a mano, pegá un link
-              de Google Maps en el campo siguiente y lo parseo.
-            </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormField
                 control={form.control}

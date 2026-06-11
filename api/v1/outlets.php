@@ -47,10 +47,17 @@ if ($method === 'POST') {
         apiOk(['id' => $id]);
     }
 
-    // Parseo de fields (create con datos + update lo usan). Si el flujo legacy
-    // crea un blank (sin name), el array queda con defaults razonables y
-    // tampoco pasa nada (la rama create chequea si hay name antes de pasarlo).
+    // Parseo de fields (create con datos + update lo usan).
+    // Distinción crítica: `array_key_exists` vs `!empty`.
+    //   - Field PRESENT but empty → cliente explicitly mandó '' → REJECT (422).
+    //     El form de panel-next con zod no submitea con name vacío; este caso
+    //     es defensa server-side ante clientes maliciosos / requests crudas.
+    //   - Field ABSENT del todo → cliente legacy (panel/a_outlets.js) que solo
+    //     manda {action:create} → fallback al flujo blank ("Nueva Sucursal"
+    //     placeholder). Backwards compat hasta que el legacy desaparezca.
+    $nameProvided = isset($_POST['name']);
     $name = trim((string) (validateHttp('name', 'post') ?: ''));
+
     $poRaw = (string) (validateHttp('purchaseOrderNo', 'post') ?: '');
     $po    = ($poRaw !== '' && is_numeric($poRaw)) ? (int) $poRaw : null;
     $taxId = (string) (validateHttp('tax', 'post') ?: '');
@@ -66,7 +73,7 @@ if ($method === 'POST') {
     $lng = ($lngRaw !== '' && is_numeric($lngRaw)) ? (float) $lngRaw : null;
 
     $fields = [
-        'name'            => $name !== '' ? $name : 'Nueva Sucursal',
+        'name'            => $name,
         'address'         => (string) (validateHttp('address', 'post') ?: ''),
         'phone'           => (string) (validateHttp('phone', 'post') ?: ''),
         'email'           => (string) (validateHttp('email', 'post') ?: ''),
@@ -85,12 +92,16 @@ if ($method === 'POST') {
     ];
 
     if ($action === 'create') {
-        // Flujo nuevo de panel-next: el form se llena y POST trae todos los
-        // campos → creamos la sucursal con esos datos en un solo round-trip
-        // (sin "outlets huérfanos" del flujo legacy click → blank → editar).
-        // Flujo legacy (panel/a_outlets.js): no manda `name` → creamos placeholder
-        // y la UI edita después; en ese caso pasamos null a create().
-        $newFields = $name !== '' ? $fields : null;
+        if ($nameProvided) {
+            // Cliente nuevo (panel-next form): validamos requireds.
+            if ($name === '') {
+                apiError('El nombre es requerido', 422);
+            }
+            $newFields = $fields;
+        } else {
+            // Cliente legacy (panel/a_outlets.js): crea blank y edita después.
+            $newFields = null;
+        }
         $newId = $svc->create(COMPANY_ID, $newFields);
         if ($newId === null) {
             apiError('No se pudo crear la sucursal', 500);
@@ -102,6 +113,12 @@ if ($method === 'POST') {
     $id = (string) (validateHttp('id', 'post') ?: '');
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 422);
+    }
+    // Required field check — en update siempre exigimos name (no hay path
+    // legacy que update sin name; cualquier cliente que llegue acá tiene
+    // que mandar el form completo).
+    if ($name === '') {
+        apiError('El nombre es requerido', 422);
     }
     if (!$svc->update($id, COMPANY_ID, $fields)) {
         apiError('No se pudo actualizar', 500);
