@@ -52,13 +52,27 @@ async function request<T>(
   const payload = text ? safeJson(text) : null
 
   if (!res.ok) {
+    // El envelope { ok:false, error:{ message, code } } trae el mensaje
+    // del backend en error.message — lo propagamos al ApiError para que
+    // el caller pueda mostrarlo directo en un toast.
+    const envelope = payload as
+      | { ok?: boolean; error?: { message?: string; code?: number } }
+      | null
+    const backendMsg = envelope?.error?.message
     throw new ApiError(
       res.status,
       payload,
-      `${rest.method ?? "GET"} ${path} → ${res.status}`,
+      backendMsg ?? `${rest.method ?? "GET"} ${path} → ${res.status}`,
     )
   }
 
+  // Unwrappear el envelope canónico de /api ({ ok:true, data:... }) → data.
+  // Si la response no viene wrappeada (ej. endpoint legacy), devolvemos el
+  // body crudo. Detectamos por shape: { ok, data } con ok=true.
+  const envelope = payload as { ok?: boolean; data?: unknown } | null
+  if (envelope && typeof envelope === "object" && envelope.ok === true && "data" in envelope) {
+    return envelope.data as T
+  }
   return payload as T
 }
 

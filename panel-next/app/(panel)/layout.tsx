@@ -1,8 +1,12 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
 import { Package, Users, BarChart3, ScanBarcode } from "lucide-react"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { ApiError } from "@/lib/api-client"
+import * as React from "react"
 
 // Espejo del menú lateral del panel legacy (`leftMenu()` en
 // panel/includes/functions.php:5623). Sidebar 80px icon-only con 4 items
@@ -19,12 +23,31 @@ const panelNav: NavEntry[] = [
 ]
 
 export default function PanelLayout({ children }: { children: React.ReactNode }) {
-  // Hardcode del user hasta el slice de auth. En slice 1 se reemplaza por
-  // una server action que lee `_jwt_panel` y resuelve `/api/v1/me`.
-  const user = {
-    name: "Punto User",
-    subtitle: "Sesión activa",
-  }
+  const router = useRouter()
+  const { data: bootstrap, isLoading, error } = useBootstrap()
+
+  // Gate de auth client-side: si bootstrap devuelve 401 (sin cookie o
+  // cookie expirada), mandamos al login. Esto es complemento del
+  // middleware Next que se va a agregar como hardening en slice futuro
+  // (server-side redirect antes de renderizar el layout).
+  React.useEffect(() => {
+    if (error instanceof ApiError && error.status === 401) {
+      router.replace("/login")
+    }
+  }, [error, router])
+
+  // Sidebar user: usa el companyName del bootstrap como nombre principal
+  // y el ID del usuario como subtitle (placeholder hasta tener /v1/me
+  // con first_name/last_name/email/phone — port pendiente del slice 1).
+  const user = bootstrap
+    ? {
+        name: bootstrap.companyName || "Punto",
+        subtitle: `Usuario #${bootstrap.user.id}`,
+      }
+    : {
+        name: isLoading ? "Cargando…" : "Punto User",
+        subtitle: "Sesión activa",
+      }
 
   return (
     <SidebarProvider>

@@ -9024,15 +9024,27 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 			// Detección HTTPS via X-Forwarded-Proto (Traefik agrega ese header detrás de TLS termination).
 			// SameSite=Lax porque Strict bloquea la cookie en flujos cross-origin top-level
 			// (links de email, redirects post-OAuth, etc.) y rompe XHR en algunos browsers.
+			//
+			// domain: scope desde env COOKIE_DOMAIN (ej. ".punto.la"). Permite que el
+			// panel legacy (panel-legacy.punto.la), el panel nuevo (panel.punto.la /
+			// panel-next-dev.punto.la) y la API (api.punto.la) compartan la sesión
+			// sin re-login durante la coexistencia del rewrite. Si la env no está
+			// seteada, default = no setear domain (cookie atada al host actual,
+			// comportamiento histórico — local dev sigue funcionando).
 			$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
 			        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-			setcookie('_jwt_panel', $token, [
+			$cookieOpts = [
 				'expires'  => $now + $ttl,
 				'path'     => '/',
 				'httponly' => true,
 				'samesite' => 'Lax',
 				'secure'   => $isHttps,
-			]);
+			];
+			$cookieDomain = $_ENV['COOKIE_DOMAIN'] ?? '';
+			if ($cookieDomain !== '') {
+				$cookieOpts['domain'] = $cookieDomain;
+			}
+			setcookie('_jwt_panel', $token, $cookieOpts);
 
 			return [
 				'token'     => $token,
