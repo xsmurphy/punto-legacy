@@ -166,11 +166,17 @@ empiezan recto.
 
 ## Reglas de la nueva sesión
 
+0. **`panel/a_<modulo>.php` = referencia funcional obligatoria de cada slice.** Antes de empezar cualquier slice, leer el módulo legacy equivalente entero (vista + handlers `?action=*`) y catalogar: campos del form, columnas de tabla, filtros, acciones, validaciones, permisos, integraciones cross-módulo. El legacy lleva años de iteración con clientes reales — saltearse esa lectura garantiza perder features que ya usan. La VISUAL no se replica (Linear-inspired + shadcn la reemplaza), pero el comportamiento funcional sí. Si algo en el legacy parece bug o cruft, preguntar antes de "limpiarlo".
+
 1. **No tocar el panel legacy salvo bug crítico de seguridad.** Cero features nuevas. Bug fixes se pasan al `/panel-next` cuando el módulo correspondiente migra.
 2. **No tocar `/api` salvo para bug fixes o para portar handlers que el `/panel-next` necesita.** El backend está al 97% listo.
 3. **No mover lógica de negocio al cliente React.** El cliente formatea, valida y muestra. La lógica de negocio (tenant scoping, business rules, money path) vive en `/api`.
 4. **TypeScript estricto desde día 1.** `strict: true`, sin `any` salvo en boundary points temporales documentados.
 5. **shadcn copy-paste, no dependencia.** Los componentes shadcn viven en `components/ui/` como código tuyo — los editás libremente.
+
+5.1. **shadcn-first siempre.** Todo componente UI se compone de primitives shadcn — nunca custom widgets ni libs UI alternativas. Patrones canónicos: date range picker = `<Calendar mode="range" />` + `<Popover>`; phone input = `<InputGroup>` + `<DropdownMenu>` (país) + `<Input>` + `libphonenumber-js`; command palette = `<Command>` + `<CommandDialog>`; toasts = `<Toaster>` + `toast()` de sonner ya envuelto; bottom-sheet mobile = `<Drawer>` (vaul envuelto); forms = `<Form>` + react-hook-form + zod. Si falta un primitive: `npx shadcn@latest add <componente>`. Si es composición: vive en `components/forms/` o `components/inputs/` usando primitives. NUNCA reinventar widgets que shadcn ya cubre.
+
+5.2. **Teléfonos: front nacional, back E.164, `libphonenumber-js` siempre.** El usuario ve y tipea el número en formato nacional sin "+" (ej PY: `0981 612 192`). El backend recibe y devuelve E.164 (`+595981612192`). Conversión y validación SIEMPRE via `libphonenumber-js` — `parsePhoneNumber(input, country).format('E.164')` al submit, `isValidPhoneNumber(input, country)` para validar. NUNCA regex manual ni concatenar códigos a mano. Default país = "PY" hasta que la sesión indique otro. Componente reusable: `components/forms/phone-input.tsx` envolviendo `<InputGroup>` con dropdown de países (bandera + dial code) + `<Input>` libre.
 6. **Tests obligatorios para el money path.** Forms de items, transacciones, billing — Vitest + React Testing Library.
 7. **Cada slice cierra con un PR review** (code-reviewer subagent) antes de mergear a main.
 8. **Decisiones arquitectónicas → este archivo.** No proliferar `docs/`. Si la decisión cambia, se actualiza este doc.

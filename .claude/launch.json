@@ -44,6 +44,13 @@
       }
     },
     {
+      "name": "Punto Panel Next (React)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "panel-next",
+      "port": 3000
+    },
+    {
       "name": "Punto Screens (KDS/CDS/recibos)",
       "runtimeExecutable": "/opt/homebrew/bin/php",
       "runtimeArgs": ["-d", "opcache.enable_cli=1", "-d", "opcache.validate_timestamps=1", "-d", "opcache.revalidate_freq=0", "-S", "localhost:8003", "-t", "screens"],
