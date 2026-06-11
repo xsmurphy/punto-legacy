@@ -19,28 +19,77 @@
  * Failure: si una migración falla, log al stderr + exit 1 → entrypoint corta y
  * el container no arranca. Mejor fail-fast que servir requests contra un schema
  * a medio migrar.
+ *
+ * Usa PDO directo (no el wrapper DB del app) porque:
+ *   - el wrapper hace `die()` en error de conexión, lo que matarí­a el entrypoint
+ *     antes de poder log'ear un mensaje útil
+ *   - no expone una API limpia para multi-statement (cada .sql tiene BEGIN/COMMIT)
+ *   - PDO::exec() acepta multi-statement nativamente para PG
  */
 
 declare(strict_types=1);
 
-// Setup mínimo: necesitamos solo la conexión PG, no todo el bootstrap del app.
-// Cargamos simple.config.php (env vars + constantes) y db.php (instancia $db
-// global). NO cargamos functions.php — son 10k líneas que no necesitamos acá.
+// Cargar .env del repo si está (Coolify suele inyectar via env directos,
+// pero en local docker run podemos tener .env).
 $repoRoot = dirname(__DIR__);
+$envFile  = $repoRoot . '/.env';
+if (is_file($envFile)) {
+    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') {
+            continue;
+        }
+        if (!preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/', $line, $m)) {
+            continue;
+        }
+        $value = trim($m[2]);
+        $len   = strlen($value);
+        if ($len >= 2) {
+            $first = $value[0];
+            $last  = $value[$len - 1];
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $value = substr($value, 1, -1);
+            }
+        }
+        if (!isset($_ENV[$m[1]])) {
+            $_ENV[$m[1]] = $value;
+        }
+    }
+}
 
-require_once $repoRoot . '/app/includes/simple.config.php';
-require_once $repoRoot . '/app/includes/db.php';
+// Soporte DATABASE_URL (estilo Coolify managed).
+if (!empty($_ENV['DATABASE_URL'])) {
+    $u = parse_url((string) $_ENV['DATABASE_URL']);
+    $_ENV['POSTGRES_HOST']     = $u['host'] ?? 'localhost';
+    $_ENV['POSTGRES_USER']     = isset($u['user']) ? urldecode($u['user']) : 'punto';
+    $_ENV['POSTGRES_PASSWORD'] = isset($u['pass']) ? urldecode($u['pass']) : '';
+    $_ENV['POSTGRES_DB']       = isset($u['path']) ? ltrim($u['path'], '/') : 'puntoDB';
+    $_ENV['POSTGRES_PORT']     = $u['port'] ?? 5432;
+}
 
-/** @var \ADOConnection $db */
-global $db;
+$host = $_ENV['POSTGRES_HOST']     ?? 'localhost';
+$user = $_ENV['POSTGRES_USER']     ?? 'punto';
+$pass = $_ENV['POSTGRES_PASSWORD'] ?? '';
+$dbnm = $_ENV['POSTGRES_DB']       ?? 'puntoDB';
+$port = (int) ($_ENV['POSTGRES_PORT'] ?? 5432);
 
-if (!$db || !$db->IsConnected()) {
-    fwrite(STDERR, "[migrate] No PG connection — verificá POSTGRES_* env vars\n");
+$dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s', $host, $port, $dbnm);
+
+try {
+    $pdo = new PDO($dsn, $user, $pass, [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_EMULATE_PREPARES   => false,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+} catch (PDOException $e) {
+    fwrite(STDERR, "[migrate] PDO connection failed: " . $e->getMessage() . "\n");
+    fwrite(STDERR, "[migrate] verificá POSTGRES_HOST/USER/PASSWORD/DB env vars\n");
     exit(1);
 }
 
 // 1. Tabla de tracking.
-$db->Execute(
+$pdo->exec(
     "CREATE TABLE IF NOT EXISTS schema_migrations (
         filename   TEXT PRIMARY KEY,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -48,7 +97,7 @@ $db->Execute(
 );
 
 // 2. Listado de migrations files sorted numéricamente.
-$dir = __DIR__ . '/migrations/postgres';
+$dir   = __DIR__ . '/migrations/postgres';
 $files = glob($dir . '/*.sql') ?: [];
 usort($files, static function (string $a, string $b): int {
     preg_match('/^(\d+)/', basename($a), $ma);
@@ -63,12 +112,9 @@ if (!$files) {
 
 // 3. Set de migrations ya aplicadas.
 $applied = [];
-$res = $db->Execute('SELECT filename FROM schema_migrations');
-if ($res) {
-    while (!$res->EOF) {
-        $applied[(string) $res->fields['filename']] = true;
-        $res->MoveNext();
-    }
+$stmt = $pdo->query('SELECT filename FROM schema_migrations');
+foreach ($stmt as $row) {
+    $applied[(string) $row['filename']] = true;
 }
 
 // 4. Bootstrap one-time: si la tracking table está vacía y la BD parece "vieja"
@@ -77,23 +123,21 @@ if ($res) {
 // migraciones 01-13 ya estaban aplicadas via flujo manual. Si la columna no existe
 // pero schema_migrations está vacía, es DB fresca → corremos todo desde 01.
 if (!$applied) {
-    $check = $db->Execute(
+    $check = $pdo->query(
         "SELECT 1 FROM information_schema.columns
          WHERE table_name = 'outlet' AND column_name = 'outletaddress'"
     );
-    $isExistingDB = ($check && !$check->EOF);
+    $isExistingDB = ($check && $check->fetch() !== false);
     if ($isExistingDB) {
         echo "[migrate] bootstrap: detectada BD existente (pre-migración 14)\n";
         echo "[migrate] bootstrap: marcando migraciones 01-13 como already-applied\n";
+        $ins = $pdo->prepare('INSERT INTO schema_migrations (filename) VALUES (?) ON CONFLICT DO NOTHING');
         foreach ($files as $file) {
             $name = basename($file);
             preg_match('/^(\d+)/', $name, $m);
             $num = (int) ($m[1] ?? 0);
             if ($num <= 13) {
-                $db->Execute(
-                    'INSERT INTO schema_migrations (filename) VALUES (?) ON CONFLICT DO NOTHING',
-                    [$name]
-                );
+                $ins->execute([$name]);
                 $applied[$name] = true;
             }
         }
@@ -102,16 +146,10 @@ if (!$applied) {
     }
 }
 
-// 5. Aplicar pendientes. Usamos pg_query directo porque ADOdb's Execute no
-// maneja bien múltiples statements separados por ; (un .sql con BEGIN; ...; COMMIT;
-// se parsea como 1 sentencia pero contiene varias). pg_query SÍ las acepta.
-$rawConn = $db->_connectionID;
-if (!$rawConn) {
-    fwrite(STDERR, "[migrate] No raw PG connection disponible\n");
-    exit(1);
-}
-
+// 5. Aplicar pendientes. PDO::exec() para multi-statement (BEGIN/COMMIT incluidos)
+// — funciona para PG cuando emulate_prepares=false y se usa exec, no prepare.
 $pending = 0;
+$ins     = $pdo->prepare('INSERT INTO schema_migrations (filename) VALUES (?)');
 foreach ($files as $file) {
     $name = basename($file);
     if (isset($applied[$name])) {
@@ -125,15 +163,15 @@ foreach ($files as $file) {
         exit(1);
     }
 
-    $result = @pg_query($rawConn, $sql);
-    if ($result === false) {
-        $err = pg_last_error($rawConn);
+    try {
+        $pdo->exec($sql);
+    } catch (PDOException $e) {
         fwrite(STDERR, "[migrate] FAILED: $name\n");
-        fwrite(STDERR, "[migrate] PG error: $err\n");
+        fwrite(STDERR, "[migrate] PG error: " . $e->getMessage() . "\n");
         exit(1);
     }
 
-    $db->Execute('INSERT INTO schema_migrations (filename) VALUES (?)', [$name]);
+    $ins->execute([$name]);
     echo "[migrate] OK: $name\n";
     $pending++;
 }
