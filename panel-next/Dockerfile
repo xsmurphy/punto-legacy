@@ -16,7 +16,11 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+# `--include=dev` fuerza la instalación de devDependencies incluso si
+# Coolify (u otro runner) inyecta NODE_ENV=production al docker build.
+# Sin esto, `@tailwindcss/postcss` y `typescript` no se instalan y el
+# `next build` del stage siguiente revienta con "Cannot find module".
+RUN npm ci --ignore-scripts --include=dev
 
 
 # ─── Stage 2: build ──────────────────────────────────────────────────────────
