@@ -2,11 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
-import type {
-  ItemFormValues,
-  ItemFull,
-  ItemListItem,
-  Taxonomy,
+import {
+  kindToBackendFields,
+  type ItemFormValues,
+  type ItemFull,
+  type ItemListItem,
+  type Taxonomy,
 } from "@/lib/types/item"
 
 export function useItems(opts?: { q?: string; archived?: boolean }) {
@@ -39,8 +40,13 @@ export function useItem(id: string | undefined) {
 export function useCreateItem() {
   const qc = useQueryClient()
   return useMutation<ItemFull, Error, ItemFormValues>({
-    mutationFn: (values) =>
-      api.post<ItemFull>("/v1/items", { type: values.type, ...serialize(values) }),
+    mutationFn: (values) => {
+      const flags = kindToBackendFields(values.kind)
+      return api.post<ItemFull>("/v1/items", {
+        type: flags.itemType, // backend usa `type` para createBlank
+        ...serialize(values, flags),
+      })
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["items"] })
     },
@@ -50,8 +56,10 @@ export function useCreateItem() {
 export function useUpdateItem() {
   const qc = useQueryClient()
   return useMutation<ItemFull, Error, { id: string; values: ItemFormValues }>({
-    mutationFn: ({ id, values }) =>
-      api.put<ItemFull>(`/v1/items?id=${id}`, serialize(values)),
+    mutationFn: ({ id, values }) => {
+      const flags = kindToBackendFields(values.kind)
+      return api.put<ItemFull>(`/v1/items?id=${id}`, serialize(values, flags))
+    },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["items"] })
       qc.invalidateQueries({ queryKey: ["items", vars.id] })
@@ -69,11 +77,6 @@ export function useArchiveItem() {
   })
 }
 
-/**
- * Taxonomies del tenant (categorías, marcas, impuestos, etc.). Una sola query
- * trae todas; filtramos client-side por type donde haga falta. Cache larga
- * porque cambian raras veces.
- */
 export function useTaxonomies() {
   return useQuery<{ taxonomies: Taxonomy[] }>({
     queryKey: ["taxonomies"],
@@ -90,27 +93,29 @@ export function useTaxonomiesByType(type: string) {
   }
 }
 
-// ── helpers ─────────────────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────
 
-function serialize(values: ItemFormValues): Record<string, unknown> {
-  // Backend acepta los nombres con prefix `item*` del schema (más `taxId`,
-  // `brandId`, `categoryId`). Mapeamos del form a esos nombres.
+function serialize(
+  values: ItemFormValues,
+  flags: ReturnType<typeof kindToBackendFields>,
+): Record<string, unknown> {
   return {
     itemName: values.name,
     itemSKU: values.sku,
-    itemType: values.type,
     itemDescription: values.description,
     itemPrice: values.price ?? "",
     itemCost: values.cost ?? "",
     itemDiscount: values.discount ?? "",
     itemUOM: values.uom,
     itemTaxIncluded: values.taxIncluded ? 1 : 0,
-    itemTrackInventory: values.trackInventory ? 1 : 0,
-    itemCanSale: values.canSale ? 1 : 0,
-    itemProduction: values.production ? 1 : 0,
     itemStatus: values.status ? 1 : 0,
     taxId: values.taxId || null,
     categoryId: values.categoryId || null,
     brandId: values.brandId || null,
+    // Flags derivados del kind — NO los toca el usuario directamente.
+    itemType: flags.itemType,
+    itemCanSale: flags.itemCanSale,
+    itemTrackInventory: flags.itemTrackInventory,
+    itemProduction: flags.itemProduction,
   }
 }

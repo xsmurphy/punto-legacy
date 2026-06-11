@@ -20,28 +20,27 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useItems } from "@/hooks/use-items"
 import { formatMoney } from "@/lib/format"
-import type { ItemListItem, ItemType } from "@/lib/types/item"
-
-const TYPE_LABELS: Record<ItemType, string> = {
-  product: "Producto",
-  service: "Servicio",
-  discount: "Descuento",
-  combo: "Combo",
-  giftcard: "Gift card",
-}
+import {
+  inferKind,
+  KIND_META,
+  type ItemKind,
+  type ItemListItem,
+} from "@/lib/types/item"
 
 export default function ItemsPage() {
   const router = useRouter()
-  const [typeFilter, setTypeFilter] = React.useState<"all" | ItemType>("all")
+  const [kindFilter, setKindFilter] = React.useState<"all" | ItemKind>("all")
   const [showArchived, setShowArchived] = React.useState(false)
   const { data, isLoading, error } = useItems({ archived: showArchived })
   const { data: bootstrap } = useBootstrap()
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.items ?? []
-    if (typeFilter === "all") return rows
-    return rows.filter((r) => r.itemType === typeFilter)
-  }, [data, typeFilter])
+    if (kindFilter === "all") return rows
+    // inferKind necesita un ItemFull pero los list items tienen menos campos.
+    // Lo casteamos — los fields que faltan son undefined → inferKind defaults.
+    return rows.filter((r) => inferKind(r as never) === kindFilter)
+  }, [data, kindFilter])
 
   const columns = React.useMemo<ColumnDef<ItemListItem>[]>(
     () => [
@@ -72,13 +71,14 @@ export default function ItemsPage() {
         meta: { label: "SKU", className: "tabular-nums" },
       },
       {
-        accessorKey: "itemType",
+        id: "kind",
         header: "Tipo",
+        accessorFn: (row) => inferKind(row as never),
         cell: ({ getValue }) => {
-          const t = getValue() as ItemType
+          const k = getValue() as ItemKind
           return (
             <Badge variant="outline" className="text-[10px]">
-              {TYPE_LABELS[t] ?? t}
+              {KIND_META[k].label}
             </Badge>
           )
         },
@@ -170,19 +170,19 @@ export default function ItemsPage() {
             toolbarSlot={
               <>
                 <Select
-                  value={typeFilter}
-                  onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}
+                  value={kindFilter}
+                  onValueChange={(v) => setKindFilter(v as typeof kindFilter)}
                 >
-                  <SelectTrigger className="h-9 w-[130px]">
+                  <SelectTrigger className="h-9 w-[170px]">
                     <SelectValue placeholder="Tipo" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos los tipos</SelectItem>
-                    <SelectItem value="product">Productos</SelectItem>
-                    <SelectItem value="service">Servicios</SelectItem>
-                    <SelectItem value="discount">Descuentos</SelectItem>
-                    <SelectItem value="combo">Combos</SelectItem>
-                    <SelectItem value="giftcard">Gift cards</SelectItem>
+                    {(Object.keys(KIND_META) as ItemKind[]).map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {KIND_META[k].label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Select

@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft, Loader2, Archive } from "lucide-react"
+import { ArrowLeft, Loader2, Archive, ExternalLink } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -49,26 +51,47 @@ import {
   useTaxonomiesByType,
   useUpdateItem,
 } from "@/hooks/use-items"
-import type { ItemFormValues, ItemType } from "@/lib/types/item"
+import {
+  inferKind,
+  KIND_META,
+  type ItemFormValues,
+  type ItemKind,
+} from "@/lib/types/item"
 
 const itemSchema = z.object({
+  kind: z.enum([
+    "producto",
+    "servicio",
+    "insumo_stock",
+    "insumo_sin_stock",
+    "produccion_previa",
+    "produccion_directa",
+    "combo",
+    "descuento",
+    "giftcard",
+  ]),
   name: z.string().min(1, "El nombre es requerido"),
   sku: z.string(),
-  type: z.enum(["product", "service", "discount", "combo", "giftcard"]),
   description: z.string(),
   price: z.number().nonnegative().nullable(),
   cost: z.number().nonnegative().nullable(),
   discount: z.number().min(0).max(100).nullable(),
   taxId: z.string(),
   taxIncluded: z.boolean(),
-  trackInventory: z.boolean(),
-  canSale: z.boolean(),
-  production: z.boolean(),
   uom: z.string(),
   categoryId: z.string(),
   brandId: z.string(),
   status: z.boolean(),
 })
+
+// Agrupamos los kinds del dropdown por categoría conceptual.
+const KIND_GROUPS: Array<{ label: KindGroup; kinds: ItemKind[] }> = [
+  { label: "Items de venta", kinds: ["producto", "servicio"] },
+  { label: "Insumos", kinds: ["insumo_stock", "insumo_sin_stock"] },
+  { label: "Producción", kinds: ["produccion_previa", "produccion_directa"] },
+  { label: "Otros", kinds: ["combo", "descuento", "giftcard"] },
+]
+type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
 
 export default function ItemEditPage() {
   const params = useParams<{ id: string }>()
@@ -91,24 +114,24 @@ export default function ItemEditPage() {
   React.useEffect(() => {
     if (isNew || !data) return
     form.reset({
+      kind: inferKind(data),
       name: data.itemName ?? "",
       sku: data.itemSKU ?? "",
-      type: (data.itemType ?? "product") as ItemType,
       description: data.itemDescription ?? "",
       price: toNum(data.itemPrice),
       cost: toNum(data.itemCost),
       discount: toNum(data.itemDiscount),
       taxId: data.taxId ?? "",
       taxIncluded: !!data.itemTaxIncluded,
-      trackInventory: !!data.itemTrackInventory,
-      canSale: data.itemCanSale === null || data.itemCanSale === undefined ? true : !!data.itemCanSale,
-      production: !!data.itemProduction,
       uom: data.itemUOM ?? "",
       categoryId: data.categoryId ?? "",
       brandId: data.brandId ?? "",
       status: (data.itemStatus ?? 1) === 1,
     })
   }, [data, form, isNew])
+
+  const kind = form.watch("kind")
+  const visibility = KIND_META[kind].fields
 
   const onSubmit = async (values: ItemFormValues) => {
     try {
@@ -205,8 +228,40 @@ export default function ItemEditPage() {
         </header>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* General */}
+          {/* General — siempre visible */}
           <Section title="General">
+            <FormField
+              control={form.control}
+              name="kind"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tipo</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {KIND_GROUPS.map((g) => (
+                        <SelectGroup key={g.label}>
+                          <SelectLabel>{g.label}</SelectLabel>
+                          {g.kinds.map((k) => (
+                            <SelectItem key={k} value={k}>
+                              {KIND_META[k].label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription className="text-xs">
+                    {KIND_META[field.value as ItemKind].description}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="name"
@@ -220,45 +275,19 @@ export default function ItemEditPage() {
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="sku"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>SKU</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Código interno" className="tabular-nums" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tipo</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="product">Producto</SelectItem>
-                        <SelectItem value="service">Servicio</SelectItem>
-                        <SelectItem value="discount">Descuento</SelectItem>
-                        <SelectItem value="combo">Combo</SelectItem>
-                        <SelectItem value="giftcard">Gift card</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="sku"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>SKU / Código</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Código interno" className="tabular-nums" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="description"
@@ -266,11 +295,7 @@ export default function ItemEditPage() {
                 <FormItem>
                   <FormLabel>Descripción</FormLabel>
                   <FormControl>
-                    <Textarea
-                      rows={3}
-                      placeholder="Notas internas o detalles del producto"
-                      {...field}
-                    />
+                    <Textarea rows={3} placeholder="Notas internas o detalles" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -295,249 +320,273 @@ export default function ItemEditPage() {
             />
           </Section>
 
-          {/* Precios */}
-          <Section title="Precios">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="price"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Precio de venta</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        placeholder="0"
-                        value={field.value ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          field.onChange(v === "" ? null : Number(v))
-                        }}
-                        className="tabular-nums"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="cost"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Costo</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        placeholder="0"
-                        value={field.value ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          field.onChange(v === "" ? null : Number(v))
-                        }}
-                        className="tabular-nums"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-            <FormField
-              control={form.control}
-              name="taxId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Impuesto</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sin impuesto" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {taxes.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name}%
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
+          {/* Precios — visible salvo Insumo y Descuento */}
+          {(visibility.showPrice || visibility.showCost || visibility.showTax || visibility.showDiscount) && (
+            <Section title={visibility.showPrice ? "Precios e impuestos" : "Costo"}>
+              {visibility.showPrice && (
+                <FormField
+                  control={form.control}
+                  name="price"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Precio de venta</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          placeholder="0"
+                          value={field.value ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            field.onChange(v === "" ? null : Number(v))
+                          }}
+                          className="tabular-nums"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               )}
-            />
-            <FormField
-              control={form.control}
-              name="taxIncluded"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                  <div>
-                    <FormLabel className="text-sm">Precio incluye impuesto</FormLabel>
-                    <FormDescription className="text-xs">
-                      Si está prendido, el precio de venta ya incluye el IVA.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
+              {visibility.showCost && (
+                <FormField
+                  control={form.control}
+                  name="cost"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Costo</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          placeholder="0"
+                          value={field.value ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            field.onChange(v === "" ? null : Number(v))
+                          }}
+                          className="tabular-nums"
+                        />
+                      </FormControl>
+                      {visibility.showPrice && (
+                        <FormDescription className="text-xs">
+                          Costo promedio (COGS). Se actualiza automáticamente al recibir
+                          movimientos de inventario.
+                        </FormDescription>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               )}
-            />
-            <FormField
-              control={form.control}
-              name="discount"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Descuento por defecto (%)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.01"
-                      min={0}
-                      max={100}
-                      placeholder="0"
-                      value={field.value ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        field.onChange(v === "" ? null : Number(v))
-                      }}
-                      className="tabular-nums"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              {visibility.showTax && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="taxId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Impuesto</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Sin impuesto" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {taxes.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>
+                                {t.name}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="taxIncluded"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+                        <div>
+                          <FormLabel className="text-sm">Precio incluye impuesto</FormLabel>
+                          <FormDescription className="text-xs">
+                            Si está prendido, el precio de venta ya incluye el IVA.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </>
               )}
-            />
-          </Section>
+              {visibility.showDiscount && (
+                <FormField
+                  control={form.control}
+                  name="discount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Descuento por defecto (%)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          min={0}
+                          max={100}
+                          placeholder="0"
+                          value={field.value ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            field.onChange(v === "" ? null : Number(v))
+                          }}
+                          className="tabular-nums"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </Section>
+          )}
 
-          {/* Inventario */}
-          <Section title="Inventario">
-            <FormField
-              control={form.control}
-              name="trackInventory"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                  <div>
-                    <FormLabel className="text-sm">Lleva stock</FormLabel>
-                    <FormDescription className="text-xs">
-                      Si está prendido, el sistema descuenta inventario en cada venta.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
+          {/* Inventario — solo cuando lleva stock */}
+          {visibility.showInventoryInfo && (
+            <Section title="Inventario">
+              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                Este tipo de ítem lleva stock. El conteo y los movimientos de
+                inventario se gestionan desde el módulo de Inventario / Conteos.
+              </p>
+              {visibility.showUOM && (
+                <FormField
+                  control={form.control}
+                  name="uom"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Unidad de medida</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ej: unidad, kg, litro, hora" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               )}
-            />
-            <FormField
-              control={form.control}
-              name="canSale"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                  <div>
-                    <FormLabel className="text-sm">Se puede vender</FormLabel>
-                    <FormDescription className="text-xs">
-                      Apagado = solo se usa como ingrediente / componente.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
+            </Section>
+          )}
+
+          {/* UOM cuando hay items sin sección de inventario (servicio, insumo sin stock) */}
+          {!visibility.showInventoryInfo && visibility.showUOM && (
+            <Section title="Unidad">
+              <FormField
+                control={form.control}
+                name="uom"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Unidad de medida</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={
+                          kind === "servicio"
+                            ? "Ej: hora, sesión, mensual"
+                            : "Ej: unidad, kg, litro"
+                        }
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </Section>
+          )}
+
+          {/* Compounds (Ingredientes) — solo producción */}
+          {visibility.showCompounds && (
+            <Section title="Ingredientes">
+              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                Los ingredientes (compounds) que componen este ítem se editan en el
+                panel legacy por ahora. El editor de compounds aterriza en panel-next
+                en un slice futuro.
+              </p>
+              {!isNew && (
+                <Button asChild variant="outline" size="sm">
+                  <a
+                    href={`https://panel-legacy.punto.la/@#items/edit/${id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <ExternalLink className="size-3.5" />
+                    Editar ingredientes en panel legacy
+                  </a>
+                </Button>
               )}
-            />
-            <FormField
-              control={form.control}
-              name="production"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                  <div>
-                    <FormLabel className="text-sm">Se produce</FormLabel>
-                    <FormDescription className="text-xs">
-                      Activá si el artículo pasa por el módulo de producción/recetas.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="uom"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Unidad de medida</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ej: unidad, kg, litro, hora" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </Section>
+            </Section>
+          )}
 
           {/* Categorización */}
-          <Section title="Categorización">
-            <FormField
-              control={form.control}
-              name="categoryId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Categoría</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sin categoría" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription className="text-xs">
-                    Las categorías se gestionan desde el panel legacy por ahora.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="brandId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Marca</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sin marca" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {brands.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </Section>
+          {visibility.showCategorization && (
+            <Section title="Categorización">
+              <FormField
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categoría</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sin categoría" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription className="text-xs">
+                      Las categorías se gestionan desde el panel legacy por ahora.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="brandId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Marca</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sin marca" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {brands.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </Section>
+          )}
         </div>
       </form>
     </Form>
@@ -552,18 +601,15 @@ function toNum(v: unknown): number | null {
 
 function emptyValues(): ItemFormValues {
   return {
+    kind: "producto",
     name: "",
     sku: "",
-    type: "product",
     description: "",
     price: null,
     cost: null,
     discount: null,
     taxId: "",
     taxIncluded: true,
-    trackInventory: false,
-    canSale: true,
-    production: false,
     uom: "",
     categoryId: "",
     brandId: "",
