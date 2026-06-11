@@ -119,8 +119,7 @@ export default function OutletsPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Sucursales</h1>
           <p className="text-sm text-muted-foreground">
-            Puntos de venta físicos o virtuales de tu negocio. Cada sucursal tiene
-            su propia caja, inventario y configuración fiscal.
+            Puntos de venta con su propia caja e inventario.
           </p>
         </div>
         <Button asChild>

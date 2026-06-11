@@ -122,8 +122,7 @@ export default function ItemsPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Artículos</h1>
           <p className="text-sm text-muted-foreground">
-            Productos, servicios y otros ítems del catálogo. Cada ítem puede
-            tener precio, costo, stock, categoría y marca asignados.
+            Catálogo de productos, servicios e insumos.
           </p>
         </div>
         <Button asChild>

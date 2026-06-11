@@ -170,8 +170,7 @@ export default function SettingsPage() {
           <div className="flex flex-col gap-1">
             <h1 className="text-2xl font-semibold">Ajustes de la empresa</h1>
             <p className="text-sm text-muted-foreground">
-              Datos fiscales, localización, comportamiento del POS y redes sociales.
-              Aplica a TODA la empresa — los datos por sucursal viven en Sucursales.
+              Datos fiscales, localización y configuración general del negocio.
             </p>
           </div>
           <Button type="submit" disabled={update.isPending || isLoading}>

@@ -136,9 +136,7 @@ export default function ContactsPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Contactos</h1>
           <p className="text-sm text-muted-foreground">
-            Clientes del negocio. Cada contacto puede tener varias direcciones,
-            teléfonos y datos fiscales (RUC, CI). Los teléfonos se guardan en
-            formato internacional (E.164) pero se muestran como el usuario los tipea.
+            Clientes, proveedores y otros contactos del negocio.
           </p>
         </div>
         <Button asChild>
