@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-11 (tarde) — Auditoría de consumo de tokens del proyecto (commit df3cf03)
+
+- **Hecho**: reducción de tokens inyectados por sesión. `code-reviewer` y `codebase-orchestrator` pasados de `opus`→`sonnet` (los otros 4 agentes ya estaban). CLAUDE.md del proyecto reescrito: flujo proporcional a la tarea (trivial=cero lectura, mediano=1 doc con Grep, grande=full), tabla larga de skills eliminada, lista explícita de archivos prohibidos para Read entero (graph.json/html/svg + roadmap + convenciones). `pre-commit-check.sh` silenciado en happy path para no inyectar el reminder de code-reviewer en cada commit.
+- **Hecho fuera del repo** (settings.local.json no se commitea): borrados los 3 hooks de mempalace (SessionStart/Stop/PreCompact) + `enabledMcpjsonServers`. Borradas 8 entries de `permissions.allow` que contenían un JWT hardcoded (y referencias huérfanas a `$TOKEN`).
+- **Decisión**: el flujo "Mempalace + context/ + graphify obligatorio antes de cualquier tarea" queda DEPRECADO en CLAUDE.md. Mempalace y Graphify ya no se usan (confirmado en memoria local del owner). Ahora el contexto se busca proporcional al riesgo.
+- **Pendiente acción del owner**: (a) borrar 2 hooks de `.claude/settings.json` (PreToolUse Glob|Grep + PostToolUse git push) — el owner pidió no editarlo desde claude; (b) desactivar MCPs no usados en Settings → Connectors (Claude_in_Chrome duplica Control_Chrome, pdf-viewer/computer-use/mcp-registry/visualize/mempalace no aportan a este proyecto); (c) verificar que `JWT_SECRET` de prod ≠ dev, y limpiar curls one-shot legacy en settings.local.json si querés.
+- **Docs**: sin cambios en `/context/*` (solo CLAUDE.md root y configuración del harness).
+
 ## 2026-06-11 — panel-next CRUDs (auth + outlets + contacts + items + settings) + plan refactor Items (commits 772f12b..1210665)
 
 - **Hecho**: build-out de panel-next pasó del esqueleto a CRUDs reales. Sprint 1B signup 3-step (phone→OTP→empresa), Sprint A dashboard sobre `/v1/bootstrap` con widgets. `DataTable` reusable (TanStack) + outlets CRUD form-first (sin "blank → editar"). Contacts CRUD. Items CRUD con tabs (Perfil/Config/Stock/Producción/Disponibilidad/Cotizaciones) usando `inferKind()` conceptual. Settings con 4 tabs + Monedas con flags por país. Auto-migrate al boot del container con `database/migrate.php` (PDO directo, no DB wrapper) + endpoint one-shot `/v1/admin/migrate` como fallback.
