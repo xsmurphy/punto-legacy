@@ -1,56 +1,51 @@
 /**
- * Shapes de `/v1/items` — basado en `item` table del schema (db-schema-postgres.sql:139)
- * + JSONB demoted via migration 07.
+ * Shapes de `/v1/items` — Slice A del refactor de Items.
  *
- * Tipo conceptual del item — combinación de 4 fields del backend:
- *   itemType + itemCanSale + itemTrackInventory + itemProduction
+ * `kind` es la verdad canónica. El backend expone `item.itemKind` como `kind`.
+ * Los flags legacy (itemType, itemCanSale, etc.) se mantienen en el response
+ * para compat con código legacy hasta Slice E.
  *
- * El usuario nunca ve esos 4 campos directamente. Elige UN "kind" en el form
- * y nosotros mapeamos al backend. Análogamente, al cargar inferimos el kind
- * desde la combinación de campos.
- *
- * Cada kind tiene comportamiento distinto en otros módulos (producción solo
- * acepta `produccion_previa`; reposición de stock solo cuenta `insumo_stock`;
- * etc.) por eso son separados.
+ * Slice D reescribirá los form components por kind. Por ahora el form genérico
+ * sigue usando `KindFieldVisibility`/`fields`, `kindToBackendFields`, y `inferKind`.
  */
 
 export type ItemKind =
   | "producto"
-  | "servicio"
   | "insumo_stock"
   | "insumo_sin_stock"
-  | "produccion_previa"
+  | "insumo_control"
   | "produccion_directa"
-  | "combo"
+  | "produccion_previa"
+  | "servicio"
+  | "servicio_sesiones"
+  | "combo_fijo"
+  | "combo_dinamico"
   | "descuento"
   | "giftcard"
 
-/** Backend itemType column — separado del kind conceptual. */
-export type ItemBackendType =
-  | "product"
-  | "service"
-  | "discount"
-  | "combo"
-  | "giftcard"
-  | "production"
-  | "compound"
-  | "dynamic"
+export interface ItemCategory {
+  id: string
+  name: string
+  isPrimary: boolean
+}
 
+/** Shape del listado — GET /v1/items */
 export interface ItemListItem {
   itemId: string
   itemName: string
   itemSKU: string | null
-  itemType: ItemBackendType
+  /** Kind canónico — viene directo del backend (itemKind column). */
+  kind: ItemKind
+  /** itemType legacy — se mantiene para compat. Preferir `kind`. */
+  itemType: string | null
   itemStatus: number
   itemPrice: number | string | null
   itemDate: string | null
   updated_at: string | null
-  /** Estos vienen del JSONB flatten en list — no siempre presentes. */
-  itemCanSale?: number | boolean | null
-  itemTrackInventory?: number | boolean | null
-  itemProduction?: number | boolean | null
+  tags: string[]
 }
 
+/** Shape del detalle — GET /v1/items?id=... */
 export interface ItemFull extends ItemListItem {
   itemCost: number | string | null
   itemUOM: string | null
@@ -67,9 +62,10 @@ export interface ItemFull extends ItemListItem {
   locationId: string | null
   outletId: string | null
   itemDescription: string | null
-  /** Detección de "produccion_directa" — true si tiene items hijos con itemParentId.
-   *  Backend pendiente de exponer; por ahora lo dejamos opcional y defaulteamos. */
-  hasCompounds?: boolean
+  /** Categorías m2m — disponibles en el detalle, vacío en el listado. */
+  categories: ItemCategory[]
+  /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.
+   * Slice D los tipará por kind cuando los forms sean dedicados. */
   [key: string]: unknown
 }
 
@@ -84,48 +80,34 @@ export interface ItemFormValues {
   taxId: string
   taxIncluded: boolean
   uom: string
+  /** Categoría principal — legacy single-category compat. Slice D moverá a m2m editor. */
   categoryId: string
   brandId: string
   status: boolean
 
-  // Configuraciones extendidas (en JSONB excepto outletId y itemSort).
-  /** Sucursal a la que pertenece el ítem ("" = todas las sucursales). */
   outletId: string
-  /** Proveedor primario (FK al contacto type=2 — proveedor). */
   supplierId: string
-  /** Merma % — porcentaje de pérdida en producción/stock. */
   waste: number | null
-  /** Prioridad de ordenamiento — menor = más arriba (default 99999). */
   sort: number | null
-  /** Comisión sobre la venta. */
   commission: number | null
-  /** Tipo de comisión: '%' (porcentual) o 'fixed' (monto fijo). */
   commissionType: "percent" | "fixed"
-  /** Si el precio se calcula como % sobre costo, este es el % a aplicar. */
   pricePercent: number | null
-  /** Tipo de cálculo de precio: '' (fijo) o 'percent' (% sobre costo). */
   priceType: "fixed" | "percent"
-  /** Item vendido online (ecommerce). */
   ecom: boolean
-  /** Item destacado (featured) en el catálogo. */
   featured: boolean
-
-  // Producción (se guarda en JSONB).
-  /** Procedimiento de elaboración (texto libre). */
   procedure: string
 
-  // Disponibilidad (itemDateHour JSONB).
-  /** Disponibilidad por día de la semana. Si availability.enabled === false
-   *  el ítem se vende todos los días sin restricción horaria. */
   availability: ItemAvailability
-
-  // Cotizaciones (itemCurrencies JSONB).
-  /** Precios por código de moneda (PYG, ARS, BRL, ...). */
   currencies: Record<string, number>
+
+  /** Vigencia del item — fecha desde/hasta (JSONB). Null = sin restricción. */
+  validFrom: string | null
+  validUntil: string | null
+
+  /** Para servicio_sesiones — días mínimos entre sesiones. Null = sin restricción. */
+  minDaysBetweenSessions: number | null
 }
 
-/** Disponibilidad por día. `enabled` controla si la regla aplica;
- *  false = el ítem se vende sin restricción de día/hora. */
 export interface ItemAvailability {
   enabled: boolean
   days: Record<DayOfWeek, { enabled: boolean; from: string; to: string }>
@@ -154,37 +136,26 @@ export function defaultAvailability(): ItemAvailability {
   }
 }
 
-// ── Kind config: labels + visibility de secciones del form ────────────────
+// ── Kind metadata ─────────────────────────────────────────────────────────
 
+/** Control de visibilidad de secciones en el form genérico (Slice D lo reemplaza). */
 export interface KindFieldVisibility {
-  /** Sección "Precios" — incluye precio de venta. */
   showPrice: boolean
-  /** Costo (avg COGS). Va separado de showPrice porque insumos llevan costo
-   *  pero no precio de venta. */
   showCost: boolean
-  /** Sección "Impuestos" — taxId + taxIncluded. */
   showTax: boolean
-  /** Discount default. */
   showDiscount: boolean
-  /** Sección "Inventario" con switch lleva-stock + UOM (los toggles ya están
-   *  determinados por el kind, no son user-editable). */
   showInventoryInfo: boolean
-  /** Categorización (categoryId + brandId). */
   showCategorization: boolean
-  /** Unit of measurement. */
   showUOM: boolean
-  /** Sección Ingredientes / Compounds — solo producción. */
   showCompounds: boolean
 }
 
 export interface KindMeta {
   label: string
   description: string
-  /** Group label para el dropdown del form. */
   group: "Items de venta" | "Insumos" | "Producción" | "Otros"
-  /** Backend flags inferidos para este kind. */
   backend: {
-    itemType: ItemBackendType
+    itemType: string
     itemCanSale: 0 | 1
     itemTrackInventory: 0 | 1
     itemProduction: 0 | 1
@@ -195,196 +166,156 @@ export interface KindMeta {
 export const KIND_META: Record<ItemKind, KindMeta> = {
   producto: {
     label: "Producto",
-    description: "Artículo físico vendible con inventario.",
+    description: "Artículo físico vendible con stock.",
     group: "Items de venta",
     backend: { itemType: "product", itemCanSale: 1, itemTrackInventory: 1, itemProduction: 0 },
     fields: {
-      showPrice: true,
-      showCost: true,
-      showTax: true,
-      showDiscount: true,
-      showInventoryInfo: true,
-      showCategorization: true,
-      showUOM: true,
-      showCompounds: false,
+      showPrice: true, showCost: true, showTax: true, showDiscount: true,
+      showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: false,
     },
   },
   servicio: {
     label: "Servicio",
-    description: "Servicio cobrado al cliente. No lleva inventario.",
+    description: "Servicio cobrado al cliente sin stock.",
     group: "Items de venta",
     backend: { itemType: "product", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
     fields: {
-      showPrice: true,
-      showCost: false,
-      showTax: true,
-      showDiscount: true,
-      showInventoryInfo: false,
-      showCategorization: true,
-      showUOM: true,
-      showCompounds: false,
+      showPrice: true, showCost: false, showTax: true, showDiscount: true,
+      showInventoryInfo: false, showCategorization: true, showUOM: true, showCompounds: false,
+    },
+  },
+  servicio_sesiones: {
+    label: "Pack de sesiones",
+    description: "N sesiones vendidas en bloque. Cada sesión se consume desde Citas.",
+    group: "Items de venta",
+    backend: { itemType: "product", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
+    fields: {
+      showPrice: true, showCost: false, showTax: true, showDiscount: true,
+      showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
     },
   },
   insumo_stock: {
-    label: "Insumo con inventario",
-    description:
-      "Materia prima o componente que se cuenta en stock. Entra en reposición y conteo de inventario.",
+    label: "Insumo con stock",
+    description: "Materia prima con inventario. Apto como ingrediente en recetas.",
     group: "Insumos",
     backend: { itemType: "product", itemCanSale: 0, itemTrackInventory: 1, itemProduction: 0 },
     fields: {
-      showPrice: false,
-      showCost: true,
-      showTax: false,
-      showDiscount: false,
-      showInventoryInfo: true,
-      showCategorization: true,
-      showUOM: true,
-      showCompounds: false,
+      showPrice: false, showCost: true, showTax: false, showDiscount: false,
+      showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: false,
     },
   },
   insumo_sin_stock: {
-    label: "Insumo sin inventario",
-    description: "Gasto puntual sin control de stock. Útil para servicios contratados o consumibles menores.",
+    label: "Insumo sin stock",
+    description: "Insumo sin control de inventario. Apto como ingrediente.",
     group: "Insumos",
     backend: { itemType: "product", itemCanSale: 0, itemTrackInventory: 0, itemProduction: 0 },
     fields: {
-      showPrice: false,
-      showCost: true,
-      showTax: false,
-      showDiscount: false,
-      showInventoryInfo: false,
-      showCategorization: true,
-      showUOM: true,
-      showCompounds: false,
+      showPrice: false, showCost: true, showTax: false, showDiscount: false,
+      showInventoryInfo: false, showCategorization: true, showUOM: true, showCompounds: false,
     },
   },
-  produccion_previa: {
-    label: "Producción previa",
-    description:
-      "Se fabrica con anticipación a la venta. Aparece en el módulo de producción para programar lotes.",
-    group: "Producción",
-    backend: { itemType: "production", itemCanSale: 1, itemTrackInventory: 1, itemProduction: 1 },
+  insumo_control: {
+    label: "Insumo de control",
+    description: "Insumo con stock que no va en recetas (ej. artículos de limpieza).",
+    group: "Insumos",
+    backend: { itemType: "product", itemCanSale: 0, itemTrackInventory: 1, itemProduction: 0 },
     fields: {
-      showPrice: true,
-      showCost: true,
-      showTax: true,
-      showDiscount: true,
-      showInventoryInfo: true,
-      showCategorization: true,
-      showUOM: true,
-      showCompounds: true,
+      showPrice: false, showCost: true, showTax: false, showDiscount: false,
+      showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: false,
     },
   },
   produccion_directa: {
     label: "Producción directa",
-    description:
-      "Se arma en el momento de la venta (ej. ensalada hecha al pedido). No entra en producción programada.",
+    description: "Se arma al momento de la venta. La receta se consume al vender.",
     group: "Producción",
     backend: { itemType: "product", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
     fields: {
-      showPrice: true,
-      showCost: true,
-      showTax: true,
-      showDiscount: true,
-      showInventoryInfo: false,
-      showCategorization: true,
-      showUOM: true,
-      showCompounds: true,
+      showPrice: true, showCost: true, showTax: true, showDiscount: true,
+      showInventoryInfo: false, showCategorization: true, showUOM: true, showCompounds: true,
     },
   },
-  combo: {
-    label: "Combo",
-    description: "Paquete de varios items con precio único.",
+  produccion_previa: {
+    label: "Producción previa",
+    description: "Se fabrica en lotes antes de la venta. Stock propio + módulo de producción.",
+    group: "Producción",
+    backend: { itemType: "production", itemCanSale: 1, itemTrackInventory: 1, itemProduction: 1 },
+    fields: {
+      showPrice: true, showCost: true, showTax: true, showDiscount: true,
+      showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: true,
+    },
+  },
+  combo_fijo: {
+    label: "Combo fijo",
+    description: "Precio único, componentes obligatorios sin elección del cliente.",
     group: "Otros",
     backend: { itemType: "combo", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
     fields: {
-      showPrice: true,
-      showCost: false,
-      showTax: true,
-      showDiscount: true,
-      showInventoryInfo: false,
-      showCategorization: true,
-      showUOM: false,
-      showCompounds: false,
+      showPrice: true, showCost: false, showTax: true, showDiscount: true,
+      showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
+    },
+  },
+  combo_dinamico: {
+    label: "Combo dinámico",
+    description: "Precio base + extras que el cliente elige (min/max por grupo).",
+    group: "Otros",
+    backend: { itemType: "combo", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
+    fields: {
+      showPrice: true, showCost: false, showTax: true, showDiscount: true,
+      showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
     },
   },
   descuento: {
     label: "Descuento",
-    description: "Aplicable como ítem en venta para restar del total.",
+    description: "Item POS que aplica descuento al ticket.",
     group: "Otros",
     backend: { itemType: "discount", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
     fields: {
-      showPrice: false,
-      showCost: false,
-      showTax: false,
-      showDiscount: true,
-      showInventoryInfo: false,
-      showCategorization: false,
-      showUOM: false,
-      showCompounds: false,
+      showPrice: false, showCost: false, showTax: false, showDiscount: true,
+      showInventoryInfo: false, showCategorization: false, showUOM: false, showCompounds: false,
     },
   },
   giftcard: {
     label: "Gift card",
-    description: "Tarjeta pre-pagada vendida al cliente.",
+    description: "Tarjeta pre-pagada con código canjeable.",
     group: "Otros",
     backend: { itemType: "giftcard", itemCanSale: 1, itemTrackInventory: 1, itemProduction: 0 },
     fields: {
-      showPrice: true,
-      showCost: false,
-      showTax: false,
-      showDiscount: false,
-      showInventoryInfo: false,
-      showCategorization: false,
-      showUOM: false,
-      showCompounds: false,
+      showPrice: true, showCost: false, showTax: false, showDiscount: false,
+      showInventoryInfo: false, showCategorization: false, showUOM: false, showCompounds: false,
     },
   },
 }
 
+export const ALL_KINDS = Object.keys(KIND_META) as ItemKind[]
+
 /**
- * Mapea un item del backend al kind conceptual. Inferencia:
- *   - itemType !== 'product' → mapea 1:1 (combo/discount/giftcard/production)
- *   - itemType === 'product' → se decide por flags + presencia de compounds
+ * Infiere el kind de un item. Si el item tiene `kind` del backend (post-migración 15),
+ * lo retorna directamente. Si no, infiere desde los flags legacy.
+ * Se elimina en Slice D cuando todos los forms sean per-kind.
  */
-export function inferKind(item: ItemFull): ItemKind {
-  // Mapeos directos por itemType.
-  if (item.itemType === "combo") return "combo"
+export function inferKind(item: Pick<ItemFull, "kind" | "itemType" | "itemCanSale" | "itemTrackInventory" | "itemProduction"> & Partial<{ hasCompounds: boolean }>): ItemKind {
+  if (item.kind && KIND_META[item.kind]) return item.kind
+
+  // Inferencia legacy para items sin kind (pre-migración).
+  if (item.itemType === "combo") return "combo_fijo"
   if (item.itemType === "discount") return "descuento"
   if (item.itemType === "giftcard") return "giftcard"
   if (item.itemType === "production" || toBool(item.itemProduction)) return "produccion_previa"
 
-  // itemType === 'product' a partir de acá.
-  const canSale = toBool(item.itemCanSale ?? 1) // default 1 si no viene
+  const canSale = toBool(item.itemCanSale ?? 1)
   const track = toBool(item.itemTrackInventory)
 
-  if (!canSale) {
-    return track ? "insumo_stock" : "insumo_sin_stock"
-  }
+  if (!canSale) return track ? "insumo_stock" : "insumo_sin_stock"
   if (!track) {
-    // Servicio vs producción directa — los distingue la presencia de compounds.
-    // Si hasCompounds está disponible y es true → producción directa.
-    if (item.hasCompounds === true) return "produccion_directa"
+    if ((item as { hasCompounds?: boolean }).hasCompounds === true) return "produccion_directa"
     return "servicio"
   }
   return "producto"
 }
 
-/**
- * Backend flags para un kind. Lo usa el serializer al guardar.
- */
+/** Backend flags para un kind — usado por serialize en el hook. */
 export function kindToBackendFields(kind: ItemKind) {
   return KIND_META[kind].backend
-}
-
-// ── helpers ────────────────────────────────────────────────────────────────
-
-function toBool(v: unknown): boolean {
-  if (v === null || v === undefined) return false
-  if (typeof v === "boolean") return v
-  if (typeof v === "number") return v > 0
-  if (typeof v === "string") return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "t"
-  return false
 }
 
 // ── Taxonomies ────────────────────────────────────────────────────────────
@@ -394,4 +325,14 @@ export interface Taxonomy {
   name: string
   type: string
   extra: string | null
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────
+
+function toBool(v: unknown): boolean {
+  if (v === null || v === undefined) return false
+  if (typeof v === "boolean") return v
+  if (typeof v === "number") return v > 0
+  if (typeof v === "string") return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "t"
+  return false
 }

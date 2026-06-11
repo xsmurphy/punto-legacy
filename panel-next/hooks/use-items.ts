@@ -45,7 +45,7 @@ export function useCreateItem() {
     mutationFn: (values) => {
       const flags = kindToBackendFields(values.kind)
       return api.post<ItemFull>("/v1/items", {
-        type: flags.itemType, // backend usa `type` para createBlank
+        kind: values.kind,
         ...serialize(values, flags),
       })
     },
@@ -60,7 +60,10 @@ export function useUpdateItem() {
   return useMutation<ItemFull, Error, { id: string; values: ItemFormValues }>({
     mutationFn: ({ id, values }) => {
       const flags = kindToBackendFields(values.kind)
-      return api.put<ItemFull>(`/v1/items?id=${id}`, serialize(values, flags))
+      return api.put<ItemFull>(`/v1/items?id=${id}`, {
+        kind: values.kind,
+        ...serialize(values, flags),
+      })
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["items"] })
@@ -161,6 +164,10 @@ function serialize(
         Object.entries(values.currencies).filter(([, v]) => v && Number(v) > 0),
       ),
     ),
+    // Campos nuevos Slice A — van a JSONB automáticamente.
+    itemValidFrom: values.validFrom ?? null,
+    itemValidUntil: values.validUntil ?? null,
+    itemMinDaysBetweenSessions: values.minDaysBetweenSessions ?? null,
   }
 }
 

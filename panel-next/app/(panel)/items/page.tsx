@@ -21,8 +21,8 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useItems } from "@/hooks/use-items"
 import { formatMoney } from "@/lib/format"
 import {
-  inferKind,
   KIND_META,
+  ALL_KINDS,
   type ItemKind,
   type ItemListItem,
 } from "@/lib/types/item"
@@ -37,9 +37,7 @@ export default function ItemsPage() {
   const filteredRows = React.useMemo(() => {
     const rows = data?.items ?? []
     if (kindFilter === "all") return rows
-    // inferKind necesita un ItemFull pero los list items tienen menos campos.
-    // Lo casteamos — los fields que faltan son undefined → inferKind defaults.
-    return rows.filter((r) => inferKind(r as never) === kindFilter)
+    return rows.filter((r) => r.kind === kindFilter)
   }, [data, kindFilter])
 
   const columns = React.useMemo<ColumnDef<ItemListItem>[]>(
@@ -71,14 +69,14 @@ export default function ItemsPage() {
         meta: { label: "SKU", className: "tabular-nums" },
       },
       {
-        id: "kind",
+        accessorKey: "kind",
         header: "Tipo",
-        accessorFn: (row) => inferKind(row as never),
         cell: ({ getValue }) => {
           const k = getValue() as ItemKind
+          const meta = KIND_META[k]
           return (
             <Badge variant="outline" className="text-[10px]">
-              {KIND_META[k].label}
+              {meta?.label ?? k}
             </Badge>
           )
         },
@@ -178,7 +176,7 @@ export default function ItemsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos los tipos</SelectItem>
-                    {(Object.keys(KIND_META) as ItemKind[]).map((k) => (
+                    {ALL_KINDS.map((k) => (
                       <SelectItem key={k} value={k}>
                         {KIND_META[k].label}
                       </SelectItem>

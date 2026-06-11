@@ -90,11 +90,14 @@ const itemSchema = z.object({
   kind: z.enum([
     "producto",
     "servicio",
+    "servicio_sesiones",
     "insumo_stock",
     "insumo_sin_stock",
+    "insumo_control",
     "produccion_previa",
     "produccion_directa",
-    "combo",
+    "combo_fijo",
+    "combo_dinamico",
     "descuento",
     "giftcard",
   ]),
@@ -133,14 +136,17 @@ const itemSchema = z.object({
     ),
   }),
   currencies: z.record(z.string(), z.number()),
+  validFrom: z.string().nullable(),
+  validUntil: z.string().nullable(),
+  minDaysBetweenSessions: z.number().int().nonnegative().nullable(),
 })
 
 type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
 const KIND_GROUPS: Array<{ label: KindGroup; kinds: ItemKind[] }> = [
-  { label: "Items de venta", kinds: ["producto", "servicio"] },
-  { label: "Insumos", kinds: ["insumo_stock", "insumo_sin_stock"] },
+  { label: "Items de venta", kinds: ["producto", "servicio", "servicio_sesiones"] },
+  { label: "Insumos", kinds: ["insumo_stock", "insumo_sin_stock", "insumo_control"] },
   { label: "Producción", kinds: ["produccion_previa", "produccion_directa"] },
-  { label: "Otros", kinds: ["combo", "descuento", "giftcard"] },
+  { label: "Otros", kinds: ["combo_fijo", "combo_dinamico", "descuento", "giftcard"] },
 ]
 
 export default function ItemEditPage() {
@@ -1358,6 +1364,9 @@ function emptyValues(): ItemFormValues {
     procedure: "",
     availability: defaultAvailability(),
     currencies: {},
+    validFrom: null,
+    validUntil: null,
+    minDaysBetweenSessions: null,
   }
 }
 

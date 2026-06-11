@@ -4,14 +4,15 @@
  *
  * Endpoint MULTI-REALM con dos personalidades coexistiendo:
  *
- *   ── Panel CRUD (rama F2) ──────────────────────────────────────────────────
- *   GET    /v1/items                            → lista paginada (q, type, archived, limit, offset)
- *   GET    /v1/items?id=<uuid>                  → detalle
+ *   ── Panel CRUD (rama F2 / Slice A) ───────────────────────────────────────
+ *   GET    /v1/items                              → lista paginada (q, kind, archived, limit, offset)
+ *   GET    /v1/items?id=<uuid>                    → detalle + categories[]
  *   GET    /v1/items?id=<uuid>&resource=locations → depósitos asignados
- *   POST   /v1/items                            → crea blank (body: { type? } + extras opcionales)
- *   PUT    /v1/items?id=<uuid>                  → update parcial
- *   PUT    /v1/items?id=<uuid>&resource=locations body: { locationIds:[], default? }
- *   DELETE /v1/items?id=<uuid>                  → archive (soft-delete)
+ *   POST   /v1/items                              → crea blank (body: { kind? } + extras opcionales)
+ *   PUT    /v1/items?id=<uuid>                    → update parcial (kind→ 409 si cambia)
+ *   PUT    /v1/items?id=<uuid>&resource=categories body: { categories:[{id,isPrimary}] }
+ *   PUT    /v1/items?id=<uuid>&resource=locations  body: { locationIds:[], default? }
+ *   DELETE /v1/items?id=<uuid>                    → archive (soft-delete)
  *
  *   ── POS info (slice 25 del desacople de /app) ─────────────────────────────
  *   GET    /v1/items?id=<itemId>&resource=core      → campos del ítem (BFF compone)
@@ -24,10 +25,6 @@
  * Servicios:
  *   - `Punto\Api\Items\*`             (panel CRUD: F2 port de panel/lib/items/)
  *   - `Punto\Api\Services\ItemService` (POS info: slice 25 existente, intacto)
- *
- * Port FIEL de panel/API/v1/items.php (panel CRUD) + preservación del slice 25 (POS info).
- * Cambios respecto al original del panel: `apiMiddleware()` → `apiAuthTenant(['panel','pos-app'])`;
- * `apiNotFound` → `apiError(..., 404)`; services en namespace `Punto\Api\Items`.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -37,17 +34,11 @@ use Punto\Api\Context\TenantContext;
 
 /**
  * Mapea una fila de `item` (lowercase desde PG + JSONB flatten) a camelCase
- * canonical para el front. Sin esto, PG devuelve `itemid` y el front busca
- * `itemId` → undefined → URLs rotas en panel-next.
- *
- * Los servicios canónicos (ContactService, OutletsService) tienen su propio
- * presentRow; ItemService devuelve el row sin formatear, así que la
- * normalización vive acá hasta que se mueva a un PresenterItem.
+ * canonical para el front. Expone `kind` (desde `itemKind`), `categories[]`,
+ * y `tags[]` (desde JSONB data.tags).
  */
 function presentItem(array $row): array
 {
-    // Lowercase → camelCase mapping para las columnas que el front usa.
-    // Cualquier key no mapeada queda como vino (compat futura).
     $map = [
         'itemid'              => 'itemId',
         'itemname'            => 'itemName',
@@ -57,6 +48,7 @@ function presentItem(array $row): array
         'itemisparent'        => 'itemIsParent',
         'itemparentid'        => 'itemParentId',
         'itemtype'            => 'itemType',
+        'itemkind'            => 'kind',
         'itemimage'           => 'itemImage',
         'itemstatus'          => 'itemStatus',
         'itemtrackinventory'  => 'itemTrackInventory',
@@ -83,8 +75,71 @@ function presentItem(array $row): array
         $key = $map[$kLower] ?? $k;
         $out[$key] = $v;
     }
+    // tags desde JSONB (data.tags es array o null)
+    if (!isset($out['tags'])) {
+        $rawTags = $out['tags'] ?? null;
+        $out['tags'] = is_array($rawTags) ? $rawTags : [];
+    }
     return $out;
 }
+
+/**
+ * Devuelve el array de categorías (id + isPrimary) de un item
+ * desde item_category. Usado solo en el GET detalle.
+ */
+function fetchItemCategories(string $itemId): array
+{
+    global $db;
+    $rs = $db->Execute(
+        'SELECT ic.categoryId, ic.isPrimary, t.taxonomyName AS name
+           FROM item_category ic
+           JOIN taxonomy t ON t.taxonomyId = ic.categoryId
+          WHERE ic.itemId = ?
+          ORDER BY ic.isPrimary DESC, t.taxonomyName',
+        [$itemId]
+    );
+    if ($rs === false) return [];
+    $cats = [];
+    foreach ($rs->GetRows() as $r) {
+        $cats[] = [
+            'id'        => $r['categoryid'] ?? $r['categoryId'],
+            'name'      => $r['taxonomyname'] ?? $r['name'],
+            'isPrimary' => (bool) ($r['isprimary'] ?? $r['isPrimary'] ?? false),
+        ];
+    }
+    return $cats;
+}
+
+/**
+ * Mapea un itemKind a los flags legacy (dual-write).
+ * El POS y el panel legacy siguen leyendo los flags viejos hasta Slice E.
+ */
+function kindToLegacyFlags(string $kind): array
+{
+    $map = [
+        'producto'           => ['itemType' => 'product',    'itemCanSale' => 1, 'itemTrackInventory' => 1, 'itemProduction' => 0],
+        'insumo_stock'       => ['itemType' => 'product',    'itemCanSale' => 0, 'itemTrackInventory' => 1, 'itemProduction' => 0],
+        'insumo_sin_stock'   => ['itemType' => 'product',    'itemCanSale' => 0, 'itemTrackInventory' => 0, 'itemProduction' => 0],
+        'insumo_control'     => ['itemType' => 'product',    'itemCanSale' => 0, 'itemTrackInventory' => 1, 'itemProduction' => 0],
+        'produccion_directa' => ['itemType' => 'product',    'itemCanSale' => 1, 'itemTrackInventory' => 0, 'itemProduction' => 0],
+        'produccion_previa'  => ['itemType' => 'production', 'itemCanSale' => 1, 'itemTrackInventory' => 1, 'itemProduction' => 1],
+        'servicio'           => ['itemType' => 'product',    'itemCanSale' => 1, 'itemTrackInventory' => 0, 'itemProduction' => 0],
+        'servicio_sesiones'  => ['itemType' => 'product',    'itemCanSale' => 1, 'itemTrackInventory' => 0, 'itemProduction' => 0],
+        'combo_fijo'         => ['itemType' => 'combo',      'itemCanSale' => 1, 'itemTrackInventory' => 0, 'itemProduction' => 0],
+        'combo_dinamico'     => ['itemType' => 'combo',      'itemCanSale' => 1, 'itemTrackInventory' => 0, 'itemProduction' => 0],
+        'descuento'          => ['itemType' => 'discount',   'itemCanSale' => 1, 'itemTrackInventory' => 0, 'itemProduction' => 0],
+        'giftcard'           => ['itemType' => 'giftcard',   'itemCanSale' => 1, 'itemTrackInventory' => 1, 'itemProduction' => 0],
+    ];
+    return $map[$kind] ?? [];
+}
+
+const VALID_KINDS = [
+    'producto', 'insumo_stock', 'insumo_sin_stock', 'insumo_control',
+    'produccion_directa', 'produccion_previa',
+    'servicio', 'servicio_sesiones',
+    'combo_fijo', 'combo_dinamico',
+    'descuento', 'giftcard',
+];
 
 $ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
@@ -154,7 +209,9 @@ switch ($method) {
         if ($id !== null) {
             $item = $itemService->find($id, $companyId);
             if ($item === null) apiError('Item no encontrado', 404);
-            apiOk(presentItem($item->toArray()));
+            $presented = presentItem(_flattenJsonb($item->toArray())->toArray());
+            $presented['categories'] = fetchItemCategories($id);
+            apiOk($presented);
         }
 
         $limit  = max(1, min((int) ($_GET['limit'] ?? 50), 200));
@@ -168,18 +225,19 @@ switch ($method) {
             $params[] = $pattern;
             $params[] = $pattern;
         }
-        if (!empty($_GET['type'])) {
+        // Filtro por kind canónico (reemplaza ?type= del legacy).
+        if (!empty($_GET['kind']) && in_array($_GET['kind'], VALID_KINDS, true)) {
+            $where[]  = 'itemKind = ?';
+            $params[] = $_GET['kind'];
+        }
+        // Compat legacy: ?type= sigue funcionando si se pasa directamente.
+        if (!empty($_GET['type']) && empty($_GET['kind'])) {
             $where[]  = 'itemType = ?';
             $params[] = $_GET['type'];
         }
 
-        // Incluir los flags que el front usa para inferir el `kind` conceptual
-        // (servicio/producto/insumo_*/produccion_*). Sin estas columnas, el
-        // front no puede distinguir tipos y defaultea a "Servicio" para todo.
-        $sql = "SELECT itemId, itemName, itemSKU, itemType, itemStatus,
-                       itemPrice, itemDate, updated_at,
-                       itemCanSale, itemTrackInventory, itemProduction,
-                       data
+        $sql = "SELECT itemId, itemName, itemSKU, itemType, itemKind, itemStatus,
+                       itemPrice, itemDate, updated_at, data
                   FROM item
                  WHERE " . implode(' AND ', $where) . "
                  ORDER BY itemDate DESC
@@ -192,7 +250,6 @@ switch ($method) {
             }
         }
 
-        // Total para paginación
         $countSql = "SELECT COUNT(*) AS n FROM item WHERE " . implode(' AND ', $where);
         $countRs  = $db->Execute($countSql, $params);
         $total    = ($countRs !== false && !$countRs->EOF) ? (int) $countRs->fields['n'] : 0;
@@ -206,38 +263,97 @@ switch ($method) {
         break;
 
     case 'POST':
-        // El plan-max-check y allowUser del handler legacy (?action=insertBtn)
-        // requieren constantes (SAAS_ADM, PLAN, plansValues por outlet) que el
-        // bootstrap mínimo de apiAuthTenant NO carga. Por ahora la API confía
-        // en la autenticación de JWT — todo usuario logueado puede crear items.
-        // Plan-limits deberán moverse a un middleware aparte cuando se integren.
-        $type   = $_POST['type'] ?? null;
-        $newId  = $itemService->createBlank($companyId, $type);
-        if ($newId === false) apiError('No se pudo crear el item', 500);
+        $kind = $_POST['kind'] ?? null;
 
-        // Si vinieron más campos en el body, aplicarlos como UPDATE
-        $extras = array_diff_key($_POST, ['type' => 1]);
-        if (!empty($extras)) {
-            $itemService->update($newId, $companyId, $extras);
+        // Validar kind si se pasa explícitamente.
+        if ($kind !== null && !in_array($kind, VALID_KINDS, true)) {
+            apiError('kind inválido: ' . $kind, 422);
         }
 
+        // Compat: si viene ?type= (panel legacy), mapear al kind más cercano.
+        if ($kind === null && !empty($_POST['type'])) {
+            $legacyTypeMap = [
+                'discount'   => 'descuento',
+                'combo'      => 'combo_fijo',
+                'giftcard'   => 'giftcard',
+                'production' => 'produccion_previa',
+            ];
+            $kind = $legacyTypeMap[$_POST['type']] ?? 'producto';
+        }
+        $kind = $kind ?? 'producto';
+
+        // Construir el record inicial con kind + flags legacy en sync.
+        $legacyFlags = kindToLegacyFlags($kind);
+        $record = array_merge(['itemKind' => $kind], $legacyFlags);
+
+        $newId = $itemService->createBlank($companyId, $legacyFlags['itemType'] ?? null);
+        if ($newId === false) apiError('No se pudo crear el item', 500);
+
+        // Aplicar kind + extras al row recién creado.
+        $extras = array_diff_key($_POST, ['type' => 1, 'kind' => 1]);
+        $extras['itemKind'] = $kind;
+        $extras = array_merge($extras, $legacyFlags);
+        $itemService->update($newId, $companyId, $extras);
+
         $item = $itemService->find($newId, $companyId);
-        apiOk($item !== null ? presentItem($item->toArray()) : ['itemId' => $newId], 201);
+        $presented = $item !== null ? presentItem(_flattenJsonb($item->toArray())->toArray()) : ['itemId' => $newId];
+        if ($item !== null) $presented['categories'] = [];
+        apiOk($presented, 201);
         break;
 
     case 'PUT':
         if ($id === null) apiError('id es requerido para PUT', 422);
 
+        // Sub-recurso: categories m2m
+        if ($resource === 'categories') {
+            $incoming = $_POST['categories'] ?? [];
+            if (!is_array($incoming)) apiError('categories debe ser array', 422);
+
+            // Reemplazar todas las categorías del item con las que vienen.
+            $db->Execute('DELETE FROM item_category WHERE itemId = ?', [$id]);
+            $hasPrimary = false;
+            foreach ($incoming as $cat) {
+                $catId     = $cat['id'] ?? null;
+                $isPrimary = !empty($cat['isPrimary']);
+                if (!$catId) continue;
+                if ($isPrimary) $hasPrimary = true;
+                $db->Execute(
+                    'INSERT INTO item_category (itemId, categoryId, isPrimary) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+                    [$id, $catId, $isPrimary ? 'true' : 'false']
+                );
+            }
+            // Mantener item.categoryId en sync con la categoría primaria (legacy compat).
+            $primaryId = $hasPrimary ? ($incoming[array_key_first(array_filter($incoming, fn($c) => !empty($c['isPrimary'])))]['id'] ?? null) : null;
+            if ($primaryId !== null) {
+                $itemService->update($id, $companyId, ['categoryId' => $primaryId]);
+            }
+            apiOk(['updated' => true, 'categories' => fetchItemCategories($id)]);
+        }
+
         $patch = $_POST;
-        // Quitar campos meta del body
         unset($patch['id'], $patch['itemId'], $patch['companyId']);
         if (empty($patch)) apiError('Patch vacío', 422);
+
+        // Rechazar cambios de kind — un item no puede cambiar de tipo.
+        if (!empty($patch['kind'])) {
+            $current = $itemService->find($id, $companyId);
+            $currentKind = $current !== null ? ($current['itemKind'] ?? $current['itemkind'] ?? null) : null;
+            if ($currentKind !== null && $patch['kind'] !== $currentKind) {
+                apiError('El kind de un item no se puede cambiar. Archivá este item y creá uno nuevo.', 409);
+            }
+            // Si el kind es el mismo, sincronizar los flags legacy igual.
+            $patch = array_merge($patch, kindToLegacyFlags($patch['kind']));
+            $patch['itemKind'] = $patch['kind'];
+            unset($patch['kind']);
+        }
 
         $ok = $itemService->update($id, $companyId, $patch);
         if (!$ok) apiError('Update falló', 500);
 
         $item = $itemService->find($id, $companyId);
-        apiOk($item !== null ? presentItem($item->toArray()) : ['itemId' => $id]);
+        $presented = $item !== null ? presentItem(_flattenJsonb($item->toArray())->toArray()) : ['itemId' => $id];
+        if ($item !== null) $presented['categories'] = fetchItemCategories($id);
+        apiOk($presented);
         break;
 
     case 'DELETE':
