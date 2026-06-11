@@ -197,11 +197,17 @@ export default function ItemEditPage() {
       procedure: toStr(data.itemProcedure),
       availability: parseAvailability(data.itemDateHour),
       currencies: parseCurrencies(data.itemCurrencies),
+      validFrom: toStr(data.validFrom) || null,
+      validUntil: toStr(data.validUntil) || null,
+      minDaysBetweenSessions:
+        typeof data.minDaysBetweenSessions === "number"
+          ? data.minDaysBetweenSessions
+          : null,
     })
   }, [data, form, isNew])
 
-  const kind = form.watch("kind")
-  const visibility = KIND_META[kind].fields
+  const kind: ItemKind = form.watch("kind") ?? "producto"
+  const visibility = (KIND_META[kind] ?? KIND_META["producto"]).fields
 
   const onSubmit = async (values: ItemFormValues) => {
     try {

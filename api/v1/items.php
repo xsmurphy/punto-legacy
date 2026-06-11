@@ -209,7 +209,7 @@ switch ($method) {
         if ($id !== null) {
             $item = $itemService->find($id, $companyId);
             if ($item === null) apiError('Item no encontrado', 404);
-            $presented = presentItem(_flattenJsonb($item->toArray())->toArray());
+            $presented = presentItem($item->toArray());
             $presented['categories'] = fetchItemCategories($id);
             apiOk($presented);
         }
@@ -296,7 +296,7 @@ switch ($method) {
         $itemService->update($newId, $companyId, $extras);
 
         $item = $itemService->find($newId, $companyId);
-        $presented = $item !== null ? presentItem(_flattenJsonb($item->toArray())->toArray()) : ['itemId' => $newId];
+        $presented = $item !== null ? presentItem($item->toArray()) : ['itemId' => $newId];
         if ($item !== null) $presented['categories'] = [];
         apiOk($presented, 201);
         break;
@@ -351,7 +351,7 @@ switch ($method) {
         if (!$ok) apiError('Update falló', 500);
 
         $item = $itemService->find($id, $companyId);
-        $presented = $item !== null ? presentItem(_flattenJsonb($item->toArray())->toArray()) : ['itemId' => $id];
+        $presented = $item !== null ? presentItem($item->toArray()) : ['itemId' => $id];
         if ($item !== null) $presented['categories'] = fetchItemCategories($id);
         apiOk($presented);
         break;
