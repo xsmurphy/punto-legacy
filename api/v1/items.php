@@ -173,8 +173,13 @@ switch ($method) {
             $params[] = $_GET['type'];
         }
 
+        // Incluir los flags que el front usa para inferir el `kind` conceptual
+        // (servicio/producto/insumo_*/produccion_*). Sin estas columnas, el
+        // front no puede distinguir tipos y defaultea a "Servicio" para todo.
         $sql = "SELECT itemId, itemName, itemSKU, itemType, itemStatus,
-                       itemPrice, itemDate, updated_at, data
+                       itemPrice, itemDate, updated_at,
+                       itemCanSale, itemTrackInventory, itemProduction,
+                       data
                   FROM item
                  WHERE " . implode(' AND ', $where) . "
                  ORDER BY itemDate DESC
