@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type RowSelectionState,
   type SortingState,
   type VisibilityState,
   flexRender,
@@ -16,7 +17,15 @@ import {
 import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Search, SlidersHorizontal } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import {
+  Select as SelectRoot,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -57,6 +66,12 @@ export interface DataTableProps<T> {
   toolbarSlot?: React.ReactNode
   /** Page size default. 25 por defecto. */
   pageSize?: number
+  /** Habilita selección por checkbox + barra de bulk actions. */
+  enableSelection?: boolean
+  /** Render de la barra de acciones cuando hay filas seleccionadas. Recibe los rows seleccionados. */
+  bulkActions?: (selected: T[], clearSelection: () => void) => React.ReactNode
+  /** Visibilidad inicial de columnas. Solo aplica si no hay valor persistido en localStorage. */
+  initialColumnVisibility?: VisibilityState
 }
 
 export function DataTable<T>({
@@ -71,34 +86,83 @@ export function DataTable<T>({
   isLoading,
   toolbarSlot,
   pageSize = 25,
+  enableSelection,
+  bulkActions,
+  initialColumnVisibility,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = React.useState("")
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
-    () => loadVisibility(tableId),
+    () => {
+      const persisted = loadVisibility(tableId)
+      // Si no hay valor persistido para esta tabla, arrancamos con los defaults.
+      return Object.keys(persisted).length === 0 ? (initialColumnVisibility ?? {}) : persisted
+    },
   )
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
 
   // Persistir visibilidad por table id.
   React.useEffect(() => {
     saveVisibility(tableId, columnVisibility)
   }, [tableId, columnVisibility])
 
+  // Prepend de la columna de selección si está habilitada.
+  const finalColumns = React.useMemo<ColumnDef<T, unknown>[]>(() => {
+    if (!enableSelection) return columns
+    const selectionCol: ColumnDef<T, unknown> = {
+      id: "_select",
+      enableSorting: false,
+      enableHiding: false,
+      header: ({ table }) => (
+        <Checkbox
+          aria-label="Seleccionar todo"
+          checked={
+            table.getIsAllPageRowsSelected()
+              ? true
+              : table.getIsSomePageRowsSelected()
+              ? "indeterminate"
+              : false
+          }
+          onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          aria-label="Seleccionar fila"
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+      meta: { className: "w-10" },
+    }
+    return [selectionCol, ...columns]
+  }, [columns, enableSelection])
+
   const table = useReactTable<T>({
     data,
-    columns,
-    state: { sorting, columnFilters, globalFilter, columnVisibility },
+    columns: finalColumns,
+    state: { sorting, columnFilters, globalFilter, columnVisibility, rowSelection },
     getRowId: getRowId ? (row) => getRowId(row) : undefined,
+    enableRowSelection: !!enableSelection,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     initialState: { pagination: { pageSize } },
   })
+
+  const selectedRows = React.useMemo(
+    () => table.getSelectedRowModel().rows.map((r) => r.original),
+    [table, rowSelection], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const clearSelection = React.useCallback(() => setRowSelection({}), [])
 
   const handleExport = async () => {
     if (!exportFileName) return
@@ -107,8 +171,30 @@ export function DataTable<T>({
     await exportToXlsx(rows, visibleCols, exportFileName)
   }
 
+  const selectedCount = selectedRows.length
+
   return (
     <div className="flex flex-col gap-3">
+      {/* Bulk action bar */}
+      {enableSelection && selectedCount > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+          <span className="text-xs font-medium">
+            {selectedCount} {selectedCount === 1 ? "fila seleccionada" : "filas seleccionadas"}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={clearSelection}
+          >
+            Limpiar
+          </Button>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {bulkActions?.(selectedRows, clearSelection)}
+          </div>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -235,12 +321,30 @@ export function DataTable<T>({
       </div>
 
       {/* Pagination */}
-      {table.getPageCount() > 1 && (
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>
-            {table.getFilteredRowModel().rows.length}{" "}
-            {table.getFilteredRowModel().rows.length === 1 ? "resultado" : "resultados"}
-          </span>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          {table.getFilteredRowModel().rows.length}{" "}
+          {table.getFilteredRowModel().rows.length === 1 ? "resultado" : "resultados"}
+        </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span>Filas por página</span>
+            <SelectRoot
+              value={String(table.getState().pagination.pageSize)}
+              onValueChange={(v) => table.setPageSize(Number(v))}
+            >
+              <SelectTrigger className="h-7 w-16">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 25, 50, 100, 200].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </SelectRoot>
+          </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -251,7 +355,7 @@ export function DataTable<T>({
               Anterior
             </Button>
             <span className="tabular-nums">
-              {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
+              {table.getState().pagination.pageIndex + 1} / {Math.max(1, table.getPageCount())}
             </span>
             <Button
               variant="outline"
@@ -263,7 +367,7 @@ export function DataTable<T>({
             </Button>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

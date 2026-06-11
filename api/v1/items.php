@@ -68,6 +68,9 @@ function presentItem(array $row): array
         'locationid'          => 'locationId',
         'outletid'            => 'outletId',
         'companyid'           => 'companyId',
+        'categoryname'        => 'categoryName',
+        'brandname'           => 'brandName',
+        'outletname'          => 'outletName',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -236,11 +239,25 @@ switch ($method) {
             $params[] = $_GET['type'];
         }
 
-        $sql = "SELECT itemId, itemName, itemSKU, itemType, itemKind, itemStatus,
-                       itemPrice, itemDate, updated_at, data
-                  FROM item
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY itemDate DESC
+        // Prefijar el WHERE con el alias `i.` para que pegue en el JOIN.
+        $whereSql = preg_replace(
+            '/\b(companyId|itemStatus|itemName|itemSKU|itemKind|itemType)\b/',
+            'i.$1',
+            implode(' AND ', $where)
+        );
+
+        $sql = "SELECT i.itemId, i.itemName, i.itemSKU, i.itemType, i.itemKind, i.itemStatus,
+                       i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
+                       i.categoryId, i.brandId, i.outletId, i.data,
+                       cat.taxonomyName AS categoryName,
+                       brand.taxonomyName AS brandName,
+                       o.outletName AS outletName
+                  FROM item i
+             LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
+             LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
+             LEFT JOIN outlet o       ON o.outletId       = i.outletId
+                 WHERE $whereSql
+                 ORDER BY i.itemDate DESC
                  LIMIT $limit OFFSET $offset";
         $rs    = $db->Execute($sql, $params);
         $items = [];
@@ -250,7 +267,7 @@ switch ($method) {
             }
         }
 
-        $countSql = "SELECT COUNT(*) AS n FROM item WHERE " . implode(' AND ', $where);
+        $countSql = "SELECT COUNT(*) AS n FROM item i WHERE $whereSql";
         $countRs  = $db->Execute($countSql, $params);
         $total    = ($countRs !== false && !$countRs->EOF) ? (int) $countRs->fields['n'] : 0;
 

@@ -3,13 +3,25 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Plus, AlertCircle, Package } from "lucide-react"
+import { toast } from "sonner"
+import { Plus, AlertCircle, Package, Archive } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { DataTable } from "@/components/data-table/data-table"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import {
   Select,
   SelectContent,
@@ -18,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { useItems } from "@/hooks/use-items"
+import { useArchiveItem, useItems } from "@/hooks/use-items"
 import { formatMoney } from "@/lib/format"
 import {
   KIND_META,
@@ -33,6 +45,7 @@ export default function ItemsPage() {
   const [showArchived, setShowArchived] = React.useState(false)
   const { data, isLoading, error } = useItems({ archived: showArchived })
   const { data: bootstrap } = useBootstrap()
+  const archive = useArchiveItem()
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.items ?? []
@@ -83,15 +96,83 @@ export default function ItemsPage() {
         meta: { label: "Tipo" },
       },
       {
-        accessorKey: "itemPrice",
-        header: "Precio",
+        accessorKey: "categoryName",
+        header: "Categoría",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? v : <span className="opacity-40">—</span>
+        },
+        meta: { label: "Categoría" },
+      },
+      {
+        accessorKey: "brandName",
+        header: "Marca",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? v : <span className="opacity-40">—</span>
+        },
+        meta: { label: "Marca" },
+      },
+      {
+        accessorKey: "outletName",
+        header: "Sucursal",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? v : <span className="opacity-40 text-xs">Todas</span>
+        },
+        meta: { label: "Sucursal" },
+      },
+      {
+        accessorKey: "itemUOM",
+        header: "UOM",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? (
+            <Badge variant="secondary" className="text-[10px] font-normal">
+              {v}
+            </Badge>
+          ) : (
+            <span className="opacity-40">—</span>
+          )
+        },
+        meta: { label: "Unidad de medida" },
+      },
+      {
+        accessorKey: "itemCost",
+        header: "Costo",
         cell: ({ getValue }) => {
           const v = getValue() as number | string | null
           const n = typeof v === "string" ? parseFloat(v) : v
+          if (!n || n <= 0) return <span className="opacity-40">—</span>
           return (
-            <span className="tabular-nums">
-              {formatMoney(n ?? 0, bootstrap)}
+            <span className="tabular-nums text-muted-foreground">
+              {formatMoney(n, bootstrap)}
             </span>
+          )
+        },
+        meta: { label: "Costo", className: "tabular-nums text-right" },
+      },
+      {
+        accessorKey: "itemPrice",
+        header: "Precio",
+        cell: ({ row, getValue }) => {
+          const v = getValue() as number | string | null
+          const n = typeof v === "string" ? parseFloat(v) : v
+          const discount = Number(row.original.itemDiscount ?? 0)
+          if (!n) return <span className="opacity-40">—</span>
+          if (discount > 0) {
+            const final = n * (1 - discount / 100)
+            return (
+              <span className="tabular-nums">
+                <span className="block text-[10px] text-destructive line-through">
+                  {formatMoney(n, bootstrap)}
+                </span>
+                {formatMoney(final, bootstrap)}
+              </span>
+            )
+          }
+          return (
+            <span className="tabular-nums">{formatMoney(n, bootstrap)}</span>
           )
         },
         meta: { label: "Precio", className: "tabular-nums text-right" },
@@ -110,10 +191,22 @@ export default function ItemsPage() {
             </Badge>
           )
         },
-        meta: { className: "w-24" },
+        meta: { label: "Estado", className: "w-24" },
       },
     ],
     [bootstrap],
+  )
+
+  // Visibilidad por defecto: marca/sucursal/UOM/costo arrancan ocultas (el usuario
+  // las activa desde el menú "Columnas"). En TanStack: false = oculta. Persistido por DataTable.
+  const initialColumnVisibility = React.useMemo(
+    () => ({
+      brandName: false,
+      outletName: false,
+      itemUOM: false,
+      itemCost: false,
+    }),
+    [],
   )
 
   return (
@@ -154,6 +247,29 @@ export default function ItemsPage() {
             isLoading={isLoading}
             searchPlaceholder="Buscar por nombre o SKU…"
             exportFileName="articulos"
+            initialColumnVisibility={initialColumnVisibility}
+            enableSelection
+            bulkActions={(selected, clear) => (
+              <BulkArchiveDialog
+                items={selected}
+                isArchived={showArchived}
+                onConfirm={async () => {
+                  try {
+                    await Promise.all(
+                      selected.map((i) => archive.mutateAsync(i.itemId)),
+                    )
+                    toast.success(
+                      `${selected.length} ${selected.length === 1 ? "artículo archivado" : "artículos archivados"}`,
+                    )
+                    clear()
+                  } catch (e) {
+                    toast.error("No se pudo archivar", {
+                      description: e instanceof Error ? e.message : undefined,
+                    })
+                  }
+                }}
+              />
+            )}
             emptyMessage={
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
                 <Package className="size-8 opacity-30" />
@@ -200,5 +316,52 @@ export default function ItemsPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function BulkArchiveDialog({
+  items,
+  isArchived,
+  onConfirm,
+}: {
+  items: ItemListItem[]
+  isArchived: boolean
+  onConfirm: () => Promise<void>
+}) {
+  const [open, setOpen] = React.useState(false)
+  // Solo permitimos bulk archive sobre activos (no hay "desarchivar" todavía).
+  if (isArchived) return null
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+          <Archive className="size-3.5" />
+          Archivar
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            ¿Archivar {items.length} {items.length === 1 ? "artículo" : "artículos"}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Los artículos archivados dejan de aparecer en la caja. Podés
+            verlos cambiando el filtro a &quot;Archivados&quot;.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={async (e) => {
+              e.preventDefault()
+              await onConfirm()
+              setOpen(false)
+            }}
+          >
+            Archivar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

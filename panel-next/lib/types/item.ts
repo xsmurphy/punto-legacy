@@ -40,8 +40,21 @@ export interface ItemListItem {
   itemType: string | null
   itemStatus: number
   itemPrice: number | string | null
+  itemCost: number | string | null
   itemDate: string | null
   updated_at: string | null
+  categoryId: string | null
+  brandId: string | null
+  outletId: string | null
+  /** Nombres resueltos por JOIN en la API — para mostrar sin lookup adicional. */
+  categoryName: string | null
+  brandName: string | null
+  outletName: string | null
+  /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.
+   * Incluyen itemUOM, itemDiscount, itemWaste, itemComissionPercent, itemEcom, etc. */
+  itemUOM?: string | null
+  itemDiscount?: number | string | null
+  itemEcom?: number | boolean | null
   tags: string[]
 }
 

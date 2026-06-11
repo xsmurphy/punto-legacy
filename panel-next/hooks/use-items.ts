@@ -21,6 +21,8 @@ export function useItems(opts?: { q?: string; archived?: boolean }) {
   }>({
     queryKey: ["items", opts?.q ?? "", opts?.archived ?? false],
     queryFn: () => {
+      // Pedimos el máximo soportado por la API (200) — paginación client-side.
+      // Cuando el catálogo supere ese umbral migramos a paginación server-side.
       const params = new URLSearchParams({ limit: "200" })
       if (opts?.q) params.set("q", opts.q)
       if (opts?.archived) params.set("archived", "1")
