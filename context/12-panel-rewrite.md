@@ -195,3 +195,85 @@ empiezan recto.
 - `context/11-design-system.md` — sistema de diseño actual (los colores/clases que se mantienen)
 - `/panel/a_*.php` — guía funcional del legacy (qué hace cada módulo)
 - `/api/v1/` + `/api/lib/` — backend disponible
+
+---
+
+## Track paralelo — Hardening del backend para 2000+ clientes
+
+La `/api` actual tiene buenos cimientos (PSR-4, multi-realm auth, PostgreSQL +
+JSONB, multi-tenant scoping por código) pero **NO está lista para 2000 clientes
+sin trabajo adicional**. Esta sección lista lo que falta para escalar, en orden
+de prioridad. Va EN PARALELO al rewrite del front — no antes, no después.
+
+**Importante**: el orden NO bloquea slices del front. El front puede arrancar
+contra la API actual; el hardening se aplica conforme la cantidad de clientes
+reales crece.
+
+### Issues estructurales detectados
+
+1. **Cero tests automatizados del money path** (transactions, inventory, billing).
+   El smoke test F2 que cazó 3 bugs cluster cubre CRUD básico, NO business
+   logic. Una regresión silenciosa en stock cuesta plata real a escala.
+2. **Stock con 4 fuentes de verdad** (`stock` ledger, `stockTrigger` cache,
+   `inventory` batches, `toLocation` sub-partición) sin invariante PG que las
+   una — el drift es inevitable con volumen. Ver plan I0-I6 en sección
+   "Análisis del módulo de inventario" del roadmap.
+3. **`manageStock` duplicado** (`/app/Domain/Inventory.php` ≡
+   `panel/includes/functions.php`). Misma deuda class que los 3 bugs cluster
+   cazados hoy (Query::update, DB.php divergido, ncmInsert routing).
+4. **Multi-tenant scoping solo en código, sin RLS de PostgreSQL**. Un Service
+   que olvide `WHERE companyId = ?` = cross-tenant data leak. Para 2000
+   tenants hay que auditar todo o activar RLS como segunda barrera.
+5. **Sin connection pooling** (`php -S` 8 workers abren conexión PG nueva por
+   request).
+6. **Sin cache de queries hot** (Redis solo para sessions). `bootstrap`,
+   `settings`, `plans` se piden a PG en cada page load.
+7. **Sin OpenAPI spec** → tipos TS del front se escriben a mano o se valida
+   con zod en cada response.
+8. **Sin observability formal** (logs estructurados, métricas por tenant,
+   alertas, tracing). Sentry está pero no estructurado.
+9. **God-functions del panel** (`panel/includes/functions.php` 10k líneas)
+   que /api necesita — portage por demanda cuando un slice React lo requiere.
+10. **Sin background jobs** — emails / webhooks / SIFEN bloquean el request.
+
+### Plan priorizado
+
+| # | Item | Esfuerzo | Trigger / cuándo |
+|---|------|----------|------------------|
+| H1 | **OpenAPI spec + tipos TS generados** | 1 sem | Antes del primer slice React real (después del Sprint 0) |
+| H2 | **Tests del money path** (PHPUnit / Vitest contra /api) | 2-3 sem | En paralelo al rewrite del front. Sin esto no se mete a prod con 100+ clientes |
+| H3 | **Observability**: logs estructurados JSON + métricas por tenant + alertas | 1 sem | Antes de 200 clientes |
+| H4 | **pgbouncer** delante de Postgres + connection pooling | 2 días | Antes de 100 clientes concurrentes |
+| H5 | **Auditoría tenant scoping**: grep + script que verifica `companyId` bindeado en TODOS los SELECT/UPDATE/DELETE de /api/lib | 1 sem | Antes de 500 clientes |
+| H6 | **Cache Redis** para queries hot: `bootstrap`, `settings.general`, `plans`, `taxonomies` (TTL 60-300s, invalidación en write) | 1 sem | Cuando bootstrap p95 > 200ms |
+| H7 | **Background jobs**: SIFEN async, emails async, webhooks async, billing recurrente (BeanstalkD / Redis Queue / cron) | 2 sem | Cuando aparezca el primer request timeout en prod |
+| H8 | **Row-Level Security PG** sobre `companyId` (defense-in-depth, no reemplaza scoping en código) | 2 sem | Opcional pero recomendado pre-1000 clientes |
+| H9 | **Consolidar `/shared/`**: DB.php + JsonbRouter helpers a un solo lugar | 3 días | Cualquier momento — bajo riesgo, alto valor |
+| H10 | **Refactor módulo inventario** (plan I0-I6 del roadmap) | 6-8 sem | Post-MVP del nuevo panel, cuando el front esté estable |
+
+**Estimación total**: ~3-4 meses calendario en paralelo al rewrite del front
+(dev solo / mitad de tiempo). Para 2000 clientes alcanza si se ejecuta en
+orden — no requiere arquitectura distribuida. Un solo PHP + un solo Postgres
+bien tuneado lleva 2000 tenants con holgura.
+
+### Lo que NO está en el plan (porque NO hace falta para 2000)
+
+- Microservicios / arquitectura distribuida — sobrecarga sin beneficio a esta escala
+- Reescribir `/api` de PHP a Node/Go — `/api` PHP está bien, el rewrite es el front
+- Database sharding / multi-region — innecesario para 2000 tenants en un solo Postgres con pgbouncer
+- Kubernetes — Coolify + Docker simple alcanza
+- Event sourcing / CQRS — overkill; lo que hace falta es invariantes constraint en el ledger de stock
+- Migrar `/app` (POS) también a algo nuevo — decisión separada del panel rewrite
+
+### Métricas que disparan acción
+
+| Métrica | Threshold | Acción |
+|---|---|---|
+| Clientes activos | > 50 | Empezar H1+H2 (OpenAPI + tests money path) |
+| Clientes activos | > 100 | Activar H3+H4 (observability + pgbouncer) |
+| Clientes activos | > 200 | Empezar H5+H6 (audit + cache) |
+| Clientes activos | > 500 | Empezar H7 (background jobs) |
+| Clientes activos | > 1000 | Empezar H8 (RLS) |
+| Latencia bootstrap p95 | > 200ms | H6 sin esperar threshold de clientes |
+| Cualquier reporte de drift de stock | inmediato | H10 sin esperar |
+| Cualquier reporte de cross-tenant data | inmediato | H5+H8 simultáneo, P0 |
