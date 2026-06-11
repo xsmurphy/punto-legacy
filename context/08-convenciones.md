@@ -1542,3 +1542,49 @@ $name = $row ? $row->fields['taxonomyname'] : 'None';
 ```
 
 **Dónde aplica**: cualquier helper que internamente lea `global $SQLcompanyId`, `global $COMPANY_ID` u otro global de contexto de panel/app (`$SQLoutletId`, `global $db` configurado por `data.php`, etc.). En el contexto de /api esos globals no están inicializados o están en scope incorrecto. Siempre inyectar por parámetro desde el JWT.
+
+---
+
+## §34 — Write path canónico con JSONB: `ncmInsert`/`ncmUpdate` como single source of truth (establecido commit a8c12a1, 2026-06-10)
+
+**Regla**: en el write path (INSERT/UPDATE), `ncmInsert` y `ncmUpdate` son la ÚNICA implementación de tres responsabilidades críticas:
+1. `_routeToJsonb` — rutea campos demoted (itemTaxExcluded, contactAddress, settingName, etc.) a la columna JSONB correspondiente (`data`/`config`/`meta`) en vez de intentar insertarlos como columnas inexistentes.
+2. `generateUuidV7` — auto-genera la PK UUID v7 si el record no la trae.
+3. JSONB merge no-destructivo en UPDATE — usa `COALESCE(col, '{}') || ?::jsonb` para fusionar en vez de pisar todo el blob.
+
+**Consecuencia directa**: `Query::insert` y `Query::update` del PSR-4 (Slice 10, `Punto\App\Database\Query`) DEBEN delegar a `ncmInsert`/`ncmUpdate` respectivamente. **Nunca reimplementar estas tres responsabilidades en la capa PSR-4.**
+
+```php
+// BIEN — delegar a ncmInsert/ncmUpdate (single source of truth)
+public static function insert(string $table, array $data): string|false
+{
+    return ncmInsert($GLOBALS['db'], $table, $data);
+}
+
+// MAL — reimplementar el routing JSONB en Query (duplica lógica, diverge)
+public static function insert(string $table, array $data): string|false
+{
+    $db = $GLOBALS['db'];
+    $db->Execute("INSERT INTO $table ...", [...]);  // rompe con campos demoted
+}
+```
+
+**Raíz del bug detectado (commit a8c12a1)**: el Slice 10 PSR-4 reemplazó los wrappers `ncmInsert`/`ncmUpdate` de `/app` por delegación a `Query::insert/update`. Pero `Query` NO portó `_routeToJsonb` ni `generateUuidV7`. Resultado: cualquier INSERT con un campo demoted tiraba `column "fieldname" of relation "table" does not exist` → 500 silente. Fix: `Query::insert/update` ahora delegan a `ncmInsert`/`ncmUpdate` directamente.
+
+**Deuda registrada**: consolidar `DB.php` + `JsonbRouter` a un `/shared/` común para evitar drift futuro entre `/app` y `/panel`. Ver `10-roadmap.md`.
+
+---
+
+## §35 — Panel React (panel-next/): portar endpoint a /api ANTES de implementar el front (establecido 2026-06-10)
+
+**Regla**: cuando un slice del nuevo panel React necesite datos o mutaciones que hoy existen solo como handlers in-process del legacy (`panel/API/v1/*.php` + `panel/lib/*/`), el handler debe portarse a la API compartida (`api/v1/` + `api/lib/<Modulo>/`) ANTES de implementar el componente React.
+
+**Por qué**: el nuevo panel React consume `/api` compartida exclusivamente (no tiene acceso in-process al código PHP del panel legacy). Si se implementa el componente React antes de portar el handler, el slice queda incompleto hasta que el backend se porte — dos contextos abiertos en paralelo.
+
+**Orden correcto por slice**:
+1. Verificar si el endpoint ya existe en `/api/v1/`. Si existe (F2 portó outlets/settings/contacts/items/bootstrap/reportes/vpayments): ir directo al componente React.
+2. Si no existe: primero portar el handler al patrón `Punto\Api\<Modulo>` (namespace, `final`, `declare strict_types`, `apiAuthTenant(['panel'])`, sin globals), luego implementar el componente React que lo consume.
+
+**Referencia**: `docs/PLAN_panel_desacople.md` (F3 marcada CANCELADA) documenta los handlers que quedaron pendientes — sirve de referencia para saber qué handlers in-process necesitarán portarse cuando el slice React llegue a esa funcionalidad.
+
+**Aplica a**: cualquier sesión que trabaje en `panel-next/`. La REGLA RAÍZ sigue siendo la misma: el BFF (ahora el fetch de Next.js/TanStack Query) nunca toca la BD directamente.

@@ -158,7 +158,19 @@ Destinado a correr en un server dedicado separado de /panel y /app.
 | `api/v1/bancard.php` | Bancard QR: POST `{type: create\|refresh\|cancel}` → `apiOk` con respuesta de Bancard. (Slice 43) |
 | `api/v1/pix.php` | Pix QR: POST `{type: create\|verify}` → `apiOk` con respuesta de Pix. (Slice 43) |
 
-**Clientes actuales**: `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`). `/panel/bff/*` consume /api para los reportes migrados en F2 (Bearer `_jwt_panel` vía base `'shared'` en `panel/bff/lib/api_client.php`); el resto del panel sigue usando `panel/API/` in-process.
+**Clientes actuales**: `/app/bff/*` (vía `app/bff/lib/api_client.php` que reenvía cookie `_jwt`). `/panel/bff/*` consume /api para los reportes migrados en F2 Y para outlets/settings/contacts/items (Bearer `_jwt_panel` vía base `'shared'` en `panel/bff/lib/api_client.php`); el resto del panel sigue usando `panel/API/` in-process — pero F3/F4/F5 del desacople original están CANCELADOS por el pivote a React (`context/12-panel-rewrite.md`). El legacy panel se elimina cuando el nuevo panel React lo cubra 100%.
+
+### Namespaces `Punto\Api\*` portados en F2 (commits ed1026a..479887b, 2026-06-10)
+
+Además de los 24 Reports (ver arriba), F2 portó 5 módulos CRUD/funcionales a la API compartida:
+
+| Namespace | Directorio | Endpoint | Realm | Notas |
+|-----------|-----------|---------|-------|-------|
+| `Punto\Api\Outlets` | `api/lib/Outlets/` | `api/v1/outlets.php` | `['panel']` | `OutletsService`: list/get/create/delete. `create()` consulta `plans.features JSONB` para límite de inventory. `delete()` inlinea `deleteOutlet()` god-fn (13 DELETEs, 2 UPDATEs en TX). Resources copiados (no hardlinkeados). |
+| `Punto\Api\Settings` | `api/lib/Settings/` | `api/v1/settings.php` | `['panel']` | Port fiel de `panel/lib/settings/SettingsService.php`; recursos de plantillas copiados a `api/lib/Settings/resources/`. |
+| `Punto\Api\Bootstrap` | `api/lib/Bootstrap/` | `api/v1/bootstrap.php` | `['panel']` | Bootstrap de la sesión del panel: currency, permisos, outlets, módulos activos. |
+| `Punto\Api\Contacts` | `api/lib/Contacts/` | `api/v1/contacts.php` | `['panel','pos-app']` | PRIMER endpoint multi-realm en F2. Contacts son compartidos entre panel y POS. `ContactRepository` + `ContactService`. |
+| `Punto\Api\Items` | `api/lib/Items/` | `api/v1/items.php` | `['panel','pos-app']` | Endpoint FUSIONADO: absorbe el slice 25 del POS (`?resource=core|inventory|info`) + CRUD del panel. 6 services: `ItemRepository`, `ItemService`, `LocationService`, `UpsellService`, `StockService`, `CompoundService`. Dispatch por `?resource` dentro del endpoint unificado. |
 
 ### Namespace `Punto\Api\Reports\*` — cluster de reportes del panel (F2, commits c4d3231..36fc3e3, 2026-06-10)
 

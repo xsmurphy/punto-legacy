@@ -3,6 +3,17 @@
 
 # 02 — Arquitectura
 
+## PIVOTE ARQUITECTÓNICO — 2026-06-10
+
+> **El panel legacy (`/panel`) se reescribe greenfield a React + Next.js.** F3/F4/F5 del plan de desacople original están CANCELADOS. El legacy se mantiene SOLO en producción mientras el nuevo no lo cubra al 100%, luego se elimina.
+> Ver `context/12-panel-rewrite.md` para el plan completo (stack, slices, sprint 0 checklist).
+
+**Implicación para los god-nodes del panel legacy**: `panel/includes/functions.php`, `panel/a_*.php`, `panel/API/v1/*.php` y `panel/lib/*/` son código **condenado** — no conviene invertir refactors en ellos más allá de lo necesario para producción estable. El trabajo nuevo va en `panel-next/` (React).
+
+**Lo que NO cambia**: `/app` (POS) sigue legacy — decisión separada. `/api` compartida sigue en PHP y es el backend del nuevo panel. El realm `/admin` se mantiene hasta que el nuevo panel cubra esa funcionalidad.
+
+---
+
 ## Vista de 30 segundos
 
 ```
@@ -235,7 +246,7 @@ Para detalle vivo: leer ese reporte antes de tocar estas funciones.
 
 **`panel/lib/reports/` — vaciado F2 (2026-06-10):** los 24 ReportXxxService.php que vivían en `panel/lib/reports/` fueron portados a `api/lib/Reports/` con namespace `Punto\Api\Reports`. `panel/lib/reports/` solo retiene los dos servicios no migrados: `ReportVpaymentsService.php` (proxy a gateway externo, F5) y `ReportInventoryService.php` (KPI widget — decisión de producto pendiente). El nuevo cluster god es `api/lib/Reports/` con sus 24 services + 3 helpers compartidos.
 
-**Nota /app DB.php (2026-05-28):** `app/includes/lib/DB.php` divergió del panel y **no tiene `Insert_ID()`**. `ncmInsert`/`ncmUpdate` son fatales en /app. Ver `05-modulos-clave.md § Desacople /app` para el patrón de escritura correcto.
+**Nota /app DB.php (actualizada 2026-06-10, commits 6ed461a + a8c12a1):** `app/includes/lib/DB.php` había divergido del panel — no tenía `whereParams` en `AutoExecute()` ni `_routeToJsonb`/`generateUuidV7` en `ncmInsert`/`ncmUpdate`. Ambos sincronizados. `Query::insert/update` del PSR-4 (Slice 10) ahora delegan a `ncmInsert`/`ncmUpdate` como single source of truth — NO reimplementan el routing JSONB por su cuenta. Ver §34 en `08-convenciones.md` para la regla canónica de write path con JSONB.
 
 **God-helpers de `app/includes/functions.php` arreglados para PG durante slice 35 (2026-05-31):** patrón común: UUID sin comillas en SQL concat + columnas demoted a JSONB leídas sin `_flattenJsonb` + `$db->Prepare()` rompiendo math (§22.10.1). Todos afectaban también al legacy `processData`.
 
