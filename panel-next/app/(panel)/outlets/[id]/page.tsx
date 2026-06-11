@@ -43,6 +43,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import {
+  useCreateOutlet,
   useDeleteOutlet,
   useOutlet,
   useUpdateOutlet,
@@ -71,8 +72,14 @@ const outletSchema = z.object({
 export default function OutletEditPage() {
   const params = useParams<{ id: string }>()
   const id = params.id
+  // Modo create: el route param es la string literal "new" (Next dynamic
+  // routes matchean cualquier string al [id]; usamos esa convención
+  // para no duplicar el form en /outlets/new). Skip de useOutlet en este
+  // caso — no hay nada que fetchear.
+  const isNew = id === "new"
   const router = useRouter()
-  const { data, isLoading, error } = useOutlet(id)
+  const { data, isLoading, error } = useOutlet(isNew ? undefined : id)
+  const create = useCreateOutlet()
   const update = useUpdateOutlet()
   const remove = useDeleteOutlet()
 
@@ -81,9 +88,9 @@ export default function OutletEditPage() {
     defaultValues: emptyValues(),
   })
 
-  // Reset form cuando llegan los datos del backend.
+  // Reset form cuando llegan los datos del backend (sólo en edit).
   React.useEffect(() => {
-    if (!data) return
+    if (isNew || !data) return
     form.reset({
       name: data.name ?? "",
       address: data.address ?? "",
@@ -101,14 +108,20 @@ export default function OutletEditPage() {
       ecom: data.ecom ?? false,
       taxIncluded: data.taxIncluded ?? false,
     })
-  }, [data, form])
+  }, [data, form, isNew])
 
   const onSubmit = async (values: OutletFormValues) => {
     try {
-      await update.mutateAsync({ id, values })
-      toast.success("Sucursal actualizada")
+      if (isNew) {
+        const { id: newId } = await create.mutateAsync(values)
+        toast.success("Sucursal creada")
+        router.push(`/outlets/${newId}`)
+      } else {
+        await update.mutateAsync({ id, values })
+        toast.success("Sucursal actualizada")
+      }
     } catch (e) {
-      toast.error("No se pudo guardar", {
+      toast.error(isNew ? "No se pudo crear" : "No se pudo guardar", {
         description: e instanceof Error ? e.message : undefined,
       })
     }
@@ -147,11 +160,18 @@ export default function OutletEditPage() {
             <BackLink />
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold">
-                {isLoading ? <Skeleton className="h-7 w-48" /> : data?.name || "Sucursal"}
+                {isNew ? (
+                  "Nueva sucursal"
+                ) : isLoading ? (
+                  <Skeleton className="h-7 w-48" />
+                ) : (
+                  data?.name || "Sucursal"
+                )}
               </h1>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {!isNew && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
@@ -176,10 +196,16 @@ export default function OutletEditPage() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            )}
 
-            <Button type="submit" disabled={update.isPending || isLoading}>
-              {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-              Guardar
+            <Button
+              type="submit"
+              disabled={(isNew ? create.isPending : update.isPending) || (isLoading && !isNew)}
+            >
+              {(isNew ? create.isPending : update.isPending) && (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              )}
+              {isNew ? "Crear sucursal" : "Guardar"}
             </Button>
           </div>
         </header>

@@ -3,8 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Plus, Loader2, AlertCircle, MapPin } from "lucide-react"
-import { toast } from "sonner"
+import { Plus, AlertCircle, MapPin } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -18,26 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useCreateOutlet, useOutlets } from "@/hooks/use-outlets"
+import { useOutlets } from "@/hooks/use-outlets"
 import type { OutletListItem } from "@/lib/types/outlet"
 
 export default function OutletsPage() {
   const router = useRouter()
   const { data, isLoading, error } = useOutlets()
-  const createOutlet = useCreateOutlet()
   const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
-
-  const handleCreate = async () => {
-    try {
-      const { id } = await createOutlet.mutateAsync()
-      toast.success("Sucursal creada — completá los datos")
-      router.push(`/outlets/${id}`)
-    } catch (e) {
-      toast.error("No se pudo crear la sucursal", {
-        description: e instanceof Error ? e.message : undefined,
-      })
-    }
-  }
 
   // Filtrado custom por estado (lo aplicamos antes de pasar a DataTable).
   // El search global del DataTable cubre nombre/dirección/teléfono/ruc.
@@ -137,13 +123,11 @@ export default function OutletsPage() {
             su propia caja, inventario y configuración fiscal.
           </p>
         </div>
-        <Button onClick={handleCreate} disabled={createOutlet.isPending}>
-          {createOutlet.isPending ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
+        <Button asChild>
+          <Link href="/outlets/new">
             <Plus className="size-4" />
-          )}
-          Nueva sucursal
+            Nueva sucursal
+          </Link>
         </Button>
       </header>
 

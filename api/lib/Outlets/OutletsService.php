@@ -124,24 +124,35 @@ final class OutletsService
     }
 
     /**
-     * Crea una sucursal en blanco: outlet + caja + filas de inventario a 0 para items rastreados.
-     * Usa RETURNING para obtener el UUID generado (compatible con PG; Insert_ID() no funciona con UUIDs).
+     * Crea una sucursal: outlet + caja + filas de inventario a 0 para items rastreados.
+     *
+     * Si `$fields` está vacío, crea un placeholder ("Nueva Sucursal" activa). Esto
+     * sigue soportado por compatibilidad con el flujo legacy (click → blank → edit)
+     * pero el flujo nuevo de panel-next pasa el payload completo del form para
+     * crear la sucursal con los datos finales en un solo round-trip — evita
+     * sucursales huérfanas si el usuario abandona el form sin guardar.
+     *
+     * Usa RETURNING para obtener el UUID generado (compatible con PG; Insert_ID()
+     * no funciona con UUIDs).
+     * @param array|null $fields Mismo shape que update() recibe. Null = blank.
      * @return string|null UUID de la nueva sucursal, null en error.
      */
-    public function create($companyId)
+    public function create($companyId, ?array $fields = null)
     {
         global $db;
 
         $db->StartTrans();
 
-        // `itemsTaxIncluded` está demoted al JSONB `data` (ver comentario del
-        // schema línea 132). Antes el INSERT lo listaba como columna y fallaba
-        // silenciosamente — la query revertía la TX y create() devolvía null.
+        // Defaults para el INSERT inicial; los campos demoted al JSONB van al `data`.
+        $name   = ($fields && isset($fields['name']) && $fields['name'] !== '') ? $fields['name'] : 'Nueva Sucursal';
+        $status = ($fields && isset($fields['status'])) ? (int) (bool) $fields['status'] : 1;
+        $data   = ['itemsTaxIncluded' => $fields['taxIncluded'] ?? 1 ? 1 : 0];
+
         $res = $db->Execute(
             "INSERT INTO outlet (outletName, outletStatus, companyId, data)
-             VALUES ('Nueva Sucursal', 1, ?, ?)
+             VALUES (?, ?, ?, ?)
              RETURNING outletId",
-            [$companyId, json_encode(['itemsTaxIncluded' => 1])]
+            [$name, $status, $companyId, json_encode($data)]
         );
 
         // Read UUID by name (PG lowercases column names in result sets)
@@ -192,6 +203,14 @@ final class OutletsService
                  WHERE companyId = ? AND itemTrackInventory > 0 AND itemStatus = 1",
                 [$companyId, $outletId, $companyId]
             );
+        }
+
+        // Si el caller mandó campos del form, aplicamos el resto via update() para
+        // no duplicar la lógica de routing JSONB (address/phone/etc) ni de
+        // lat/lng. El name/status ya fueron al INSERT inicial; update() los
+        // reescribe con los mismos valores (no-op cost).
+        if ($fields) {
+            $this->update($outletId, $companyId, $fields);
         }
 
         $failed = $db->HasFailedTrans();

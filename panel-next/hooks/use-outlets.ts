@@ -28,17 +28,23 @@ export function useOutlet(id: string | undefined) {
 }
 
 /**
- * Crea una sucursal en blanco. Backend la inserta como "Nueva Sucursal" status=1
- * + sus filas de inventario en cero. Devuelve el nuevo id.
+ * Crea una sucursal. Acepta opcionalmente el payload del form para crear con
+ * los datos finales en un solo round-trip (flujo nuevo de panel-next: el
+ * usuario llena el form y AHÍ recién insertamos en BD; sin "outlets huérfanos"
+ * si abandona sin guardar). Sin `values`, el backend crea un placeholder
+ * "Nueva Sucursal" — flujo legacy.
  *
- * Estrategia: invalidate ["outlets"] al éxito + el caller hace `router.push` al
- * detalle para editarla. Optimistic update no aporta (el row no aparece en la
- * lista hasta que el backend devuelve el id de todas formas).
+ * Estrategia: invalidate ["outlets"] al éxito + el caller hace `router.push`
+ * al detalle. Optimistic update no aporta (la lista necesita el id real).
  */
 export function useCreateOutlet() {
   const qc = useQueryClient()
-  return useMutation<{ id: string }, Error, void>({
-    mutationFn: () => api.post<{ id: string }>("/v1/outlets", { action: "create" }),
+  return useMutation<{ id: string }, Error, OutletFormValues | undefined>({
+    mutationFn: (values) =>
+      api.post<{ id: string }>("/v1/outlets", {
+        action: "create",
+        ...(values ? serialize(values) : {}),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["outlets"] })
     },

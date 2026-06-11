@@ -33,14 +33,6 @@ if ($method === 'POST') {
         apiError('Acción no soportada', 422);
     }
 
-    if ($action === 'create') {
-        $newId = $svc->create(COMPANY_ID);
-        if ($newId === null) {
-            apiError('No se pudo crear la sucursal', 500);
-        }
-        apiOk(['id' => $newId]);
-    }
-
     if ($action === 'delete') {
         $id = (string) (validateHttp('id', 'post') ?: '');
         if (!preg_match($uuidRe, $id)) {
@@ -55,24 +47,16 @@ if ($method === 'POST') {
         apiOk(['id' => $id]);
     }
 
-    // action === 'update'
-    $id = (string) (validateHttp('id', 'post') ?: '');
-    if (!preg_match($uuidRe, $id)) {
-        apiError('id inválido', 422);
-    }
-
+    // Parseo de fields (create con datos + update lo usan). Si el flujo legacy
+    // crea un blank (sin name), el array queda con defaults razonables y
+    // tampoco pasa nada (la rama create chequea si hay name antes de pasarlo).
     $name = trim((string) (validateHttp('name', 'post') ?: ''));
-    if ($name === '') { $name = 'New Location'; }
-
-    // purchaseOrderNo: entero o null. El parseo de locale es presentacional (front); acá solo int.
     $poRaw = (string) (validateHttp('purchaseOrderNo', 'post') ?: '');
     $po    = ($poRaw !== '' && is_numeric($poRaw)) ? (int) $poRaw : null;
-
     $taxId = (string) (validateHttp('tax', 'post') ?: '');
     if ($taxId !== '' && !preg_match($uuidRe, $taxId)) {
         apiError('impuesto inválido', 422);
     }
-
     // lat/lng: columnas numéricas (post-migración 14). Vacías → null en BD,
     // no 0 (0,0 es el Golfo de Guinea — placeholder incorrecto si el user no
     // las completó). El front manda "" cuando están vacías.
@@ -82,7 +66,7 @@ if ($method === 'POST') {
     $lng = ($lngRaw !== '' && is_numeric($lngRaw)) ? (float) $lngRaw : null;
 
     $fields = [
-        'name'            => $name,
+        'name'            => $name !== '' ? $name : 'Nueva Sucursal',
         'address'         => (string) (validateHttp('address', 'post') ?: ''),
         'phone'           => (string) (validateHttp('phone', 'post') ?: ''),
         'email'           => (string) (validateHttp('email', 'post') ?: ''),
@@ -100,6 +84,25 @@ if ($method === 'POST') {
         'businessHours'   => (string) (validateHttp('businessHours', 'post') ?: ''),
     ];
 
+    if ($action === 'create') {
+        // Flujo nuevo de panel-next: el form se llena y POST trae todos los
+        // campos → creamos la sucursal con esos datos en un solo round-trip
+        // (sin "outlets huérfanos" del flujo legacy click → blank → editar).
+        // Flujo legacy (panel/a_outlets.js): no manda `name` → creamos placeholder
+        // y la UI edita después; en ese caso pasamos null a create().
+        $newFields = $name !== '' ? $fields : null;
+        $newId = $svc->create(COMPANY_ID, $newFields);
+        if ($newId === null) {
+            apiError('No se pudo crear la sucursal', 500);
+        }
+        apiOk(['id' => $newId]);
+    }
+
+    // action === 'update'
+    $id = (string) (validateHttp('id', 'post') ?: '');
+    if (!preg_match($uuidRe, $id)) {
+        apiError('id inválido', 422);
+    }
     if (!$svc->update($id, COMPANY_ID, $fields)) {
         apiError('No se pudo actualizar', 500);
     }
