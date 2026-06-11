@@ -60,7 +60,9 @@ const outletSchema = z.object({
   ruc: z.string(),
   whatsApp: z.string(),
   purchaseOrderNo: z.number().int().nonnegative().nullable(),
-  latLng: z.string(),
+  // Lat/Lng: columnas numéricas con rango válido de coordenadas geográficas.
+  lat: z.number().min(-90).max(90).nullable(),
+  lng: z.number().min(-180).max(180).nullable(),
   taxId: z.string(),
   ecom: z.boolean(),
   taxIncluded: z.boolean(),
@@ -93,7 +95,8 @@ export default function OutletEditPage() {
       ruc: data.ruc ?? "",
       whatsApp: data.whatsApp ?? "",
       purchaseOrderNo: data.purchaseOrderNo,
-      latLng: data.latLng ?? "",
+      lat: data.lat,
+      lng: data.lng,
       taxId: data.taxId ?? "",
       ecom: data.ecom ?? false,
       taxIncluded: data.taxIncluded ?? false,
@@ -402,21 +405,68 @@ export default function OutletEditPage() {
 
           {/* Ubicación */}
           <Section title="Ubicación">
-            <FormField
-              control={form.control}
-              name="latLng"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Coordenadas / Link de Google Maps</FormLabel>
-                  <FormControl>
-                    <Input placeholder="-25.27, -57.59" {...field} />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Pegá un link de Google Maps o ingresá latitud,longitud separadas por coma.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+            <p className="text-xs text-muted-foreground">
+              Coordenadas usadas para calcular distancia entre cliente y sucursal
+              (delivery, sucursal más cercana). Si no las tenés a mano, pegá un link
+              de Google Maps en el campo siguiente y lo parseo.
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="lat"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Latitud</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.0000001"
+                        placeholder="-25.2867"
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          field.onChange(v === "" ? null : Number(v))
+                        }}
+                        className="tabular-nums"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="lng"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Longitud</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.0000001"
+                        placeholder="-57.6478"
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          field.onChange(v === "" ? null : Number(v))
+                        }}
+                        className="tabular-nums"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <GoogleMapsLinkParser
+              onParsed={(lat, lng) => {
+                form.setValue("lat", lat, { shouldDirty: true })
+                form.setValue("lng", lng, { shouldDirty: true })
+                toast.success(`Coordenadas extraídas: ${lat}, ${lng}`)
+              }}
             />
           </Section>
         </div>
@@ -437,11 +487,80 @@ function emptyValues(): OutletFormValues {
     ruc: "",
     whatsApp: "",
     purchaseOrderNo: null,
-    latLng: "",
+    lat: null,
+    lng: null,
     taxId: "",
     ecom: false,
     taxIncluded: false,
   }
+}
+
+/**
+ * Helper de UX: el usuario pega un link de Google Maps o un string crudo
+ * "lat,lng" y los inputs lat/lng se completan. Cubre los formatos típicos:
+ *   https://www.google.com/maps/place/.../@-25.2867,-57.6478,17z/...
+ *   https://maps.app.goo.gl/...?q=-25.2867,-57.6478
+ *   -25.2867, -57.6478
+ *   -25.2867,-57.6478
+ *
+ * Los links cortos `maps.app.goo.gl` requieren resolver el redirect — eso
+ * no se puede hacer client-side por CORS. Mensaje al usuario para que
+ * abra el link primero y pegue el largo.
+ */
+function GoogleMapsLinkParser({
+  onParsed,
+}: {
+  onParsed: (lat: number, lng: number) => void
+}) {
+  const [text, setText] = React.useState("")
+
+  const parse = () => {
+    if (!text.trim()) return
+    // Patrones: `@<lat>,<lng>` en URLs de Google Maps; `lat,lng` crudo;
+    // `q=<lat>,<lng>` en query params.
+    const patterns = [
+      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /q=(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/,
+    ]
+    for (const re of patterns) {
+      const m = text.match(re)
+      if (m) {
+        const lat = Number(m[1])
+        const lng = Number(m[2])
+        if (
+          Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
+          Number.isFinite(lng) && lng >= -180 && lng <= 180
+        ) {
+          onParsed(lat, lng)
+          setText("")
+          return
+        }
+      }
+    }
+    toast.error("No pude extraer coordenadas", {
+      description: "Pegá un link largo de Google Maps o el texto 'lat,lng'.",
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
+      <label className="text-xs text-muted-foreground">
+        Pegar link de Google Maps o &quot;lat,lng&quot;
+      </label>
+      <div className="flex gap-2">
+        <Input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="https://www.google.com/maps/@-25.28,-57.64,17z"
+          className="text-xs"
+        />
+        <Button type="button" variant="outline" size="sm" onClick={parse}>
+          Extraer
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 function BackLink() {

@@ -24,7 +24,11 @@ export interface OutletListItem {
 export interface OutletFull extends OutletListItem {
   email: string
   whatsApp: string
-  latLng: string
+  /** Latitud (NUMERIC(10,7) en BD). Null si la sucursal no tiene coords. */
+  lat: number | null
+  /** Longitud. Va a su propia columna porque se usa para calcular distancia
+   *  haversine (sucursal más cercana al cliente) directamente en SQL. */
+  lng: number | null
   description: string
   purchaseOrderNo: number | null
   taxId: string
@@ -54,7 +58,9 @@ export interface OutletFormValues {
   ruc: string
   whatsApp: string
   purchaseOrderNo: number | null
-  latLng: string
+  /** Latitud y longitud separadas. Null si el usuario no las completó. */
+  lat: number | null
+  lng: number | null
   taxId: string
   ecom: boolean
   taxIncluded: boolean

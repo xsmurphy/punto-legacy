@@ -92,7 +92,10 @@ function serialize(values: OutletFormValues): Record<string, unknown> {
     billingName: values.billingName,
     ruc: values.ruc,
     whatsApp: values.whatsApp,
-    latLng: values.latLng,
+    // lat/lng — columnas numéricas. Manda "" cuando el user las dejó vacías
+    // para que el backend las persista como null (no como 0).
+    lat: values.lat ?? "",
+    lng: values.lng ?? "",
     taxId: values.taxId,
     purchaseOrderNo: values.purchaseOrderNo ?? "",
     status: values.status ? 1 : "",

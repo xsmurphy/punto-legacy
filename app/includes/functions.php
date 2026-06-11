@@ -1332,9 +1332,13 @@ if (!function_exists('_getTableSchema')) {
             'outlet' => [
                 'pk'       => 'outletId',
                 'jsonbCol' => 'data',
-                'columns'  => ['outletId', 'outletName', 'outletStatus', 'outletAddress',
-                               'outletPhone', 'outletWhatsApp', 'outletEmail', 'outletBillingName',
-                               'outletRUC', 'outletLatLng', 'outletDescription',
+                // Migración 14 (2026-06-11): outletAddress, outletPhone, outletWhatsApp,
+                // outletEmail, outletBillingName, outletRUC, outletDescription demoted
+                // al JSONB `data`. outletLatLng splitteado en `lat`/`lng` numéricas
+                // para distancia haversine en SQL. Anything not in this list →
+                // ncmInsert/ncmUpdate routes to `data` automáticamente.
+                'columns'  => ['outletId', 'outletName', 'outletStatus',
+                               'lat', 'lng',
                                'outletNextExpirationDate', 'outletPurchaseOrderNo',
                                'outletOrderTransferNo', 'taxId', 'companyId', 'data'],
             ],

@@ -71,46 +71,56 @@ final class OutletsService
     /** Actualiza los campos editables. SCOPEADO por companyId. @return bool */
     public function update($id, $companyId, array $f)
     {
-        global $db;
+        // Tras la migración 14 (jsonb demote), `outletAddress/Phone/WhatsApp/Email/
+        // BillingName/RUC/Description` viven en `data` JSONB y `outletLatLng` quedó
+        // splitteado en columnas `lat`/`lng`. La lista de columnas reales del schema
+        // whitelist (_getTableSchema 'outlet') excluye los demoted — ncmUpdate los
+        // rutea al JSONB con merge no-destructivo automáticamente. Esto nos deja
+        // un único path de write sin el UPDATE explícito anterior.
 
-        // data JSONB: preservar TODAS las claves existentes + override de las absorbidas.
-        // forceObj (no getAssoc, no single-row): el single-row ncmExecute aplana y hace
-        // `unset($row['data'])` (_flattenJsonb), así que perderíamos el blob crudo → reescribiría
-        // `data` a {} borrando outletBusinessHours y demás claves diferidas. forceObj NO aplana,
-        // así que `$res->fields['data']` trae el JSONB crudo.
-        $data = [];
-        $cur  = ncmExecute("SELECT data FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1", [$id, $companyId], false, true);
-        if ($cur && is_object($cur) && !$cur->EOF) {
-            $raw = $cur->fields['data'] ?? null;
-            if ($raw) {
-                $d = is_array($raw) ? $raw : json_decode((string) $raw, true);
-                if (is_array($d)) { $data = $d; }
-            }
-            $cur->Close();
+        $record = [
+            'outletName'            => $f['name'],
+            'outletStatus'          => (int) $f['status'],
+            'outletPurchaseOrderNo' => $f['purchaseOrderNo'] !== null ? (int) $f['purchaseOrderNo'] : null,
+            'taxId'                 => $f['taxId'] !== '' ? $f['taxId'] : null,
+            // Demoted al JSONB data — ncmUpdate los rutea.
+            'outletAddress'         => $f['address'],
+            'outletPhone'           => $f['phone'],
+            'outletWhatsApp'        => $f['whatsApp'],
+            'outletEmail'           => $f['email'],
+            'outletBillingName'     => $f['billingName'],
+            'outletRUC'             => $f['ruc'],
+            'outletDescription'     => $f['description'],
+            // Flags JSONB que no vienen de columnas.
+            'outletEcom'            => $f['ecom'] ? 1 : 0,
+            'itemsTaxIncluded'      => $f['taxIncluded'] ? 1 : 0,
+        ];
+
+        // lat/lng: nuevas columnas numéricas para cálculo de distancia haversine
+        // (sucursal más cercana al cliente). Aceptan null si el usuario no las
+        // completa todavía.
+        if (array_key_exists('lat', $f)) {
+            $record['lat'] = $f['lat'] !== '' && $f['lat'] !== null ? (float) $f['lat'] : null;
         }
-        $data['outletEcom']       = $f['ecom'] ? 1 : 0;
-        $data['itemsTaxIncluded'] = $f['taxIncluded'] ? 1 : 0;
-        if ($f['businessHours'] !== '' && $f['businessHours'] !== null) {
+        if (array_key_exists('lng', $f)) {
+            $record['lng'] = $f['lng'] !== '' && $f['lng'] !== null ? (float) $f['lng'] : null;
+        }
+
+        // businessHours sigue siendo JSON serializado por el front; lo desempaquetamos
+        // antes de meter al JSONB para que data.outletBusinessHours sea un objeto
+        // (no un string-de-json).
+        if (!empty($f['businessHours'])) {
             $bh = json_decode((string) $f['businessHours'], true);
-            if (is_array($bh)) { $data['outletBusinessHours'] = $bh; }
+            if (is_array($bh)) { $record['outletBusinessHours'] = $bh; }
         }
 
-        // $db->Execute (no ncmExecute): UPDATE no es SELECT.
-        $r = $db->Execute(
-            "UPDATE outlet
-             SET outletName = ?, outletAddress = ?, outletPhone = ?, outletEmail = ?,
-                 outletDescription = ?, outletStatus = ?, outletBillingName = ?, outletRUC = ?,
-                 outletWhatsApp = ?, outletPurchaseOrderNo = ?, outletLatLng = ?, taxId = ?, data = ?
-             WHERE outletId = ? AND companyId = ?",
-            [
-                $f['name'], $f['address'], $f['phone'], $f['email'],
-                $f['description'], $f['status'], $f['billingName'], $f['ruc'],
-                $f['whatsApp'], ($f['purchaseOrderNo'] !== null ? $f['purchaseOrderNo'] : null), $f['latLng'],
-                ($f['taxId'] !== '' ? $f['taxId'] : null), json_encode($data),
-                $id, $companyId,
-            ]
-        );
-        return $r !== false;
+        $result = ncmUpdate([
+            'records'     => $record,
+            'table'       => 'outlet',
+            'where'       => 'outletId = ? AND companyId = ?',
+            'whereParams' => [$id, $companyId],
+        ]);
+        return is_array($result) && empty($result['error']);
     }
 
     /**
@@ -259,7 +269,13 @@ final class OutletsService
         return $out;
     }
 
-    /** Da forma a una fila de `outlet` (ya aplanada) → claves que consume el front. */
+    /** Da forma a una fila de `outlet` (ya aplanada) → claves que consume el front.
+     *
+     * Tras la migración 14 (jsonb demote), address/phone/whatsApp/email/billingName/
+     * ruc/description vienen aplanados desde el JSONB `data` por _flattenJsonb —
+     * los lookups `$r['outletAddress']` siguen funcionando sin código condicional.
+     * lat/lng salen de columnas numéricas nuevas.
+     */
     private function shape($r, $full)
     {
         $row = [
@@ -275,7 +291,8 @@ final class OutletsService
         if ($full) {
             $row['email']           = (string) ($r['outletEmail'] ?? '');
             $row['whatsApp']        = (string) ($r['outletWhatsApp'] ?? '');
-            $row['latLng']          = (string) ($r['outletLatLng'] ?? '');
+            $row['lat']             = ($r['lat'] ?? null) !== null ? (float) $r['lat'] : null;
+            $row['lng']             = ($r['lng'] ?? null) !== null ? (float) $r['lng'] : null;
             $row['description']     = (string) ($r['outletDescription'] ?? '');
             $row['purchaseOrderNo'] = ($r['outletPurchaseOrderNo'] ?? '') !== '' ? (int) $r['outletPurchaseOrderNo'] : null;
             $row['taxId']           = $r['taxId'] ? (string) $r['taxId'] : '';

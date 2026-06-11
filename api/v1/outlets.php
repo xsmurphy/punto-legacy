@@ -73,6 +73,14 @@ if ($method === 'POST') {
         apiError('impuesto inválido', 422);
     }
 
+    // lat/lng: columnas numéricas (post-migración 14). Vacías → null en BD,
+    // no 0 (0,0 es el Golfo de Guinea — placeholder incorrecto si el user no
+    // las completó). El front manda "" cuando están vacías.
+    $latRaw = (string) (validateHttp('lat', 'post') ?? '');
+    $lngRaw = (string) (validateHttp('lng', 'post') ?? '');
+    $lat = ($latRaw !== '' && is_numeric($latRaw)) ? (float) $latRaw : null;
+    $lng = ($lngRaw !== '' && is_numeric($lngRaw)) ? (float) $lngRaw : null;
+
     $fields = [
         'name'            => $name,
         'address'         => (string) (validateHttp('address', 'post') ?: ''),
@@ -84,7 +92,8 @@ if ($method === 'POST') {
         'ruc'             => (string) (validateHttp('ruc', 'post') ?: ''),
         'whatsApp'        => (string) (validateHttp('whatsApp', 'post') ?: ''),
         'purchaseOrderNo' => $po,
-        'latLng'          => (string) (validateHttp('latLng', 'post') ?: ''),
+        'lat'             => $lat,
+        'lng'             => $lng,
         'taxId'           => $taxId,
         'ecom'            => (bool) validateHttp('ecom', 'post'),
         'taxIncluded'     => (bool) validateHttp('taxIncluded', 'post'),
