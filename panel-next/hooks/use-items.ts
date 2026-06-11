@@ -84,6 +84,33 @@ export function useArchiveItem() {
   })
 }
 
+export interface ImportReport {
+  created: number
+  updated: number
+  total: number
+  errors: { line: number; message: string }[]
+}
+
+export function useImportItems() {
+  const qc = useQueryClient()
+  return useMutation<ImportReport, Error, { file: File; mode: "insert" | "update" }>({
+    mutationFn: ({ file, mode }) => {
+      const form = new FormData()
+      form.append("csv", file)
+      form.append("mode", mode)
+      return api.postForm<ImportReport>("/v1/items?resource=import", form)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
+/** URL absoluta para descargar la plantilla CSV. */
+export function importTemplateUrl(): string {
+  return api.url("/v1/items?resource=template")
+}
+
 export function useTaxonomies() {
   return useQuery<{ taxonomies: Taxonomy[] }>({
     queryKey: ["taxonomies"],

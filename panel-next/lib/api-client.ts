@@ -44,8 +44,10 @@ async function request<T>(
   // nunca arranca y el caller ve un 401/CORS error que NO es el problema
   // real. Bug cazado en login → bootstrap (redirect loop).
   const hasBody = "body" in rest && rest.body !== undefined && rest.body !== null
+  const isMultipart = hasBody && typeof FormData !== "undefined" && rest.body instanceof FormData
   const baseHeaders: Record<string, string> = { Accept: "application/json" }
-  if (hasBody) {
+  if (hasBody && !isMultipart) {
+    // No setear Content-Type para FormData — fetch lo arma con el boundary correcto.
     baseHeaders["Content-Type"] = "application/json"
   }
   if (jwt) {
@@ -106,6 +108,13 @@ export const api = {
       body: body ? JSON.stringify(body) : undefined,
       ...opts,
     }),
+  /** POST con FormData — para uploads multipart. NO setea Content-Type (lo hace fetch). */
+  postForm: <T>(path: string, form: FormData, opts?: { jwt?: string }) =>
+    request<T>(path, {
+      method: "POST",
+      body: form,
+      ...opts,
+    }),
   put: <T>(path: string, body?: Json, opts?: { jwt?: string }) =>
     request<T>(path, {
       method: "PUT",
@@ -114,4 +123,6 @@ export const api = {
     }),
   del: <T>(path: string, opts?: { jwt?: string }) =>
     request<T>(path, { method: "DELETE", ...opts }),
+  /** URL absoluta para descargas directas (CSV/PDF). */
+  url: (path: string) => `${baseUrl()}${path}`,
 }

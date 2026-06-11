@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useArchiveItem, useItems } from "@/hooks/use-items"
+import { ImportItemsDialog } from "@/components/items/import-dialog"
 import { formatMoney } from "@/lib/format"
 import {
   KIND_META,
@@ -218,12 +219,15 @@ export default function ItemsPage() {
             Catálogo de productos, servicios e insumos.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/items/new">
-            <Plus className="size-4" />
-            Nuevo artículo
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <ImportItemsDialog />
+          <Button asChild>
+            <Link href="/items/new">
+              <Plus className="size-4" />
+              Nuevo artículo
+            </Link>
+          </Button>
+        </div>
       </header>
 
       {error && (

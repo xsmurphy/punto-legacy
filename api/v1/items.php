@@ -184,6 +184,29 @@ if (in_array($resource, ['core', 'inventory', 'info'], true)) {
 $itemService = new \Punto\Api\Items\ItemService(new \Punto\Api\Items\ItemRepository($db));
 $locService  = new \Punto\Api\Items\LocationService($db);
 
+// ── Sub-recurso: importador CSV ───────────────────────────────────────────
+// resource=template (GET, descarga CSV con headers + ejemplos)
+// resource=import   (POST multipart con `csv` file, opcional mode=insert|update)
+if ($resource === 'template') {
+    if ($method !== 'GET') apiError('Method not allowed', 405);
+    $importer = new \Punto\Api\Items\ItemImporter($itemService, $db);
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="items_plantilla.csv"');
+    header('Cache-Control: no-store');
+    echo $importer->templateCsv();
+    exit;
+}
+if ($resource === 'import') {
+    if ($method !== 'POST') apiError('Method not allowed', 405);
+    if (empty($_FILES['csv']['tmp_name'])) apiError('Archivo CSV requerido (campo "csv")', 422);
+    $contents = file_get_contents($_FILES['csv']['tmp_name']);
+    if ($contents === false) apiError('No se pudo leer el archivo', 500);
+    $mode = ($_POST['mode'] ?? 'insert') === 'update' ? 'update' : 'insert';
+    $importer = new \Punto\Api\Items\ItemImporter($itemService, $db);
+    $report   = $importer->import($contents, $companyId, $mode);
+    apiOk($report);
+}
+
 $id = $_GET['id'] ?? null;
 
 // Sub-recurso: depósitos
