@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { useState, type ComponentType } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -9,7 +10,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -41,6 +41,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { AppCommandPalette } from "@/components/layout/app-command-palette"
 
 export interface NavItem {
   title: string
@@ -81,6 +82,20 @@ export function AppSidebar({
   const pathname = usePathname()
   const { toggleSidebar, state, isMobile } = useSidebar()
   const isCollapsed = state === "collapsed"
+  const [commandOpen, setCommandOpen] = useState(false)
+
+  // Atajo ⌘K / Ctrl+K para abrir el palette. (⌘B sigue siendo el toggle del
+  // sidebar — viene del SidebarProvider.)
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        setCommandOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
 
   const userInitials = user.name
     .split(" ")
@@ -131,6 +146,7 @@ export function AppSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   tooltip="Buscar (⌘K)"
+                  onClick={() => setCommandOpen(true)}
                   className="h-10 text-base text-muted-foreground [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
                 >
                   <Search />
@@ -145,7 +161,6 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Navegación</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-2">
               {items.map((entry) =>
@@ -252,6 +267,11 @@ export function AppSidebar({
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+      <AppCommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        nav={items}
+      />
     </Sidebar>
   )
 }

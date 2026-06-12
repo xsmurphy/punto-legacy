@@ -76,11 +76,7 @@ export function TemplateEditor({ existing }: Props) {
   const update = useUpdateDocumentTemplate()
 
   const initialConfig: PrintTemplateConfig = React.useMemo(() => {
-    if (existing?.config && typeof existing.config === "object" && "page_size" in existing.config) {
-      // Shape legacy completo en el config — usarlo verbatim.
-      return existing.config as PrintTemplateConfig
-    }
-    return defaultTemplateConfig("a4page")
+    return parseStoredConfig(existing?.config)
   }, [existing])
 
   const [name, setName] = React.useState(existing?.name ?? "")
@@ -186,8 +182,13 @@ export function TemplateEditor({ existing }: Props) {
         router.replace(`/settings/print-templates?id=${created.templateId}`)
       }
     } catch (e) {
+      // Logueamos a consola con el payload completo para diagnóstico — el toast
+      // solo muestra el message del backend, que puede ser corto.
+      console.error("[print-templates] save failed", { payload, error: e })
+      const description = e instanceof Error ? e.message : "Error desconocido"
       toast.error("No se pudo guardar", {
-        description: e instanceof Error ? e.message : undefined,
+        description,
+        duration: 10_000,
       })
     }
   }
@@ -359,4 +360,58 @@ function DragGuides({ guides }: { guides: { top: number; left: number; width: nu
       <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-primary/70" style={{ left: `${left + width}px` }} />
     </>
   )
+}
+
+/**
+ * Normaliza el config que viene del backend. Acepta:
+ *  - shape legacy completo (`{page_size, data:[...], page_font_*, ...}`)
+ *  - string JSON (algunos drivers PG sin auto-decode)
+ *  - objeto parcial (campos faltantes → defaults)
+ *  - null/undefined/{} → defaults
+ *
+ * Garantiza que el resultado tenga TODOS los campos del PrintTemplateConfig
+ * para que el editor renderice sin guards adicionales.
+ */
+function parseStoredConfig(raw: unknown): PrintTemplateConfig {
+  const fallback = defaultTemplateConfig("a4page")
+
+  // 1) Decodificar si vino como string JSON (defense contra driver PG sin auto-decode).
+  let parsed: unknown = raw
+  if (typeof parsed === "string" && parsed.trim() !== "") {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      // String no es JSON válido — caemos a fallback.
+      return fallback
+    }
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return fallback
+  }
+
+  const obj = parsed as Record<string, unknown>
+
+  // Merge campo por campo. Si no hay `page_size` válido, usamos default
+  // pero PRESERVAMOS data si existe (caso: row con sólo data:[...]).
+  const VALID_SIZES: PrintTemplateConfig["page_size"][] = [
+    "a4page", "a4page-h", "legalpage", "legalpage-h",
+    "letterpage", "letterpage-h", "receipt80", "receipt76", "receipt57",
+  ]
+  const pageSizeRaw = typeof obj.page_size === "string" ? obj.page_size : null
+  const page_size = (pageSizeRaw && (VALID_SIZES as string[]).includes(pageSizeRaw))
+    ? (pageSizeRaw as PrintTemplateConfig["page_size"])
+    : fallback.page_size
+
+  return {
+    page_size,
+    page_size_name: typeof obj.page_size_name === "string" ? obj.page_size_name : fallback.page_size_name,
+    page_name: typeof obj.page_name === "string" ? obj.page_name : fallback.page_name,
+    page_font_family: typeof obj.page_font_family === "string" ? obj.page_font_family : fallback.page_font_family,
+    page_font_size: typeof obj.page_font_size === "string" ? obj.page_font_size : fallback.page_font_size,
+    page_font_case: obj.page_font_case === "uppercase" ? "uppercase" : "none",
+    receipt_left_margin: typeof obj.receipt_left_margin === "string" ? obj.receipt_left_margin : fallback.receipt_left_margin,
+    mm: typeof obj.mm === "number" && obj.mm > 0 ? obj.mm : fallback.mm,
+    data: Array.isArray(obj.data) ? (obj.data as PrintBlock[]) : [],
+  }
 }
