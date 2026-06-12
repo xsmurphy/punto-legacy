@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check, Palette } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check, Palette, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -41,6 +41,7 @@ import {
 } from "@/hooks/use-settings"
 import { COMPANY_CATEGORIES } from "@/lib/company-categories"
 import { ThemePicker } from "@/components/theme-picker"
+import { DocumentsTab } from "@/components/settings/documents-tab"
 import type { SettingsFormValues } from "@/lib/types/settings"
 
 const settingsSchema = z.object({
@@ -199,6 +200,10 @@ export default function SettingsPage() {
                 <Coins className="size-3.5" />
                 Monedas
               </TabsTrigger>
+              <TabsTrigger value="documentos" className="gap-1.5">
+                <FileText className="size-3.5" />
+                Documentos
+              </TabsTrigger>
               <TabsTrigger value="apariencia" className="gap-1.5">
                 <Palette className="size-3.5" />
                 Apariencia
@@ -221,6 +226,9 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value="monedas" className="mt-6">
             <MonedasTab />
+          </TabsContent>
+          <TabsContent value="documentos" className="mt-6">
+            <DocumentsTab />
           </TabsContent>
           <TabsContent value="apariencia" className="mt-6">
             <AparienciaTab />
