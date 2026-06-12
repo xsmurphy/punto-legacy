@@ -21,7 +21,20 @@ import {
   Gift,
 } from "lucide-react"
 
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts"
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -44,7 +57,10 @@ import {
 } from "@/components/date-range-picker"
 import {
   useDashboardWidget,
+  useIncomeChart,
   type CustomersWidget,
+  type IncomeChartData,
+  type IncomeChartPoint,
   type IncomeOutcomeStatsWidget,
   type InfoWidget,
   type OrdersWidget,
@@ -68,6 +84,7 @@ export default function DashboardPage() {
 
   const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats", opts)
   const info = useDashboardWidget<InfoWidget>("info", opts)
+  const incomeChart = useIncomeChart(opts)
   const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", opts)
   const customers = useDashboardWidget<CustomersWidget>("customers", opts)
   const topItems = useDashboardWidget<TopItemRow[]>("topItems", opts)
@@ -111,6 +128,14 @@ export default function DashboardPage() {
           value2={stats.isLoading ? null : formatInt(stats.data?.count, bootstrap)}
         />
       </section>
+
+      {/* ── Line chart: Margen / Ingresos / Egresos por bucket (día u hora) ── */}
+      <IncomeAreaChart
+        data={incomeChart.data}
+        isLoading={incomeChart.isLoading}
+        error={incomeChart.error}
+        bootstrap={bootstrap}
+      />
 
       {/* ── ÓRDENES / NPS Satisfacción (módulos opcionales — se ocultan si vacíos) ── */}
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -267,6 +292,173 @@ function DualKpi({
       </CardContent>
     </Card>
   )
+}
+
+// ── Income chart (line/area) ──────────────────────────────────────────────
+
+function IncomeAreaChart({
+  data,
+  isLoading,
+  error,
+  bootstrap,
+}: {
+  data: IncomeChartData | undefined
+  isLoading: boolean
+  error: Error | null
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Margen, Ingresos y Egresos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[220px] w-full" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Margen, Ingresos y Egresos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+            {error?.message || "No se pudieron cargar los datos del chart."}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const hasData = data.data.some((p) => p.ingresos > 0 || p.egresos > 0)
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between text-sm font-medium">
+          <span>Margen, Ingresos y Egresos</span>
+          <span className="text-xs font-normal text-muted-foreground">
+            Promedio: {formatMoney(data.totals.average, bootstrap)}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+            Sin ventas ni egresos en este período.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={data.data} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="grIng" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grEgr" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(var(--destructive))" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="hsl(var(--destructive))" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis
+                dataKey="bucket"
+                tickFormatter={(v: string) => formatBucketLabel(v, data.isDay)}
+                fontSize={10}
+                stroke="hsl(var(--muted-foreground))"
+              />
+              <YAxis
+                fontSize={10}
+                stroke="hsl(var(--muted-foreground))"
+                tickFormatter={(v: number) => compactNumber(v)}
+              />
+              <Tooltip content={<ChartTooltip bootstrap={bootstrap} isDay={data.isDay} />} />
+              <Legend
+                wrapperStyle={{ fontSize: 11 }}
+                iconType="circle"
+                formatter={(value: string) => <span className="text-muted-foreground">{value}</span>}
+              />
+              <Area
+                type="monotone"
+                dataKey="ingresos"
+                name="Ingresos"
+                stroke="hsl(var(--primary))"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#grIng)"
+              />
+              <Area
+                type="monotone"
+                dataKey="egresos"
+                name="Egresos"
+                stroke="hsl(var(--destructive))"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#grEgr)"
+              />
+              <Line
+                type="monotone"
+                dataKey="margen"
+                name="Margen"
+                stroke="hsl(var(--chart-1, var(--foreground)))"
+                strokeWidth={2}
+                dot={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  bootstrap,
+  isDay,
+}: {
+  active?: boolean
+  payload?: Array<{ name?: string; value?: number; color?: string }>
+  label?: string
+  bootstrap?: ReturnType<typeof useBootstrap>["data"]
+  isDay?: boolean
+}) {
+  if (!active || !payload || payload.length === 0) return null
+  return (
+    <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow">
+      <div className="mb-1 font-medium">{label ? formatBucketLabel(label, !!isDay) : ""}</div>
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-2 tabular-nums">
+          <span className="size-2 rounded-full" style={{ backgroundColor: p.color }} />
+          <span className="text-muted-foreground">{p.name}:</span>
+          <span className="font-medium">{formatMoney(p.value ?? 0, bootstrap)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function formatBucketLabel(b: string, isDay: boolean): string {
+  if (isDay) {
+    return String(b).padStart(2, "0") + "h"
+  }
+  // 'YYYY-MM-DD' → 'DD/MM'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(b)) {
+    return b.slice(8) + "/" + b.slice(5, 7)
+  }
+  return b
+}
+
+function compactNumber(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}k`
+  return String(Math.round(v))
 }
 
 // ── Órdenes + Satisfacción ─────────────────────────────────────────────────

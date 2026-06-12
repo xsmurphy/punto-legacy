@@ -98,3 +98,46 @@ export interface OrdersWidget {
   ordersCount: number
   onlineCount: number
 }
+
+// ── Income chart (BFF) ────────────────────────────────────────────────────
+// Llama al route handler de panel-next (/api/dashboard/income-chart) que
+// hace el reshape del raw /v1/reports/sales?dataset=series. Arquitectura:
+// API = raw data, BFF = shape, front = render.
+
+export interface IncomeChartPoint {
+  bucket: string
+  ingresos: number
+  egresos: number
+  margen: number
+}
+
+export interface IncomeChartData {
+  isDay: boolean
+  data: IncomeChartPoint[]
+  totals: {
+    ingresos: number
+    egresos: number
+    margen: number
+    average: number
+  }
+}
+
+import { useQuery as useQ } from "@tanstack/react-query"
+
+export function useIncomeChart(opts: { from: string; to: string }) {
+  return useQ<IncomeChartData>({
+    queryKey: ["bff", "income-chart", opts.from, opts.to],
+    queryFn: async () => {
+      const params = new URLSearchParams({ from: opts.from, to: opts.to })
+      const res = await fetch(`/api/dashboard/income-chart?${params.toString()}`, {
+        credentials: "include",
+      })
+      if (!res.ok) throw new Error(`BFF ${res.status}`)
+      const env = (await res.json()) as { ok?: boolean; data?: IncomeChartData }
+      if (!env.ok || !env.data) throw new Error("BFF response inválido")
+      return env.data
+    },
+    staleTime: 60 * 1000,
+    retry: false,
+  })
+}
