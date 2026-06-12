@@ -50,6 +50,9 @@ export function CanvasBlock({
 }: Props) {
   const ticket = isReceipt(paperSize)
   const grid = Math.max(1, mm) // 1mm snap
+  const [isDragging, setIsDragging] = React.useState(false)
+  const [isResizing, setIsResizing] = React.useState(false)
+  const moving = isDragging || isResizing
   const enableResize = ticket
     ? { bottom: true, top: false, left: false, right: false, topRight: false, bottomRight: false, bottomLeft: false, topLeft: false }
     : { bottomRight: true, bottom: true, right: true, top: false, left: false, topRight: false, bottomLeft: false, topLeft: false }
@@ -65,6 +68,7 @@ export function CanvasBlock({
       // Excluye la toolbar flotante del área draggable — sin esto, el delete y
       // demás botones nunca disparan click porque react-rnd captura el mousedown.
       cancel=".block-toolbar"
+      onDragStart={() => setIsDragging(true)}
       onDrag={(_, d) =>
         onDragGuides?.({
           top: d.y,
@@ -74,9 +78,11 @@ export function CanvasBlock({
         })
       }
       onDragStop={(_, d) => {
+        setIsDragging(false)
         onChange({ left: Math.round(d.x), top: Math.round(d.y) })
         onDragGuides?.(null)
       }}
+      onResizeStart={() => setIsResizing(true)}
       onResize={(_e, _dir, ref, _delta, pos) =>
         onDragGuides?.({
           top: pos.y,
@@ -86,6 +92,7 @@ export function CanvasBlock({
         })
       }
       onResizeStop={(_e, _dir, ref, _delta, pos) => {
+        setIsResizing(false)
         onChange({
           width: Math.round(ref.offsetWidth),
           height: Math.round(ref.offsetHeight),
@@ -104,6 +111,9 @@ export function CanvasBlock({
       )}
       style={{
         zIndex: selected ? 50 : 1,
+        // Translúcido durante drag/resize para poder superponer con otros bloques.
+        opacity: moving ? 0.55 : 1,
+        transition: moving ? "none" : "opacity 120ms ease-out",
         textAlign: block.align,
         fontSize: block.size !== "inherit" ? block.size : undefined,
         fontFamily: block.family !== "inherit" ? block.family : undefined,
@@ -115,7 +125,7 @@ export function CanvasBlock({
     >
       <BlockContent block={block} />
 
-      {selected && (
+      {selected && !moving && (
         <BlockToolbar
           block={block}
           onChange={onChange}

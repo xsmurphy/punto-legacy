@@ -3,7 +3,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
-import { Loader2, Save, ChevronLeft } from "lucide-react"
+import { Loader2, Save, ChevronLeft, ChevronDown, Eye } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,9 +14,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { PaletteSidebar } from "@/components/print-templates/palette-sidebar"
 import { BlockInspector } from "@/components/print-templates/block-inspector"
 import { CanvasBlock } from "@/components/print-templates/canvas-block"
+import { PreviewDialog } from "@/components/print-templates/preview-dialog"
 import {
   useCreateDocumentTemplate,
   useUpdateDocumentTemplate,
@@ -82,6 +89,7 @@ export function TemplateEditor({ existing }: Props) {
   )
   const [config, setConfig] = React.useState<PrintTemplateConfig>(initialConfig)
   const [selectedIdx, setSelectedIdx] = React.useState<number | null>(null)
+  const [previewOpen, setPreviewOpen] = React.useState(false)
 
   // Guides al arrastrar/redimensionar — top/mid/bottom + left/midX/right del bloque
   // siendo movido, atravesando todo el canvas para alinearlo visualmente con otros.
@@ -228,13 +236,42 @@ export function TemplateEditor({ existing }: Props) {
           </SelectContent>
         </Select>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button onClick={handleSave} disabled={saving}>
+        <div className="ml-auto flex items-center">
+          {/* Split button: izq → guardar; der (chevron) → dropdown con Vista Previa. */}
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-r-none"
+          >
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
             Guardar
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                disabled={saving}
+                className="rounded-l-none border-l border-primary-foreground/20 px-2"
+                aria-label="Más opciones"
+              >
+                <ChevronDown className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setPreviewOpen(true)}>
+                <Eye className="size-4" />
+                Vista previa
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
+
+      <PreviewDialog
+        open={previewOpen}
+        config={config}
+        mm={mm}
+        onClose={() => setPreviewOpen(false)}
+      />
 
       {/* Body 3 columnas */}
       <div className="flex flex-1 overflow-hidden">
