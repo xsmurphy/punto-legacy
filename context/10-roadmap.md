@@ -357,6 +357,52 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 
 # Prioridad ALTA (próximas 4-8 semanas)
 
+## panel-next — Selector de sucursal en menú del usuario (NUEVO 2026-06-12)
+
+**Feature ausente del panel-next que SÍ existe en legacy.** En el menú dropdown del usuario (sidebar bottom) el panel legacy permite, cuando la cuenta tiene ≥2 sucursales:
+
+1. Mostrar el **nombre de la sucursal activa** debajo del nombre de la empresa
+2. **Cambiar la sucursal seleccionada** (o elegir "Todas las sucursales")
+3. Esa selección **scopea** lo que el usuario ve en el resto del panel
+
+### Reglas de scope por recurso
+
+| Recurso | Comportamiento con sucursal seleccionada | Con "Todas" |
+|---|---|---|
+| **Stock / inventario** | Solo de esa sucursal | Consolidado de todas |
+| **Reportes** (ventas, dashboard, etc.) | Solo de esa sucursal | Consolidado |
+| **Cajas / drawers** | Solo de esa sucursal | Todas |
+| **Contactos** | TODOS (no filtra — son del tenant, no del outlet) | Igual |
+| **Items / catálogo** | TODOS (compartidos del tenant) | Igual |
+| **Settings (taxonomies / empresa)** | TODOS | Igual |
+
+### Implementación pendiente
+
+1. **Bootstrap / contexto** — `useBootstrap()` ya trae `outletId` activo. Agregar `outlets[]` (lista para el selector) si no está. Verificar que el JWT ya carga `oid` (claim activo del JWT panel) y si no, exponer endpoint para cambiarlo.
+2. **Backend** — chequear que cada endpoint que filtra por outlet:
+   - `/v1/reports/*` — filtre por el `outletId` del contexto (debería ya).
+   - `/v1/items?resource=inventory` — idem.
+   - Para "Todas": pasar `outletId=null` o flag `?all=1` y SERVICE consolida (`SUM` cross-outlet).
+3. **Frontend** — `app-sidebar.tsx` (`SidebarFooter` → dropdown user menu) agregar:
+   - Subtitle del trigger = `bootstrap.activeOutletName` (en vez del actual vacío)
+   - Item del dropdown "Sucursal actual: …" con sub-menu para cambiar
+   - Mutation `useSetActiveOutlet(outletId|null)` → POST endpoint que re-emite JWT con nuevo `oid` claim + invalida queries cacheadas
+4. **Persistencia** — el outlet activo viaja en el JWT (no en cookie aparte) — al cambiar, re-emitir el JWT panel (mismo handoff que existe ya).
+
+### Por qué es importante
+
+- **UX inconsistente** vs legacy — usuario que ya está acostumbrado a cambiar sucursal del legacy se confunde si en panel-next no aparece.
+- **Multi-outlet es caso común** — la mayoría de tenants medianos tiene 2-4 sucursales y necesita cambiar de scope diariamente (ej. el dueño revisa los 4 dashboards de la mañana).
+- **Bloquea adopción del panel-next** para tenants multi-outlet — sin esto no pueden migrar.
+
+### Notas técnicas
+
+- El `outletId` del JWT panel ya existe (`F0` del desacople 2026-06-10) pero falta UI para cambiarlo.
+- `apiAuthTenant` ya devuelve `outletId` en el contexto — los services consumen vía `$ctx['outletId']`.
+- "Todas las sucursales" probablemente requiere `outletId = null` en el JWT y que cada service haga `WHERE outletId = ? OR ? IS NULL` o branch sin filtro.
+
+---
+
 ## ✅ Migración endpoints legacy MySQL → PostgreSQL — COMPLETO (commit 5e48ba7)
 
 ~~Problema~~: 19 archivos PHP usaban conexión MySQL hardcoded a BDs muertas.
