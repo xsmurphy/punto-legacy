@@ -15,15 +15,17 @@
 
 ALTER TABLE item ADD COLUMN IF NOT EXISTS itemKind VARCHAR(30);
 
+-- itemProduction / itemCanSale / itemTrackInventory son BOOLEAN — PG no
+-- permite comparar bool con int (`> 0`). Usar IS TRUE / IS FALSE.
 UPDATE item SET itemKind = CASE
-  WHEN itemType = 'discount'                              THEN 'descuento'
-  WHEN itemType = 'giftcard'                              THEN 'giftcard'
-  WHEN itemType = 'combo'                                 THEN 'combo_fijo'
-  WHEN itemType = 'production' OR itemProduction > 0      THEN 'produccion_previa'
-  WHEN itemCanSale = 0 AND itemTrackInventory > 0         THEN 'insumo_stock'
-  WHEN itemCanSale = 0 AND itemTrackInventory = 0         THEN 'insumo_sin_stock'
-  WHEN itemCanSale > 0 AND itemTrackInventory > 0         THEN 'producto'
-  WHEN itemCanSale > 0 AND itemTrackInventory = 0         THEN 'servicio'
+  WHEN itemType = 'discount'                                THEN 'descuento'
+  WHEN itemType = 'giftcard'                                THEN 'giftcard'
+  WHEN itemType = 'combo'                                   THEN 'combo_fijo'
+  WHEN itemType = 'production' OR itemProduction IS TRUE    THEN 'produccion_previa'
+  WHEN itemCanSale IS FALSE AND itemTrackInventory IS TRUE  THEN 'insumo_stock'
+  WHEN itemCanSale IS FALSE AND itemTrackInventory IS FALSE THEN 'insumo_sin_stock'
+  WHEN itemCanSale IS TRUE  AND itemTrackInventory IS TRUE  THEN 'producto'
+  WHEN itemCanSale IS TRUE  AND itemTrackInventory IS FALSE THEN 'servicio'
   ELSE 'producto'
 END
 WHERE itemKind IS NULL;
