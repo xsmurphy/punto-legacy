@@ -16,10 +16,13 @@ import {
   User,
   ChefHat,
   Calendar,
+  Check,
   Coins,
   Images,
 } from "lucide-react"
 import { toast } from "sonner"
+
+import { cn } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -81,6 +84,8 @@ import {
   KIND_META,
   DAYS,
   DAY_LABELS,
+  DEFAULT_GIFTCARD_COLOR,
+  GIFTCARD_COLORS,
   defaultAvailability,
   type DayOfWeek,
   type ItemFormValues,
@@ -144,6 +149,7 @@ const itemSchema = z.object({
   validFrom: z.string().nullable(),
   validUntil: z.string().nullable(),
   minDaysBetweenSessions: z.number().int().nonnegative().nullable(),
+  giftcardColor: z.string(),
 })
 
 type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
@@ -217,6 +223,8 @@ export default function ItemEditPage() {
         typeof data.minDaysBetweenSessions === "number"
           ? data.minDaysBetweenSessions
           : null,
+      giftcardColor:
+        toStr(data.itemGiftcardColor) || DEFAULT_GIFTCARD_COLOR,
     })
   }, [data, form, isNew])
 
@@ -396,6 +404,7 @@ export default function ItemEditPage() {
 function PerfilTab({
   form,
   visibility,
+  kind,
   itemId,
   images,
   isNew,
@@ -520,6 +529,61 @@ function PerfilTab({
               </FormItem>
             )}
           />
+
+          {/* Color de gift card: solo cuando kind === 'giftcard'. La tarjeta
+              en el POS usa este color como background. Port del legacy
+              a_items.php:608-628 (paleta de 20 colores). */}
+          {kind === "giftcard" && (
+            <FormField
+              control={form.control}
+              name="giftcardColor"
+              render={({ field }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Color de la gift card
+                  </FormLabel>
+                  <FormControl>
+                    <div className="flex flex-col gap-3">
+                      <div className="grid grid-cols-10 gap-1.5">
+                        {GIFTCARD_COLORS.map((c) => {
+                          const active = field.value?.toLowerCase() === c.toLowerCase()
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => field.onChange(c)}
+                              aria-label={`Color #${c}`}
+                              aria-pressed={active}
+                              className={cn(
+                                "relative aspect-square rounded-full border-2 transition",
+                                active
+                                  ? "border-foreground ring-2 ring-primary/40"
+                                  : "border-transparent hover:scale-110",
+                              )}
+                              style={{ backgroundColor: `#${c}` }}
+                            >
+                              {active && (
+                                <span className="absolute inset-0 flex items-center justify-center">
+                                  <Check className="size-3 text-foreground drop-shadow" />
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div
+                        className="flex h-16 items-center justify-center gap-2 rounded-md text-sm font-medium text-white shadow-inner"
+                        style={{ backgroundColor: `#${field.value || DEFAULT_GIFTCARD_COLOR}` }}
+                      >
+                        <span className="opacity-90">Vista previa de la gift card</span>
+                      </div>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
 
           <FormField
             control={form.control}
@@ -1449,6 +1513,7 @@ function emptyValues(): ItemFormValues {
     validFrom: null,
     validUntil: null,
     minDaysBetweenSessions: null,
+    giftcardColor: DEFAULT_GIFTCARD_COLOR,
   }
 }
 

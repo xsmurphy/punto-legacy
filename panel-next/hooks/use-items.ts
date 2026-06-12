@@ -279,6 +279,8 @@ function serialize(
     itemValidFrom: values.validFrom ?? null,
     itemValidUntil: values.validUntil ?? null,
     itemMinDaysBetweenSessions: values.minDaysBetweenSessions ?? null,
+    // Solo aplica a giftcard — para los otros kinds queda en JSONB sin uso.
+    itemGiftcardColor: values.kind === "giftcard" ? values.giftcardColor : null,
   }
 }
 

@@ -98,6 +98,16 @@ export interface ItemFull extends ItemListItem {
   [key: string]: unknown
 }
 
+// 20 colores de paleta para gift cards. Hex sin '#'. Port FIEL del legacy
+// panel/a_items.php:609-628. Default 'E0E0E0' (gris claro).
+export const GIFTCARD_COLORS = [
+  "e57373", "F06292", "BA68C8", "9575CD", "7986CB",
+  "64B5F6", "4FC3F7", "4DD0E1", "4DB6AC", "81C784",
+  "AED581", "DCE775", "FFF176", "FFD54F", "FFB74D",
+  "FF8A65", "A1887F", "E0E0E0", "90A4AE", "ef5350",
+] as const
+export const DEFAULT_GIFTCARD_COLOR = "E0E0E0"
+
 export interface ItemFormValues {
   kind: ItemKind
   name: string
@@ -135,6 +145,9 @@ export interface ItemFormValues {
 
   /** Para servicio_sesiones — días mínimos entre sesiones. Null = sin restricción. */
   minDaysBetweenSessions: number | null
+
+  /** Para giftcard — color hex sin '#' del fondo de la tarjeta. */
+  giftcardColor: string
 }
 
 export interface ItemAvailability {
