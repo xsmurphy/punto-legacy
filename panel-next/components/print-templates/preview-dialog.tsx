@@ -31,6 +31,9 @@ interface Props {
  * texto del usuario; `hor_line`/`ver_line` y `company_logo` se renderizan
  * visualmente.
  *
+ * El papel se auto-escala con CSS transform para entrar completo en el
+ * viewport del modal (fit-to-screen), respetando aspect ratio.
+ *
  * No reemplaza al motor de impresión real del POS — es solo para diseño.
  */
 export function PreviewDialog({ open, config, mm, onClose }: Props) {
@@ -44,7 +47,10 @@ export function PreviewDialog({ open, config, mm, onClose }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-[min(95vw,900px)] max-h-[95vh] overflow-hidden p-0">
+      <DialogContent
+        showCloseButton
+        className="w-[95vw] h-[95vh] max-w-none sm:max-w-none p-0 gap-0 overflow-hidden flex flex-col"
+      >
         <DialogHeader className="flex-row items-center justify-between border-b px-4 py-3 pr-12">
           <div>
             <DialogTitle>Vista previa</DialogTitle>
@@ -58,24 +64,82 @@ export function PreviewDialog({ open, config, mm, onClose }: Props) {
           </Button>
         </DialogHeader>
 
-        <div className="overflow-auto bg-muted/40 p-6 max-h-[80vh]">
-          <div
-            className="relative mx-auto border border-dashed border-muted-foreground/30 bg-white shadow-sm print:border-0 print:shadow-none"
-            style={{
-              width: `${widthPx}px`,
-              height: `${heightPx}px`,
-              fontFamily: config.page_font_family,
-              fontSize: config.page_font_size,
-              textTransform: config.page_font_case,
-            }}
-          >
-            {config.data.map((b, i) => (
-              <PreviewBlock key={i} block={b} />
-            ))}
-          </div>
-        </div>
+        <ScaledPaper widthPx={widthPx} heightPx={heightPx} config={config} />
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Auto-fit del papel: mide el contenedor disponible y aplica transform
+ * scale para que el papel entre completo (sin cortar arriba/abajo ni
+ * izquierda/derecha), preservando aspect ratio. Si el papel es más chico
+ * que el contenedor (ticket en pantalla grande), no upscalea — capeada en 1.
+ */
+function ScaledPaper({
+  widthPx,
+  heightPx,
+  config,
+}: {
+  widthPx: number
+  heightPx: number
+  config: PrintTemplateConfig
+}) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [scale, setScale] = React.useState(1)
+
+  React.useLayoutEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const compute = () => {
+      const padding = 48 // 24px arriba/abajo/izq/der
+      const aw = el.clientWidth - padding
+      const ah = el.clientHeight - padding
+      if (aw <= 0 || ah <= 0) return
+      const sx = aw / widthPx
+      const sy = ah / heightPx
+      const next = Math.min(1, sx, sy)
+      setScale((prev) => (Math.abs(prev - next) > 0.005 ? next : prev))
+    }
+    compute()
+    const obs = new ResizeObserver(compute)
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [widthPx, heightPx])
+
+  // Wrapper con dimensiones VISUALES (escaladas) para que el flex padre
+  // centre/scrollee según el tamaño aparente del papel — `transform: scale`
+  // no afecta layout, por eso el papel adentro va `position: absolute` con
+  // origen top-left y el wrapper exterior reserva su tamaño escalado.
+  return (
+    <div
+      ref={containerRef}
+      className="flex flex-1 items-start justify-center overflow-auto bg-muted/40 p-6"
+    >
+      {/* Wrapper con dimensiones VISUALES (escaladas) — `transform: scale` no
+          afecta layout, así que el padre flex centra usando este wrapper. */}
+      <div
+        className="relative shrink-0"
+        style={{ width: `${widthPx * scale}px`, height: `${heightPx * scale}px` }}
+      >
+        <div
+          className="absolute left-0 top-0 border border-dashed border-muted-foreground/30 bg-white shadow-sm print:border-0 print:shadow-none"
+          style={{
+            width: `${widthPx}px`,
+            height: `${heightPx}px`,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+            fontFamily: config.page_font_family,
+            fontSize: config.page_font_size,
+            textTransform: config.page_font_case,
+          }}
+        >
+          {config.data.map((b, i) => (
+            <PreviewBlock key={i} block={b} />
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 
