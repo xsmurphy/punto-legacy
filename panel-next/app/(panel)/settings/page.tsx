@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check, Palette } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -40,6 +40,7 @@ import {
   type SettingsCurrency,
 } from "@/hooks/use-settings"
 import { COMPANY_CATEGORIES } from "@/lib/company-categories"
+import { ThemePicker } from "@/components/theme-picker"
 import type { SettingsFormValues } from "@/lib/types/settings"
 
 const settingsSchema = z.object({
@@ -166,7 +167,7 @@ export default function SettingsPage() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-        <header className="flex items-end justify-between gap-4">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <h1 className="text-2xl font-semibold">Ajustes de la empresa</h1>
             <p className="text-sm text-muted-foreground">
@@ -180,28 +181,34 @@ export default function SettingsPage() {
         </header>
 
         <Tabs defaultValue="empresa" className="w-full">
-          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
-            <TabsTrigger value="empresa" className="gap-1.5">
-              <Building2 className="size-3.5" />
-              Empresa
-            </TabsTrigger>
-            <TabsTrigger value="locale" className="gap-1.5">
-              <Globe className="size-3.5" />
-              Localización
-            </TabsTrigger>
-            <TabsTrigger value="pos" className="gap-1.5">
-              <ScanLine className="size-3.5" />
-              POS
-            </TabsTrigger>
-            <TabsTrigger value="monedas" className="gap-1.5">
-              <Coins className="size-3.5" />
-              Monedas
-            </TabsTrigger>
-            <TabsTrigger value="social" className="gap-1.5">
-              <Share2 className="size-3.5" />
-              Redes
-            </TabsTrigger>
-          </TabsList>
+          <div className="-mx-2 overflow-x-auto px-2">
+            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
+              <TabsTrigger value="empresa" className="gap-1.5">
+                <Building2 className="size-3.5" />
+                Empresa
+              </TabsTrigger>
+              <TabsTrigger value="locale" className="gap-1.5">
+                <Globe className="size-3.5" />
+                Localización
+              </TabsTrigger>
+              <TabsTrigger value="pos" className="gap-1.5">
+                <ScanLine className="size-3.5" />
+                POS
+              </TabsTrigger>
+              <TabsTrigger value="monedas" className="gap-1.5">
+                <Coins className="size-3.5" />
+                Monedas
+              </TabsTrigger>
+              <TabsTrigger value="apariencia" className="gap-1.5">
+                <Palette className="size-3.5" />
+                Apariencia
+              </TabsTrigger>
+              <TabsTrigger value="social" className="gap-1.5">
+                <Share2 className="size-3.5" />
+                Redes
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="empresa" className="mt-6">
             {isLoading ? <TabSkeleton /> : <EmpresaTab form={form} />}
@@ -214,6 +221,9 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value="monedas" className="mt-6">
             <MonedasTab />
+          </TabsContent>
+          <TabsContent value="apariencia" className="mt-6">
+            <AparienciaTab />
           </TabsContent>
           <TabsContent value="social" className="mt-6">
             {isLoading ? <TabSkeleton /> : <SocialTab form={form} />}
@@ -938,6 +948,30 @@ function Section({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">{children}</CardContent>
     </Card>
+  )
+}
+
+// ── APARIENCIA ──────────────────────────────────────────────────────────────
+
+function AparienciaTab() {
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Tema</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            La preferencia se guarda en este dispositivo. Atajo: presioná{" "}
+            <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+              D
+            </kbd>{" "}
+            en cualquier pantalla para alternar entre claro y oscuro.
+          </p>
+          <ThemePicker />
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 

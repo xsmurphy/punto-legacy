@@ -267,7 +267,7 @@ export default function ItemEditPage() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-        <header className="flex items-end justify-between gap-4">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <BackLink />
             <h1 className="text-2xl font-semibold">
@@ -317,36 +317,40 @@ export default function ItemEditPage() {
         </header>
 
         <Tabs defaultValue="perfil" className="w-full">
-          <TabsList className="grid w-full grid-cols-7 max-w-4xl">
-            <TabsTrigger value="perfil" className="gap-1.5">
-              <User className="size-3.5" />
-              Perfil
-            </TabsTrigger>
-            <TabsTrigger value="imagenes" className="gap-1.5" disabled={isNew}>
-              <Images className="size-3.5" />
-              Imágenes
-            </TabsTrigger>
-            <TabsTrigger value="config" className="gap-1.5">
-              <SettingsIcon className="size-3.5" />
-              Configuración
-            </TabsTrigger>
-            <TabsTrigger value="disponibilidad" className="gap-1.5">
-              <Calendar className="size-3.5" />
-              Disponibilidad
-            </TabsTrigger>
-            <TabsTrigger value="cotizaciones" className="gap-1.5">
-              <Coins className="size-3.5" />
-              Cotizaciones
-            </TabsTrigger>
-            <TabsTrigger value="stock" className="gap-1.5" disabled={isNew}>
-              <Boxes className="size-3.5" />
-              Stock
-            </TabsTrigger>
-            <TabsTrigger value="produccion" className="gap-1.5" disabled={isNew}>
-              <ChefHat className="size-3.5" />
-              Producción
-            </TabsTrigger>
-          </TabsList>
+          {/* Horizontal scroll en mobile — con 7 tabs, grid-cols-7 dejaría
+              cada tab en ~45px y el texto se cortaba. */}
+          <div className="-mx-2 overflow-x-auto px-2">
+            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
+              <TabsTrigger value="perfil" className="gap-1.5">
+                <User className="size-3.5" />
+                Perfil
+              </TabsTrigger>
+              <TabsTrigger value="imagenes" className="gap-1.5" disabled={isNew}>
+                <Images className="size-3.5" />
+                Imágenes
+              </TabsTrigger>
+              <TabsTrigger value="config" className="gap-1.5">
+                <SettingsIcon className="size-3.5" />
+                Configuración
+              </TabsTrigger>
+              <TabsTrigger value="disponibilidad" className="gap-1.5">
+                <Calendar className="size-3.5" />
+                Disponibilidad
+              </TabsTrigger>
+              <TabsTrigger value="cotizaciones" className="gap-1.5">
+                <Coins className="size-3.5" />
+                Cotizaciones
+              </TabsTrigger>
+              <TabsTrigger value="stock" className="gap-1.5" disabled={isNew}>
+                <Boxes className="size-3.5" />
+                Stock
+              </TabsTrigger>
+              <TabsTrigger value="produccion" className="gap-1.5" disabled={isNew}>
+                <ChefHat className="size-3.5" />
+                Producción
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="perfil" className="mt-6">
             <PerfilTab

@@ -155,7 +155,7 @@ export default function OutletEditPage() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-        <header className="flex items-end justify-between gap-4">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <BackLink />
             <div className="flex items-center gap-2">
