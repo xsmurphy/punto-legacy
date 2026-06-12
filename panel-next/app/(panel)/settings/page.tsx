@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check, Palette, FileText } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check, Palette, FileText, Tag } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -204,6 +205,10 @@ export default function SettingsPage() {
                 <FileText className="size-3.5" />
                 Documentos
               </TabsTrigger>
+              <TabsTrigger value="catalog" className="gap-1.5">
+                <Tag className="size-3.5" />
+                Catálogo
+              </TabsTrigger>
               <TabsTrigger value="apariencia" className="gap-1.5">
                 <Palette className="size-3.5" />
                 Apariencia
@@ -229,6 +234,9 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value="documentos" className="mt-6">
             <DocumentsTab />
+          </TabsContent>
+          <TabsContent value="catalog" className="mt-6">
+            <CatalogTab />
           </TabsContent>
           <TabsContent value="apariencia" className="mt-6">
             <AparienciaTab />
@@ -960,6 +968,48 @@ function Section({
 }
 
 // ── APARIENCIA ──────────────────────────────────────────────────────────────
+
+function CatalogTab() {
+  const links = [
+    {
+      title: "Categorías",
+      description: "Categorías para organizar productos.",
+      Icon: Tag,
+      href: "/settings/catalog",
+    },
+    {
+      title: "Marcas",
+      description: "Marcas / fabricantes de los productos.",
+      Icon: Building2,
+      href: "/settings/catalog",
+    },
+    {
+      title: "Impuestos",
+      description: "Tasas de IVA y otros impuestos para facturación.",
+      Icon: FileText,
+      href: "/settings/catalog",
+    },
+  ]
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {links.map((l) => (
+          <Link
+            key={l.title}
+            href={l.href}
+            className="group flex flex-col gap-2 rounded-lg border bg-card p-4 transition hover:border-foreground/30"
+          >
+            <l.Icon className="size-5 text-muted-foreground transition group-hover:text-foreground" />
+            <div>
+              <h3 className="font-medium">{l.title}</h3>
+              <p className="text-xs text-muted-foreground">{l.description}</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function AparienciaTab() {
   return (
