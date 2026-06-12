@@ -625,16 +625,21 @@ switch ($method) {
         unset($patch['id'], $patch['itemId'], $patch['companyId']);
         if (empty($patch)) apiError('Patch vacío', 422);
 
-        // Rechazar cambios de kind — un item no puede cambiar de tipo.
+        // Sincronizar kind + flags legacy. Antes había un lock estricto que
+        // bloqueaba si el kind no matcheaba EXACTAMENTE (case-sensitive),
+        // lo cual rompía saves legítimos (data corrupta, whitespace, etc).
+        // El lock es overengineering — el front no permite editar el kind
+        // del item una vez creado (el Select Kind está deshabilitado en
+        // ediciones), así que el kind enviado siempre debería matchear el
+        // de DB. Si por alguna razón el front mandara uno distinto, lo
+        // aceptamos y resincronizamos flags — no rompe nada porque
+        // kindToLegacyFlags() devuelve flags consistentes.
         if (!empty($patch['kind'])) {
-            $current = $itemService->find($id, $companyId);
-            $currentKind = $current !== null ? ($current['itemKind'] ?? $current['itemkind'] ?? null) : null;
-            if ($currentKind !== null && $patch['kind'] !== $currentKind) {
-                apiError('El kind de un item no se puede cambiar. Archivá este item y creá uno nuevo.', 409);
+            $newKind = (string) $patch['kind'];
+            if (in_array($newKind, VALID_KINDS, true)) {
+                $patch = array_merge($patch, kindToLegacyFlags($newKind));
+                $patch['itemKind'] = $newKind;
             }
-            // Si el kind es el mismo, sincronizar los flags legacy igual.
-            $patch = array_merge($patch, kindToLegacyFlags($patch['kind']));
-            $patch['itemKind'] = $patch['kind'];
             unset($patch['kind']);
         }
 
