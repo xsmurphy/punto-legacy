@@ -133,6 +133,30 @@ export function useItem(id: string | undefined) {
   })
 }
 
+/**
+ * Sync del m2m item_category. Reemplaza COMPLETAMENTE las categorías del
+ * item con las pasadas (backend hace DELETE + INSERT). El backend mantiene
+ * `item.categoryId` (legacy 1:1) en sync con la categoría marcada como
+ * isPrimary — los reportes viejos siguen funcionando.
+ */
+export function useUpdateItemCategories() {
+  const qc = useQueryClient()
+  return useMutation<
+    { updated: boolean; categories: { id: string; name: string; isPrimary: boolean }[] },
+    Error,
+    { itemId: string; categories: { id: string; isPrimary: boolean }[] }
+  >({
+    mutationFn: ({ itemId, categories }) =>
+      api.put(`/v1/items?id=${itemId}&resource=categories`, {
+        categories,
+      }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
 export function useCreateItem() {
   const qc = useQueryClient()
   return useMutation<ItemFull, Error, ItemFormValues>({

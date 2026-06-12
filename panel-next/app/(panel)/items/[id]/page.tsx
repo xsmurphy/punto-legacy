@@ -76,6 +76,7 @@ import {
   useCurrencies,
   useItem,
   useTaxonomiesByType,
+  useUpdateItemCategories,
   useUpdateItem,
 } from "@/hooks/use-items"
 import { useOutlets } from "@/hooks/use-outlets"
@@ -100,6 +101,7 @@ import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
 import { ComboGroupsEditor } from "@/components/items/combo-groups-editor"
 import { LocationsEditor } from "@/components/items/locations-editor"
+import { CategoriesPicker, type SelectedCategory } from "@/components/items/categories-picker"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -200,6 +202,12 @@ export default function ItemEditPage() {
     if (firstTax) form.setValue("taxId", firstTax.id, { shouldDirty: false })
   }, [isNew, taxes.data, form])
 
+  // Estado local del multi-select de categorías (m2m item_category).
+  // El form de react-hook-form sigue manejando `categoryId` (legacy 1:1) que
+  // se sincroniza con la categoría marcada como isPrimary acá.
+  const [selectedCategories, setSelectedCategories] = React.useState<SelectedCategory[]>([])
+  const updateItemCategories = useUpdateItemCategories()
+
   React.useEffect(() => {
     if (isNew || !data) return
     // El backend a veces devuelve `false` (bool PHP) en campos de texto que
@@ -242,19 +250,58 @@ export default function ItemEditPage() {
       giftcardColor:
         toStr(data.itemGiftcardColor) || DEFAULT_GIFTCARD_COLOR,
     })
+    // Hidratar el multi-select de categorías desde el m2m. Si no hay nada y
+    // el legacy `categoryId` apunta a una, la incluimos como única primary.
+    if (data.categories && data.categories.length > 0) {
+      setSelectedCategories(
+        data.categories.map((c) => ({ id: c.id, isPrimary: c.isPrimary })),
+      )
+    } else if (data.categoryId) {
+      setSelectedCategories([{ id: data.categoryId, isPrimary: true }])
+    } else {
+      setSelectedCategories([])
+    }
   }, [data, form, isNew])
 
   const kind: ItemKind = form.watch("kind") ?? "producto"
   const visibility = (KIND_META[kind] ?? KIND_META["producto"]).fields
 
+  // Mantener el legacy form.categoryId apuntando a la primary del m2m. Sin
+  // esto, el PUT del item escribiría null sobre item.categoryId y los
+  // reports legacy (que leen esa columna) perderían la categoría primaria.
+  const primaryCategoryId = React.useMemo(
+    () => selectedCategories.find((c) => c.isPrimary)?.id ?? selectedCategories[0]?.id ?? "",
+    [selectedCategories],
+  )
+  React.useEffect(() => {
+    if (form.getValues("categoryId") !== primaryCategoryId) {
+      form.setValue("categoryId", primaryCategoryId, { shouldDirty: false })
+    }
+  }, [primaryCategoryId, form])
+
   const onSubmit = async (values: ItemFormValues) => {
     try {
+      let targetId: string
       if (isNew) {
         const created = await create.mutateAsync(values)
-        toast.success("Artículo creado")
-        router.push(`/items/${created.itemId}`)
+        targetId = created.itemId
       } else {
         await update.mutateAsync({ id, values })
+        targetId = id
+      }
+      // Persistir el m2m de categorías. El backend reemplaza por completo
+      // las categorías del item y sincroniza item.categoryId con la primary.
+      // Solo si hay selección — sino el PUT con categories:[] borraría todo.
+      if (selectedCategories.length > 0) {
+        await updateItemCategories.mutateAsync({
+          itemId: targetId,
+          categories: selectedCategories,
+        })
+      }
+      if (isNew) {
+        toast.success("Artículo creado")
+        router.push(`/items/${targetId}`)
+      } else {
         toast.success("Artículo actualizado")
       }
     } catch (e) {
@@ -404,7 +451,13 @@ export default function ItemEditPage() {
             />
           </TabsContent>
           <TabsContent value="config" className="mt-6">
-            <ConfigTab form={form} visibility={visibility} kind={kind} />
+            <ConfigTab
+              form={form}
+              visibility={visibility}
+              kind={kind}
+              selectedCategories={selectedCategories}
+              onCategoriesChange={setSelectedCategories}
+            />
           </TabsContent>
           <TabsContent value="disponibilidad" className="mt-6">
             <DisponibilidadTab form={form} />
@@ -720,10 +773,14 @@ function ConfigTab({
   form,
   visibility,
   kind,
+  selectedCategories,
+  onCategoriesChange,
 }: {
   form: UseFormReturn<ItemFormValues>
   visibility: KindFieldVisibility
   kind: ItemKind
+  selectedCategories: SelectedCategory[]
+  onCategoriesChange: (next: SelectedCategory[]) => void
 }) {
   const { data: categories } = useTaxonomiesByType("category")
   const { data: brands } = useTaxonomiesByType("brand")
@@ -739,30 +796,16 @@ function ConfigTab({
             <CardTitle className="text-sm font-medium">Categorización</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <FormField
-              control={form.control}
-              name="categoryId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Categoría</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sin categoría" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <FormItem>
+              <FormLabel>Categorías</FormLabel>
+              <CategoriesPicker
+                options={categories.map((c) => ({ id: c.id, name: c.name }))}
+                value={selectedCategories}
+                onChange={onCategoriesChange}
+                placeholder="Sin categoría"
+              />
+              <FormMessage />
+            </FormItem>
             <FormField
               control={form.control}
               name="brandId"
