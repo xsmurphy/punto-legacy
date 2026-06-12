@@ -6,6 +6,7 @@ import {
   kindToBackendFields,
   defaultAvailability,
   type ItemAvailability,
+  type ItemCompound,
   type ItemFormValues,
   type ItemFull,
   type ItemImage,
@@ -110,6 +111,62 @@ export function useImportItems() {
 /** URL absoluta para descargar la plantilla CSV. */
 export function importTemplateUrl(): string {
   return api.url("/v1/items?resource=template")
+}
+
+// ── Recetas / Compuestos ───────────────────────────────────────────────────
+
+export function useItemCompounds(itemId: string | undefined) {
+  return useQuery<{ compounds: ItemCompound[] }>({
+    queryKey: ["items", itemId, "compounds"],
+    queryFn: () => api.get(`/v1/items?id=${itemId}&resource=compounds`),
+    enabled: !!itemId,
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAddCompound() {
+  const qc = useQueryClient()
+  return useMutation<
+    { compoundId: string; compounds: ItemCompound[] },
+    Error,
+    { itemId: string; childItemId: string; quantity: number }
+  >({
+    mutationFn: ({ itemId, childItemId, quantity }) =>
+      api.post(`/v1/items?id=${itemId}&resource=compounds`, { childItemId, quantity }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId, "compounds"] })
+    },
+  })
+}
+
+export function useUpdateCompoundQuantity() {
+  const qc = useQueryClient()
+  return useMutation<
+    { compounds: ItemCompound[] },
+    Error,
+    { itemId: string; compoundId: string; quantity: number }
+  >({
+    mutationFn: ({ itemId, compoundId, quantity }) =>
+      api.put(`/v1/items?id=${itemId}&resource=compounds`, { compoundId, quantity }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId, "compounds"] })
+    },
+  })
+}
+
+export function useDeleteCompound() {
+  const qc = useQueryClient()
+  return useMutation<
+    { deleted: boolean; compounds: ItemCompound[] },
+    Error,
+    { itemId: string; compoundId: string }
+  >({
+    mutationFn: ({ itemId, compoundId }) =>
+      api.del(`/v1/items?id=${itemId}&resource=compounds&compoundId=${compoundId}`),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId, "compounds"] })
+    },
+  })
 }
 
 // ── Galería de imágenes ────────────────────────────────────────────────────

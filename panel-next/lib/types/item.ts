@@ -29,6 +29,22 @@ export interface ItemCategory {
   isPrimary: boolean
 }
 
+/** Compound / receta — ingrediente de un item de producción. */
+export interface ItemCompound {
+  compoundId: string
+  parentItemId: string
+  childItemId: string
+  quantity: number
+  sort: number
+  /** Datos del child resueltos via JOIN — listos para mostrar sin lookup extra. */
+  childName: string | null
+  childSKU: string | null
+  childUOM: string | null
+  childCost: number
+  childKind: ItemKind | null
+  lineCost: number
+}
+
 /** Shape del listado — GET /v1/items */
 export interface ItemListItem {
   itemId: string

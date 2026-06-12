@@ -210,6 +210,54 @@ if ($resource === 'import') {
 
 $id = $_GET['id'] ?? null;
 
+// Sub-recurso: recetas / compuestos (ingredientes de items de producción).
+if ($id !== null && $resource === 'compounds') {
+    $compoundSvc = new \Punto\Api\Items\ItemCompoundService($db);
+
+    if ($method === 'GET') {
+        apiOk(['compounds' => $compoundSvc->listForParent($id, $companyId)]);
+    }
+    if ($method === 'POST') {
+        $childItemId = (string) ($_POST['childItemId'] ?? '');
+        $quantity    = (float) ($_POST['quantity'] ?? 0);
+        if ($childItemId === '') apiError('childItemId requerido', 422);
+        try {
+            $newId = $compoundSvc->add($id, $companyId, $childItemId, $quantity);
+            apiOk(['compoundId' => $newId, 'compounds' => $compoundSvc->listForParent($id, $companyId)], 201);
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+    if ($method === 'PUT') {
+        // PUT con compoundId → actualiza cantidad. Sin compoundId → reorder bulk.
+        $compoundId = (string) ($_POST['compoundId'] ?? '');
+        if ($compoundId !== '') {
+            $quantity = (float) ($_POST['quantity'] ?? 0);
+            try {
+                $compoundSvc->updateQuantity($id, $companyId, $compoundId, $quantity);
+                apiOk(['compounds' => $compoundSvc->listForParent($id, $companyId)]);
+            } catch (\Throwable $e) {
+                apiError($e->getMessage(), 422);
+            }
+        }
+        $order = $_POST['order'] ?? [];
+        if (!is_array($order)) apiError('order debe ser array', 422);
+        $compoundSvc->reorder($id, $companyId, $order);
+        apiOk(['compounds' => $compoundSvc->listForParent($id, $companyId)]);
+    }
+    if ($method === 'DELETE') {
+        $compoundId = (string) ($_GET['compoundId'] ?? '');
+        if ($compoundId === '') apiError('compoundId requerido', 422);
+        try {
+            $compoundSvc->delete($id, $companyId, $compoundId);
+            apiOk(['deleted' => true, 'compounds' => $compoundSvc->listForParent($id, $companyId)]);
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+    apiError('Method not allowed for /items/compounds', 405);
+}
+
 // Sub-recurso: galería de imágenes (max 5 por item, persistido en item_image + DO Spaces).
 if ($id !== null && $resource === 'images') {
     $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET);

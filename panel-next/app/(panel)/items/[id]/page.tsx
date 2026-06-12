@@ -95,6 +95,7 @@ import {
 } from "@/lib/types/item"
 import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
+import { CompoundsEditor } from "@/components/items/compounds-editor"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -391,7 +392,7 @@ export default function ItemEditPage() {
             <StockTab id={id} isNew={isNew} />
           </TabsContent>
           <TabsContent value="produccion" className="mt-6">
-            <ProduccionTab form={form} id={id} isNew={isNew} visibility={visibility} />
+            <ProduccionTab form={form} id={id} isNew={isNew} visibility={visibility} kind={kind} />
           </TabsContent>
         </Tabs>
       </form>
@@ -1373,11 +1374,13 @@ function ProduccionTab({
   id,
   isNew,
   visibility,
+  kind,
 }: {
   form: UseFormReturn<ItemFormValues>
   id: string
   isNew: boolean
   visibility: KindFieldVisibility
+  kind: ItemKind
 }) {
   if (isNew) {
     return (
@@ -1410,21 +1413,14 @@ function ProduccionTab({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            Los insumos definen qué materiales se consumen al producir o vender
-            este artículo. El editor de la receta + cálculo de costo total
-            aterriza en panel-next cuando portemos el endpoint de compounds
-            (items hijo con `itemParentId`). Por ahora usá el editor del panel legacy.
+            Materiales que se consumen al{" "}
+            <strong>
+              {kind === "produccion_directa" ? "vender" : "producir un lote de"}
+            </strong>{" "}
+            este artículo. El costo total se suma de cantidad × costo unitario
+            de cada ingrediente.
           </p>
-          <Button asChild variant="outline" size="sm" className="w-fit">
-            <a
-              href={`https://panel-legacy.punto.la/@#items/edit/${id}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <ExternalLink className="size-3.5" />
-              Editar receta en panel legacy
-            </a>
-          </Button>
+          <CompoundsEditor itemId={id} />
         </CardContent>
       </Card>
 
