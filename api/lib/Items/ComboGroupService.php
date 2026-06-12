@@ -162,13 +162,16 @@ final class ComboGroupService
 
     private function listItemsForGroup(string $groupId): array
     {
+        // itemUOM vive en data JSONB (migración 07 lo demoted). NO buscarlo
+        // como columna física — falla con "column i.itemuom does not exist".
         $rs = $this->db->Execute(
-            'SELECT gi.groupItemId, gi.childItemId, gi.extraPrice, gi.isPreselected, gi.sort,
-                    i.itemName, i.itemSKU, i.itemPrice, i.itemUOM, i.itemKind
+            "SELECT gi.groupItemId, gi.childItemId, gi.extraPrice, gi.isPreselected, gi.sort,
+                    i.itemName, i.itemSKU, i.itemPrice, i.itemKind,
+                    i.data->>'itemUOM' AS itemUOM
                FROM combo_group_item gi
           LEFT JOIN item i ON i.itemId = gi.childItemId
               WHERE gi.groupId = ?
-              ORDER BY gi.sort ASC, gi.created_at ASC',
+              ORDER BY gi.sort ASC, gi.created_at ASC",
             [$groupId]
         );
         if ($rs === false) return [];

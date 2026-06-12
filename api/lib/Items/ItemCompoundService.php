@@ -30,8 +30,12 @@ final class ItemCompoundService
     /** Lista de ingredientes de un item, con datos del child resueltos. */
     public function listForParent(string $parentItemId, string $companyId): array
     {
+        // itemUOM vive en el JSONB `data` desde la migración 07 (demoted del
+        // schema físico). Hay que leerlo via `data->>'itemUOM'` — buscarlo
+        // como columna física falla con "column i.itemuom does not exist".
         $sql = "SELECT ic.compoundId, ic.parentItemId, ic.childItemId, ic.quantity, ic.sort,
-                       i.itemName, i.itemSKU, i.itemCost, i.itemUOM, i.itemKind
+                       i.itemName, i.itemSKU, i.itemCost, i.itemKind,
+                       i.data->>'itemUOM' AS itemUOM
                   FROM item_compound ic
              LEFT JOIN item i ON i.itemId = ic.childItemId
                  WHERE ic.parentItemId = ? AND ic.companyId = ?
