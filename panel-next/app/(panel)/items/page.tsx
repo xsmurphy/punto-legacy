@@ -15,6 +15,7 @@ import {
   Loader2,
   FolderMinus,
   Pencil,
+  Barcode,
 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -90,6 +91,7 @@ function ItemsPageInner() {
   // y editar su nombre. Si no estamos en grupo, no hace nada (enabled:false).
   const groupItem = useItem(parentId ?? undefined)
   const [renameDialogOpen, setRenameDialogOpen] = React.useState(false)
+  const [barcodeDialogItems, setBarcodeDialogItems] = React.useState<ItemListItem[] | null>(null)
   const [groupDialogItems, setGroupDialogItems] = React.useState<ItemListItem[] | null>(null)
   const [pendingClearSelection, setPendingClearSelection] = React.useState<(() => void) | null>(null)
   const isViewingGroup = !!parentId
@@ -400,6 +402,21 @@ function ItemsPageInner() {
         </div>
       </header>
 
+      {/* Dialog: generar códigos de barra de la selección */}
+      <BarcodeDialog
+        open={!!barcodeDialogItems}
+        items={barcodeDialogItems ?? []}
+        onClose={() => setBarcodeDialogItems(null)}
+        onConfirm={(qty) => {
+          if (!barcodeDialogItems) return
+          const ids = barcodeDialogItems
+            .map((i) => `${i.itemId}-${qty}`)
+            .join("|")
+          window.open(`/items/barcodes?ids=${encodeURIComponent(ids)}`, "_blank")
+          setBarcodeDialogItems(null)
+        }}
+      />
+
       {/* Dialog: crear grupo a partir de la selección */}
       <CreateGroupDialog
         open={!!groupDialogItems}
@@ -458,6 +475,20 @@ function ItemsPageInner() {
             enableSelection
             bulkActions={(selected, clear) => (
               <>
+                {/* Códigos de barra: para ítems no-grupo */}
+                {selected.filter((i) => !i.itemIsParent).length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={() =>
+                      setBarcodeDialogItems(selected.filter((i) => !i.itemIsParent))
+                    }
+                  >
+                    <Barcode className="size-3.5" />
+                    Códigos
+                  </Button>
+                )}
                 {/* Agrupar solo cuando estamos en top-level (no dentro de un grupo)
                     y hay al menos 2 items NO-grupo seleccionados. */}
                 {!isViewingGroup && selected.filter((i) => !i.itemIsParent).length >= 2 && (
@@ -710,6 +741,79 @@ function RenameGroupDialog({
           >
             {loading && <Loader2 className="size-3.5 animate-spin" />}
             Guardar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function BarcodeDialog({
+  open,
+  items,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean
+  items: ItemListItem[]
+  onClose: () => void
+  onConfirm: (qty: number) => void
+}) {
+  const [qty, setQty] = React.useState("1")
+  React.useEffect(() => {
+    if (open) setQty("1")
+  }, [open])
+
+  const n = parseInt(qty, 10)
+  const isValid = Number.isInteger(n) && n > 0 && n < 1000
+  const total = isValid ? n * items.length : 0
+
+  return (
+    <AlertDialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Generar códigos de barra</AlertDialogTitle>
+          <AlertDialogDescription>
+            Vamos a abrir una página imprimible con los códigos de los{" "}
+            <strong>{items.length}</strong>{" "}
+            {items.length === 1 ? "artículo seleccionado" : "artículos seleccionados"}.
+            Elegí cuántas etiquetas querés por artículo.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-col gap-1.5 py-2">
+          <Label className="text-xs">Etiquetas por artículo</Label>
+          <Input
+            autoFocus
+            type="number"
+            min={1}
+            max={999}
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && isValid) {
+                e.preventDefault()
+                onConfirm(n)
+              }
+            }}
+            className="tabular-nums text-right"
+          />
+          {isValid && (
+            <p className="text-xs text-muted-foreground tabular-nums">
+              Total: {total} etiquetas
+            </p>
+          )}
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault()
+              if (!isValid) return
+              onConfirm(n)
+            }}
+            disabled={!isValid}
+          >
+            Generar
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
