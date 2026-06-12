@@ -136,8 +136,17 @@ final class DocumentTemplateService
 
     private function present(array $row): array
     {
-        $config = $row['config'] ?? null;
-        if (is_string($config)) $config = json_decode($config, true) ?: [];
+        // PG jsonb puede llegar como string (driver pdo_pgsql/pgsql, lo más común),
+        // como stdClass (algunos drivers PHP 8.x con cast automático), o como
+        // array nativo (si algo upstream ya hizo json_decode). Normalizamos todo.
+        $config = $row['config'] ?? $row['Config'] ?? null;
+        if (is_string($config) && $config !== '') {
+            $decoded = json_decode($config, true);
+            $config = is_array($decoded) ? $decoded : [];
+        } elseif (is_object($config)) {
+            $decoded = json_decode(json_encode($config), true);
+            $config = is_array($decoded) ? $decoded : [];
+        }
         return [
             'templateId' => $row['templateid'] ?? $row['templateId'] ?? null,
             'name'       => $row['name'] ?? '',

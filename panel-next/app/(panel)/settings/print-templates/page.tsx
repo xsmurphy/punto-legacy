@@ -34,5 +34,9 @@ function PrintTemplatesInner() {
     )
   }
 
-  return <TemplateEditor existing={data} />
+  // `key` fuerza remount cuando cambia la plantilla — sin esto el TemplateEditor
+  // mantiene state stale del id anterior y muestra la plantilla vacía aunque
+  // `existing` haya cambiado (useState ignora cambios del initial value tras
+  // mount). Cuando es plantilla nueva (sin id), 'new' garantiza un mount fresco.
+  return <TemplateEditor key={data?.templateId ?? "new"} existing={data} />
 }
