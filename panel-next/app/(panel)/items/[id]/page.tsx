@@ -19,6 +19,7 @@ import {
   Check,
   Coins,
   Images,
+  Package2,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -357,8 +358,17 @@ export default function ItemEditPage() {
                 Stock
               </TabsTrigger>
               <TabsTrigger value="produccion" className="gap-1.5" disabled={isNew}>
-                <ChefHat className="size-3.5" />
-                Producción
+                {kind === "combo_fijo" || kind === "combo_dinamico" ? (
+                  <>
+                    <Package2 className="size-3.5" />
+                    Componentes
+                  </>
+                ) : (
+                  <>
+                    <ChefHat className="size-3.5" />
+                    Producción
+                  </>
+                )}
               </TabsTrigger>
             </TabsList>
           </div>
@@ -1396,14 +1406,56 @@ function ProduccionTab({
     return (
       <Card>
         <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Este tipo de artículo no tiene ingredientes ni receta. Si querés agregar
-          compounds, cambialo a tipo &quot;Producción previa&quot; o &quot;Producción
-          directa&quot; en la pestaña Perfil.
+          Este tipo de artículo no tiene ingredientes ni componentes. Si querés
+          agregar una receta o un combo, cambialo a un tipo &quot;Producción&quot;
+          o &quot;Combo&quot; en la pestaña Perfil.
         </CardContent>
       </Card>
     )
   }
 
+  // Combo dinámico todavía no implementado — slice B (grupos + min/max + regla
+  // de precio). Por ahora un placeholder.
+  if (kind === "combo_dinamico") {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 p-8 text-center text-sm text-muted-foreground">
+          <Package2 className="size-8 opacity-30" />
+          <div className="flex flex-col gap-1">
+            <p className="font-medium">Editor de combo dinámico pendiente</p>
+            <p className="text-xs">
+              El combo dinámico (grupos de categorías con mínimo/máximo y regla
+              de precio) llega en la próxima iteración. Por ahora podés cargar
+              los datos básicos y usar el panel legacy para los grupos.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // combo_fijo: usa el mismo CompoundsEditor (table parent → child + quantity)
+  // pero con copy enfocado en la venta del combo, no en producción.
+  if (kind === "combo_fijo") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Componentes del combo</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            Items que se entregan al cliente cuando vende este combo. El{" "}
+            <strong>precio del combo es fijo</strong> (definido en la pestaña
+            Perfil). El costo total se suma del costo de cada componente —
+            sirve para calcular margen del combo vs venderlos por separado.
+          </p>
+          <CompoundsEditor itemId={id} />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // produccion_directa / produccion_previa — receta clásica
   return (
     <div className="flex flex-col gap-6">
       <Card>

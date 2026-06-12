@@ -308,8 +308,8 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     group: "Otros",
     backend: { itemType: "combo", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
     fields: {
-      showPrice: true, showCost: false, showTax: true, showDiscount: true,
-      showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
+      showPrice: true, showCost: true, showTax: true, showDiscount: true,
+      showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: true,
     },
   },
   combo_dinamico: {
