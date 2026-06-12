@@ -49,3 +49,52 @@ export interface IncomeOutcomeStatsWidget {
   count: number // tickets
   customerAverage: number // ticket promedio
 }
+
+export interface PaymentStatusWidget {
+  contado: number
+  credito: number
+  cobrado: number
+  porcobrar: number
+  contadoCount: number
+  creditoCount: number
+  cobradoCount: number
+  porcobrarCount: number
+}
+
+export interface CustomersWidget {
+  total: number       // total de clientes
+  totalPeriod: number // nuevos + recurrentes del período
+  new: number         // nuevos en el período
+  old: number         // recurrentes (volvieron) en el período
+  returnRate: number  // % retorno
+}
+
+export interface CustomersRatesWidget {
+  retention?: number
+  growth?: number
+  churn?: number
+  // shape exacto depende del helper customersRate del backend
+  [key: string]: unknown
+}
+
+export interface TopItemRow {
+  name: string
+  count: number
+  total: number
+}
+
+export interface TopTaxonomyRow {
+  title: string
+  total: number
+}
+
+export interface SatisfactionWidget {
+  detractors: { percent: number; count: number }
+  passives: { percent: number; count: number }
+  promoters: { percent: number; count: number }
+}
+
+export interface OrdersWidget {
+  ordersCount: number
+  onlineCount: number
+}

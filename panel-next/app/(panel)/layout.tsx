@@ -3,17 +3,16 @@
 import { useRouter } from "next/navigation"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
-import { Package, Users, BarChart3, ScanBarcode } from "lucide-react"
+import { Package, Users, BarChart3, ScanBarcode, LayoutDashboard } from "lucide-react"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { ApiError } from "@/lib/api-client"
 import * as React from "react"
 
-// Espejo del menú lateral del panel legacy (`leftMenu()` en
-// panel/includes/functions.php:5623). Sidebar 80px icon-only con 4 items
-// top-level — todo lo demás (Estado de Cuenta, Compras y Gastos, Módulos,
-// Configuración, Cerrar Sesión) vive en el dropdown del avatar al pie.
-// Dashboard no es item del menú: es la home (logo arriba lleva ahí).
+// Menú lateral. Dashboard como item explícito (el usuario reportó que
+// no había forma de volver desde otras secciones — antes asumíamos que el
+// logo era enough, pero la UX no lo deja claro).
 const panelNav: NavEntry[] = [
+  { title: "Dashboard", to: "/", icon: LayoutDashboard },
   { title: "Artículos", to: "/items", icon: Package },
   { title: "Contactos", to: "/contacts", icon: Users },
   { title: "Reportes", to: "/reports", icon: BarChart3 },
