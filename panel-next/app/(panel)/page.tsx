@@ -351,26 +351,28 @@ function IncomeAreaChart({
         ) : (
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={data.data} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+              {/* IMPORTANTE: usamos `var(--token)` directo (no `hsl(var(--token))`)
+                  porque las tokens de color están en oklch — hsl() las descarta. */}
               <defs>
                 <linearGradient id="grIng" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="grEgr" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--destructive))" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="hsl(var(--destructive))" stopOpacity={0} />
+                  <stop offset="0%" stopColor="var(--destructive)" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="var(--destructive)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis
                 dataKey="bucket"
                 tickFormatter={(v: string) => formatBucketLabel(v, data.isDay)}
                 fontSize={10}
-                stroke="hsl(var(--muted-foreground))"
+                stroke="var(--muted-foreground)"
               />
               <YAxis
                 fontSize={10}
-                stroke="hsl(var(--muted-foreground))"
+                stroke="var(--muted-foreground)"
                 tickFormatter={(v: number) => compactNumber(v)}
               />
               <Tooltip content={<ChartTooltip bootstrap={bootstrap} isDay={data.isDay} />} />
@@ -383,7 +385,7 @@ function IncomeAreaChart({
                 type="monotone"
                 dataKey="ingresos"
                 name="Ingresos"
-                stroke="hsl(var(--primary))"
+                stroke="var(--chart-1)"
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#grIng)"
@@ -392,7 +394,7 @@ function IncomeAreaChart({
                 type="monotone"
                 dataKey="egresos"
                 name="Egresos"
-                stroke="hsl(var(--destructive))"
+                stroke="var(--destructive)"
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#grEgr)"
@@ -401,7 +403,7 @@ function IncomeAreaChart({
                 type="monotone"
                 dataKey="margen"
                 name="Margen"
-                stroke="hsl(var(--chart-1, var(--foreground)))"
+                stroke="var(--chart-3)"
                 strokeWidth={2}
                 dot={false}
               />
@@ -638,10 +640,12 @@ function PaymentSplitCard({
   const pieData =
     total > 0
       ? [
-          { name: leftLabel, value: left, color: "var(--color-primary, hsl(var(--primary)))" },
-          { name: rightLabel, value: right, color: "var(--color-muted-foreground, hsl(var(--muted-foreground)))" },
+          // Color principal = verde Punto (chart-1), segundo segment = chart-3
+          // (verde oscuro) — paleta monocromática como en Sleep Report.
+          { name: leftLabel, value: left, color: "var(--chart-1)" },
+          { name: rightLabel, value: right, color: "var(--chart-3)" },
         ]
-      : [{ name: "Sin datos", value: 1, color: "hsl(var(--muted))" }]
+      : [{ name: "Sin datos", value: 1, color: "var(--muted)" }]
 
   return (
     <Card>

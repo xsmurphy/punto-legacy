@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -62,25 +63,30 @@ export function AppCommandPalette({ open, onOpenChange, nav }: Props) {
       title="Buscar"
       description="Buscar por nombre o ir a una sección."
     >
-      <CommandInput placeholder="Buscar sección o acción…" />
-      <CommandList>
-        <CommandEmpty>Sin resultados.</CommandEmpty>
-        <CommandGroup heading="Navegación">
-          {flat.map((it) => {
-            const Icon = it.icon
-            return (
-              <CommandItem
-                key={it.to}
-                value={it.title}
-                onSelect={() => go(it.to)}
-              >
-                {Icon && <Icon className="size-4" />}
-                <span>{it.title}</span>
-              </CommandItem>
-            )
-          })}
-        </CommandGroup>
-      </CommandList>
+      {/* cmdk requiere el <Command> root como contexto para CommandInput/
+          List/Item. El CommandDialog del preset shadcn nuevo NO lo envuelve
+          automáticamente — hay que pasarlo explícito acá. */}
+      <Command>
+        <CommandInput placeholder="Buscar sección o acción…" />
+        <CommandList>
+          <CommandEmpty>Sin resultados.</CommandEmpty>
+          <CommandGroup heading="Navegación">
+            {flat.map((it) => {
+              const Icon = it.icon
+              return (
+                <CommandItem
+                  key={it.to}
+                  value={it.title}
+                  onSelect={() => go(it.to)}
+                >
+                  {Icon && <Icon className="size-4" />}
+                  <span>{it.title}</span>
+                </CommandItem>
+              )
+            })}
+          </CommandGroup>
+        </CommandList>
+      </Command>
     </CommandDialog>
   )
 }
