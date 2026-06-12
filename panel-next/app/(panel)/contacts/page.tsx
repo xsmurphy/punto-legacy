@@ -17,13 +17,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useContacts } from "@/hooks/use-contacts"
+import { useContacts, type ContactType } from "@/hooks/use-contacts"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ContactListItem } from "@/lib/types/contact"
 
 export default function ContactsPage() {
   const router = useRouter()
-  const { data, isLoading, error } = useContacts()
+  const [contactType, setContactType] = React.useState<ContactType>(1)
+  const { data, isLoading, error } = useContacts({ type: contactType })
   const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "archived">("all")
+  const isSupplier = contactType === 2
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.contacts ?? []
@@ -136,16 +139,23 @@ export default function ContactsPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Contactos</h1>
           <p className="text-sm text-muted-foreground">
-            Clientes, proveedores y otros contactos del negocio.
+            Clientes y proveedores del negocio.
           </p>
         </div>
         <Button asChild>
-          <Link href="/contacts/new">
+          <Link href={isSupplier ? "/contacts/new?type=2" : "/contacts/new"}>
             <Plus className="size-4" />
-            Nuevo contacto
+            {isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}
           </Link>
         </Button>
       </header>
+
+      <Tabs value={String(contactType)} onValueChange={(v) => setContactType(Number(v) as ContactType)}>
+        <TabsList>
+          <TabsTrigger value="1">Clientes</TabsTrigger>
+          <TabsTrigger value="2">Proveedores</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
@@ -171,9 +181,10 @@ export default function ContactsPage() {
             emptyMessage={
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
                 <Users className="size-8 opacity-30" />
-                <p>No hay contactos todavía.</p>
+                <p>{isSupplier ? "No hay proveedores todavía." : "No hay clientes todavía."}</p>
                 <p className="text-xs">
-                  Creá el primero con el botón <strong>Nuevo contacto</strong>{" "}
+                  Creá el primero con el botón{" "}
+                  <strong>{isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}</strong>{" "}
                   arriba a la derecha.
                 </p>
               </div>

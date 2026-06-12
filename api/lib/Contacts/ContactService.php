@@ -34,8 +34,10 @@ use RuntimeException;
  */
 final class ContactService
 {
-    /** type=1 en la tabla `contact` cubre cliente/proveedor. */
+    /** Discriminador `type` de la tabla `contact`. Solo cliente y proveedor;
+        el resto de tipos (3+) son legacy y no entran al panel-next por ahora. */
     const TYPE_CUSTOMER = 1;
+    const TYPE_SUPPLIER = 2;
 
     private ContactRepository $repo;
 
@@ -121,7 +123,12 @@ final class ContactService
         }
 
         $rec                  = self::mapToColumns($in);
-        $rec['type']          = self::TYPE_CUSTOMER;
+        // type viene del input (1=cliente, 2=proveedor). Default cliente para
+        // backwards-compat con consumidores que no lo mandan.
+        $inputType            = (int) ($in['type'] ?? self::TYPE_CUSTOMER);
+        $rec['type']          = in_array($inputType, [self::TYPE_CUSTOMER, self::TYPE_SUPPLIER], true)
+            ? $inputType
+            : self::TYPE_CUSTOMER;
         $rec['contactStatus'] = 1; // legacy: nuevo contacto siempre activo
         $rec['companyId']     = $companyId;
         $rec['contactDate']   = TODAY;
@@ -160,23 +167,30 @@ final class ContactService
         return $this->repo->archive($id, $companyId);
     }
 
+    /**
+     * Find por contactId + companyId — sin filtro por type. Útil cuando ya
+     * tenés el id (PK) y no querés discriminar. Para listings filtrados por
+     * cliente/proveedor usar listByType().
+     */
     public function find(string $id, string $companyId): ?CaseInsensitiveArray
     {
-        return $this->repo->find($id, $companyId, self::TYPE_CUSTOMER);
+        return $this->repo->find($id, $companyId);
     }
 
     /**
-     * Lista de clientes con su dirección default resuelta, lista para la API/UI.
+     * Lista contactos del tipo dado con su dirección default resuelta.
+     * `$type` = TYPE_CUSTOMER (1) o TYPE_SUPPLIER (2). Solo se filtra por
+     * type en SQL — la presentación es la misma para ambos.
      *
      * @return array{contacts: array, total: int, limit: int, offset: int}
      */
-    public function listCustomers(string $companyId, array $opts = []): array
+    public function listByType(int $type, string $companyId, array $opts = []): array
     {
         $limit  = max(1, min((int) ($opts['limit'] ?? 50), 1000));
         $offset = max(0, (int) ($opts['offset'] ?? 0));
 
-        $rows  = $this->repo->listByType(self::TYPE_CUSTOMER, $companyId, $opts);
-        $total = $this->repo->countByType(self::TYPE_CUSTOMER, $companyId, $opts);
+        $rows  = $this->repo->listByType($type, $companyId, $opts);
+        $total = $this->repo->countByType($type, $companyId, $opts);
 
         $contacts = [];
         foreach ($rows as $row) {
@@ -192,13 +206,28 @@ final class ContactService
     }
 
     /**
-     * Detalle de un cliente (contacto + dirección default), o null si no existe.
+     * @deprecated usar listByType(TYPE_CUSTOMER, ...). Mantenido como alias
+     * mientras existan consumidores legacy.
      */
-    public function getCustomer(string $id, string $companyId): ?array
+    public function listCustomers(string $companyId, array $opts = []): array
     {
-        $row = $this->repo->find($id, $companyId, self::TYPE_CUSTOMER);
+        return $this->listByType(self::TYPE_CUSTOMER, $companyId, $opts);
+    }
+
+    /**
+     * Detalle de un contacto del tipo dado, o null si no existe.
+     */
+    public function getByType(string $id, int $type, string $companyId): ?array
+    {
+        $row = $this->repo->find($id, $companyId, $type);
         if ($row === null) return null;
         return $this->presentRow($row, $companyId);
+    }
+
+    /** @deprecated usar getByType(id, TYPE_CUSTOMER, companyId). */
+    public function getCustomer(string $id, string $companyId): ?array
+    {
+        return $this->getByType($id, self::TYPE_CUSTOMER, $companyId);
     }
 
     public function addresses(string $contactId, string $companyId): array

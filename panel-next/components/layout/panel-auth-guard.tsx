@@ -39,14 +39,17 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [error, router])
 
+  // El bootstrap solo trae id (UUID) y role del usuario — el UUID no aporta
+  // visualmente y rompe el diseño. Hasta tener email/nombre del /v1/me,
+  // dejamos el subtitle vacío y el sidebar lo omite si no hay texto.
   const user = bootstrap
     ? {
         name: bootstrap.companyName || "Punto",
-        subtitle: `Usuario #${bootstrap.user.id}`,
+        subtitle: "",
       }
     : {
         name: isLoading ? "Cargando…" : "Punto User",
-        subtitle: "Sesión activa",
+        subtitle: "",
       }
 
   return (

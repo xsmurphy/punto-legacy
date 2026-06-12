@@ -51,13 +51,20 @@ if ($id !== null && $resource === 'addresses') {
 // si un futuro edit agrega una branch no-terminante.
 switch ($method) {
     case 'GET':
+        // type: 1 = cliente (default), 2 = proveedor. El front pasa ?type=2
+        // para el tab proveedores. Valores fuera de [1, 2] caen a cliente.
+        $type = (int) ($_GET['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+        if (!in_array($type, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
+            $type = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
+        }
+
         if ($id !== null) {
-            $contact = $service->getCustomer($id, COMPANY_ID);
+            $contact = $service->getByType($id, $type, COMPANY_ID);
             if ($contact === null) apiError('Contacto no encontrado', 404);
             apiOk($contact);
         }
 
-        apiOk($service->listCustomers(COMPANY_ID, [
+        apiOk($service->listByType($type, COMPANY_ID, [
             'q'      => $_GET['q']      ?? null,
             'status' => $_GET['status'] ?? null,
             'limit'  => $_GET['limit']  ?? 50,
@@ -74,7 +81,9 @@ switch ($method) {
             apiError($e->getMessage(), 500);
         }
 
-        $contact = $service->getCustomer($newId, COMPANY_ID);
+        // Type del row recién creado: sin filtrar acepta cualquier tipo.
+        $newType = (int) ($_POST['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+        $contact = $service->getByType($newId, $newType, COMPANY_ID);
         apiOk($contact ?? ['id' => $newId, 'UID' => $newId], 201);
         break;
 

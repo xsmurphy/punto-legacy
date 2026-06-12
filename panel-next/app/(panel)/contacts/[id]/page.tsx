@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -79,6 +79,10 @@ export default function ContactEditPage() {
   const id = params.id
   const isNew = id === "new"
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // `?type=2` = proveedor (default 1 = cliente). Solo aplica al crear; al
+  // editar el type ya está fijado en el row y no se cambia.
+  const contactType = searchParams.get("type") === "2" ? 2 : 1
   const { data, isLoading, error } = useContact(isNew ? undefined : id)
   const create = useCreateContact()
   const update = useUpdateContact()
@@ -119,8 +123,8 @@ export default function ContactEditPage() {
   const onSubmit = async (values: ContactFormValues) => {
     try {
       if (isNew) {
-        const created = await create.mutateAsync(values)
-        toast.success("Contacto creado")
+        const created = await create.mutateAsync({ values, type: contactType as 1 | 2 })
+        toast.success(contactType === 2 ? "Proveedor creado" : "Cliente creado")
         router.push(`/contacts/${created.id}`)
       } else {
         await update.mutateAsync({ id, values })

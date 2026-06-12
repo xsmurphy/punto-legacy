@@ -204,7 +204,9 @@ export function AppSidebar({
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                     <span className="truncate font-semibold">{user.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">{user.subtitle}</span>
+                    {user.subtitle && (
+                      <span className="truncate text-xs text-muted-foreground">{user.subtitle}</span>
+                    )}
                   </div>
                   <ChevronsUpDown className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
                 </SidebarMenuButton>
@@ -224,7 +226,9 @@ export function AppSidebar({
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
                       <span className="truncate font-semibold">{user.name}</span>
-                      <span className="truncate text-xs text-muted-foreground">{user.subtitle}</span>
+                      {user.subtitle && (
+                        <span className="truncate text-xs text-muted-foreground">{user.subtitle}</span>
+                      )}
                     </div>
                   </div>
                 </DropdownMenuLabel>

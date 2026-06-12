@@ -14,16 +14,20 @@ import type {
  * sobre lo cargado; para tenants más grandes se agrega paginación server-side
  * en un slice futuro (params `limit`, `offset`).
  */
-export function useContacts(opts?: { q?: string; status?: string }) {
+/** Tipo de contacto: 1=cliente, 2=proveedor. Discriminador de la tabla `contact`. */
+export type ContactType = 1 | 2
+
+export function useContacts(opts?: { q?: string; status?: string; type?: ContactType }) {
+  const type = opts?.type ?? 1
   return useQuery<{
     contacts: ContactListItem[]
     total: number
     limit: number
     offset: number
   }>({
-    queryKey: ["contacts", opts?.q ?? "", opts?.status ?? ""],
+    queryKey: ["contacts", type, opts?.q ?? "", opts?.status ?? ""],
     queryFn: () => {
-      const params = new URLSearchParams({ limit: "1000" })
+      const params = new URLSearchParams({ limit: "1000", type: String(type) })
       if (opts?.q) params.set("q", opts.q)
       if (opts?.status !== undefined && opts.status !== "") {
         params.set("status", opts.status)
@@ -50,9 +54,9 @@ export function useContact(id: string | undefined) {
  */
 export function useCreateContact() {
   const qc = useQueryClient()
-  return useMutation<ContactFull, Error, ContactFormValues>({
-    mutationFn: (values) =>
-      api.post<ContactFull>("/v1/contacts", serialize(values)),
+  return useMutation<ContactFull, Error, { values: ContactFormValues; type?: ContactType }>({
+    mutationFn: ({ values, type = 1 }) =>
+      api.post<ContactFull>("/v1/contacts", { ...serialize(values), type }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["contacts"] })
     },
