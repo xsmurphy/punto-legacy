@@ -51,7 +51,8 @@ final class DocumentTemplateService
             [$templateId, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
-        return $this->present($rs->fields);
+        // PG driver devuelve CaseInsensitiveArray en ->fields; present() exige array nativo.
+        return $this->present((array) $rs->fields);
     }
 
     /** @return string templateId nuevo */
