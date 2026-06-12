@@ -83,6 +83,15 @@ export function TemplateEditor({ existing }: Props) {
   const [config, setConfig] = React.useState<PrintTemplateConfig>(initialConfig)
   const [selectedIdx, setSelectedIdx] = React.useState<number | null>(null)
 
+  // Guides al arrastrar/redimensionar — top/mid/bottom + left/midX/right del bloque
+  // siendo movido, atravesando todo el canvas para alinearlo visualmente con otros.
+  const [guides, setGuides] = React.useState<{
+    top: number
+    left: number
+    width: number
+    height: number
+  } | null>(null)
+
   // Sentinel para medir 1mm → px en el browser actual.
   const mmRef = React.useRef<HTMLDivElement>(null)
   const [mm, setMm] = React.useState<number>(initialConfig.mm || 3.78)
@@ -240,7 +249,10 @@ export function TemplateEditor({ existing }: Props) {
         {/* Canvas */}
         <main
           className="relative flex-1 overflow-auto bg-muted/40 p-8"
-          onMouseDown={() => setSelectedIdx(null)}
+          onMouseDown={() => {
+            setSelectedIdx(null)
+            setGuides(null)
+          }}
         >
           <div
             className="relative mx-auto border border-dashed border-primary/50 bg-white"
@@ -254,6 +266,7 @@ export function TemplateEditor({ existing }: Props) {
             onMouseDown={(e) => {
               e.stopPropagation()
               setSelectedIdx(null)
+              setGuides(null)
             }}
           >
             {config.data.map((b, i) => (
@@ -268,8 +281,10 @@ export function TemplateEditor({ existing }: Props) {
                 onChange={(patch) => updateBlock(i, patch)}
                 onDelete={() => deleteBlock(i)}
                 onClone={() => cloneBlock(i)}
+                onDragGuides={setGuides}
               />
             ))}
+            {guides && <DragGuides guides={guides} />}
           </div>
         </main>
 
@@ -284,5 +299,27 @@ export function TemplateEditor({ existing }: Props) {
         </aside>
       </div>
     </div>
+  )
+}
+
+/**
+ * 6 líneas punteadas que cruzan el canvas durante un drag/resize — top/mid/
+ * bottom y left/midX/right del bloque siendo movido. Sirven para alinearlo
+ * visualmente con otros bloques. Réplica del comportamiento del legacy
+ * (#guide-h, #guide2-h, #guide3-h y sus verticales).
+ */
+function DragGuides({ guides }: { guides: { top: number; left: number; width: number; height: number } }) {
+  const { top, left, width, height } = guides
+  return (
+    <>
+      {/* Horizontales: top / mid / bottom */}
+      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-primary/70" style={{ top: `${top}px` }} />
+      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-primary/40" style={{ top: `${top + height / 2}px` }} />
+      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-primary/70" style={{ top: `${top + height}px` }} />
+      {/* Verticales: left / midX / right */}
+      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-primary/70" style={{ left: `${left}px` }} />
+      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-primary/40" style={{ left: `${left + width / 2}px` }} />
+      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-primary/70" style={{ left: `${left + width}px` }} />
+    </>
   )
 }

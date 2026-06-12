@@ -28,6 +28,8 @@ interface Props {
   onChange: (patch: Partial<PrintBlock>) => void
   onDelete: () => void
   onClone: () => void
+  /** Cuando se está arrastrando: notifica al editor para que muestre guides. */
+  onDragGuides?: (info: { top: number; left: number; width: number; height: number } | null) => void
 }
 
 /**
@@ -44,6 +46,7 @@ export function CanvasBlock({
   onChange,
   onDelete,
   onClone,
+  onDragGuides,
 }: Props) {
   const ticket = isReceipt(paperSize)
   const grid = Math.max(1, mm) // 1mm snap
@@ -59,21 +62,44 @@ export function CanvasBlock({
       dragGrid={[grid, grid]}
       resizeGrid={[grid, grid]}
       enableResizing={enableResize}
-      onDragStop={(_, d) => onChange({ left: Math.round(d.x), top: Math.round(d.y) })}
-      onResizeStop={(_e, _dir, ref, _delta, pos) =>
+      // Excluye la toolbar flotante del área draggable — sin esto, el delete y
+      // demás botones nunca disparan click porque react-rnd captura el mousedown.
+      cancel=".block-toolbar"
+      onDrag={(_, d) =>
+        onDragGuides?.({
+          top: d.y,
+          left: d.x,
+          width: block.width,
+          height: block.height,
+        })
+      }
+      onDragStop={(_, d) => {
+        onChange({ left: Math.round(d.x), top: Math.round(d.y) })
+        onDragGuides?.(null)
+      }}
+      onResize={(_e, _dir, ref, _delta, pos) =>
+        onDragGuides?.({
+          top: pos.y,
+          left: pos.x,
+          width: ref.offsetWidth,
+          height: ref.offsetHeight,
+        })
+      }
+      onResizeStop={(_e, _dir, ref, _delta, pos) => {
         onChange({
           width: Math.round(ref.offsetWidth),
           height: Math.round(ref.offsetHeight),
           left: Math.round(pos.x),
           top: Math.round(pos.y),
         })
-      }
+        onDragGuides?.(null)
+      }}
       onMouseDown={(e) => {
         e.stopPropagation()
         onSelect()
       }}
       className={cn(
-        "group rounded border bg-muted/30 transition-colors",
+        "group rounded-sm border bg-muted/30 transition-colors",
         selected ? "border-primary ring-1 ring-primary/40" : "border-dashed border-muted-foreground/30 hover:border-foreground/40",
       )}
       style={{
@@ -146,7 +172,7 @@ function BlockToolbar({
   return (
     <div
       className={cn(
-        "absolute -top-9 left-1/2 z-50 flex -translate-x-1/2 items-center gap-0.5 rounded-md border bg-popover px-1 py-0.5 shadow-md",
+        "block-toolbar absolute -top-9 left-1/2 z-50 flex -translate-x-1/2 items-center gap-0.5 rounded-md border bg-popover px-1 py-0.5 shadow-md",
       )}
       onMouseDown={(e) => e.stopPropagation()}
     >
