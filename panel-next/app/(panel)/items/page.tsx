@@ -1,10 +1,20 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { toast } from "sonner"
-import { Plus, AlertCircle, Package, Archive } from "lucide-react"
+import {
+  Plus,
+  AlertCircle,
+  Package,
+  Archive,
+  FolderPlus,
+  FolderOpen,
+  ChevronLeft,
+  Loader2,
+  FolderMinus,
+} from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -22,6 +32,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -30,7 +42,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { useArchiveItem, useItems } from "@/hooks/use-items"
+import {
+  useArchiveItem,
+  useGroupItems,
+  useItems,
+  useUngroupItems,
+} from "@/hooks/use-items"
 import { ImportItemsDialog } from "@/components/items/import-dialog"
 import { NewItemKindDialog } from "@/components/items/new-item-kind-dialog"
 import { formatMoney } from "@/lib/format"
@@ -43,11 +60,21 @@ import {
 
 export default function ItemsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const parentId = searchParams.get("parent")
   const [kindFilter, setKindFilter] = React.useState<"all" | ItemKind>("all")
   const [showArchived, setShowArchived] = React.useState(false)
-  const { data, isLoading, error } = useItems({ archived: showArchived })
+  const { data, isLoading, error } = useItems({
+    archived: showArchived,
+    parentId: parentId ?? undefined,
+  })
   const { data: bootstrap } = useBootstrap()
   const archive = useArchiveItem()
+  const group = useGroupItems()
+  const ungroup = useUngroupItems()
+  const [groupDialogItems, setGroupDialogItems] = React.useState<ItemListItem[] | null>(null)
+  const [pendingClearSelection, setPendingClearSelection] = React.useState<(() => void) | null>(null)
+  const isViewingGroup = !!parentId
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.items ?? []
@@ -60,30 +87,52 @@ export default function ItemsPage() {
       {
         accessorKey: "itemName",
         header: "Nombre",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2.5">
-            <div className="relative size-8 shrink-0 overflow-hidden rounded border bg-muted">
-              {row.original.coverImageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={row.original.coverImageUrl}
-                  alt=""
-                  className="size-full object-cover"
-                  loading="lazy"
-                />
+        cell: ({ row }) => {
+          const isGroup = !!row.original.itemIsParent
+          const childCount = row.original.childCount ?? 0
+          return (
+            <div className="flex items-center gap-2.5">
+              <div className="relative size-8 shrink-0 overflow-hidden rounded border bg-muted">
+                {row.original.coverImageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={row.original.coverImageUrl}
+                    alt=""
+                    className="size-full object-cover"
+                    loading="lazy"
+                  />
+                ) : isGroup ? (
+                  <FolderOpen className="absolute inset-0 m-auto size-4 text-amber-500" />
+                ) : (
+                  <Package className="absolute inset-0 m-auto size-4 opacity-30" />
+                )}
+              </div>
+              {isGroup ? (
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 text-left font-medium hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    router.push(`/items?parent=${row.original.itemId}`)
+                  }}
+                >
+                  {row.original.itemName || "(sin nombre)"}
+                  <Badge variant="secondary" className="text-[10px]">
+                    {childCount} {childCount === 1 ? "item" : "items"}
+                  </Badge>
+                </button>
               ) : (
-                <Package className="absolute inset-0 m-auto size-4 opacity-30" />
+                <Link
+                  href={`/items/${row.original.itemId}`}
+                  className="font-medium hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {row.original.itemName || "(sin nombre)"}
+                </Link>
               )}
             </div>
-            <Link
-              href={`/items/${row.original.itemId}`}
-              className="font-medium hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {row.original.itemName || "(sin nombre)"}
-            </Link>
-          </div>
-        ),
+          )
+        },
       },
       {
         accessorKey: "itemSKU",
@@ -211,7 +260,7 @@ export default function ItemsPage() {
         meta: { label: "Estado", className: "w-24" },
       },
     ],
-    [bootstrap],
+    [bootstrap, router],
   )
 
   // Visibilidad por defecto: marca/sucursal/UOM/costo arrancan ocultas (el usuario
@@ -230,16 +279,105 @@ export default function ItemsPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Artículos</h1>
-          <p className="text-sm text-muted-foreground">
-            Catálogo de productos, servicios e insumos.
-          </p>
+          {isViewingGroup ? (
+            <>
+              <button
+                type="button"
+                onClick={() => router.push("/items")}
+                className="flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ChevronLeft className="size-3.5" />
+                Volver a todos los artículos
+              </button>
+              <h1 className="text-2xl font-semibold">Items del grupo</h1>
+              <p className="text-sm text-muted-foreground">
+                Mostrando solo los artículos pertenecientes a este grupo.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl font-semibold">Artículos</h1>
+              <p className="text-sm text-muted-foreground">
+                Catálogo de productos, servicios e insumos.
+              </p>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <ImportItemsDialog />
-          <NewItemKindDialog />
+          {isViewingGroup ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" className="gap-1.5">
+                  <FolderMinus className="size-4" />
+                  Desagrupar
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Desagrupar este grupo?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Los artículos volverán al listado principal. El grupo se
+                    archiva — los artículos no se pierden.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      if (!parentId) return
+                      try {
+                        const r = await ungroup.mutateAsync(parentId)
+                        toast.success(
+                          `${r.ungrouped} ${r.ungrouped === 1 ? "artículo desagrupado" : "artículos desagrupados"}`,
+                        )
+                        router.push("/items")
+                      } catch (e) {
+                        toast.error("No se pudo desagrupar", {
+                          description: e instanceof Error ? e.message : undefined,
+                        })
+                      }
+                    }}
+                  >
+                    Desagrupar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : (
+            <>
+              <ImportItemsDialog />
+              <NewItemKindDialog />
+            </>
+          )}
         </div>
       </header>
+
+      {/* Dialog: crear grupo a partir de la selección */}
+      <CreateGroupDialog
+        open={!!groupDialogItems}
+        items={groupDialogItems ?? []}
+        loading={group.isPending}
+        onClose={() => setGroupDialogItems(null)}
+        onConfirm={async (name) => {
+          if (!groupDialogItems) return
+          try {
+            const r = await group.mutateAsync({
+              itemIds: groupDialogItems.map((i) => i.itemId),
+              groupName: name,
+            })
+            toast.success(
+              `Grupo "${name}" creado con ${r.childCount} ${r.childCount === 1 ? "item" : "items"}`,
+            )
+            pendingClearSelection?.()
+            setPendingClearSelection(null)
+            setGroupDialogItems(null)
+          } catch (e) {
+            toast.error("No se pudo crear el grupo", {
+              description: e instanceof Error ? e.message : undefined,
+            })
+          }
+        }}
+      />
 
       {error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
@@ -258,32 +396,56 @@ export default function ItemsPage() {
             data={filteredRows}
             columns={columns}
             getRowId={(r) => r.itemId}
-            onRowClick={(r) => router.push(`/items/${r.itemId}`)}
+            onRowClick={(r) => {
+              if (r.itemIsParent) {
+                router.push(`/items?parent=${r.itemId}`)
+              } else {
+                router.push(`/items/${r.itemId}`)
+              }
+            }}
             isLoading={isLoading}
             searchPlaceholder="Buscar por nombre o SKU…"
             exportFileName="articulos"
             initialColumnVisibility={initialColumnVisibility}
             enableSelection
             bulkActions={(selected, clear) => (
-              <BulkArchiveDialog
-                items={selected}
-                isArchived={showArchived}
-                onConfirm={async () => {
-                  try {
-                    await Promise.all(
-                      selected.map((i) => archive.mutateAsync(i.itemId)),
-                    )
-                    toast.success(
-                      `${selected.length} ${selected.length === 1 ? "artículo archivado" : "artículos archivados"}`,
-                    )
-                    clear()
-                  } catch (e) {
-                    toast.error("No se pudo archivar", {
-                      description: e instanceof Error ? e.message : undefined,
-                    })
-                  }
-                }}
-              />
+              <>
+                {/* Agrupar solo cuando estamos en top-level (no dentro de un grupo)
+                    y hay al menos 2 items NO-grupo seleccionados. */}
+                {!isViewingGroup && selected.filter((i) => !i.itemIsParent).length >= 2 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={() => {
+                      setGroupDialogItems(selected.filter((i) => !i.itemIsParent))
+                      setPendingClearSelection(() => clear)
+                    }}
+                  >
+                    <FolderPlus className="size-3.5" />
+                    Agrupar
+                  </Button>
+                )}
+                <BulkArchiveDialog
+                  items={selected}
+                  isArchived={showArchived}
+                  onConfirm={async () => {
+                    try {
+                      await Promise.all(
+                        selected.map((i) => archive.mutateAsync(i.itemId)),
+                      )
+                      toast.success(
+                        `${selected.length} ${selected.length === 1 ? "artículo archivado" : "artículos archivados"}`,
+                      )
+                      clear()
+                    } catch (e) {
+                      toast.error("No se pudo archivar", {
+                        description: e instanceof Error ? e.message : undefined,
+                      })
+                    }
+                  }}
+                />
+              </>
             )}
             emptyMessage={
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
@@ -374,6 +536,69 @@ function BulkArchiveDialog({
             }}
           >
             Archivar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function CreateGroupDialog({
+  open,
+  items,
+  loading,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean
+  items: ItemListItem[]
+  loading: boolean
+  onClose: () => void
+  onConfirm: (name: string) => Promise<void>
+}) {
+  const [name, setName] = React.useState("")
+  React.useEffect(() => {
+    if (open) setName("")
+  }, [open])
+
+  return (
+    <AlertDialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Agrupar artículos</AlertDialogTitle>
+          <AlertDialogDescription>
+            Vamos a crear un grupo con los <strong>{items.length}</strong>{" "}
+            artículos seleccionados. El grupo aparece como una sola fila en el
+            listado y al clickearlo verás los items dentro.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-col gap-1.5 py-2">
+          <Label className="text-xs">Nombre del grupo</Label>
+          <Input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ej: Bebidas, Promo verano, Combos del día…"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && name.trim()) {
+                e.preventDefault()
+                onConfirm(name.trim())
+              }
+            }}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onClose}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={async (e) => {
+              e.preventDefault()
+              if (!name.trim()) return
+              await onConfirm(name.trim())
+            }}
+            disabled={!name.trim() || loading}
+          >
+            {loading && <Loader2 className="size-3.5 animate-spin" />}
+            Crear grupo
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

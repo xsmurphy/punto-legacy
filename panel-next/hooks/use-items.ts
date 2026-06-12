@@ -16,23 +16,46 @@ import {
   type Taxonomy,
 } from "@/lib/types/item"
 
-export function useItems(opts?: { q?: string; archived?: boolean }) {
+export function useItems(opts?: { q?: string; archived?: boolean; parentId?: string }) {
   return useQuery<{
     items: ItemListItem[]
     total: number
     limit: number
     offset: number
   }>({
-    queryKey: ["items", opts?.q ?? "", opts?.archived ?? false],
+    queryKey: ["items", opts?.q ?? "", opts?.archived ?? false, opts?.parentId ?? ""],
     queryFn: () => {
-      // Pedimos el máximo soportado por la API (200) — paginación client-side.
-      // Cuando el catálogo supere ese umbral migramos a paginación server-side.
       const params = new URLSearchParams({ limit: "200" })
       if (opts?.q) params.set("q", opts.q)
       if (opts?.archived) params.set("archived", "1")
+      // parentId vacío → top-level (default). Con id explícito → hijos del grupo.
+      if (opts?.parentId) params.set("parentId", opts.parentId)
       return api.get(`/v1/items?${params.toString()}`)
     },
     staleTime: 30 * 1000,
+  })
+}
+
+/** Agrupa N items bajo un nuevo grupo. Devuelve el groupId nuevo. */
+export function useGroupItems() {
+  const qc = useQueryClient()
+  return useMutation<
+    { groupId: string; childCount: number },
+    Error,
+    { itemIds: string[]; groupName: string }
+  >({
+    mutationFn: ({ itemIds, groupName }) =>
+      api.post("/v1/items?resource=group", { itemIds, groupName }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["items"] }),
+  })
+}
+
+/** Desagrupa: limpia itemParentId de los hijos del grupo y archiva el grupo. */
+export function useUngroupItems() {
+  const qc = useQueryClient()
+  return useMutation<{ ungrouped: number }, Error, string>({
+    mutationFn: (groupId) => api.post(`/v1/items?id=${groupId}&resource=ungroup`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["items"] }),
   })
 }
 

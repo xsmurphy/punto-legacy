@@ -101,6 +101,12 @@ export interface ItemListItem {
   outletName: string | null
   /** URL de la imagen de portada (sort=0). Null si no hay galería. */
   coverImageUrl: string | null
+  /** True si este item es un grupo (itemIsParent). */
+  itemIsParent?: boolean | number | null
+  /** Si es hijo de un grupo, apunta al grupo padre. */
+  itemParentId?: string | null
+  /** Cuántos hijos activos tiene este grupo. 0 si no es grupo. */
+  childCount?: number
   /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.
    * Incluyen itemUOM, itemDiscount, itemWaste, itemComissionPercent, itemEcom, etc. */
   itemUOM?: string | null

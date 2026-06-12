@@ -72,6 +72,7 @@ function presentItem(array $row): array
         'brandname'           => 'brandName',
         'outletname'          => 'outletName',
         'coverimageurl'       => 'coverImageUrl',
+        'childcount'          => 'childCount',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -184,6 +185,64 @@ if (in_array($resource, ['core', 'inventory', 'info'], true)) {
 // ── Rama Panel CRUD ───────────────────────────────────────────────────────
 $itemService = new \Punto\Api\Items\ItemService(new \Punto\Api\Items\ItemRepository($db));
 $locService  = new \Punto\Api\Items\LocationService($db);
+
+// ── Sub-recurso: grupos de items (parent/child via itemIsParent + itemParentId) ──
+// POST /v1/items?resource=group         body: { itemIds:[], groupName:"" }
+//   → crea un item con itemIsParent=true + setea itemParentId en los hijos
+// POST /v1/items?id=X&resource=ungroup
+//   → quita itemParentId de los hijos del grupo X (los hijos vuelven al top-level)
+if ($resource === 'group' || $resource === 'ungroup') {
+    if ($method !== 'POST') apiError('Method not allowed', 405);
+
+    if ($resource === 'group') {
+        $itemIds   = $_POST['itemIds'] ?? [];
+        $groupName = trim((string) ($_POST['groupName'] ?? ''));
+        if (!is_array($itemIds) || count($itemIds) < 2) {
+            apiError('Se necesitan al menos 2 items para agrupar', 422);
+        }
+        if ($groupName === '') apiError('Falta el nombre del grupo', 422);
+
+        // Crear el row del grupo. createBlank usa kind=producto por defecto y
+        // settea itemKind para no violar la NOT NULL post-migration 15.
+        $groupId = $itemService->createBlank($companyId, null, 'producto');
+        if ($groupId === false) apiError('No se pudo crear el grupo', 500);
+
+        $ok = $itemService->update($groupId, $companyId, [
+            'itemName'     => $groupName,
+            'itemIsParent' => 1,
+        ]);
+        if (!$ok) apiError('No se pudo nombrar el grupo', 500);
+
+        $assigned = 0;
+        foreach ($itemIds as $childId) {
+            if (!is_string($childId) || $childId === '') continue;
+            if ($itemService->update($childId, $companyId, ['itemParentId' => $groupId])) {
+                $assigned++;
+            }
+        }
+        if ($assigned === 0) {
+            $itemService->archive($groupId, $companyId);
+            apiError('No se pudo asignar ningún item al grupo', 500);
+        }
+        apiOk(['groupId' => $groupId, 'childCount' => $assigned], 201);
+    }
+
+    if ($id === null) apiError('id del grupo requerido', 422);
+    $rs = $db->Execute(
+        'SELECT itemId FROM item WHERE itemParentId = ? AND companyId = ?',
+        [$id, $companyId]
+    );
+    $count = 0;
+    if ($rs !== false) {
+        foreach ($rs->GetRows() as $row) {
+            $childId = (string) ($row['itemid'] ?? $row['itemId']);
+            if ($itemService->update($childId, $companyId, ['itemParentId' => null])) $count++;
+        }
+    }
+    // El grupo queda vacío — lo archivamos.
+    $itemService->archive($id, $companyId);
+    apiOk(['ungrouped' => $count]);
+}
 
 // ── Sub-recurso: importador CSV ───────────────────────────────────────────
 // resource=template (GET, descarga CSV con headers + ejemplos)
@@ -379,6 +438,18 @@ switch ($method) {
         $where  = ['companyId = ?', 'itemStatus = ?'];
         $params = [$companyId, (int) ($_GET['archived'] ?? 0) === 1 ? 0 : 1];
 
+        // Filtro por grupo:
+        //   ?parentId=X    → solo hijos del grupo X
+        //   ?parentId=null → solo top-level (parents O standalone, NUNCA hijos de un grupo)
+        //   (sin parentId) → mismo comportamiento que parentId=null (default)
+        $parentIdFilter = $_GET['parentId'] ?? null;
+        if ($parentIdFilter !== null && $parentIdFilter !== '' && $parentIdFilter !== 'null') {
+            $where[]  = 'itemParentId = ?';
+            $params[] = $parentIdFilter;
+        } else {
+            $where[] = 'itemParentId IS NULL';
+        }
+
         if (!empty($_GET['q'])) {
             $pattern  = '%' . $_GET['q'] . '%';
             $where[]  = '(itemName ILIKE ? OR itemSKU ILIKE ?)';
@@ -398,20 +469,24 @@ switch ($method) {
 
         // Prefijar el WHERE con el alias `i.` para que pegue en el JOIN.
         $whereSql = preg_replace(
-            '/\b(companyId|itemStatus|itemName|itemSKU|itemKind|itemType)\b/',
+            '/\b(companyId|itemStatus|itemName|itemSKU|itemKind|itemType|itemParentId)\b/',
             'i.$1',
             implode(' AND ', $where)
         );
 
-        // coverImage: subquery DISTINCT ON para tomar la imagen sort=0 (o la
-        // primera por created_at si no hay sort=0). Evita N+1 contra item_image.
+        // coverImage: subquery LATERAL para tomar la imagen sort=0 (o la primera
+        // por created_at). Evita N+1 contra item_image.
+        // childCount: count de items con itemParentId = i.itemId (solo cuenta para
+        // los grupos — los standalone tendrán 0).
         $sql = "SELECT i.itemId, i.itemName, i.itemSKU, i.itemType, i.itemKind, i.itemStatus,
                        i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
+                       i.itemIsParent, i.itemParentId,
                        i.categoryId, i.brandId, i.outletId, i.data,
                        cat.taxonomyName AS categoryName,
                        brand.taxonomyName AS brandName,
                        o.outletName AS outletName,
-                       cov.url AS coverImageUrl
+                       cov.url AS coverImageUrl,
+                       COALESCE(ch.cnt, 0) AS childCount
                   FROM item i
              LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
              LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
@@ -421,6 +496,10 @@ switch ($method) {
                    WHERE itemId = i.itemId
                    ORDER BY sort ASC, created_at ASC LIMIT 1
              ) cov ON true
+             LEFT JOIN LATERAL (
+                  SELECT COUNT(*) AS cnt FROM item c
+                   WHERE c.itemParentId = i.itemId AND c.itemStatus = 1
+             ) ch ON true
                  WHERE $whereSql
                  ORDER BY i.itemDate DESC
                  LIMIT $limit OFFSET $offset";
