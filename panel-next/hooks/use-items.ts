@@ -60,6 +60,55 @@ export function useUngroupItems() {
 }
 
 /**
+ * Edición masiva: aplica el mismo patch a N items.
+ * `priceAdjustPercent` (opcional) recalcula itemPrice por item (precio × (1+p/100)).
+ * Si un item es grupo, el backend propaga el patch a sus hijos automáticamente.
+ */
+export interface BulkEditPatch {
+  itemPrice?: number | null
+  taxId?: string | null
+  categoryId?: string | null
+  brandId?: string | null
+  outletId?: string | null
+  itemDiscount?: number | null
+  itemUOM?: string | null
+  itemWaste?: number | null
+  itemComissionPercent?: number | null
+  itemComissionType?: "0" | "1" | null
+  itemPricePercent?: number | null
+  itemPriceType?: 0 | 1 | null
+  itemSessions?: number | null
+  itemDuration?: number | null
+  itemEcom?: 0 | 1 | null
+  itemFeatured?: 0 | 1 | null
+  kind?: string | null
+}
+
+export interface BulkEditReport {
+  ok: boolean
+  updated: number
+  skipped: number
+  errors: Array<{ itemId: string; reason: string }>
+}
+
+export function useBulkEditItems() {
+  const qc = useQueryClient()
+  return useMutation<
+    BulkEditReport,
+    Error,
+    { itemIds: string[]; patch: BulkEditPatch; priceAdjustPercent?: number | null }
+  >({
+    mutationFn: ({ itemIds, patch, priceAdjustPercent }) =>
+      api.post("/v1/items?resource=bulk-edit", {
+        itemIds,
+        patch,
+        ...(priceAdjustPercent != null ? { priceAdjustPercent } : {}),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["items"] }),
+  })
+}
+
+/**
  * Renombrar grupo (o cualquier item) — PATCH parcial con solo itemName.
  * Reusa el PUT /v1/items?id=X que ya acepta cualquier subset de campos.
  */

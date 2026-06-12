@@ -445,6 +445,43 @@ if ($id !== null && $resource === 'locations') {
     apiError('Method not allowed for /items/locations', 405);
 }
 
+// ── Sub-recurso: edición masiva ────────────────────────────────────────────
+// POST /v1/items?resource=bulk-edit
+//   body: { itemIds:[uuid...], patch:{...}, priceAdjustPercent?:number }
+// Aplica `patch` (campos canónicos en camelCase, filtrado por whitelist) a
+// cada item. Si `priceAdjustPercent` viene, recalcula itemPrice por item.
+// Si un item es grupo (itemIsParent=true), propaga el patch a sus hijos.
+if ($resource === 'bulk-edit') {
+    if ($method !== 'POST') apiError('Method not allowed for /items?resource=bulk-edit', 405);
+
+    $itemIds = $_POST['itemIds'] ?? [];
+    if (!is_array($itemIds) || count($itemIds) === 0) {
+        apiError('itemIds requerido (array no vacío)', 422);
+    }
+    if (count($itemIds) > 500) {
+        apiError('Máximo 500 items por bulk-edit', 422);
+    }
+
+    $patch = $_POST['patch'] ?? [];
+    if (!is_array($patch)) apiError('patch debe ser objeto', 422);
+
+    // Si viene `kind` en el patch, lo expandimos a flags legacy en sync.
+    if (!empty($patch['kind']) && in_array($patch['kind'], VALID_KINDS, true)) {
+        $patch = array_merge($patch, kindToLegacyFlags($patch['kind']));
+        $patch['itemKind'] = $patch['kind'];
+        unset($patch['kind']);
+    } else {
+        unset($patch['kind']);
+    }
+
+    // priceAdjustPercent es meta-opt fuera del patch.
+    $pap = $_POST['priceAdjustPercent'] ?? null;
+    $priceAdjustPercent = ($pap !== null && $pap !== '' && is_numeric($pap)) ? (float) $pap : null;
+
+    $report = $itemService->bulkEdit($companyId, $itemIds, $patch, $priceAdjustPercent);
+    apiOk($report);
+}
+
 // Defense-in-depth: cada case termina por apiOk/apiError (que llaman exit), así que el
 // fall-through no ocurre HOY — pero un break; en cada case previene un fall-through silente
 // si un futuro edit agrega una branch no-terminante.

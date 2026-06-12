@@ -113,4 +113,101 @@ final class ItemService
     {
         return $this->repo->find($id, $companyId);
     }
+
+    /**
+     * Whitelist canónica de columnas que pueden venir en el patch de bulk-edit.
+     * Cambios en este set son superficie pública del API — agregar con cuidado.
+     */
+    private const BULK_EDIT_WHITELIST = [
+        'itemPrice', 'itemCost',
+        'taxId', 'categoryId', 'brandId', 'outletId',
+        'itemDiscount', 'itemUOM', 'itemWaste',
+        'itemComissionPercent', 'itemComissionType',
+        'itemPricePercent', 'itemPriceType',
+        'itemSessions', 'itemDuration',
+        'itemEcom', 'itemFeatured',
+        'itemKind', 'itemType', 'itemCanSale', 'itemTrackInventory', 'itemProduction',
+    ];
+
+    /**
+     * Edición masiva: aplica `patch` a cada item de `itemIds`. Si `priceAdjustPercent`
+     * llega no-nulo, recalcula `itemPrice` por item (precio actual × (1 + p/100)).
+     * Si un item es grupo (itemIsParent=true), propaga a los hijos también.
+     *
+     * Devuelve recuento de updates/skips/errores. Sigue el patrón del legacy
+     * panel/a_items.php?action=bulkUpdate, pero contrato API limpio: el patch
+     * trae columnas canónicas en camelCase (no las del form de Bootstrap 3).
+     */
+    public function bulkEdit(string $companyId, array $itemIds, array $patch, ?float $priceAdjustPercent = null): array
+    {
+        // Whitelist: dropear cualquier campo que no esté permitido.
+        $patch = array_intersect_key($patch, array_flip(self::BULK_EDIT_WHITELIST));
+
+        // Normalizar: outletId 'all' o '' → NULL (compat legacy).
+        if (array_key_exists('outletId', $patch) && ($patch['outletId'] === 'all' || $patch['outletId'] === '')) {
+            $patch['outletId'] = null;
+        }
+        // itemDiscount: 0 o vacío → NULL.
+        if (array_key_exists('itemDiscount', $patch)) {
+            $d = $patch['itemDiscount'];
+            $patch['itemDiscount'] = (is_numeric($d) && (float) $d > 0) ? (float) $d : null;
+        }
+
+        $usePercent = $priceAdjustPercent !== null && $priceAdjustPercent != 0.0;
+        $hasPatch   = !empty($patch) || $usePercent;
+        if (!$hasPatch) {
+            return ['ok' => true, 'updated' => 0, 'skipped' => count($itemIds), 'errors' => []];
+        }
+
+        $updated = 0;
+        $skipped = 0;
+        $errors  = [];
+
+        foreach ($itemIds as $itemId) {
+            if (!is_string($itemId) || $itemId === '') { $skipped++; continue; }
+            $item = $this->find($itemId, $companyId);
+            if ($item === null) { $skipped++; continue; }
+            $arr = $item->toArray();
+
+            $rowPatch = $patch;
+            if ($usePercent) {
+                $current = (float) ($arr['itemprice'] ?? $arr['itemPrice'] ?? 0);
+                $rowPatch['itemPrice'] = round($current * (1 + $priceAdjustPercent / 100), 2);
+            }
+
+            if (empty($rowPatch)) { $skipped++; continue; }
+
+            if (!$this->update($itemId, $companyId, $rowPatch)) {
+                $errors[] = ['itemId' => $itemId, 'reason' => 'update_failed'];
+                continue;
+            }
+            $updated++;
+
+            // Si es grupo, propagar a hijos. Para hijos con percent ajuste,
+            // recalcular sobre el precio individual del hijo.
+            $isParent = $arr['itemisparent'] ?? $arr['itemIsParent'] ?? false;
+            $isParent = $isParent === true || $isParent === 't' || $isParent === 1 || $isParent === '1';
+            if ($isParent) {
+                foreach ($this->repo->listChildIds($itemId, $companyId) as $childId) {
+                    $childPatch = $patch;
+                    if ($usePercent) {
+                        $cItem = $this->find($childId, $companyId);
+                        if ($cItem !== null) {
+                            $cArr = $cItem->toArray();
+                            $cur  = (float) ($cArr['itemprice'] ?? $cArr['itemPrice'] ?? 0);
+                            $childPatch['itemPrice'] = round($cur * (1 + $priceAdjustPercent / 100), 2);
+                        }
+                    }
+                    if (empty($childPatch)) continue;
+                    if ($this->update($childId, $companyId, $childPatch)) {
+                        $updated++;
+                    } else {
+                        $errors[] = ['itemId' => $childId, 'reason' => 'child_update_failed'];
+                    }
+                }
+            }
+        }
+
+        return ['ok' => true, 'updated' => $updated, 'skipped' => $skipped, 'errors' => $errors];
+    }
 }

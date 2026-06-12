@@ -52,6 +52,7 @@ import {
   useRenameItem,
   useUngroupItems,
 } from "@/hooks/use-items"
+import { BulkEditDialog } from "@/components/items/bulk-edit-dialog"
 import { ImportItemsDialog } from "@/components/items/import-dialog"
 import { NewItemKindDialog } from "@/components/items/new-item-kind-dialog"
 import { formatMoney } from "@/lib/format"
@@ -93,6 +94,7 @@ function ItemsPageInner() {
   const [renameDialogOpen, setRenameDialogOpen] = React.useState(false)
   const [barcodeDialogItems, setBarcodeDialogItems] = React.useState<ItemListItem[] | null>(null)
   const [groupDialogItems, setGroupDialogItems] = React.useState<ItemListItem[] | null>(null)
+  const [bulkEditItems, setBulkEditItems] = React.useState<ItemListItem[] | null>(null)
   const [pendingClearSelection, setPendingClearSelection] = React.useState<(() => void) | null>(null)
   const isViewingGroup = !!parentId
 
@@ -417,6 +419,17 @@ function ItemsPageInner() {
         }}
       />
 
+      {/* Dialog: edición masiva sobre la selección */}
+      <BulkEditDialog
+        open={!!bulkEditItems}
+        items={bulkEditItems ?? []}
+        onClose={() => setBulkEditItems(null)}
+        onSuccess={() => {
+          pendingClearSelection?.()
+          setPendingClearSelection(null)
+        }}
+      />
+
       {/* Dialog: crear grupo a partir de la selección */}
       <CreateGroupDialog
         open={!!groupDialogItems}
@@ -475,6 +488,19 @@ function ItemsPageInner() {
             enableSelection
             bulkActions={(selected, clear) => (
               <>
+                {/* Edición masiva: aplica un patch común a todos los seleccionados */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={() => {
+                    setBulkEditItems(selected)
+                    setPendingClearSelection(() => clear)
+                  }}
+                >
+                  <Pencil className="size-3.5" />
+                  Editar
+                </Button>
                 {/* Códigos de barra: para ítems no-grupo */}
                 {selected.filter((i) => !i.itemIsParent).length > 0 && (
                   <Button

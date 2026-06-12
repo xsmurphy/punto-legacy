@@ -89,6 +89,24 @@ final class ItemRepository
     }
 
     /**
+     * IDs de hijos de un grupo (itemParentId apunta a $parentId).
+     * Distinto a findChildren() que usa el legacy parent_id del JSONB.
+     */
+    public function listChildIds(string $parentId, string $companyId): array
+    {
+        $sql = "SELECT itemId FROM item
+                 WHERE itemParentId = ? AND companyId = ? AND itemStatus = 1
+                 LIMIT 500";
+        $rs  = $this->db->Execute($sql, [$parentId, $companyId]);
+        if ($rs === false) return [];
+        $ids = [];
+        foreach ($rs->GetRows() as $row) {
+            $ids[] = (string) ($row['itemid'] ?? $row['itemId']);
+        }
+        return $ids;
+    }
+
+    /**
      * Hijos de un compound/combo (parent_id en data JSONB).
      */
     public function findChildren(string $parentId, string $companyId): array
