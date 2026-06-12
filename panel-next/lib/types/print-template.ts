@@ -1,0 +1,185 @@
+/**
+ * Tipos del editor de plantillas de impresión.
+ *
+ * El JSON persistido respeta EXACTAMENTE el shape del legacy para que el motor
+ * de impresión `ducumentPrintBuilder.js` del POS lo consuma sin cambios.
+ */
+
+// ── Paper size ──────────────────────────────────────────────────────────────
+// IDs IDÉNTICOS al legacy (a_settings_templates.js usa estos strings).
+export type PaperSize =
+  | "a4page"
+  | "a4page-h"
+  | "legalpage"
+  | "legalpage-h"
+  | "letterpage"
+  | "letterpage-h"
+  | "receipt80"
+  | "receipt76"
+  | "receipt57"
+
+/** Dimensiones del papel en mm. Para los receipt el alto es virtual (rollo). */
+export const PAPER_DIMENSIONS: Record<PaperSize, { widthMm: number; heightMm: number; label: string }> = {
+  "a4page":       { widthMm: 210,   heightMm: 297,   label: "A4 (Vertical)" },
+  "a4page-h":     { widthMm: 297,   heightMm: 210,   label: "A4 (Horizontal)" },
+  "legalpage":    { widthMm: 215.9, heightMm: 355.6, label: "Legal (Vertical)" },
+  "legalpage-h":  { widthMm: 355.6, heightMm: 215.9, label: "Legal (Horizontal)" },
+  "letterpage":   { widthMm: 215.9, heightMm: 279.4, label: "Carta (Vertical)" },
+  "letterpage-h": { widthMm: 279.4, heightMm: 215.9, label: "Carta (Horizontal)" },
+  "receipt80":    { widthMm: 80,    heightMm: 279,   label: "Roll 80mm" },
+  "receipt76":    { widthMm: 76,    heightMm: 279,   label: "Roll 76mm" },
+  "receipt57":    { widthMm: 57,    heightMm: 279,   label: "Roll 57mm" },
+}
+
+export function isReceipt(size: PaperSize): boolean {
+  return size === "receipt80" || size === "receipt76" || size === "receipt57"
+}
+
+// ── Mapeo backend ↔ legacy ───────────────────────────────────────────────────
+// El backend (DocumentTemplateService) acepta solo este enum reducido:
+//   '57mm' | '76mm' | '80mm' | 'A4' | 'A4-landscape' | 'letter' | 'legal'
+// El editor usa los IDs del legacy. Estas funciones puentean.
+export const BACKEND_PAGE_SIZES = ["57mm", "76mm", "80mm", "A4", "A4-landscape", "letter", "legal"] as const
+export type BackendPageSize = typeof BACKEND_PAGE_SIZES[number]
+
+export function paperSizeToBackend(s: PaperSize): BackendPageSize {
+  switch (s) {
+    case "receipt57":    return "57mm"
+    case "receipt76":    return "76mm"
+    case "receipt80":    return "80mm"
+    case "a4page":       return "A4"
+    case "a4page-h":     return "A4-landscape"
+    case "letterpage":
+    case "letterpage-h": return "letter"
+    case "legalpage":
+    case "legalpage-h":  return "legal"
+  }
+}
+
+// ── Block ───────────────────────────────────────────────────────────────────
+
+/**
+ * Catálogo de tipos de bloque tipados — IDs IDÉNTICOS al legacy.
+ * Cada uno representa un placeholder dinámico que el motor de impresión
+ * sustituye por datos reales al imprimir un comprobante.
+ *
+ * `custom`, `hor_line`, `ver_line` son los únicos sin sustitución (texto/línea
+ * estática).
+ */
+export type BlockType =
+  // Herramientas
+  | "custom" | "hor_line" | "ver_line"
+  // Empresa
+  | "company_logo" | "company_name" | "company_billing_name" | "company_tin"
+  | "company_address" | "company_email" | "company_phone" | "company_website"
+  // Sucursal
+  | "outlet_name" | "outlet_billing_name" | "outlet_tin" | "outlet_address"
+  | "outlet_phone"
+  // Caja / usuario
+  | "register_name" | "printer_name" | "user_name"
+  // Timbrado
+  | "auth_number" | "auth_start_date" | "auth_expiration"
+  // Cliente
+  | "customer_name" | "customer_full_name" | "customer_tin" | "customer_ci"
+  | "customer_address" | "customer_address_2" | "customer_location"
+  | "customer_city" | "customer_country" | "customer_phone" | "customer_phone_2"
+  | "customer_note" | "customer_loyalty" | "customer_birthday" | "customer_email"
+  | "table_number"
+  // Transacción
+  | "document_number" | "document_prefix" | "document_sufix" | "document_type"
+  | "date" | "duedate" | "discount" | "subtotal" | "tax_total" | "total"
+  | "nums_to_words" | "sale_type" | "sale_type_contado" | "sale_type_credit"
+  | "payment_methods" | "tags" | "note"
+  | "transaction_id" | "transaction_id_barcode" | "associated_document"
+  | "fe_py"
+  // Artículos
+  | "item_receipt" | "item_receipt_2" | "item_receipt_3" | "item_receipt_4"
+  | "item_units" | "item" | "item_id" | "item_note" | "item_uid"
+  | "item_tags" | "item_tax" | "item_taxAmount" | "item_taxAmount_single"
+  | "item_discount" | "item_price" | "item_uni_price" | "item_price_notax"
+  | "item_total" | "item_subtotal" | "tax_single"
+
+export type TextAlign = "left" | "center" | "right"
+export type TextWrap = "cut" | "wrap"
+export type FontWeight = "normal" | "bold"
+
+/**
+ * Shape EXACTO al de los items dentro de `data: []` en el JSON del legacy.
+ * Coordenadas en px (el motor las convierte a mm con `mm` ratio).
+ */
+export interface PrintBlock {
+  type: BlockType
+  text: string
+  top: number
+  left: number
+  width: number
+  height: number
+  size: string         // 'inherit' o '8pt'...'30pt'
+  family: string       // 'inherit' o 'Arial' / 'Courier New' / etc
+  align: TextAlign
+  bold: FontWeight
+  textwrap: TextWrap
+  url: string          // sólo para company_logo
+}
+
+/**
+ * JSON canónico de la plantilla — EXACTO al shape que el legacy guarda y que
+ * `ducumentPrintBuilder.build(arr,sale,conf)` consume. Guardado en
+ * `document_template.config` (JSONB).
+ */
+export interface PrintTemplateConfig {
+  page_size: PaperSize
+  page_size_name: string
+  page_name: string
+  page_font_family: string
+  page_font_size: string
+  page_font_case: "none" | "uppercase"
+  receipt_left_margin: string
+  /** ratio px → mm, calculado en client con un sentinel div de 1mm */
+  mm: number
+  data: PrintBlock[]
+}
+
+export function defaultTemplateConfig(paperSize: PaperSize = "a4page"): PrintTemplateConfig {
+  return {
+    page_size: paperSize,
+    page_size_name: `Formato: ${PAPER_DIMENSIONS[paperSize].label}`,
+    page_name: "",
+    page_font_family: "Arial",
+    page_font_size: "8pt",
+    page_font_case: "none",
+    receipt_left_margin: "7",
+    mm: 3.78, // ≈ 96 DPI, recalculado al montar
+    data: [],
+  }
+}
+
+export function defaultBlock(type: BlockType, defaultText = ""): PrintBlock {
+  return {
+    type,
+    text: defaultText,
+    top: 0,
+    left: 0,
+    width: 100,
+    height: 24,
+    size: "inherit",
+    family: "inherit",
+    align: "left",
+    bold: "normal",
+    textwrap: "cut",
+    url: "",
+  }
+}
+
+// ── Backend row shape (lo que devuelve /v1/document-templates) ──────────────
+
+export interface DocumentTemplateRow {
+  templateId: string
+  name: string
+  docType: "receipt" | "invoice" | "quote" | "workorder" | "giftcard" | "delivery"
+  pageSize: BackendPageSize
+  isDefault: boolean
+  config: Partial<PrintTemplateConfig> & Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
