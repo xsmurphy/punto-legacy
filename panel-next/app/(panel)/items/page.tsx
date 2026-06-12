@@ -59,6 +59,16 @@ import {
 } from "@/lib/types/item"
 
 export default function ItemsPage() {
+  // useSearchParams() requiere Suspense boundary durante prerender (Next 15+
+  // App Router). Sin esto el build estático falla con CSR bailout.
+  return (
+    <React.Suspense fallback={null}>
+      <ItemsPageInner />
+    </React.Suspense>
+  )
+}
+
+function ItemsPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const parentId = searchParams.get("parent")
