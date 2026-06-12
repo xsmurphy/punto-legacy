@@ -22,10 +22,11 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tabs,
@@ -419,14 +420,80 @@ function PerfilTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium">Datos básicos</CardTitle>
+          <CardAction>
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                  <FormLabel className="cursor-pointer text-xs text-muted-foreground">
+                    {field.value ? "Activo" : "Archivado"}
+                  </FormLabel>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </CardAction>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="flex flex-col gap-5">
+          {/* Hero: foto + nombre (prominente) + SKU debajo.
+              Foto un poco más grande para balancear con el nombre. */}
+          <div className="flex items-start gap-4">
+            <ProductPhoto itemId={itemId} images={images} disabled={isNew} size={84} />
+            <div className="flex flex-1 flex-col gap-2.5 pt-1">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem className="space-y-1">
+                    <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Nombre
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Ej: Café Espresso"
+                        className="h-10 text-base font-medium"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="sku"
+                render={({ field }) => (
+                  <FormItem className="space-y-1">
+                    <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      SKU / Código
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Código interno"
+                        className="h-8 tabular-nums text-sm"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+
+          <Separator />
+
           <FormField
             control={form.control}
             name="kind"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Tipo</FormLabel>
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Tipo de artículo
+                </FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger>
@@ -453,66 +520,24 @@ function PerfilTab({
               </FormItem>
             )}
           />
-          {/* Foto + Nombre + SKU en una sola fila: la foto vive al lado del
-              nombre del producto (compacta, no consume todo el ancho). */}
-          <div className="flex items-start gap-3">
-            <ProductPhoto itemId={itemId} images={images} disabled={isNew} size={72} />
-            <div className="flex flex-1 flex-col gap-3">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nombre</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ej: Café Espresso" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="sku"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>SKU / Código</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Código interno" className="tabular-nums" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-          </div>
+
           <FormField
             control={form.control}
             name="description"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Descripción</FormLabel>
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Descripción
+                </FormLabel>
                 <FormControl>
-                  <Textarea rows={3} placeholder="Notas internas o detalles del producto" {...field} />
+                  <Textarea
+                    rows={3}
+                    placeholder="Notas internas o detalles del producto"
+                    className="resize-none"
+                    {...field}
+                  />
                 </FormControl>
                 <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="status"
-            render={({ field }) => (
-              <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                <div>
-                  <FormLabel className="text-sm">Activo</FormLabel>
-                  <FormDescription className="text-xs">
-                    Apagado = archivado, no aparece en la caja.
-                  </FormDescription>
-                </div>
-                <FormControl>
-                  <Switch checked={field.value} onCheckedChange={field.onChange} />
-                </FormControl>
               </FormItem>
             )}
           />
