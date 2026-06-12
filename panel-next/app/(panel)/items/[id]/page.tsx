@@ -96,6 +96,7 @@ import {
 import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
+import { LocationsEditor } from "@/components/items/locations-editor"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -1176,13 +1177,11 @@ function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            Marcá los depósitos donde se almacena el stock. En cada sucursal, elegí el
-            <em> default</em> que se usa al vender o producir si no se especifica otro.
+            Marcá los depósitos donde se almacena el stock. En cada sucursal,
+            elegí el <em>default</em> que se usa al vender o producir si no se
+            especifica otro.
           </p>
-          <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-            El editor de depósitos por ítem aterriza cuando portemos
-            `/v1/items/{`{id}`}/locations` al editor de panel-next.
-          </p>
+          <LocationsEditor itemId={id} />
         </CardContent>
       </Card>
     </div>

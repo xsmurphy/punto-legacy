@@ -31,7 +31,7 @@ if ($type !== '') {
     $params[] = $type;
 }
 
-$sql = "SELECT taxonomyId, taxonomyName, taxonomyType, taxonomyExtra
+$sql = "SELECT taxonomyId, taxonomyName, taxonomyType, taxonomyExtra, outletId
           FROM taxonomy
          WHERE " . implode(' AND ', $where) . "
          ORDER BY taxonomyType ASC, taxonomyName ASC";
@@ -46,11 +46,13 @@ $out = [];
 foreach ($rs->GetRows() as $row) {
     // Para impuestos, taxonomyName trae el porcentaje como string ("10").
     // Para categorías/marcas, taxonomyName es el nombre user-facing.
+    // outletId aplica solo a type='location' — para los demás es null.
     $out[] = [
-        'id'    => (string) $row['taxonomyid'],
-        'name'  => (string) ($row['taxonomyname'] ?? ''),
-        'type'  => (string) ($row['taxonomytype'] ?? ''),
-        'extra' => $row['taxonomyextra'] ?? null,
+        'id'       => (string) $row['taxonomyid'],
+        'name'     => (string) ($row['taxonomyname'] ?? ''),
+        'type'     => (string) ($row['taxonomytype'] ?? ''),
+        'extra'    => $row['taxonomyextra'] ?? null,
+        'outletId' => $row['outletid'] ?? null,
     ];
 }
 

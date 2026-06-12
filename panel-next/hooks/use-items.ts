@@ -11,6 +11,7 @@ import {
   type ItemFull,
   type ItemImage,
   type ItemListItem,
+  type ItemLocation,
   type Taxonomy,
 } from "@/lib/types/item"
 
@@ -165,6 +166,48 @@ export function useDeleteCompound() {
       api.del(`/v1/items?id=${itemId}&resource=compounds&compoundId=${compoundId}`),
     onSuccess: (_, { itemId }) => {
       qc.invalidateQueries({ queryKey: ["items", itemId, "compounds"] })
+    },
+  })
+}
+
+// ── Depósitos (locations) ──────────────────────────────────────────────────
+
+export function useItemLocations(itemId: string | undefined) {
+  return useQuery<{ locations: ItemLocation[] }>({
+    queryKey: ["items", itemId, "locations"],
+    queryFn: () => {
+      // Backend devuelve raw rows con `locationid` lowercase desde PG. Normalizamos.
+      return api.get<{ locations: Array<Record<string, unknown>> }>(
+        `/v1/items?id=${itemId}&resource=locations`,
+      ).then((r) => ({
+        locations: r.locations.map((row) => ({
+          locationId:   String(row.locationid ?? row.locationId ?? ""),
+          outletId:     String(row.outletid   ?? row.outletId   ?? ""),
+          isDefault:    Boolean(row.isdefault ?? row.isDefault ?? false),
+          taxonomyName: String(row.taxonomyname ?? row.taxonomyName ?? ""),
+          outletName:   (row.outletname ?? row.outletName ?? null) as string | null,
+        })),
+      }))
+    },
+    enabled: !!itemId,
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useSyncItemLocations() {
+  const qc = useQueryClient()
+  return useMutation<
+    { updated: boolean; count: number },
+    Error,
+    { itemId: string; locationIds: string[]; defaultLocationId: string | null }
+  >({
+    mutationFn: ({ itemId, locationIds, defaultLocationId }) =>
+      api.put(`/v1/items?id=${itemId}&resource=locations`, {
+        locationIds,
+        default: defaultLocationId,
+      }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId, "locations"] })
     },
   })
 }

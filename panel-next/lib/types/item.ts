@@ -383,6 +383,17 @@ export interface Taxonomy {
   name: string
   type: string
   extra: string | null
+  /** Solo aplica a type='location'. Null para los demás. */
+  outletId: string | null
+}
+
+/** Depósito asignado a un item — vive en `itemLocation`. */
+export interface ItemLocation {
+  locationId: string
+  outletId: string
+  isDefault: boolean
+  taxonomyName: string
+  outletName?: string | null
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
