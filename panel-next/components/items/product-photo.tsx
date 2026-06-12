@@ -4,6 +4,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { Camera, Loader2, Trash2, ImagePlus } from "lucide-react"
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   useDeleteItemImage,
@@ -115,12 +116,12 @@ export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
         )}
       >
         {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={cover.url}
-            alt=""
-            className="size-full rounded-full object-cover"
-          />
+          <Avatar className="size-full">
+            <AvatarImage src={cover.url} alt="Foto del producto" />
+            <AvatarFallback className="rounded-full bg-transparent">
+              <ImagePlus className="size-6 text-muted-foreground/60" />
+            </AvatarFallback>
+          </Avatar>
         ) : (
           <ImagePlus className="size-6 text-muted-foreground/60" />
         )}

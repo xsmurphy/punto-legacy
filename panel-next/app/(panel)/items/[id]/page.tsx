@@ -188,6 +188,17 @@ export default function ItemEditPage() {
     defaultValues: { ...emptyValues(), kind: initialKind },
   })
 
+  // Para items nuevos: pre-seleccionamos el primer impuesto disponible del
+  // tenant para que el form no arranque sin impuesto. taxIncluded ya viene
+  // true en emptyValues.
+  const taxes = useTaxonomiesByType("tax")
+  React.useEffect(() => {
+    if (!isNew) return
+    if (form.getValues("taxId")) return
+    const firstTax = taxes.data?.[0]
+    if (firstTax) form.setValue("taxId", firstTax.id, { shouldDirty: false })
+  }, [isNew, taxes.data, form])
+
   React.useEffect(() => {
     if (isNew || !data) return
     // El backend a veces devuelve `false` (bool PHP) en campos de texto que
@@ -437,8 +448,12 @@ function PerfilTab({
   const markup = cost > 0 ? ((price - cost) / cost) * 100 : 0
   const margen = price > 0 ? ((price - cost) / price) * 100 : 0
 
+  // Layout: si tenemos ambos price+cost mostramos 2 columnas. Si solo price
+  // (servicio/giftcard etc), colapsa a 1 columna — evita el card mayormente
+  // vacío que el usuario reportó.
+  const hasBothMonetary = visibility.showPrice && visibility.showCost
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div className={cn("grid grid-cols-1 gap-6", hasBothMonetary && "lg:grid-cols-2")}>
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium">Datos básicos</CardTitle>

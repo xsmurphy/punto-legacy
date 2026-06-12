@@ -3,7 +3,7 @@
 import * as React from "react"
 import Image from "next/image"
 import { toast } from "sonner"
-import { Plus, X, Star, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
+import { Plus, X, Star, Loader2, ChevronLeft, ChevronRight, Upload, ImageOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -22,6 +22,7 @@ interface Props {
 
 export function ItemGallery({ itemId, images, disabled }: Props) {
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver] = React.useState(false)
   const upload = useUploadItemImage()
   const remove = useDeleteItemImage()
   const reorder = useReorderItemImages()
@@ -92,13 +93,36 @@ export function ItemGallery({ itemId, images, disabled }: Props) {
   const canAdd = !disabled && sorted.length < MAX_IMAGES
   const isBusy = upload.isPending || remove.isPending || reorder.isPending
 
+  // Drag&drop sobre toda la galería (no solo el slot Agregar).
+  const onDragOver = (e: React.DragEvent) => {
+    if (!canAdd || isBusy) return
+    e.preventDefault()
+    setDragOver(true)
+  }
+  const onDragLeave = () => setDragOver(false)
+  const onDrop = (e: React.DragEvent) => {
+    if (!canAdd || isBusy) return
+    e.preventDefault()
+    setDragOver(false)
+    onPick(e.dataTransfer.files)
+  }
+
   return (
-    <Card className="flex flex-col gap-3 p-4">
+    <Card
+      className={cn(
+        "flex flex-col gap-3 p-4 transition",
+        dragOver && "ring-2 ring-primary ring-offset-2",
+      )}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <p className="text-sm font-medium">Galería</p>
           <p className="text-xs text-muted-foreground">
-            Hasta {MAX_IMAGES} imágenes. La primera es la portada.
+            Hasta {MAX_IMAGES} imágenes. La primera es la portada. Arrastrá
+            archivos acá o usá el botón.
           </p>
         </div>
         <span className="text-xs tabular-nums text-muted-foreground">
@@ -106,42 +130,73 @@ export function ItemGallery({ itemId, images, disabled }: Props) {
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-        {sorted.map((img, idx) => (
-          <ImageTile
-            key={img.imageId}
-            img={img}
-            isCover={idx === 0}
-            isFirst={idx === 0}
-            isLast={idx === sorted.length - 1}
-            disabled={disabled || isBusy}
-            onRemove={() => onRemove(img.imageId)}
-            onMoveLeft={() => moveTo(idx, idx - 1)}
-            onMoveRight={() => moveTo(idx, idx + 1)}
-            onSetCover={() => setAsCover(img.imageId)}
-          />
-        ))}
-        {canAdd && (
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={isBusy}
-            className={cn(
-              "flex aspect-square flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-muted-foreground/20 text-xs text-muted-foreground transition hover:border-primary hover:bg-primary/5 hover:text-primary",
-              isBusy && "opacity-50 pointer-events-none",
-            )}
-          >
-            {upload.isPending ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <>
-                <Plus className="size-5" />
-                <span>Agregar</span>
-              </>
-            )}
-          </button>
-        )}
-      </div>
+      {/* Estado vacío: dropzone grande y prominente cuando no hay imágenes */}
+      {sorted.length === 0 && canAdd && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => inputRef.current?.click()}
+          disabled={isBusy}
+          className={cn(
+            "flex h-32 w-full flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed bg-muted/20 text-xs",
+            dragOver
+              ? "border-primary bg-primary/5"
+              : "border-muted-foreground/20 hover:border-primary",
+          )}
+        >
+          {upload.isPending ? (
+            <Loader2 className="size-6 animate-spin" />
+          ) : (
+            <>
+              <Upload className="size-6 text-muted-foreground" />
+              <span className="font-medium">
+                Arrastrá imágenes acá o click para elegir
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                JPG / PNG / WEBP — máx {MAX_IMAGES}
+              </span>
+            </>
+          )}
+        </Button>
+      )}
+
+      {/* Grid de tiles + slot "Agregar" si quedan slots */}
+      {sorted.length > 0 && (
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+          {sorted.map((img, idx) => (
+            <ImageTile
+              key={img.imageId}
+              img={img}
+              isCover={idx === 0}
+              isFirst={idx === 0}
+              isLast={idx === sorted.length - 1}
+              disabled={disabled || isBusy}
+              onRemove={() => onRemove(img.imageId)}
+              onMoveLeft={() => moveTo(idx, idx - 1)}
+              onMoveRight={() => moveTo(idx, idx + 1)}
+              onSetCover={() => setAsCover(img.imageId)}
+            />
+          ))}
+          {canAdd && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => inputRef.current?.click()}
+              disabled={isBusy}
+              className="flex aspect-square h-auto flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-muted-foreground/20 text-xs text-muted-foreground hover:border-primary hover:bg-primary/5 hover:text-primary"
+            >
+              {upload.isPending ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <>
+                  <Plus className="size-5" />
+                  <span>Agregar</span>
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      )}
 
       <input
         ref={inputRef}
@@ -182,16 +237,25 @@ function ImageTile({
   onMoveRight: () => void
   onSetCover: () => void
 }) {
+  const [broken, setBroken] = React.useState(false)
   return (
     <div className="group relative aspect-square overflow-hidden rounded-md border bg-muted">
-      <Image
-        src={img.url}
-        alt=""
-        fill
-        sizes="200px"
-        className="object-cover"
-        unoptimized
-      />
+      {!img.url || broken ? (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground">
+          <ImageOff className="size-5 opacity-50" />
+          <span className="text-[9px]">Sin acceso</span>
+        </div>
+      ) : (
+        <Image
+          src={img.url}
+          alt=""
+          fill
+          sizes="200px"
+          className="object-cover"
+          unoptimized
+          onError={() => setBroken(true)}
+        />
+      )}
       {isCover && (
         <div className="absolute left-1 top-1 flex items-center gap-1 rounded-sm bg-primary/90 px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
           <Star className="size-3 fill-current" />

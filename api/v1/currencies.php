@@ -12,7 +12,10 @@ require_once __DIR__ . '/../lib/services/CurrencyService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\CurrencyService;
 
-$ctx = apiAuthTenant(); // identidad/contexto del tenant (carga settings/countries globals)
+// Multi-realm: panel necesita las monedas para el editor de cotizaciones del
+// item; pos-app las usa al cobrar. El default era solo ['pos-app'] → panel-next
+// recibía 401 silente y la UI mostraba 'No hay monedas configuradas'.
+$ctx = apiAuthTenant(['panel', 'pos-app']);
 
 $svc = new CurrencyService(TenantContext::fromAuth($ctx));
 apiOk($svc->exchangeList());

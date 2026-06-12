@@ -65,6 +65,21 @@ export function LocationsEditor({ itemId }: Props) {
     return map
   }, [allLocations])
 
+  // isDirty: comparar draft vs server. DEBE estar ANTES de los early returns
+  // para mantener el orden de hooks constante entre renders (React #310).
+  const isDirty = React.useMemo(() => {
+    if (!hydrated || !data) return false
+    const serverChecked = new Set(data.locations.map((l) => l.locationId))
+    if (serverChecked.size !== checked.size) return true
+    for (const id of checked) if (!serverChecked.has(id)) return true
+    const serverDefaults: Record<string, string> = {}
+    for (const l of data.locations) if (l.isDefault) serverDefaults[l.outletId] = l.locationId
+    for (const o of Object.keys({ ...defaults, ...serverDefaults })) {
+      if (defaults[o] !== serverDefaults[o]) return true
+    }
+    return false
+  }, [hydrated, data, checked, defaults])
+
   const outlets = outletsResp?.rows ?? []
 
   if (isLoading || outletsLoading || locsLoading) {
@@ -125,19 +140,6 @@ export function LocationsEditor({ itemId }: Props) {
       })
     }
   }
-
-  const isDirty = React.useMemo(() => {
-    if (!hydrated || !data) return false
-    const serverChecked = new Set(data.locations.map((l) => l.locationId))
-    if (serverChecked.size !== checked.size) return true
-    for (const id of checked) if (!serverChecked.has(id)) return true
-    const serverDefaults: Record<string, string> = {}
-    for (const l of data.locations) if (l.isDefault) serverDefaults[l.outletId] = l.locationId
-    for (const o of Object.keys({ ...defaults, ...serverDefaults })) {
-      if (defaults[o] !== serverDefaults[o]) return true
-    }
-    return false
-  }, [hydrated, data, checked, defaults])
 
   return (
     <div className="flex flex-col gap-4">
