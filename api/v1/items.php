@@ -393,7 +393,7 @@ if ($id !== null && $resource === 'compounds') {
 
 // Sub-recurso: galería de imágenes (max 5 por item, persistido en item_image + DO Spaces).
 if ($id !== null && $resource === 'images') {
-    $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET);
+    $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET, S3_KEY_PREFIX);
     $imgSvc = new \Punto\Api\Items\ItemImageService($db, $s3);
 
     if ($method === 'GET') {
@@ -457,7 +457,7 @@ switch ($method) {
             $presented['categories'] = fetchItemCategories($id);
             // Galería: 0..5 imágenes ordenadas. Si el caller solo quiere los datos
             // del item sin tocar S3, esto es solo un SELECT — sin overhead extra.
-            $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET);
+            $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET, S3_KEY_PREFIX);
             $imgSvc = new \Punto\Api\Items\ItemImageService($db, $s3);
             $presented['images'] = $imgSvc->listForItem($id, $companyId);
             apiOk($presented);

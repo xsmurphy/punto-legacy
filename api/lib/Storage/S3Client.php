@@ -24,18 +24,34 @@ final class S3Client
     private string $bucket;
     private string $key;
     private string $secret;
+    private string $keyPrefix;
     private const SERVICE = 's3';
 
-    public function __construct(string $endpoint, string $region, string $bucket, string $key, string $secret)
-    {
+    public function __construct(
+        string $endpoint,
+        string $region,
+        string $bucket,
+        string $key,
+        string $secret,
+        string $keyPrefix = ''
+    ) {
         if ($endpoint === '' || $bucket === '' || $key === '' || $secret === '') {
             throw new \InvalidArgumentException('S3Client: endpoint/bucket/key/secret requeridos');
         }
-        $this->endpoint = rtrim($endpoint, '/');
-        $this->region   = $region !== '' ? $region : 'us-east-1';
-        $this->bucket   = $bucket;
-        $this->key      = $key;
-        $this->secret   = $secret;
+        $this->endpoint  = rtrim($endpoint, '/');
+        $this->region    = $region !== '' ? $region : 'us-east-1';
+        $this->bucket    = $bucket;
+        $this->key       = $key;
+        $this->secret    = $secret;
+        // Prefix sin slashes en los extremos — los aplicamos al concatenar.
+        $this->keyPrefix = trim($keyPrefix, '/');
+    }
+
+    /** Aplica el prefix del tenant/proyecto a un objectKey lógico. */
+    private function fullKey(string $objectKey): string
+    {
+        $clean = ltrim($objectKey, '/');
+        return $this->keyPrefix !== '' ? $this->keyPrefix . '/' . $clean : $clean;
     }
 
     /**
@@ -46,18 +62,19 @@ final class S3Client
     {
         $headers = ['content-type' => $contentType];
         if ($publicRead) $headers['x-amz-acl'] = 'public-read';
-        $this->signedRequest('PUT', $objectKey, $body, $headers);
+        $fullKey = $this->fullKey($objectKey);
+        $this->signedRequest('PUT', $fullKey, $body, $headers);
         return $this->publicUrl($objectKey);
     }
 
     public function delete(string $objectKey): void
     {
-        $this->signedRequest('DELETE', $objectKey, '', []);
+        $this->signedRequest('DELETE', $this->fullKey($objectKey), '', []);
     }
 
     public function publicUrl(string $objectKey): string
     {
-        return $this->endpoint . '/' . $this->bucket . '/' . ltrim($objectKey, '/');
+        return $this->endpoint . '/' . $this->bucket . '/' . $this->fullKey($objectKey);
     }
 
     private function signedRequest(string $method, string $objectKey, string $body, array $extraHeaders): void
