@@ -110,7 +110,6 @@ export default function DashboardPage() {
           label="Ingresos"
           value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
           icon="up"
-          accent="primary"
         />
         <KpiCard
           label="Egresos"
@@ -232,15 +231,13 @@ function KpiCard({
   label,
   value,
   icon,
-  accent,
 }: {
   label: string
   value: React.ReactNode
   icon?: "up" | "down"
-  accent?: "primary"
 }) {
   return (
-    <Card className={cn(accent === "primary" && "ring-2 ring-primary/20")}>
+    <Card>
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground uppercase tracking-wide">
           {icon === "up" && <ArrowUpRight className="size-3.5 text-emerald-500" />}
