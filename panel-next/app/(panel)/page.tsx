@@ -37,6 +37,12 @@ import {
 } from "@/components/ui/table"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
+  DateRangePicker,
+  defaultDateRange,
+  rangeToBackend,
+  type DateRangeValue,
+} from "@/components/date-range-picker"
+import {
   useDashboardWidget,
   type CustomersWidget,
   type IncomeOutcomeStatsWidget,
@@ -57,20 +63,28 @@ import { cn } from "@/lib/utils"
  */
 export default function DashboardPage() {
   const { data: bootstrap } = useBootstrap()
-  const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats")
-  const info = useDashboardWidget<InfoWidget>("info")
-  const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus")
-  const customers = useDashboardWidget<CustomersWidget>("customers")
-  const topItems = useDashboardWidget<TopItemRow[]>("topItems")
-  const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories")
-  const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction")
-  const orders = useDashboardWidget<OrdersWidget>("orders")
+  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const opts = React.useMemo(() => rangeToBackend(range), [range])
+
+  const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats", opts)
+  const info = useDashboardWidget<InfoWidget>("info", opts)
+  const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", opts)
+  const customers = useDashboardWidget<CustomersWidget>("customers", opts)
+  const topItems = useDashboardWidget<TopItemRow[]>("topItems", opts)
+  const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", opts)
+  const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
+  const orders = useDashboardWidget<OrdersWidget>("orders", opts)
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
-        <p className="text-sm text-muted-foreground">Últimos 7 días</p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
+          <p className="text-sm text-muted-foreground">
+            Datos del período seleccionado
+          </p>
+        </div>
+        <DateRangePicker value={range} onChange={setRange} />
       </header>
 
       {/* ── HERO: Ingresos / Egresos / Ganancias / Margen+Tickets ── */}
