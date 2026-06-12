@@ -22,7 +22,7 @@
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
+    --font-sans: var(--font-sans);
     --font-mono: JetBrains Mono, monospace;
 
     --color-primary: var(--primary);
@@ -98,46 +98,48 @@
 /* LIGHT — fondo casi blanco, primary neutro oscuro. Brand verde Punto solo
    en acentos (no en surfaces grandes). */
 :root {
-    --background: oklch(1.0000 0 0);
-    --foreground: oklch(0.2621 0.0095 248.1897);
-    --card: oklch(1.0000 0 0);
-    --card-foreground: oklch(0.2621 0.0095 248.1897);
-    --popover: oklch(1.0000 0 0);
-    --popover-foreground: oklch(0.2621 0.0095 248.1897);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
 
-    --primary: oklch(0.3368 0.0281 230.2636);
-    --primary-foreground: oklch(1.0000 0 0);
+    /* Override sobre el preset b5eYG4A9A: --primary = verde Punto #01D7A1
+       para recuperar identidad de marca. Mantenemos foreground oscuro
+       para contraste sobre el verde claro. */
+    --primary: oklch(0.7800 0.1550 169);
+    --primary-foreground: oklch(0.1450 0 0);
 
-    --secondary: oklch(0.9670 0.0029 264.5419);
-    --secondary-foreground: oklch(0.4159 0.0364 229.3312);
-    --muted: oklch(0.9846 0.0017 247.8389);
-    --muted-foreground: oklch(0.3286 0.0272 227.2876);
-    --accent: oklch(0.9592 0.0076 207.1416);
-    --accent-foreground: oklch(0.4159 0.0364 229.3312);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
 
-    --destructive: oklch(0.6465 0.1870 23.9659);
+    --destructive: oklch(0.577 0.245 27.325);
     --destructive-foreground: oklch(1.0000 0 0);
 
     /* Hairline borders */
-    --border: oklch(0.9469 0.0059 239.8218);
-    --input: oklch(0.9469 0.0059 239.8218);
-    --ring: oklch(0.7801 0.1603 166.7286);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
 
     /* Charts en light = grayscale. Jerarquía por TAMAÑO del slice, no color. */
-    --chart-1: oklch(0.8747 0.1427 173.1179);
-    --chart-2: oklch(0.8134 0.1582 169.3753);
-    --chart-3: oklch(0.7801 0.1603 166.7286);
-    --chart-4: oklch(0.4159 0.0364 229.3312);
-    --chart-5: oklch(0.2621 0.0095 248.1897);
+    --chart-1: oklch(0.855 0.138 181.071);
+    --chart-2: oklch(0.704 0.14 182.503);
+    --chart-3: oklch(0.6 0.118 184.704);
+    --chart-4: oklch(0.511 0.096 186.391);
+    --chart-5: oklch(0.437 0.078 188.216);
 
-    --sidebar: oklch(0.4159 0.0364 229.3312);
-    --sidebar-foreground: oklch(1.0000 0 0);
-    --sidebar-primary: oklch(0.7801 0.1603 166.7286);
-    --sidebar-primary-foreground: oklch(1.0000 0 0);
-    --sidebar-accent: oklch(0.3987 0.0305 237.7198);
-    --sidebar-accent-foreground: oklch(0.9680 0.0059 239.8195);
-    --sidebar-border: oklch(0.9276 0.0058 264.5313);
-    --sidebar-ring: oklch(0.7801 0.1603 166.7286);
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    /* Sidebar primary = verde Punto para que el item activo use la marca. */
+    --sidebar-primary: oklch(0.7800 0.1550 169);
+    --sidebar-primary-foreground: oklch(0.1450 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
 
     /* Verde Punto #01D7A1 — acento exposed para badges / chips / botones
        de marca específicos. NO usar como --primary (rompe legibilidad
@@ -147,7 +149,7 @@
 
     --tracking-normal: 0em;
 
-    --radius: 0.7rem;
+    --radius: 0.45rem;
 
     --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
 
@@ -186,52 +188,57 @@
     --shadow-xl: 0 1px 5px 0px hsl(209.1892 32.1739% 22.5490% / 0.00), 0 8px 10px -1px hsl(209.1892 32.1739% 22.5490% / 0.00);
 
     --shadow-2xl: 0 1px 5px 0px hsl(209.1892 32.1739% 22.5490% / 0.00);
+
+    --background: oklch(1 0 0);
+
+    --foreground: oklch(0.145 0 0);
 }
 
 /* DARK — canvas casi negro (#010102 vibe). Primary = verde Punto sobre
    foreground oscuro = look classic black-on-green. */
 .dark {
-    --background: oklch(0.2345 0.0141 239.2898);
-    --foreground: oklch(0.9219 0 0);
-    --card: oklch(0.1021 0.0154 237.1616);
-    --card-foreground: oklch(0.9219 0 0);
-    --popover: oklch(0.1021 0.0154 237.1616);
-    --popover-foreground: oklch(0.9219 0 0);
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
 
-    /* Brand: verde Punto + foreground oscuro */
-    --primary: oklch(0.7231 0.1006 212.9031);
-    --primary-foreground: oklch(1.0000 0 0);
+    /* Brand: verde Punto + foreground oscuro (look classic black-on-green). */
+    --primary: oklch(0.7800 0.1550 169);
+    --primary-foreground: oklch(0.1450 0 0);
 
-    --secondary: oklch(0.3382 0.0182 238.6261);
-    --secondary-foreground: oklch(0.9219 0 0);
-    --muted: oklch(0.1021 0.0154 237.1616);
-    --muted-foreground: oklch(0.7155 0 0);
-    --accent: oklch(0.4364 0.0355 244.1260);
-    --accent-foreground: oklch(0.9592 0.0076 207.1416);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
 
-    --destructive: oklch(0.6884 0.1660 22.4308);
+    --destructive: oklch(0.704 0.191 22.216);
     --destructive-foreground: oklch(1.0000 0 0);
 
     /* Border subido para que se distinga de --card (~0.21) en dark. */
-    --border: oklch(0.3278 0.0188 245.2388);
-    --input: oklch(0.1418 0.0116 244.9351);
-    --ring: oklch(0.6834 0.1078 214.2238);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
 
     /* Charts dark: verde + variantes que se ven sobre fondo oscuro. */
-    --chart-1: oklch(0.6834 0.1078 214.2238);
-    --chart-2: oklch(0.7060 0.1183 192.6885);
-    --chart-3: oklch(0.6728 0.1178 186.1185);
-    --chart-4: oklch(0.4364 0.0355 244.1260);
-    --chart-5: oklch(0.3405 0.0402 247.7425);
+    --chart-1: oklch(0.855 0.138 181.071);
+    --chart-2: oklch(0.704 0.14 182.503);
+    --chart-3: oklch(0.6 0.118 184.704);
+    --chart-4: oklch(0.511 0.096 186.391);
+    --chart-5: oklch(0.437 0.078 188.216);
 
-    --sidebar: oklch(0.1418 0.0116 244.9351);
-    --sidebar-foreground: oklch(0.9219 0 0);
-    --sidebar-primary: oklch(0.6834 0.1078 214.2238);
-    --sidebar-primary-foreground: oklch(1.0000 0 0);
-    --sidebar-accent: oklch(0.3791 0.0208 237.3005);
-    --sidebar-accent-foreground: oklch(0.9219 0 0);
-    --sidebar-border: oklch(0.2164 0.0215 243.0750);
-    --sidebar-ring: oklch(0.6834 0.1078 214.2238);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    /* Sidebar primary = verde Punto también en dark. */
+    --sidebar-primary: oklch(0.7800 0.1550 169);
+    --sidebar-primary-foreground: oklch(0.1450 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
 
     --brand: oklch(0.7800 0.1550 169);
     --brand-foreground: oklch(0.1450 0 0);
