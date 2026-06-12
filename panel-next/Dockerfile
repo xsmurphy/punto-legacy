@@ -36,6 +36,14 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL=https://api.punto.la
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
+# Acota el heap de V8 para no exceder la RAM del runner de Coolify (típico
+# 2GB en Droplets pequeños). Sin esto, Next 16 puede consumir 2-3GB durante
+# el build y el container muere con exit 255 (OOM kill, sin mensaje porque
+# SIGKILL no le da tiempo a escribir el error). El build con `--webpack`
+# (script de package.json) ya usa menos RAM que Turbopack — este cap es
+# defensa adicional.
+ENV NODE_OPTIONS="--max-old-space-size=1536"
+
 RUN npm run build
 
 
