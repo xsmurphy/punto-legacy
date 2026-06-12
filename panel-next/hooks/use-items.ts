@@ -59,6 +59,22 @@ export function useUngroupItems() {
   })
 }
 
+/**
+ * Renombrar grupo (o cualquier item) — PATCH parcial con solo itemName.
+ * Reusa el PUT /v1/items?id=X que ya acepta cualquier subset de campos.
+ */
+export function useRenameItem() {
+  const qc = useQueryClient()
+  return useMutation<ItemFull, Error, { itemId: string; name: string }>({
+    mutationFn: ({ itemId, name }) =>
+      api.put<ItemFull>(`/v1/items?id=${itemId}`, { itemName: name }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items"] })
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+    },
+  })
+}
+
 export function useItem(id: string | undefined) {
   return useQuery<ItemFull>({
     queryKey: ["items", id],

@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   Loader2,
   FolderMinus,
+  Pencil,
 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -45,7 +46,9 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useArchiveItem,
   useGroupItems,
+  useItem,
   useItems,
+  useRenameItem,
   useUngroupItems,
 } from "@/hooks/use-items"
 import { ImportItemsDialog } from "@/components/items/import-dialog"
@@ -82,6 +85,11 @@ function ItemsPageInner() {
   const archive = useArchiveItem()
   const group = useGroupItems()
   const ungroup = useUngroupItems()
+  const rename = useRenameItem()
+  // Cuando viewing un grupo, traemos el detalle del item-grupo para mostrar
+  // y editar su nombre. Si no estamos en grupo, no hace nada (enabled:false).
+  const groupItem = useItem(parentId ?? undefined)
+  const [renameDialogOpen, setRenameDialogOpen] = React.useState(false)
   const [groupDialogItems, setGroupDialogItems] = React.useState<ItemListItem[] | null>(null)
   const [pendingClearSelection, setPendingClearSelection] = React.useState<(() => void) | null>(null)
   const isViewingGroup = !!parentId
@@ -299,9 +307,11 @@ function ItemsPageInner() {
                 <ChevronLeft className="size-3.5" />
                 Volver a todos los artículos
               </button>
-              <h1 className="text-2xl font-semibold">Items del grupo</h1>
+              <h1 className="text-2xl font-semibold">
+                {groupItem.data?.itemName || "Items del grupo"}
+              </h1>
               <p className="text-sm text-muted-foreground">
-                Mostrando solo los artículos pertenecientes a este grupo.
+                Mostrando los artículos pertenecientes a este grupo.
               </p>
             </>
           ) : (
@@ -315,6 +325,33 @@ function ItemsPageInner() {
         </div>
         <div className="flex items-center gap-2">
           {isViewingGroup ? (
+            <>
+              <Button
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => setRenameDialogOpen(true)}
+              >
+                <Pencil className="size-4" />
+                Renombrar
+              </Button>
+              <RenameGroupDialog
+                open={renameDialogOpen}
+                onOpenChange={setRenameDialogOpen}
+                currentName={groupItem.data?.itemName || ""}
+                loading={rename.isPending}
+                onSubmit={async (newName) => {
+                  if (!parentId) return
+                  try {
+                    await rename.mutateAsync({ itemId: parentId, name: newName })
+                    toast.success("Grupo renombrado")
+                    setRenameDialogOpen(false)
+                  } catch (e) {
+                    toast.error("No se pudo renombrar", {
+                      description: e instanceof Error ? e.message : undefined,
+                    })
+                  }
+                }}
+              />
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" className="gap-1.5">
@@ -353,6 +390,7 @@ function ItemsPageInner() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            </>
           ) : (
             <>
               <ImportItemsDialog />
@@ -609,6 +647,69 @@ function CreateGroupDialog({
           >
             {loading && <Loader2 className="size-3.5 animate-spin" />}
             Crear grupo
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function RenameGroupDialog({
+  open,
+  onOpenChange,
+  currentName,
+  loading,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  currentName: string
+  loading: boolean
+  onSubmit: (name: string) => Promise<void>
+}) {
+  const [name, setName] = React.useState(currentName)
+  React.useEffect(() => {
+    if (open) setName(currentName)
+  }, [open, currentName])
+
+  const isValid = name.trim() !== "" && name.trim() !== currentName
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Renombrar grupo</AlertDialogTitle>
+          <AlertDialogDescription>
+            Cambiá el nombre del grupo. Los artículos dentro no se ven
+            afectados — solo cambia cómo aparece este grupo en el listado.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-col gap-1.5 py-2">
+          <Label className="text-xs">Nuevo nombre</Label>
+          <Input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && isValid) {
+                e.preventDefault()
+                onSubmit(name.trim())
+              }
+            }}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={async (e) => {
+              e.preventDefault()
+              if (!isValid) return
+              await onSubmit(name.trim())
+            }}
+            disabled={!isValid || loading}
+          >
+            {loading && <Loader2 className="size-3.5 animate-spin" />}
+            Guardar
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
