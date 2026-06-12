@@ -21,6 +21,8 @@ import {
   Gift,
 } from "lucide-react"
 
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
@@ -296,6 +298,10 @@ function SatisfactionCard({
   isLoading: boolean
 }) {
   if (!isLoading && !data) return <ModuleOffCard title="Satisfacción (NPS)" />
+  const det = data?.detractors.percent ?? 0
+  const pas = data?.passives.percent ?? 0
+  const pro = data?.promoters.percent ?? 0
+  const totalResp = (data?.detractors.count ?? 0) + (data?.passives.count ?? 0) + (data?.promoters.count ?? 0)
   return (
     <Card>
       <CardHeader>
@@ -304,34 +310,71 @@ function SatisfactionCard({
           Satisfacción de clientes (NPS)
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-3 gap-3">
-        <NpsCell
-          icon={<Frown className="size-4 text-destructive" />}
-          label="Detractores"
-          percent={data?.detractors.percent ?? null}
-          count={data?.detractors.count ?? null}
-          isLoading={isLoading}
-        />
-        <NpsCell
-          icon={<Meh className="size-4 text-amber-500" />}
-          label="Pasivos"
-          percent={data?.passives.percent ?? null}
-          count={data?.passives.count ?? null}
-          isLoading={isLoading}
-        />
-        <NpsCell
-          icon={<Smile className="size-4 text-emerald-500" />}
-          label="Promotores"
-          percent={data?.promoters.percent ?? null}
-          count={data?.promoters.count ?? null}
-          isLoading={isLoading}
-        />
+      <CardContent className="flex flex-col gap-3">
+        {/* Barra apilada con los 3 segmentos (espejo del legacy) */}
+        {isLoading ? (
+          <Skeleton className="h-3 w-full rounded-full" />
+        ) : (
+          <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+            {det > 0 && (
+              <div
+                className="bg-destructive transition-all"
+                style={{ width: `${det}%` }}
+                title={`Detractores · ${det}%`}
+              />
+            )}
+            {pas > 0 && (
+              <div
+                className="bg-amber-500 transition-all"
+                style={{ width: `${pas}%` }}
+                title={`Pasivos · ${pas}%`}
+              />
+            )}
+            {pro > 0 && (
+              <div
+                className="bg-emerald-500 transition-all"
+                style={{ width: `${pro}%` }}
+                title={`Promotores · ${pro}%`}
+              />
+            )}
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-3">
+          <NpsLegend
+            icon={<Frown className="size-3.5 text-destructive" />}
+            label="Detractores"
+            percent={data?.detractors.percent ?? null}
+            count={data?.detractors.count ?? null}
+            isLoading={isLoading}
+          />
+          <NpsLegend
+            icon={<Meh className="size-3.5 text-amber-500" />}
+            label="Pasivos"
+            percent={data?.passives.percent ?? null}
+            count={data?.passives.count ?? null}
+            isLoading={isLoading}
+          />
+          <NpsLegend
+            icon={<Smile className="size-3.5 text-emerald-500" />}
+            label="Promotores"
+            percent={data?.promoters.percent ?? null}
+            count={data?.promoters.count ?? null}
+            isLoading={isLoading}
+          />
+        </div>
+
+        {!isLoading && (
+          <div className="text-center text-[10px] text-muted-foreground tabular-nums">
+            {totalResp} respuestas en total
+          </div>
+        )}
       </CardContent>
     </Card>
   )
 }
 
-function NpsCell({
+function NpsLegend({
   icon,
   label,
   percent,
@@ -345,17 +388,17 @@ function NpsCell({
   isLoading: boolean
 }) {
   return (
-    <div className="flex flex-col items-center gap-1 rounded-md border bg-muted/30 p-3 text-center">
-      {icon}
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+    <div className="flex flex-col gap-0.5 text-center">
+      <div className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+        {icon}
+        {label}
+      </div>
       {isLoading ? (
-        <Skeleton className="h-6 w-12" />
+        <Skeleton className="mx-auto h-5 w-10" />
       ) : (
         <>
-          <span className="text-xl font-semibold tabular-nums">{percent ?? 0}%</span>
-          <span className="text-[10px] text-muted-foreground tabular-nums">
-            {count ?? 0} resp.
-          </span>
+          <span className="text-base font-semibold tabular-nums">{percent ?? 0}%</span>
+          <span className="text-[10px] text-muted-foreground tabular-nums">{count ?? 0} resp.</span>
         </>
       )}
     </div>
@@ -378,12 +421,24 @@ function PaymentSplitCard({
   mode: "sale-type" | "receivables"
 }) {
   const isSaleType = mode === "sale-type"
-  const left = isSaleType ? data?.contado : data?.cobrado
-  const right = isSaleType ? data?.credito : data?.porcobrar
+  const left = (isSaleType ? data?.contado : data?.cobrado) ?? 0
+  const right = (isSaleType ? data?.credito : data?.porcobrar) ?? 0
   const leftCount = isSaleType ? data?.contadoCount : data?.cobradoCount
   const rightCount = isSaleType ? data?.creditoCount : data?.porcobrarCount
   const leftLabel = isSaleType ? "Al contado" : "Cobrado"
   const rightLabel = isSaleType ? "A crédito" : "Por cobrar"
+  const total = left + right
+  const totalCount = (leftCount ?? 0) + (rightCount ?? 0)
+
+  // Donut data — recharts ignora segments con value=0. Para mostrar un donut
+  // incluso cuando todo es 0 usamos un placeholder gris.
+  const pieData =
+    total > 0
+      ? [
+          { name: leftLabel, value: left, color: "var(--color-primary, hsl(var(--primary)))" },
+          { name: rightLabel, value: right, color: "var(--color-muted-foreground, hsl(var(--muted-foreground)))" },
+        ]
+      : [{ name: "Sin datos", value: 1, color: "hsl(var(--muted))" }]
 
   return (
     <Card>
@@ -393,25 +448,60 @@ function PaymentSplitCard({
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-4">
-        <SplitCell
-          dot="bg-primary"
-          label={leftLabel}
-          amount={isLoading ? null : formatMoney(left, bootstrap)}
-          count={isLoading ? null : formatInt(leftCount, bootstrap)}
-        />
-        <SplitCell
-          dot="bg-muted-foreground/40"
-          label={rightLabel}
-          amount={isLoading ? null : formatMoney(right, bootstrap)}
-          count={isLoading ? null : formatInt(rightCount, bootstrap)}
-        />
+      <CardContent className="flex items-center gap-4">
+        <div className="relative size-32 shrink-0">
+          {isLoading ? (
+            <Skeleton className="size-full rounded-full" />
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="62%"
+                    outerRadius="100%"
+                    paddingAngle={total > 0 ? 2 : 0}
+                    strokeWidth={0}
+                  >
+                    {pieData.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  {total > 0 && <Tooltip content={<DonutTooltip bootstrap={bootstrap} />} />}
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-base font-bold tabular-nums">{totalCount}</span>
+                <span className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  ventas
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex flex-1 flex-col gap-2">
+          <SplitRow
+            dot="bg-primary"
+            label={leftLabel}
+            amount={isLoading ? null : formatMoney(left, bootstrap)}
+            count={isLoading ? null : formatInt(leftCount, bootstrap)}
+          />
+          <SplitRow
+            dot="bg-muted-foreground/40"
+            label={rightLabel}
+            amount={isLoading ? null : formatMoney(right, bootstrap)}
+            count={isLoading ? null : formatInt(rightCount, bootstrap)}
+          />
+        </div>
       </CardContent>
     </Card>
   )
 }
 
-function SplitCell({
+function SplitRow({
   dot,
   label,
   amount,
@@ -423,19 +513,40 @@ function SplitCell({
   count: string | null
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border bg-muted/30 p-3">
+    <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
         <span className={cn("size-2 rounded-full", dot)} />
         {label}
       </div>
       {amount === null ? (
-        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-6 w-20" />
       ) : (
         <>
-          <span className="text-lg font-semibold tabular-nums">{amount}</span>
+          <span className="text-base font-semibold tabular-nums">{amount}</span>
           <span className="text-[10px] text-muted-foreground tabular-nums">{count} ventas</span>
         </>
       )}
+    </div>
+  )
+}
+
+function DonutTooltip({
+  active,
+  payload,
+  bootstrap,
+}: {
+  active?: boolean
+  payload?: Array<{ name?: string; value?: number; payload?: { name?: string } }>
+  bootstrap?: ReturnType<typeof useBootstrap>["data"]
+}) {
+  if (!active || !payload || payload.length === 0) return null
+  const p = payload[0]
+  return (
+    <div className="rounded-md border bg-popover px-2 py-1 text-xs shadow">
+      <div className="font-medium">{p.payload?.name ?? p.name}</div>
+      <div className="tabular-nums text-muted-foreground">
+        {formatMoney(p.value ?? 0, bootstrap)}
+      </div>
     </div>
   )
 }
