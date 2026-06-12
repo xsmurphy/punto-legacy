@@ -80,6 +80,27 @@ function presentItem(array $row): array
         $key = $map[$kLower] ?? $k;
         $out[$key] = $v;
     }
+    // Normalizar booleanos: PG con PDO puede devolver 't'/'f' string en vez de
+    // bool dependiendo del driver/version. Forzamos bool real para que el
+    // frontend no tenga que adivinar.
+    foreach (['itemIsParent', 'itemTrackInventory', 'itemCanSale', 'itemProduction', 'itemTaxIncluded', 'itemEcom', 'itemFeatured', 'itemImage'] as $boolKey) {
+        if (array_key_exists($boolKey, $out)) {
+            $v = $out[$boolKey];
+            if (is_string($v)) {
+                $out[$boolKey] = ($v === 't' || $v === 'true' || $v === '1');
+            } elseif (is_int($v)) {
+                $out[$boolKey] = $v > 0;
+            } elseif (is_bool($v)) {
+                // ya está bien
+            } elseif ($v === null) {
+                $out[$boolKey] = false;
+            }
+        }
+    }
+    // childCount como int (PG devuelve string para COUNT en algunos drivers).
+    if (isset($out['childCount'])) {
+        $out['childCount'] = (int) $out['childCount'];
+    }
     // tags desde JSONB (data.tags es array o null)
     if (!isset($out['tags'])) {
         $rawTags = $out['tags'] ?? null;
@@ -202,16 +223,25 @@ if ($resource === 'group' || $resource === 'ungroup') {
         }
         if ($groupName === '') apiError('Falta el nombre del grupo', 422);
 
-        // Crear el row del grupo. createBlank usa kind=producto por defecto y
-        // settea itemKind para no violar la NOT NULL post-migration 15.
+        // Crear el row del grupo. createBlank usa kind=producto y deja
+        // itemStatus=1 (default del schema). Después patchamos name + flags.
         $groupId = $itemService->createBlank($companyId, null, 'producto');
         if ($groupId === false) apiError('No se pudo crear el grupo', 500);
 
+        // PASS BOOLEAN COMO STRING 'true' — el wrapper de DB.php convierte bool
+        // PHP → 'true'/'false' string, pero un int 1 NO se convierte y PG con
+        // EMULATE_PREPARES=false puede rechazar int contra columna BOOLEAN.
+        // Pasamos true (bool real) para que el wrapper lo convierta a 'true'.
         $ok = $itemService->update($groupId, $companyId, [
             'itemName'     => $groupName,
-            'itemIsParent' => 1,
+            'itemIsParent' => true,
         ]);
-        if (!$ok) apiError('No se pudo nombrar el grupo', 500);
+        if (!$ok) {
+            // Rollback: archivamos el row huérfano. Sin esto queda visible un
+            // "Nuevo Artículo" sin nombre real en el listado.
+            $itemService->archive($groupId, $companyId);
+            apiError('No se pudo nombrar el grupo', 500);
+        }
 
         $assigned = 0;
         foreach ($itemIds as $childId) {
