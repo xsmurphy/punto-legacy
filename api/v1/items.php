@@ -210,6 +210,50 @@ if ($resource === 'import') {
 
 $id = $_GET['id'] ?? null;
 
+// Sub-recurso: grupos de combo dinámico (combo_group + combo_group_item).
+if ($id !== null && $resource === 'combo-groups') {
+    $cgSvc = new \Punto\Api\Items\ComboGroupService($db);
+
+    if ($method === 'GET') {
+        apiOk(['groups' => $cgSvc->listForParent($id, $companyId)]);
+    }
+    if ($method === 'POST') {
+        try {
+            $newId = $cgSvc->create($id, $companyId, $_POST);
+            apiOk(['groupId' => $newId, 'groups' => $cgSvc->listForParent($id, $companyId)], 201);
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+    if ($method === 'PUT') {
+        $groupId = (string) ($_GET['groupId'] ?? '');
+        if ($groupId !== '') {
+            try {
+                $cgSvc->update($id, $companyId, $groupId, $_POST);
+                apiOk(['groups' => $cgSvc->listForParent($id, $companyId)]);
+            } catch (\Throwable $e) {
+                apiError($e->getMessage(), 422);
+            }
+        }
+        // Sin groupId: reorder bulk
+        $order = $_POST['order'] ?? [];
+        if (!is_array($order)) apiError('order debe ser array', 422);
+        $cgSvc->reorder($id, $companyId, $order);
+        apiOk(['groups' => $cgSvc->listForParent($id, $companyId)]);
+    }
+    if ($method === 'DELETE') {
+        $groupId = (string) ($_GET['groupId'] ?? '');
+        if ($groupId === '') apiError('groupId requerido', 422);
+        try {
+            $cgSvc->delete($id, $companyId, $groupId);
+            apiOk(['deleted' => true, 'groups' => $cgSvc->listForParent($id, $companyId)]);
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+    apiError('Method not allowed for /items/combo-groups', 405);
+}
+
 // Sub-recurso: recetas / compuestos (ingredientes de items de producción).
 if ($id !== null && $resource === 'compounds') {
     $compoundSvc = new \Punto\Api\Items\ItemCompoundService($db);

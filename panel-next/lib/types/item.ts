@@ -29,6 +29,39 @@ export interface ItemCategory {
   isPrimary: boolean
 }
 
+/** Item dentro de un grupo de combo dinámico (sourceType='items'). */
+export interface ComboGroupItem {
+  groupItemId: string
+  childItemId: string
+  extraPrice: number
+  isPreselected: boolean
+  sort: number
+  /** Datos del item resueltos via JOIN. */
+  childName: string | null
+  childSKU: string | null
+  childPrice: number
+  childUOM: string | null
+  childKind: ItemKind | null
+}
+
+/** Grupo de selección de un combo dinámico. */
+export interface ComboGroup {
+  groupId: string
+  name: string
+  /** 'items' = lista explícita | 'category' = todos los items de una categoría. */
+  sourceType: "items" | "category"
+  sourceCategoryId: string | null
+  sourceCategoryName: string | null
+  minSelection: number
+  maxSelection: number
+  sort: number
+  /** Solo cuando sourceType='items' — vacío si es 'category'. */
+  items: ComboGroupItem[]
+}
+
+/** Regla de precio del combo dinámico. */
+export type ComboPriceRule = "topPrice" | "lowPrice" | "average" | null
+
 /** Compound / receta — ingrediente de un item de producción. */
 export interface ItemCompound {
   compoundId: string

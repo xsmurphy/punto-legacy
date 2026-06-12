@@ -97,6 +97,7 @@ import {
 import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
+import { ComboGroupsEditor } from "@/components/items/combo-groups-editor"
 import { LocationsEditor } from "@/components/items/locations-editor"
 
 const itemSchema = z.object({
@@ -1414,21 +1415,24 @@ function ProduccionTab({
     )
   }
 
-  // Combo dinámico todavía no implementado — slice B (grupos + min/max + regla
-  // de precio). Por ahora un placeholder.
+  // Combo dinámico: grupos de selección (items específicos o por categoría),
+  // min/max por grupo, extraPrice + preselected por item del grupo.
   if (kind === "combo_dinamico") {
     return (
       <Card>
-        <CardContent className="flex flex-col items-center gap-3 p-8 text-center text-sm text-muted-foreground">
-          <Package2 className="size-8 opacity-30" />
-          <div className="flex flex-col gap-1">
-            <p className="font-medium">Editor de combo dinámico pendiente</p>
-            <p className="text-xs">
-              El combo dinámico (grupos de categorías con mínimo/máximo y regla
-              de precio) llega en la próxima iteración. Por ahora podés cargar
-              los datos básicos y usar el panel legacy para los grupos.
-            </p>
-          </div>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">
+            Grupos de selección del combo
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            Cada grupo es una decisión que el cliente toma al armar el combo
+            (ej: <em>elegí 1 hamburguesa</em>). Podés definir un mínimo y
+            máximo, y el grupo puede ofrecer una lista explícita de items o
+            cualquier item de una categoría.
+          </p>
+          <ComboGroupsEditor itemId={id} />
         </CardContent>
       </Card>
     )

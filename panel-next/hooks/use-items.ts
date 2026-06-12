@@ -5,6 +5,7 @@ import { api } from "@/lib/api-client"
 import {
   kindToBackendFields,
   defaultAvailability,
+  type ComboGroup,
   type ItemAvailability,
   type ItemCompound,
   type ItemFormValues,
@@ -191,6 +192,82 @@ export function useItemLocations(itemId: string | undefined) {
     },
     enabled: !!itemId,
     staleTime: 30 * 1000,
+  })
+}
+
+// ── Combo dinámico — grupos ────────────────────────────────────────────────
+
+export function useComboGroups(itemId: string | undefined) {
+  return useQuery<{ groups: ComboGroup[] }>({
+    queryKey: ["items", itemId, "combo-groups"],
+    queryFn: () => api.get(`/v1/items?id=${itemId}&resource=combo-groups`),
+    enabled: !!itemId,
+    staleTime: 30 * 1000,
+  })
+}
+
+export interface ComboGroupInput {
+  name: string
+  sourceType: "items" | "category"
+  sourceCategoryId?: string | null
+  minSelection: number
+  maxSelection: number
+  items?: Array<{
+    childItemId: string
+    extraPrice: number
+    isPreselected: boolean
+    sort?: number
+  }>
+}
+
+export function useCreateComboGroup() {
+  const qc = useQueryClient()
+  return useMutation<
+    { groupId: string; groups: ComboGroup[] },
+    Error,
+    { itemId: string; input: ComboGroupInput }
+  >({
+    mutationFn: ({ itemId, input }) =>
+      api.post(
+        `/v1/items?id=${itemId}&resource=combo-groups`,
+        input as unknown as Record<string, unknown>,
+      ),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId, "combo-groups"] })
+    },
+  })
+}
+
+export function useUpdateComboGroup() {
+  const qc = useQueryClient()
+  return useMutation<
+    { groups: ComboGroup[] },
+    Error,
+    { itemId: string; groupId: string; input: Partial<ComboGroupInput> }
+  >({
+    mutationFn: ({ itemId, groupId, input }) =>
+      api.put(
+        `/v1/items?id=${itemId}&resource=combo-groups&groupId=${groupId}`,
+        input as unknown as Record<string, unknown>,
+      ),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId, "combo-groups"] })
+    },
+  })
+}
+
+export function useDeleteComboGroup() {
+  const qc = useQueryClient()
+  return useMutation<
+    { deleted: boolean; groups: ComboGroup[] },
+    Error,
+    { itemId: string; groupId: string }
+  >({
+    mutationFn: ({ itemId, groupId }) =>
+      api.del(`/v1/items?id=${itemId}&resource=combo-groups&groupId=${groupId}`),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId, "combo-groups"] })
+    },
   })
 }
 
