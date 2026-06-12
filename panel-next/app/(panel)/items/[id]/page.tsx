@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { MoneyInput } from "@/components/ui/money-input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
@@ -650,17 +651,11 @@ function PerfilTab({
                   <FormItem>
                     <FormLabel>Precio de venta</FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
+                      <MoneyInput
+                        value={field.value}
+                        onChange={field.onChange}
                         placeholder="0"
-                        value={field.value ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          field.onChange(v === "" ? null : Number(v))
-                        }}
-                        className="tabular-nums text-lg font-semibold"
+                        className="text-lg font-semibold"
                       />
                     </FormControl>
                     <FormMessage />
@@ -676,17 +671,10 @@ function PerfilTab({
                   <FormItem>
                     <FormLabel>Costo</FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
+                      <MoneyInput
+                        value={field.value}
+                        onChange={field.onChange}
                         placeholder="0"
-                        value={field.value ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          field.onChange(v === "" ? null : Number(v))
-                        }}
-                        className="tabular-nums"
                       />
                     </FormControl>
                     <FormDescription className="text-xs">
