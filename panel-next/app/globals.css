@@ -217,11 +217,11 @@
     --primary: oklch(0.947 0.006 240.4);
     --primary-foreground: oklch(0.262 0.010 245.3);
 
-    --secondary: oklch(0.269 0 0);
+    --secondary: #1A1D1F;
     --secondary-foreground: oklch(0.967 0.003 264.54);
-    --muted: oklch(0.269 0 0);
+    --muted: #1A1D1F;
     --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
+    --accent: #1A1D1F;
     --accent-foreground: oklch(0.967 0.003 264.54);
 
     --destructive: oklch(0.704 0.191 22.216);
