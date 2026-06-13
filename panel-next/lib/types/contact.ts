@@ -54,6 +54,82 @@ export interface ContactListItem {
  *  de uso, similar a outlets. */
 export type ContactFull = ContactListItem
 
+/**
+ * Shape de `GET /v1/contacts?id=<uuid>&resource=analytics`.
+ * Mirror del blob que devuelve `ContactAnalyticsService::compute()`
+ * (api/lib/Contacts/ContactAnalyticsService.php).
+ */
+export interface ContactAnalytics {
+  totals: {
+    /** Total gastado (cliente) o comprado (proveedor) en la moneda local. */
+    spent: number
+    /** Cantidad de transacciones de venta/compra computadas. */
+    purchases: number
+    /** Suma de unidades vendidas/compradas en todas las tx. */
+    itemsBought: number
+    /** Ticket promedio (spent / purchases). 0 si no hay tx. */
+    avgTicket: number
+    discountTotal: number
+  }
+  visits: {
+    /** Fecha de la PRIMERA tx (ISO timestamp). null si no hay tx. */
+    firstAt: string | null
+    /** Fecha de la última tx. null si no hay tx. */
+    lastAt: string | null
+    /** Días desde la última operación. null si nunca compró. */
+    daysSinceLast: number | null
+    /** Promedio de días entre tx (frecuencia). null si <2 tx. */
+    avgDaysBetween: number | null
+  }
+  /** Segmento RFM-lite: nuevo / activo / en_riesgo / inactivo / vip / sin_actividad. */
+  segment: { key: string; label: string }
+  financial: {
+    loyalty: number
+    storeCredit: number
+    creditLine: number
+    isCreditable: boolean
+    /** Cuentas por cobrar/pagar abiertas (deuda actual). */
+    openInvoices: number
+  }
+  topItems: Array<{
+    itemId: string
+    name: string
+    count: number
+    total: number
+  }>
+  topCategories: Array<{
+    taxonomyId: string
+    name: string
+    count: number
+    total: number
+  }>
+  /** Mix entre Contado / A crédito (o equivalente compra). */
+  paymentMix: Array<{
+    type: number
+    label: string
+    count: number
+    total: number
+  }>
+  /** Top 6 horas del día más activas. */
+  byHour: Array<{ hour: string; count: number; total: number }>
+  /** Distribución por día de la semana (Dom..Sáb). */
+  byDayOfWeek: Array<{
+    dow: number
+    label: string
+    count: number
+    total: number
+  }>
+  /** Últimos 12 meses con tx, ordenado asc. Buckets vacíos no aparecen. */
+  byMonth: Array<{ month: string; count: number; total: number }>
+  /** Top 3 sucursales por frecuencia — útil en tenants multi-outlet. */
+  byOutlet: Array<{
+    outletId: string
+    name: string
+    count: number
+    total: number
+  }>
+}
+
 /** Lo que el form de panel-next manda al backend en POST/PUT. */
 export interface ContactFormValues {
   /** "persona" → form muestra Nombre/Apellido; "empresa" → muestra Razón social.

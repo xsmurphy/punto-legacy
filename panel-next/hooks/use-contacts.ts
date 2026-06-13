@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import type {
+  ContactAnalytics,
   ContactFormValues,
   ContactFull,
   ContactListItem,
@@ -44,6 +45,26 @@ export function useContact(id: string | undefined) {
     queryFn: () => api.get<ContactFull>(`/v1/contacts?id=${id}`),
     enabled: !!id,
     staleTime: 30 * 1000,
+  })
+}
+
+/**
+ * Analítica de comportamiento del contacto: KPIs, top items, distribuciones
+ * temporales, segmento RFM-lite, estado financiero. Alimenta los tabs
+ * "Resumen" / "Comportamiento" / "Financiero" del perfil.
+ *
+ * Reusa el mismo endpoint `/v1/contacts` con `?resource=analytics` —
+ * misma cookie de auth, sin BFF intermedio.
+ */
+export function useContactAnalytics(id: string | undefined, type: ContactType = 1) {
+  return useQuery<ContactAnalytics>({
+    queryKey: ["contacts", id, "analytics", type],
+    queryFn: () =>
+      api.get<ContactAnalytics>(`/v1/contacts?id=${id}&resource=analytics&type=${type}`),
+    enabled: !!id,
+    // Analytics agregadas son caras de computar (varios SQL) y cambian lento;
+    // 2 min de cache es suficiente para evitar refetches al navegar entre tabs.
+    staleTime: 2 * 60 * 1000,
   })
 }
 

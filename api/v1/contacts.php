@@ -45,6 +45,27 @@ if ($id !== null && $resource === 'addresses') {
     apiError('Method not allowed for /contacts/addresses', 405);
 }
 
+// ── Sub-recurso: analytics (KPIs + comportamiento del contacto) ────────────
+// Alimenta el tab "Resumen" / "Comportamiento" del perfil en panel-next.
+// type=1 (cliente, default) o type=2 (proveedor) — cambia el set de tx_types
+// agregados (venta vs compra) dentro del Service.
+if ($id !== null && $resource === 'analytics') {
+    if ($method !== 'GET') {
+        apiError('Method not allowed for /contacts/analytics', 405);
+    }
+    $aType = (int) ($_GET['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+    if (!in_array($aType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
+        $aType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
+    }
+    require_once __DIR__ . '/../lib/Contacts/ContactAnalyticsService.php';
+    $svc = new \Punto\Api\Contacts\ContactAnalyticsService();
+    $data = $svc->compute($id, $aType, COMPANY_ID);
+    if ($data === null) {
+        apiError('Contacto no encontrado', 404);
+    }
+    apiOk($data);
+}
+
 // ── Recurso principal ───────────────────────────────────────────────────────
 // Defense-in-depth: cada case termina por apiOk/apiError (que llaman exit), así que el
 // fall-through no ocurre HOY — pero un break; en cada case previene un fall-through silente

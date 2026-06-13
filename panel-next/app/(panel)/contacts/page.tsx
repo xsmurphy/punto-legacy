@@ -18,6 +18,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useContacts, type ContactType } from "@/hooks/use-contacts"
+
+/** "1990-05-12" → "12/05" (formato corto, ocultando el año). */
+function formatBday(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+  if (!m) return iso
+  return `${m[3]}/${m[2]}`
+}
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ContactListItem } from "@/lib/types/contact"
 
@@ -100,6 +107,61 @@ export default function ContactsPage() {
         },
         meta: { label: "RUC", className: "tabular-nums" },
       },
+      // Columnas opcionales — hidden por default vía initialColumnVisibility.
+      // El user las prende desde el column-toggle del DataTable; el estado se
+      // persiste por tableId en localStorage.
+      {
+        accessorKey: "ci",
+        header: "CI",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? (
+            <span className="tabular-nums text-muted-foreground">{v}</span>
+          ) : (
+            <span className="opacity-40">—</span>
+          )
+        },
+        meta: { label: "CI", className: "tabular-nums" },
+      },
+      {
+        accessorKey: "phone2",
+        header: "Teléfono 2",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? (
+            <span className="tabular-nums text-muted-foreground">{v}</span>
+          ) : (
+            <span className="opacity-40">—</span>
+          )
+        },
+        meta: { label: "Teléfono 2", className: "tabular-nums" },
+      },
+      {
+        accessorKey: "bday",
+        header: "Cumpleaños",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? (
+            <span className="tabular-nums text-muted-foreground">{formatBday(v)}</span>
+          ) : (
+            <span className="opacity-40">—</span>
+          )
+        },
+        meta: { label: "Cumpleaños", className: "tabular-nums" },
+      },
+      {
+        accessorKey: "loyaltyAmount",
+        header: "Loyalty",
+        cell: ({ getValue }) => {
+          const v = getValue() as number | string | null
+          const n = typeof v === "string" ? Number(v) : (v ?? 0)
+          if (!n) return <span className="opacity-40">—</span>
+          return (
+            <span className="tabular-nums text-muted-foreground">{n.toLocaleString()}</span>
+          )
+        },
+        meta: { label: "Loyalty", className: "tabular-nums text-right" },
+      },
       {
         accessorKey: "city",
         header: "Ciudad",
@@ -130,6 +192,14 @@ export default function ContactsPage() {
         meta: { className: "w-24" },
       },
     ],
+    [],
+  )
+
+  // Columnas opcionales arrancan ocultas — disponibles desde el column-toggle.
+  // No las mostramos por default para no saturar la grilla. El user las
+  // prende cuando le interesan; la elección se persiste por tableId.
+  const initialColumnVisibility = React.useMemo(
+    () => ({ ci: false, phone2: false, bday: false, loyaltyAmount: false, city: false }),
     [],
   )
 
@@ -173,6 +243,7 @@ export default function ContactsPage() {
             tableId="contacts"
             data={filteredRows}
             columns={columns}
+            initialColumnVisibility={initialColumnVisibility}
             getRowId={(r) => r.id}
             onRowClick={(r) => router.push(`/contacts/${r.id}`)}
             isLoading={isLoading}
