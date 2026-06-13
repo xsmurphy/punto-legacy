@@ -99,14 +99,14 @@
    en acentos (no en surfaces grandes). */
 :root {
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    --card-foreground: oklch(0.262 0.010 245.3);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
+    --popover-foreground: oklch(0.262 0.010 245.3);
 
     /* CTAs neutros del preset (preferencia: el verde Punto NO va en
        botones, queda reservado para charts y accents de marca). */
     --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
+    --primary-foreground: oklch(0.967 0.003 264.54);
 
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
@@ -119,8 +119,8 @@
     --destructive-foreground: oklch(1.0000 0 0);
 
     /* Hairline borders */
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
+    --border: oklch(0.947 0.006 240.4);
+    --input: oklch(0.947 0.006 240.4);
     --ring: oklch(0.708 0 0);
 
     /* Charts en light = paleta verde Punto. Hue 169 (verde-turquesa #01D7A1)
@@ -132,20 +132,20 @@
     --chart-4: oklch(0.4800 0.1100 169);
     --chart-5: oklch(0.3800 0.0900 169);
 
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar: oklch(0.967 0.003 264.54);
+    --sidebar-foreground: oklch(0.262 0.010 245.3);
     --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-primary-foreground: oklch(0.967 0.003 264.54);
     --sidebar-accent: oklch(0.97 0 0);
     --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-border: oklch(0.947 0.006 240.4);
     --sidebar-ring: oklch(0.708 0 0);
 
     /* Verde Punto #01D7A1 — acento exposed para badges / chips / botones
        de marca específicos. NO usar como --primary (rompe legibilidad
        sobre la mayoría de los surfaces). */
     --brand: oklch(0.7800 0.1550 169);
-    --brand-foreground: oklch(0.1450 0 0);
+    --brand-foreground: oklch(0.262 0.010 245.3);
 
     --tracking-normal: 0em;
 
@@ -191,29 +191,29 @@
 
     --background: oklch(1 0 0);
 
-    --foreground: oklch(0.145 0 0);
+    --foreground: oklch(0.262 0.010 245.3);
 }
 
 /* DARK — canvas casi negro (#010102 vibe). Primary = verde Punto sobre
    foreground oscuro = look classic black-on-green. */
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
+    --background: oklch(0.262 0.010 245.3);
+    --foreground: oklch(0.967 0.003 264.54);
     --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
+    --card-foreground: oklch(0.967 0.003 264.54);
     --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
+    --popover-foreground: oklch(0.967 0.003 264.54);
 
     /* CTAs neutros (gris claro en dark) — verde reservado a charts/accents. */
-    --primary: oklch(0.922 0 0);
+    --primary: oklch(0.947 0.006 240.4);
     --primary-foreground: oklch(0.205 0 0);
 
     --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
+    --secondary-foreground: oklch(0.967 0.003 264.54);
     --muted: oklch(0.269 0 0);
     --muted-foreground: oklch(0.708 0 0);
     --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    --accent-foreground: oklch(0.967 0.003 264.54);
 
     --destructive: oklch(0.704 0.191 22.216);
     --destructive-foreground: oklch(1.0000 0 0);
@@ -233,21 +233,21 @@
     --chart-5: oklch(0.3800 0.0900 169);
 
     --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.922 0 0);
+    --sidebar-foreground: oklch(0.967 0.003 264.54);
+    --sidebar-primary: oklch(0.947 0.006 240.4);
     --sidebar-primary-foreground: oklch(0.205 0 0);
     --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-accent-foreground: oklch(0.967 0.003 264.54);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
 
     --brand: oklch(0.7800 0.1550 169);
-    --brand-foreground: oklch(0.1450 0 0);
+    --brand-foreground: oklch(0.262 0.010 245.3);
     --radius: 0.7rem;
     --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
     --font-serif: Source Serif 4, serif;
     --font-mono: JetBrains Mono, monospace;
-    --shadow-color: #000000;
+    --shadow-color: #212529;
     --shadow-opacity: 0;
     --shadow-blur: 5px;
     --shadow-spread: 0px;
