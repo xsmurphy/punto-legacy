@@ -1063,10 +1063,14 @@ function Subsection({
   className?: string
   children: React.ReactNode
 }) {
+  // Título de sección: text-base semibold para que se diferencie claramente de
+  // los FormLabel (text-sm normal). border-b sutil + pb separan visualmente
+  // del contenido sin necesidad de Card. Antes era text-sm font-medium que
+  // quedaba indistinguible del label de cada input.
   return (
-    <section className={cn("flex flex-col gap-3", className)}>
-      <div className="flex flex-col gap-0.5">
-        <h3 className="text-sm font-medium">{title}</h3>
+    <section className={cn("flex flex-col gap-4", className)}>
+      <div className="flex flex-col gap-1 border-b pb-2">
+        <h3 className="text-base font-semibold tracking-tight">{title}</h3>
         {description && (
           <p className="text-xs text-muted-foreground">{description}</p>
         )}
