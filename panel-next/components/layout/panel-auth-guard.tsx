@@ -8,6 +8,7 @@ import {
   ChartPie,
   ScanBarcode,
   LayoutDashboard,
+  Receipt,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -27,6 +28,7 @@ const panelNav: NavEntry[] = [
   { title: "Dashboard", to: "/", icon: LayoutDashboard },
   { title: "Artículos", to: "/items", icon: ShoppingBasket },
   { title: "Contactos", to: "/contacts", icon: Contact },
+  { title: "Compras", to: "/purchases", icon: Receipt },
   { title: "Reportes", to: "/reports", icon: ChartPie },
   // Caja = POS legacy (subdomain distinto). SSO via /bff/pos-redirect.php
   // en el legacy; cuando se migre, este `to` apunta al endpoint Next equivalente.

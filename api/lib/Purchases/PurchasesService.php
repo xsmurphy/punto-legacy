@@ -1,0 +1,386 @@
+<?php
+declare(strict_types=1);
+
+namespace Punto\Api\Purchases;
+
+/**
+ * Servicio de compras del panel.
+ *
+ * Compras viven en la misma tabla `transaction` que ventas, distinguidas por
+ * `transactionType`:
+ *   1 = compra (purchase) — la única soportada por este service en esta vuelta
+ *   4 = orden de compra (no soportado hoy, queda para iteración futura)
+ *
+ * Una compra tiene N líneas: cada una es un "item" que puede ser
+ *   (a) un producto con `itemId` → se inserta en `itemSold` + se incrementa
+ *       stock vía Inventory::manageStock.
+ *   (b) un gasto libre sin `itemId` → solo vive en `transaction.meta.details`
+ *       (NO se inserta en itemSold porque la FK es NOT NULL).
+ *
+ * Port FIEL (alcance reducido) de panel/a_purchase.php?action=insert: misma
+ * lógica de totales, prefix factura, payment type JSON, manageStock por item.
+ *
+ * Multi-tenant: $companyId + $outletId siempre se pasan explícitos. Servicios
+ * llamantes nunca usan globals.
+ */
+final class PurchasesService
+{
+    private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+
+    /**
+     * Lista compras con paginación + filtros básicos. Devuelve array con
+     * `rows` (resumen por fila) + `total` (count total para paginación).
+     *
+     * @param array{from?:string,to?:string,supplierId?:string,outletId?:string,limit?:int,offset?:int} $filters
+     */
+    public function list(string $companyId, string $roc, array $filters = []): array
+    {
+        $params = [];
+        $where  = "transactionType = 1 {$roc}";
+
+        if (!empty($filters['from'])) {
+            $where    .= ' AND t.transactionDate >= ?';
+            $params[]  = $filters['from'];
+        }
+        if (!empty($filters['to'])) {
+            $where    .= ' AND t.transactionDate <= ?';
+            $params[]  = $filters['to'];
+        }
+        if (!empty($filters['supplierId']) && preg_match(self::UUID_RE, $filters['supplierId'])) {
+            $where    .= ' AND t.supplierId = ?';
+            $params[]  = $filters['supplierId'];
+        }
+        $limit  = isset($filters['limit'])  ? max(1, min(200, (int) $filters['limit'])) : 50;
+        $offset = isset($filters['offset']) ? max(0, (int) $filters['offset']) : 0;
+
+        // Sub-where con alias t. para el LEFT JOIN.
+        $whereAliased = str_replace([' transactionType', ' transactionDate', ' companyId', ' outletId', ' supplierId'],
+                                     [' t.transactionType', ' t.transactionDate', ' t.companyId', ' t.outletId', ' t.supplierId'],
+                                     ' ' . $where);
+
+        $totalRow = ncmExecute(
+            "SELECT COUNT(*) AS n FROM transaction t WHERE {$whereAliased}",
+            $params
+        );
+        $total = (int) ($totalRow['n'] ?? 0);
+
+        $sql = "SELECT t.transactionId, t.transactionDate, t.transactionTotal, t.transactionTax,
+                       t.transactionDiscount, t.transactionStatus, t.transactionDueDate,
+                       t.invoiceNo, t.invoicePrefix, t.supplierId, t.outletId,
+                       c.contactName AS supplierName, o.outletName
+                  FROM transaction t
+                  LEFT JOIN contact c ON c.contactId = t.supplierId
+                  LEFT JOIN outlet  o ON o.outletId  = t.outletId
+                 WHERE {$whereAliased}
+                 ORDER BY t.transactionDate DESC
+                 LIMIT {$limit} OFFSET {$offset}";
+
+        $res = ncmExecute($sql, $params, false, true);
+        $rows = [];
+        if ($res) {
+            while (!$res->EOF) {
+                $f = $res->fields;
+                $rows[] = [
+                    'id'           => (string) $f['transactionid'],
+                    'date'         => (string) $f['transactiondate'],
+                    'dueDate'      => $f['transactionduedate'] !== null ? (string) $f['transactionduedate'] : null,
+                    'total'        => (float) $f['transactiontotal'],
+                    'tax'          => $f['transactiontax'] !== null ? (float) $f['transactiontax'] : 0.0,
+                    'discount'     => $f['transactiondiscount'] !== null ? (float) $f['transactiondiscount'] : 0.0,
+                    'status'       => (int) $f['transactionstatus'],
+                    'invoiceNo'    => $f['invoiceno'] !== null ? (int) $f['invoiceno'] : null,
+                    'invoicePrefix' => $f['invoiceprefix'] !== null ? (string) $f['invoiceprefix'] : null,
+                    'supplierId'   => $f['supplierid'] !== null ? (string) $f['supplierid'] : null,
+                    'supplierName' => $f['suppliername'] !== null ? (string) $f['suppliername'] : null,
+                    'outletId'     => (string) $f['outletid'],
+                    'outletName'   => $f['outletname'] !== null ? (string) $f['outletname'] : null,
+                ];
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+
+        return ['rows' => $rows, 'total' => $total];
+    }
+
+    /**
+     * Detalle completo de una compra. Incluye líneas (de meta.details) y supplier.
+     */
+    public function find(string $id, string $companyId): ?array
+    {
+        if (!preg_match(self::UUID_RE, $id)) {
+            return null;
+        }
+        $row = ncmExecute(
+            "SELECT t.*, c.contactName AS supplierName, o.outletName
+               FROM transaction t
+               LEFT JOIN contact c ON c.contactId = t.supplierId
+               LEFT JOIN outlet  o ON o.outletId  = t.outletId
+              WHERE t.transactionId = ? AND t.companyId = ? AND t.transactionType = 1
+              LIMIT 1",
+            [$id, $companyId]
+        );
+        if (!$row) {
+            return null;
+        }
+        // meta JSONB → array. Driver puede devolverlo como string JSON o ya
+        // decoded según el adapter; cubrimos ambos.
+        $meta = $row['meta'] ?? '{}';
+        if (is_string($meta)) {
+            $meta = json_decode($meta, true) ?: [];
+        }
+        $details = is_array($meta['details'] ?? null) ? $meta['details'] : [];
+        $paymentType = $row['transactionpaymenttype'] ?? null;
+        if (is_string($paymentType) && $paymentType !== '') {
+            $paymentType = json_decode($paymentType, true) ?: null;
+        }
+        return [
+            'id'            => (string) $row['transactionid'],
+            'date'          => (string) $row['transactiondate'],
+            'dueDate'       => $row['transactionduedate'] !== null ? (string) $row['transactionduedate'] : null,
+            'total'         => (float) $row['transactiontotal'],
+            'tax'           => $row['transactiontax'] !== null ? (float) $row['transactiontax'] : 0.0,
+            'discount'      => $row['transactiondiscount'] !== null ? (float) $row['transactiondiscount'] : 0.0,
+            'units'         => $row['transactionunitssold'] !== null ? (float) $row['transactionunitssold'] : 0.0,
+            'status'        => (int) $row['transactionstatus'],
+            'invoiceNo'     => $row['invoiceno'] !== null ? (int) $row['invoiceno'] : null,
+            'invoicePrefix' => $row['invoiceprefix'] !== null ? (string) $row['invoiceprefix'] : null,
+            'note'          => $row['transactionnote'] ?? null,
+            'supplierId'    => $row['supplierid'] !== null ? (string) $row['supplierid'] : null,
+            'supplierName'  => $row['suppliername'] !== null ? (string) $row['suppliername'] : null,
+            'outletId'      => (string) $row['outletid'],
+            'outletName'    => $row['outletname'] !== null ? (string) $row['outletname'] : null,
+            'paymentType'   => $paymentType,
+            'details'       => $details,
+        ];
+    }
+
+    /**
+     * Crear una compra. Lógica:
+     *   - Valida UUIDs y campos requeridos.
+     *   - Inicia TX. Inserta `transaction` (type=1, status=1).
+     *   - Por cada item: si tiene itemId → inserta en `itemSold` + manageStock;
+     *     si no tiene itemId → solo guarda en meta.details (gasto libre).
+     *   - Commit. Devuelve transactionId.
+     *
+     * @param array{
+     *   supplierId?:string|null,
+     *   outletId:string,
+     *   userId:string,
+     *   invoiceDate?:string,
+     *   dueDate?:string,
+     *   invoiceNo?:int|string|null,
+     *   invoicePrefix?:string,
+     *   authNo?:string,
+     *   discount?:float|string,
+     *   paymentMethod?:string,
+     *   note?:string,
+     *   items:array<int,array<string,mixed>>
+     * } $data
+     *
+     * @throws \RuntimeException si falla la inserción.
+     */
+    public function create(string $companyId, array $data): string
+    {
+        global $db;
+
+        if (!preg_match(self::UUID_RE, $companyId)) {
+            throw new \RuntimeException('companyId inválido');
+        }
+        $outletId = (string) ($data['outletId'] ?? '');
+        if (!preg_match(self::UUID_RE, $outletId)) {
+            throw new \RuntimeException('outletId requerido y debe ser UUID');
+        }
+        $userId = (string) ($data['userId'] ?? '');
+        if (!preg_match(self::UUID_RE, $userId)) {
+            throw new \RuntimeException('userId requerido');
+        }
+        $items = $data['items'] ?? [];
+        if (!is_array($items) || count($items) === 0) {
+            throw new \RuntimeException('Debe agregar al menos un ítem');
+        }
+
+        $supplierId = (string) ($data['supplierId'] ?? '');
+        if ($supplierId !== '' && !preg_match(self::UUID_RE, $supplierId)) {
+            throw new \RuntimeException('supplierId inválido');
+        }
+        $supplierId = $supplierId === '' ? null : $supplierId;
+
+        $invoiceDate = $this->normalizeDate($data['invoiceDate'] ?? null, true);
+        $dueDate     = $this->normalizeDate($data['dueDate'] ?? null, false);
+        $discount    = (float) ($data['discount'] ?? 0);
+        $note        = (string) ($data['note'] ?? '');
+        $authNo      = (string) ($data['authNo'] ?? '');
+        $prefix      = (string) ($data['invoicePrefix'] ?? '');
+        $invoiceNo   = isset($data['invoiceNo']) && $data['invoiceNo'] !== '' ? (int) $data['invoiceNo'] : null;
+        $payMethod   = (string) ($data['paymentMethod'] ?? '');
+
+        // Procesar items: calcular totales + separar productos vs gastos libres.
+        $totalUnits = 0.0;
+        $total      = 0.0;
+        $totalTax   = 0.0;
+        $details    = [];
+        foreach ($items as $idx => $it) {
+            $units    = (float) ($it['units'] ?? 0);
+            $price    = (float) ($it['price'] ?? 0);
+            $taxValue = (float) ($it['taxValue'] ?? 0);
+            $taxId    = (string) ($it['taxId'] ?? '');
+            $title    = (string) ($it['title'] ?? '');
+            $itemId   = (string) ($it['itemId'] ?? '');
+
+            if ($units <= 0 || $price < 0) {
+                continue;
+            }
+            // Una línea es válida si tiene producto O descripción libre (cumple
+            // ambas no es problema, el title queda como override en itemSold).
+            if ($itemId === '' && $title === '') {
+                continue;
+            }
+            if ($itemId !== '' && !preg_match(self::UUID_RE, $itemId)) {
+                throw new \RuntimeException("Item #{$idx} tiene itemId no-UUID");
+            }
+
+            $lineTotal   = abs($price * $units);
+            $total      += $lineTotal;
+            $totalTax   += $taxValue;
+            $totalUnits += $units;
+
+            $details[]   = [
+                'itemId'  => $itemId,
+                'title'   => $title,
+                'qty'     => $units,
+                'price'   => $lineTotal,
+                'tax'     => $taxValue,
+                'taxId'   => $taxId,
+            ];
+        }
+        if (count($details) === 0) {
+            throw new \RuntimeException('Ningún ítem válido (units > 0 + producto o descripción)');
+        }
+
+        $netTotal = $total - $discount;
+
+        // Payment type — JSON array como el legacy.
+        $paymentTypeJson = $payMethod !== ''
+            ? json_encode([['type' => $payMethod, 'price' => $netTotal]])
+            : null;
+
+        // Prefix del legacy: "authNo;prefix" — preservado para compat de
+        // facturación electrónica que puede parsear ese shape.
+        $combinedPrefix = ($authNo !== '' || $prefix !== '') ? ($authNo . ';' . $prefix) : null;
+
+        $meta = [
+            'details' => $details,
+        ];
+
+        $db->StartTrans();
+
+        $transactionId = ncmInsert([
+            'records' => [
+                'transactionDate'       => $invoiceDate,
+                'transactionDueDate'    => $dueDate,
+                'transactionType'       => 1,
+                'transactionStatus'     => 1,
+                'transactionComplete'   => 1,
+                'transactionNote'       => $note,
+                'transactionTotal'      => $netTotal,
+                'transactionDiscount'   => $discount,
+                'transactionTax'        => $totalTax,
+                'transactionUnitsSold'  => $totalUnits,
+                'transactionPaymentType' => $paymentTypeJson,
+                'invoiceNo'             => $invoiceNo,
+                'invoicePrefix'         => $combinedPrefix,
+                'userId'                => $userId,
+                'supplierId'            => $supplierId,
+                'outletId'              => $outletId,
+                'companyId'             => $companyId,
+                'meta'                  => $meta,
+            ],
+            'table' => 'transaction',
+        ]);
+
+        if (!$transactionId) {
+            $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException('No se pudo insertar la compra: ' . ($errMsg !== '' ? $errMsg : 'sin detalle'));
+        }
+
+        // Insertar itemSold + manageStock para cada item con itemId real.
+        foreach ($details as $d) {
+            if ($d['itemId'] === '') {
+                continue; // gasto libre — ya está en meta.details
+            }
+            $units     = (float) $d['qty'];
+            $lineTotal = (float) $d['price'];
+            $price     = $units > 0 ? $lineTotal / $units : 0.0;
+
+            $itemSoldId = ncmInsert([
+                'records' => [
+                    'itemSoldTotal'       => $lineTotal,
+                    'itemSoldTax'         => (float) $d['tax'],
+                    'itemSoldUnits'       => $units,
+                    'itemSoldDate'        => $invoiceDate,
+                    'itemSoldDescription' => $d['title'] ?: null,
+                    'taxId'               => $d['taxId'] !== '' ? $d['taxId'] : null,
+                    'itemId'              => $d['itemId'],
+                    'transactionId'       => $transactionId,
+                ],
+                'table' => 'itemSold',
+            ]);
+
+            if (!$itemSoldId) {
+                $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+                $db->FailTrans();
+                $db->CompleteTrans();
+                throw new \RuntimeException("No se pudo insertar línea {$d['itemId']}: " . $errMsg);
+            }
+
+            // Stock: la compra suma. manageStock usa los globals OUTLET_ID/USER_ID
+            // si no se pasan, pero acá pasamos explícito.
+            \Punto\App\Domain\Inventory::manageStock([
+                'itemId'        => $d['itemId'],
+                'outletId'      => $outletId,
+                'cogs'          => $price,
+                'count'         => $units,
+                'supplierId'    => $supplierId,
+                'source'        => 'purchase',
+                'transactionId' => $transactionId,
+                'locationId'    => null,
+                'userId'        => $userId,
+                'companyId'     => $companyId,
+                'date'          => $invoiceDate,
+            ]);
+        }
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException('Transacción de compra abortó después del INSERT inicial');
+        }
+
+        return (string) $transactionId;
+    }
+
+    /**
+     * Normaliza fecha del request:
+     *  - null/empty + $useTodayDefault → ahora.
+     *  - 'YYYY-MM-DD' → 'YYYY-MM-DD 00:00:00'.
+     *  - 'YYYY-MM-DD HH:MM:SS' → tal cual.
+     *  - inválido → null.
+     */
+    private function normalizeDate(?string $val, bool $useTodayDefault): ?string
+    {
+        $val = $val !== null ? trim($val) : '';
+        if ($val === '') {
+            return $useTodayDefault ? date('Y-m-d H:i:s') : null;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)) {
+            return $val . ' 00:00:00';
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $val)) {
+            return $val;
+        }
+        return null;
+    }
+}
