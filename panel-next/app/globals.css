@@ -201,11 +201,11 @@
        principal tenga contraste con los paneles flotantes (antes los 3
        compartían el mismo gris-azulado y el sidebar se mimetizaba con el
        contenido en /reports y otras vistas sin cards). */
-    --background: #0D0D0D;
+    --background: #060A0E;
     --foreground: oklch(0.967 0.003 264.54);
     /* Cards transparentes: se ven solo por el ring/border del primitive
        (Card de shadcn: `ring-1 ring-foreground/10` en dark). Sobre el
-       canvas #0D0D0D el card queda como un panel "limpio" sin bloque
+       canvas #060A0E el card queda como un panel "limpio" sin bloque
        de color sólido — más Linear-like. Popover/dropdown conservan
        su color sólido (flotan sobre cualquier contenido). */
     --card: transparent;
