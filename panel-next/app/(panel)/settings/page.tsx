@@ -50,6 +50,7 @@ import {
   type SettingsCurrency,
 } from "@/hooks/use-settings"
 import { COMPANY_CATEGORIES } from "@/lib/company-categories"
+import { SUPPORTED_COUNTRIES } from "@/lib/countries"
 import { ThemePicker } from "@/components/theme-picker"
 import { DocumentsTab } from "@/components/settings/documents-tab"
 import { CompanyLogo } from "@/components/settings/company-logo"
@@ -643,18 +644,40 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
         <FormField
           control={form.control}
           name="country"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>País</FormLabel>
-              <FormControl>
-                <Input placeholder="PY" className="tabular-nums uppercase" maxLength={2} {...field} />
-              </FormControl>
-              <FormDescription className="text-xs">
-                Código ISO 3166-1 alpha-2 (PY, AR, BR, etc.).
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
+          render={({ field }) => {
+            // Normalizamos a uppercase: el backend devuelve a veces 'py'
+            // legacy y SUPPORTED_COUNTRIES usa códigos ISO uppercase.
+            const value = (field.value ?? "").toString().toUpperCase()
+            return (
+              <FormItem>
+                <FormLabel>País</FormLabel>
+                <Select
+                  value={value}
+                  onValueChange={(v) => field.onChange(v)}
+                >
+                  <FormControl>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar país…" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {SUPPORTED_COUNTRIES.map((c) => (
+                      <SelectItem key={c.code} value={c.code}>
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-base leading-none">{c.flag}</span>
+                          <span>{c.name}</span>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {c.code}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
         />
       </Section>
 
