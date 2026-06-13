@@ -241,7 +241,7 @@ export function AppSidebar({
             </DropdownMenu>
           )}
 
-          <SidebarTrigger className="size-7 cursor-pointer hover:!bg-[#E3E5E9] group-data-[collapsible=icon]:hidden" />
+          <SidebarTrigger className="size-7 cursor-pointer hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] group-data-[collapsible=icon]:hidden" />
         </div>
       </SidebarHeader>
 
@@ -259,7 +259,7 @@ export function AppSidebar({
                   // (cva del primitive shadcn). `cursor-pointer` + override
                   // explícito del hover para que se vea con #E3E5E9 (el
                   // `--sidebar-accent` default es casi indistinguible del bg).
-                  className="h-10 cursor-pointer border border-border text-base text-muted-foreground hover:!bg-[#E3E5E9] [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
+                  className="h-10 cursor-pointer border border-border text-base text-muted-foreground hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
                 >
                   <Search />
                   <span>Buscar…</span>
@@ -310,7 +310,7 @@ export function AppSidebar({
                   // `cursor-pointer` + hover override #E3E5E9 (mismo motivo
                   // que el buscador y los menu items — el default es muy
                   // sutil sobre el bg del sidebar).
-                  className="cursor-pointer hover:!bg-[#E3E5E9] data-[state=open]:!bg-[#EAEEF1] data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:!p-0"
+                  className="cursor-pointer hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] data-[state=open]:!bg-[#EAEEF1] dark:data-[state=open]:!bg-[#1A1D1F] data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:!p-0"
                 >
                   <Avatar className="size-8 rounded-lg">
                     <AvatarFallback className="rounded-lg text-xs">
@@ -429,7 +429,7 @@ function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) 
         asChild
         isActive={isActive}
         tooltip={item.title}
-        className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
+        className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
       >
         <Link href={item.to} onClick={onNavClick}>
           <Icon />
@@ -464,7 +464,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
           isActive={childActive}
           tooltip={group.title}
           onClick={() => setOpen(true)}
-          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
+          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
         >
           <Icon />
           <span>{group.title}</span>
@@ -481,7 +481,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
           tooltip={group.title}
           onClick={() => setOpen((o) => !o)}
           aria-expanded={wantOpen}
-          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
+          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
         >
           <Icon />
           <span className="flex-1 text-left">{group.title}</span>
@@ -500,7 +500,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
                 asChild
                 isActive={isActive}
                 tooltip={sub.title}
-                className="h-9 pl-7 text-sm [&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
+                className="h-9 pl-7 text-sm [&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
               >
                 <Link href={sub.to} onClick={onSubNavClick}>
                   <SubIcon />
