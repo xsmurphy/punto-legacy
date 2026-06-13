@@ -467,9 +467,7 @@ function ItemsPageInner() {
         </div>
       )}
 
-      <Card className="overflow-hidden">
-        <CardContent className="p-4">
-          <DataTable
+      <DataTable
             tableId="items"
             data={filteredRows}
             columns={columns}
@@ -595,8 +593,6 @@ function ItemsPageInner() {
               </>
             }
           />
-        </CardContent>
-      </Card>
     </div>
   )
 }

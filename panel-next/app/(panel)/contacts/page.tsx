@@ -224,47 +224,46 @@ export default function ContactsPage() {
         </div>
       )}
 
-      <Card className="overflow-hidden">
-        <CardContent className="p-4">
-          <DataTable
-            tableId="contacts"
-            data={filteredRows}
-            columns={columns}
-            initialColumnVisibility={initialColumnVisibility}
-            getRowId={(r) => r.id}
-            onRowClick={(r) => router.push(`/contacts/${r.id}`)}
-            isLoading={isLoading}
-            searchPlaceholder="Buscar por nombre, teléfono, email, RUC…"
-            exportFileName="contactos"
-            emptyMessage={
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <Users className="size-8 opacity-30" />
-                <p>{isSupplier ? "No hay proveedores todavía." : "No hay clientes todavía."}</p>
-                <p className="text-xs">
-                  Creá el primero con el botón{" "}
-                  <strong>{isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}</strong>{" "}
-                  arriba a la derecha.
-                </p>
-              </div>
-            }
-            toolbarSlot={
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
-              >
-                <SelectTrigger className="h-9 w-[140px]">
-                  <SelectValue placeholder="Estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="active">Activos</SelectItem>
-                  <SelectItem value="archived">Archivados</SelectItem>
-                </SelectContent>
-              </Select>
-            }
-          />
-        </CardContent>
-      </Card>
+      {/* DataTable sin Card wrapper — el DataTable interno provee border-y
+          (top+bottom de la tabla) y los rows tienen divisores. El feedback del
+          user fue claro: sin bordes externos. */}
+      <DataTable
+        tableId="contacts"
+        data={filteredRows}
+        columns={columns}
+        initialColumnVisibility={initialColumnVisibility}
+        getRowId={(r) => r.id}
+        onRowClick={(r) => router.push(`/contacts/${r.id}`)}
+        isLoading={isLoading}
+        searchPlaceholder="Buscar por nombre, teléfono, email, RUC…"
+        exportFileName="contactos"
+        emptyMessage={
+          <div className="flex flex-col items-center gap-2 text-muted-foreground">
+            <Users className="size-8 opacity-30" />
+            <p>{isSupplier ? "No hay proveedores todavía." : "No hay clientes todavía."}</p>
+            <p className="text-xs">
+              Creá el primero con el botón{" "}
+              <strong>{isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}</strong>{" "}
+              arriba a la derecha.
+            </p>
+          </div>
+        }
+        toolbarSlot={
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
+          >
+            <SelectTrigger className="h-9 w-[140px]">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="active">Activos</SelectItem>
+              <SelectItem value="archived">Archivados</SelectItem>
+            </SelectContent>
+          </Select>
+        }
+      />
     </div>
   )
 }

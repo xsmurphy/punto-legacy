@@ -41,15 +41,13 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [error, router])
 
-  // Subtitle del sidebar = nombre de la sucursal activa cuando hay ≥2 (señaliza
-  // que es seleccionable). Con 1 sola sucursal lo dejamos vacío para no insinuar
-  // un selector que no aparece. El nombre del usuario todavía no se expone en
-  // bootstrap — slice del /v1/me futuro lo reemplazará por algo más útil.
+  // Subtitle del sidebar = nombre de la sucursal activa SIEMPRE que exista
+  // (mismo comportamiento que el panel legacy: debajo del nombre de la empresa
+  // aparece la sucursal en la que se está trabajando, sin importar si hay 1 o N
+  // sucursales). El selector dentro del dropdown sigue gateado a outlets.length>1
+  // (no tiene sentido mostrar un picker con una sola opción).
   const outlets = bootstrap?.outlets ?? []
-  const subtitle =
-    outlets.length > 1 && bootstrap?.activeOutletName
-      ? bootstrap.activeOutletName
-      : ""
+  const subtitle = bootstrap?.activeOutletName ?? ""
 
   const user = bootstrap
     ? {

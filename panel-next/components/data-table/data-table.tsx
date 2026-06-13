@@ -244,8 +244,11 @@ export function DataTable<T>({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-md border overflow-hidden">
+      {/* Table — sin bordes externos. `border-y` deja un borde sutil arriba
+          del header y debajo de la última row para enmarcar visualmente;
+          `[&_tr]:border-b` mantiene los divisores entre rows. Cells con
+          `py-3.5 px-3` agrandan la altura de cada row para respirar mejor. */}
+      <div className="border-y [&_tr]:border-b last:[&_tr]:border-b-0 [&_td]:py-3.5 [&_td]:px-3 [&_th]:px-3 [&_th]:h-11">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (

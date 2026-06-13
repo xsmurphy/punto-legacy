@@ -140,45 +140,41 @@ export default function OutletsPage() {
         </div>
       )}
 
-      <Card className="overflow-hidden">
-        <CardContent className="p-4">
-          <DataTable
-            tableId="outlets"
-            data={filteredRows}
-            columns={columns}
-            getRowId={(r) => r.id}
-            onRowClick={(r) => router.push(`/outlets/${r.id}`)}
-            isLoading={isLoading}
-            searchPlaceholder="Buscar por nombre, dirección, RUC…"
-            exportFileName="sucursales"
-            emptyMessage={
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <MapPin className="size-8 opacity-30" />
-                <p>No hay sucursales todavía.</p>
-                <p className="text-xs">
-                  Creá la primera con el botón <strong>Nueva sucursal</strong>{" "}
-                  arriba a la derecha.
-                </p>
-              </div>
-            }
-            toolbarSlot={
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
-              >
-                <SelectTrigger className="h-9 w-[140px]">
-                  <SelectValue placeholder="Estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  <SelectItem value="active">Activas</SelectItem>
-                  <SelectItem value="inactive">Inactivas</SelectItem>
-                </SelectContent>
-              </Select>
-            }
-          />
-        </CardContent>
-      </Card>
+      <DataTable
+        tableId="outlets"
+        data={filteredRows}
+        columns={columns}
+        getRowId={(r) => r.id}
+        onRowClick={(r) => router.push(`/outlets/${r.id}`)}
+        isLoading={isLoading}
+        searchPlaceholder="Buscar por nombre, dirección, RUC…"
+        exportFileName="sucursales"
+        emptyMessage={
+          <div className="flex flex-col items-center gap-2 text-muted-foreground">
+            <MapPin className="size-8 opacity-30" />
+            <p>No hay sucursales todavía.</p>
+            <p className="text-xs">
+              Creá la primera con el botón <strong>Nueva sucursal</strong>{" "}
+              arriba a la derecha.
+            </p>
+          </div>
+        }
+        toolbarSlot={
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
+          >
+            <SelectTrigger className="h-9 w-[140px]">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas</SelectItem>
+              <SelectItem value="active">Activas</SelectItem>
+              <SelectItem value="inactive">Inactivas</SelectItem>
+            </SelectContent>
+          </Select>
+        }
+      />
     </div>
   )
 }
