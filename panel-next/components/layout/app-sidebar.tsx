@@ -43,6 +43,7 @@ import {
   ShoppingCart,
   Puzzle,
   Store,
+  Building2,
   Check,
   Loader2,
 } from "lucide-react"
@@ -263,6 +264,12 @@ export function AppSidebar({
                     <Link href="/purchase">
                       <ShoppingCart />
                       Compras y Gastos
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/outlets">
+                      <Building2 />
+                      Sucursales
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>

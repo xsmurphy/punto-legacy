@@ -3,6 +3,18 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
+  Building2,
+  FileText,
+  Globe,
+  Palette,
+  Receipt,
+  ScanBarcode,
+  ScanLine,
+  Settings as SettingsIcon,
+  ShoppingCart,
+  Tag,
+} from "lucide-react"
+import {
   Command,
   CommandDialog,
   CommandEmpty,
@@ -10,6 +22,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command"
 import type { NavEntry } from "@/components/layout/app-sidebar"
 
@@ -21,9 +34,134 @@ interface Props {
 }
 
 /**
+ * Rutas que NO viven en el sidebar pero deben ser alcanzables por el palette.
+ * Cubre todo lo "secundario" (configuración por sección, sucursales, plantillas,
+ * etc.) — el sidebar queda minimalista (5 items) y el palette es el catch-all.
+ *
+ * Cada entry trae:
+ *   - `title`: lo que el user busca y ve en el item.
+ *   - `to`:    href de destino (deep-link cuando aplica, ej. ?tab=brands).
+ *   - `icon`:  componente lucide.
+ *   - `group`: heading donde se agrupa el item en el palette.
+ *   - `keywords`: alias adicionales para el search de cmdk (ej. "stock" → Sucursales).
+ */
+interface ExtraRoute {
+  title: string
+  to: string
+  icon: React.ComponentType<{ className?: string }>
+  group: "Operaciones" | "Configuración" | "Catálogo"
+  keywords?: string[]
+}
+
+const EXTRA_ROUTES: ExtraRoute[] = [
+  // Operaciones (cosas que el user hace, no ajustes)
+  {
+    title: "Sucursales",
+    to: "/outlets",
+    icon: Building2,
+    group: "Operaciones",
+    keywords: ["outlet", "tienda", "branch", "local"],
+  },
+  {
+    title: "Códigos de barras",
+    to: "/items/barcodes",
+    icon: ScanBarcode,
+    group: "Operaciones",
+    keywords: ["barcode", "etiquetas", "labels", "print"],
+  },
+
+  // Configuración (modal o página dedicada)
+  {
+    title: "Configuración · Empresa",
+    to: "/settings",
+    icon: SettingsIcon,
+    group: "Configuración",
+    keywords: ["company", "datos", "razon social", "ruc"],
+  },
+  {
+    title: "Configuración · Localización",
+    to: "/settings",
+    icon: Globe,
+    group: "Configuración",
+    keywords: ["idioma", "zona horaria", "moneda", "pais", "language"],
+  },
+  {
+    title: "Configuración · POS",
+    to: "/settings",
+    icon: ScanLine,
+    group: "Configuración",
+    keywords: ["caja", "pos", "punto de venta", "ventas"],
+  },
+  {
+    title: "Configuración · Apariencia",
+    to: "/settings",
+    icon: Palette,
+    group: "Configuración",
+    keywords: ["tema", "dark", "light", "oscuro", "claro", "theme"],
+  },
+  {
+    title: "Configuración · Documentos",
+    to: "/settings",
+    icon: FileText,
+    group: "Configuración",
+    keywords: ["plantilla", "template", "factura", "ticket"],
+  },
+  {
+    title: "Plantillas de impresión (editor)",
+    to: "/settings/print-templates",
+    icon: FileText,
+    group: "Configuración",
+    keywords: ["editor", "template builder", "diseñar"],
+  },
+
+  // Catálogo (deep-link a cada tab)
+  {
+    title: "Catálogo · Categorías",
+    to: "/settings/catalog?tab=categories",
+    icon: Tag,
+    group: "Catálogo",
+    keywords: ["categories", "tag", "clasificar"],
+  },
+  {
+    title: "Catálogo · Marcas",
+    to: "/settings/catalog?tab=brands",
+    icon: Building2,
+    group: "Catálogo",
+    keywords: ["brands", "fabricantes", "marca"],
+  },
+  {
+    title: "Catálogo · Impuestos",
+    to: "/settings/catalog?tab=taxes",
+    icon: Receipt,
+    group: "Catálogo",
+    keywords: ["taxes", "iva", "tax", "impuesto"],
+  },
+
+  // Acciones rápidas del menú user (también accesibles desde aquí)
+  {
+    title: "Estado de cuenta",
+    to: "/history-billing",
+    icon: FileText,
+    group: "Operaciones",
+    keywords: ["billing", "facturas", "pagos"],
+  },
+  {
+    title: "Compras y gastos",
+    to: "/purchase",
+    icon: ShoppingCart,
+    group: "Operaciones",
+    keywords: ["expenses", "purchase", "egresos"],
+  },
+]
+
+/**
  * Command palette del panel — abre con ⌘K o click en el "Buscar…" del sidebar.
- * Por ahora lista solo las rutas del nav; queda preparado para sumar acciones,
- * búsquedas de items/clientes, etc. en próximas iteraciones.
+ * Combina dos fuentes:
+ *  1. Items del nav lateral (pasados como prop) → grupo "Navegación".
+ *  2. Rutas extra hardcodeadas (`EXTRA_ROUTES`) → grupos secundarios por tipo.
+ *
+ * El palette es el catch-all: cualquier ruta debe ser alcanzable desde acá,
+ * aunque NO esté en el sidebar (que mantenemos minimalista con 5 items).
  */
 export function AppCommandPalette({ open, onOpenChange, nav }: Props) {
   const router = useRouter()
@@ -56,6 +194,19 @@ export function AppCommandPalette({ open, onOpenChange, nav }: Props) {
     return result
   }, [nav])
 
+  // Agrupar los EXTRA_ROUTES por su `group` para renderizar cada CommandGroup.
+  const grouped = React.useMemo(() => {
+    const acc: Record<ExtraRoute["group"], ExtraRoute[]> = {
+      Operaciones: [],
+      Configuración: [],
+      Catálogo: [],
+    }
+    EXTRA_ROUTES.forEach((r) => {
+      acc[r.group].push(r)
+    })
+    return acc
+  }, [])
+
   return (
     <CommandDialog
       open={open}
@@ -85,6 +236,34 @@ export function AppCommandPalette({ open, onOpenChange, nav }: Props) {
               )
             })}
           </CommandGroup>
+
+          {(Object.keys(grouped) as Array<ExtraRoute["group"]>).map((g) => {
+            const items = grouped[g]
+            if (items.length === 0) return null
+            return (
+              <React.Fragment key={g}>
+                <CommandSeparator />
+                <CommandGroup heading={g}>
+                  {items.map((it) => {
+                    const Icon = it.icon
+                    // cmdk usa `value` para search — concatenamos keywords para
+                    // que el filter encuentre el item por sinónimos en otros idiomas.
+                    const searchValue = [it.title, ...(it.keywords ?? [])].join(" ")
+                    return (
+                      <CommandItem
+                        key={`${it.to}|${it.title}`}
+                        value={searchValue}
+                        onSelect={() => go(it.to)}
+                      >
+                        {Icon && <Icon className="size-4" />}
+                        <span>{it.title}</span>
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              </React.Fragment>
+            )
+          })}
         </CommandList>
       </Command>
     </CommandDialog>

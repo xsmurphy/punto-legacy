@@ -1145,24 +1145,20 @@ function CatalogTab({ onNavigate }: { onNavigate?: (href: string) => void }) {
 }
 
 function AparienciaTab() {
+  // Sin Card — el ThemePicker (3 cards visuales lado a lado) ya es bastante
+  // contenido visual; envolverlo en otro Card era desprolijo. Subsection da
+  // título consistente con el resto de tabs sin agregar borde extra.
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">Tema</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            La preferencia se guarda en este dispositivo. Atajo: presioná{" "}
-            <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
-              D
-            </kbd>{" "}
-            en cualquier pantalla para alternar entre claro y oscuro.
-          </p>
-          <ThemePicker />
-        </CardContent>
-      </Card>
-    </div>
+    <Subsection title="Tema">
+      <p className="text-xs text-muted-foreground">
+        La preferencia se guarda en este dispositivo. Atajo: presioná{" "}
+        <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+          D
+        </kbd>{" "}
+        en cualquier pantalla para alternar entre claro y oscuro.
+      </p>
+      <ThemePicker />
+    </Subsection>
   )
 }
 
