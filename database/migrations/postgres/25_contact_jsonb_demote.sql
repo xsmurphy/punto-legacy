@@ -8,88 +8,95 @@
 -- Las que tienen índice (contactName, contactEmail, contactPhone, contactTIN,
 -- contactStatus) y los timestamps de auditoría se mantienen como columnas.
 --
--- Columnas demoted al JSONB `data`:
---   contactSecondName  — nombre de persona dentro de empresa (display puro)
---   contactAddress     — dirección texto libre
---   contactAddress2    — dirección 2 (referencia)
---   contactNote        — observaciones internas
---   contactCity        — ciudad
---   contactLocation    — barrio/zona
---   contactCountry     — código de país
---   contactCI          — cédula (a futuro: si se necesita filtrar, queda
---                        accesible vía data->>'contactCI' con GIN index si hace
---                        falta — hoy se consulta vía search del listado)
---   contactBirthDay    — cumpleaños (display + marketing)
+-- ⚠️ SOLAPAMIENTO CON MIGRACIÓN 06 (fix 2026-06-13):
+--   La Migración 06 ya degradó+dropeó 6 de estas columnas (contactAddress,
+--   contactAddress2, contactNote, contactCity, contactLocation, contactCountry).
+--   En BDs donde la 06 ya corrió (prod), esas columnas NO existen → un UPDATE/
+--   ALTER estático que las referencie falla al parsear con "column does not
+--   exist" y aborta el boot del container (deploy roto — causa real del bug
+--   2026-06-13). En BDs fresh el bootstrap de migrate.php SALTEA la 06 (marca
+--   01-13 como already-applied al detectar outletAddress), por lo que ahí esas
+--   columnas SÍ existen.
+--   Para cubrir ambos casos esta migración es existence-aware: construye el
+--   backfill y los DROP dinámicamente, solo sobre las columnas que existan.
+--
+-- Columnas degradadas al JSONB `data` (si existen):
+--   contactSecondName, contactCI, contactBirthDay
+--   (+ contactAddress/Address2/Note/City/Location/Country en BDs donde la 06
+--    no corrió — en prod ya están en `data` desde la 06)
 --
 -- Columnas eliminadas:
---   contactPhone2      — segundo teléfono (deprecado)
+--   contactPhone2 — segundo teléfono (deprecado, sin backfill: dato muerto)
 --
 -- ⚠️ DEPLOY COORDINADO con cambios de código (ver session log 2026-06-13):
---   1. _getTableSchema() 'contact' en app/ y panel/: quitar las 9 columnas
---      demoted del whitelist + contactPhone2. Sin esto, ncmInsert/ncmUpdate
---      siguen intentando escribir columnas que ya no existen → "column does
---      not exist" SQL error en cada save.
---   2. ContactRepository.buildListWhere: el search ahora filtra
---      contactSecondName y contactCI vía (data->>'key') porque las columnas
---      no existen. PG puede usar el GIN index sobre data.
---   3. ContactRepository.findByCI: cambiar `WHERE contactCI = ?` por
---      `WHERE data->>'contactCI' = ?` (o equivalente).
---   4. ContactService.mapToColumns: NO mandar `contactPhone2` al record.
---   5. Frontend panel-next: tipo Contact, form de [id]/page.tsx, hook serialize,
---      y columna del listado contacts/page.tsx — sacar phone2 entero.
+--   1. _getTableSchema() 'contact' en app/ y panel/: quitar las columnas
+--      demoted del whitelist + contactPhone2.
+--   2. ContactRepository: search/findByCI usan (data->>'contactCI') etc.
+--   3. Frontend panel-next: tipo Contact + form + listado sin phone2.
 --
 -- ⚠️ PRIVILEGIOS: ALTER TABLE ... DROP COLUMN requiere ser OWNER de la tabla.
--- En local: el OS user de Postgres.app; en prod: el rol del servicio Postgres
--- gestionado por Coolify.
 --
--- Idempotente: backfill usa COALESCE/NULLIF + jsonb_strip_nulls; los
--- DROP COLUMN usan IF EXISTS. Reaplicar es no-op.
+-- Idempotente: existence-aware + IF EXISTS. Reaplicar es no-op.
 
 BEGIN;
 
--- 1. Backfill JSONB `data` con valores no vacíos de las columnas demoted.
---    jsonb_strip_nulls limpia keys con NULL para no contaminar el JSONB con
---    valores ausentes. El merge `||` pisa el lado izquierdo con el derecho —
---    correcto: las columnas SQL fueron source-of-truth, ganan sobre cualquier
---    copia previa que haya quedado en `data` durante dual-writes históricos.
-UPDATE contact
-SET data = COALESCE(data, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
-        'contactSecondName', NULLIF(contactSecondName, ''),
-        'contactAddress',    NULLIF(contactAddress,    ''),
-        'contactAddress2',   NULLIF(contactAddress2,   ''),
-        'contactNote',       NULLIF(contactNote,       ''),
-        'contactCity',       NULLIF(contactCity,       ''),
-        'contactLocation',   NULLIF(contactLocation,   ''),
-        'contactCountry',    NULLIF(contactCountry,    ''),
-        'contactCI',         NULLIF(contactCI,         ''),
-        -- contactBirthDay es DATE — castear a text para meterlo al JSONB. El
-        -- patrón del front (input type=date) ya espera 'YYYY-MM-DD'.
-        'contactBirthDay',   to_char(contactBirthDay, 'YYYY-MM-DD')
-    ))
-WHERE contactSecondName IS NOT NULL
-   OR contactAddress    IS NOT NULL
-   OR contactAddress2   IS NOT NULL
-   OR contactNote       IS NOT NULL
-   OR contactCity       IS NOT NULL
-   OR contactLocation   IS NOT NULL
-   OR contactCountry    IS NOT NULL
-   OR contactCI         IS NOT NULL
-   OR contactBirthDay   IS NOT NULL;
+DO $migrate25$
+DECLARE
+    -- Columnas de texto a degradar: NULLIF(col,'') → JSONB. Algunas pueden no
+    -- existir si la Migración 06 ya las degradó (prod) — se saltean.
+    text_cols  text[] := ARRAY[
+        'contactSecondName','contactAddress','contactAddress2','contactNote',
+        'contactCity','contactLocation','contactCountry','contactCI'
+    ];
+    col        text;
+    build_args text := '';
+    where_cond text := '';
+BEGIN
+    -- 1. Construir el backfill solo con las columnas de texto que existen.
+    --    %L = literal (la key camelCase del JSONB), %I = identificador (la
+    --    columna real, en minúsculas porque PG fold'ea identifiers sin comillas).
+    FOREACH col IN ARRAY text_cols LOOP
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'contact' AND table_schema = current_schema()
+              AND lower(column_name) = lower(col)
+        ) THEN
+            build_args := build_args || format('%L, NULLIF(%I, %L), ', col, lower(col), '');
+            where_cond := where_cond || format('%I IS NOT NULL OR ', lower(col));
+        END IF;
+    END LOOP;
 
--- 2. Drop de las columnas demoted (idempotente con IF EXISTS).
-ALTER TABLE contact DROP COLUMN IF EXISTS contactSecondName;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactAddress;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactAddress2;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactNote;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactCity;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactLocation;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactCountry;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactCI;
-ALTER TABLE contact DROP COLUMN IF EXISTS contactBirthDay;
+    -- contactBirthDay es DATE → to_char en vez de NULLIF(,'').
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'contact' AND table_schema = current_schema()
+          AND lower(column_name) = 'contactbirthday'
+    ) THEN
+        build_args := build_args || format('%L, to_char(%I, %L), ', 'contactBirthDay', 'contactbirthday', 'YYYY-MM-DD');
+        where_cond := where_cond || format('%I IS NOT NULL OR ', 'contactbirthday');
+    END IF;
 
--- 3. DROP contactPhone2 — decisión de producto 2026-06-13. NO se hace
---    backfill al JSONB porque se considera dato muerto: el form ya no lo
---    pide. Si algún tenant pegó valor ahí, se descarta.
-ALTER TABLE contact DROP COLUMN IF EXISTS contactPhone2;
+    -- 2. Backfill + drop si quedó al menos una columna por degradar.
+    IF build_args <> '' THEN
+        build_args := left(build_args, -2);   -- saca el ', ' final
+        where_cond := left(where_cond, -4);   -- saca el ' OR ' final
+
+        EXECUTE format(
+            'UPDATE contact SET data = COALESCE(data, ''{}''::jsonb) || '
+            || 'jsonb_strip_nulls(jsonb_build_object(%s)) WHERE %s',
+            build_args, where_cond
+        );
+
+        -- Drop de las columnas degradadas (IF EXISTS → no-op para las ausentes).
+        FOREACH col IN ARRAY text_cols LOOP
+            EXECUTE format('ALTER TABLE contact DROP COLUMN IF EXISTS %I', lower(col));
+        END LOOP;
+        EXECUTE 'ALTER TABLE contact DROP COLUMN IF EXISTS contactBirthDay';
+    END IF;
+
+    -- 3. contactPhone2: dato muerto, drop sin backfill (idempotente).
+    EXECUTE format('ALTER TABLE contact DROP COLUMN IF EXISTS %I', 'contactphone2');
+END
+$migrate25$;
 
 COMMIT;
