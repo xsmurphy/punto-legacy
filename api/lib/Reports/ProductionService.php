@@ -213,7 +213,7 @@ final class ProductionService
     private function compoundItemIds(string $companyId): array
     {
         $res = ncmExecute(
-            "SELECT itemId FROM item WHERE itemCanSale < 1 AND companyId = ?",
+            "SELECT itemId FROM item WHERE itemCanSale IS FALSE AND companyId = ?",
             [$companyId], false, false, true
         );
         $res = is_array($res) ? $res : [];
