@@ -247,13 +247,11 @@ function HeroKpiCard({
   const isBrand = variant === "brand"
   const Icon = isBrand ? ArrowUpRight : ArrowDownRight
   return (
-    <Card
-      className={cn(
-        "relative overflow-hidden",
-        isBrand && "bg-[color-mix(in_oklab,var(--brand)_8%,var(--card))] ring-1 ring-[var(--brand)]/20",
-      )}
-    >
-      <CardContent className="flex flex-col gap-1 p-5">
+    <Card className="relative overflow-hidden">
+      {/* CardContent solo controla horizontal — el padding vertical lo da el
+          Card padre via `py-(--card-spacing)`. Override de `p-5` antes
+          DUPLICABA el vertical (20px Card + 20px CardContent = 40px). */}
+      <CardContent className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Icon
@@ -286,8 +284,9 @@ function HeroKpiCard({
 }
 
 /**
- * KPI compacto del bloque de chart (Ganancias). Card dark del legacy
- * (bg-dark + texto blanco) replicada con bg-foreground + texto bg.
+ * KPI compacto del bloque de chart (Ganancias). Card neutro — antes era
+ * `bg-foreground text-background` (negro invertido del legacy), removido
+ * para uniformar el dashboard con un solo color de fondo.
  */
 function SecondaryKpiCard({
   label,
@@ -301,14 +300,14 @@ function SecondaryKpiCard({
   isLoading: boolean
 }) {
   return (
-    <Card className="bg-foreground text-background">
-      <CardContent className="flex flex-col gap-1 p-4">
-        <span className="text-[10px] uppercase tracking-wide text-background/60">{label}</span>
+    <Card>
+      <CardContent className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
         {isLoading ? (
-          <Skeleton className="h-7 w-24 bg-background/10" />
+          <Skeleton className="h-7 w-24" />
         ) : (
           <div className="flex items-baseline gap-1.5">
-            <span className="text-xs text-background/60">{currency}</span>
+            <span className="text-xs text-muted-foreground">{currency}</span>
             <span className="text-2xl font-bold tabular-nums">{value}</span>
           </div>
         )}
@@ -330,7 +329,7 @@ function DualKpi({
 }) {
   return (
     <Card>
-      <CardContent className="grid grid-cols-2 gap-2 p-5">
+      <CardContent className="grid grid-cols-2 gap-2">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
             {label1}

@@ -220,7 +220,7 @@ export function AppSidebar({
                 <SidebarMenuButton
                   tooltip="Buscar (⌘K)"
                   onClick={() => setCommandOpen(true)}
-                  className="h-10 text-base text-muted-foreground [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
+                  className="h-10 rounded-md border border-border bg-background text-base text-muted-foreground shadow-xs hover:border-border hover:bg-accent/50 [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
                 >
                   <Search />
                   <span>Buscar…</span>
