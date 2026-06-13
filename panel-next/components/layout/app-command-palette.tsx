@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
+  BarChart3,
   Building2,
   FileText,
   Globe,
@@ -13,6 +14,7 @@ import {
   Settings as SettingsIcon,
   ShoppingCart,
   Tag,
+  Wallet,
 } from "lucide-react"
 import {
   Command,
@@ -49,7 +51,7 @@ interface ExtraRoute {
   title: string
   to: string
   icon: React.ComponentType<{ className?: string }>
-  group: "Operaciones" | "Configuración" | "Catálogo"
+  group: "Operaciones" | "Configuración" | "Catálogo" | "Reportes"
   keywords?: string[]
 }
 
@@ -152,6 +154,30 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     group: "Operaciones",
     keywords: ["expenses", "purchase", "egresos"],
   },
+
+  // Reportes — landing + sub-reports implementados. La landing tiene
+  // discoverability del resto (que están marked "próximamente").
+  {
+    title: "Reportes (índice)",
+    to: "/reports",
+    icon: BarChart3,
+    group: "Reportes",
+    keywords: ["reports", "analytics", "informes"],
+  },
+  {
+    title: "Reportes · Control de cajas",
+    to: "/reports/drawers",
+    icon: Wallet,
+    group: "Reportes",
+    keywords: ["drawers", "arqueo", "cierre de caja", "apertura"],
+  },
+  {
+    title: "Reportes · Transacciones",
+    to: "/reports/transactions",
+    icon: Receipt,
+    group: "Reportes",
+    keywords: ["transactions", "ventas", "facturas", "tickets"],
+  },
 ]
 
 /**
@@ -198,6 +224,7 @@ export function AppCommandPalette({ open, onOpenChange, nav }: Props) {
   const grouped = React.useMemo(() => {
     const acc: Record<ExtraRoute["group"], ExtraRoute[]> = {
       Operaciones: [],
+      Reportes: [],
       Configuración: [],
       Catálogo: [],
     }
