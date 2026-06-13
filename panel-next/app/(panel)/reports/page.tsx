@@ -14,7 +14,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowRight, BarChart3 } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -122,12 +122,9 @@ function ReportLink({ item }: { item: ReportItem }) {
   )
   const content = (
     <>
-      <div className="flex items-center gap-2 min-w-0">
-        <BarChart3 className="size-4 text-muted-foreground shrink-0" />
-        <span className="truncate">{item.title}</span>
-      </div>
+      <span className="truncate">{item.title}</span>
       {item.implemented ? (
-        <ArrowRight className="size-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+        <ArrowRight className="size-4 text-muted-foreground transition-colors group-hover:text-foreground shrink-0" />
       ) : (
         <Badge variant="secondary" className="text-[10px]">
           Próximamente
