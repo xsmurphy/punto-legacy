@@ -498,10 +498,24 @@ export function useTaxonomiesByType(type: string) {
   }
 }
 
-/** Lista de monedas extranjeras del tenant con sus tasas. */
+/** Lista de monedas extranjeras del tenant con sus tasas.
+ *
+ *  `ccode` = país ISO 3166-1 alpha-2 (PY/AR/US/EC/...) — necesario para
+ *  diferenciar las múltiples monedas con el mismo ISO 4217 (USD lo usan
+ *  Estados Unidos, Ecuador, Panamá, El Salvador, etc.) y para pintar la
+ *  bandera + nombre de país en la UI.
+ *
+ *  `code` = ISO 4217 de la moneda (USD/EUR/PYG/ARS/...).
+ *
+ *  `value` = tasa al PYG.
+ */
 export interface CurrencyEntry {
-  country?: string
+  ccode: string
   code: string
+  value?: number
+  // Campos opcionales legacy — algunos endpoints históricos los incluían;
+  // se preservan para no romper consumers que los lean.
+  country?: string
   rate?: number
   symbol?: string
   name?: string

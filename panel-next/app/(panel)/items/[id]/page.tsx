@@ -1388,19 +1388,22 @@ function CotizacionesTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
         )}
 
         {!isLoading && currencies && currencies.length > 0 && (
-          <div className="flex flex-col divide-y rounded-md border">
-            {currencies.map((c) => (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {currencies.map((c, idx) => (
               <div
-                key={c.code}
-                className="flex items-center justify-between gap-3 p-3"
+                key={`${c.ccode}-${c.code}-${idx}`}
+                className="flex items-center justify-between gap-3 rounded-md border p-3"
               >
-                <div className="flex flex-col">
-                  <div className="text-sm font-semibold tracking-wide">
-                    {c.code}
+                <div className="flex items-center gap-3 min-w-0">
+                  <CountryFlag code={c.ccode} />
+                  <div className="flex flex-col min-w-0">
+                    <div className="truncate text-sm font-semibold tracking-tight">
+                      {countryName(c.ccode)}
+                    </div>
+                    <div className="text-xs text-muted-foreground tabular-nums">
+                      {c.code}
+                    </div>
                   </div>
-                  {c.name && (
-                    <div className="text-xs text-muted-foreground">{c.name}</div>
-                  )}
                 </div>
                 <Input
                   type="number"
@@ -1412,7 +1415,7 @@ function CotizacionesTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
                     const v = e.target.value
                     form.setValue(`currencies.${c.code}` as never, (v === "" ? 0 : Number(v)) as never, { shouldDirty: true })
                   }}
-                  className="tabular-nums w-40 text-right"
+                  className="tabular-nums w-28 text-right"
                 />
               </div>
             ))}
@@ -1624,4 +1627,37 @@ function BackLink() {
       Volver a artículos
     </Link>
   )
+}
+
+// ── Helpers de país/moneda ─────────────────────────────────────────────────
+//
+// Mismos helpers que viven inline en /settings (CountryFlag). Acá repetidos
+// porque el módulo de Items no debe depender del page de Settings — si en el
+// futuro aparece un tercer consumer, mover ambos a `lib/country.tsx`.
+
+function CountryFlag({ code }: { code: string }) {
+  const flag = code
+    ? code
+        .toUpperCase()
+        .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
+    : "🌐"
+  return <span className="text-2xl leading-none">{flag}</span>
+}
+
+/**
+ * Nombre del país en español desde el ccode ISO 3166-1 alpha-2 — usando la
+ * API nativa Intl.DisplayNames (sin dependencias). Fallback al ccode si el
+ * runtime no lo soporta o el código es desconocido.
+ *
+ * Crítico para diferenciar las múltiples monedas con el mismo ISO 4217:
+ * USD lo usan US/EC/PA/SV/etc. — sin nombre de país, son indistinguibles.
+ */
+function countryName(ccode: string): string {
+  if (!ccode) return ""
+  try {
+    const dn = new Intl.DisplayNames(["es"], { type: "region" })
+    return dn.of(ccode.toUpperCase()) || ccode
+  } catch {
+    return ccode
+  }
 }
