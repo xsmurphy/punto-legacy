@@ -65,7 +65,7 @@ const GROUPS: ReportGroup[] = [
       { title: "Cuentas por pagar",     to: "/reports/open-invoices?state=outcome", implemented: true  },
       { title: "Resumen anual",         to: "/reports/summary-year",    implemented: false },
       { title: "Flujo de caja",         to: "/reports/cashflow",        implemented: false },
-      { title: "Compras y gastos",      to: "/reports/purchases",       implemented: false },
+      { title: "Compras y gastos",      to: "/reports/purchases",       implemented: true  },
       { title: "Pagos ePOS",            to: "/reports/vpayments",       implemented: false },
       { title: "Control de cajas",      to: "/reports/drawers",         implemented: true  },
       { title: "Movimientos de caja",   to: "/reports/expenses",        implemented: true  },
