@@ -422,7 +422,7 @@ function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) 
         asChild
         isActive={isActive}
         tooltip={item.title}
-        className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[oklch(0.90_0_0)] dark:data-[active=true]:!bg-[oklch(0.16_0_0)]"
+        className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
       >
         <Link href={item.to} onClick={onNavClick}>
           <Icon />
@@ -457,7 +457,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
           isActive={childActive}
           tooltip={group.title}
           onClick={() => setOpen(true)}
-          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[oklch(0.90_0_0)] dark:data-[active=true]:!bg-[oklch(0.16_0_0)]"
+          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
         >
           <Icon />
           <span>{group.title}</span>
@@ -474,7 +474,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
           tooltip={group.title}
           onClick={() => setOpen((o) => !o)}
           aria-expanded={wantOpen}
-          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[oklch(0.90_0_0)] dark:data-[active=true]:!bg-[oklch(0.16_0_0)]"
+          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
         >
           <Icon />
           <span className="flex-1 text-left">{group.title}</span>
@@ -493,7 +493,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
                 asChild
                 isActive={isActive}
                 tooltip={sub.title}
-                className="h-9 pl-7 text-sm [&>svg]:size-4 data-[active=true]:!bg-[oklch(0.90_0_0)] dark:data-[active=true]:!bg-[oklch(0.16_0_0)]"
+                className="h-9 pl-7 text-sm [&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9]"
               >
                 <Link href={sub.to} onClick={onSubNavClick}>
                   <SubIcon />
