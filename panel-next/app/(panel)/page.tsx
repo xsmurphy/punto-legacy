@@ -113,48 +113,57 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_22rem]">
         {/* ── MAIN COLUMN (8/12 legacy) ─────────────────────────────────── */}
         <div className="flex min-w-0 flex-col gap-4">
-          {/* HERO — Ingresos (accent verde) + Egresos lado a lado, prominentes */}
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <HeroKpiCard
+          {/* KPI ROW — 4 cards compactos. Los 2 monetarios (Ingresos/Egresos)
+              llevan sparkline reusando la serie de incomeChart (mismo endpoint
+              que el chart grande de abajo — sin fetch extra). Tickets y Ticket
+              promedio van sin sparkline porque no hay serie temporal disponible
+              hoy (requeriría endpoint nuevo). */}
+          <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <MetricCard
               label="Ingresos"
               href="/reports/summary"
               currency={bootstrap?.currency ?? ""}
               value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
               isLoading={stats.isLoading}
-              variant="brand"
+              sparkline={incomeChart.data?.data.map((p) => p.ingresos)}
+              sparklineColor="var(--brand)"
+              trend="up"
             />
-            <HeroKpiCard
+            <MetricCard
               label="Egresos"
               href="/purchase"
               currency={bootstrap?.currency ?? ""}
               value={fmtMoney(stats.data?.expenses, bootstrap, stats.isLoading)}
               isLoading={stats.isLoading}
-              variant="default"
+              sparkline={incomeChart.data?.data.map((p) => p.egresos)}
+              sparklineColor="var(--destructive)"
+              trend="down"
+            />
+            <MetricCard
+              label="Tickets"
+              value={stats.isLoading ? null : formatInt(stats.data?.count, bootstrap)}
+              isLoading={stats.isLoading}
+              hint="emitidos en el período"
+            />
+            <MetricCard
+              label="Ticket promedio"
+              currency={bootstrap?.currency ?? ""}
+              value={fmtMoney(stats.data?.customerAverage, bootstrap, stats.isLoading)}
+              isLoading={stats.isLoading}
+              hint={stats.isLoading ? "" : `Margen ${stats.data?.margin ?? 0}%`}
             />
           </section>
 
-          {/* Chart + sidebar de KPIs (Ganancias / Margen / Tickets) en una row */}
-          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[2fr_1fr]">
+          {/* Chart full-width: Margen / Ingresos / Egresos. Antes ocupaba 2/3
+              del row con Ganancias al lado — Ganancias salió porque ya está
+              implícito en Ingresos vs Egresos del row 1. */}
+          <section>
             <IncomeAreaChart
               data={incomeChart.data}
               isLoading={incomeChart.isLoading}
               error={incomeChart.error}
               bootstrap={bootstrap}
             />
-            <div className="flex flex-col gap-3">
-              <SecondaryKpiCard
-                label="Ganancias"
-                currency={bootstrap?.currency ?? ""}
-                value={fmtMoney(stats.data?.revenue, bootstrap, stats.isLoading)}
-                isLoading={stats.isLoading}
-              />
-              <DualKpi
-                label1="Margen"
-                value1={stats.isLoading ? null : `${stats.data?.margin ?? 0}%`}
-                label2="Tickets"
-                value2={stats.isLoading ? null : formatInt(stats.data?.count, bootstrap)}
-              />
-            </div>
           </section>
 
           {/* Tipos de ventas + Cuentas por cobrar — donuts lado a lado */}
@@ -223,60 +232,77 @@ export default function DashboardPage() {
 // ── KPI cards ──────────────────────────────────────────────────────────────
 
 /**
- * Hero KPI — espejo de las cards "Ingresos" / "Egresos" del dashboard legacy.
- * Card grande con currency apagado al lado del monto + chevron a la derecha,
- * y variante con accent verde Punto para Ingresos (gradBgBlue del legacy → bg
- * brand sutil acá). El layout escala el `text-3xl` para que el monto pese
- * visualmente como el `h1` del legacy.
+ * MetricCard — KPI compacto con sparkline opcional al pie. Patrón del shadcn
+ * dashboard reference: label arriba, valor grande, hint sutil, sparkline.
+ * Pasar `sparkline` (array de números) para los KPIs que tengan serie temporal
+ * disponible (Ingresos/Egresos vía useIncomeChart); omitirlo para KPIs sin
+ * serie (Tickets, Ticket promedio — requeriría endpoint nuevo).
+ *
+ * `trend` solo afecta el ícono del label (ArrowUp/Down). El delta % vs período
+ * anterior NO se calcula hoy porque el backend no devuelve la comparación;
+ * queda como follow-up cuando se quiera replicar el "+X% from last month" del
+ * mockup de referencia.
  */
-function HeroKpiCard({
+function MetricCard({
   label,
   href,
   currency,
   value,
   isLoading,
-  variant,
+  hint,
+  sparkline,
+  sparklineColor,
+  trend,
 }: {
   label: string
-  href: string
-  currency: string
+  href?: string
+  currency?: string
   value: React.ReactNode
   isLoading: boolean
-  variant: "brand" | "default"
+  hint?: string
+  sparkline?: number[]
+  sparklineColor?: string
+  trend?: "up" | "down"
 }) {
-  const isBrand = variant === "brand"
-  const Icon = isBrand ? ArrowUpRight : ArrowDownRight
+  const TrendIcon = trend === "up" ? ArrowUpRight : trend === "down" ? ArrowDownRight : null
+  const trendColor = trend === "up" ? "text-[var(--brand)]" : trend === "down" ? "text-destructive" : ""
+
   return (
     <Card className="relative overflow-hidden">
-      {/* CardContent solo controla horizontal — el padding vertical lo da el
-          Card padre via `py-(--card-spacing)`. Override de `p-5` antes
-          DUPLICABA el vertical (20px Card + 20px CardContent = 40px). */}
-      <CardContent className="flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <Icon
-              className={cn(
-                "size-4",
-                isBrand ? "text-[var(--brand)]" : "text-destructive",
-              )}
-            />
-            {label}
+      <CardContent className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {TrendIcon && <TrendIcon className={cn("size-3.5 shrink-0", trendColor)} />}
+            <span className="truncate">{label}</span>
           </div>
-          <Link
-            href={href}
-            className="text-muted-foreground transition-colors hover:text-foreground"
-            aria-label={`Ir a ${label}`}
-          >
-            <ChevronRight className="size-4" />
-          </Link>
+          {href && (
+            <Link
+              href={href}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={`Ir a ${label}`}
+            >
+              <ChevronRight className="size-4" />
+            </Link>
+          )}
         </div>
+
         {isLoading ? (
-          <Skeleton className="h-9 w-40" />
+          <Skeleton className="h-8 w-32" />
         ) : (
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm font-normal text-muted-foreground">{currency}</span>
-            <span className="text-3xl font-bold tracking-tight tabular-nums">{value}</span>
+          <div className="flex items-baseline gap-1.5">
+            {currency && (
+              <span className="text-xs font-normal text-muted-foreground">{currency}</span>
+            )}
+            <span className="text-2xl font-bold tracking-tight tabular-nums">{value}</span>
           </div>
+        )}
+
+        {hint && !isLoading && (
+          <span className="text-xs text-muted-foreground">{hint}</span>
+        )}
+
+        {sparkline && sparkline.length > 1 && (
+          <Sparkline values={sparkline} color={sparklineColor ?? "var(--brand)"} />
         )}
       </CardContent>
     </Card>
@@ -284,74 +310,37 @@ function HeroKpiCard({
 }
 
 /**
- * KPI compacto del bloque de chart (Ganancias). Card neutro — antes era
- * `bg-foreground text-background` (negro invertido del legacy), removido
- * para uniformar el dashboard con un solo color de fondo.
+ * Sparkline — mini line+area chart sin ejes ni labels. Recharts ResponsiveContainer
+ * adentro de un wrapper de altura fija para que se ancle al ancho del card.
  */
-function SecondaryKpiCard({
-  label,
-  currency,
-  value,
-  isLoading,
-}: {
-  label: string
-  currency: string
-  value: React.ReactNode
-  isLoading: boolean
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-        {isLoading ? (
-          <Skeleton className="h-7 w-24" />
-        ) : (
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-xs text-muted-foreground">{currency}</span>
-            <span className="text-2xl font-bold tabular-nums">{value}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  const data = React.useMemo(
+    () => values.map((v, i) => ({ i, v })),
+    [values],
   )
-}
-
-function DualKpi({
-  label1,
-  value1,
-  label2,
-  value2,
-}: {
-  label1: string
-  value1: string | null
-  label2: string
-  value2: string | null
-}) {
   return (
-    <Card>
-      <CardContent className="grid grid-cols-2 gap-2">
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            {label1}
-          </span>
-          {value1 === null ? (
-            <Skeleton className="h-7 w-16" />
-          ) : (
-            <span className="text-xl font-semibold tabular-nums">{value1}</span>
-          )}
-        </div>
-        <div className="flex flex-col gap-1 border-l pl-3">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            {label2}
-          </span>
-          {value2 === null ? (
-            <Skeleton className="h-7 w-16" />
-          ) : (
-            <span className="text-xl font-semibold tabular-nums">{value2}</span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="-mx-1 mt-1 h-10">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <defs>
+            <linearGradient id={`spark-${color}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.25} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <Area
+            type="monotone"
+            dataKey="v"
+            stroke={color}
+            strokeWidth={1.5}
+            fill={`url(#spark-${color})`}
+            isAnimationActive={false}
+            dot={false}
+            activeDot={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
