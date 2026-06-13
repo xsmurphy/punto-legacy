@@ -24,7 +24,11 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -38,6 +42,9 @@ import {
   FileText,
   ShoppingCart,
   Puzzle,
+  Store,
+  Check,
+  Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
@@ -69,6 +76,12 @@ interface AppSidebarProps {
   isImpersonating?: boolean
   onExitImpersonation?: () => void
   onLogout?: () => void
+  /** Sucursales activas del tenant. Solo se pinta el selector cuando hay ≥2. */
+  outlets?: Array<{ id: string; name: string }>
+  activeOutletId?: string
+  onSelectOutlet?: (outletId: string) => void
+  /** Mientras la mutation de cambio de sucursal está en vuelo, deshabilitar items. */
+  isSwitchingOutlet?: boolean
 }
 
 export function AppSidebar({
@@ -78,6 +91,10 @@ export function AppSidebar({
   isImpersonating = false,
   onExitImpersonation,
   onLogout,
+  outlets = [],
+  activeOutletId = "",
+  onSelectOutlet,
+  isSwitchingOutlet = false,
 }: AppSidebarProps) {
   const pathname = usePathname()
   const { toggleSidebar, state, isMobile } = useSidebar()
@@ -261,6 +278,47 @@ export function AppSidebar({
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
+                {outlets.length > 1 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        {isSwitchingOutlet ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <Store />
+                        )}
+                        <span className="flex-1">Sucursal</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="min-w-56">
+                          {outlets.map((o) => {
+                            const isActive = o.id === activeOutletId
+                            return (
+                              <DropdownMenuItem
+                                key={o.id}
+                                disabled={isSwitchingOutlet}
+                                className="gap-3"
+                                onSelect={(e) => {
+                                  // Evita cerrar el dropdown padre si el usuario
+                                  // apunta y suelta en la misma opción activa.
+                                  if (isActive) {
+                                    e.preventDefault()
+                                    return
+                                  }
+                                  onSelectOutlet?.(o.id)
+                                }}
+                              >
+                                <span className="flex-1 truncate">{o.name}</span>
+                                {isActive && <Check className="size-4 opacity-70" />}
+                              </DropdownMenuItem>
+                            )
+                          })}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive">
                   <LogOut />

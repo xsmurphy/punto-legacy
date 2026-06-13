@@ -55,8 +55,13 @@ final class PanelAuth
      * Acepta `array|\ArrayAccess` porque `findPhoneLogin()` y `ncmExecute()`
      * devuelven `CaseInsensitiveArray` (objeto ADOdb con ArrayAccess), no un
      * array plano. Matchea la firma de `issueJwtPanel()` del legacy.
+     *
+     * `$outletIdOverride` (NUEVO 2026-06-12) — cuando el caller ya validó la
+     * pertenencia del outlet al tenant (ej. `/v1/auth/active-outlet` para
+     * cambiar de sucursal sin re-loguear), saltea la resolución por SQL.
+     * Default `null` → comportamiento original (primer outlet activo).
      */
-    public static function issueJwt(array|\ArrayAccess $user): array
+    public static function issueJwt(array|\ArrayAccess $user, ?string $outletIdOverride = null): array
     {
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
@@ -66,12 +71,17 @@ final class PanelAuth
         // jwt.php define jwtEncode() pero no se autocarga en /api/bootstrap.
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
 
-        // Resolver primer outlet activo del tenant para el claim `oid`.
-        // Mismo SQL que issueJwtPanel del legacy.
-        $outlet = ncmExecute(
-            'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
-            [$user['companyId']]
-        );
+        if ($outletIdOverride !== null) {
+            $resolvedOutletId = $outletIdOverride;
+        } else {
+            // Resolver primer outlet activo del tenant para el claim `oid`.
+            // Mismo SQL que issueJwtPanel del legacy.
+            $outlet = ncmExecute(
+                'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
+                [$user['companyId']]
+            );
+            $resolvedOutletId = (string) ($outlet['outletId'] ?? '');
+        }
 
         $ttl = (int) ($_ENV['PANEL_JWT_TTL'] ?? 86400);
         $now = time();
@@ -80,7 +90,7 @@ final class PanelAuth
             'iss'  => 'panel',
             'sub'  => (string) $user['contactId'],
             'cid'  => (string) $user['companyId'],
-            'oid'  => (string) ($outlet['outletId'] ?? ''),
+            'oid'  => $resolvedOutletId,
             'rid'  => '',
             'role' => (int) $user['role'],
             'iat'  => $now,

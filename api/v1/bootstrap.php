@@ -41,6 +41,33 @@ if (!is_object($row) && !is_array($row)) {
     $row = [];
 }
 
+// Sucursales activas del tenant + nombre de la activa (para el selector del
+// menú user en panel-next). Se inline acá en vez de pedirlo aparte porque
+// el sidebar lo necesita en el primer paint y evita un round-trip extra.
+// `forceObj=true` (4to arg) fuerza recordset multi-row iterable — sin él
+// ncmExecute con una única fila colapsa a CaseInsensitiveArray escalar.
+$outletsRs = ncmExecute(
+    'SELECT outletId, outletName FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletName ASC',
+    [COMPANY_ID],
+    false,
+    true
+);
+$outlets = [];
+$activeOutletName = '';
+if ($outletsRs && is_object($outletsRs)) {
+    while (!$outletsRs->EOF) {
+        $f    = $outletsRs->fields;
+        $oid  = (string) ($f['outletId'] ?? $f['outletid'] ?? '');
+        $name = (string) ($f['outletName'] ?? $f['outletname'] ?? '');
+        $outlets[] = ['id' => $oid, 'name' => $name];
+        if ($oid === OUTLET_ID) {
+            $activeOutletName = $name;
+        }
+        $outletsRs->MoveNext();
+    }
+    $outletsRs->Close();
+}
+
 apiOk([
     'currency'    => $row['currency'] ?? '',
     // settingDecimal es 'yes'/'no' (usar decimales o no), NO un conteo de dígitos.
@@ -60,4 +87,10 @@ apiOk([
         'id'   => $ctx['userId'],
         'role' => $ctx['roleId'],
     ],
+    // Selector de sucursal del menú user (panel-next 2026-06-12). El front
+    // muestra el subtitle con `activeOutletName` y lista `outlets` cuando
+    // hay ≥2. POST /v1/active-outlet re-emite el JWT con el `oid` nuevo.
+    'activeOutletId'   => OUTLET_ID,
+    'activeOutletName' => $activeOutletName,
+    'outlets'          => $outlets,
 ]);

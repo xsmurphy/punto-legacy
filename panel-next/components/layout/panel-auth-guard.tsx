@@ -3,9 +3,10 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { Package, Users, BarChart3, ScanBarcode, LayoutDashboard } from "lucide-react"
+import { toast } from "sonner"
 
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
-import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { ApiError } from "@/lib/api-client"
 
 // Menú lateral. Definido acá (client) porque los iconos son componentes
@@ -32,6 +33,7 @@ const panelNav: NavEntry[] = [
 export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { data: bootstrap, isLoading, error } = useBootstrap()
+  const setActiveOutlet = useSetActiveOutlet()
 
   React.useEffect(() => {
     if (error instanceof ApiError && error.status === 401) {
@@ -39,22 +41,49 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [error, router])
 
-  // El bootstrap solo trae id (UUID) y role del usuario — el UUID no aporta
-  // visualmente y rompe el diseño. Hasta tener email/nombre del /v1/me,
-  // dejamos el subtitle vacío y el sidebar lo omite si no hay texto.
+  // Subtitle del sidebar = nombre de la sucursal activa cuando hay ≥2 (señaliza
+  // que es seleccionable). Con 1 sola sucursal lo dejamos vacío para no insinuar
+  // un selector que no aparece. El nombre del usuario todavía no se expone en
+  // bootstrap — slice del /v1/me futuro lo reemplazará por algo más útil.
+  const outlets = bootstrap?.outlets ?? []
+  const subtitle =
+    outlets.length > 1 && bootstrap?.activeOutletName
+      ? bootstrap.activeOutletName
+      : ""
+
   const user = bootstrap
     ? {
         name: bootstrap.companyName || "Punto",
-        subtitle: "",
+        subtitle,
       }
     : {
         name: isLoading ? "Cargando…" : "Punto User",
         subtitle: "",
       }
 
+  const handleSelectOutlet = (outletId: string) => {
+    if (outletId === bootstrap?.activeOutletId) return
+    setActiveOutlet.mutate(outletId, {
+      onSuccess: ({ outletName }) => {
+        toast.success(`Sucursal: ${outletName}`)
+      },
+      onError: (err) => {
+        toast.error(err.message || "No se pudo cambiar de sucursal")
+      },
+    })
+  }
+
   return (
     <>
-      <AppSidebar scope="Panel" items={panelNav} user={user} />
+      <AppSidebar
+        scope="Panel"
+        items={panelNav}
+        user={user}
+        outlets={outlets}
+        activeOutletId={bootstrap?.activeOutletId ?? ""}
+        onSelectOutlet={handleSelectOutlet}
+        isSwitchingOutlet={setActiveOutlet.isPending}
+      />
       {children}
     </>
   )

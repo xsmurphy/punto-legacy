@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import type { Bootstrap } from "@/lib/types/bootstrap"
 
@@ -19,5 +19,34 @@ export function useBootstrap() {
     queryFn: () => api.get<Bootstrap>("/v1/bootstrap"),
     staleTime: 5 * 60 * 1000, // 5 min — config cambia raramente
     retry: false, // un 401 no se retry; dejar al middleware redirect
+  })
+}
+
+/**
+ * Cambia la sucursal activa del realm panel. El backend re-emite la cookie
+ * `_jwt_panel` con un nuevo claim `oid` — al volver la response, el
+ * próximo fetch a cualquier endpoint scopeado por outlet (reports, stock,
+ * drawers) usa la sucursal nueva.
+ *
+ * Tras el cambio invalidamos TODO el cache de TanStack Query — los widgets
+ * del dashboard y los listados que dependen del outlet activo refetchean.
+ * Sobre-invalidación deliberada: más simple que enumerar query keys y el
+ * cambio de sucursal es una acción explícita del usuario, no high-frequency.
+ */
+export function useSetActiveOutlet() {
+  const qc = useQueryClient()
+  return useMutation<
+    { outletId: string; outletName: string; expiresIn: number },
+    Error,
+    string
+  >({
+    mutationFn: (outletId) =>
+      api.post<{ outletId: string; outletName: string; expiresIn: number }>(
+        "/v1/active-outlet",
+        { outletId },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries()
+    },
   })
 }

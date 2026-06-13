@@ -23,4 +23,10 @@ export interface Bootstrap {
     id: string | number
     role: number
   }
+  /** UUID del outlet activo (claim `oid` del JWT). '' si el tenant aún no tiene outlets. */
+  activeOutletId: string
+  /** Nombre legible del outlet activo, para el subtitle del sidebar. */
+  activeOutletName: string
+  /** Sucursales activas del tenant. Pintar selector solo cuando `length > 1`. */
+  outlets: Array<{ id: string; name: string }>
 }
