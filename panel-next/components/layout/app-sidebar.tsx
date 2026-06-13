@@ -24,11 +24,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuPortal,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -42,10 +38,8 @@ import {
   ReceiptText,
   ShoppingCart,
   Component,
-  Store,
   Building2,
   Check,
-  Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
@@ -381,47 +375,9 @@ export function AppSidebar({
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
-                {outlets.length > 1 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        {isSwitchingOutlet ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <Store />
-                        )}
-                        <span className="flex-1">Sucursal</span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuPortal>
-                        <DropdownMenuSubContent className="min-w-56">
-                          {outlets.map((o) => {
-                            const isActive = o.id === activeOutletId
-                            return (
-                              <DropdownMenuItem
-                                key={o.id}
-                                disabled={isSwitchingOutlet}
-                                className="gap-3"
-                                onSelect={(e) => {
-                                  // Evita cerrar el dropdown padre si el usuario
-                                  // apunta y suelta en la misma opción activa.
-                                  if (isActive) {
-                                    e.preventDefault()
-                                    return
-                                  }
-                                  onSelectOutlet?.(o.id)
-                                }}
-                              >
-                                <span className="flex-1 truncate">{o.name}</span>
-                                {isActive && <Check className="size-4 opacity-70" />}
-                              </DropdownMenuItem>
-                            )
-                          })}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                  </>
-                )}
+                {/* Selector de sucursal: vive arriba en el chevron al lado
+                    del logo. No se duplica acá para evitar dos puntos de
+                    entrada inconsistentes. */}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive">
                   <LogOut />
