@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   ChevronsUpDown,
   LogOut,
@@ -71,6 +71,9 @@ interface AppSidebarProps {
   isImpersonating?: boolean
   onExitImpersonation?: () => void
   onLogout?: () => void
+  /** URL del logo de la empresa (viene de /v1/settings). null si no hay logo
+   *  subido — el Avatar cae al AvatarFallback con iniciales. */
+  companyLogo?: string | null
   /** Sucursales activas del tenant. Solo se pinta el selector cuando hay ≥2. */
   outlets?: Array<{ id: string; name: string }>
   activeOutletId?: string
@@ -93,6 +96,7 @@ export function AppSidebar({
   isImpersonating = false,
   onExitImpersonation,
   onLogout,
+  companyLogo = null,
   outlets = [],
   activeOutletId = "",
   onSelectOutlet,
@@ -313,6 +317,7 @@ export function AppSidebar({
                   className="cursor-pointer hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] data-[state=open]:!bg-[#EAEEF1] dark:data-[state=open]:!bg-[#1A1D1F] data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:!p-0"
                 >
                   <Avatar className="size-8 rounded-lg">
+                    {companyLogo && <AvatarImage src={companyLogo} alt={user.name} />}
                     <AvatarFallback className="rounded-lg text-xs">
                       {userInitials || "?"}
                     </AvatarFallback>

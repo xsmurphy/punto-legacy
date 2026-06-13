@@ -13,6 +13,7 @@ import { toast } from "sonner"
 
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
+import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { ApiError } from "@/lib/api-client"
 import { useQueryClient } from "@tanstack/react-query"
@@ -43,6 +44,10 @@ const panelNav: NavEntry[] = [
 export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { data: bootstrap, isLoading, error } = useBootstrap()
+  // El logo de la empresa lo trae /v1/settings (no /v1/bootstrap). Se
+  // muestra en el avatar del menu user del footer. staleTime 60s del hook
+  // evita el refetch en cada navegación. null si la empresa aún no subió.
+  const { data: settings } = useSettings()
   const setActiveOutlet = useSetActiveOutlet()
   const { scope: viewScope, setScope: setViewScope } = useViewScope()
   const qc = useQueryClient()
@@ -123,6 +128,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         scope="Panel"
         items={panelNav}
         user={user}
+        companyLogo={settings?.hasLogo ? settings.logo : null}
         outlets={outlets}
         activeOutletId={bootstrap?.activeOutletId ?? ""}
         onSelectOutlet={handleSelectOutlet}
