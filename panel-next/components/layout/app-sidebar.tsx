@@ -142,9 +142,64 @@ export function AppSidebar({
             <PuntoLogo variant="mark" className="size-8" />
           </button>
 
-          {/* WORDMARK — solo cuando expanded */}
+          {/* WORDMARK — solo cuando expanded. Cuando hay >1 sucursales, se
+              vuelve trigger de un DropdownMenu para cambiar de sucursal sin
+              tener que abrir el menú user (atajo grande arriba). Si hay 1
+              sola, queda como Link al dashboard (comportamiento default). */}
           <div className="flex flex-1 items-center gap-2 group-data-[collapsible=icon]:hidden">
-            <PuntoLogo variant="wordmark" />
+            {outlets.length > 1 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Cambiar sucursal"
+                    className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent/50 cursor-pointer"
+                  >
+                    <PuntoLogo variant="wordmark" />
+                    <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="min-w-[--radix-popper-anchor-width]"
+                >
+                  <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Cambiar sucursal
+                  </DropdownMenuLabel>
+                  {outlets.map((o) => {
+                    const isActive = o.id === activeOutletId
+                    return (
+                      <DropdownMenuItem
+                        key={o.id}
+                        disabled={isSwitchingOutlet}
+                        onSelect={(e) => {
+                          if (isActive) {
+                            e.preventDefault()
+                            return
+                          }
+                          onSelectOutlet?.(o.id)
+                        }}
+                        className="gap-3"
+                      >
+                        <Store className="size-4 text-muted-foreground" />
+                        <span className="flex-1 truncate">{o.name}</span>
+                        {isActive && <Check className="size-4 opacity-70" />}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              // 1 sucursal → Link al dashboard (comportamiento histórico:
+              // el wordmark era navegación a home).
+              <Link
+                href="/"
+                aria-label="Ir al dashboard"
+                className="inline-flex items-center rounded-md transition-opacity hover:opacity-90"
+              >
+                <PuntoLogo variant="wordmark" />
+              </Link>
+            )}
             {scope === "Admin" && (
               <Badge variant="outline" className="text-[10px] font-medium">
                 ADMIN

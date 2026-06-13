@@ -102,7 +102,14 @@ if ($method === 'POST') {
             // Cliente legacy (panel/a_outlets.js): crea blank y edita después.
             $newFields = null;
         }
-        $newId = $svc->create(COMPANY_ID, $newFields);
+        try {
+            $newId = $svc->create(COMPANY_ID, $newFields);
+        } catch (\RuntimeException $e) {
+            // El service ahora lanza RuntimeException con el ErrorMsg() del
+            // driver — mucho más útil que el 500 silente de antes. El BFF lo
+            // loguea server-side y el front lo muestra en el toast.
+            apiError($e->getMessage(), 500);
+        }
         if ($newId === null) {
             apiError('No se pudo crear la sucursal', 500);
         }

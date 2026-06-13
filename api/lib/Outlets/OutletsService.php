@@ -141,52 +141,65 @@ final class OutletsService
     {
         global $db;
 
-        $db->StartTrans();
-
-        // Defaults para el INSERT inicial; los campos demoted al JSONB van al `data`.
+        // Defaults para el INSERT inicial. ncmInsert rutea automáticamente
+        // los campos no-whitelist al JSONB `data`, así que solo entregamos
+        // los campos relevantes; AutoExecute castea bool/int/string a la
+        // columna correcta (incl. data → jsonb).
         $name   = ($fields && isset($fields['name']) && $fields['name'] !== '') ? $fields['name'] : 'Nueva Sucursal';
         $status = ($fields && isset($fields['status'])) ? (int) (bool) $fields['status'] : 1;
-        $data   = ['itemsTaxIncluded' => $fields['taxIncluded'] ?? 1 ? 1 : 0];
+        // Precedencia explícita: el array literal del legacy tenía bug
+        // ('itemsTaxIncluded' => $f['taxIncluded'] ?? 1 ? 1 : 0 evaluaba siempre 1).
+        $taxIncluded = ($fields && array_key_exists('taxIncluded', $fields))
+            ? ((bool) $fields['taxIncluded'] ? 1 : 0)
+            : 1;
 
-        $res = $db->Execute(
-            "INSERT INTO outlet (outletName, outletStatus, companyId, data)
-             VALUES (?, ?, ?, ?)
-             RETURNING outletId",
-            [$name, $status, $companyId, json_encode($data)]
-        );
+        $db->StartTrans();
 
-        // Read UUID by name (PG lowercases column names in result sets)
-        $outletId = '';
-        if ($res && !$res->EOF) {
-            $outletId = (string) ($res->fields['outletid'] ?? $res->fields['outletId'] ?? $res->fields[0] ?? '');
-        }
+        // Outlet — ncmInsert genera UUID v7, rutea unknowns al JSONB y
+        // castea correctamente. Antes era $db->Execute con cast text→jsonb
+        // manual que en algunas builds de PG no resolvía y devolvía 0 filas
+        // afectadas → outletId vacío → 500 silente "No se pudo crear".
+        $outletId = ncmInsert([
+            'table'   => 'outlet',
+            'records' => [
+                'outletName'      => $name,
+                'outletStatus'    => $status,
+                'companyId'       => $companyId,
+                // `itemsTaxIncluded` no está en el whitelist outlet → va a JSONB.
+                'itemsTaxIncluded' => $taxIncluded,
+            ],
+        ]);
 
         if (!$outletId) {
+            $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
             $db->FailTrans();
             $db->CompleteTrans();
-            return null;
+            throw new \RuntimeException(
+                'No se pudo crear la sucursal (outlet INSERT): ' . ($errMsg !== '' ? $errMsg : 'sin detalle del driver')
+            );
         }
 
         // `register.registerStatus` es BOOLEAN NOT NULL en PG (db-schema-postgres.sql:145).
-        // Pasar el integer 1 vía $db->Execute prepared statement no se coerciona en PG
-        // ("column is of type boolean but expression is of type integer") y el INSERT
-        // falla → todo el create rollbackea → 500 "No se pudo crear la sucursal".
-        // ncmInsert via AutoExecute SÍ coerciona el int→bool (lo confirma signUp() legacy
-        // que usa el mismo patrón con registerStatus=1 y funciona). Migrar acá también.
-        ncmInsert(['records' => [
+        // ncmInsert via AutoExecute coerciona int→bool correctamente.
+        $registerId = ncmInsert(['records' => [
             'registerName'   => 'Nueva Caja',
             'registerStatus' => 1,
             'outletId'       => $outletId,
             'companyId'      => $companyId,
         ], 'table' => 'register']);
 
-        // Inventory blank-rows: solo si el plan de la company incluye `inventory`. Antes esto
-        // venía de `$plansValues[PLAN]['inventory']` (global del panel, cargado desde
-        // `getAllPlans()` que hace `SELECT * FROM plans` y aplana JSONB). Ahora va por sub-query
-        // directa: `plans` se joinea por `plan_code = company.plan`. CRÍTICO: `inventory` vive
-        // dentro del JSONB `features` (db-schema-postgres.sql:78), NO como columna top — leer
-        // con `features->>'inventory'`. Match-fail → null → 0 = no insertar (comportamiento
-        // conservador, mismo que el panel original cuando `$plansValues[PLAN]` no existe).
+        if (!$registerId) {
+            $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException(
+                'No se pudo crear la caja inicial: ' . ($errMsg !== '' ? $errMsg : 'sin detalle del driver')
+            );
+        }
+
+        // Inventory blank-rows: solo si el plan de la company incluye `inventory`.
+        // `inventory` vive dentro del JSONB `features` (db-schema-postgres.sql:78),
+        // leer con `features->>'inventory'`.
         $planRow = ncmExecute(
             "SELECT COALESCE((p.features->>'inventory')::int, 0) AS inventory
                FROM company c JOIN plans p ON p.plan_code = c.plan
@@ -196,13 +209,20 @@ final class OutletsService
         $allowsInventory = (int) ($planRow['inventory'] ?? 0);
 
         if ($allowsInventory > 0) {
-            $db->Execute(
+            $invRes = $db->Execute(
                 "INSERT INTO inventory (inventoryCount, itemId, inventorySource, companyId, outletId)
                  SELECT 0, itemId, 'new_outlet', ?, ?
                  FROM item
                  WHERE companyId = ? AND itemTrackInventory > 0 AND itemStatus = 1",
                 [$companyId, $outletId, $companyId]
             );
+            if ($invRes === false) {
+                // Inventory failure NO debe abortar el create del outlet —
+                // hay tenants con miles de items y un timeout acá no debe
+                // perder la sucursal recién creada. Log y seguimos.
+                $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+                error_log('[outlets.create] inventory backfill failed for outlet ' . $outletId . ': ' . $errMsg);
+            }
         }
 
         // Si el caller mandó campos del form, aplicamos el resto via update() para
@@ -215,7 +235,10 @@ final class OutletsService
 
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
-        return $failed ? null : $outletId;
+        if ($failed) {
+            throw new \RuntimeException('La transacción de creación abortó luego del INSERT inicial.');
+        }
+        return $outletId;
     }
 
     /**

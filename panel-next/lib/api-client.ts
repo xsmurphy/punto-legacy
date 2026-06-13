@@ -1,8 +1,15 @@
 /**
- * Cliente HTTP para la API compartida de Punto (`/api/v1/*`).
+ * Cliente HTTP del panel-next. Hace requests SIEMPRE al BFF del propio
+ * Next app (Route Handler en `app/api/v1/[...path]/route.ts`), que reenvía
+ * a `api.punto.la`. Patrón: Front → BFF → API → BD (decisión owner
+ * 2026-06-13).
  *
- * Base URL via `NEXT_PUBLIC_API_URL` (cliente) o `API_URL` (server).
- * JWT en cookie `_jwt_panel` emitida sobre `.punto.la` por el backend.
+ * Antes apuntaba directo a `NEXT_PUBLIC_API_URL` → expuesto el backend al
+ * browser + CORS + cookies cross-subdomain frágiles + sin logging server-side.
+ *
+ * El client llama por path RELATIVO (`/v1/contacts`) — el `baseUrl()`
+ * devuelve `/api` y se concatena → `/api/v1/contacts` que matchea el
+ * catch-all del BFF. Same-origin, sin CORS, cookie viaja sola.
  */
 
 type Json = Record<string, unknown> | unknown[]
@@ -18,18 +25,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Cliente: usa el BFF same-origin (`/api`). Server (SSR/Route Handler que
+ * importe este módulo): usa `API_URL` directo para no hacer un loop por
+ * el BFF dentro del mismo proceso.
+ */
 const baseUrl = () => {
-  const url =
-    (typeof window === "undefined"
-      ? process.env.API_URL
-      : process.env.NEXT_PUBLIC_API_URL) ??
-    process.env.NEXT_PUBLIC_API_URL
-  if (!url) {
-    throw new Error(
-      "API base URL missing. Set NEXT_PUBLIC_API_URL (client) or API_URL (server).",
-    )
+  if (typeof window === "undefined") {
+    const url = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
+    if (!url) {
+      throw new Error("API base URL missing (server). Set API_URL.")
+    }
+    return url.replace(/\/$/, "")
   }
-  return url.replace(/\/$/, "")
+  // Cliente — BFF same-origin. Sin env var necesaria.
+  return "/api"
 }
 
 async function request<T>(
