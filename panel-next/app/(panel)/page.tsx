@@ -30,6 +30,8 @@ import {
   Line,
   Pie,
   PieChart,
+  Bar,
+  BarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -66,6 +68,7 @@ import {
   type OrdersWidget,
   type PaymentStatusWidget,
   type SatisfactionWidget,
+  type TopHoursWidget,
   type TopItemRow,
   type TopTaxonomyRow,
 } from "@/hooks/use-dashboard-widget"
@@ -89,6 +92,7 @@ export default function DashboardPage() {
   const customers = useDashboardWidget<CustomersWidget>("customers", opts)
   const topItems = useDashboardWidget<TopItemRow[]>("topItems", opts)
   const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", opts)
+  const topHours = useDashboardWidget<TopHoursWidget>("topHours", opts)
   const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
   const orders = useDashboardWidget<OrdersWidget>("orders", opts)
 
@@ -104,149 +108,210 @@ export default function DashboardPage() {
         <DateRangePicker value={range} onChange={setRange} />
       </header>
 
-      {/* ── HERO: Ingresos / Egresos / Ganancias / Margen+Tickets ── */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          label="Ingresos"
-          value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
-          icon="up"
-        />
-        <KpiCard
-          label="Egresos"
-          value={fmtMoney(stats.data?.expenses, bootstrap, stats.isLoading)}
-          icon="down"
-        />
-        <KpiCard
-          label="Ganancias"
-          value={fmtMoney(stats.data?.revenue, bootstrap, stats.isLoading)}
-        />
-        <DualKpi
-          label1="Margen"
-          value1={stats.isLoading ? null : `${stats.data?.margin ?? 0}%`}
-          label2="Tickets"
-          value2={stats.isLoading ? null : formatInt(stats.data?.count, bootstrap)}
-        />
-      </section>
+      {/* Layout 2-col espejo del legacy (8/4): main col con widgets de negocio,
+          sidebar derecho con resumen/módulos opcionales/plan. Stack en <lg. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_22rem]">
+        {/* ── MAIN COLUMN (8/12 legacy) ─────────────────────────────────── */}
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* HERO — Ingresos (accent verde) + Egresos lado a lado, prominentes */}
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <HeroKpiCard
+              label="Ingresos"
+              href="/reports/summary"
+              currency={bootstrap?.currency ?? ""}
+              value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
+              isLoading={stats.isLoading}
+              variant="brand"
+            />
+            <HeroKpiCard
+              label="Egresos"
+              href="/purchase"
+              currency={bootstrap?.currency ?? ""}
+              value={fmtMoney(stats.data?.expenses, bootstrap, stats.isLoading)}
+              isLoading={stats.isLoading}
+              variant="default"
+            />
+          </section>
 
-      {/* ── Line chart: Margen / Ingresos / Egresos por bucket (día u hora) ── */}
-      <IncomeAreaChart
-        data={incomeChart.data}
-        isLoading={incomeChart.isLoading}
-        error={incomeChart.error}
-        bootstrap={bootstrap}
-      />
-
-      {/* ── ÓRDENES / NPS Satisfacción (módulos opcionales — se ocultan si vacíos) ── */}
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <OrdersCard orders={orders.data} isLoading={orders.isLoading} bootstrap={bootstrap} />
-        <SatisfactionCard data={satisfaction.data} isLoading={satisfaction.isLoading} />
-      </section>
-
-      {/* ── Tipos de ventas + Cuentas por cobrar ── */}
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <PaymentSplitCard
-          title="Tipos de venta"
-          data={paymentStatus.data}
-          isLoading={paymentStatus.isLoading}
-          bootstrap={bootstrap}
-          mode="sale-type"
-        />
-        <PaymentSplitCard
-          title="Cuentas por cobrar"
-          data={paymentStatus.data}
-          isLoading={paymentStatus.isLoading}
-          bootstrap={bootstrap}
-          mode="receivables"
-        />
-      </section>
-
-      {/* ── Clientes ── */}
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <CustomersCard data={customers.data} isLoading={customers.isLoading} />
-        <InfoGeneralCard
-          stats={stats.data}
-          info={info.data}
-          loading={stats.isLoading || info.isLoading}
-          bootstrap={bootstrap}
-        />
-      </section>
-
-      {/* ── Top 5 Artículos + Top 10 Categorías ── */}
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <TopItemsCard data={topItems.data ?? []} isLoading={topItems.isLoading} bootstrap={bootstrap} />
-        <TopCategoriesCard data={topCategories.data ?? []} isLoading={topCategories.isLoading} />
-      </section>
-
-      {/* ── Plan + Secondary KPIs ── */}
-      <section>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between text-sm font-medium">
-              <span>Plan {info.data?.plan || ""}</span>
-              <Link
-                href="/settings"
-                className="flex items-center gap-1 text-xs font-normal text-muted-foreground hover:text-foreground"
-              >
-                Cambiar plan <ChevronRight className="size-3.5" />
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              <PlanStat
-                label="Productos"
-                value={info.isLoading ? null : formatInt(info.data?.itemsCount, bootstrap)}
-                max={info.data?.itemsMax || undefined}
-                bootstrap={bootstrap}
+          {/* Chart + sidebar de KPIs (Ganancias / Margen / Tickets) en una row */}
+          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[2fr_1fr]">
+            <IncomeAreaChart
+              data={incomeChart.data}
+              isLoading={incomeChart.isLoading}
+              error={incomeChart.error}
+              bootstrap={bootstrap}
+            />
+            <div className="flex flex-col gap-3">
+              <SecondaryKpiCard
+                label="Ganancias"
+                currency={bootstrap?.currency ?? ""}
+                value={fmtMoney(stats.data?.revenue, bootstrap, stats.isLoading)}
+                isLoading={stats.isLoading}
               />
-              <PlanStat
-                label="Usuarios"
-                value={info.isLoading ? null : formatInt(info.data?.usersCount, bootstrap)}
-                max={info.data?.usersMax || undefined}
-                bootstrap={bootstrap}
-              />
-              <PlanStat
-                label="Sucursales"
-                value={info.isLoading ? null : formatInt(info.data?.outletsCount, bootstrap)}
-              />
-              <PlanStat
-                label="Transacciones (mes)"
-                value={info.isLoading ? null : formatInt(info.data?.transactionsCount, bootstrap)}
-              />
-              <PlanStat
-                label="Gift cards vigentes"
-                value={info.isLoading ? null : formatInt(info.data?.giftCardsCount, bootstrap)}
+              <DualKpi
+                label1="Margen"
+                value1={stats.isLoading ? null : `${stats.data?.margin ?? 0}%`}
+                label2="Tickets"
+                value2={stats.isLoading ? null : formatInt(stats.data?.count, bootstrap)}
               />
             </div>
-          </CardContent>
-        </Card>
-      </section>
+          </section>
+
+          {/* Tipos de ventas + Cuentas por cobrar — donuts lado a lado */}
+          <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <PaymentSplitCard
+              title="Tipos de venta"
+              data={paymentStatus.data}
+              isLoading={paymentStatus.isLoading}
+              bootstrap={bootstrap}
+              mode="sale-type"
+            />
+            <PaymentSplitCard
+              title="Cuentas por cobrar"
+              data={paymentStatus.data}
+              isLoading={paymentStatus.isLoading}
+              bootstrap={bootstrap}
+              mode="receivables"
+            />
+          </section>
+
+          {/* Clientes + Top 5 Artículos */}
+          <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <CustomersCard data={customers.data} isLoading={customers.isLoading} />
+            <TopItemsCard
+              data={topItems.data ?? []}
+              isLoading={topItems.isLoading}
+              bootstrap={bootstrap}
+            />
+          </section>
+
+          {/* Horarios Pico + Top 10 Categorías */}
+          <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <TopHoursCard data={topHours.data} isLoading={topHours.isLoading} />
+            <TopCategoriesCard
+              data={topCategories.data ?? []}
+              isLoading={topCategories.isLoading}
+            />
+          </section>
+        </div>
+
+        {/* ── SIDEBAR (4/12 legacy) ─────────────────────────────────────── */}
+        <aside className="flex min-w-0 flex-col gap-4">
+          <SatisfactionCard
+            data={satisfaction.data}
+            isLoading={satisfaction.isLoading}
+          />
+          <OrdersCard
+            orders={orders.data}
+            isLoading={orders.isLoading}
+            bootstrap={bootstrap}
+          />
+          <InfoGeneralCard
+            stats={stats.data}
+            info={info.data}
+            customers={customers.data}
+            loading={stats.isLoading || info.isLoading}
+            bootstrap={bootstrap}
+          />
+          <PlanSidebarCard info={info.data} loading={info.isLoading} bootstrap={bootstrap} />
+        </aside>
+      </div>
     </div>
   )
 }
 
 // ── KPI cards ──────────────────────────────────────────────────────────────
 
-function KpiCard({
+/**
+ * Hero KPI — espejo de las cards "Ingresos" / "Egresos" del dashboard legacy.
+ * Card grande con currency apagado al lado del monto + chevron a la derecha,
+ * y variante con accent verde Punto para Ingresos (gradBgBlue del legacy → bg
+ * brand sutil acá). El layout escala el `text-3xl` para que el monto pese
+ * visualmente como el `h1` del legacy.
+ */
+function HeroKpiCard({
   label,
+  href,
+  currency,
   value,
-  icon,
+  isLoading,
+  variant,
 }: {
   label: string
+  href: string
+  currency: string
   value: React.ReactNode
-  icon?: "up" | "down"
+  isLoading: boolean
+  variant: "brand" | "default"
+}) {
+  const isBrand = variant === "brand"
+  const Icon = isBrand ? ArrowUpRight : ArrowDownRight
+  return (
+    <Card
+      className={cn(
+        "relative overflow-hidden",
+        isBrand && "bg-[color-mix(in_oklab,var(--brand)_8%,var(--card))] ring-1 ring-[var(--brand)]/20",
+      )}
+    >
+      <CardContent className="flex flex-col gap-1 p-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <Icon
+              className={cn(
+                "size-4",
+                isBrand ? "text-[var(--brand)]" : "text-destructive",
+              )}
+            />
+            {label}
+          </div>
+          <Link
+            href={href}
+            className="text-muted-foreground transition-colors hover:text-foreground"
+            aria-label={`Ir a ${label}`}
+          >
+            <ChevronRight className="size-4" />
+          </Link>
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-9 w-40" />
+        ) : (
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-normal text-muted-foreground">{currency}</span>
+            <span className="text-3xl font-bold tracking-tight tabular-nums">{value}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * KPI compacto del bloque de chart (Ganancias). Card dark del legacy
+ * (bg-dark + texto blanco) replicada con bg-foreground + texto bg.
+ */
+function SecondaryKpiCard({
+  label,
+  currency,
+  value,
+  isLoading,
+}: {
+  label: string
+  currency: string
+  value: React.ReactNode
+  isLoading: boolean
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground uppercase tracking-wide">
-          {icon === "up" && <ArrowUpRight className="size-3.5 text-emerald-500" />}
-          {icon === "down" && <ArrowDownRight className="size-3.5 text-destructive" />}
-          {label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
+    <Card className="bg-foreground text-background">
+      <CardContent className="flex flex-col gap-1 p-4">
+        <span className="text-[10px] uppercase tracking-wide text-background/60">{label}</span>
+        {isLoading ? (
+          <Skeleton className="h-7 w-24 bg-background/10" />
+        ) : (
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xs text-background/60">{currency}</span>
+            <span className="text-2xl font-bold tabular-nums">{value}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -808,34 +873,224 @@ function CustomersCard({
 
 // ── Info general (Ticket promedio + cajas) ────────────────────────────────
 
+/**
+ * Tabla compacta para la sidebar (espejo del panel "Información general"
+ * del legacy): 4 rows con label + valor, sin charts ni KPIs grandes.
+ * Cada row tiene su propio link al reporte correspondiente.
+ */
 function InfoGeneralCard({
   stats,
   info,
+  customers,
   loading,
   bootstrap,
 }: {
   stats: IncomeOutcomeStatsWidget | undefined
   info: InfoWidget | undefined
+  customers: CustomersWidget | undefined
   loading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
+  const rows: { label: string; value: React.ReactNode; href?: string }[] = [
+    {
+      label: "Ticket promedio",
+      value: loading
+        ? null
+        : `${bootstrap?.currency ?? ""} ${fmtMoney(stats?.customerAverage, bootstrap, false)}`,
+    },
+    {
+      label: "Clientes en total",
+      value: loading ? null : formatInt(customers?.total, bootstrap),
+      href: "/contacts",
+    },
+    {
+      label: "Cajas abiertas",
+      value: loading ? null : formatInt(info?.openDrawersCount, bootstrap),
+      href: "/reports",
+    },
+    {
+      label: "Gift cards vigentes",
+      value: loading ? null : formatInt(info?.giftCardsCount, bootstrap),
+      href: "/reports",
+    },
+  ]
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <Receipt className="size-4 text-muted-foreground" />
           Información general
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-3">
-        <Stat
-          label="Ticket promedio"
-          value={loading ? null : formatMoney(stats?.customerAverage, bootstrap)}
-        />
-        <Stat
-          label="Cajas abiertas"
-          value={loading ? null : formatInt(info?.openDrawersCount, bootstrap)}
-        />
+      <CardContent className="flex flex-col divide-y divide-border">
+        {rows.map((r) => (
+          <div
+            key={r.label}
+            className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+          >
+            {r.href ? (
+              <Link href={r.href} className="text-muted-foreground hover:text-foreground">
+                {r.label}
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">{r.label}</span>
+            )}
+            {r.value === null ? (
+              <Skeleton className="h-4 w-12" />
+            ) : (
+              <span className="font-semibold tabular-nums">{r.value}</span>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Card del Plan en la sidebar (legacy: panelAccountInfo). Tabla con
+ * Productos / Usuarios / Transacciones / Sucursales — los topes del plan
+ * van como sufijo "X / max" cuando aplica.
+ */
+function PlanSidebarCard({
+  info,
+  loading,
+  bootstrap,
+}: {
+  info: InfoWidget | undefined
+  loading: boolean
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
+  const rows: { label: string; value: React.ReactNode }[] = [
+    {
+      label: "Productos y servicios",
+      value: loading
+        ? null
+        : planValue(info?.itemsCount, info?.itemsMax, bootstrap),
+    },
+    {
+      label: "Usuarios",
+      value: loading
+        ? null
+        : planValue(info?.usersCount, info?.usersMax, bootstrap),
+    },
+    {
+      label: "Transacciones (mes)",
+      value: loading ? null : formatInt(info?.transactionsCount, bootstrap),
+    },
+    {
+      label: "Sucursales",
+      value: loading ? null : formatInt(info?.outletsCount, bootstrap),
+    },
+  ]
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between text-sm font-medium">
+          <span>Plan {info?.plan || ""}</span>
+          <Link
+            href="/settings"
+            className="flex items-center gap-1 text-xs font-normal text-muted-foreground hover:text-foreground"
+          >
+            Cambiar <ChevronRight className="size-3.5" />
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col divide-y divide-border">
+        {rows.map((r) => (
+          <div
+            key={r.label}
+            className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+          >
+            <span className="text-muted-foreground">{r.label}</span>
+            {r.value === null ? (
+              <Skeleton className="h-4 w-14" />
+            ) : (
+              <span className="font-semibold tabular-nums">{r.value}</span>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function planValue(
+  current: number | undefined,
+  max: number | undefined,
+  bootstrap: ReturnType<typeof useBootstrap>["data"],
+): string {
+  const cur = formatInt(current, bootstrap)
+  if (!max || max <= 0) return cur
+  return `${cur} / ${formatInt(max, bootstrap)}`
+}
+
+/**
+ * Horarios Pico — bar chart vertical mostrando hasta 6 horas top.
+ * Las etiquetas del backend vienen como "14:00 Ventas" → recortamos a "14:00"
+ * para el eje X. Se muestra empty state cuando no hay datos.
+ */
+function TopHoursCard({
+  data,
+  isLoading,
+}: {
+  data: TopHoursWidget | undefined
+  isLoading: boolean
+}) {
+  const points = React.useMemo(() => {
+    if (!data?.hour?.length) return []
+    return data.hour.map((h, i) => ({
+      hour: h.split(" ")[0],
+      total: data.total?.[i] ?? 0,
+    }))
+  }, [data])
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <TrendingUp className="size-4 text-muted-foreground" />
+          Horarios pico
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-[200px] w-full" />
+        ) : points.length === 0 ? (
+          <p className="flex h-[200px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+            Sin ventas en este período.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="hour"
+                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                allowDecimals={false}
+                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                tickLine={false}
+                axisLine={false}
+                width={28}
+              />
+              <Tooltip
+                cursor={{ fill: "var(--accent)", opacity: 0.5 }}
+                contentStyle={{
+                  background: "var(--popover)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+                labelStyle={{ color: "var(--foreground)" }}
+              />
+              <Bar dataKey="total" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </CardContent>
     </Card>
   )

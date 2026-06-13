@@ -99,6 +99,11 @@ export interface OrdersWidget {
   onlineCount: number
 }
 
+export interface TopHoursWidget {
+  hour: string[]  // ej. "14:00 Ventas"
+  total: number[] // mismo orden que hour, tickets vendidos en esa hora
+}
+
 // ── Income chart (BFF) ────────────────────────────────────────────────────
 // Llama al route handler de panel-next (/api/dashboard/income-chart) que
 // hace el reshape del raw /v1/reports/sales?dataset=series. Arquitectura:
