@@ -213,19 +213,33 @@ final class OutletsService
         $allowsInventory = (int) ($planRow['inventory'] ?? 0);
 
         if ($allowsInventory > 0) {
+            // SAVEPOINT defensivo: el comentario original prometía "log y seguimos"
+            // si el backfill falla, pero en PG cualquier error dentro de una TX la
+            // pone en estado *aborted* — el siguiente query (UPDATE outlet del
+            // update() de abajo) cae con 25P02 "current transaction is aborted".
+            // Con SAVEPOINT podemos rollbackear SOLO el INSERT y mantener la TX
+            // viva, cumpliendo el contrato del comentario.
+            //
+            // itemTrackInventory pasó a BOOLEAN en la Migración 15 (item_kind) —
+            // `> 0` tira 42883 "operator does not exist: boolean > integer". Usar
+            // `IS TRUE` matchea el patrón ya aplicado en la propia Migración 15.
+            // itemStatus sigue siendo smallint, `= 1` es correcto.
+            $db->Execute('SAVEPOINT inventory_backfill');
             $invRes = $db->Execute(
                 "INSERT INTO inventory (inventoryCount, itemId, inventorySource, companyId, outletId)
                  SELECT 0, itemId, 'new_outlet', ?, ?
                  FROM item
-                 WHERE companyId = ? AND itemTrackInventory > 0 AND itemStatus = 1",
+                 WHERE companyId = ? AND itemTrackInventory IS TRUE AND itemStatus = 1",
                 [$companyId, $outletId, $companyId]
             );
             if ($invRes === false) {
-                // Inventory failure NO debe abortar el create del outlet —
                 // hay tenants con miles de items y un timeout acá no debe
                 // perder la sucursal recién creada. Log y seguimos.
                 $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+                $db->Execute('ROLLBACK TO SAVEPOINT inventory_backfill');
                 error_log('[outlets.create] inventory backfill failed for outlet ' . $outletId . ': ' . $errMsg);
+            } else {
+                $db->Execute('RELEASE SAVEPOINT inventory_backfill');
             }
         }
 
