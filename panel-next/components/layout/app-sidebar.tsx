@@ -185,10 +185,12 @@ export function AppSidebar({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="min-w-[18rem] max-w-sm"
+                // Width adaptable al nombre más largo. Cap superior para que
+                // un nombre absurdamente largo no desborde el viewport.
+                className="w-auto max-w-sm"
               >
                 <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Cambiar sucursal
+                  Sucursales
                 </DropdownMenuLabel>
                 {/* "Todas las sucursales" — primero. El check sigue el
                     `viewScope`: si es 'all' va acá; si es UUID o null
@@ -205,7 +207,7 @@ export function AppSidebar({
                         onSelectAllOutlets()
                       }}
                     >
-                      <span className="flex-1 truncate">Todas las sucursales</span>
+                      <span className="flex-1 truncate">Todas</span>
                       {viewScope === "all" && <Check className="size-4 opacity-70" />}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
