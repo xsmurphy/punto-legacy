@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Share2, Coins, Check, Palette, FileText, Tag } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -104,7 +104,6 @@ type SettingsSection =
   | "documentos"
   | "catalog"
   | "apariencia"
-  | "social"
 
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "empresa",    label: "Empresa",      icon: Building2 },
@@ -114,13 +113,14 @@ const SECTIONS: { id: SettingsSection; label: string; icon: React.ComponentType<
   { id: "documentos", label: "Documentos",   icon: FileText },
   { id: "catalog",    label: "Catálogo",     icon: Tag },
   { id: "apariencia", label: "Apariencia",   icon: Palette },
-  { id: "social",     label: "Redes",        icon: Share2 },
+  // Redes sociales se fusionó a la sección Empresa (al final del tab) en vez
+  // de tener una sección propia — el tab solo con 4 inputs estaba subutilizado.
 ]
 
 // Sections que escriben al form de settings — solo en esas mostramos el botón
 // "Guardar" del header. Monedas tiene su propia mutation con botón propio;
 // Documentos y Catálogo no escriben configuración (son listados / navegación).
-const FORM_SECTIONS: SettingsSection[] = ["empresa", "locale", "pos", "apariencia", "social"]
+const FORM_SECTIONS: SettingsSection[] = ["empresa", "locale", "pos", "apariencia"]
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -310,7 +310,6 @@ export default function SettingsPage() {
                   {section === "documentos" && <DocumentsTab onNavigate={navigateAndClose} />}
                   {section === "catalog"    && <CatalogTab onNavigate={navigateAndClose} />}
                   {section === "apariencia" && <AparienciaTab />}
-                  {section === "social"     && (isLoading ? <TabSkeleton /> : <SocialTab form={form} />)}
                 </div>
                 {/* Save bar mobile — el header está oculto en mobile (hidden sm:flex)
                     así que repetimos el botón abajo para tener un CTA accesible
@@ -335,169 +334,239 @@ export default function SettingsPage() {
 // ── EMPRESA ─────────────────────────────────────────────────────────────────
 
 function EmpresaTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
+  // Layout sin Cards. 2 columnas en lg con divs simples — solo título y los
+  // FormFields debajo. Visualmente más limpio que tener 4 cards bordeadas en
+  // un modal que ya tiene su propio borde. Redes sociales vive al final del
+  // tab como sub-bloque (movido desde el tab Social, que se eliminó).
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <Section title="Identidad de la empresa">
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Nombre de la empresa</FormLabel>
-              <FormControl>
-                <Input {...field} />
-              </FormControl>
-              <FormDescription className="text-xs">
-                Aparece en el header del panel, recibos y reportes.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="category"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Rubro</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
+    <div className="flex flex-col gap-8">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
+        <Subsection title="Identidad de la empresa">
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Nombre de la empresa</FormLabel>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar…" />
-                  </SelectTrigger>
+                  <Input {...field} />
                 </FormControl>
-                <SelectContent>
-                  {COMPANY_CATEGORIES.map((g) => (
-                    <SelectGroup key={g.group}>
-                      <SelectLabel>{g.group}</SelectLabel>
-                      {g.items.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="website"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Sitio web</FormLabel>
-              <FormControl>
-                <Input type="url" placeholder="https://miempresa.com" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </Section>
+                <FormDescription className="text-xs">
+                  Aparece en el header del panel, recibos y reportes.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="category"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Rubro</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar…" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {COMPANY_CATEGORIES.map((g) => (
+                      <SelectGroup key={g.group}>
+                        <SelectLabel>{g.group}</SelectLabel>
+                        {g.items.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="website"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Sitio web</FormLabel>
+                <FormControl>
+                  <Input type="url" placeholder="https://miempresa.com" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </Subsection>
 
-      <Section title="Datos fiscales">
-        <FormField
-          control={form.control}
-          name="billingName"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Razón social</FormLabel>
-              <FormControl>
-                <Input placeholder="Nombre fiscal" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="ruc"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>RUC</FormLabel>
-              <FormControl>
-                <Input placeholder="80012345-6" className="tabular-nums" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="billDetail"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Detalle adicional de facturación</FormLabel>
-              <FormControl>
-                <Textarea
-                  rows={2}
-                  placeholder="Datos extra que aparecen en facturas"
-                  {...field}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </Section>
+        <Subsection title="Datos fiscales">
+          <FormField
+            control={form.control}
+            name="billingName"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Razón social</FormLabel>
+                <FormControl>
+                  <Input placeholder="Nombre fiscal" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="ruc"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>RUC</FormLabel>
+                <FormControl>
+                  <Input placeholder="80012345-6" className="tabular-nums" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="billDetail"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Detalle adicional de facturación</FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={2}
+                    placeholder="Datos extra que aparecen en facturas"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </Subsection>
 
-      <Section title="Contacto">
-        <FormField
-          control={form.control}
-          name="phone"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Teléfono</FormLabel>
-              <FormControl>
-                <Input type="tel" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="email"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Email</FormLabel>
-              <FormControl>
-                <Input type="email" placeholder="contacto@miempresa.com" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="address"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Dirección</FormLabel>
-              <FormControl>
-                <Input placeholder="Calle y número" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="city"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Ciudad</FormLabel>
-              <FormControl>
-                <Input placeholder="Asunción" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </Section>
+        <Subsection title="Contacto" className="lg:col-span-2">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Teléfono</FormLabel>
+                  <FormControl>
+                    <Input type="tel" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input type="email" placeholder="contacto@miempresa.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="address"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Dirección</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Calle y número" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="city"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ciudad</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Asunción" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </Subsection>
+      </div>
+
+      {/* Redes sociales fusionadas al final del tab Empresa — antes era un tab
+          propio "Social" con solo 4 inputs. */}
+      <Subsection
+        title="Redes sociales"
+        description="Los links aparecen en facturas digitales, catálogo online y comprobantes."
+      >
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="social.facebook"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Facebook</FormLabel>
+                <FormControl>
+                  <Input placeholder="https://facebook.com/miempresa" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="social.instagram"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Instagram</FormLabel>
+                <FormControl>
+                  <Input placeholder="https://instagram.com/miempresa" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="social.youtube"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>YouTube</FormLabel>
+                <FormControl>
+                  <Input placeholder="https://youtube.com/@miempresa" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="social.twitter"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Twitter / X</FormLabel>
+                <FormControl>
+                  <Input placeholder="https://twitter.com/miempresa" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+      </Subsection>
     </div>
   )
 }
@@ -802,74 +871,9 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
   )
 }
 
-// ── REDES SOCIALES ──────────────────────────────────────────────────────────
-
-function SocialTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">Redes sociales</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <p className="text-xs text-muted-foreground">
-          Los links aparecen en facturas digitales, catálogo online y comprobantes.
-        </p>
-        <FormField
-          control={form.control}
-          name="social.facebook"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Facebook</FormLabel>
-              <FormControl>
-                <Input placeholder="https://facebook.com/miempresa" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="social.instagram"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Instagram</FormLabel>
-              <FormControl>
-                <Input placeholder="https://instagram.com/miempresa" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="social.youtube"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>YouTube</FormLabel>
-              <FormControl>
-                <Input placeholder="https://youtube.com/@miempresa" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="social.twitter"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Twitter / X</FormLabel>
-              <FormControl>
-                <Input placeholder="https://twitter.com/miempresa" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </CardContent>
-    </Card>
-  )
-}
+// SocialTab eliminado — la sección Redes sociales se fusionó a la sección
+// Empresa al final del tab (sub-bloque renderizado por <Subsection>). El tab
+// independiente "Social" tenía solo 4 inputs y resultaba subutilizado.
 
 // ── MONEDAS ─────────────────────────────────────────────────────────────────
 
@@ -1032,6 +1036,12 @@ function ToggleField({
   )
 }
 
+/**
+ * Bloque de form sin bordes — solo título arriba (sm font-medium) + contenido
+ * verticalmente espaciado. Reemplaza la Card que envolvía cada bloque del form
+ * — dentro del modal de settings, esa Card extra se sentía redundante con el
+ * borde del propio Dialog.
+ */
 function Section({
   title,
   children,
@@ -1039,37 +1049,57 @@ function Section({
   title: string
   children: React.ReactNode
 }) {
+  return <Subsection title={title}>{children}</Subsection>
+}
+
+function Subsection({
+  title,
+  description,
+  className,
+  children,
+}: {
+  title: string
+  description?: string
+  className?: string
+  children: React.ReactNode
+}) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">{children}</CardContent>
-    </Card>
+    <section className={cn("flex flex-col gap-3", className)}>
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {description && (
+          <p className="text-xs text-muted-foreground">{description}</p>
+        )}
+      </div>
+      <div className="flex flex-col gap-4">{children}</div>
+    </section>
   )
 }
 
 // ── APARIENCIA ──────────────────────────────────────────────────────────────
 
 function CatalogTab({ onNavigate }: { onNavigate?: (href: string) => void }) {
+  // Cada card lleva al deep-link de su tab en /settings/catalog (?tab=brands|
+  // taxes). Antes los 3 cards iban al mismo href y la pagina default arrancaba
+  // siempre en Categorías — la card "Impuestos" abría Categorías por bug UX.
   const links = [
     {
       title: "Categorías",
       description: "Categorías para organizar productos.",
       Icon: Tag,
-      href: "/settings/catalog",
+      href: "/settings/catalog?tab=categories",
     },
     {
       title: "Marcas",
       description: "Marcas / fabricantes de los productos.",
       Icon: Building2,
-      href: "/settings/catalog",
+      href: "/settings/catalog?tab=brands",
     },
     {
       title: "Impuestos",
       description: "Tasas de IVA y otros impuestos para facturación.",
       Icon: FileText,
-      href: "/settings/catalog",
+      href: "/settings/catalog?tab=taxes",
     },
   ]
   // Si nos pasan onNavigate (modal context), cerramos el modal antes de navegar

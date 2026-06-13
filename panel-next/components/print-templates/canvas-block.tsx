@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FONT_FAMILIES, FONT_SIZES } from "@/lib/print-template-palette"
+import { getBlockMockText } from "@/lib/print-template-mock"
 import { isReceipt, type PaperSize, type PrintBlock } from "@/lib/types/print-template"
 
 interface Props {
@@ -106,8 +107,13 @@ export function CanvasBlock({
         onSelect()
       }}
       className={cn(
-        "group rounded-sm border bg-muted/30 transition-colors",
-        selected ? "border-primary ring-1 ring-primary/40" : "border-dashed border-muted-foreground/30 hover:border-foreground/40",
+        // El bloque vive sobre el papel blanco — uso colores neutrales fijos
+        // (zinc-*) en vez de muted-*, que en dark mode resuelven a tonos casi
+        // invisibles contra blanco. El bloque seleccionado usa primary del tema.
+        "group rounded-sm border bg-zinc-100/40 transition-colors",
+        selected
+          ? "border-primary ring-1 ring-primary/40"
+          : "border-dashed border-zinc-400/70 hover:border-zinc-600",
       )}
       style={{
         zIndex: selected ? 50 : 1,
@@ -139,21 +145,32 @@ export function CanvasBlock({
 
 function BlockContent({ block }: { block: PrintBlock }) {
   if (block.type === "hor_line") {
-    return <div className="h-px w-full bg-foreground/40" />
+    // Línea sobre papel blanco — color fijo zinc para que se vea en ambos modos.
+    return <div className="h-px w-full bg-zinc-800" />
   }
   if (block.type === "ver_line") {
-    return <div className="h-full w-px bg-foreground/40" />
+    return <div className="h-full w-px bg-zinc-800" />
   }
   if (block.type === "company_logo") {
     return (
-      <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+      <div className="flex h-full w-full items-center justify-center text-xs text-zinc-500">
         [Logo]
       </div>
     )
   }
+  // El editor visual es para ver tamaño/grosor/familia — sin texto realista,
+  // un bloque vacío esconde la tipografía. Si el bloque trae texto custom
+  // (block.text), lo respetamos. Sino, sustituimos por el mock data del tipo
+  // (mismo que se usa en la Vista Previa). El texto en el editor se muestra
+  // en zinc-500 (un poquito atenuado) para señalar que es preview, no real.
+  const preview = block.text || getBlockMockText(block.type, "")
   return (
-    <div className="h-full w-full px-1 leading-tight">
-      {block.text || <span className="text-muted-foreground/60">…</span>}
+    <div className="h-full w-full px-1 leading-tight text-zinc-900">
+      {preview ? (
+        preview
+      ) : (
+        <span className="text-zinc-400">…</span>
+      )}
     </div>
   )
 }

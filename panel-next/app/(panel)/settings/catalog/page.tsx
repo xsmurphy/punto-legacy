@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Tag, Building2, Receipt } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -41,7 +42,31 @@ void useCategory
  * componente genérico CatalogManager con su configuración (hooks, columns,
  * fields).
  */
+type CatalogTabValue = "categories" | "brands" | "taxes"
+
+const VALID_TABS: CatalogTabValue[] = ["categories", "brands", "taxes"]
+
+function parseTab(raw: string | null): CatalogTabValue {
+  return raw && (VALID_TABS as string[]).includes(raw) ? (raw as CatalogTabValue) : "categories"
+}
+
 export default function CatalogPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  // Deep-link vía ?tab=brands|taxes — el modal de Settings → Catálogo lanza
+  // con la sección correcta (Categorías/Marcas/Impuestos) según la card que
+  // el user clickeó. Default a "categories" cuando el query no viene o no es válido.
+  const tab = parseTab(searchParams.get("tab"))
+
+  const onTabChange = (next: string) => {
+    const v = parseTab(next)
+    // Reemplaza la URL (sin push para no inflar el history) — el state vive
+    // en el query string, persistente a refresh y compartible por link.
+    const sp = new URLSearchParams(searchParams.toString())
+    sp.set("tab", v)
+    router.replace(`/settings/catalog?${sp.toString()}`, { scroll: false })
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex items-center gap-3">
@@ -58,8 +83,10 @@ export default function CatalogPage() {
         </div>
       </header>
 
-      <Tabs defaultValue="categories">
-        <TabsList>
+      <Tabs value={tab} onValueChange={onTabChange}>
+        {/* TabsList full-width 3-col — antes era ancho-contenido y dejaba la
+            mitad derecha vacía. grid-cols-3 + w-full estira cada tab. */}
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="categories" className="gap-1.5">
             <Tag className="size-3.5" />
             Categorías

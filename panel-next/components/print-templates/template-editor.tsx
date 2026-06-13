@@ -284,16 +284,21 @@ export function TemplateEditor({ existing }: Props) {
           />
         </aside>
 
-        {/* Canvas */}
+        {/* Canvas — el área alrededor del papel usa un gris más oscuro en
+            dark mode (zinc-900) para destacar el papel blanco como una "hoja
+            real" sobre la mesa. En light, mantiene el muted suave. */}
         <main
-          className="relative flex-1 overflow-auto bg-muted/40 p-8"
+          className="relative flex-1 overflow-auto bg-muted/40 p-8 dark:bg-zinc-900"
           onMouseDown={() => {
             setSelectedIdx(null)
             setGuides(null)
           }}
         >
           <div
-            className="relative mx-auto border border-dashed border-primary/50 bg-white"
+            // Borde del papel: dashed zinc (visible en cualquier modo sobre
+            // fondo blanco del papel). Antes era border-primary/50 que en
+            // dark mode con primary brand verde se mezclaba.
+            className="relative mx-auto border border-dashed border-zinc-400 bg-white shadow-md dark:shadow-zinc-950/50"
             style={{
               width: `${widthPx}px`,
               height: `${heightPx}px`,
@@ -348,16 +353,19 @@ export function TemplateEditor({ existing }: Props) {
  */
 function DragGuides({ guides }: { guides: { top: number; left: number; width: number; height: number } }) {
   const { top, left, width, height } = guides
+  // Sobre fondo blanco del papel — uso zinc-700 sólido (no opacidad baja)
+  // para que las guías se vean nítidas. El mid usa intensidad ligeramente
+  // menor para distinguirlo del top/bottom sin perder contraste.
   return (
     <>
       {/* Horizontales: top / mid / bottom */}
-      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-primary/70" style={{ top: `${top}px` }} />
-      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-primary/40" style={{ top: `${top + height / 2}px` }} />
-      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-primary/70" style={{ top: `${top + height}px` }} />
+      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-zinc-700" style={{ top: `${top}px` }} />
+      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-zinc-500" style={{ top: `${top + height / 2}px` }} />
+      <div className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-zinc-700" style={{ top: `${top + height}px` }} />
       {/* Verticales: left / midX / right */}
-      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-primary/70" style={{ left: `${left}px` }} />
-      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-primary/40" style={{ left: `${left + width / 2}px` }} />
-      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-primary/70" style={{ left: `${left + width}px` }} />
+      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-zinc-700" style={{ left: `${left}px` }} />
+      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-zinc-500" style={{ left: `${left + width / 2}px` }} />
+      <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-zinc-700" style={{ left: `${left + width}px` }} />
     </>
   )
 }
