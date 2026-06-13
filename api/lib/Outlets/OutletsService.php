@@ -198,10 +198,14 @@ final class OutletsService
         }
 
         // Inventory blank-rows: solo si el plan de la company incluye `inventory`.
-        // `inventory` vive dentro del JSONB `features` (db-schema-postgres.sql:78),
-        // leer con `features->>'inventory'`.
+        // `inventory` vive en el JSONB `features` (db-schema-postgres.sql:78) como
+        // BOOLEAN (`true`/`false`), no integer — el seed `plans` serializa PHP
+        // bool→json bool. `(features->>'inventory')::int` tira 22P02
+        // "invalid input syntax for type integer: \"true\"" y aborta la TX → el
+        // INSERT inicial se rollbackea silente. Comparamos jsonb directo y
+        // emitimos 0/1 (NULL/key ausente → 0).
         $planRow = ncmExecute(
-            "SELECT COALESCE((p.features->>'inventory')::int, 0) AS inventory
+            "SELECT CASE WHEN p.features->'inventory' = 'true'::jsonb THEN 1 ELSE 0 END AS inventory
                FROM company c JOIN plans p ON p.plan_code = c.plan
               WHERE c.companyId = ? LIMIT 1",
             [$companyId]
