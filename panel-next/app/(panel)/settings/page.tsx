@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -14,7 +15,14 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 import {
   Select,
   SelectContent,
@@ -88,9 +96,68 @@ const settingsSchema = z.object({
   deletedItemsHistory: z.boolean(),
 })
 
+type SettingsSection =
+  | "empresa"
+  | "locale"
+  | "pos"
+  | "monedas"
+  | "documentos"
+  | "catalog"
+  | "apariencia"
+  | "social"
+
+const SECTIONS: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "empresa",    label: "Empresa",      icon: Building2 },
+  { id: "locale",     label: "Localización", icon: Globe },
+  { id: "pos",        label: "POS",          icon: ScanLine },
+  { id: "monedas",    label: "Monedas",      icon: Coins },
+  { id: "documentos", label: "Documentos",   icon: FileText },
+  { id: "catalog",    label: "Catálogo",     icon: Tag },
+  { id: "apariencia", label: "Apariencia",   icon: Palette },
+  { id: "social",     label: "Redes",        icon: Share2 },
+]
+
+// Sections que escriben al form de settings — solo en esas mostramos el botón
+// "Guardar" del header. Monedas tiene su propia mutation con botón propio;
+// Documentos y Catálogo no escriben configuración (son listados / navegación).
+const FORM_SECTIONS: SettingsSection[] = ["empresa", "locale", "pos", "apariencia", "social"]
+
 export default function SettingsPage() {
+  const router = useRouter()
   const { data, isLoading, error } = useSettings()
   const update = useUpdateSettings()
+  const [open, setOpen] = React.useState(true)
+  const [section, setSection] = React.useState<SettingsSection>("empresa")
+
+  // Cuando el modal se cierra, salimos de la ruta /settings. router.back() si
+  // hay history (caso común: vino del sidebar dropdown); fallback a "/" para
+  // visitas directas por URL. setTimeout para que la animación de cierre alcance
+  // a correr antes de la navegación (sino el modal se "teletransporta").
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (next) return
+      setOpen(false)
+      setTimeout(() => {
+        if (typeof window !== "undefined" && window.history.length > 1) {
+          router.back()
+        } else {
+          router.push("/")
+        }
+      }, 120)
+    },
+    [router],
+  )
+
+  // Navegación a una página separada desde una sección del modal (ej. Catálogo
+  // → /settings/catalog, Documentos "Nueva plantilla" → /settings/print-templates).
+  // Cierra el modal primero para que la transición se vea limpia.
+  const navigateAndClose = React.useCallback(
+    (href: string) => {
+      setOpen(false)
+      setTimeout(() => router.push(href), 120)
+    },
+    [router],
+  )
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema),
@@ -154,99 +221,114 @@ export default function SettingsPage() {
     }
   }
 
-  if (error) {
-    return (
-      <div className="flex flex-col gap-4">
-        <Card>
-          <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            No se pudieron cargar los ajustes. {error.message}
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+  const activeLabel = SECTIONS.find((s) => s.id === section)?.label ?? ""
+  const showSave = FORM_SECTIONS.includes(section)
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-2xl font-semibold">Ajustes de la empresa</h1>
-            <p className="text-sm text-muted-foreground">
-              Datos fiscales, localización y configuración general del negocio.
-            </p>
-          </div>
-          <Button type="submit" disabled={update.isPending || isLoading}>
-            {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Guardar
-          </Button>
-        </header>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        // Modal de pantalla amplia con sidebar + content. Overrides:
+        // - mobile fullscreen (con teclado, un modal chico tapa los inputs);
+        // - desktop ancho 64rem (clamp para no exceder viewports chicos);
+        // - reset de gap/padding del DialogContent default (el grid interno
+        //   maneja su propio layout y queremos que el header/scroll lleguen
+        //   a los bordes).
+        className={cn(
+          "gap-0 overflow-hidden p-0",
+          "max-sm:!inset-0 max-sm:!h-dvh max-sm:!max-w-none max-sm:!w-auto max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none",
+          "sm:!max-w-[min(64rem,calc(100vw-2rem))] sm:!w-full",
+        )}
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>Configuración</DialogTitle>
+          <DialogDescription>
+            Ajustes de la empresa, POS, documentos y apariencia.
+          </DialogDescription>
+        </DialogHeader>
 
-        <Tabs defaultValue="empresa" className="w-full">
-          <div className="-mx-2 overflow-x-auto px-2">
-            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
-              <TabsTrigger value="empresa" className="gap-1.5">
-                <Building2 className="size-3.5" />
-                Empresa
-              </TabsTrigger>
-              <TabsTrigger value="locale" className="gap-1.5">
-                <Globe className="size-3.5" />
-                Localización
-              </TabsTrigger>
-              <TabsTrigger value="pos" className="gap-1.5">
-                <ScanLine className="size-3.5" />
-                POS
-              </TabsTrigger>
-              <TabsTrigger value="monedas" className="gap-1.5">
-                <Coins className="size-3.5" />
-                Monedas
-              </TabsTrigger>
-              <TabsTrigger value="documentos" className="gap-1.5">
-                <FileText className="size-3.5" />
-                Documentos
-              </TabsTrigger>
-              <TabsTrigger value="catalog" className="gap-1.5">
-                <Tag className="size-3.5" />
-                Catálogo
-              </TabsTrigger>
-              <TabsTrigger value="apariencia" className="gap-1.5">
-                <Palette className="size-3.5" />
-                Apariencia
-              </TabsTrigger>
-              <TabsTrigger value="social" className="gap-1.5">
-                <Share2 className="size-3.5" />
-                Redes
-              </TabsTrigger>
-            </TabsList>
+        {error ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">
+            No se pudieron cargar los ajustes. {error.message}
           </div>
+        ) : (
+          <Form {...form}>
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="flex h-full min-h-0 w-full flex-col overflow-hidden sm:grid sm:h-[80vh] sm:grid-cols-[220px_1fr]"
+            >
+              {/* Sidebar interno. Vertical en desktop, horizontal scrolleable
+                  en mobile. pr-12 mobile deja lugar al botón X absolute. */}
+              <nav
+                aria-label="Secciones de configuración"
+                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:border-r sm:p-3 sm:pr-3"
+              >
+                {SECTIONS.map(({ id, label, icon: Icon }) => {
+                  const active = section === id
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setSection(id)}
+                      className={cn(
+                        "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
+                        active
+                          ? "bg-accent font-medium text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                      )}
+                      aria-current={active ? "page" : undefined}
+                    >
+                      <Icon className="size-4 shrink-0" />
+                      <span>{label}</span>
+                    </button>
+                  )
+                })}
+              </nav>
 
-          <TabsContent value="empresa" className="mt-6">
-            {isLoading ? <TabSkeleton /> : <EmpresaTab form={form} />}
-          </TabsContent>
-          <TabsContent value="locale" className="mt-6">
-            {isLoading ? <TabSkeleton /> : <LocaleTab form={form} />}
-          </TabsContent>
-          <TabsContent value="pos" className="mt-6">
-            {isLoading ? <TabSkeleton /> : <PosTab form={form} />}
-          </TabsContent>
-          <TabsContent value="monedas" className="mt-6">
-            <MonedasTab />
-          </TabsContent>
-          <TabsContent value="documentos" className="mt-6">
-            <DocumentsTab />
-          </TabsContent>
-          <TabsContent value="catalog" className="mt-6">
-            <CatalogTab />
-          </TabsContent>
-          <TabsContent value="apariencia" className="mt-6">
-            <AparienciaTab />
-          </TabsContent>
-          <TabsContent value="social" className="mt-6">
-            {isLoading ? <TabSkeleton /> : <SocialTab form={form} />}
-          </TabsContent>
-        </Tabs>
-      </form>
-    </Form>
+              {/* Content area: header breadcrumb (+Guardar) + scroll vertical.
+                  pr-14 deja espacio para el botón X del DialogContent (absolute
+                  top-4 right-4 + size-icon-sm ≈ 32px). Sin esto, "Guardar"
+                  queda tapado por la X cuando showSave es true. */}
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <header className="hidden items-center justify-between gap-2 border-b py-3 pl-6 pr-14 text-sm sm:flex">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <span>Configuración</span>
+                    <span className="text-muted-foreground/50">›</span>
+                    <span className="text-foreground">{activeLabel}</span>
+                  </div>
+                  {showSave && (
+                    <Button type="submit" size="sm" disabled={update.isPending || isLoading}>
+                      {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                      Guardar
+                    </Button>
+                  )}
+                </header>
+                <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                  {section === "empresa"    && (isLoading ? <TabSkeleton /> : <EmpresaTab form={form} />)}
+                  {section === "locale"     && (isLoading ? <TabSkeleton /> : <LocaleTab form={form} />)}
+                  {section === "pos"        && (isLoading ? <TabSkeleton /> : <PosTab form={form} />)}
+                  {section === "monedas"    && <MonedasTab />}
+                  {section === "documentos" && <DocumentsTab onNavigate={navigateAndClose} />}
+                  {section === "catalog"    && <CatalogTab onNavigate={navigateAndClose} />}
+                  {section === "apariencia" && <AparienciaTab />}
+                  {section === "social"     && (isLoading ? <TabSkeleton /> : <SocialTab form={form} />)}
+                </div>
+                {/* Save bar mobile — el header está oculto en mobile (hidden sm:flex)
+                    así que repetimos el botón abajo para tener un CTA accesible
+                    sin pelearse con el botón X del header del DialogContent. */}
+                {showSave && (
+                  <div className="border-t bg-background p-3 sm:hidden">
+                    <Button type="submit" className="w-full" disabled={update.isPending || isLoading}>
+                      {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                      Guardar {activeLabel}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </form>
+          </Form>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -969,7 +1051,7 @@ function Section({
 
 // ── APARIENCIA ──────────────────────────────────────────────────────────────
 
-function CatalogTab() {
+function CatalogTab({ onNavigate }: { onNavigate?: (href: string) => void }) {
   const links = [
     {
       title: "Categorías",
@@ -990,22 +1072,39 @@ function CatalogTab() {
       href: "/settings/catalog",
     },
   ]
+  // Si nos pasan onNavigate (modal context), cerramos el modal antes de navegar
+  // — sin esto, Next.js cambia de ruta pero el Dialog queda montado encima de
+  // la nueva página por un instante. Fallback Link normal si no hay handler.
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {links.map((l) => (
-          <Link
-            key={l.title}
-            href={l.href}
-            className="group flex flex-col gap-2 rounded-lg border bg-card p-4 transition hover:border-foreground/30"
-          >
-            <l.Icon className="size-5 text-muted-foreground transition group-hover:text-foreground" />
-            <div>
-              <h3 className="font-medium">{l.title}</h3>
-              <p className="text-xs text-muted-foreground">{l.description}</p>
-            </div>
-          </Link>
-        ))}
+        {links.map((l) => {
+          const className =
+            "group flex flex-col gap-2 rounded-lg border bg-card p-4 transition hover:border-foreground/30 text-left"
+          const content = (
+            <>
+              <l.Icon className="size-5 text-muted-foreground transition group-hover:text-foreground" />
+              <div>
+                <h3 className="font-medium">{l.title}</h3>
+                <p className="text-xs text-muted-foreground">{l.description}</p>
+              </div>
+            </>
+          )
+          return onNavigate ? (
+            <button
+              key={l.title}
+              type="button"
+              onClick={() => onNavigate(l.href)}
+              className={className}
+            >
+              {content}
+            </button>
+          ) : (
+            <Link key={l.title} href={l.href} className={className}>
+              {content}
+            </Link>
+          )
+        })}
       </div>
     </div>
   )

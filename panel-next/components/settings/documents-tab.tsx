@@ -55,8 +55,12 @@ const PAGE_SIZE_LABELS: Record<DocumentTemplateRow["pageSize"], string> = {
 /**
  * Tab "Documentos" de Settings — listado de plantillas + acceso al editor.
  * El editor visual full-page vive en /settings/print-templates.
+ *
+ * `onNavigate` (opcional): pasado por el modal de Settings para cerrar el
+ * Dialog antes de navegar al editor full-page; sin él (uso standalone) caemos
+ * a un Link normal.
  */
-export function DocumentsTab() {
+export function DocumentsTab({ onNavigate }: { onNavigate?: (href: string) => void } = {}) {
   const { data, isLoading } = useDocumentTemplates()
   const del = useDeleteDocumentTemplate()
 
@@ -72,12 +76,19 @@ export function DocumentsTab() {
             Cada plantilla se asigna a un tipo de documento.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/settings/print-templates">
+        {onNavigate ? (
+          <Button onClick={() => onNavigate("/settings/print-templates")}>
             <Plus className="size-4" />
             Nueva plantilla
-          </Link>
-        </Button>
+          </Button>
+        ) : (
+          <Button asChild>
+            <Link href="/settings/print-templates">
+              <Plus className="size-4" />
+              Nueva plantilla
+            </Link>
+          </Button>
+        )}
       </header>
 
       <Card>
@@ -116,11 +127,23 @@ export function DocumentsTab() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
-                        <Button asChild variant="ghost" size="icon" className="size-8">
-                          <Link href={`/settings/print-templates?id=${t.templateId}`}>
+                        {onNavigate ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            onClick={() => onNavigate(`/settings/print-templates?id=${t.templateId}`)}
+                            aria-label="Editar plantilla"
+                          >
                             <Pencil className="size-3.5" />
-                          </Link>
-                        </Button>
+                          </Button>
+                        ) : (
+                          <Button asChild variant="ghost" size="icon" className="size-8">
+                            <Link href={`/settings/print-templates?id=${t.templateId}`}>
+                              <Pencil className="size-3.5" />
+                            </Link>
+                          </Button>
+                        )}
                         <DeleteTemplateButton
                           name={t.name}
                           onConfirm={async () => {
