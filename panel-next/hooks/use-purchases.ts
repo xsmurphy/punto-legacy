@@ -114,7 +114,14 @@ export function usePurchase(id: string | null) {
 export function useCreatePurchase() {
   const qc = useQueryClient()
   return useMutation<{ id: string }, Error, PurchaseCreatePayload>({
-    mutationFn: (payload) => api.post<{ id: string }>("/v1/purchases", payload),
+    // api.post espera `Json` (Record<string, unknown> | unknown[]); el cast
+    // refleja que PurchaseCreatePayload es JSON-compatible aunque TS no infiera
+    // index signature por los keys opcionales.
+    mutationFn: (payload) =>
+      api.post<{ id: string }>(
+        "/v1/purchases",
+        payload as unknown as Record<string, unknown>,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["purchases"] })
     },

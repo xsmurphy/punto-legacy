@@ -64,10 +64,12 @@ export default function SummaryReportPage() {
   // a array acá para no obligar a recordar el shape en cada .map(). El type
   // SalesSummaryResponse del hook indica array, lo cual es el shape
   // *deseado* — usamos casting + transform para alinear.
-  const byTypeRows = React.useMemo(() => {
+  const byTypeRows = React.useMemo<
+    Array<{ type: string; name?: string; total: number; count?: number }>
+  >(() => {
     const raw = data?.byType as unknown
     if (!raw) return []
-    if (Array.isArray(raw)) return raw as Array<{ type: string; name?: string; total: number; count?: number }>
+    if (Array.isArray(raw)) return raw
     if (typeof raw === "object") {
       return Object.entries(raw as Record<string, { total?: number; discount?: number; count?: number }>).map(
         ([type, v]) => ({ type, total: num(v?.total), count: v?.count }),
@@ -76,10 +78,12 @@ export default function SummaryReportPage() {
     return []
   }, [data])
 
-  const giftcardRows = React.useMemo(() => {
+  const giftcardRows = React.useMemo<
+    Array<{ name?: string; total: number; count?: number }>
+  >(() => {
     const raw = data?.giftcards as unknown
     if (!raw) return []
-    if (Array.isArray(raw)) return raw as Array<{ name?: string; total: number; count?: number }>
+    if (Array.isArray(raw)) return raw
     if (typeof raw === "object") {
       const o = raw as { total?: number; count?: number }
       const t = num(o.total)
