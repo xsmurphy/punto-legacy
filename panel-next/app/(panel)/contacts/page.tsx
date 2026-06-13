@@ -208,7 +208,7 @@ export default function ContactsPage() {
       </header>
 
       <Tabs value={String(contactType)} onValueChange={(v) => setContactType(Number(v) as ContactType)}>
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="1">Clientes</TabsTrigger>
           <TabsTrigger value="2">Proveedores</TabsTrigger>
         </TabsList>

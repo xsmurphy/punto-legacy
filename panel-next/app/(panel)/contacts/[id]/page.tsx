@@ -250,7 +250,7 @@ export default function ContactEditPage() {
           <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
         ) : (
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList>
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="summary" className="gap-1.5">
                 <BarChart3 className="size-3.5" />
                 Resumen
