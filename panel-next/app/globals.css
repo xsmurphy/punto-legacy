@@ -240,7 +240,9 @@
     --sidebar-foreground: oklch(0.967 0.003 264.54);
     --sidebar-primary: oklch(0.947 0.006 240.4);
     --sidebar-primary-foreground: oklch(0.262 0.010 245.3);
-    --sidebar-accent: oklch(0.269 0 0);
+    /* Hover de los items del sidebar — más oscuro que --sidebar para que
+       el contraste sea visible pero sutil (no compite con el item activo). */
+    --sidebar-accent: #1A1D1F;
     --sidebar-accent-foreground: oklch(0.967 0.003 264.54);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
