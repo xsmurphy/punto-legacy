@@ -391,7 +391,7 @@ function EmpresaTab({
                 <FormLabel>Rubro</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Seleccionar…" />
                     </SelectTrigger>
                   </FormControl>
@@ -610,7 +610,7 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
               <FormLabel>Idioma</FormLabel>
               <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                 </FormControl>
@@ -700,7 +700,7 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
               <FormLabel>Separador de miles</FormLabel>
               <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                 </FormControl>

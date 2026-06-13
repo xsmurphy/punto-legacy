@@ -49,18 +49,23 @@ final class SettingsService
         $obj = json_decode((string) ($r['settingObj'] ?? ''), true);
         if (!is_array($obj)) { $obj = []; }
 
-        // Logo: el flag `hasLogo` + `logoUploadedAt` (cache-bust) se persisten en
-        // settingObj cuando el panel-next sube/borra via uploadLogo()/deleteLogo().
-        // Si no hay logo → devolvemos null (el front decide qué mostrar). Si hay,
-        // construimos la URL del endpoint de resize con la convención legacy
-        // (raíz del bucket, `{companyId}.jpg`) — compat con el helper companyLogo()
-        // del panel legacy y con el POS, que apuntan al mismo path.
+        // Logo: el flag `hasLogo` + `logoUrl` + `logoUploadedAt` (cache-bust)
+        // se persisten en settingObj cuando el panel-next sube/borra via
+        // uploadLogo()/deleteLogo(). La URL es la pública directa de S3
+        // (path-style devuelto por S3Client::put) — NO va por el resize
+        // service legacy, porque ese servicio depende de un prefix S3
+        // distinto al de panel-next (S3_KEY_PREFIX=puntosys agrega un nivel
+        // que el resize legacy no conoce → 404).
         $hasLogo  = !empty($obj['hasLogo']);
+        $logoUrl  = (string) ($obj['logoUrl'] ?? '');
         $logoStmp = isset($obj['logoUploadedAt']) ? (int) $obj['logoUploadedAt'] : null;
+        $logo     = ($hasLogo && $logoUrl !== '')
+            ? $logoUrl . ($logoStmp ? '?v=' . $logoStmp : '')
+            : null;
 
         return [
             // Perfil
-            'logo'            => $hasLogo ? $this->buildLogoUrl($companyId, $logoStmp) : null,
+            'logo'            => $logo,
             'hasLogo'         => $hasLogo,
             'name'            => (string) ($r['settingName'] ?? ''),
             'address'         => (string) ($r['settingAddress'] ?? ''),
@@ -450,11 +455,14 @@ final class SettingsService
     /**
      * Sube el logo de la empresa a S3. Procesa con GD (resize a 400×400 máx,
      * convierte a JPEG q90 con fondo blanco para PNG transparentes) y persiste
-     * el flag `hasLogo` + `logoUploadedAt` en settingObj para cache-bust.
+     * el flag `hasLogo` + `logoUrl` (URL pública directa de S3) + `logoUploadedAt`
+     * (cache-bust) en settingObj.
      *
-     * Convención de path en S3: `{companyId}.jpg` en raíz del bucket — la misma
-     * que usa el helper legacy `companyLogo()` de panel/includes/functions.php,
-     * para que el POS y el panel legacy sigan viendo el mismo archivo.
+     * Path S3: `companies/{companyId}/logo.jpg` — coherente con el pattern de
+     * items (`items/{cid}/{iid}/{imgid}.jpg`) y compatible con S3_KEY_PREFIX.
+     * NO usa el resize service legacy ni la convención `{cid}.jpg` raíz — para
+     * que el POS legacy siga viendo su logo en `{cid}.jpg` haría falta dual
+     * write, que se atenderá cuando el panel legacy migre.
      *
      * @return array{logo: string, hasLogo: true}
      * @throws \RuntimeException con mensaje legible si la validación o el upload fallan.
@@ -486,15 +494,19 @@ final class SettingsService
         $jpeg = (string) ob_get_clean();
         imagedestroy($src);
 
-        // Subir a S3 — la S3_KEY_PREFIX se aplica desde S3Client; el objectKey
-        // lógico es solo `{companyId}.jpg`.
-        $this->s3()->put($companyId . '.jpg', $jpeg, 'image/jpeg', true);
+        // Subir a S3 — S3Client::put retorna la URL pública directa (path-style)
+        // ya con el S3_KEY_PREFIX aplicado. Esa es la URL que persistimos y
+        // devolvemos al front.
+        $objectKey = "companies/$companyId/logo.jpg";
+        $publicUrl = $this->s3()->put($objectKey, $jpeg, 'image/jpeg', true);
 
         $stamp = (int) time();
-        $this->persistLogoFlag($companyId, true, $stamp);
+        if (!$this->persistLogoFlag($companyId, true, $stamp, $publicUrl)) {
+            throw new \RuntimeException('No se pudo guardar el logo en la BD');
+        }
 
         return [
-            'logo'    => $this->buildLogoUrl($companyId, $stamp),
+            'logo'    => $publicUrl . '?v=' . $stamp,
             'hasLogo' => true,
         ];
     }
@@ -509,11 +521,11 @@ final class SettingsService
     public function deleteLogo(string $companyId): array
     {
         try {
-            $this->s3()->delete($companyId . '.jpg');
+            $this->s3()->delete("companies/$companyId/logo.jpg");
         } catch (\Throwable $e) {
             // swallow: el flag en BD es la fuente de verdad para el front
         }
-        $this->persistLogoFlag($companyId, false, null);
+        $this->persistLogoFlag($companyId, false, null, null);
         return ['hasLogo' => false];
     }
 
@@ -560,32 +572,29 @@ final class SettingsService
         );
     }
 
-    private function buildLogoUrl(string $companyId, ?int $stamp): string
-    {
-        $assets = defined('ASSETS_URL') ? rtrim((string) ASSETS_URL, '/') : '/assets';
-        $bust   = $stamp ? '?v=' . $stamp : '';
-        return $assets . '/150-150/0/' . $companyId . '.jpg' . $bust;
-    }
-
     /**
-     * Actualiza `hasLogo` + `logoUploadedAt` dentro de settingObj — leemos el
-     * blob actual primero para no clobbear `currencies` ni los demás flags.
+     * Actualiza `hasLogo` + `logoUrl` + `logoUploadedAt` dentro de settingObj
+     * — leemos el blob actual primero para no clobbear `currencies` ni los
+     * demás flags. Devuelve true si el UPDATE se ejecutó OK (para que el
+     * caller pueda fallar visible si la persistencia rompió).
      */
-    private function persistLogoFlag(string $companyId, bool $hasLogo, ?int $stamp): void
+    private function persistLogoFlag(string $companyId, bool $hasLogo, ?int $stamp, ?string $url): bool
     {
         $obj = $this->readSettingObj($companyId);
-        if ($obj === null) return; // company no existe — el caller no debería haber llegado acá
+        if ($obj === null) return false; // company no existe
         if ($hasLogo) {
             $obj['hasLogo']        = true;
             $obj['logoUploadedAt'] = $stamp;
+            $obj['logoUrl']        = $url;
         } else {
-            unset($obj['hasLogo'], $obj['logoUploadedAt']);
+            unset($obj['hasLogo'], $obj['logoUploadedAt'], $obj['logoUrl']);
         }
-        ncmUpdate([
+        $res = ncmUpdate([
             'records'     => ['settingObj' => json_encode($obj)],
             'table'       => 'company',
             'where'       => 'companyId = ?',
             'whereParams' => [$companyId],
         ]);
+        return is_array($res) && empty($res['error']);
     }
 }
