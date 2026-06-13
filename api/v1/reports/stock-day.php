@@ -29,10 +29,12 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
     apiError('Contexto de empresa inválido', 500);
 }
 
-// ROC inline sin prefijo (el service consulta directo a `stock`).
-$roc = " AND companyId = '" . COMPANY_ID . "'";
-if (preg_match($uuidRe, (string) OUTLET_ID)) {
-    $roc .= " AND outletId = '" . OUTLET_ID . "'";
+// Roc::build sin prefijo (el service consulta directo a `stock`). Respeta
+// VIEW_OUTLET_ID si el browser mandó X-Outlet-Id (panel-next 2026-06-13).
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
 }
 
 apiOk($svc->levels($date, COMPANY_ID, $roc));

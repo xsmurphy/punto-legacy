@@ -83,6 +83,13 @@ interface AppSidebarProps {
   onSelectOutlet?: (outletId: string) => void
   /** Mientras la mutation de cambio de sucursal está en vuelo, deshabilitar items. */
   isSwitchingOutlet?: boolean
+  /**
+   * View-scope del dropdown: `null` = sigue `activeOutletId`, `"all"` = Todas
+   * las sucursales, UUID = override explícito. Define cuál item lleva el ✓.
+   */
+  viewScope?: string | "all" | null
+  /** Handler para "Todas las sucursales". Si no se pasa, no se renderea la opción. */
+  onSelectAllOutlets?: () => void
 }
 
 export function AppSidebar({
@@ -96,6 +103,8 @@ export function AppSidebar({
   activeOutletId = "",
   onSelectOutlet,
   isSwitchingOutlet = false,
+  viewScope = null,
+  onSelectAllOutlets,
 }: AppSidebarProps) {
   const pathname = usePathname()
   const { toggleSidebar, state, isMobile } = useSidebar()
@@ -161,23 +170,53 @@ export function AppSidebar({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
-                  // El anchor es el wordmark (chico) — usamos min-w fijo en vez
-                  // de --radix-popper-anchor-width para que los nombres largos
-                  // de sucursal ("Shopping del Sol", "Heaven Asunción") no se
-                  // trunquen a 4 caracteres.
-                  className="min-w-64 max-w-xs"
+                  // El anchor es el wordmark (chico) — fijamos min-w generoso
+                  // para que los nombres largos de sucursal no se truncen.
+                  className="min-w-[18rem] max-w-sm"
                 >
                   <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     Cambiar sucursal
                   </DropdownMenuLabel>
+                  {/* "Todas las sucursales" — primero. El check sigue el
+                      `viewScope`: si es 'all' va acá; si es UUID o null
+                      cae en el item correspondiente más abajo. */}
+                  {onSelectAllOutlets && (
+                    <>
+                      <DropdownMenuItem
+                        disabled={isSwitchingOutlet}
+                        onSelect={(e) => {
+                          if (viewScope === "all") {
+                            e.preventDefault()
+                            return
+                          }
+                          onSelectAllOutlets()
+                        }}
+                        className="gap-3"
+                      >
+                        <Building2 className="size-4 text-muted-foreground" />
+                        <span className="flex-1 truncate">Todas las sucursales</span>
+                        {viewScope === "all" && <Check className="size-4 opacity-70" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   {outlets.map((o) => {
-                    const isActive = o.id === activeOutletId
+                    // Si viewScope es UUID, esa sucursal lleva el check.
+                    // Si viewScope es 'all', NINGUNA sucursal lleva check
+                    // (lo lleva "Todas" arriba). Si viewScope es null (sin
+                    // selección), caemos al activeOutletId del JWT.
+                    const isChecked =
+                      viewScope === "all"
+                        ? false
+                        : viewScope
+                          ? o.id === viewScope
+                          : o.id === activeOutletId
                     return (
                       <DropdownMenuItem
                         key={o.id}
                         disabled={isSwitchingOutlet}
                         onSelect={(e) => {
-                          if (isActive) {
+                          if (isChecked) {
                             e.preventDefault()
                             return
                           }
@@ -187,7 +226,7 @@ export function AppSidebar({
                       >
                         <Store className="size-4 text-muted-foreground" />
                         <span className="flex-1 truncate">{o.name}</span>
-                        {isActive && <Check className="size-4 opacity-70" />}
+                        {isChecked && <Check className="size-4 opacity-70" />}
                       </DropdownMenuItem>
                     )
                   })}
@@ -224,7 +263,10 @@ export function AppSidebar({
                 <SidebarMenuButton
                   tooltip="Buscar (⌘K)"
                   onClick={() => setCommandOpen(true)}
-                  className="h-10 rounded-md border border-border bg-background text-base text-muted-foreground shadow-xs hover:border-border hover:bg-accent/50 [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
+                  // Solo border, sin bg ni rounded override — hereda
+                  // `rounded-xl` y el bg transparente del SidebarMenuButton
+                  // (cva del primitive shadcn).
+                  className="h-10 border border-border text-base text-muted-foreground [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
                 >
                   <Search />
                   <span>Buscar…</span>

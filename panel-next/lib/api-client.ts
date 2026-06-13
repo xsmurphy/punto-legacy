@@ -12,6 +12,8 @@
  * catch-all del BFF. Same-origin, sin CORS, cookie viaja sola.
  */
 
+import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
+
 type Json = Record<string, unknown> | unknown[]
 
 export class ApiError extends Error {
@@ -62,6 +64,20 @@ async function request<T>(
   }
   if (jwt) {
     baseHeaders.Authorization = `Bearer ${jwt}`
+  }
+
+  // View-scope override del outlet: si el usuario eligió una sucursal o
+  // "Todas" desde el dropdown del logo, mandamos `X-Outlet-Id` para que
+  // bootstrap.php (realm panel) sobreescriba el `oid` del JWT al filtrar.
+  //   - "all" → backend setea OUTLET_ID='' → modo consolidado
+  //   - UUID  → backend valida pertenencia al tenant + override del oid
+  //   - null  → no mandamos el header → backend usa el oid del JWT
+  // Solo en el browser — en server (SSR/route handler) no aplica.
+  if (typeof window !== "undefined") {
+    const scopeRaw = window.localStorage.getItem(VIEW_SCOPE_KEY)
+    if (scopeRaw && scopeRaw !== "") {
+      baseHeaders["X-Outlet-Id"] = scopeRaw
+    }
   }
 
   const res = await fetch(`${baseUrl()}${path}`, {

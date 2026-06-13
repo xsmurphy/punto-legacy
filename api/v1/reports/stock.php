@@ -16,16 +16,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
+// Outlet efectivo: si el browser eligió scope (VIEW_OUTLET_ID definida vía
+// header X-Outlet-Id), prevalece sobre OUTLET_ID del JWT. Tanto el gate como
+// el service necesitan ver el efectivo, no el raw — sino queries internas del
+// service (stockTrigger) leen el outlet equivocado en modo "Todas" o switch.
+$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+
 // Gate: requiere una sucursal válida (UUID) — el reporte agrupa stock por outlet.
+// Modo "Todas" (VIEW_OUTLET_ID='') NO permite este reporte (no tiene sentido
+// stock por sucursal sin una sucursal).
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
-if (!preg_match($uuidRe, (string) OUTLET_ID)) {
+if (!preg_match($uuidRe, $effectiveOutletId)) {
     apiOk(['needsOutlet' => true, 'rows' => []]);
 }
 
 try {
-    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, $effectiveOutletId);
 } catch (\RuntimeException $e) {
     apiError($e->getMessage(), 500);
 }
 
-apiOk(['needsOutlet' => false, 'rows' => $svc->levels($roc, COMPANY_ID, OUTLET_ID)]);
+apiOk(['needsOutlet' => false, 'rows' => $svc->levels($roc, COMPANY_ID, $effectiveOutletId)]);

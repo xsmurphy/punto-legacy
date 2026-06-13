@@ -32,15 +32,8 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
     apiError('Contexto de empresa inválido', 500);
 }
 
-// ROC inline + prefijo `b` (alias del transaction en el JOIN itemSold/transaction/item).
-$rocBase = " AND companyId = '" . COMPANY_ID . "'";
-if (preg_match($uuidRe, (string) OUTLET_ID)) {
-    $rocBase .= " AND outletId = '" . OUTLET_ID . "'";
-}
-$roc = str_replace(
-    ['outletId', 'registerId', 'companyId'],
-    ['b.outletId', 'b.registerId', 'b.companyId'],
-    $rocBase
-);
+// Roc::build con alias `b` (transaction en el JOIN itemSold/transaction/item).
+// Roc::build respeta VIEW_OUTLET_ID si está definida (panel-next 2026-06-13).
+$roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'b');
 
 apiOk($svc->salesByCategory($from, $to, $roc, COMPANY_ID));

@@ -78,17 +78,12 @@ if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
     apiError('Formato de fecha inválido', 422);
 }
 
-// ROC: fragmento de aislamiento de tenant. Reproduce getROC(1) del panel (que NO existe en
-// el contexto /api): companyId SIEMPRE + outletId del JWT. COMPANY_ID/OUTLET_ID vienen de
-// data.php (claims firmados, no del request) → interpolación segura. Mismo guard UUID que getROC.
-// COMPANY_ID/OUTLET_ID son claims firmados (no del request), pero validamos UUID igual
-// (defense-in-depth, simétrico) antes de interpolar — la query SIEMPRE queda con scope de company.
-if (!preg_match($uuidRe, (string) COMPANY_ID)) {
-    apiError('Contexto de empresa inválido', 500);
-}
-$roc = " AND companyId = '" . COMPANY_ID . "'";
-if (preg_match($uuidRe, (string) OUTLET_ID)) {
-    $roc .= " AND outletId = '" . OUTLET_ID . "'";
+// Roc::build (panel-next 2026-06-13: respeta VIEW_OUTLET_ID si el browser
+// mandó el header X-Outlet-Id del dropdown del logo).
+try {
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+} catch (\RuntimeException $e) {
+    apiError($e->getMessage(), 500);
 }
 
 apiOk([

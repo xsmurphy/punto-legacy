@@ -31,16 +31,9 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
     apiError('Contexto de empresa inválido', 500);
 }
 
-// ROC inline (reproduce getROC(1)) — companyId siempre, outlet si es UUID. Luego se
-// prefija el alias `c` para que matchee el JOIN itemSold/item/transaction del service.
-$rocBase = " AND companyId = '" . COMPANY_ID . "'";
-if (preg_match($uuidRe, (string) OUTLET_ID)) {
-    $rocBase .= " AND outletId = '" . OUTLET_ID . "'";
-}
-$roc = str_replace(
-    ['outletId', 'registerId', 'companyId'],
-    ['c.outletId', 'c.registerId', 'c.companyId'],
-    $rocBase
-);
+// Roc::build con alias `c` para matchear el JOIN itemSold/item/transaction
+// del service. Roc::build respeta VIEW_OUTLET_ID si está definida (override
+// del dropdown del logo en panel-next, 2026-06-13).
+$roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'c');
 
 apiOk($svc->salesByBrand($from, $to, $roc, COMPANY_ID));

@@ -28,11 +28,21 @@ final class Roc
      * @param string $alias     Prefijo `b.` / `c.` para los nombres de columna en JOIN; default sin prefijo.
      * @return string Fragmento que arranca con " AND " (concatenable después de un WHERE existente).
      * @throws \RuntimeException si companyId no es UUID — el endpoint debe abortar con 500.
+     *
+     * View-scope override (panel-next 2026-06-13): si bootstrap.php definió
+     * `VIEW_OUTLET_ID` (porque el browser mandó header `X-Outlet-Id`), ese
+     * gana sobre el `$outletId` que pasa el endpoint. Permite que el dropdown
+     * del logo de panel-next switchee entre sucursales o el modo "Todas"
+     * (`VIEW_OUTLET_ID=''` → no se agrega filtro outletId al WHERE) sin tocar
+     * los 21 endpoints de reports.
      */
     public static function build(string $companyId, string $outletId = '', string $alias = ''): string
     {
         if (!preg_match(self::UUID_RE, $companyId)) {
             throw new \RuntimeException('Contexto de empresa inválido (companyId no es UUID)');
+        }
+        if (defined('VIEW_OUTLET_ID')) {
+            $outletId = (string) constant('VIEW_OUTLET_ID');
         }
         $p   = $alias !== '' ? rtrim($alias, '.') . '.' : '';
         $roc = " AND {$p}companyId = '" . $companyId . "'";

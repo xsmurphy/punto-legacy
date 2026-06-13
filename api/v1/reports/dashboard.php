@@ -44,8 +44,14 @@ $opts = [
     'type' => preg_replace('/[^a-zA-Z0-9_]/', '', (string) (validateHttp('type') ?: '')),
 ];
 
+// Outlet efectivo (mismo patrón que stock.php): VIEW_OUTLET_ID si el browser
+// eligió scope vía X-Outlet-Id, OUTLET_ID del JWT en su defecto. DashboardService
+// usa el 5to argumento para widgets que NO pasan por $roc (`schedule` query
+// directa + envío a notifyGateway), así que tienen que ver el efectivo.
+$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+
 try {
-    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
+    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, $effectiveOutletId);
 } catch (\RuntimeException $e) {
     apiError($e->getMessage(), 500);
 }
@@ -55,6 +61,6 @@ apiOk($svc->widget(
     $opts,
     $roc,
     (string) COMPANY_ID,
-    (string) OUTLET_ID,
+    $effectiveOutletId,
     (string) $ctx['userId']
 ));

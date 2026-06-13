@@ -103,5 +103,35 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // data.php define COMPANY_ID/OUTLET_ID/TODAY/COMPANY_NAME/etc. desde estas locales.
     require API_APP_DIR . '/data.php';
 
+    // View-scope override (panel-next 2026-06-13). Si el browser eligió una sucursal
+    // o "Todas" desde el dropdown del logo, manda header X-Outlet-Id:
+    //   - 'all' → VIEW_OUTLET_ID = '' → Roc::build NO filtra por outlet (consolidado)
+    //   - UUID  → VIEW_OUTLET_ID = ese UUID, previa validación de pertenencia al tenant
+    //
+    // OUTLET_ID (constante del JWT, ya definida por data.php) NO se toca — las
+    // escrituras (sale, drawer, etc.) siguen scopeadas a la sucursal activa.
+    // VIEW_OUTLET_ID solo afecta lecturas que pasan por Roc::build.
+    //
+    // Restringido a realm 'panel': el POS no debería poder enviar este header.
+    if ($realm === 'panel' && isset($_SERVER['HTTP_X_OUTLET_ID'])) {
+        $override = trim((string) $_SERVER['HTTP_X_OUTLET_ID']);
+        if ($override === 'all' || $override === '') {
+            define('VIEW_OUTLET_ID', '');
+        } else {
+            $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+            if (preg_match($uuidRe, $override)) {
+                $check = ncmExecute(
+                    'SELECT 1 FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1',
+                    [$override, $companyId]
+                );
+                if ($check) {
+                    define('VIEW_OUTLET_ID', $override);
+                }
+                // Si no pertenece al tenant, ignoramos el override silenciosamente
+                // (defense-in-depth: no rompemos la sesión por header malformado).
+            }
+        }
+    }
+
     return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm');
 }
