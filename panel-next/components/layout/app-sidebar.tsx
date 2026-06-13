@@ -151,103 +151,99 @@ export function AppSidebar({
             <PuntoLogo variant="mark" className="size-8" />
           </button>
 
-          {/* WORDMARK — solo cuando expanded. Cuando hay >1 sucursales, se
-              vuelve trigger de un DropdownMenu para cambiar de sucursal sin
-              tener que abrir el menú user (atajo grande arriba). Si hay 1
-              sola, queda como Link al dashboard (comportamiento default).
-              Sin `flex-1`: el chevron del dropdown queda cerca del
-              SidebarTrigger (espacio mínimo entre logo y toggle del drawer).
-              El badge ADMIN si existe se renderea inline al lado. */}
+          {/* WORDMARK — siempre Link al dashboard (comportamiento histórico
+              del logo). El selector de sucursal vive en su propio chevron
+              a la derecha, junto al SidebarTrigger. El badge ADMIN si
+              existe se renderea inline al lado del logo. */}
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-            {outlets.length > 1 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="Cambiar sucursal"
-                    className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent/50 cursor-pointer"
-                  >
-                    <PuntoLogo variant="wordmark" />
-                    <ChevronsUpDown className="size-3.5 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  // El anchor es el wordmark (chico) — fijamos min-w generoso
-                  // para que los nombres largos de sucursal no se truncen.
-                  className="min-w-[18rem] max-w-sm"
-                >
-                  <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Cambiar sucursal
-                  </DropdownMenuLabel>
-                  {/* "Todas las sucursales" — primero. El check sigue el
-                      `viewScope`: si es 'all' va acá; si es UUID o null
-                      cae en el item correspondiente más abajo. */}
-                  {onSelectAllOutlets && (
-                    <>
-                      <DropdownMenuItem
-                        disabled={isSwitchingOutlet}
-                        onSelect={(e) => {
-                          if (viewScope === "all") {
-                            e.preventDefault()
-                            return
-                          }
-                          onSelectAllOutlets()
-                        }}
-                      >
-                        <span className="flex-1 truncate">Todas las sucursales</span>
-                        {viewScope === "all" && <Check className="size-4 opacity-70" />}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-                  {outlets.map((o) => {
-                    // Si viewScope es UUID, esa sucursal lleva el check.
-                    // Si viewScope es 'all', NINGUNA sucursal lleva check
-                    // (lo lleva "Todas" arriba). Si viewScope es null (sin
-                    // selección), caemos al activeOutletId del JWT.
-                    const isChecked =
-                      viewScope === "all"
-                        ? false
-                        : viewScope
-                          ? o.id === viewScope
-                          : o.id === activeOutletId
-                    return (
-                      <DropdownMenuItem
-                        key={o.id}
-                        disabled={isSwitchingOutlet}
-                        onSelect={(e) => {
-                          if (isChecked) {
-                            e.preventDefault()
-                            return
-                          }
-                          onSelectOutlet?.(o.id)
-                        }}
-                      >
-                        <span className="flex-1 truncate">{o.name}</span>
-                        {isChecked && <Check className="size-4 opacity-70" />}
-                      </DropdownMenuItem>
-                    )
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              // 1 sucursal → Link al dashboard (comportamiento histórico:
-              // el wordmark era navegación a home).
-              <Link
-                href="/"
-                aria-label="Ir al dashboard"
-                className="inline-flex items-center rounded-md transition-opacity hover:opacity-90"
-              >
-                <PuntoLogo variant="wordmark" />
-              </Link>
-            )}
+            <Link
+              href="/"
+              aria-label="Ir al dashboard"
+              className="inline-flex items-center rounded-md transition-opacity hover:opacity-90"
+            >
+              <PuntoLogo variant="wordmark" />
+            </Link>
             {scope === "Admin" && (
               <Badge variant="outline" className="text-[10px] font-medium">
                 ADMIN
               </Badge>
             )}
           </div>
+
+          {/* Spacer — empuja el chevron + trigger al borde derecho del
+              header. Se esconde collapsed (todo el bloque se centra). */}
+          <div className="flex-1 group-data-[collapsible=icon]:hidden" />
+
+          {/* CHEVRON selector de sucursal — solo si hay >1 outlets. Vive
+              pegado al SidebarTrigger a la derecha. Abre el DropdownMenu
+              alineado al borde derecho (align="end") para no salir del
+              sidebar. */}
+          {outlets.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Cambiar sucursal"
+                  className="inline-flex size-7 items-center justify-center rounded-md transition-colors hover:bg-accent/50 cursor-pointer group-data-[collapsible=icon]:hidden"
+                >
+                  <ChevronsUpDown className="size-4 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="min-w-[18rem] max-w-sm"
+              >
+                <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Cambiar sucursal
+                </DropdownMenuLabel>
+                {/* "Todas las sucursales" — primero. El check sigue el
+                    `viewScope`: si es 'all' va acá; si es UUID o null
+                    cae en el item correspondiente más abajo. */}
+                {onSelectAllOutlets && (
+                  <>
+                    <DropdownMenuItem
+                      disabled={isSwitchingOutlet}
+                      onSelect={(e) => {
+                        if (viewScope === "all") {
+                          e.preventDefault()
+                          return
+                        }
+                        onSelectAllOutlets()
+                      }}
+                    >
+                      <span className="flex-1 truncate">Todas las sucursales</span>
+                      {viewScope === "all" && <Check className="size-4 opacity-70" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {outlets.map((o) => {
+                  const isChecked =
+                    viewScope === "all"
+                      ? false
+                      : viewScope
+                        ? o.id === viewScope
+                        : o.id === activeOutletId
+                  return (
+                    <DropdownMenuItem
+                      key={o.id}
+                      disabled={isSwitchingOutlet}
+                      onSelect={(e) => {
+                        if (isChecked) {
+                          e.preventDefault()
+                          return
+                        }
+                        onSelectOutlet?.(o.id)
+                      }}
+                    >
+                      <span className="flex-1 truncate">{o.name}</span>
+                      {isChecked && <Check className="size-4 opacity-70" />}
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <SidebarTrigger className="size-7 group-data-[collapsible=icon]:hidden" />
         </div>
