@@ -107,13 +107,22 @@ type SettingsSection =
   | "catalog"
   | "apariencia"
 
-const SECTIONS: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+// `href` opcional: si está definido, el item del sidebar navega directo a esa
+// URL (cerrando el modal) en lugar de switchear la sección interna. Útil para
+// secciones que ya tienen una página dedicada con más contenido del que cabría
+// en el modal — evita renderear cards "puente" redundantes adentro.
+const SECTIONS: {
+  id: SettingsSection
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  href?: string
+}[] = [
   { id: "empresa",    label: "Empresa",      icon: Building2 },
   { id: "locale",     label: "Localización", icon: Globe },
   { id: "pos",        label: "POS",          icon: ScanLine },
   { id: "monedas",    label: "Monedas",      icon: Coins },
   { id: "documentos", label: "Documentos",   icon: FileText },
-  { id: "catalog",    label: "Catálogo",     icon: Tag },
+  { id: "catalog",    label: "Catálogo",     icon: Tag, href: "/settings/catalog" },
   { id: "apariencia", label: "Apariencia",   icon: Palette },
   // Redes sociales se fusionó a la sección Empresa (al final del tab) en vez
   // de tener una sección propia — el tab solo con 4 inputs estaba subutilizado.
@@ -264,13 +273,13 @@ export default function SettingsPage() {
                 aria-label="Secciones de configuración"
                 className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:border-r sm:p-3 sm:pr-3"
               >
-                {SECTIONS.map(({ id, label, icon: Icon }) => {
+                {SECTIONS.map(({ id, label, icon: Icon, href }) => {
                   const active = section === id
                   return (
                     <button
                       key={id}
                       type="button"
-                      onClick={() => setSection(id)}
+                      onClick={() => (href ? navigateAndClose(href) : setSection(id))}
                       className={cn(
                         "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
                         active
