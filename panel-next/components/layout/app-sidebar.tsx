@@ -161,7 +161,11 @@ export function AppSidebar({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
-                  className="min-w-[--radix-popper-anchor-width]"
+                  // El anchor es el wordmark (chico) — usamos min-w fijo en vez
+                  // de --radix-popper-anchor-width para que los nombres largos
+                  // de sucursal ("Shopping del Sol", "Heaven Asunción") no se
+                  // trunquen a 4 caracteres.
+                  className="min-w-64 max-w-xs"
                 >
                   <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     Cambiar sucursal
