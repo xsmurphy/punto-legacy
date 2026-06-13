@@ -1305,9 +1305,12 @@ if (!function_exists('_getTableSchema')) {
             'contact' => [
                 'pk'       => 'contactId',
                 'jsonbCol' => 'data',
-                'columns'  => ['contactId', 'contactName', 'contactSecondName', 'contactEmail',
-                               'contactPhone', 'contactPhone2',
-                               'contactTIN', 'contactCI', 'contactDate', 'contactBirthDay',
+                // Migración 25 (2026-06-13): contactSecondName, contactAddress,
+                // contactAddress2, contactNote, contactCity, contactLocation,
+                // contactCountry, contactCI, contactBirthDay demoted al JSONB
+                // `data`. contactPhone2 ELIMINADO (decisión de producto).
+                'columns'  => ['contactId', 'contactName', 'contactEmail',
+                               'contactPhone', 'contactTIN', 'contactDate',
                                'contactPassword', 'contactLoyalty', 'contactLoyaltyAmount',
                                'contactStoreCredit', 'contactCreditable', 'contactCreditLine',
                                'contactStatus', 'contactLastNotificationSeen', 'debtLastNotify',
@@ -1332,26 +1335,29 @@ if (!function_exists('_getTableSchema')) {
             'outlet' => [
                 'pk'       => 'outletId',
                 'jsonbCol' => 'data',
-                // Migración 14 (2026-06-11): outletAddress, outletPhone, outletWhatsApp,
-                // outletEmail, outletBillingName, outletRUC, outletDescription demoted
-                // al JSONB `data`. outletLatLng splitteado en `lat`/`lng` numéricas
-                // para distancia haversine en SQL. Anything not in this list →
-                // ncmInsert/ncmUpdate routes to `data` automáticamente.
+                // Migración 14 (2026-06-11): outletAddress/Phone/WhatsApp/Email/
+                // BillingName/RUC/Description demoted; latLng → lat/lng numéricas.
+                // Migración 27 (2026-06-13): outletNextExpirationDate demoted.
+                // Counters outletPurchaseOrderNo / outletOrderTransferNo se
+                // mantienen en columnas por incremento atómico en hot path.
                 'columns'  => ['outletId', 'outletName', 'outletStatus',
                                'lat', 'lng',
-                               'outletNextExpirationDate', 'outletPurchaseOrderNo',
-                               'outletOrderTransferNo', 'taxId', 'companyId', 'data'],
+                               'outletCreationDate',
+                               'outletPurchaseOrderNo', 'outletOrderTransferNo',
+                               'taxId', 'companyId', 'data'],
             ],
             'register' => [
                 'pk'       => 'registerId',
                 'jsonbCol' => 'data',
+                // Migración 26 (2026-06-13): registerInvoiceAuth, registerInvoiceAuthExpiration,
+                // registerInvoicePrefix, registerInvoiceSufix, registerDocsLeadingZeros
+                // demoted. Counters atómicos (Number, RemitoNumber, etc.) se mantienen.
                 'columns'  => ['registerId', 'registerName', 'registerStatus', 'registerCreationDate',
-                               'registerInvoiceAuth', 'registerInvoiceAuthExpiration',
-                               'registerInvoicePrefix', 'registerInvoiceSufix', 'registerInvoiceNumber',
+                               'registerInvoiceNumber',
                                'registerRemitoNumber', 'registerQuoteNumber', 'registerReturnNumber',
                                'registerTicketNumber', 'registerOrderNumber', 'registerPedidoNumber',
                                'registerBoletaNumber', 'registerScheduleNumber',
-                               'registerDocsLeadingZeros', 'lastupdated', 'sessionId',
+                               'lastupdated', 'sessionId',
                                'outletId', 'companyId', 'data'],
             ],
             'plans' => [

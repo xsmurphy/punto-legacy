@@ -124,19 +124,6 @@ export default function ContactsPage() {
         meta: { label: "CI", className: "tabular-nums" },
       },
       {
-        accessorKey: "phone2",
-        header: "Teléfono 2",
-        cell: ({ getValue }) => {
-          const v = getValue() as string | null
-          return v ? (
-            <span className="tabular-nums text-muted-foreground">{v}</span>
-          ) : (
-            <span className="opacity-40">—</span>
-          )
-        },
-        meta: { label: "Teléfono 2", className: "tabular-nums" },
-      },
-      {
         accessorKey: "bday",
         header: "Cumpleaños",
         cell: ({ getValue }) => {
@@ -199,7 +186,7 @@ export default function ContactsPage() {
   // No las mostramos por default para no saturar la grilla. El user las
   // prende cuando le interesan; la elección se persiste por tableId.
   const initialColumnVisibility = React.useMemo(
-    () => ({ ci: false, phone2: false, bday: false, loyaltyAmount: false, city: false }),
+    () => ({ ci: false, bday: false, loyaltyAmount: false, city: false }),
     [],
   )
 

@@ -130,7 +130,6 @@ function serialize(values: ContactFormValues): Record<string, unknown> {
     ci: values.ci,
     bday: values.bday,
     phone: values.phone ?? "",
-    phone2: values.phone2 ?? "",
     email: values.email,
     note: values.note,
     city: values.city,

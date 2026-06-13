@@ -191,7 +191,10 @@ if(validateHttp('action') == 'searchCustomerInputJson'){
 	if(validateHttp('not')){
 		$notIn 	= ' AND contactId != ' . $db->Prepare(dec(validateHttp('not')));
 	}
-	$sql    = 'SELECT contactId, contactName, contactSecondName, contactTIN, contactId FROM contact WHERE (contactName LIKE \'%\' . $query . \'%\' OR contactTIN LIKE \'%\' . $query . \'%\')' . $notIn . ' AND type = ? AND ' . $SQLcompanyId . ' LIMIT 50';
+	// Migración 25 (2026-06-13): contactSecondName demoted a `data` JSONB.
+	// SELECT * (no columnas explícitas) + ncmExecute → _flattenJsonb expone
+	// la key como columna virtual en cada fila.
+	$sql    = 'SELECT * FROM contact WHERE (contactName LIKE \'%\' . $query . \'%\' OR contactTIN LIKE \'%\' . $query . \'%\')' . $notIn . ' AND type = ? AND ' . $SQLcompanyId . ' LIMIT 50';
 
   $result = ncmExecute($sql,[$type],false,true);
   $json   = [];
@@ -2380,17 +2383,21 @@ if(validateHttp('action') == 'mandatory'){
 if(validateHttp('action') == 'download'){
 	ini_set('memory_limit', '2048M');
 
-	$sql 		= 'SELECT contactId,contactName,contactSecondName,contactPhone,contactPhone2,contactEmail,contactTIN,contactAddress,contactAddress2,contactNote,role,type 
-				FROM contact 
-				WHERE '.$SQLcompanyId.' 
-				AND (contactName != "" OR contactSecondName)
-				ORDER BY contactName ASC';
+	// Migración 25 (2026-06-13): contactSecondName/Address/Address2/Note viven
+	// en `data` JSONB. ncmExecute con forceObj=true hace `_flattenJsonb` por
+	// fila → las keys se re-exponen como columnas virtuales en `fields`.
+	// El WHERE usa `data->>'contactSecondName'` para no referenciar la columna
+	// dropeada. TELEFONO 2 ELIMINADO (Migración 25).
+	$sql 		= "SELECT * FROM contact
+				WHERE ".$SQLcompanyId."
+				AND (contactName != '' OR data->>'contactSecondName' IS NOT NULL)
+				ORDER BY contactName ASC";
 
-	$result 	= $db->Execute($sql);
+	$result 	= ncmExecute($sql, [], false, true);
 	$array 		= array();
-	$fields 	= array('RAZÓN SOCIAL',TIN_NAME,'NOMBRE Y APELLIDO','TELEFONO','TELEFONO 2','EMAIL','DIRECCION','DIRECCION 2','NOTA','ROL');
+	$fields 	= array('RAZÓN SOCIAL',TIN_NAME,'NOMBRE Y APELLIDO','TELEFONO','EMAIL','DIRECCION','DIRECCION 2','NOTA','ROL');
 
-	if($result->RecordCount() > 0){
+	if($result && !$result->EOF){
 
 		while (!$result->EOF) {
 			if($result->fields['type'] == 0){
@@ -2408,20 +2415,19 @@ if(validateHttp('action') == 'download'){
 			$var 		= array(
 								$result->fields['contactName'],
 								$result->fields['contactTIN'],
-								$result->fields['contactSecondName'],
+								$result->fields['contactSecondName'] ?? '',
 								$result->fields['contactPhone'],
-								$result->fields['contactPhone2'],
 								$result->fields['contactEmail'],
-								$result->fields['contactAddress'],
-								$result->fields['contactAddress2'],
-								$result->fields['contactNote'],
+								$result->fields['contactAddress'] ?? '',
+								$result->fields['contactAddress2'] ?? '',
+								$result->fields['contactNote'] ?? '',
 								$type
 							);
-	
+
 			array_push($array, $var);
-			$result->MoveNext(); 
+			$result->MoveNext();
 		}
-	}	
+	}
 
 	$csv = new parseCSV();
 	$csv->output("contacts_".date('Y-m-d').".csv", $array, $fields);

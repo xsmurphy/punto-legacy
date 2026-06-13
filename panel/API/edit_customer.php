@@ -31,7 +31,9 @@ if(validity($value,'array')){
 		$idQuery = 'contactId = ' . $db->Prepare(dec($value['uid']));
 		$idIt 	= $value['uid'];
 	}else if($value['ci']){
-		$idQuery = 'contactCI = ' . $db->Prepare($value['ci']);
+		// Migración 25 (2026-06-13): contactCI vive en `data` JSONB.
+		// data->>'contactCI' lo expone como texto para el WHERE.
+		$idQuery = "data->>'contactCI' = " . $db->Prepare($value['ci']);
 		$idIt 	= $value['ci'];
 	}
 

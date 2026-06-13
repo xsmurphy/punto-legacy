@@ -69,6 +69,11 @@ final class ContactService
         if (isset($in['ci']))    $rec['contactCI'] = $in['ci'];
         if (!empty($in['bday'])) $rec['contactBirthDay'] = $in['bday'];
 
+        // Migración 25 (2026-06-13): los siguientes campos viven en `data` JSONB.
+        // ncmInsert/ncmUpdate los enrutan automáticamente vía _routeToJsonb porque
+        // están AUSENTES del whitelist `contact` en _getTableSchema. Seguimos
+        // populating el record con el mismo nombre que tenían como columna —
+        // el router los detecta como "fuera del whitelist" y los mueve a JSONB.
         if (isset($in['note']))     $rec['contactNote']     = strip_tags((string) $in['note']);
         if (isset($in['city']))     $rec['contactCity']     = strip_tags((string) $in['city']);
         if (isset($in['location'])) $rec['contactLocation'] = strip_tags((string) $in['location']);
@@ -76,7 +81,8 @@ final class ContactService
         if (isset($in['address']))  $rec['contactAddress']  = strip_tags((string) $in['address']);
         if (isset($in['address2'])) $rec['contactAddress2'] = strip_tags((string) $in['address2']);
         if (isset($in['phone']))    $rec['contactPhone']    = $in['phone'];
-        if (isset($in['phone2']))   $rec['contactPhone2']   = $in['phone2'];
+        // contactPhone2 ELIMINADO de la tabla (Migración 25). El form ya no lo
+        // pide; ignoramos cualquier valor legacy que llegue en el payload.
         if (isset($in['email']))    $rec['contactEmail']    = strip_tags((string) $in['email']);
 
         if (isset($in['status']))        $rec['contactStatus']        = (int) $in['status'];
@@ -292,7 +298,8 @@ final class ContactService
             'ci'          => $row['contactCI'] ?? null,
             'bday'        => $row['contactBirthDay'] ?? null,
             'phone'       => $row['contactPhone'] ?? null,
-            'phone2'      => $row['contactPhone2'] ?? null,
+            // contactPhone2 ELIMINADO de la tabla (Migración 25). El front ya
+            // no lo lee; preservar la key vacía rompía nada pero ensucia el shape.
             'email'       => $row['contactEmail'] ?? null,
             'note'        => $row['contactNote'] ?? null,
             'status'      => $row['contactStatus'] ?? null,

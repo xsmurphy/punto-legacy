@@ -498,9 +498,13 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
       if($downloadItems){
           
-          $customer = ncmExecute("  SELECT contactId, contactName, contactSecondName, contactId, contactTIN, contactCI, contactPhone, contactPhone2, contactEmail, contactBirthDay, contactLoyaltyAmount, contactStatus, type, contactCreditLine, contactStoreCredit, data
-                                    FROM contact 
-                                    WHERE companyId = ? 
+          // Migración 25 (2026-06-13): contactSecondName/CI/BirthDay viven en
+          // `data` JSONB (`_flattenJsonb` los re-expone como keys virtuales en
+          // cada fila). contactPhone2 eliminado. `SELECT *` saca el listado
+          // de columnas explícito y deja que ncmExecute haga el flatten.
+          $customer = ncmExecute("  SELECT *
+                                    FROM contact
+                                    WHERE companyId = ?
                                     " . $updated_at . "
                                     ORDER BY contactName ASC
                                     LIMIT " . intval($planIt['max_customers']),

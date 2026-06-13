@@ -51,10 +51,20 @@ final class ContactRepository
 
     /**
      * Buscar por CI (cédula) dentro de un type. Útil para upsert por documento.
+     *
+     * Post-Migración 25 (2026-06-13): contactCI vive en `data` JSONB.
+     * El WHERE usa `data->>'contactCI'` para preservar la funcionalidad.
+     * PG puede usar el GIN index sobre `data` si la cardinalidad amerita —
+     * por ahora el uso es bajo (solo upsert por documento) y la tabla está
+     * acotada al tenant, así que el scan filtrado es suficiente.
      */
     public function findByCI(string $ci, string $companyId, int $type = 1): ?CaseInsensitiveArray
     {
-        $sql = "SELECT * FROM contact WHERE contactCI = ? AND companyId = ? AND type = ? LIMIT 1";
+        $sql = "SELECT * FROM contact
+                 WHERE data->>'contactCI' = ?
+                   AND companyId = ?
+                   AND type = ?
+                 LIMIT 1";
         $rs  = $this->db->Execute($sql, [$ci, $companyId, $type]);
         if ($rs === false || $rs->EOF) return null;
         return _flattenJsonb($rs->fields);
@@ -147,10 +157,15 @@ final class ContactRepository
         }
 
         if (!empty($opts['q'])) {
+            // Post-Migración 25: contactSecondName y contactCI viven en `data` JSONB.
+            // El search los lee con data->>'key' para no quebrar al quitarlas de columnas.
+            // PG normaliza el cast a text así que LOWER(...) LIKE sigue funcionando.
             $like     = '%' . strtolower($opts['q']) . '%';
-            $where[]  = '(LOWER(contactName) LIKE ? OR LOWER(contactSecondName) LIKE ?
-                          OR LOWER(contactTIN) LIKE ? OR LOWER(contactCI) LIKE ?
-                          OR LOWER(contactPhone) LIKE ?)';
+            $where[]  = "(LOWER(contactName) LIKE ?
+                          OR LOWER(data->>'contactSecondName') LIKE ?
+                          OR LOWER(contactTIN) LIKE ?
+                          OR LOWER(data->>'contactCI') LIKE ?
+                          OR LOWER(contactPhone) LIKE ?)";
             array_push($params, $like, $like, $like, $like, $like);
         }
 

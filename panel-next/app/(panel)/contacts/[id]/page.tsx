@@ -71,7 +71,6 @@ const contactSchema = z
     ci: z.string(),
     bday: z.string(),
     phone: z.string().nullable(),
-    phone2: z.string().nullable(),
     email: z.union([z.string().email("Email inválido"), z.literal("")]),
     note: z.string(),
     status: z.boolean(),
@@ -104,7 +103,6 @@ export default function ContactEditPage() {
   const update = useUpdateContact()
   const archive = useArchiveContact()
   const [country, setCountry] = React.useState<CountryCode>(DEFAULT_COUNTRY)
-  const [country2, setCountry2] = React.useState<CountryCode>(DEFAULT_COUNTRY)
 
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
@@ -124,7 +122,6 @@ export default function ContactEditPage() {
       ci: data.ci ?? "",
       bday: data.bday ?? "",
       phone: data.phone ?? null,
-      phone2: data.phone2 ?? null,
       email: data.email ?? "",
       note: data.note ?? "",
       status: (data.status ?? 1) === 1,
@@ -250,8 +247,7 @@ export default function ContactEditPage() {
         {/* Tabs solo cuando estamos editando un contacto existente. Para "nuevo"
             no hay analytics que mostrar — el form se renderiza directo. */}
         {isNew ? (
-          <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry}
-            country2={country2} setCountry2={setCountry2} />
+          <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
         ) : (
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
             <TabsList>
@@ -296,8 +292,7 @@ export default function ContactEditPage() {
               />
             </TabsContent>
             <TabsContent value="data" className="mt-6">
-              <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry}
-                country2={country2} setCountry2={setCountry2} />
+              <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
             </TabsContent>
           </Tabs>
         )}
@@ -316,15 +311,11 @@ function ContactFormBody({
   kind,
   country,
   setCountry,
-  country2,
-  setCountry2,
 }: {
   form: UseFormReturn<ContactFormValues>
   kind: "persona" | "empresa"
   country: CountryCode
   setCountry: (c: CountryCode) => void
-  country2: CountryCode
-  setCountry2: (c: CountryCode) => void
 }) {
   return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -485,27 +476,6 @@ function ContactFormBody({
                       onChange={(v) => {
                         field.onChange(v.e164)
                         setCountry(v.country)
-                      }}
-                      aria-invalid={!!fieldState.error}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="phone2"
-              render={({ field, fieldState }) => (
-                <FormItem>
-                  <FormLabel>Teléfono secundario</FormLabel>
-                  <FormControl>
-                    <PhoneInput
-                      value={field.value ?? ""}
-                      country={country2}
-                      onChange={(v) => {
-                        field.onChange(v.e164)
-                        setCountry2(v.country)
                       }}
                       aria-invalid={!!fieldState.error}
                     />
@@ -1240,7 +1210,6 @@ function emptyValues(): ContactFormValues {
     ci: "",
     bday: "",
     phone: null,
-    phone2: null,
     email: "",
     note: "",
     status: true,

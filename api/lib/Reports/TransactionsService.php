@@ -480,23 +480,30 @@ final class TransactionsService
             return [];
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
+        // Migración 26 (2026-06-13): registerInvoiceAuth/Prefix/DocsLeadingZeros
+        // viven en `data` JSONB. `SELECT *` deja que ncmExecute aplique
+        // `_flattenJsonb` y exponga las keys del JSONB como columnas virtuales
+        // en cada fila — el loop de abajo las lee con `$r['registerInvoiceAuth']`
+        // sin cambios.
         $res = ncmExecute(
-            "SELECT registerId, registerName, registerInvoiceAuth, registerInvoicePrefix,
-                    registerDocsLeadingZeros, data
+            "SELECT *
              FROM register WHERE companyId = ? AND registerId IN ($ph)",
             array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];
         $map = [];
         foreach ($res as $r) {
-            $data = json_decode((string) ($r['data'] ?? ''), true);
+            // Post-Migración 26 + flatten: registerInvoiceAuth/Prefix/DocsLeadingZeros
+            // viven en el JSONB pero _flattenJsonb los re-expone como columnas
+            // virtuales en `$r`. registerReturnPrefix nunca fue columna —
+            // siempre vivió en `data`, accedido ahora también vía flatten.
             $map[(string) $r['registerId']] = [
                 'name'             => (string) ($r['registerName'] ?? ''),
                 'invoiceAuth'      => (string) ($r['registerInvoiceAuth'] ?? ''),
                 'invoicePrefix'    => (string) ($r['registerInvoicePrefix'] ?? ''),
                 'docsLeadingZeros' => (int) ($r['registerDocsLeadingZeros'] ?? 0),
-                'returnPrefix'     => (is_array($data) && array_key_exists('registerReturnPrefix', $data))
-                    ? (string) $data['registerReturnPrefix'] : null,
+                'returnPrefix'     => array_key_exists('registerReturnPrefix', $r)
+                    ? (string) $r['registerReturnPrefix'] : null,
             ];
         }
         return $map;

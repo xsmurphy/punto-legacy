@@ -25,8 +25,6 @@ export interface ContactListItem {
   bday: string | null
   /** Teléfono primary en E.164 (convención §31). */
   phone: string | null
-  /** Teléfono secundario en E.164. */
-  phone2: string | null
   email: string | null
   note: string | null
   /** 1 = activo, 0 = archivado. */
@@ -144,7 +142,6 @@ export interface ContactFormValues {
   ci: string
   bday: string
   phone: string | null // E.164
-  phone2: string | null // E.164
   email: string
   note: string
   status: boolean
