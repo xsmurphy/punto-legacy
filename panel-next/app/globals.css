@@ -197,7 +197,11 @@
 /* DARK — canvas casi negro (#010102 vibe). Primary = verde Punto sobre
    foreground oscuro = look classic black-on-green. */
 .dark {
-    --background: oklch(0.262 0.010 245.3);
+    /* Background MÁS oscuro que --card y --sidebar para que el contenido
+       principal tenga contraste con los paneles flotantes (antes los 3
+       compartían el mismo gris-azulado y el sidebar se mimetizaba con el
+       contenido en /reports y otras vistas sin cards). */
+    --background: #0D0D0D;
     --foreground: oklch(0.967 0.003 264.54);
     --card: oklch(0.262 0.010 245.3);
     --card-foreground: oklch(0.967 0.003 264.54);
