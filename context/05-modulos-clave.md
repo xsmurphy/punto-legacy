@@ -237,6 +237,74 @@ reportes, configuración de módulos, usuarios.
 
 ---
 
+## panel-next/ — Nuevo panel React (greenfield, 2026-06-10+)
+
+**Propósito**: reescritura del panel legacy a React + Next.js + shadcn/ui. Ver `context/12-panel-rewrite.md` para el plan completo de slices.
+
+**Stack**: Next.js 15, React 19, TypeScript, shadcn/ui, TanStack Table, TanStack Query.
+
+### BFF catch-all same-origin (commit 580d79a, 2026-06-12)
+
+`panel-next/app/api/v1/[...path]/route.ts` — catch-all de Next.js que reenvía **todos** los requests a `/api/v1/*` al backend PHP (`NEXT_PUBLIC_API_URL`) preservando la cookie `_jwt_panel`. El `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Este es el patrón canónico para CRUD en panel-next** (antes solo existía para el income-chart). Ver §37 en `08-convenciones.md`.
+
+**Diagnóstico de sucursal**: el mismo commit incluye logging de diagnóstico en el handler de creación de sucursal para trazar errores de validación del backend.
+
+### Selector de sucursal (commit fd5e5b3, 2026-06-12)
+
+El logo wordmark del sidebar se convierte en `DropdownMenu` con la lista de sucursales cuando `outlets.length > 1`. Al seleccionar una sucursal, se llama `POST /v1/active-outlet` que re-emite el JWT panel con el nuevo claim `oid`. El bootstrap (`/v1/bootstrap`) ahora devuelve `activeOutletId`, `activeOutletName` y `outlets[]`.
+
+### ContactAnalyticsService (commit f9a646d, 2026-06-12)
+
+Nuevo servicio en `api/lib/Contacts/ContactAnalyticsService.php`. Endpoint: `GET /v1/contacts?id=X&resource=analytics&type=1|2`.
+
+Devuelve por contacto:
+- `totals` — resumen de visitas, monto total, ticket promedio
+- `segment` — segmento RFM-lite del cliente
+- `topItems` / `topCategories` — top ítems y categorías comprados
+- `paymentMix` — distribución de métodos de pago
+- `temporal` — distribuciones temporales (día de semana, horario)
+- `outlets` — sucursales frecuentadas
+- `financial` — crédito en cuenta, gift cards, puntos de fidelidad
+
+Frontend perfil de contacto en panel-next reescrito a **4 tabs**: Resumen / Comportamiento / Financiero / Datos.
+
+### Módulo Reportes panel-next (commits 93b7ffb, 80c775c, 4e1bd90, 2026-06-12)
+
+Landing `/reports` con 3 grupos del legacy (Ventas / Inventario / Admin). **10 reportes implementados**:
+
+| Reporte | Tipo |
+|---------|------|
+| Transacciones | listado |
+| Drawers (cierres de caja) | listado |
+| Productos | ranking |
+| Cuentas por cobrar | listado |
+| Cuentas por pagar | listado |
+| Resumen anual | tabla |
+| Customers | ranking |
+| Categorías | ranking |
+| Marcas | ranking |
+| Pagos (métodos) | ranking |
+| Movimientos de caja | listado |
+
+**Abstracciones compartidas**:
+- Hook genérico `useReport<T>` — fetching + estado de carga/error reutilizable por cualquier reporte.
+- Componente `<RankingReportPage>` — layout canónico para reportes tipo "ranking simple" (fecha, tabla, export).
+
+14 reportes marcados "Próximamente" en la landing.
+
+### `/settings` como Dialog modal (commit 67113d4, 2026-06-12)
+
+La pantalla `/settings` en panel-next se renderiza como **Dialog modal estilo Alfred** (sidebar de 220px + content panel). Tab "Redes" fusionado al final del tab "Empresa".
+
+### Dashboard panel-next — layout 2-col (commit 8bc61e9, 2026-06-12)
+
+Dashboard refactoreado al **layout 2-col del legacy (8/4)**:
+
+- **Columna principal (8)**: hero KPIs, income chart, donuts de métodos de pago, clientes recientes, Top 5 productos, horarios pico (`TopHoursCard` — nuevo componente).
+- **Columna lateral (4)**: NPS, órdenes activas, información general, plan activo.
+
+---
+
 ## /admin — Realm de super-admins de plataforma (iniciado 2026-05-28)
 
 **Propósito**: gestión de la plataforma multi-tenant. Aislado criptográficamente del realm tenant (`/panel`). Los super-admins de plataforma usan tabla propia `admin_user`, JWT propio (`_jwt_admin`, `aud:"admin"`, secret `ADMIN_JWT_SECRET`) y cookie distinta de la del panel.

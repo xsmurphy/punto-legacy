@@ -594,6 +594,12 @@ type-12, (3) patrón `jsonb_set` para el write. No portar estos handlers "como e
 
 ### §22.8 — Columnas demoted a JSONB: SELECT * + _flattenJsonb + filtro PHP (establecido 2026-05-30, commit b45684f)
 
+**Regla canónica de qué SÍ y qué NO se demota (establecido 2026-06-12, migraciones 25/26/27):**
+
+- **SE DEMOTA**: todo campo no-indexable, descriptivo o de config estática que no aparezca en WHERE / ORDER BY / GROUP BY / SUM / JOIN en todo el repo (criterio: 0 apariciones grep). Ejemplos: `contactSecondName`, `registerInvoiceAuth`, `outletNextExpirationDate`.
+- **NO SE DEMOTA**: counters atómicos del POS (`registerDocNumber`, `registerDocNumberB`, etc.) aunque técnicamente podrían vivir en JSONB. **Razón**: `jsonb_set` no es atómico bajo concurrencia — dos cajas incrementando el mismo counter en JSONB generarían race condition con valores duplicados (= facturas con el mismo número, lo cual es ilegal en PY). Los counters permanecen como columnas reales con UPDATE atómico (`counter = counter + 1`).
+- **NO SE DEMOTA**: cualquier campo usado en índice único, FK, o comparación SQL con operadores matemáticos (`>`, `<`, `+`, `-`).
+
 **Contexto**: las migraciones PG 06/07 movieron varios campos de `contact`, `item` y otros
 a la columna `data` JSONB de la entidad correspondiente (ej.: `contactFixedComission`,
 `itemComissionPercent`, `itemComissionType`, `itemSessions`). Esas columnas **ya no existen**
@@ -1572,6 +1578,44 @@ public static function insert(string $table, array $data): string|false
 **Raíz del bug detectado (commit a8c12a1)**: el Slice 10 PSR-4 reemplazó los wrappers `ncmInsert`/`ncmUpdate` de `/app` por delegación a `Query::insert/update`. Pero `Query` NO portó `_routeToJsonb` ni `generateUuidV7`. Resultado: cualquier INSERT con un campo demoted tiraba `column "fieldname" of relation "table" does not exist` → 500 silente. Fix: `Query::insert/update` ahora delegan a `ncmInsert`/`ncmUpdate` directamente.
 
 **Deuda registrada**: consolidar `DB.php` + `JsonbRouter` a un `/shared/` común para evitar drift futuro entre `/app` y `/panel`. Ver `10-roadmap.md`.
+
+---
+
+## §36 — Jerarquía visual de formularios en panel-next (establecido 2026-06-12, commit 9bf9934)
+
+**Regla**: los títulos de sección de formulario usan `text-base font-semibold tracking-tight` + `border-b`; los `FormLabel` individuales usan `text-sm font-medium`. No invertir esta jerarquía.
+
+**Componente canónico**: `<FormSection>` en `panel-next/components/forms/form-section.tsx`. Todo agrupamiento de campos dentro de un form de panel-next debe usar este componente en vez de markup ad-hoc.
+
+```tsx
+// BIEN
+<FormSection title="Datos de contacto">
+  <FormField name="email" ... />
+</FormSection>
+
+// MAL — markup ad-hoc, clase incorrecta para título de sección
+<h3 className="text-sm font-medium">Datos de contacto</h3>
+```
+
+---
+
+## §37 — BFF same-origin en panel-next: `api-client.ts` SIEMPRE va al catch-all de Next.js (establecido 2026-06-12, commit 580d79a)
+
+**Regla**: el `api-client.ts` del browser en panel-next usa baseURL `/api` (same-origin). NUNCA configura una URL externa del backend PHP directamente desde el browser — eso requeriría CORS y expone la URL interna.
+
+**Cómo funciona**: `panel-next/app/api/v1/[...path]/route.ts` es el catch-all de Next.js que actúa como BFF: recibe el request del browser, agrega la cookie `_jwt_panel`, y hace forward al backend PHP (`NEXT_PUBLIC_API_URL` o `API_URL` según el entorno).
+
+**Todo cálculo / reshape** que antes hubiera ido en un BFF PHP puede ir en los route handlers de `app/api/` de Next.js. La API PHP sigue devolviendo datos crudos.
+
+```
+Browser (React component)
+  → fetch('/api/v1/outlets')        ← same-origin, sin CORS
+Next.js catch-all route.ts
+  → forward con cookie _jwt_panel
+  → PHP backend (NEXT_PUBLIC_API_URL/v1/outlets)
+```
+
+**Diagnóstico**: ante errores de creación/mutación en panel-next, el primer lugar a revisar es el catch-all route — puede ser que el path no esté siendo reescrito correctamente o que la cookie no se esté propagando.
 
 ---
 

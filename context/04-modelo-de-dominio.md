@@ -242,3 +242,21 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 | 13 | `13_seed_plans_zero_and_trial.sql` | INSERT de `plan_code=0` (free) y `plan_code=3` (trial) en tabla `plans`. Faltaban en seeds anteriores → POS no podía bootar si `company.plan IN (0,3)`. | Aplicada en deploy Coolify 2026-06-09 |
 
 **Patrón atómico de demotion:** backfill UPDATE no-destructivo (NULLIF para no inflar con defaults; booleans como JSON booleans, no strings) + DROP atómico en el mismo script. Requiere ser owner de la tabla en PG (el usuario `punto` de la app no lo es — ver `06-infraestructura.md §Privilegio de owner para DDL`).
+
+| # | Archivo | Qué hace | Estado |
+|---|---------|----------|--------|
+| 25 | `25_contact_jsonb_demote2.sql` | Demota 9 columnas de `contact` a `contact.data` JSONB: `contactSecondName`, `contactAddress`, `contactAddress2`, `contactNote`, `contactCity`, `contactLocation`, `contactCountry`, `contactCI`, `contactBirthDay`. **DROP de `contactPhone2`** (eliminado por completo — decisión de producto). | Aplicada local 2026-06-12 |
+| 26 | `26_register_jsonb_demote.sql` | Demota 5 columnas de config fiscal de `register` a `register.data` JSONB: `registerInvoiceAuth`, `AuthExpiration`, `Prefix`, `Sufix`, `DocsLeadingZeros`. Los counters atómicos del POS (`registerDocNumber`, etc.) quedan como columnas reales (invariante: counters NO se demotan, ver §22.8 en `08-convenciones.md`). | Aplicada local 2026-06-12 |
+| 27 | `27_outlet_cleanup.sql` | Demota `outletNextExpirationDate` de `outlet` a `outlet.data` JSONB. **DROP TABLE IF EXISTS** de `setting`, `module`, `companyHours` (limpieza para instalaciones MySQL crudas que aún las tuvieran). | Aplicada local 2026-06-12 |
+
+### Endpoint `/v1/bootstrap` — campos de sucursal (commit fd5e5b3, 2026-06-12)
+
+El bootstrap del panel-next ahora incluye campos de selector de sucursal:
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `activeOutletId` | UUID string | Outlet activo en el JWT actual (claim `oid`) |
+| `activeOutletName` | string | Nombre de la sucursal activa |
+| `outlets` | array `{id, name}` | Lista de todas las sucursales activas del tenant |
+
+**Endpoint `POST /v1/active-outlet`** (commit fd5e5b3, 2026-06-12): cambia la sucursal activa re-emitiendo un JWT panel con nuevo claim `oid`. `PanelAuth::issueJwt` acepta `?string $outletIdOverride`. El nuevo token reemplaza la cookie `_jwt_panel` en la respuesta.

@@ -208,6 +208,7 @@ El franchiser (`panel/franchiser.php`, gateado por `isParent`) es un **realm ten
 | Monolito con API REST emergente | `/panel/API/*.php` (93 endpoints) |
 | ~~Action dispatcher~~ → **Vaciado (2026-06-01)** | `/app/action.php` tenía ~43+ acciones vía param `l=`; post-Slice 36 solo queda `processData`. El patrón BFF→API→Service lo reemplazó concern-por-concern. |
 | BFF 3 capas (Front→BFF→API→Service) | `/panel/` (completo) + **`/app/` en desacople progresivo** (slice 1: customerAddress ✅, 2026-05-28) |
+| **BFF same-origin Next.js (panel-next)** | `panel-next/app/api/v1/[...path]/route.ts` — catch-all que reenvía `/api/v1/*` al backend PHP preservando cookie `_jwt_panel`. `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Patrón canónico para CRUD en panel-next desde commit 580d79a (2026-06-12).** Ver §37 en `08-convenciones.md`. |
 | Pub/Sub bridge | PHP → Redis → Node.js WS → Browser |
 | JSONB extensible | Columnas `config`, `data`, `meta` en tablas principales |
 | UUID v7 como PK | Todas las tablas (via `ncmInsert()`) |
