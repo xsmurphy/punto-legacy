@@ -199,6 +199,48 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     group: "Reportes",
     keywords: ["open invoices", "pagar", "deuda proveedores", "outcome"],
   },
+  {
+    title: "Reportes · Resumen",
+    to: "/reports/summary",
+    icon: BarChart3,
+    group: "Reportes",
+    keywords: ["summary", "totales", "resumen", "ventas totales", "kpi"],
+  },
+  {
+    title: "Reportes · Análisis de clientes",
+    to: "/reports/customers",
+    icon: BarChart3,
+    group: "Reportes",
+    keywords: ["customers", "ranking clientes", "consumo", "loyalty"],
+  },
+  {
+    title: "Reportes · Categorías",
+    to: "/reports/categories",
+    icon: Tag,
+    group: "Reportes",
+    keywords: ["categorias", "categories", "ranking", "ventas por categoria"],
+  },
+  {
+    title: "Reportes · Marcas",
+    to: "/reports/brands",
+    icon: Building2,
+    group: "Reportes",
+    keywords: ["brands", "marcas", "ranking", "fabricantes"],
+  },
+  {
+    title: "Reportes · Medios de pago",
+    to: "/reports/payment-methods",
+    icon: Wallet,
+    group: "Reportes",
+    keywords: ["payment methods", "tarjeta", "efectivo", "cobros"],
+  },
+  {
+    title: "Reportes · Movimientos de Caja",
+    to: "/reports/expenses",
+    icon: Wallet,
+    group: "Reportes",
+    keywords: ["expenses", "movimientos", "extracciones", "ingresos manuales", "cajon"],
+  },
 ]
 
 /**

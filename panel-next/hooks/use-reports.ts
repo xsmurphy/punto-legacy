@@ -161,3 +161,107 @@ export interface OpenInvoicesReportResponse {
     toExpire: number
   }
 }
+
+// ── Rankings simples (Categories / Brands / Payment Methods) ─────────────────
+
+export interface CategoryRow {
+  categoryId: string
+  name: string
+  usold: number
+  total: number
+  tax: number
+  cogs: number
+  comission: number
+  discount: number
+}
+
+export type BrandRow = Omit<CategoryRow, "categoryId"> & { brandId: string }
+
+/** Customers report — ranking de clientes por consumo en el período. */
+export interface CustomerRow {
+  customerId: string
+  name: string
+  secondName: string
+  ruc: string
+  ci: string
+  bday: string
+  email: string
+  phone: string
+  loyalty: number
+  usold: number
+  grossTotal: number
+  discount: number
+  count: number
+  tags: string[]
+}
+
+/** Payment methods report — devuelve detail + summary. */
+export interface PaymentDetailRow {
+  transactionId: string
+  date: string
+  customerName: string
+  outletName: string
+  registerName: string
+  methodType: string
+  methodName: string
+  total: number
+}
+
+export interface PaymentSummaryRow {
+  type: string
+  name: string
+  total: number
+  count: number
+}
+
+export interface PaymentMethodsReportResponse {
+  detail: PaymentDetailRow[]
+  summary: PaymentSummaryRow[]
+}
+
+/** Expenses report — movimientos de caja (extracciones/ingresos manuales). */
+export interface ExpenseRow {
+  expensesId: string
+  date: string
+  outletName: string
+  registerName: string
+  userId: string | null
+  userName: string
+  note: string
+  /** 1=extracción (sale del cajón), 2=ingreso (entra al cajón). */
+  type: number
+  amount: number
+}
+
+// ── Sales summary (Resumen) — el más complejo del set ───────────────────────
+
+export interface SalesSummaryResponse {
+  totals: {
+    /** Total bruto facturado (antes de devoluciones). */
+    total: number
+    /** Subtotal antes de impuestos. */
+    netTotal?: number
+    /** Cantidad de ventas (count). */
+    count?: number
+    /** Descuento aplicado en total. */
+    discount?: number
+    /** Impuesto cobrado. */
+    tax?: number
+    [key: string]: number | undefined
+  }
+  returns: {
+    total: number
+  }
+  byType: Array<{ type: string; name?: string; total: number; count?: number }>
+  giftcards: Array<{ name?: string; total: number; count?: number }>
+  payments: Array<{
+    type: string
+    name: string
+    price: number
+    total: number
+  }>
+  nonAddingToSales: {
+    total: number
+    totalGiftCards: number
+  }
+}
