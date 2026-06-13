@@ -9,6 +9,7 @@ import {
   Globe,
   Palette,
   Receipt,
+  ReceiptText,
   ScanBarcode,
   ScanLine,
   Settings as SettingsIcon,
@@ -141,11 +142,11 @@ const EXTRA_ROUTES: ExtraRoute[] = [
 
   // Acciones rápidas del menú user (también accesibles desde aquí)
   {
-    title: "Estado de cuenta",
+    title: "Mi Plan",
     to: "/history-billing",
-    icon: FileText,
+    icon: ReceiptText,
     group: "Operaciones",
-    keywords: ["billing", "facturas", "pagos"],
+    keywords: ["plan", "billing", "estado de cuenta", "facturas", "pagos", "suscripción"],
   },
   {
     title: "Compras y gastos",

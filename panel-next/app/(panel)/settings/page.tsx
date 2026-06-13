@@ -11,6 +11,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -920,7 +921,7 @@ function MonedasTab() {
       <CardHeader>
         <div className="flex items-end justify-between gap-3">
           <div>
-            <CardTitle className="text-sm font-medium">Cotizaciones por moneda</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Cotizaciones por moneda</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               Si vendés a clientes que pagan en moneda extranjera, ingresá la tasa de
               cambio actual respecto a tu moneda local. Cero = la moneda no se ofrece.
@@ -1042,14 +1043,10 @@ function ToggleField({
  * — dentro del modal de settings, esa Card extra se sentía redundante con el
  * borde del propio Dialog.
  */
-function Section({
-  title,
-  children,
-}: {
-  title: string
-  children: React.ReactNode
-}) {
-  return <Subsection title={title}>{children}</Subsection>
+// Aliases locales a FormSection compartido — jerarquía visual consistente
+// cross-app (settings, contacts, outlets, items).
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return <FormSection title={title}>{children}</FormSection>
 }
 
 function Subsection({
@@ -1063,20 +1060,10 @@ function Subsection({
   className?: string
   children: React.ReactNode
 }) {
-  // Título de sección: text-base semibold para que se diferencie claramente de
-  // los FormLabel (text-sm normal). border-b sutil + pb separan visualmente
-  // del contenido sin necesidad de Card. Antes era text-sm font-medium que
-  // quedaba indistinguible del label de cada input.
   return (
-    <section className={cn("flex flex-col gap-4", className)}>
-      <div className="flex flex-col gap-1 border-b pb-2">
-        <h3 className="text-base font-semibold tracking-tight">{title}</h3>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
-      </div>
-      <div className="flex flex-col gap-4">{children}</div>
-    </section>
+    <FormSection title={title} description={description} className={className}>
+      {children}
+    </FormSection>
   )
 }
 

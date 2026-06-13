@@ -39,9 +39,9 @@ import {
   ShieldCheck,
   Search,
   ChevronRight,
-  FileText,
+  ReceiptText,
   ShoppingCart,
-  Puzzle,
+  Component,
   Store,
   Building2,
   Check,
@@ -256,8 +256,8 @@ export function AppSidebar({
                 <DropdownMenuGroup>
                   <DropdownMenuItem asChild>
                     <Link href="/history-billing">
-                      <FileText />
-                      Estado de Cuenta
+                      <ReceiptText />
+                      Mi Plan
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
@@ -274,7 +274,7 @@ export function AppSidebar({
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link href="/modules">
-                      <Puzzle />
+                      <Component />
                       Módulos
                     </Link>
                   </DropdownMenuItem>

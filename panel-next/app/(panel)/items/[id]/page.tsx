@@ -510,7 +510,7 @@ function PerfilTab({
     <div className={cn("grid grid-cols-1 gap-6", hasBothMonetary && "lg:grid-cols-2")}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Datos básicos</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Datos básicos</CardTitle>
           <CardAction>
             <FormField
               control={form.control}
@@ -693,7 +693,7 @@ function PerfilTab({
       {(visibility.showPrice || visibility.showCost) && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Precio y costo</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Precio y costo</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {visibility.showPrice && (
@@ -793,7 +793,7 @@ function ConfigTab({
       {visibility.showCategorization && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Categorización</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Categorización</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <FormItem>
@@ -891,7 +891,7 @@ function ConfigTab({
       {(visibility.showTax || visibility.showDiscount) && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Impuestos y descuentos</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Impuestos y descuentos</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {visibility.showTax && (
@@ -975,7 +975,7 @@ function ConfigTab({
       {visibility.showPrice && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Comportamiento del precio</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Comportamiento del precio</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <FormField
@@ -1082,7 +1082,7 @@ function ConfigTab({
       {/* Inventario y orden */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Otros ajustes</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Otros ajustes</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {visibility.showInventoryInfo && (
@@ -1207,7 +1207,7 @@ function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Ajustes e historial</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Ajustes e historial</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
@@ -1230,7 +1230,7 @@ function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Depósitos donde vive este artículo</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Depósitos donde vive este artículo</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
@@ -1268,7 +1268,7 @@ function DisponibilidadTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">Días y horarios disponibles</CardTitle>
+        <CardTitle className="text-base font-semibold tracking-tight">Días y horarios disponibles</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <FormField
@@ -1363,7 +1363,7 @@ function CotizacionesTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">Precio por moneda extranjera</CardTitle>
+        <CardTitle className="text-base font-semibold tracking-tight">Precio por moneda extranjera</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p className="text-xs text-muted-foreground">
@@ -1467,7 +1467,7 @@ function ProduccionTab({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">
+          <CardTitle className="text-base font-semibold tracking-tight">
             Grupos de selección del combo
           </CardTitle>
         </CardHeader>
@@ -1490,7 +1490,7 @@ function ProduccionTab({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Componentes del combo</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Componentes del combo</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
@@ -1510,7 +1510,7 @@ function ProduccionTab({
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Insumos / Receta</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Insumos / Receta</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
@@ -1531,7 +1531,7 @@ function ProduccionTab({
         render={({ field }) => (
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">Procedimiento</CardTitle>
+              <CardTitle className="text-base font-semibold tracking-tight">Procedimiento</CardTitle>
             </CardHeader>
             <CardContent>
               <FormItem>

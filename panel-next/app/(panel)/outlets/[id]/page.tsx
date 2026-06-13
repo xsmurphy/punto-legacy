@@ -10,7 +10,8 @@ import { ArrowLeft, Loader2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
+import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -596,13 +597,8 @@ function BackLink() {
   )
 }
 
+// Alias local a FormSection compartido — jerarquía visual consistente
+// (text-base / 600 + border-b) vs FormLabel (text-sm / 500).
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">{children}</CardContent>
-    </Card>
-  )
+  return <FormSection title={title}>{children}</FormSection>
 }

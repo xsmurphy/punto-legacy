@@ -2,7 +2,13 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Package, Users, BarChart3, ScanBarcode, LayoutDashboard } from "lucide-react"
+import {
+  ShoppingBasket,
+  Contact,
+  ChartPie,
+  ScanBarcode,
+  LayoutDashboard,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
@@ -12,11 +18,13 @@ import { ApiError } from "@/lib/api-client"
 // Menú lateral. Definido acá (client) porque los iconos son componentes
 // función y no pueden cruzar la frontera server → client como props.
 // Dashboard como item explícito (UX: el logo no era enough).
+// Iconos: el set elegido por owner (2026-06-13) — más afines a la categoría
+// que el set genérico anterior (Package/Users/BarChart3).
 const panelNav: NavEntry[] = [
   { title: "Dashboard", to: "/", icon: LayoutDashboard },
-  { title: "Artículos", to: "/items", icon: Package },
-  { title: "Contactos", to: "/contacts", icon: Users },
-  { title: "Reportes", to: "/reports", icon: BarChart3 },
+  { title: "Artículos", to: "/items", icon: ShoppingBasket },
+  { title: "Contactos", to: "/contacts", icon: Contact },
+  { title: "Reportes", to: "/reports", icon: ChartPie },
   // Caja = POS legacy (subdomain distinto). SSO via /bff/pos-redirect.php
   // en el legacy; cuando se migre, este `to` apunta al endpoint Next equivalente.
   { title: "Caja", to: "/pos", icon: ScanBarcode },

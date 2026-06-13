@@ -20,6 +20,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -675,7 +676,7 @@ function SummaryTab({
       {/* Detalles: frecuencia + primera visita + descuento aplicado */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Actividad</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Actividad</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <DetailRow
@@ -705,7 +706,7 @@ function SummaryTab({
       {/* Acciones rápidas — links a reportes filtrados por este contacto. */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Acciones</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Acciones</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm">
@@ -745,7 +746,7 @@ function BehaviorTab({
       {/* Historial mensual — trend chart 12m */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">
+          <CardTitle className="text-base font-semibold tracking-tight">
             Compras por mes (12 meses)
           </CardTitle>
         </CardHeader>
@@ -785,7 +786,7 @@ function BehaviorTab({
         {/* Horarios preferidos */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Horarios preferidos</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Horarios preferidos</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -819,7 +820,7 @@ function BehaviorTab({
         {/* Día de la semana */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Día de la semana</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Día de la semana</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -855,7 +856,7 @@ function BehaviorTab({
         {/* Mix de pago (donut) */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Forma de pago</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">Forma de pago</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -989,7 +990,7 @@ function FinancialTab({
       </div>
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Estado de crédito</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Estado de crédito</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -1233,13 +1234,7 @@ function BackLink() {
   )
 }
 
+// Alias local a FormSection compartido — jerarquía visual consistente.
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">{children}</CardContent>
-    </Card>
-  )
+  return <FormSection title={title}>{children}</FormSection>
 }

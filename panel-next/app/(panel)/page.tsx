@@ -373,7 +373,7 @@ function IncomeAreaChart({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Margen, Ingresos y Egresos</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Margen, Ingresos y Egresos</CardTitle>
         </CardHeader>
         <CardContent>
           <Skeleton className="h-[220px] w-full" />
@@ -386,7 +386,7 @@ function IncomeAreaChart({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Margen, Ingresos y Egresos</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">Margen, Ingresos y Egresos</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
