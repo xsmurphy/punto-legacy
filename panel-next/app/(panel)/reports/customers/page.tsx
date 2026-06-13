@@ -34,9 +34,14 @@ export default function CustomersReportPage() {
   const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
-  // El endpoint devuelve un array directo, no { rows: [...] }.
-  const { data, isLoading, error } = useReport<CustomerRow[]>("customers", opts)
-  const rows = React.useMemo(() => data ?? [], [data])
+  // El endpoint devuelve `{ rows: CustomerRow[] }`. El comentario anterior
+  // estaba mal y la página tiraba TypeError "rows.forEach is not a function"
+  // porque `data` era un objeto, no un array.
+  const { data, isLoading, error } = useReport<{ rows: CustomerRow[] }>(
+    "customers",
+    opts,
+  )
+  const rows = React.useMemo(() => data?.rows ?? [], [data])
 
   const totals = React.useMemo(() => {
     let units = 0

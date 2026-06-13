@@ -58,6 +58,37 @@ export default function SummaryReportPage() {
   const nonAdding = num(data?.nonAddingToSales?.total)
   const nonAddingGifts = num(data?.nonAddingToSales?.totalGiftCards)
 
+  // El backend (SalesService::summary) devuelve `byType` como OBJETO
+  // {cash:{total,discount}, credit:{total,discount}} y `giftcards` como
+  // OBJETO {total,count} — no arrays como espera el render. Normalizamos
+  // a array acá para no obligar a recordar el shape en cada .map(). El type
+  // SalesSummaryResponse del hook indica array, lo cual es el shape
+  // *deseado* — usamos casting + transform para alinear.
+  const byTypeRows = React.useMemo(() => {
+    const raw = data?.byType as unknown
+    if (!raw) return []
+    if (Array.isArray(raw)) return raw as Array<{ type: string; name?: string; total: number; count?: number }>
+    if (typeof raw === "object") {
+      return Object.entries(raw as Record<string, { total?: number; discount?: number; count?: number }>).map(
+        ([type, v]) => ({ type, total: num(v?.total), count: v?.count }),
+      )
+    }
+    return []
+  }, [data])
+
+  const giftcardRows = React.useMemo(() => {
+    const raw = data?.giftcards as unknown
+    if (!raw) return []
+    if (Array.isArray(raw)) return raw as Array<{ name?: string; total: number; count?: number }>
+    if (typeof raw === "object") {
+      const o = raw as { total?: number; count?: number }
+      const t = num(o.total)
+      if (t === 0 && !o.count) return []
+      return [{ total: t, count: o.count }]
+    }
+    return []
+  }, [data])
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -129,14 +160,14 @@ export default function SummaryReportPage() {
         <Section title="Tipos de venta" empty="Sin desglose por tipo.">
           {isLoading ? (
             <SkeletonRows />
-          ) : (data?.byType ?? []).length === 0 ? null : (
+          ) : byTypeRows.length === 0 ? null : (
             <Table
-              rows={(data?.byType ?? []).map((r) => ({
+              rows={byTypeRows.map((r) => ({
                 left: r.name ?? r.type,
                 middle: r.count != null ? `${r.count} ops` : "",
                 right: formatMoney(r.total, bootstrap),
               }))}
-              total={(data?.byType ?? []).reduce((s, r) => s + r.total, 0)}
+              total={byTypeRows.reduce((s, r) => s + r.total, 0)}
               bootstrap={bootstrap}
             />
           )}
@@ -164,15 +195,15 @@ export default function SummaryReportPage() {
         <Section title="Gift cards vendidas" empty="No se vendieron gift cards.">
           {isLoading ? (
             <SkeletonRows />
-          ) : (data?.giftcards ?? []).length === 0 ? null : (
+          ) : giftcardRows.length === 0 ? null : (
             <Table
-              rows={(data?.giftcards ?? []).map((g) => ({
+              rows={giftcardRows.map((g) => ({
                 left: g.name || "Gift card",
                 middle: g.count != null ? `${g.count} ud` : "",
                 right: formatMoney(g.total, bootstrap),
                 icon: <Gift className="size-3.5 text-muted-foreground" />,
               }))}
-              total={(data?.giftcards ?? []).reduce((s, g) => s + g.total, 0)}
+              total={giftcardRows.reduce((s, g) => s + g.total, 0)}
               bootstrap={bootstrap}
             />
           )}
