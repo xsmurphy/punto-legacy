@@ -203,7 +203,12 @@
        contenido en /reports y otras vistas sin cards). */
     --background: #0D0D0D;
     --foreground: oklch(0.967 0.003 264.54);
-    --card: oklch(0.262 0.010 245.3);
+    /* Cards transparentes: se ven solo por el ring/border del primitive
+       (Card de shadcn: `ring-1 ring-foreground/10` en dark). Sobre el
+       canvas #0D0D0D el card queda como un panel "limpio" sin bloque
+       de color sólido — más Linear-like. Popover/dropdown conservan
+       su color sólido (flotan sobre cualquier contenido). */
+    --card: transparent;
     --card-foreground: oklch(0.967 0.003 264.54);
     --popover: oklch(0.262 0.010 245.3);
     --popover-foreground: oklch(0.967 0.003 264.54);
