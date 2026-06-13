@@ -95,3 +95,69 @@ export interface TransactionRow {
 export interface TransactionsReportResponse {
   rows: TransactionRow[]
 }
+
+/**
+ * Fila del endpoint /v1/reports/products (view=general). Cada row es un item
+ * con su agregado de ventas + metadata (name, sku, brand, category, etc.).
+ */
+export interface ProductRow {
+  id: string
+  name: string
+  sku: string
+  brand: string
+  category: string
+  itemType: string
+  price: number
+  taxName: string
+  deleted: boolean
+  usold: number
+  total: number
+  tax: number
+  cogs: number
+  comission: number
+  discount: number
+  utility?: number
+}
+
+export interface ProductsReportResponse {
+  rows: ProductRow[]
+  month: boolean
+}
+
+/**
+ * Endpoint /v1/reports/open_invoices.
+ * `state=income` (default) = cuentas por cobrar; `state=outcome` = cuentas por pagar.
+ */
+export interface OpenInvoiceRow {
+  saleId: string
+  invoiceNo: string
+  date: string
+  dueDate: string
+  total: number
+  payed: number
+  topay: number
+  /** 'ok' | 'toExpire' | 'expired'. */
+  dueStatus: string
+}
+
+export interface OpenInvoiceContactRow {
+  contactId: string
+  name: string
+  tin: string
+  phone: string
+  email: string
+  totalSales: number
+  totalPaid: number
+  totalDebt: number
+  invoices: OpenInvoiceRow[]
+}
+
+export interface OpenInvoicesReportResponse {
+  rows: OpenInvoiceContactRow[]
+  kpi: {
+    totalDebt: number
+    accounts: number
+    expired: number
+    toExpire: number
+  }
+}

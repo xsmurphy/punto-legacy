@@ -178,6 +178,27 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     group: "Reportes",
     keywords: ["transactions", "ventas", "facturas", "tickets"],
   },
+  {
+    title: "Reportes · Productos y servicios",
+    to: "/reports/products",
+    icon: Tag,
+    group: "Reportes",
+    keywords: ["products", "ranking", "items", "vendidos", "top items"],
+  },
+  {
+    title: "Reportes · Cuentas por cobrar",
+    to: "/reports/open-invoices",
+    icon: Wallet,
+    group: "Reportes",
+    keywords: ["open invoices", "credit", "deuda", "cobrar", "income"],
+  },
+  {
+    title: "Reportes · Cuentas por pagar",
+    to: "/reports/open-invoices?state=outcome",
+    icon: Wallet,
+    group: "Reportes",
+    keywords: ["open invoices", "pagar", "deuda proveedores", "outcome"],
+  },
 ]
 
 /**

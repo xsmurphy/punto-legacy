@@ -38,7 +38,7 @@ const GROUPS: ReportGroup[] = [
     items: [
       { title: "Resumen",              to: "/reports/summary",       implemented: false },
       { title: "Transacciones",        to: "/reports/transactions",  implemented: true  },
-      { title: "Productos y servicios", to: "/reports/products",     implemented: false },
+      { title: "Productos y servicios", to: "/reports/products",     implemented: true  },
       { title: "Análisis de clientes",  to: "/reports/customers",    implemented: false },
       { title: "Staff y usuarios",      to: "/reports/users",        implemented: false },
       { title: "Categorías",            to: "/reports/categories",   implemented: false },
@@ -61,8 +61,8 @@ const GROUPS: ReportGroup[] = [
     title: "Administrativos y Financieros",
     description: "Administrá cada aspecto de tu empresa.",
     items: [
-      { title: "Cuentas por cobrar",    to: "/reports/open-invoices",   implemented: false },
-      { title: "Cuentas por pagar",     to: "/reports/open-invoices?state=outcome", implemented: false },
+      { title: "Cuentas por cobrar",    to: "/reports/open-invoices",   implemented: true  },
+      { title: "Cuentas por pagar",     to: "/reports/open-invoices?state=outcome", implemented: true  },
       { title: "Resumen anual",         to: "/reports/summary-year",    implemented: false },
       { title: "Flujo de caja",         to: "/reports/cashflow",        implemented: false },
       { title: "Compras y gastos",      to: "/reports/purchases",       implemented: false },
