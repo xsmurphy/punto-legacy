@@ -60,6 +60,26 @@ if ($method === 'POST') {
         apiOk(['action' => 'removeTemplate', 'id' => $id]);
     }
 
+    // Logo de la empresa — upload multipart + delete. Path en S3 idéntico al
+    // legacy ({companyId}.jpg en raíz) → POS y panel legacy ven el mismo archivo.
+    if ($action === 'uploadLogo') {
+        if (empty($_FILES['logo']['tmp_name'])) {
+            apiError('Falta el archivo (campo "logo")', 422);
+        }
+        try {
+            apiOk($svc->uploadLogo(COMPANY_ID, $_FILES['logo']));
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+    if ($action === 'deleteLogo') {
+        try {
+            apiOk($svc->deleteLogo(COMPANY_ID));
+        } catch (\Throwable $e) {
+            apiError($e->getMessage(), 500);
+        }
+    }
+
     $type   = (string) (validateHttp('type', 'post') ?: '');
     if ($action !== 'update' || !in_array($type, ['setting', 'currencies'], true)) {
         apiError('Acción no soportada', 422);

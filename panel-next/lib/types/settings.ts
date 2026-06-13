@@ -9,8 +9,12 @@
 
 export interface SettingsGeneral {
   // Perfil empresa
-  logo: string
-  uploadUrl: string
+  /** URL del logo (endpoint de resize con cache-bust `?v=`). null si la
+   *  empresa no subió logo todavía. */
+  logo: string | null
+  /** Espejo del flag persistido en settingObj — el front no debe inferir desde
+   *  `logo === null` porque el helper podría devolver una URL fija default. */
+  hasLogo: boolean
   name: string
   address: string
   email: string
@@ -65,4 +69,4 @@ export interface SettingsGeneral {
 
 /** Lo que el form de panel-next manda al backend. Mismo shape que el GET,
  *  ajustado para form: cleartext donde el GET trae bool, etc. */
-export type SettingsFormValues = Omit<SettingsGeneral, "logo" | "uploadUrl">
+export type SettingsFormValues = Omit<SettingsGeneral, "logo" | "hasLogo">

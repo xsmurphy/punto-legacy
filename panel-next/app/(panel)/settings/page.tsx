@@ -52,6 +52,7 @@ import {
 import { COMPANY_CATEGORIES } from "@/lib/company-categories"
 import { ThemePicker } from "@/components/theme-picker"
 import { DocumentsTab } from "@/components/settings/documents-tab"
+import { CompanyLogo } from "@/components/settings/company-logo"
 import type { SettingsFormValues } from "@/lib/types/settings"
 
 const settingsSchema = z.object({
@@ -304,7 +305,7 @@ export default function SettingsPage() {
                   )}
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-                  {section === "empresa"    && (isLoading ? <TabSkeleton /> : <EmpresaTab form={form} />)}
+                  {section === "empresa"    && (isLoading ? <TabSkeleton /> : <EmpresaTab form={form} logoUrl={data?.logo ?? null} hasLogo={!!data?.hasLogo} />)}
                   {section === "locale"     && (isLoading ? <TabSkeleton /> : <LocaleTab form={form} />)}
                   {section === "pos"        && (isLoading ? <TabSkeleton /> : <PosTab form={form} />)}
                   {section === "monedas"    && <MonedasTab />}
@@ -334,7 +335,15 @@ export default function SettingsPage() {
 
 // ── EMPRESA ─────────────────────────────────────────────────────────────────
 
-function EmpresaTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
+function EmpresaTab({
+  form,
+  logoUrl,
+  hasLogo,
+}: {
+  form: UseFormReturn<SettingsFormValues>
+  logoUrl: string | null
+  hasLogo: boolean
+}) {
   // Layout sin Cards. 2 columnas en lg con divs simples — solo título y los
   // FormFields debajo. Visualmente más limpio que tener 4 cards bordeadas en
   // un modal que ya tiene su propio borde. Redes sociales vive al final del
@@ -343,22 +352,28 @@ function EmpresaTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
     <div className="flex flex-col gap-8">
       <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
         <Subsection title="Identidad de la empresa">
-          <FormField
-            control={form.control}
-            name="name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Nombre de la empresa</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormDescription className="text-xs">
-                  Aparece en el header del panel, recibos y reportes.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {/* Logo + Nombre en la misma fila — el logo es la identidad
+              principal de la empresa, va a la izquierda del nombre como en
+              el patrón ProductPhoto de items. */}
+          <div className="flex items-start gap-4">
+            <CompanyLogo logoUrl={logoUrl} hasLogo={hasLogo} />
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem className="flex-1">
+                  <FormLabel>Nombre de la empresa</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormDescription className="text-xs">
+                    Aparece en el header del panel, recibos y reportes.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
           <FormField
             control={form.control}
             name="category"

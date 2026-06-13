@@ -59,6 +59,39 @@ export function useUpdateSettings() {
 }
 
 /**
+ * Sube el logo de la empresa. Multipart al endpoint `/v1/settings` con
+ * `action=uploadLogo` + `logo=<file>`. Backend: SettingsService::uploadLogo
+ * (procesa con GD, sube a S3 con la convención legacy `{companyId}.jpg`).
+ */
+export function useUploadCompanyLogo() {
+  const qc = useQueryClient()
+  return useMutation<{ logo: string; hasLogo: true }, Error, File>({
+    mutationFn: (file) => {
+      const form = new FormData()
+      form.append("logo", file)
+      form.append("action", "uploadLogo")
+      return api.postForm<{ logo: string; hasLogo: true }>("/v1/settings", form)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] })
+      qc.invalidateQueries({ queryKey: ["bootstrap"] })
+    },
+  })
+}
+
+/** Borra el logo (best-effort en S3 + limpia el flag en settingObj). */
+export function useDeleteCompanyLogo() {
+  const qc = useQueryClient()
+  return useMutation<{ hasLogo: false }, Error, void>({
+    mutationFn: () => api.post<{ hasLogo: false }>("/v1/settings", { action: "deleteLogo" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] })
+      qc.invalidateQueries({ queryKey: ["bootstrap"] })
+    },
+  })
+}
+
+/**
  * Aplana los nested keys (social) + serializa booleans como 1/0 que el
  * backend espera vía validateHttp. Strings van as-is.
  */

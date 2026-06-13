@@ -49,15 +49,19 @@ final class SettingsService
         $obj = json_decode((string) ($r['settingObj'] ?? ''), true);
         if (!is_array($obj)) { $obj = []; }
 
-        // Logo: URL del endpoint de resize (igual patrón que companyLogo()); el front cae a
-        // images/add.png con @error si la empresa aún no subió logo. uploadUrl = destino del POST
-        // multipart a upload.php (que guarda en SYSIMGS_FOLDER/{companyId}.jpg). enc() = identity.
-        $assets = defined('ASSETS_URL') ? rtrim((string) ASSETS_URL, '/') : '/assets';
+        // Logo: el flag `hasLogo` + `logoUploadedAt` (cache-bust) se persisten en
+        // settingObj cuando el panel-next sube/borra via uploadLogo()/deleteLogo().
+        // Si no hay logo → devolvemos null (el front decide qué mostrar). Si hay,
+        // construimos la URL del endpoint de resize con la convención legacy
+        // (raíz del bucket, `{companyId}.jpg`) — compat con el helper companyLogo()
+        // del panel legacy y con el POS, que apuntan al mismo path.
+        $hasLogo  = !empty($obj['hasLogo']);
+        $logoStmp = isset($obj['logoUploadedAt']) ? (int) $obj['logoUploadedAt'] : null;
 
         return [
             // Perfil
-            'logo'            => $assets . '/150-150/0/' . $companyId . '.jpg',
-            'uploadUrl'       => 'upload.php?id=' . $companyId,
+            'logo'            => $hasLogo ? $this->buildLogoUrl($companyId, $logoStmp) : null,
+            'hasLogo'         => $hasLogo,
             'name'            => (string) ($r['settingName'] ?? ''),
             'address'         => (string) ($r['settingAddress'] ?? ''),
             'email'           => (string) ($r['settingEmail'] ?? ''),
@@ -432,5 +436,156 @@ final class SettingsService
         if (is_bool($v)) { return $v; }
         $s = strtolower((string) $v);
         return in_array($s, ['1', 't', 'true', 'yes', 'on'], true) || (is_numeric($s) && (float) $s > 0);
+    }
+
+    // ── Logo de la empresa ─────────────────────────────────────────────────
+
+    /** Tope de upload (pre-resize): 4 MB. Suficiente para PNG transparentes 1024×1024. */
+    private const LOGO_MAX_INPUT_BYTES = 4 * 1024 * 1024;
+    /** Dimensión máxima del logo procesado (px en el lado más largo). El resize
+     *  service genera variantes más chicas a demanda; subimos un master de 400×400. */
+    private const LOGO_MAX_DIMENSION = 400;
+    private const LOGO_JPEG_QUALITY = 90;
+
+    /**
+     * Sube el logo de la empresa a S3. Procesa con GD (resize a 400×400 máx,
+     * convierte a JPEG q90 con fondo blanco para PNG transparentes) y persiste
+     * el flag `hasLogo` + `logoUploadedAt` en settingObj para cache-bust.
+     *
+     * Convención de path en S3: `{companyId}.jpg` en raíz del bucket — la misma
+     * que usa el helper legacy `companyLogo()` de panel/includes/functions.php,
+     * para que el POS y el panel legacy sigan viendo el mismo archivo.
+     *
+     * @return array{logo: string, hasLogo: true}
+     * @throws \RuntimeException con mensaje legible si la validación o el upload fallan.
+     */
+    public function uploadLogo(string $companyId, array $file): array
+    {
+        $this->validateLogoUpload($file);
+
+        $data = file_get_contents($file['tmp_name']);
+        if ($data === false) throw new \RuntimeException('No se pudo leer el archivo');
+        $src = @imagecreatefromstring($data);
+        if ($src === false) throw new \RuntimeException('Archivo no es una imagen válida');
+
+        [$origW, $origH] = [imagesx($src), imagesy($src)];
+        [$newW, $newH]   = $this->scaleDown($origW, $origH, self::LOGO_MAX_DIMENSION);
+
+        if ($newW !== $origW || $newH !== $origH || $this->mimeOf($file) !== 'image/jpeg') {
+            $dst = imagecreatetruecolor($newW, $newH);
+            // Fondo blanco para preservar areas transparentes al convertir a JPEG.
+            $white = imagecolorallocate($dst, 255, 255, 255);
+            imagefilledrectangle($dst, 0, 0, $newW, $newH, $white);
+            imagecopyresampled($dst, $src, 0, 0, 0, 0, $newW, $newH, $origW, $origH);
+            imagedestroy($src);
+            $src = $dst;
+        }
+
+        ob_start();
+        imagejpeg($src, null, self::LOGO_JPEG_QUALITY);
+        $jpeg = (string) ob_get_clean();
+        imagedestroy($src);
+
+        // Subir a S3 — la S3_KEY_PREFIX se aplica desde S3Client; el objectKey
+        // lógico es solo `{companyId}.jpg`.
+        $this->s3()->put($companyId . '.jpg', $jpeg, 'image/jpeg', true);
+
+        $stamp = (int) time();
+        $this->persistLogoFlag($companyId, true, $stamp);
+
+        return [
+            'logo'    => $this->buildLogoUrl($companyId, $stamp),
+            'hasLogo' => true,
+        ];
+    }
+
+    /**
+     * Borra el logo de S3 (best-effort) y limpia los flags en settingObj.
+     * Si S3 falla (red, archivo ya no existe) seguimos con la limpieza local —
+     * lo importante es que el front deje de mostrar el logo.
+     *
+     * @return array{hasLogo: false}
+     */
+    public function deleteLogo(string $companyId): array
+    {
+        try {
+            $this->s3()->delete($companyId . '.jpg');
+        } catch (\Throwable $e) {
+            // swallow: el flag en BD es la fuente de verdad para el front
+        }
+        $this->persistLogoFlag($companyId, false, null);
+        return ['hasLogo' => false];
+    }
+
+    private function validateLogoUpload(array $file): void
+    {
+        if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+            throw new \RuntimeException('Archivo no recibido');
+        }
+        $size = (int) ($file['size'] ?? 0);
+        if ($size <= 0 || $size > self::LOGO_MAX_INPUT_BYTES) {
+            throw new \RuntimeException('Archivo vacío o > 4 MB');
+        }
+        $mime = $this->mimeOf($file);
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
+            throw new \RuntimeException('Formato no soportado (JPG/PNG/WEBP/GIF)');
+        }
+    }
+
+    private function mimeOf(array $file): string
+    {
+        $info = @getimagesize($file['tmp_name']);
+        if ($info === false) throw new \RuntimeException('No es una imagen válida');
+        return (string) ($info['mime'] ?? '');
+    }
+
+    /** @return array{0:int,1:int} */
+    private function scaleDown(int $w, int $h, int $max): array
+    {
+        if ($w <= $max && $h <= $max) return [$w, $h];
+        $ratio = $w / $h;
+        if ($w >= $h) return [$max, (int) round($max / $ratio)];
+        return [(int) round($max * $ratio), $max];
+    }
+
+    private function s3(): \Punto\Api\Storage\S3Client
+    {
+        return new \Punto\Api\Storage\S3Client(
+            defined('S3_ENDPOINT')   ? S3_ENDPOINT   : '',
+            defined('S3_REGION')     ? S3_REGION     : 'us-east-1',
+            defined('S3_BUCKET')     ? S3_BUCKET     : '',
+            defined('S3_KEY')        ? S3_KEY        : '',
+            defined('S3_SECRET')     ? S3_SECRET     : '',
+            defined('S3_KEY_PREFIX') ? S3_KEY_PREFIX : ''
+        );
+    }
+
+    private function buildLogoUrl(string $companyId, ?int $stamp): string
+    {
+        $assets = defined('ASSETS_URL') ? rtrim((string) ASSETS_URL, '/') : '/assets';
+        $bust   = $stamp ? '?v=' . $stamp : '';
+        return $assets . '/150-150/0/' . $companyId . '.jpg' . $bust;
+    }
+
+    /**
+     * Actualiza `hasLogo` + `logoUploadedAt` dentro de settingObj — leemos el
+     * blob actual primero para no clobbear `currencies` ni los demás flags.
+     */
+    private function persistLogoFlag(string $companyId, bool $hasLogo, ?int $stamp): void
+    {
+        $obj = $this->readSettingObj($companyId);
+        if ($obj === null) return; // company no existe — el caller no debería haber llegado acá
+        if ($hasLogo) {
+            $obj['hasLogo']        = true;
+            $obj['logoUploadedAt'] = $stamp;
+        } else {
+            unset($obj['hasLogo'], $obj['logoUploadedAt']);
+        }
+        ncmUpdate([
+            'records'     => ['settingObj' => json_encode($obj)],
+            'table'       => 'company',
+            'where'       => 'companyId = ?',
+            'whereParams' => [$companyId],
+        ]);
     }
 }
