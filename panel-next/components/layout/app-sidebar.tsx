@@ -241,7 +241,7 @@ export function AppSidebar({
             </DropdownMenu>
           )}
 
-          <SidebarTrigger className="size-7 group-data-[collapsible=icon]:hidden" />
+          <SidebarTrigger className="size-7 cursor-pointer hover:!bg-[#E3E5E9] group-data-[collapsible=icon]:hidden" />
         </div>
       </SidebarHeader>
 
@@ -256,8 +256,10 @@ export function AppSidebar({
                   onClick={() => setCommandOpen(true)}
                   // Solo border, sin bg ni rounded override — hereda
                   // `rounded-xl` y el bg transparente del SidebarMenuButton
-                  // (cva del primitive shadcn).
-                  className="h-10 border border-border text-base text-muted-foreground [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
+                  // (cva del primitive shadcn). `cursor-pointer` + override
+                  // explícito del hover para que se vea con #E3E5E9 (el
+                  // `--sidebar-accent` default es casi indistinguible del bg).
+                  className="h-10 cursor-pointer border border-border text-base text-muted-foreground hover:!bg-[#E3E5E9] [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
                 >
                   <Search />
                   <span>Buscar…</span>
@@ -305,7 +307,10 @@ export function AppSidebar({
                 <SidebarMenuButton
                   size="lg"
                   tooltip={user.name}
-                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:!p-0"
+                  // `cursor-pointer` + hover override #E3E5E9 (mismo motivo
+                  // que el buscador y los menu items — el default es muy
+                  // sutil sobre el bg del sidebar).
+                  className="cursor-pointer hover:!bg-[#E3E5E9] data-[state=open]:!bg-[#EAEEF1] data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:!p-0"
                 >
                   <Avatar className="size-8 rounded-lg">
                     <AvatarFallback className="rounded-lg text-xs">
