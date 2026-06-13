@@ -154,8 +154,11 @@ export function AppSidebar({
           {/* WORDMARK — solo cuando expanded. Cuando hay >1 sucursales, se
               vuelve trigger de un DropdownMenu para cambiar de sucursal sin
               tener que abrir el menú user (atajo grande arriba). Si hay 1
-              sola, queda como Link al dashboard (comportamiento default). */}
-          <div className="flex flex-1 items-center gap-2 group-data-[collapsible=icon]:hidden">
+              sola, queda como Link al dashboard (comportamiento default).
+              Sin `flex-1`: el chevron del dropdown queda cerca del
+              SidebarTrigger (espacio mínimo entre logo y toggle del drawer).
+              El badge ADMIN si existe se renderea inline al lado. */}
+          <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
             {outlets.length > 1 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -191,9 +194,7 @@ export function AppSidebar({
                           }
                           onSelectAllOutlets()
                         }}
-                        className="gap-3"
                       >
-                        <Building2 className="size-4 text-muted-foreground" />
                         <span className="flex-1 truncate">Todas las sucursales</span>
                         {viewScope === "all" && <Check className="size-4 opacity-70" />}
                       </DropdownMenuItem>
@@ -222,9 +223,7 @@ export function AppSidebar({
                           }
                           onSelectOutlet?.(o.id)
                         }}
-                        className="gap-3"
                       >
-                        <Store className="size-4 text-muted-foreground" />
                         <span className="flex-1 truncate">{o.name}</span>
                         {isChecked && <Check className="size-4 opacity-70" />}
                       </DropdownMenuItem>
@@ -458,6 +457,13 @@ function isItemActive(to: string, pathname: string): boolean {
 function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) {
   const Icon = item.icon
   const isActive = isItemActive(item.to, pathname)
+  // En mobile el sidebar es un Sheet; al navegar a una sección, lo cerramos
+  // automáticamente para no tener que tappar afuera + ver el contenido.
+  // En desktop no hace nada (el sidebar es persistente).
+  const { isMobile, setOpenMobile } = useSidebar()
+  const onNavClick = () => {
+    if (isMobile) setOpenMobile(false)
+  }
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
@@ -466,7 +472,7 @@ function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) 
         tooltip={item.title}
         className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[oklch(0.90_0_0)] dark:data-[active=true]:!bg-[oklch(0.16_0_0)]"
       >
-        <Link href={item.to}>
+        <Link href={item.to} onClick={onNavClick}>
           <Icon />
           <span>{item.title}</span>
           {item.badge ? (
@@ -485,8 +491,12 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
   const childActive = group.items.some((c) => isItemActive(c.to, pathname))
   const [open, setOpen] = useState<boolean>(childActive)
   const wantOpen = open || childActive
-  const { state: sidebarState } = useSidebar()
+  const { state: sidebarState, isMobile, setOpenMobile } = useSidebar()
   const isCollapsedSidebar = sidebarState === "collapsed"
+  // Mismo autoclose mobile que NavItemRender (al navegar a un sub-item).
+  const onSubNavClick = () => {
+    if (isMobile) setOpenMobile(false)
+  }
 
   if (isCollapsedSidebar) {
     return (
@@ -533,7 +543,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
                 tooltip={sub.title}
                 className="h-9 pl-7 text-sm [&>svg]:size-4 data-[active=true]:!bg-[oklch(0.90_0_0)] dark:data-[active=true]:!bg-[oklch(0.16_0_0)]"
               >
-                <Link href={sub.to}>
+                <Link href={sub.to} onClick={onSubNavClick}>
                   <SubIcon />
                   <span>{sub.title}</span>
                   {sub.badge ? (
