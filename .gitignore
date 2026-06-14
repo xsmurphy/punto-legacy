@@ -37,4 +37,6 @@ postgres_data/
 
 # Claude local settings (permissions history)
 .claude/settings.local.json
+# Claude preview launch config (local, per-machine)
+**/.claude/launch.json
 app/error_log
