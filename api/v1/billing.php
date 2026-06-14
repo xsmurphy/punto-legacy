@@ -18,6 +18,7 @@ require_once __DIR__ . '/../bootstrap.php';
 
 $ctx    = apiAuthTenant(['panel']);
 $svc    = new \Punto\Api\Billing\BillingService();
+$pay    = new \Punto\Api\Billing\PaymentsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
@@ -31,12 +32,40 @@ if ($method === 'GET') {
         apiOk(['rows' => $svc->aiLedger(COMPANY_ID)]);
     }
 
+    // Packs de créditos comprables (catálogo) + si los pagos están habilitados.
+    if ($resource === 'packs') {
+        apiOk(['packs' => $pay->listPacks(), 'paymentsEnabled' => $pay->isEnabled()]);
+    }
+
+    // Facturas del tenant (billing_invoice — pagos a Punto vía dLocal).
+    if ($resource === 'invoices') {
+        apiOk(['invoices' => $pay->listInvoices(COMPANY_ID)]);
+    }
+
     // default: resumen de facturación
     apiOk($svc->summary(COMPANY_ID));
 }
 
 if ($method === 'POST') {
     $action = (string) (validateHttp('action', 'post') ?: '');
+
+    // Compra de un pack de créditos → inicia checkout hosteado en dLocal Go.
+    if ($action === 'checkout') {
+        $packId = (string) (validateHttp('packId', 'post') ?: '');
+        if ($packId === '') {
+            apiError('packId requerido', 422);
+        }
+        try {
+            apiOk($pay->createPackCheckout(COMPANY_ID, $packId));
+        } catch (\InvalidArgumentException $e) {
+            apiError('Pack no encontrado', 404);
+        } catch (\RuntimeException $e) {
+            if ($e->getMessage() === 'PAYMENTS_NOT_CONFIGURED') {
+                apiError('Pagos no disponibles por el momento', 503);
+            }
+            apiError('No se pudo iniciar el pago', 502);
+        }
+    }
 
     if ($action === 'requestPlanChange') {
         $planCode = (int) (validateHttp('planCode', 'post') ?: 0);

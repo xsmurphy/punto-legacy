@@ -792,6 +792,49 @@ CREATE TABLE IF NOT EXISTS ai_credit_ledger (
 
 CREATE INDEX idx_ai_credit_ledger_company_date ON ai_credit_ledger(companyId, createdAt);
 
+-- relatedInvoiceId + índice único parcial = idempotencia de acreditación (mig 30)
+ALTER TABLE ai_credit_ledger ADD COLUMN IF NOT EXISTS relatedInvoiceId UUID;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_credit_ledger_invoice_grant
+  ON ai_credit_ledger(relatedInvoiceId)
+  WHERE relatedInvoiceId IS NOT NULL AND reason = 'pack_purchase';
+
+
+-- ============================================================
+-- CREDIT_PACK / BILLING_INVOICE  (dLocal Go: compra de packs de créditos, mig 30)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS credit_pack (
+  id           UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug         VARCHAR(40)   NOT NULL UNIQUE,
+  name         VARCHAR(120)  NOT NULL,
+  credits      INT           NOT NULL CHECK (credits > 0),
+  priceUsd     NUMERIC(10,2) NOT NULL CHECK (priceUsd > 0),
+  validityDays INT           NOT NULL DEFAULT 180,
+  active       BOOLEAN       NOT NULL DEFAULT TRUE,
+  sortOrder    INT           NOT NULL DEFAULT 0,
+  createdAt    TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS billing_invoice (
+  id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  companyId         UUID          NOT NULL REFERENCES company(companyId) ON DELETE CASCADE,
+  type              VARCHAR(20)   NOT NULL DEFAULT 'pack',
+  amountUsd         NUMERIC(10,2) NOT NULL,
+  currency          VARCHAR(8)    NOT NULL DEFAULT 'USD',
+  status            VARCHAR(16)   NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','paid','failed','refunded','cancelled')),
+  packId            UUID          REFERENCES credit_pack(id),
+  provider          VARCHAR(30)   NOT NULL DEFAULT 'dlocal_go',
+  providerInvoiceId VARCHAR(120),
+  providerMetadata  JSONB         NOT NULL DEFAULT '{}',
+  paidAt            TIMESTAMPTZ,
+  createdAt         TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  updatedAt         TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_billing_invoice_company_date ON billing_invoice(companyId, createdAt);
+CREATE INDEX idx_billing_invoice_provider_lookup
+  ON billing_invoice(provider, providerInvoiceId) WHERE providerInvoiceId IS NOT NULL;
+
 
 -- ============================================================
 -- BILLING_REQUEST  (solicitudes de cambio de plan tenant→admin, mig 28)

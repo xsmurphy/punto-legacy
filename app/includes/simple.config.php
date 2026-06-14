@@ -78,6 +78,20 @@ define('S3_BUCKET',     $_ENV['S3_BUCKET']     ?? 'ncmaspace');
 define('S3_KEY',        $_ENV['S3_KEY']        ?? ($_ENV['DO_SPACES_ACCESS'] ?? ''));
 define('S3_SECRET',     $_ENV['S3_SECRET']     ?? ($_ENV['DO_SPACES_SECRET'] ?? ''));
 define('S3_KEY_PREFIX', $_ENV['S3_KEY_PREFIX'] ?? '');
+
+// dLocal Go — pasarela de pagos para compra de packs de créditos.
+// El webhook se verifica con HMAC-SHA256 usando DLOCAL_GO_WEBHOOK_SECRET.
+// ENVIRONMENT: 'sandbox' (default) o 'production'. BASE_URL override opcional.
+define('DLOCAL_GO_API_KEY',        $_ENV['DLOCAL_GO_API_KEY']        ?? '');
+define('DLOCAL_GO_SECRET_KEY',     $_ENV['DLOCAL_GO_SECRET_KEY']     ?? '');
+define('DLOCAL_GO_WEBHOOK_SECRET', $_ENV['DLOCAL_GO_WEBHOOK_SECRET'] ?? '');
+define('DLOCAL_GO_ENVIRONMENT',    $_ENV['DLOCAL_GO_ENVIRONMENT']    ?? 'sandbox');
+define('DLOCAL_GO_BASE_URL',       $_ENV['DLOCAL_GO_BASE_URL']       ?? '');
+// URLs de retorno/notificación del checkout (overridables por env).
+define('DLOCAL_GO_SUCCESS_URL',      $_ENV['DLOCAL_GO_SUCCESS_URL']      ?? '');
+define('DLOCAL_GO_BACK_URL',         $_ENV['DLOCAL_GO_BACK_URL']         ?? '');
+define('DLOCAL_GO_NOTIFICATION_URL', $_ENV['DLOCAL_GO_NOTIFICATION_URL'] ?? '');
+
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);
 define('API_PIX_SECRET',         $_ENV['API_PIX_SECRET']        ?? '');
