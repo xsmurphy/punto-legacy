@@ -1258,5 +1258,26 @@ CREATE INDEX idx_pat_tokenable ON personal_access_tokens(tokenable_type, tokenab
 
 
 -- ============================================================
--- End of schema — 47 tables
+-- ADMIN_AUDIT  (auditoría de acciones del super-admin realm)
+-- ============================================================
+-- adminEmail desnormalizado para preservar historial si admin_user se borra.
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  "adminId"    UUID,
+  "adminEmail" VARCHAR(180),
+  action       VARCHAR(40)  NOT NULL,
+  "targetType" VARCHAR(20),
+  "targetId"   VARCHAR(64),
+  "targetName" VARCHAR(200),
+  meta         JSONB        NOT NULL DEFAULT '{}',
+  ip           VARCHAR(64),
+  "createdAt"  TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit("createdAt");
+CREATE INDEX IF NOT EXISTS idx_admin_audit_action     ON admin_audit(action);
+
+
+-- ============================================================
+-- End of schema — 48 tables
 -- ============================================================

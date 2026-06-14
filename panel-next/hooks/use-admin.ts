@@ -92,6 +92,60 @@ export interface BillingRequest {
   resolvedBy: string | null
 }
 
+// ── Dashboard / Reports ───────────────────────────────────────────────────────
+
+export interface AdminOverview {
+  companies: {
+    total: number
+    active: number
+    trial: number
+    suspended: number
+    cancelled: number
+  }
+  mrr: number
+  arr: number
+  newThisMonth: number
+  byPlan: Array<{ planCode: number; planName: string; count: number }>
+  byCountry: Array<{ country: string; count: number }>
+  newPerMonth: Array<{ month: string; count: number }>
+  topAiCredits: Array<{ companyId: string; name: string; balance: number }>
+}
+
+export interface AdminPaymentsResult {
+  total: number
+  count: number
+  rows: Array<{
+    date: string | null
+    amount: number
+    invoice: number
+    status: number
+    companyId: string
+    companyName: string
+  }>
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+export interface AdminAuditRow {
+  id: string
+  adminId: string | null
+  adminEmail: string
+  action: string
+  targetType: string | null
+  targetId: string | null
+  targetName: string | null
+  meta: Record<string, unknown>
+  ip: string | null
+  createdAt: string | null
+}
+
+export interface AdminAuditResult {
+  rows: AdminAuditRow[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface BillingDetail {
   balance: number
   planCode: number
@@ -146,13 +200,27 @@ export function useAdminLogout() {
 
 // ── Empresas ─────────────────────────────────────────────────────────────────
 
-export function useAdminCompanies(params?: { limit?: number; offset?: number; q?: string }) {
+export function useAdminCompanies(params?: {
+  limit?: number
+  offset?: number
+  q?: string
+  status?: string
+  plan?: number | string
+  blocked?: number | string
+  page?: number
+  pageSize?: number
+}) {
   const qs = new URLSearchParams()
   if (params?.limit) qs.set("limit", String(params.limit))
   if (params?.offset) qs.set("offset", String(params.offset))
   if (params?.q) qs.set("q", params.q)
+  if (params?.status && params.status !== "all") qs.set("status", params.status)
+  if (params?.plan != null && params.plan !== "") qs.set("plan", String(params.plan))
+  if (params?.blocked != null && params.blocked !== "") qs.set("blocked", String(params.blocked))
+  if (params?.page != null) qs.set("page", String(params.page))
+  if (params?.pageSize != null) qs.set("pageSize", String(params.pageSize))
   const search = qs.toString() ? `?${qs.toString()}` : ""
-  return useQuery<{ rows: AdminCompanyRow[]; total: number; limit: number; offset: number }>({
+  return useQuery<{ rows: AdminCompanyRow[]; total: number; limit: number; offset: number; page?: number; pageSize?: number }>({
     queryKey: ["admin", "companies", params],
     queryFn: () =>
       apiAdmin.get(`/companies.php${search}`),
@@ -378,5 +446,47 @@ export function useAdminSetUserStatus() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "users"] })
     },
+  })
+}
+
+// ── Dashboard / Reports ───────────────────────────────────────────────────────
+
+export function useAdminOverview() {
+  return useQuery<AdminOverview>({
+    queryKey: ["admin", "overview"],
+    queryFn: () => apiAdmin.get<AdminOverview>("/dashboard.php"),
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+export function useAdminPayments(from: string, to: string) {
+  return useQuery<AdminPaymentsResult>({
+    queryKey: ["admin", "payments", from, to],
+    queryFn: () =>
+      apiAdmin.get<AdminPaymentsResult>(
+        `/dashboard.php?resource=payments&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      ),
+    staleTime: 60 * 1000,
+  })
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+export function useAdminAudit(params?: {
+  page?: number
+  pageSize?: number
+  action?: string
+  adminId?: string
+}) {
+  const qs = new URLSearchParams()
+  if (params?.page) qs.set("page", String(params.page))
+  if (params?.pageSize) qs.set("pageSize", String(params.pageSize))
+  if (params?.action) qs.set("action", params.action)
+  if (params?.adminId) qs.set("adminId", params.adminId)
+  const search = qs.toString() ? `?${qs.toString()}` : ""
+  return useQuery<AdminAuditResult>({
+    queryKey: ["admin", "audit", params],
+    queryFn: () => apiAdmin.get<AdminAuditResult>(`/audit.php${search}`),
+    staleTime: 30 * 1000,
   })
 }

@@ -16,9 +16,10 @@
  * de depender del ncmExecute global de includes/functions.php — el endpoint
  * admin no carga functions.php (es realm aislado y limpio).
  *
- * Patrón listAll: pagina + filtra en PHP porque las keys de búsqueda viven en
- * JSONB y el volumen de empresas es bajo (cientos, no millones). owner+counts
- * se traen BATCHED con un único IN() para evitar N+1.
+ * Patrón listAll: filtrado y paginación a nivel SQL para evitar fetch-all.
+ * Las keys de búsqueda viven en JSONB; se usan operadores ILIKE sobre
+ * config->>'settingName', config->>'settingRUC' y slug. owner+counts
+ * se traen BATCHED con un único IN() para evitar N+1 sobre la página.
  *
  * Ver context/02-arquitectura.md § Admin realm + 10-roadmap.md (F3).
  */
@@ -28,53 +29,120 @@ class CompanyAdminService
     /**
      * Lista paginada+filtrada de empresas con owner y counts pre-cargados.
      *
-     * Total devuelto es el COUNT del set filtrado (no de toda la tabla) para
-     * que la UI muestre stats coherentes con la búsqueda.
+     * Acepta $opts array con las siguientes claves (todas opcionales):
+     *   q        string  — búsqueda libre sobre settingName, settingRUC, slug (ILIKE)
+     *   status   string  — filtro exacto sobre company.status ('active'|'suspended'|'cancelled')
+     *   plan     int     — filtro exacto sobre company.plan (plan_code SMALLINT)
+     *   blocked  int     — filtro exacto sobre company.blocked (0|1)
+     *   page     int     — página (base 1)
+     *   pageSize int     — filas por página (10–200)
+     *
+     * Compatibilidad descendente: si se pasan los 3 primeros args posicionales
+     *   (int $limit, int $offset, string $filter) en lugar de un array, se mapean
+     *   a opts equivalentes para no romper llamadores legacy.
+     *
+     * Devuelve ['rows', 'total', 'page', 'pageSize'].
      */
-    public function listAll(int $limit = 200, int $offset = 0, string $filter = ''): array
+    public function listAll($optsOrLimit = [], $offset = 0, string $filter = ''): array
     {
         global $db;
 
-        $limit  = max(1, min(500, $limit));
-        $offset = max(0, $offset);
+        // ── Compatibilidad descendente: args posicionales → opts ──────────
+        if (is_int($optsOrLimit)) {
+            // Reconvertir limit+offset a page+pageSize.
+            $pageSize = max(1, min(200, $optsOrLimit));
+            $page     = $offset > 0 ? (int) floor($offset / $pageSize) + 1 : 1;
+            $opts     = ['q' => $filter, 'page' => $page, 'pageSize' => $pageSize];
+        } else {
+            $opts = is_array($optsOrLimit) ? $optsOrLimit : [];
+        }
 
-        // 1) Cargar todas las empresas con su config JSONB ya aplanada.
-        //    Volumen esperado: cientos, no millones.
-        $r = $db->Execute('SELECT * FROM company ORDER BY createdAt DESC NULLS LAST');
-        $all = [];
+        $q        = trim((string) ($opts['q']        ?? ''));
+        $status   = trim((string) ($opts['status']   ?? ''));
+        $plan     = isset($opts['plan']) && $opts['plan'] !== '' ? (int) $opts['plan'] : null;
+        $blocked  = isset($opts['blocked']) && $opts['blocked'] !== '' ? (int) $opts['blocked'] : null;
+        $page     = max(1, (int) ($opts['page']     ?? 1));
+        $pageSize = max(10, min(200, (int) ($opts['pageSize'] ?? 50)));
+        $sqlOffset = ($page - 1) * $pageSize;
+
+        // ── Construir WHERE parametrizado ─────────────────────────────────
+        $where  = [];
+        $binds  = [];
+
+        if ($q !== '') {
+            // Búsqueda en settingName, settingRUC y slug — todo ILIKE con wildcards.
+            // Paramétrico: el % se incluye en el bind, no en el SQL.
+            $like    = '%' . $q . '%';
+            $where[] = "(config->>'settingName' ILIKE ? OR config->>'settingRUC' ILIKE ? OR slug ILIKE ?)";
+            $binds[] = $like;
+            $binds[] = $like;
+            $binds[] = $like;
+        }
+
+        if ($status !== '' && in_array($status, ['active', 'suspended', 'cancelled'], true)) {
+            $where[]  = 'status = ?';
+            $binds[]  = $status;
+        }
+
+        if ($plan !== null) {
+            $where[]  = 'plan = ?';
+            $binds[]  = $plan;
+        }
+
+        if ($blocked !== null && in_array($blocked, [0, 1], true)) {
+            $where[]  = 'blocked = ?';
+            $binds[]  = $blocked;
+        }
+
+        $whereClause = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+        // ── COUNT total (mismo WHERE, sin LIMIT) ──────────────────────────
+        $totalRow = $db->Execute(
+            "SELECT COUNT(*) AS n FROM company $whereClause",
+            $binds
+        );
+        $total = 0;
+        if ($totalRow && !$totalRow->EOF) {
+            $total = (int) ($totalRow->fields['n'] ?? 0);
+        }
+
+        // ── Filas de la página ────────────────────────────────────────────
+        $bindsPaged = array_merge($binds, [$pageSize, $sqlOffset]);
+        $r = $db->Execute(
+            "SELECT * FROM company $whereClause ORDER BY createdAt DESC NULLS LAST LIMIT ? OFFSET ?",
+            $bindsPaged
+        );
+
+        $page_rows = [];
         if ($r) {
             while (!$r->EOF) {
-                $flat = $this->mergeConfig($r->fields);
-                $all[] = $this->shapeListRow($flat);
+                $flat        = $this->mergeConfig($r->fields);
+                $page_rows[] = $this->shapeListRow($flat);
                 $r->MoveNext();
             }
         }
 
-        // 2) Filtrar por texto (case-insensitive) sobre name + companyName.
-        if ($filter !== '') {
-            $needle = mb_strtolower($filter, 'UTF-8');
-            $all = array_values(array_filter($all, function ($row) use ($needle) {
-                $hay = mb_strtolower(($row['name'] ?? '') . ' ' . ($row['companyName'] ?? ''), 'UTF-8');
-                return strpos($hay, $needle) !== false;
-            }));
-        }
-
-        $total = count($all);
-        $page  = array_slice($all, $offset, $limit);
-
-        // 3) Enriquecer SOLO las filas de la página con owner + counts (batched).
-        $ids = array_values(array_filter(array_map(fn($r) => $r['id'] ?? null, $page)));
+        // ── Enriquecer con owner + counts (batched) ───────────────────────
+        $ids = array_values(array_filter(array_map(fn($row) => $row['id'] ?? null, $page_rows)));
         if ($ids) {
             $owners = $this->getOwnersBatched($ids);
             $counts = $this->getCountsBatched($ids, false);
-            foreach ($page as &$row) {
+            foreach ($page_rows as &$row) {
                 $row['owner']  = $owners[$row['id']] ?? null;
                 $row['counts'] = $counts[$row['id']] ?? ['outlets' => 0, 'registers' => 0];
             }
             unset($row);
         }
 
-        return ['rows' => $page, 'total' => $total, 'limit' => $limit, 'offset' => $offset];
+        return [
+            'rows'     => $page_rows,
+            'total'    => $total,
+            'page'     => $page,
+            'pageSize' => $pageSize,
+            // Compatibilidad descendente: mantener limit/offset en la respuesta.
+            'limit'    => $pageSize,
+            'offset'   => $sqlOffset,
+        ];
     }
 
     /**

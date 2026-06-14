@@ -38,15 +38,18 @@ if ($method === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
 
     if ($action === 'create') {
+        $newEmail = (string) ($_POST['email'] ?? '');
+        $newName  = (string) ($_POST['name']  ?? '');
         $res = $svc->create(
-            (string) ($_POST['email'] ?? ''),
-            (string) ($_POST['name'] ?? ''),
+            $newEmail,
+            $newName,
             (string) ($_POST['password'] ?? ''),
             ADMIN_AUTHED_ID
         );
         if (!$res['ok']) {
             apiError($res['error'], $res['code'] ?? 400);
         }
+        adminAudit('createAdmin', 'admin', $res['id'], $newName, ['email' => $newEmail]);
         apiOk(['id' => $res['id'], 'action' => 'create']);
     }
 
@@ -55,15 +58,18 @@ if ($method === 'POST') {
         if ($id === '') {
             apiError('Falta id', 422);
         }
+        $updEmail = (string) ($_POST['email'] ?? '');
+        $updName  = (string) ($_POST['name']  ?? '');
         $res = $svc->update(
             $id,
-            (string) ($_POST['email'] ?? ''),
-            (string) ($_POST['name'] ?? ''),
+            $updEmail,
+            $updName,
             (string) ($_POST['password'] ?? '')
         );
         if (!$res['ok']) {
             apiError($res['error'], $res['code'] ?? 400);
         }
+        adminAudit('updateAdmin', 'admin', $id, $updName, ['email' => $updEmail]);
         apiOk(['id' => $id, 'action' => 'update']);
     }
 
@@ -72,10 +78,12 @@ if ($method === 'POST') {
         if ($id === '') {
             apiError('Falta id', 422);
         }
-        $res = $svc->setStatus($id, (int) ($_POST['status'] ?? 0), ADMIN_AUTHED_ID);
+        $newStatus = (int) ($_POST['status'] ?? 0);
+        $res = $svc->setStatus($id, $newStatus, ADMIN_AUTHED_ID);
         if (!$res['ok']) {
             apiError($res['error'], $res['code'] ?? 400);
         }
+        adminAudit('setAdminStatus', 'admin', $id, null, ['status' => $newStatus]);
         apiOk(['id' => $id, 'action' => 'setStatus']);
     }
 

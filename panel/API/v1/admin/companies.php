@@ -66,11 +66,30 @@ if ($method === 'GET') {
         apiOk($company);
     }
 
-    $limit  = (int) ($_GET['limit']  ?? 200);
-    $offset = (int) ($_GET['offset'] ?? 0);
-    $q      = trim((string) ($_GET['q'] ?? ''));
+    // Parámetros de filtro/paginación server-side (Point 3).
+    $q        = trim((string) ($_GET['q']        ?? ''));
+    $status   = trim((string) ($_GET['status']   ?? ''));
+    $plan     = trim((string) ($_GET['plan']     ?? ''));
+    $blocked  = trim((string) ($_GET['blocked']  ?? ''));
+    $page     = (int) ($_GET['page']     ?? 1);
+    $pageSize = (int) ($_GET['pageSize'] ?? 50);
 
-    apiOk($svc->listAll($limit, $offset, $q));
+    // Compatibilidad descendente: si llegan limit/offset (callers legacy), mapear.
+    if (isset($_GET['limit']) && !isset($_GET['pageSize'])) {
+        $pageSize = max(10, min(200, (int) $_GET['limit']));
+    }
+    if (isset($_GET['offset']) && !isset($_GET['page'])) {
+        $page = (int) floor((int) $_GET['offset'] / max(1, $pageSize)) + 1;
+    }
+
+    apiOk($svc->listAll([
+        'q'        => $q,
+        'status'   => $status,
+        'plan'     => $plan !== '' ? (int) $plan : '',
+        'blocked'  => $blocked !== '' ? (int) $blocked : '',
+        'page'     => $page,
+        'pageSize' => $pageSize,
+    ]));
 }
 
 if ($method === 'PATCH') {
@@ -89,6 +108,8 @@ if ($method === 'PATCH') {
     if (!$result['ok']) {
         apiError($result['error'] ?? 'error', $result['code'] ?? 422);
     }
+    // Audit: registrar los campos que cambiaron (keys del body).
+    adminAudit('updateCompany', 'company', $id, null, ['fields' => array_keys($input)]);
     apiOk(['updated' => true]);
 }
 
@@ -118,8 +139,19 @@ if ($method === 'DELETE') {
         }
 
         $result = $svc->hardDelete($id);
+        if ($result['ok']) {
+            adminAudit('deleteCompany', 'company', $id, $expectedName ?? null, ['type' => 'hard']);
+        }
     } else {
+        // Leer nombre ANTES de suspender (sigue existiendo tras softDelete, pero
+        // evitamos un segundo SELECT leyendo ahora).
+        $preSoftCompany = $svc->get($id);
+        $softName = $preSoftCompany ? ($preSoftCompany['settingName'] ?: $preSoftCompany['name']) : null;
+
         $result = $svc->softDelete($id);
+        if ($result['ok']) {
+            adminAudit('suspendCompany', 'company', $id, $softName, ['type' => 'soft']);
+        }
     }
 
     if (!$result['ok']) {
@@ -153,6 +185,11 @@ if ($method === 'POST') {
         if (!$result['ok']) {
             apiError($result['error'] ?? 'error', $result['code'] ?? 422);
         }
+        adminAudit('grantAiCredits', 'company', $id, null, [
+            'delta'      => $delta,
+            'reason'     => $reason,
+            'balanceAfter' => $result['newBalance'] ?? null,
+        ]);
         apiOk($result);
     }
 
@@ -170,6 +207,8 @@ if ($method === 'POST') {
         if (!$result['ok']) {
             apiError($result['error'] ?? 'error', $result['code'] ?? 422);
         }
+        // Loguear el moduleData sanitizado (ya validado por setAddons), no el input crudo.
+        adminAudit('setAddons', 'company', $id, null, ['moduleData' => $result['moduleData'] ?? []]);
         apiOk($result);
     }
 
@@ -190,6 +229,11 @@ if ($method === 'POST') {
         if (!$result['ok']) {
             apiError($result['error'] ?? 'error', $result['code'] ?? 422);
         }
+        adminAudit('resolveRequest', 'company', null, null, [
+            'requestId' => $requestId,
+            'approve'   => $approve,
+            'status'    => $result['status'] ?? null,
+        ]);
         apiOk($result);
     }
 
@@ -202,6 +246,7 @@ if ($method === 'POST') {
         if (!$tokenData) {
             apiNotFound('Empresa no encontrada o sin propietario activo');
         }
+        adminAudit('impersonate', 'company', $id);
         apiOk(['token' => $tokenData['token'], 'expiresIn' => $tokenData['expiresIn']]);
     }
 

@@ -2,12 +2,27 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import type { ColumnDef } from "@tanstack/react-table"
-import { Building2 } from "lucide-react"
+import { Building2, ChevronLeft, ChevronRight, Search } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { DataTable } from "@/components/data-table/data-table"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useAdminCompanies, type AdminCompanyRow } from "@/hooks/use-admin"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { useAdminCompanies, useAdminPlans, type AdminCompanyRow } from "@/hooks/use-admin"
 
 function statusBadge(status: string, blocked: number) {
   if (blocked) return <Badge variant="destructive">Bloqueada</Badge>
@@ -22,138 +37,225 @@ function statusBadge(status: string, blocked: number) {
   return <Badge variant="secondary">{status || "—"}</Badge>
 }
 
-const columns: ColumnDef<AdminCompanyRow, unknown>[] = [
-  {
-    accessorKey: "name",
-    header: "Empresa",
-    cell: ({ row }) => {
-      const c = row.original
-      return (
-        <div className="flex flex-col">
-          <span className="font-medium">{c.name || c.companyName || "(sin nombre)"}</span>
-          {c.owner && (
-            <span className="text-xs text-muted-foreground truncate">
-              {[c.owner.name, c.owner.secondName].filter(Boolean).join(" ")}
-              {c.owner.email ? ` · ${c.owner.email}` : ""}
-            </span>
-          )}
-        </div>
-      )
-    },
-  },
-  {
-    accessorKey: "status",
-    header: "Estado",
-    cell: ({ row }) => statusBadge(row.original.status, row.original.blocked),
-    meta: { label: "Estado" },
-  },
-  {
-    accessorKey: "plan",
-    header: "Plan",
-    cell: ({ getValue }) => {
-      const v = getValue() as number | null
-      return v != null ? (
-        <span className="text-sm tabular-nums">{v}</span>
-      ) : (
-        <span className="opacity-40">—</span>
-      )
-    },
-    meta: { label: "Plan" },
-  },
-  {
-    accessorKey: "country",
-    header: "País",
-    cell: ({ getValue }) => {
-      const v = getValue() as string
-      return v ? <span className="text-sm">{v}</span> : <span className="opacity-40">—</span>
-    },
-    meta: { label: "País" },
-  },
-  {
-    accessorKey: "createdAt",
-    header: "Creada",
-    cell: ({ getValue }) => {
-      const v = getValue() as string | null
-      if (!v) return <span className="opacity-40">—</span>
-      return (
-        <span className="text-sm tabular-nums text-muted-foreground">
-          {new Date(v).toLocaleDateString("es-PY")}
-        </span>
-      )
-    },
-    meta: { label: "Creada" },
-  },
-  {
-    id: "counts",
-    header: "Sucursales",
-    cell: ({ row }) => {
-      const counts = row.original.counts
-      if (!counts) return <span className="opacity-40">—</span>
-      return (
-        <span className="text-sm tabular-nums text-muted-foreground">
-          {counts.outlets} suc · {counts.registers} cajas
-        </span>
-      )
-    },
-    meta: { label: "Sucursales/Cajas" },
-  },
-]
+const PAGE_SIZE_OPTIONS = [25, 50, 100]
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = React.useState(value)
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(t)
+  }, [value, delay])
+  return debounced
+}
 
 export default function AdminCompaniesPage() {
   const router = useRouter()
+
+  const [searchInput, setSearchInput] = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState<string>("all")
-  const [q, setQ] = React.useState("")
+  const [planFilter, setPlanFilter] = React.useState<string>("all")
+  const [page, setPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(50)
 
-  const { data, isLoading } = useAdminCompanies({ limit: 500 })
-  const rows = data?.rows ?? []
+  const { data: plansData } = useAdminPlans()
 
-  const filtered = React.useMemo(() => {
-    let out = rows
-    if (statusFilter !== "all") {
-      if (statusFilter === "blocked") {
-        out = out.filter((r) => r.blocked)
-      } else {
-        out = out.filter((r) => r.status === statusFilter && !r.blocked)
-      }
-    }
-    return out
-  }, [rows, statusFilter])
+  const q = useDebounce(searchInput, 300)
+
+  // Reset page when filters change.
+  React.useEffect(() => { setPage(1) }, [q, statusFilter, planFilter, pageSize])
+
+  const { data, isLoading } = useAdminCompanies({
+    q: q || undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    plan: planFilter !== "all" ? planFilter : undefined,
+    page,
+    pageSize,
+  })
+
+  const rows: AdminCompanyRow[] = data?.rows ?? []
+  const total = data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  const handlePageSizeChange = (v: string) => {
+    setPageSize(Number(v))
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Building2 className="size-5 text-muted-foreground" />
         <h1 className="text-2xl font-bold">Empresas</h1>
-        {data?.total != null && (
-          <span className="text-sm text-muted-foreground">({data.total} total)</span>
+        {total > 0 && (
+          <span className="text-sm text-muted-foreground">({total} total)</span>
         )}
       </div>
 
-      <DataTable
-        tableId="admin-companies"
-        data={filtered}
-        columns={columns}
-        isLoading={isLoading}
-        getRowId={(r) => r.id}
-        onRowClick={(r) => router.push(`/admin/companies/${r.id}`)}
-        searchPlaceholder="Buscar por nombre, email, país…"
-        exportFileName="empresas-admin"
-        emptyMessage="Sin empresas"
-        toolbarSlot={
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Estado" />
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+          <Input
+            className="pl-8"
+            placeholder="Buscar por nombre, RUC, slug…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los estados</SelectItem>
+            <SelectItem value="active">Activas</SelectItem>
+            <SelectItem value="suspended">Suspendidas</SelectItem>
+            <SelectItem value="cancelled">Canceladas</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={planFilter} onValueChange={setPlanFilter}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Plan" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los planes</SelectItem>
+            {(plansData?.rows ?? []).map((p) => (
+              <SelectItem key={p.code} value={String(p.code)}>
+                {p.name || `Plan ${p.code}`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+            <SelectTrigger className="w-28">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los estados</SelectItem>
-              <SelectItem value="active">Activas</SelectItem>
-              <SelectItem value="suspended">Suspendidas</SelectItem>
-              <SelectItem value="cancelled">Canceladas</SelectItem>
-              <SelectItem value="blocked">Bloqueadas</SelectItem>
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <SelectItem key={n} value={String(n)}>{n} / pág.</SelectItem>
+              ))}
             </SelectContent>
           </Select>
-        }
-      />
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Empresa</TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead>Plan</TableHead>
+              <TableHead>País</TableHead>
+              <TableHead>Creada</TableHead>
+              <TableHead>Sucursales</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              [...Array(pageSize > 10 ? 10 : pageSize)].map((_, i) => (
+                <TableRow key={i}>
+                  {[...Array(6)].map((__, j) => (
+                    <TableCell key={j}>
+                      <Skeleton className="h-5 w-full" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
+                  Sin empresas que coincidan
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((c) => (
+                <TableRow
+                  key={c.id}
+                  className="cursor-pointer hover:bg-accent/50"
+                  onClick={() => router.push(`/admin/companies/${c.id}`)}
+                >
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{c.name || c.companyName || "(sin nombre)"}</span>
+                      {c.owner && (
+                        <span className="text-xs text-muted-foreground truncate">
+                          {[c.owner.name, c.owner.secondName].filter(Boolean).join(" ")}
+                          {c.owner.email ? ` · ${c.owner.email}` : ""}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>{statusBadge(c.status, c.blocked)}</TableCell>
+                  <TableCell>
+                    {c.plan != null ? (
+                      <span className="text-sm tabular-nums">{c.plan}</span>
+                    ) : (
+                      <span className="opacity-40">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {c.country ? (
+                      <span className="text-sm">{c.country}</span>
+                    ) : (
+                      <span className="opacity-40">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {c.createdAt ? (
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        {new Date(c.createdAt).toLocaleDateString("es-PY")}
+                      </span>
+                    ) : (
+                      <span className="opacity-40">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {c.counts ? (
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        {c.counts.outlets} suc · {c.counts.registers} cajas
+                      </span>
+                    ) : (
+                      <span className="opacity-40">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Paginación */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Página {page} de {totalPages} ({total} empresas)
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1 || isLoading}
+          >
+            <ChevronLeft className="size-4" />
+            Anterior
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages || isLoading}
+          >
+            Siguiente
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

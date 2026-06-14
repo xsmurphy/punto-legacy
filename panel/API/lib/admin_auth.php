@@ -82,6 +82,58 @@ function _adminExtractJwt(): ?string
 }
 
 /**
+ * Registra una acción del super-admin en admin_audit (best-effort, nunca lanza).
+ *
+ * Debe llamarse DESPUÉS de adminMiddleware() (necesita ADMIN_AUTHED_ID / ADMIN_AUTHED_EMAIL)
+ * y DESPUÉS de que la acción principal haya tenido éxito.
+ *
+ * @param string      $action      Identificador de la acción (ej. 'grantAiCredits').
+ * @param string      $targetType  Tipo de entidad afectada ('company', 'admin', …).
+ * @param string|null $targetId    ID de la entidad afectada (UUID o similar).
+ * @param string|null $targetName  Nombre legible de la entidad (para el historial).
+ * @param array       $meta        Datos adicionales (campos cambiados, montos, etc.).
+ */
+function adminAudit(
+    string  $action,
+    string  $targetType,
+    ?string $targetId   = null,
+    ?string $targetName = null,
+    array   $meta       = []
+): void {
+    global $db;
+
+    // Guard: si la conexión no está lista (tests, CLI) no hay nada que hacer.
+    if (!isset($db) || !is_object($db)) {
+        return;
+    }
+
+    try {
+        $adminId    = defined('ADMIN_AUTHED_ID')    ? ADMIN_AUTHED_ID    : null;
+        $adminEmail = defined('ADMIN_AUTHED_EMAIL') ? ADMIN_AUTHED_EMAIL : null;
+        $ip         = $_SERVER['REMOTE_ADDR'] ?? null;
+
+        $db->Execute(
+            'INSERT INTO admin_audit
+               ("adminId", "adminEmail", action, "targetType", "targetId", "targetName", meta, ip)
+             VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?)',
+            [
+                $adminId,
+                $adminEmail ? substr($adminEmail, 0, 180) : null,
+                substr($action, 0, 40),
+                $targetType  ? substr($targetType,  0, 20)  : null,
+                $targetId    ? substr($targetId,    0, 64)  : null,
+                $targetName  ? substr($targetName,  0, 200) : null,
+                json_encode($meta, JSON_UNESCAPED_UNICODE),
+                $ip ? substr($ip, 0, 64) : null,
+            ]
+        );
+    } catch (\Throwable $e) {
+        // Best-effort: nunca interrumpir la acción principal.
+        error_log('[adminAudit] Error insertando en admin_audit: ' . $e->getMessage());
+    }
+}
+
+/**
  * Gate de los endpoints del admin realm. Valida el _jwt_admin con ADMIN_JWT_SECRET y exige
  * `aud === "admin"`. Define ADMIN_AUTHED_ID / ADMIN_AUTHED_EMAIL. Corta 401 si falla.
  */

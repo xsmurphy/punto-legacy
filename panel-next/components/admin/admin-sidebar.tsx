@@ -9,6 +9,7 @@ import {
   Users,
   FileText,
   BarChart3,
+  ScrollText,
   LogOut,
   ChevronsUpDown,
 } from "lucide-react"
@@ -46,6 +47,7 @@ const adminNav = [
   { title: "Administradores", to: "/admin/users", icon: Users },
   { title: "Solicitudes", to: "/admin/requests", icon: FileText },
   { title: "Reportes", to: "/admin/reports", icon: BarChart3 },
+  { title: "Auditoría", to: "/admin/audit", icon: ScrollText },
 ]
 
 function isActive(to: string, pathname: string): boolean {
