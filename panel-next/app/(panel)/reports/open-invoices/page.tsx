@@ -28,6 +28,7 @@ import {
   type OpenInvoicesReportResponse,
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { EmptyState } from "@/components/empty-state"
 
 type State = "income" | "outcome"
 
@@ -228,17 +229,11 @@ export default function OpenInvoicesReportPage() {
           isOutcome ? "cuentas_por_pagar" : "cuentas_por_cobrar"
         }
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <Wallet className="size-8 opacity-30" />
-            <p>
-              {isOutcome
-                ? "No hay cuentas pendientes de pago."
-                : "No hay cuentas pendientes de cobro."}
-            </p>
-            <p className="text-xs">
-              Cuando se registre una venta o compra a crédito sin saldar, aparece acá.
-            </p>
-          </div>
+          <EmptyState
+            icon={Wallet}
+            title={isOutcome ? "Sin cuentas pendientes de pago" : "Sin cuentas pendientes de cobro"}
+            description="Cuando se registre una venta o compra a crédito sin saldar, aparece acá."
+          />
         }
       />
 

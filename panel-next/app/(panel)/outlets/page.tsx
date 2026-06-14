@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select"
 import { useOutlets } from "@/hooks/use-outlets"
 import type { OutletListItem } from "@/lib/types/outlet"
+import { EmptyState } from "@/components/empty-state"
 
 export default function OutletsPage() {
   const router = useRouter()
@@ -150,14 +151,16 @@ export default function OutletsPage() {
         searchPlaceholder="Buscar por nombre, dirección, RUC…"
         exportFileName="sucursales"
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <MapPin className="size-8 opacity-30" />
-            <p>No hay sucursales todavía.</p>
-            <p className="text-xs">
-              Creá la primera con el botón <strong>Nueva sucursal</strong>{" "}
-              arriba a la derecha.
-            </p>
-          </div>
+          <EmptyState
+            icon={MapPin}
+            title="Sin sucursales todavía"
+            description={
+              <>
+                Creá la primera con el botón <strong>Nueva sucursal</strong>{" "}
+                arriba a la derecha.
+              </>
+            }
+          />
         }
         toolbarSlot={
           <Select

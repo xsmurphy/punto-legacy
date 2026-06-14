@@ -25,8 +25,8 @@ export default function BrandsReportPage() {
       })}
       primaryColLabel="Marca"
       unitsColLabel="Vendidos"
-      emptyIcon={<Building2 className="size-8 opacity-30" />}
-      emptyLabel="No hay ventas por marca en este período."
+      emptyIcon={Building2}
+      emptyLabel="Sin ventas por marca en este período"
       exportFileName="marcas"
       searchPlaceholder="Buscar marca…"
       tableId="report-brands"

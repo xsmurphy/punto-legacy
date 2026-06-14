@@ -30,8 +30,8 @@ export default function PaymentMethodsReportPage() {
       })}
       primaryColLabel="Método"
       unitsColLabel="Operaciones"
-      emptyIcon={<CreditCard className="size-8 opacity-30" />}
-      emptyLabel="No hay cobros en este período."
+      emptyIcon={CreditCard}
+      emptyLabel="Sin cobros en este período"
       exportFileName="medios_de_pago"
       searchPlaceholder="Buscar método (efectivo, tarjeta…)…"
       tableId="report-payment-methods"

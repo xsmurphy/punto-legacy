@@ -27,6 +27,7 @@ function formatBday(iso: string): string {
 }
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ContactListItem } from "@/lib/types/contact"
+import { EmptyState } from "@/components/empty-state"
 
 export default function ContactsPage() {
   const router = useRouter()
@@ -238,15 +239,17 @@ export default function ContactsPage() {
         searchPlaceholder="Buscar por nombre, teléfono, email, RUC…"
         exportFileName="contactos"
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <Users className="size-8 opacity-30" />
-            <p>{isSupplier ? "No hay proveedores todavía." : "No hay clientes todavía."}</p>
-            <p className="text-xs">
-              Creá el primero con el botón{" "}
-              <strong>{isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}</strong>{" "}
-              arriba a la derecha.
-            </p>
-          </div>
+          <EmptyState
+            icon={Users}
+            title={isSupplier ? "Sin proveedores todavía" : "Sin clientes todavía"}
+            description={
+              <>
+                Creá el primero con el botón{" "}
+                <strong>{isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}</strong>{" "}
+                arriba a la derecha.
+              </>
+            }
+          />
         }
         toolbarSlot={
           <Select

@@ -33,6 +33,7 @@ import {
   type TransactionsReportResponse,
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { EmptyState } from "@/components/empty-state"
 
 export default function TransactionsReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -216,11 +217,11 @@ export default function TransactionsReportPage() {
         searchPlaceholder="Buscar por documento, cliente, cajero…"
         exportFileName="transacciones"
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <Receipt className="size-8 opacity-30" />
-            <p>No hay transacciones en este período.</p>
-            <p className="text-xs">Ajustá el rango de fechas y volvé a consultar.</p>
-          </div>
+          <EmptyState
+            icon={Receipt}
+            title="Sin transacciones"
+            description="Ajustá el rango de fechas y volvé a consultar."
+          />
         }
       />
     </div>

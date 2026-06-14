@@ -54,6 +54,7 @@ import { SUPPORTED_COUNTRIES } from "@/lib/countries"
 import { ThemePicker } from "@/components/theme-picker"
 import { DocumentsTab } from "@/components/settings/documents-tab"
 import { CompanyLogo } from "@/components/settings/company-logo"
+import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
 
 const settingsSchema = z.object({
@@ -995,9 +996,13 @@ function MonedasTab() {
           </div>
         )}
         {!isLoading && rows.length === 0 && (
-          <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-            No hay monedas configuradas para tu país.
-          </p>
+          <EmptyState
+            icon={Coins}
+            title="Sin monedas configuradas"
+            description="Tu país no tiene monedas extranjeras predefinidas."
+            showMarquee={false}
+            className="border-dashed py-6"
+          />
         )}
         {!isLoading && rows.length > 0 && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

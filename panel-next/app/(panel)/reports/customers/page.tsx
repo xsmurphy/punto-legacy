@@ -28,6 +28,7 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type CustomerRow } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { EmptyState } from "@/components/empty-state"
 
 export default function CustomersReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -252,11 +253,11 @@ export default function CustomersReportPage() {
         searchPlaceholder="Buscar por nombre, RUC, CI, teléfono…"
         exportFileName="analisis_clientes"
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <Users className="size-8 opacity-30" />
-            <p>No hay clientes con ventas en este período.</p>
-            <p className="text-xs">Ajustá el rango de fechas y volvé a consultar.</p>
-          </div>
+          <EmptyState
+            icon={Users}
+            title="Sin clientes con ventas"
+            description="Ajustá el rango de fechas y volvé a consultar."
+          />
         }
       />
     </div>

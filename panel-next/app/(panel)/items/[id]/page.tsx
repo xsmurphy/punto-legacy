@@ -26,6 +26,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/empty-state"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { MoneyInput } from "@/components/ui/money-input"
@@ -1381,10 +1382,17 @@ function CotizacionesTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
         )}
 
         {!isLoading && (!currencies || currencies.length === 0) && (
-          <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-            No hay monedas extranjeras configuradas. Agregalas en Configuración →
-            Monedas para que aparezcan acá.
-          </p>
+          <EmptyState
+            icon={Coins}
+            title="Sin monedas extranjeras configuradas"
+            description={
+              <>
+                Agregalas en <strong>Configuración → Monedas</strong> para que aparezcan acá.
+              </>
+            }
+            showMarquee={false}
+            className="border-dashed py-6"
+          />
         )}
 
         {!isLoading && currencies && currencies.length > 0 && (

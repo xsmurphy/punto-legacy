@@ -29,6 +29,7 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ExpenseRow } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { EmptyState } from "@/components/empty-state"
 
 export default function ExpensesReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -190,11 +191,11 @@ export default function ExpensesReportPage() {
         searchPlaceholder="Buscar por concepto, usuario, caja…"
         exportFileName="movimientos_caja"
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <Coins className="size-8 opacity-30" />
-            <p>No hay movimientos de caja en este período.</p>
-            <p className="text-xs">Los ingresos/extracciones se cargan desde el POS.</p>
-          </div>
+          <EmptyState
+            icon={Coins}
+            title="Sin movimientos de caja"
+            description="Los ingresos/extracciones se cargan desde el POS."
+          />
         }
       />
     </div>

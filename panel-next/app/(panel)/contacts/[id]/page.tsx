@@ -9,8 +9,9 @@ import { z } from "zod"
 import {
   ArrowLeft, Loader2, Archive, User2, BarChart3, Wallet,
   ClipboardList, ShoppingBag, Layers, TrendingUp,
-  CalendarDays, MapPin, Sparkles,
+  CalendarDays, MapPin, Sparkles, Inbox,
 } from "lucide-react"
+import { EmptyState as EmptyStateBlock } from "@/components/empty-state"
 import { toast } from "sonner"
 import type { CountryCode } from "libphonenumber-js"
 import {
@@ -1150,11 +1151,22 @@ function TopCategoriesCard({
   )
 }
 
+/**
+ * Wrapper local para los 7 empty states de los analytics tabs de un contacto.
+ * Mantiene la API `<EmptyState label="..." />` original mientras delega al
+ * componente compartido `<EmptyStateBlock>`. `showMarquee=false` porque vive
+ * adentro de cards de analytics chicos — el marquee se vería desproporcionado.
+ */
 function EmptyState({ label }: { label: string }) {
   return (
-    <p className="flex h-32 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
-      {label}
-    </p>
+    <div className="flex min-h-32 items-center justify-center">
+      <EmptyStateBlock
+        icon={Inbox}
+        title={label}
+        showMarquee={false}
+        className="border-0 p-3"
+      />
+    </div>
   )
 }
 

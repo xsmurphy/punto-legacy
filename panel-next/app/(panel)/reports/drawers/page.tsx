@@ -34,6 +34,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type DrawerRow, type DrawersReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { EmptyState } from "@/components/empty-state"
 
 export default function DrawersReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -209,11 +210,11 @@ export default function DrawersReportPage() {
         searchPlaceholder="Buscar por sucursal, caja, usuario…"
         exportFileName="control_de_cajas"
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <Wallet className="size-8 opacity-30" />
-            <p>No hay aperturas en este período.</p>
-            <p className="text-xs">Ajustá el rango de fechas o esperá la próxima apertura.</p>
-          </div>
+          <EmptyState
+            icon={Wallet}
+            title="Sin aperturas en este período"
+            description="Ajustá el rango de fechas o esperá la próxima apertura."
+          />
         }
       />
     </div>

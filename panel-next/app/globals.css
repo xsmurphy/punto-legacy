@@ -93,6 +93,22 @@
     --color-shadow-color: var(--shadow-color);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+
+    /* Marquee animation tokens — usados por <Marquee> de magicui (componente
+       interno del EmptyState). En Tailwind v4 los `--animate-*` generan las
+       utilities `animate-marquee` / `animate-marquee-vertical` automáticas. */
+    --animate-marquee: marquee var(--duration, 40s) linear infinite;
+    --animate-marquee-vertical: marquee-vertical var(--duration, 40s) linear infinite;
+}
+
+@keyframes marquee {
+    from { transform: translateX(0); }
+    to   { transform: translateX(calc(-100% - var(--gap, 1rem))); }
+}
+
+@keyframes marquee-vertical {
+    from { transform: translateY(0); }
+    to   { transform: translateY(calc(-100% - var(--gap, 1rem))); }
 }
 
 /* LIGHT — fondo casi blanco, primary neutro oscuro. Brand verde Punto solo

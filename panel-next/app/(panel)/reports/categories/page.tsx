@@ -25,8 +25,8 @@ export default function CategoriesReportPage() {
       })}
       primaryColLabel="Categoría"
       unitsColLabel="Vendidos"
-      emptyIcon={<Tag className="size-8 opacity-30" />}
-      emptyLabel="No hay ventas categorizadas en este período."
+      emptyIcon={Tag}
+      emptyLabel="Sin ventas categorizadas en este período"
       exportFileName="categorias"
       searchPlaceholder="Buscar categoría…"
       tableId="report-categories"

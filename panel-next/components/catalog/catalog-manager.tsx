@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react"
+import { Plus, Pencil, Trash2, Loader2, Inbox } from "lucide-react"
+import { EmptyState } from "@/components/empty-state"
 import type { ColumnDef } from "@tanstack/react-table"
 import type { UseMutationResult } from "@tanstack/react-query"
 
@@ -180,12 +181,17 @@ export function CatalogManager<T, P>({
             searchPlaceholder={`Buscar ${entityPlural}…`}
             exportFileName={exportFileName}
             emptyMessage={
-              <div className="text-center text-muted-foreground">
-                <p>No hay {entityPlural} todavía.</p>
-                <p className="text-xs mt-1">
-                  Creá la primera con el botón <strong>Nueva {entitySingular}</strong>.
-                </p>
-              </div>
+              <EmptyState
+                icon={Inbox}
+                title={`Sin ${entityPlural} todavía`}
+                description={
+                  <>
+                    Creá la primera con el botón <strong>Nueva {entitySingular}</strong>.
+                  </>
+                }
+                showMarquee={false}
+                className="border-0 py-6"
+              />
             }
           />
         </CardContent>

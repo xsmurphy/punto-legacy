@@ -18,6 +18,7 @@ import { AlertCircle, ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
+import { EmptyState } from "@/components/empty-state"
 import {
   DateRangePicker,
   defaultDateRange,
@@ -55,9 +56,9 @@ interface Props<TRawRow> {
   primaryColLabel?: string
   /** Label de la columna de unidades (default "Vendidos"). */
   unitsColLabel?: string
-  /** Empty state icon */
-  emptyIcon: React.ReactNode
-  /** Empty state label */
+  /** Empty state icon — componente Lucide (no JSX), va al <EmptyState> nuevo. */
+  emptyIcon: React.ComponentType<{ className?: string }>
+  /** Empty state title (corto). */
   emptyLabel: string
   /** Nombre del archivo a exportar */
   exportFileName: string
@@ -196,11 +197,11 @@ export function RankingReportPage<TRawRow>({
         searchPlaceholder={searchPlaceholder}
         exportFileName={exportFileName}
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            {emptyIcon}
-            <p>{emptyLabel}</p>
-            <p className="text-xs">Ajustá el rango de fechas y volvé a consultar.</p>
-          </div>
+          <EmptyState
+            icon={emptyIcon}
+            title={emptyLabel}
+            description="Ajustá el rango de fechas y volvé a consultar."
+          />
         }
       />
     </div>

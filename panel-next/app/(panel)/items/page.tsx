@@ -18,6 +18,7 @@ import {
   Barcode,
 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
+import { EmptyState } from "@/components/empty-state"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -551,14 +552,16 @@ function ItemsPageInner() {
               </>
             )}
             emptyMessage={
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <Package className="size-8 opacity-30" />
-                <p>No hay artículos todavía.</p>
-                <p className="text-xs">
-                  Creá el primero con el botón <strong>Nuevo artículo</strong>{" "}
-                  arriba a la derecha.
-                </p>
-              </div>
+              <EmptyState
+                icon={Package}
+                title="Sin artículos todavía"
+                description={
+                  <>
+                    Creá el primero con el botón <strong>Nuevo artículo</strong>{" "}
+                    arriba a la derecha.
+                  </>
+                }
+              />
             }
             toolbarSlot={
               <>
