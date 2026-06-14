@@ -19,10 +19,10 @@ import {
   Receipt,
   ShoppingBag,
   Gift,
-  LayoutDashboard,
 } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { Hero115 } from "@/components/hero115"
+import { PuntoLogo } from "@/components/layout/punto-logo"
 
 import {
   Area,
@@ -113,11 +113,11 @@ export default function DashboardPage() {
     return (
       <Hero115
         className="py-12"
-        icon={<LayoutDashboard className="size-7" />}
-        heading="Tu panel cobra vida con la primera venta"
-        description="Acá vas a ver ingresos, márgenes, clientes y tus productos más vendidos, en tiempo real. Registrá una venta en la caja o cargá tu catálogo para empezar."
+        icon={<PuntoLogo variant="mark" className="size-10" />}
+        heading="Bienvenido a Punto"
+        description="El sistema que reúne caja, inventario, clientes y reportes para que vendas más y controles todo tu negocio desde un solo lugar."
         buttons={{ primary: { text: "Ir a la caja", url: "/pos" } }}
-        byline="Tu resumen se actualiza solo a medida que vendés."
+        byline="Empezá a vender y hacé crecer tu negocio."
       />
     )
   }
