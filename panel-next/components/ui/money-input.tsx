@@ -36,6 +36,8 @@ export function MoneyInput({
   onChange,
   maxIntDigits = 12,
   className,
+  onFocus,
+  onBlur,
   ...rest
 }: MoneyInputProps) {
   const { data: bootstrap } = useBootstrap()
@@ -45,7 +47,21 @@ export function MoneyInput({
   // Cuando llegamos a 'decimals' dígitos finales, esos son la fracción;
   // el resto es la parte entera. Esto es lo que da el comportamiento de
   // calculadora ('20000' con decimales=2 + dot-thousand → '200,00').
-  const display = formatMoneyAsYouType(value, fmt, maxIntDigits)
+  const formatted = formatMoneyAsYouType(value, fmt, maxIntDigits)
+
+  // Focus/blur behavior pedido por el owner:
+  // - Al focus, el contenido se "limpia" (display vacío) para que el usuario
+  //   pueda tipear el nuevo valor sin tener que seleccionar/borrar el anterior.
+  //   En el modelo NO commiteamos el null — guardamos el original en un ref
+  //   por si el usuario hace blur sin escribir nada.
+  // - Si en blur el contenido sigue vacío (no tocó nada o borró todo sin
+  //   reescribir) y el valor original NO era null, restauramos el original.
+  //   Si el usuario tipeó algo, queda lo que tipeó.
+  const [focused, setFocused] = React.useState(false)
+  const [draft, setDraft] = React.useState("")
+  const valueAtFocusRef = React.useRef<number | null>(value)
+
+  const display = focused ? draft : formatted
 
   return (
     <Input
@@ -54,7 +70,28 @@ export function MoneyInput({
       inputMode="numeric"
       autoComplete="off"
       value={display}
+      onFocus={(e) => {
+        valueAtFocusRef.current = value
+        setDraft("")
+        setFocused(true)
+        // No commiteamos `null` — el modelo conserva el valor previo hasta
+        // que el usuario tipee algo (onChange) o haga blur sin tipear.
+        onFocus?.(e)
+      }}
+      onBlur={(e) => {
+        setFocused(false)
+        // Si el draft está vacío (no tipeó nada) y el valor original era
+        // distinto de null, restaurar — para que "click + click afuera" no
+        // borre el monto que ya estaba.
+        const noInput = (draft.match(/\d/g) ?? []).length === 0
+        if (noInput && valueAtFocusRef.current !== null && value === null) {
+          onChange(valueAtFocusRef.current)
+        }
+        setDraft("")
+        onBlur?.(e)
+      }}
       onChange={(e) => {
+        setDraft(e.target.value)
         const digits = (e.target.value.match(/\d/g) ?? []).join("")
         const trimmed = digits.slice(0, maxIntDigits + fmt.decimals)
         if (trimmed === "") {

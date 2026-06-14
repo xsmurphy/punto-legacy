@@ -38,6 +38,7 @@ import { useTaxes } from "@/hooks/use-taxes"
 import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
 import { DatePicker } from "@/components/date-picker"
+import { MoneyInput } from "@/components/ui/money-input"
 
 /**
  * `/purchase` — registro de compra/gasto. Full-page (NO drawer/sheet).
@@ -51,10 +52,12 @@ import { DatePicker } from "@/components/date-picker"
  * Submit OK / Cancelar → navega a /reports/purchases (historial).
  */
 
-interface FormLine extends PurchaseFormItem {
+interface FormLine extends Omit<PurchaseFormItem, "price"> {
   rowId: string
   isProduct: boolean
   itemName?: string
+  /** null mientras el usuario aún no tipea — MoneyInput lo maneja como vacío. */
+  price: number | null
 }
 
 function makeRowId(): string {
@@ -66,7 +69,7 @@ function emptyLine(isProduct = true): FormLine {
     rowId: makeRowId(),
     isProduct,
     units: 1,
-    price: 0,
+    price: null,
     taxId: "",
     taxValue: 0,
   }
@@ -94,7 +97,7 @@ export default function NewPurchasePage() {
   const [invoicePrefix, setInvoicePrefix] = React.useState("")
   const [invoiceNo, setInvoiceNo] = React.useState("")
   const [paymentMethod, setPaymentMethod] = React.useState("cash")
-  const [discount, setDiscount] = React.useState("")
+  const [discount, setDiscount] = React.useState<number | null>(null)
   const [note, setNote] = React.useState("")
   const [lines, setLines] = React.useState<FormLine[]>([emptyLine()])
 
@@ -113,11 +116,11 @@ export default function NewPurchasePage() {
     let tax = 0
     for (const l of lines) {
       const u = Number(l.units) || 0
-      const p = Number(l.price) || 0
+      const p = l.price ?? 0
       sub += Math.abs(u * p)
       tax += Number(l.taxValue) || 0
     }
-    const disc = Number(discount) || 0
+    const disc = discount ?? 0
     return { sub, tax, discount: disc, total: sub - disc }
   }, [lines, discount])
 
@@ -154,7 +157,7 @@ export default function NewPurchasePage() {
         itemId: l.isProduct ? l.itemId : undefined,
         title: l.title ?? undefined,
         units: Number(l.units) || 0,
-        price: Number(l.price) || 0,
+        price: l.price ?? 0,
         taxId: l.taxId || undefined,
         taxValue: Number(l.taxValue) || 0,
       }))
@@ -169,7 +172,7 @@ export default function NewPurchasePage() {
         invoicePrefix,
         authNo,
         paymentMethod,
-        discount: Number(discount) || 0,
+        discount: discount ?? 0,
         note,
         items,
       })
@@ -316,13 +319,10 @@ export default function NewPurchasePage() {
           </Field>
 
           <Field label="Descuento global" id="discount">
-            <Input
+            <MoneyInput
               id="discount"
-              type="number"
-              min={0}
-              step="0.01"
               value={discount}
-              onChange={(e) => setDiscount(e.target.value)}
+              onChange={setDiscount}
             />
           </Field>
 
@@ -427,7 +427,7 @@ function LineRow({ line, onChange, onRemove }: LineRowProps) {
     if (!line.taxId) return
     const t = taxOptions.find((tx) => tx.id === line.taxId)
     if (!t || t.rate === null) return
-    const sub = (Number(line.units) || 0) * (Number(line.price) || 0)
+    const sub = (Number(line.units) || 0) * (line.price ?? 0)
     const rate = t.rate
     const calculated = (sub * rate) / (100 + rate)
     onChange({ taxValue: Number(calculated.toFixed(2)) })
@@ -503,14 +503,10 @@ function LineRow({ line, onChange, onRemove }: LineRowProps) {
           />
         </div>
         <div className="col-span-4 sm:col-span-2">
-          <Input
-            type="number"
-            min={0}
-            step="0.01"
+          <MoneyInput
             value={line.price}
-            onChange={(e) => onChange({ price: Number(e.target.value) })}
+            onChange={(v) => onChange({ price: v })}
             placeholder="Precio"
-            inputMode="decimal"
           />
         </div>
         <div className="col-span-4 sm:col-span-3">
