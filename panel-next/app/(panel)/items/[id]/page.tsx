@@ -531,9 +531,17 @@ function PerfilTab({
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           {/* Hero: foto + nombre (prominente) + SKU debajo.
-              Foto un poco más grande para balancear con el nombre. */}
+              Foto cuadrada un poco más grande para balancear con el nombre,
+              y bajada `mt-6` para que el centro quede a la altura del input
+              de Nombre (que vive debajo de su label uppercase). */}
           <div className="flex items-start gap-4">
-            <ProductPhoto itemId={itemId} images={images} disabled={isNew} size={84} />
+            <ProductPhoto
+              itemId={itemId}
+              images={images}
+              disabled={isNew}
+              size={112}
+              className="mt-6"
+            />
             <div className="flex flex-1 flex-col gap-2.5 pt-1">
               <FormField
                 control={form.control}

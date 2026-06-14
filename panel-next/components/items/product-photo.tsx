@@ -18,19 +18,21 @@ interface Props {
   images: ItemImage[]
   /** Si está en modo creación (sin id real), deshabilita uploads. */
   disabled?: boolean
-  /** Tamaño del círculo en px. Default 80. */
+  /** Tamaño del cuadrado en px. Default 80. */
   size?: number
+  /** Clase extra del wrapper externo — útil para offset/margen del perfil. */
+  className?: string
 }
 
 /**
- * Foto principal del producto: dropzone redondo tipo avatar.
- * Muestra image[0] (la portada). Click → file picker; hover → opciones.
- * Para gestionar las otras 4 imágenes se usa la pestaña Imágenes.
+ * Foto principal del producto: dropzone cuadrado con esquinas redondeadas
+ * (rounded-lg). Muestra image[0] (la portada). Click → file picker; hover →
+ * opciones. Para gestionar las otras 4 imágenes se usa la pestaña Imágenes.
  *
  * Compacto — sin texto descriptivo al lado. Pensado para vivir al lado del
  * Nombre del producto dentro del card 'Datos básicos'. Hover muestra acciones.
  */
-export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
+export function ProductPhoto({ itemId, images, disabled, size = 80, className }: Props) {
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = React.useState(false)
   const replace = useReplaceCoverImage()
@@ -79,7 +81,7 @@ export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
     : "Click o arrastrá una imagen (JPG / PNG / WEBP)"
 
   return (
-    <div className="relative">
+    <div className={cn("relative", className)}>
       <div
         role="button"
         tabIndex={disabled ? -1 : 0}
@@ -107,7 +109,7 @@ export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
         }}
         style={dimension}
         className={cn(
-          "group relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition",
+          "group relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition",
           disabled
             ? "border-muted-foreground/15 bg-muted/30 cursor-not-allowed"
             : dragOver
@@ -118,7 +120,7 @@ export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
         {cover ? (
           <Avatar className="size-full">
             <AvatarImage src={cover.url} alt="Foto del producto" />
-            <AvatarFallback className="rounded-full bg-transparent">
+            <AvatarFallback className="rounded-lg bg-transparent">
               <ImagePlus className="size-6 text-muted-foreground/60" />
             </AvatarFallback>
           </Avatar>
@@ -128,13 +130,13 @@ export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
 
         {/* Overlay hover con icono de cámara */}
         {!disabled && cover && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 opacity-0 transition group-hover:bg-black/50 group-hover:opacity-100">
+          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/0 opacity-0 transition group-hover:bg-black/50 group-hover:opacity-100">
             <Camera className="size-4 text-white" />
           </div>
         )}
 
         {busy && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
+          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50">
             <Loader2 className="size-4 animate-spin text-white" />
           </div>
         )}
@@ -148,7 +150,7 @@ export function ProductPhoto({ itemId, images, disabled, size = 80 }: Props) {
           size="icon"
           aria-label="Eliminar foto"
           title="Eliminar foto"
-          className="absolute -right-1 -top-1 size-6 rounded-full opacity-0 shadow transition group-hover:opacity-100"
+          className="absolute -right-1 -top-1 size-6 rounded-lg opacity-0 shadow transition group-hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation()
             onRemove()
