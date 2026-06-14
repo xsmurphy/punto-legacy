@@ -76,7 +76,11 @@ final class BrandService
             [$brandId, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
-        return $this->present((array) $rs->fields);
+        // CaseInsensitiveArray: el cast (array) no expone las keys/values reales
+        // — devuelve las propiedades privadas. foreach + ArrayAccess sí copia.
+        $row = [];
+        foreach ($rs->fields as $k => $v) $row[$k] = $v;
+        return $this->present($row);
     }
 
     public function create(string $companyId, array $input): string

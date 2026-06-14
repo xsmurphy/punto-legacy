@@ -51,8 +51,15 @@ final class DocumentTemplateService
             [$templateId, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
-        // PG driver devuelve CaseInsensitiveArray en ->fields; present() exige array nativo.
-        return $this->present((array) $rs->fields);
+        // PG driver devuelve CaseInsensitiveArray en ->fields. El cast `(array) $rs->fields`
+        // NO sirve — retorna las propiedades privadas del objeto (`data`, `keyMap` con
+        // \0 prefix), no las keys/values reales. Tampoco funciona `iterator_to_array`
+        // (CaseInsensitiveArray NO implementa Iterator). foreach sí itera correctamente
+        // a través de ArrayAccess. Sin esto el present() recibía un array vacío y
+        // devolvía templateId=null + name="" → editar plantilla rompía con 422.
+        $row = [];
+        foreach ($rs->fields as $k => $v) $row[$k] = $v;
+        return $this->present($row);
     }
 
     /** @return string templateId nuevo */

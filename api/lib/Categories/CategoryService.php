@@ -90,7 +90,11 @@ final class CategoryService
             [$categoryId, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
-        return $this->present((array) $rs->fields);
+        // CaseInsensitiveArray: el cast (array) devuelve propiedades privadas, no
+        // las keys reales. foreach + ArrayAccess copia bien.
+        $row = [];
+        foreach ($rs->fields as $k => $v) $row[$k] = $v;
+        return $this->present($row);
     }
 
     /**
