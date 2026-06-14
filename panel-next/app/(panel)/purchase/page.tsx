@@ -37,6 +37,7 @@ import { useItems } from "@/hooks/use-items"
 import { useTaxes } from "@/hooks/use-taxes"
 import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
+import { DatePicker } from "@/components/date-picker"
 
 /**
  * `/purchase` — registro de compra/gasto. Full-page (NO drawer/sheet).
@@ -249,19 +250,17 @@ export default function NewPurchasePage() {
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Fecha factura" id="invoiceDate">
-              <Input
+              <DatePicker
                 id="invoiceDate"
-                type="date"
                 value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
+                onChange={setInvoiceDate}
               />
             </Field>
             <Field label="Vencimiento" id="dueDate">
-              <Input
+              <DatePicker
                 id="dueDate"
-                type="date"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                onChange={setDueDate}
               />
             </Field>
           </div>
