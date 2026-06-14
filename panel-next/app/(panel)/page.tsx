@@ -19,8 +19,10 @@ import {
   Receipt,
   ShoppingBag,
   Gift,
+  LayoutDashboard,
 } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
+import { Hero115 } from "@/components/hero115"
 
 import {
   Area,
@@ -96,6 +98,29 @@ export default function DashboardPage() {
   const topHours = useDashboardWidget<TopHoursWidget>("topHours", opts)
   const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
   const orders = useDashboardWidget<OrdersWidget>("orders", opts)
+
+  // "Negocio nuevo / sin contenido": cero catálogo (itemsCount es lifetime) y
+  // cero transacciones del mes. Ambas condiciones evitan falsos positivos en
+  // negocios establecidos con un rango tranquilo. En ese caso mostramos el
+  // hero de bienvenida (Hero115) en vez del dashboard lleno de ceros.
+  const isEmptyState =
+    !info.isLoading &&
+    !info.error &&
+    (info.data?.itemsCount ?? 1) === 0 &&
+    (info.data?.transactionsCount ?? 1) === 0
+
+  if (isEmptyState) {
+    return (
+      <Hero115
+        className="py-12"
+        icon={<LayoutDashboard className="size-7" />}
+        heading="Tu panel cobra vida con la primera venta"
+        description="Acá vas a ver ingresos, márgenes, clientes y tus productos más vendidos, en tiempo real. Registrá una venta en la caja o cargá tu catálogo para empezar."
+        buttons={{ primary: { text: "Ir a la caja", url: "/pos" } }}
+        byline="Tu resumen se actualiza solo a medida que vendés."
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
