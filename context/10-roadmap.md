@@ -429,7 +429,28 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 
 **Franchiser:** sigue como realm tenant (`/panel/franchiser.php`, gateado por `isParent`) — NO va a `/admin`.
 
-### Plan de fases (6 fases, no big-bang — cada una deployable)
+### 🆕 PIVOTE 2026-06-14 — el /admin se reescribe DE CERO en el stack de panel-next
+
+**Decisión del owner**: la UI del realm `/admin` (hoy vanilla JS + Bootstrap en
+`panel/admin/*`) se reescribe **greenfield**, **mismo techstack que panel-next**
+(Next.js 15 App Router + TS + shadcn/ui + Tailwind v4 + TanStack Query).
+**NO** nos guiamos por el legacy: no se replica su visual ni su estructura —
+se diseña de cero (análogo al pivote del panel tenant → panel-next del 2026-06-10).
+
+- El backend del admin (realm aislado `_jwt_admin`/`aud:"admin"`, `adminMiddleware`,
+  tablas `admin_user`) **se conserva** — lo que muere es la UI legacy, no la auth.
+  Las F0–F6 de abajo quedan como referencia funcional de QUÉ hace el admin, NO de cómo se ve.
+- El billing del admin agregado el 2026-06-14 (grantAiCredits / setAddons /
+  listRequests / resolveRequest en `CompanyAdminService` + drawer legacy
+  `panel/admin`) es **transitorio**: vive en el legacy hasta que exista el shell
+  admin en panel-next. Migrar esas pantallas al nuevo /admin cuando se construya.
+- Prerequisito: auth de realm admin en el `/api` compartido (hoy solo existe en
+  `panel/API/v1/admin/*`) o un BFF admin equivalente en el nuevo app, + shell/layout
+  + auth-guard del admin en el stack panel-next.
+- El legacy `panel/admin/*` se borra cuando el nuevo /admin lo cubra 100% (mismo
+  criterio que el panel tenant).
+
+### Plan de fases (6 fases, no big-bang — cada una deployable) — UI legacy, ver pivote arriba
 
 | Fase | Qué | Estado |
 |------|-----|--------|
