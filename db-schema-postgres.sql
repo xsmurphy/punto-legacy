@@ -43,7 +43,8 @@ CREATE TABLE company (
   createdAt   TIMESTAMPTZ   NOT NULL DEFAULT now(),
   updatedAt   TIMESTAMPTZ,
   expiresAt   TIMESTAMPTZ,
-  config      JSONB         NOT NULL DEFAULT '{}'
+  config           JSONB         NOT NULL DEFAULT '{}',
+  aiCreditsBalance INT           NOT NULL DEFAULT 0   -- saldo créditos IA (mig 28)
 );
 
 CREATE INDEX idx_company_plan    ON company(plan);
@@ -73,12 +74,13 @@ CREATE TABLE plans (
   max_suppliers  INT           NOT NULL DEFAULT 0,
   max_categories INT           NOT NULL DEFAULT 0,
   max_brands     INT           NOT NULL DEFAULT 0,
-  features       JSONB         NOT NULL DEFAULT '{}'
+  features              JSONB         NOT NULL DEFAULT '{}',
   -- features absorbs: max_kds, expenses, purchase, tags, basicSettings, clockinout,
   -- satisfaction, orders, geosales, custom_payments, ecommerce, sms_receipt, inventory,
   -- batch_inventory, inventory_count, delivery, production, drawerControl, item_options,
   -- activityLog, loyalty, storeCredit, storeTables, schedule, customerRecords, notify,
   -- customRoles
+  ai_credits_monthly INT           NOT NULL DEFAULT 0  -- créditos IA incluidos/mes (mig 28)
 );
 
 
@@ -771,6 +773,43 @@ CREATE TABLE cpayments (
 );
 
 CREATE INDEX idx_cpayments_company ON cpayments(companyId);
+
+
+-- ============================================================
+-- AI_CREDIT_LEDGER  (registro de débitos/créditos IA por tenant, mig 28)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_credit_ledger (
+  id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  companyId    UUID         NOT NULL REFERENCES company(companyId) ON DELETE CASCADE,
+  delta        INT          NOT NULL,
+  balanceAfter INT          NOT NULL,
+  reason       VARCHAR(120) NOT NULL,
+  tokensIn     INT          NOT NULL DEFAULT 0,
+  tokensOut    INT          NOT NULL DEFAULT 0,
+  meta         JSONB        NOT NULL DEFAULT '{}',
+  createdAt    TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_ai_credit_ledger_company_date ON ai_credit_ledger(companyId, createdAt);
+
+
+-- ============================================================
+-- BILLING_REQUEST  (solicitudes de cambio de plan tenant→admin, mig 28)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS billing_request (
+  id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  companyId         UUID         NOT NULL REFERENCES company(companyId) ON DELETE CASCADE,
+  requestedPlanCode SMALLINT     NOT NULL,
+  currentPlanCode   SMALLINT,
+  status            VARCHAR(12)  NOT NULL DEFAULT 'pending',
+  note              TEXT,
+  createdAt         TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  resolvedAt        TIMESTAMPTZ,
+  resolvedBy        VARCHAR(120)
+);
+
+CREATE INDEX idx_billing_request_status_date ON billing_request(status, createdAt);
+CREATE INDEX idx_billing_request_company     ON billing_request(companyId);
 
 
 -- ============================================================

@@ -15,7 +15,13 @@
  *
  * F3.4 — billing:
  *   GET ?plans=1              → lista de planes (code/name/price) para selector
- *   GET ?id=<uuid>&billing=1  → datos de facturación (balance, plan, cpayments)
+ *   GET ?id=<uuid>&billing=1  → datos de facturación (balance, plan, cpayments, aiCredits)
+ *   GET ?requests=1[&status=pending|approved|rejected] → solicitudes de cambio de plan
+ *
+ * F3.4b — AI credits + add-ons + plan-change requests:
+ *   POST ?id=<uuid>&action=grantAiCredits  body {delta, reason}
+ *   POST ?id=<uuid>&action=setAddons       body {extraUsers?, extraRegisters?, extraItems?}
+ *   POST ?id=<uuid>&action=resolveRequest  body {requestId, approve, resolvedBy?}
  *
  * F3.5 — entrar como empresa (impersonar):
  *   POST ?id=<uuid>&action=enter → genera JWT _jwt_panel del propietario
@@ -34,6 +40,12 @@ if ($method === 'GET') {
     // F3.4 — lista de planes (selector UI).
     if (!empty($_GET['plans'])) {
         apiOk($svc->listPlans());
+    }
+
+    // F3.4b — solicitudes de cambio de plan.
+    if (!empty($_GET['requests'])) {
+        $status = trim((string) ($_GET['status'] ?? 'pending'));
+        apiOk($svc->listRequests($status));
     }
 
     $id = trim((string) ($_GET['id'] ?? ''));
@@ -117,19 +129,83 @@ if ($method === 'DELETE') {
 }
 
 if ($method === 'POST') {
-    // F3.5 — generar JWT panel para propietario de la empresa (impersonación admin).
     $id     = trim((string) ($_GET['id']     ?? ''));
     $action = trim((string) ($_GET['action'] ?? ''));
 
-    if ($id === '' || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id) || $action !== 'enter') {
-        apiError('Parámetros inválidos: se requiere ?id=<uuid>&action=enter', 400);
+    $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+
+    // F3.4b — otorgar / descontar créditos IA.
+    if ($action === 'grantAiCredits') {
+        if ($id === '' || !preg_match($uuidRe, $id)) {
+            apiError('id inválido', 400);
+        }
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input)) {
+            apiError('Body JSON inválido', 400);
+        }
+        $delta  = (int)    ($input['delta']  ?? 0);
+        $reason = (string) ($input['reason'] ?? '');
+        if ($reason === '') {
+            apiError('reason es requerido', 422);
+        }
+        $result = $svc->grantAiCredits($id, $delta, $reason);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        apiOk($result);
     }
 
-    $tokenData = $svc->getEnterToken($id);
-    if (!$tokenData) {
-        apiNotFound('Empresa no encontrada o sin propietario activo');
+    // F3.4b — actualizar add-ons.
+    if ($action === 'setAddons') {
+        if ($id === '' || !preg_match($uuidRe, $id)) {
+            apiError('id inválido', 400);
+        }
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input)) {
+            apiError('Body JSON inválido', 400);
+        }
+        $result = $svc->setAddons($id, $input);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        apiOk($result);
     }
-    apiOk(['token' => $tokenData['token'], 'expiresIn' => $tokenData['expiresIn']]);
+
+    // F3.4b — resolver solicitud de cambio de plan.
+    if ($action === 'resolveRequest') {
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input)) {
+            apiError('Body JSON inválido', 400);
+        }
+        $requestId  = trim((string) ($input['requestId']  ?? ''));
+        $approve    = (bool) ($input['approve']    ?? false);
+        $resolvedBy = trim((string) ($input['resolvedBy'] ?? ADMIN_AUTHED_ID ?? 'admin'));
+        if ($requestId === '') {
+            apiError('requestId es requerido', 422);
+        }
+        $result = $svc->resolveRequest($requestId, $approve, $resolvedBy);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        apiOk($result);
+    }
+
+    // F3.5 — generar JWT panel para propietario de la empresa (impersonación admin).
+    if ($action === 'enter') {
+        if ($id === '' || !preg_match($uuidRe, $id)) {
+            apiError('Parámetros inválidos: se requiere ?id=<uuid>&action=enter', 400);
+        }
+        $tokenData = $svc->getEnterToken($id);
+        if (!$tokenData) {
+            apiNotFound('Empresa no encontrada o sin propietario activo');
+        }
+        apiOk(['token' => $tokenData['token'], 'expiresIn' => $tokenData['expiresIn']]);
+    }
+
+    apiError('Acción no soportada', 422);
 }
 
 apiError('Método no permitido', 405);

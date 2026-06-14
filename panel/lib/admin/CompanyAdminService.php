@@ -580,6 +580,272 @@ class CompanyAdminService
 
     // --- F3.4: billing ------------------------------------------------------
 
+    // --- F3.4b: AI credits --------------------------------------------------
+
+    /**
+     * Otorga (o descuenta) créditos IA a una empresa, con ledger auditable.
+     *
+     * $delta positivo = otorgar créditos; negativo = descontar.
+     * El saldo nunca baja de 0 (clamp a nivel aplicación).
+     *
+     * Devuelve ['ok'=>true, 'newBalance'=>int] o ['ok'=>false, 'error'=>'…', 'code'=>NNN].
+     */
+    public function grantAiCredits(string $companyId, int $delta, string $reason): array
+    {
+        global $db;
+
+        if ($reason === '') {
+            return ['ok' => false, 'error' => 'reason es requerido', 'code' => 422];
+        }
+
+        $db->BeginTrans();
+        try {
+            // Leer saldo actual con LOCK (SELECT FOR UPDATE = bloqueo pesimista).
+            $row = $db->Execute(
+                'SELECT aiCreditsBalance FROM company WHERE companyId = ? LIMIT 1 FOR UPDATE',
+                [$companyId]
+            );
+            if (!$row || $row->EOF) {
+                $db->RollbackTrans();
+                return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+            }
+
+            $current     = (int) ($row->fields['aicreditsbalance'] ?? $row->fields['aiCreditsBalance'] ?? 0);
+            $newBalance  = max(0, $current + $delta);
+            $effectiveDelta = $newBalance - $current; // puede diferir si clampeamos
+
+            // Actualizar saldo.
+            $upd = $db->Execute(
+                'UPDATE company SET aiCreditsBalance = ?, updatedAt = now() WHERE companyId = ?',
+                [$newBalance, $companyId]
+            );
+            if ($upd === false) {
+                throw new \RuntimeException('BD update: ' . $db->ErrorMsg());
+            }
+
+            // Insertar en ledger.
+            $ins = $db->Execute(
+                "INSERT INTO ai_credit_ledger
+                   (id, companyId, delta, balanceAfter, reason, tokensIn, tokensOut, meta)
+                 VALUES (gen_random_uuid(), ?, ?, ?, ?, 0, 0, '{}'::jsonb)",
+                [$companyId, $effectiveDelta, $newBalance, substr($reason, 0, 120)]
+            );
+            if ($ins === false) {
+                throw new \RuntimeException('BD insert ledger: ' . $db->ErrorMsg());
+            }
+
+            $db->CommitTrans();
+            return ['ok' => true, 'newBalance' => $newBalance];
+
+        } catch (\Throwable $e) {
+            $db->RollbackTrans();
+            return ['ok' => false, 'error' => 'Error BD: ' . $e->getMessage(), 'code' => 500];
+        }
+    }
+
+    /**
+     * Actualiza los add-ons numéricos de una empresa (extraUsers, extraRegisters,
+     * extraItems). Hace MERGE no-destructivo sobre config.moduleData (preserva
+     * otras claves del JSONB).
+     *
+     * $addons: array con claves 'extraUsers', 'extraRegisters', 'extraItems' (ints ≥ 0).
+     *
+     * Devuelve ['ok'=>true, 'moduleData'=>array] o ['ok'=>false, 'error'=>'…'].
+     */
+    public function setAddons(string $companyId, array $addons): array
+    {
+        global $db;
+
+        $allowed = ['extraUsers', 'extraRegisters', 'extraItems'];
+
+        // Validar y sanitizar.
+        $patch = [];
+        foreach ($allowed as $key) {
+            if (array_key_exists($key, $addons)) {
+                $v = (int) $addons[$key];
+                if ($v < 0) {
+                    return ['ok' => false, 'error' => "{$key} no puede ser negativo", 'code' => 422];
+                }
+                $patch[$key] = $v;
+            }
+        }
+
+        if (!$patch) {
+            return ['ok' => true, 'moduleData' => []]; // noop
+        }
+
+        // Leer config actual para merge seguro.
+        $row = $db->Execute(
+            'SELECT config FROM company WHERE companyId = ? LIMIT 1',
+            [$companyId]
+        );
+        if (!$row || $row->EOF) {
+            return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+        }
+
+        $configRaw  = $row->fields['config'] ?? '{}';
+        $config     = json_decode((string) $configRaw, true);
+        if (!is_array($config)) {
+            $config = [];
+        }
+
+        $moduleData = $config['moduleData'] ?? [];
+        if (!is_array($moduleData)) {
+            $moduleData = [];
+        }
+
+        // Merge: solo pisa las claves que llegaron en $patch.
+        foreach ($patch as $k => $v) {
+            $moduleData[$k] = $v;
+        }
+        $config['moduleData'] = $moduleData;
+
+        $r = $db->Execute(
+            'UPDATE company SET config = ?::jsonb, updatedAt = now() WHERE companyId = ?',
+            [json_encode($config, JSON_UNESCAPED_UNICODE), $companyId]
+        );
+        if ($r === false) {
+            return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
+        }
+
+        return ['ok' => true, 'moduleData' => $moduleData];
+    }
+
+    /**
+     * Lista solicitudes de cambio de plan.
+     *
+     * $status: 'pending' | 'approved' | 'rejected' | '' (todas)
+     *
+     * Devuelve array de billing_request enriquecido con el nombre de la empresa.
+     */
+    public function listRequests(string $status = 'pending'): array
+    {
+        global $db;
+
+        $allowed = ['pending', 'approved', 'rejected', ''];
+        if (!in_array($status, $allowed, true)) {
+            $status = 'pending';
+        }
+
+        if ($status !== '') {
+            $r = $db->Execute(
+                "SELECT br.id, br.companyId, br.requestedPlanCode, br.currentPlanCode,
+                        br.status, br.note, br.createdAt, br.resolvedAt, br.resolvedBy,
+                        c.config->>'companyName' AS companyName
+                 FROM billing_request br
+                 JOIN company c ON c.companyId = br.companyId
+                 WHERE br.status = ?
+                 ORDER BY br.createdAt DESC LIMIT 200",
+                [$status]
+            );
+        } else {
+            $r = $db->Execute(
+                "SELECT br.id, br.companyId, br.requestedPlanCode, br.currentPlanCode,
+                        br.status, br.note, br.createdAt, br.resolvedAt, br.resolvedBy,
+                        c.config->>'companyName' AS companyName
+                 FROM billing_request br
+                 JOIN company c ON c.companyId = br.companyId
+                 ORDER BY br.createdAt DESC LIMIT 200"
+            );
+        }
+
+        $out = [];
+        if ($r) {
+            while (!$r->EOF) {
+                $f = $r->fields;
+                $get = fn(string $k) => $f[$k] ?? $f[strtolower($k)] ?? null;
+                $out[] = [
+                    'id'                => (string) $get('id'),
+                    'companyId'         => (string) $get('companyId'),
+                    'companyName'       => (string) ($get('companyName') ?? ''),
+                    'requestedPlanCode' => (int)    ($get('requestedPlanCode') ?? 0),
+                    'currentPlanCode'   => $get('currentPlanCode') !== null ? (int) $get('currentPlanCode') : null,
+                    'status'            => (string) ($get('status') ?? ''),
+                    'note'              => $get('note'),
+                    'createdAt'         => $get('createdAt'),
+                    'resolvedAt'        => $get('resolvedAt'),
+                    'resolvedBy'        => $get('resolvedBy'),
+                ];
+                $r->MoveNext();
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Aprueba o rechaza una solicitud de cambio de plan.
+     *
+     * Si $approve=true: actualiza company.plan = requestedPlanCode.
+     * Siempre: actualiza billing_request.status + resolvedAt + resolvedBy.
+     *
+     * Transaccional. Devuelve ['ok'=>true] o ['ok'=>false, 'error'=>'…', 'code'=>NNN].
+     */
+    public function resolveRequest(string $requestId, bool $approve, string $resolvedBy): array
+    {
+        global $db;
+
+        if ($resolvedBy === '') {
+            $resolvedBy = 'admin';
+        }
+
+        $db->BeginTrans();
+        try {
+            // Leer solicitud con lock.
+            $req = $db->Execute(
+                "SELECT id, companyId, requestedPlanCode, status
+                 FROM billing_request WHERE id = ? LIMIT 1 FOR UPDATE",
+                [$requestId]
+            );
+            if (!$req || $req->EOF) {
+                $db->RollbackTrans();
+                return ['ok' => false, 'error' => 'Solicitud no encontrada', 'code' => 404];
+            }
+
+            $f = $req->fields;
+            $get = fn(string $k) => $f[$k] ?? $f[strtolower($k)] ?? null;
+
+            $currentStatus = (string) ($get('status') ?? '');
+            if ($currentStatus !== 'pending') {
+                $db->RollbackTrans();
+                return ['ok' => false, 'error' => "La solicitud ya fue {$currentStatus}", 'code' => 409];
+            }
+
+            $companyId          = (string) $get('companyId');
+            $requestedPlanCode  = (int)    ($get('requestedPlanCode') ?? 0);
+            $newStatus          = $approve ? 'approved' : 'rejected';
+
+            // Actualizar solicitud.
+            $r1 = $db->Execute(
+                "UPDATE billing_request
+                 SET status = ?, resolvedAt = now(), resolvedBy = ?
+                 WHERE id = ?",
+                [$newStatus, substr($resolvedBy, 0, 120), $requestId]
+            );
+            if ($r1 === false) {
+                throw new \RuntimeException('BD update request: ' . $db->ErrorMsg());
+            }
+
+            // Si aprobado → cambiar plan de la empresa.
+            if ($approve) {
+                $r2 = $db->Execute(
+                    'UPDATE company SET plan = ?, updatedAt = now() WHERE companyId = ?',
+                    [$requestedPlanCode, $companyId]
+                );
+                if ($r2 === false) {
+                    throw new \RuntimeException('BD update company plan: ' . $db->ErrorMsg());
+                }
+            }
+
+            $db->CommitTrans();
+            return ['ok' => true, 'status' => $newStatus];
+
+        } catch (\Throwable $e) {
+            $db->RollbackTrans();
+            return ['ok' => false, 'error' => 'Error BD: ' . $e->getMessage(), 'code' => 500];
+        }
+    }
+
     /**
      * Lista de planes del sistema (code → name/price) para el selector de edición.
      * Devuelve array de ['code'=>int, 'name'=>string, 'price'=>float].
@@ -617,15 +883,16 @@ class CompanyAdminService
         global $db;
 
         $row = $db->Execute(
-            'SELECT balance, plan FROM company WHERE companyId = ? LIMIT 1',
+            'SELECT balance, plan, aiCreditsBalance FROM company WHERE companyId = ? LIMIT 1',
             [$id]
         );
         if (!$row || $row->EOF) {
             return null;
         }
 
-        $planCode = (int)   ($row->fields['plan']    ?? 0);
-        $balance  = (float) ($row->fields['balance'] ?? 0);
+        $planCode  = (int)   ($row->fields['plan']              ?? 0);
+        $balance   = (float) ($row->fields['balance']           ?? 0);
+        $aiBalance = (int)   ($row->fields['aicreditsbalance']  ?? $row->fields['aiCreditsBalance'] ?? 0);
 
         // Nombre y precio del plan actual.
         $planRow   = $db->Execute(
@@ -663,12 +930,39 @@ class CompanyAdminService
             }
         }
 
+        // Últimos 10 movimientos del ledger de créditos IA.
+        $ledger = [];
+        $lr = $db->Execute(
+            'SELECT id, delta, balanceAfter, reason, tokensIn, tokensOut, createdAt
+             FROM ai_credit_ledger WHERE companyId = ?
+             ORDER BY createdAt DESC LIMIT 10',
+            [$id]
+        );
+        if ($lr) {
+            while (!$lr->EOF) {
+                $f = $lr->fields;
+                $get = fn(string $k) => $f[$k] ?? $f[strtolower($k)] ?? null;
+                $ledger[] = [
+                    'id'          => (string) $get('id'),
+                    'delta'       => (int)    ($get('delta')        ?? 0),
+                    'balanceAfter'=> (int)    ($get('balanceAfter') ?? 0),
+                    'reason'      => (string) ($get('reason')       ?? ''),
+                    'tokensIn'    => (int)    ($get('tokensIn')     ?? 0),
+                    'tokensOut'   => (int)    ($get('tokensOut')    ?? 0),
+                    'createdAt'   => $get('createdAt'),
+                ];
+                $lr->MoveNext();
+            }
+        }
+
         return [
-            'balance'   => $balance,
-            'planCode'  => $planCode,
-            'planName'  => $planName,
-            'planPrice' => $planPrice,
-            'payments'  => $payments,
+            'balance'        => $balance,
+            'planCode'       => $planCode,
+            'planName'       => $planName,
+            'planPrice'      => $planPrice,
+            'aiCreditsBalance' => $aiBalance,
+            'aiLedger'       => $ledger,
+            'payments'       => $payments,
         ];
     }
 

@@ -291,7 +291,7 @@
         });
     }
 
-    /* ── Billing (F3.4) ────────────────────────────────────────────────── */
+    /* ── Billing (F3.4 + F3.4b) ───────────────────────────────────────── */
 
     function renderBilling(id) {
         drawerTitleEl.textContent = 'Facturación';
@@ -304,8 +304,9 @@
             }
             var b = res.body.data;
             var payments = b.payments || [];
+            var ledger   = b.aiLedger || [];
 
-            var rows = payments.length
+            var payRows = payments.length
                 ? payments.map(function (p) {
                     var statusLabel = p.status === 1 ? '<span class="pill active">Pagado</span>'
                         : p.status === 2 ? '<span class="pill blocked">Reembolsado</span>'
@@ -321,10 +322,24 @@
                 }).join('')
                 : '<tr><td colspan="5" class="empty" style="text-align:center;padding:16px">Sin registros</td></tr>';
 
+            var ledgerRows = ledger.length
+                ? ledger.map(function (e) {
+                    var sign = (+e.delta >= 0) ? '+' : '';
+                    var date = e.createdAt ? new Date(e.createdAt).toLocaleDateString('es', { year: '2-digit', month: 'short', day: 'numeric' }) : '—';
+                    return '<tr>' +
+                        '<td>' + esc(date) + '</td>' +
+                        '<td>' + esc(e.reason) + '</td>' +
+                        '<td class="num" style="color:' + (+e.delta >= 0 ? 'var(--ok)' : 'var(--danger)') + '">' + sign + esc(e.delta) + '</td>' +
+                        '<td class="num">' + esc(e.balanceAfter) + '</td>' +
+                        '</tr>';
+                }).join('')
+                : '<tr><td colspan="4" class="empty" style="text-align:center;padding:12px">Sin movimientos</td></tr>';
+
             drawerBodyEl.innerHTML =
                 '<div class="drawer-toolbar">' +
                     '<button class="btn-secondary" id="backToDetailBtn" style="padding:5px 12px;font-size:12px">← Volver</button>' +
                 '</div>' +
+
                 '<div class="billing-stat">' +
                     '<div class="billing-stat-item">' +
                         '<span class="label">Balance</span>' +
@@ -335,21 +350,169 @@
                         '<span class="value">' + esc(b.planName || '—') + '</span>' +
                         '<span class="sub">$' + esc((+b.planPrice || 0).toFixed(2)) + ' / mes</span>' +
                     '</div>' +
+                    '<div class="billing-stat-item">' +
+                        '<span class="label">Créditos IA</span>' +
+                        '<span class="value">' + esc(+b.aiCreditsBalance || 0) + '</span>' +
+                    '</div>' +
                 '</div>' +
+
+                // ── Otorgar créditos IA ──────────────────────────────────
+                '<div class="section-title">Créditos IA — otorgar / descontar</div>' +
+                '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">' +
+                    '<div class="form-group" style="flex:0 0 100px">' +
+                        '<label for="ai_delta">Delta</label>' +
+                        '<input id="ai_delta" type="number" step="1" placeholder="100 o -50" style="width:100%">' +
+                    '</div>' +
+                    '<div class="form-group" style="flex:1;min-width:160px">' +
+                        '<label for="ai_reason">Razón</label>' +
+                        '<input id="ai_reason" type="text" maxlength="120" placeholder="Recarga mensual" style="width:100%">' +
+                    '</div>' +
+                    '<button class="btn-primary" id="aiGrantBtn" style="flex:0 0 auto;height:36px;padding:0 16px;align-self:flex-end">Aplicar</button>' +
+                '</div>' +
+
+                // ── Add-ons ──────────────────────────────────────────────
+                '<div class="section-title">Add-ons</div>' +
+                '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
+                    '<div class="form-group" style="flex:1;min-width:120px">' +
+                        '<label for="ao_users">Extra usuarios</label>' +
+                        '<input id="ao_users" type="number" min="0" step="1" placeholder="0" style="width:100%">' +
+                    '</div>' +
+                    '<div class="form-group" style="flex:1;min-width:120px">' +
+                        '<label for="ao_registers">Extra cajas</label>' +
+                        '<input id="ao_registers" type="number" min="0" step="1" placeholder="0" style="width:100%">' +
+                    '</div>' +
+                    '<div class="form-group" style="flex:1;min-width:120px">' +
+                        '<label for="ao_items">Extra artículos</label>' +
+                        '<input id="ao_items" type="number" min="0" step="1" placeholder="0" style="width:100%">' +
+                    '</div>' +
+                    '<button class="btn-primary" id="addonsBtn" style="flex:0 0 auto;height:36px;padding:0 16px;align-self:flex-end">Guardar add-ons</button>' +
+                '</div>' +
+
+                // ── Solicitudes de plan pendientes ───────────────────────
+                '<div class="section-title">Solicitudes de cambio de plan (pendientes)</div>' +
+                '<div id="billingRequestsContainer"><p class="loading" style="font-size:12px">Cargando…</p></div>' +
+
+                // ── Ledger ──────────────────────────────────────────────
+                '<div class="section-title">Movimientos de créditos IA</div>' +
+                '<table class="billing-table">' +
+                    '<thead><tr><th>Fecha</th><th>Razón</th><th class="num">Delta</th><th class="num">Saldo</th></tr></thead>' +
+                    '<tbody>' + ledgerRows + '</tbody>' +
+                '</table>' +
+
+                // ── Historial de pagos ───────────────────────────────────
                 '<div class="section-title">Historial de pagos</div>' +
                 '<table class="billing-table">' +
                     '<thead><tr>' +
                         '<th>Fecha</th><th class="num">Monto</th>' +
                         '<th class="num">Orden</th><th class="num">Factura</th><th>Estado</th>' +
                     '</tr></thead>' +
-                    '<tbody>' + rows + '</tbody>' +
+                    '<tbody>' + payRows + '</tbody>' +
                 '</table>';
 
+            // back button
             document.getElementById('backToDetailBtn').addEventListener('click', function () {
                 renderDetail(currentCompany);
             });
+
+            // grant AI credits
+            document.getElementById('aiGrantBtn').addEventListener('click', function () {
+                var btn    = this;
+                var delta  = parseInt(document.getElementById('ai_delta').value, 10);
+                var reason = document.getElementById('ai_reason').value.trim();
+                if (!delta || !reason) { toast('Completá delta y razón'); return; }
+                btn.disabled = true;
+                btn.textContent = 'Aplicando…';
+                fetch('/bff/admin/companies.php?id=' + encodeURIComponent(id) + '&action=grantAiCredits', {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delta: delta, reason: reason }),
+                }).then(function (r) { return r.json(); }).then(function (j) {
+                    btn.disabled = false; btn.textContent = 'Aplicar';
+                    if (!j.ok) { toast('Error: ' + esc(j.error || 'no se pudo aplicar')); return; }
+                    toast('Créditos actualizados — nuevo saldo: ' + esc(j.data && j.data.newBalance));
+                    renderBilling(id); // recargar
+                }).catch(function () { btn.disabled = false; btn.textContent = 'Aplicar'; });
+            });
+
+            // set add-ons
+            document.getElementById('addonsBtn').addEventListener('click', function () {
+                var btn = this;
+                var payload = {
+                    extraUsers:     parseInt(document.getElementById('ao_users').value, 10)     || 0,
+                    extraRegisters: parseInt(document.getElementById('ao_registers').value, 10) || 0,
+                    extraItems:     parseInt(document.getElementById('ao_items').value, 10)     || 0,
+                };
+                btn.disabled = true; btn.textContent = 'Guardando…';
+                fetch('/bff/admin/companies.php?id=' + encodeURIComponent(id) + '&action=setAddons', {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                }).then(function (r) { return r.json(); }).then(function (j) {
+                    btn.disabled = false; btn.textContent = 'Guardar add-ons';
+                    if (!j.ok) { toast('Error: ' + esc(j.error || 'no se pudo guardar')); return; }
+                    toast('Add-ons actualizados');
+                }).catch(function () { btn.disabled = false; btn.textContent = 'Guardar add-ons'; });
+            });
+
+            // load pending plan-change requests for this company
+            loadBillingRequests(id);
         }).catch(function () {
             drawerBodyEl.innerHTML = '<p class="empty">Error de red</p>';
+        });
+    }
+
+    function loadBillingRequests(companyId) {
+        var container = document.getElementById('billingRequestsContainer');
+        if (!container) { return; }
+
+        api('/bff/admin/companies.php?requests=1&status=pending').then(function (res) {
+            if (!res.body.ok) {
+                container.innerHTML = '<p class="empty" style="font-size:12px">Error al cargar</p>';
+                return;
+            }
+            var all = (res.body.data || []).filter(function (r) { return r.companyId === companyId; });
+            if (!all.length) {
+                container.innerHTML = '<p style="font-size:12px;color:var(--muted)">Sin solicitudes pendientes</p>';
+                return;
+            }
+            var html = all.map(function (r) {
+                return '<div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:10px 12px;margin-bottom:8px">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+                        '<div>' +
+                            '<div style="font-size:12px;color:var(--text)">Plan solicitado: <strong>' + esc(r.requestedPlanCode) + '</strong>' +
+                                (r.currentPlanCode != null ? ' (actual: ' + esc(r.currentPlanCode) + ')' : '') + '</div>' +
+                            (r.note ? '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + esc(r.note) + '</div>' : '') +
+                            '<div style="font-size:10px;color:var(--muted);margin-top:3px">' + (r.createdAt ? new Date(r.createdAt).toLocaleDateString('es') : '—') + '</div>' +
+                        '</div>' +
+                        '<div style="display:flex;gap:6px;flex-shrink:0">' +
+                            '<button class="btn-primary req-approve" data-id="' + esc(r.id) + '" style="font-size:12px;padding:5px 10px">Aprobar</button>' +
+                            '<button class="btn-secondary req-reject" data-id="' + esc(r.id) + '" style="font-size:12px;padding:5px 10px">Rechazar</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+            container.innerHTML = html;
+
+            container.querySelectorAll('.req-approve, .req-reject').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var reqId   = this.getAttribute('data-id');
+                    var approve = this.classList.contains('req-approve');
+                    this.disabled = true;
+                    this.textContent = '…';
+                    fetch('/bff/admin/companies.php?action=resolveRequest', {
+                        method: 'POST', credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ requestId: reqId, approve: approve }),
+                    }).then(function (r) { return r.json(); }).then(function (j) {
+                        if (!j.ok) { toast('Error: ' + esc(j.error || 'no se pudo resolver')); return; }
+                        toast(approve ? 'Solicitud aprobada — plan actualizado' : 'Solicitud rechazada');
+                        renderBilling(companyId); // recargar detalle billing
+                        load(lastQuery);         // actualizar tabla principal
+                    }).catch(function () { toast('Error de red'); });
+                });
+            });
+        }).catch(function () {
+            container.innerHTML = '<p class="empty" style="font-size:12px">Error de red</p>';
         });
     }
 
