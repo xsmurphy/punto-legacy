@@ -6,24 +6,19 @@ import { PanelAuthGuard } from "@/components/layout/panel-auth-guard"
 /**
  * Layout del panel.
  *
- * Slot `modal` (parallel route `@modal`) — patrón Next App Router para
- * "modal sobre la página actual". Cuando una intercepting route como
- * `@modal/(.)settings` matchea, su contenido se renderea ENCIMA del
- * `children` actual sin reemplazarlo — la página de fondo permanece
- * intacta. Sin esto, navegar a `/settings` desde el dashboard hacía
- * que el dashboard se desmontara y el modal quedara sobre vacío
- * (el clásico "modal con bg blanco").
- *
- * Deep link directo (`https://.../settings`) NO usa el intercept y
- * cae a `app/(panel)/settings/page.tsx` normal — el slot @modal
- * renderea su `default.tsx` (null).
+ * El intento previo de implementar /settings como modal con parallel
+ * routes (`@modal/(.)settings`) fue revertido: el slot causaba que el
+ * cliente y el server discreparan en el shape del router state tree
+ * post-deploy → "The router state header was sent but could not be
+ * parsed" → /settings no abría. El modal real lo hace el page mismo
+ * con <Dialog>; el fondo en blanco al abrirlo es un trade-off
+ * conocido del approach "route con Dialog" (vs modal global con
+ * state) y queda por mejorar después.
  */
 export default async function PanelLayout({
   children,
-  modal,
 }: {
   children: React.ReactNode
-  modal: React.ReactNode
 }) {
   // SSR-aware sidebar state: leemos la cookie `sidebar_state` para que el
   // colapsado/expandido sobreviva navegación y reload sin flicker. shadcn
@@ -44,7 +39,6 @@ export default async function PanelLayout({
           <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-6 md:pt-6">
             {children}
           </main>
-          {modal}
         </SidebarInset>
       </PanelAuthGuard>
     </SidebarProvider>
