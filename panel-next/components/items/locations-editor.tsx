@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { Loader2, Star, Warehouse } from "lucide-react"
+import { Loader2, MapPin, Star, Warehouse } from "lucide-react"
+import { EmptyState } from "@/components/empty-state"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -93,10 +94,13 @@ export function LocationsEditor({ itemId }: Props) {
 
   if (outlets.length === 0) {
     return (
-      <div className="rounded-md border border-dashed bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground">
-        No hay sucursales configuradas. Creá al menos una sucursal en Configuración
-        para asignar depósitos.
-      </div>
+      <EmptyState
+        icon={MapPin}
+        title="Sin sucursales configuradas"
+        description="Creá al menos una sucursal en Configuración para asignar depósitos."
+        showMarquee={false}
+        className="border-dashed py-6"
+      />
     )
   }
 

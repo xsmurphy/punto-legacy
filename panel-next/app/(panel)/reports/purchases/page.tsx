@@ -11,6 +11,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePurchases, type PurchaseListRow } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
+import { EmptyState } from "@/components/empty-state"
 
 /**
  * Reporte de compras y gastos — espejo del listado de `panel/a_purchase.php`,
@@ -122,16 +123,19 @@ export default function PurchasesReportPage() {
         getRowId={(r) => r.id}
         isLoading={purchases.isLoading}
         emptyMessage={
-          <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
-            <Receipt className="size-8 opacity-50" />
-            <div>Sin compras registradas en este período.</div>
-            <Button asChild size="sm" variant="outline">
-              <Link href="/purchase">
-                <Plus className="mr-1.5 size-4" />
-                Registrar primera compra
-              </Link>
-            </Button>
-          </div>
+          <EmptyState
+            icon={Receipt}
+            title="Sin compras registradas en este período"
+            description="Ajustá el rango de fechas o registrá una compra nueva."
+            actions={
+              <Button asChild size="sm" variant="outline">
+                <Link href="/purchase">
+                  <Plus className="mr-1.5 size-4" />
+                  Registrar primera compra
+                </Link>
+              </Button>
+            }
+          />
         }
         exportFileName="compras"
       />

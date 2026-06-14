@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { Check, ChevronsUpDown, Loader2, Plus, Trash2, GripVertical } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2, Plus, Trash2, GripVertical, ChefHat } from "lucide-react"
+import { EmptyState } from "@/components/empty-state"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -55,9 +56,13 @@ export function CompoundsEditor({ itemId }: Props) {
       )}
 
       {!isLoading && compounds.length === 0 && (
-        <div className="rounded-md border border-dashed bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground">
-          Esta receta todavía no tiene ingredientes. Agregá el primero abajo.
-        </div>
+        <EmptyState
+          icon={ChefHat}
+          title="Sin ingredientes todavía"
+          description="Agregá el primero abajo."
+          showMarquee={false}
+          className="border-dashed py-6"
+        />
       )}
 
       {compounds.length > 0 && (

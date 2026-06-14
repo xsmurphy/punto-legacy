@@ -5,11 +5,13 @@ import { toast } from "sonner"
 import {
   Check,
   ChevronsUpDown,
+  Layers,
   Loader2,
   Plus,
   Star,
   Trash2,
 } from "lucide-react"
+import { EmptyState } from "@/components/empty-state"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -94,11 +96,19 @@ export function ComboGroupsEditor({ itemId }: Props) {
   return (
     <div className="flex flex-col gap-4">
       {groups.length === 0 && (
-        <div className="rounded-md border border-dashed bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground">
-          Sin grupos todavía. Agregá el primero abajo. Cada grupo representa
-          una decisión que el cliente toma al armar el combo (ej:{" "}
-          <em>elegí 1 hamburguesa</em>, <em>elegí 1 bebida</em>).
-        </div>
+        <EmptyState
+          icon={Layers}
+          title="Sin grupos todavía"
+          description={
+            <>
+              Agregá el primero abajo. Cada grupo representa una decisión que
+              el cliente toma al armar el combo (ej: <em>elegí 1 hamburguesa</em>,{" "}
+              <em>elegí 1 bebida</em>).
+            </>
+          }
+          showMarquee={false}
+          className="border-dashed py-6"
+        />
       )}
 
       {groups.map((g) => (
