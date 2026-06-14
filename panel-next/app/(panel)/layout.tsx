@@ -29,8 +29,12 @@ export default async function PanelLayout({
   // colapsado/expandido sobreviva navegación y reload sin flicker. shadcn
   // escribe esta cookie automáticamente cada vez que el usuario togglea el
   // sidebar (ui/sidebar.tsx → setOpen).
+  //
+  // Default = colapsado: si la cookie no existe (primer ingreso, modo
+  // incógnito) o vale "false", el sidebar arranca cerrado. Solo si el
+  // usuario lo abrió manualmente (cookie="true") aparece expandido.
   const cookieStore = await cookies()
-  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false"
+  const defaultOpen = cookieStore.get("sidebar_state")?.value === "true"
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
