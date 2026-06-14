@@ -19,7 +19,10 @@ import {
   Receipt,
   ShoppingBag,
   Gift,
+  LayoutDashboard,
 } from "lucide-react"
+import { SectionHero } from "@/components/section-hero"
+import { EmptyState } from "@/components/empty-state"
 
 import {
   Area,
@@ -38,6 +41,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
@@ -96,6 +100,16 @@ export default function DashboardPage() {
   const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
   const orders = useDashboardWidget<OrdersWidget>("orders", opts)
 
+  // "Negocio nuevo / sin contenido": cero catálogo (itemsCount es lifetime) y
+  // cero transacciones del mes. Ambas condiciones evitan falsos positivos en
+  // negocios establecidos con un rango tranquilo. En ese caso mostramos un
+  // hero de bienvenida en vez de un dashboard lleno de ceros.
+  const isEmptyState =
+    !info.isLoading &&
+    !info.error &&
+    (info.data?.itemsCount ?? 1) === 0 &&
+    (info.data?.transactionsCount ?? 1) === 0
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -105,9 +119,39 @@ export default function DashboardPage() {
             Datos del período seleccionado
           </p>
         </div>
-        <DateRangePicker value={range} onChange={setRange} />
+        {!isEmptyState && <DateRangePicker value={range} onChange={setRange} />}
       </header>
 
+      {isEmptyState ? (
+        <SectionHero
+          icon={LayoutDashboard}
+          eyebrow="Tu negocio en un vistazo"
+          title="Tu panel cobra vida con la primera venta"
+          description="Acá vas a ver ingresos, márgenes, clientes y los productos que más venden — en tiempo real. Empezá cargando tu catálogo o registrando una venta desde la caja."
+          actions={
+            <>
+              <Button asChild>
+                <Link href="/items">
+                  <ShoppingBag className="size-4" />
+                  Cargar artículos
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/pos">
+                  <Receipt className="size-4" />
+                  Ir a la caja
+                </Link>
+              </Button>
+            </>
+          }
+          highlights={[
+            { icon: TrendingUp, title: "Ingresos y márgenes", desc: "Seguí la salud financiera de tu negocio día a día." },
+            { icon: UsersIcon, title: "Clientes", desc: "Conocé quién compra y con qué frecuencia vuelve." },
+            { icon: PackageCheck, title: "Más vendidos", desc: "Descubrí tus productos y categorías estrella." },
+          ]}
+        />
+      ) : (
+      <>
       {/* Layout 2-col espejo del legacy (8/4): main col con widgets de negocio,
           sidebar derecho con resumen/módulos opcionales/plan. Stack en <lg. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_22rem]">
@@ -225,6 +269,8 @@ export default function DashboardPage() {
           <PlanSidebarCard info={info.data} loading={info.isLoading} bootstrap={bootstrap} />
         </aside>
       </div>
+      </>
+      )}
     </div>
   )
 }
@@ -398,8 +444,13 @@ function IncomeAreaChart({
       </CardHeader>
       <CardContent>
         {!hasData ? (
-          <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
-            Sin ventas ni egresos en este período.
+          <div className="flex h-[220px] items-center justify-center">
+            <EmptyState
+              icon={TrendingUp}
+              title="Sin movimientos en este período"
+              showMarquee={false}
+              className="border-0 p-0"
+            />
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={220}>
@@ -1045,9 +1096,14 @@ function TopHoursCard({
         {isLoading ? (
           <Skeleton className="h-[200px] w-full" />
         ) : points.length === 0 ? (
-          <p className="flex h-[200px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
-            Sin ventas en este período.
-          </p>
+          <div className="flex h-[200px] items-center justify-center">
+            <EmptyState
+              icon={TrendingUp}
+              title="Sin ventas en este período"
+              showMarquee={false}
+              className="border-0 p-0"
+            />
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -1111,9 +1167,12 @@ function TopItemsCard({
             ))}
           </div>
         ) : data.length === 0 ? (
-          <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
-            Sin ventas en este período.
-          </p>
+          <EmptyState
+            icon={PackageCheck}
+            title="Sin ventas en este período"
+            showMarquee={false}
+            className="border-0 py-6"
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -1167,9 +1226,12 @@ function TopCategoriesCard({
             ))}
           </div>
         ) : data.length === 0 ? (
-          <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
-            Sin ventas en este período.
-          </p>
+          <EmptyState
+            icon={Layers}
+            title="Sin ventas en este período"
+            showMarquee={false}
+            className="border-0 py-6"
+          />
         ) : (
           <div className="flex flex-col gap-2">
             {data.map((row, i) => (

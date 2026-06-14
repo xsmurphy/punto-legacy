@@ -16,9 +16,14 @@ import {
   FolderMinus,
   Pencil,
   Barcode,
+  Upload,
+  Tag,
+  Boxes,
+  Layers,
 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { EmptyState } from "@/components/empty-state"
+import { SectionHero } from "@/components/section-hero"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -97,7 +102,18 @@ function ItemsPageInner() {
   const [groupDialogItems, setGroupDialogItems] = React.useState<ItemListItem[] | null>(null)
   const [bulkEditItems, setBulkEditItems] = React.useState<ItemListItem[] | null>(null)
   const [pendingClearSelection, setPendingClearSelection] = React.useState<(() => void) | null>(null)
+  // State levantado de los dialogs de creación/import para poder dispararlos
+  // tanto desde el header como desde el SectionHero del estado vacío.
+  const [newItemOpen, setNewItemOpen] = React.useState(false)
+  const [importOpen, setImportOpen] = React.useState(false)
   const isViewingGroup = !!parentId
+
+  // "Sin contenido aún" = vista top-level, activos, cero items en el tenant.
+  // (kindFilter/search son client-side: si data.items está vacío, no hay items
+  // de verdad). En ese caso mostramos el SectionHero en vez de la tabla.
+  const isEmptyState =
+    !isLoading && !error && !isViewingGroup && !showArchived &&
+    (data?.items?.length ?? 0) === 0
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.items ?? []
@@ -398,12 +414,23 @@ function ItemsPageInner() {
             </>
           ) : (
             <>
-              <ImportItemsDialog />
-              <NewItemKindDialog />
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="size-4" />
+                Importar
+              </Button>
+              <Button onClick={() => setNewItemOpen(true)}>
+                <Plus className="size-4" />
+                Nuevo artículo
+              </Button>
             </>
           )}
         </div>
       </header>
+
+      {/* Dialogs de creación/import — controlados (sin trigger propio): los
+          disparan los botones del header y el SectionHero. */}
+      <NewItemKindDialog open={newItemOpen} onOpenChange={setNewItemOpen} showTrigger={false} />
+      <ImportItemsDialog open={importOpen} onOpenChange={setImportOpen} showTrigger={false} />
 
       {/* Dialog: generar códigos de barra de la selección */}
       <BarcodeDialog
@@ -468,6 +495,31 @@ function ItemsPageInner() {
         </div>
       )}
 
+      {isEmptyState ? (
+        <SectionHero
+          icon={Package}
+          eyebrow="Tu catálogo"
+          title="Creá tu primer artículo"
+          description="Productos, servicios, insumos y combos viven acá. Definí precios, impuestos, stock y disponibilidad — y vendelos desde la caja al instante."
+          actions={
+            <>
+              <Button onClick={() => setNewItemOpen(true)}>
+                <Plus className="size-4" />
+                Nuevo artículo
+              </Button>
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="size-4" />
+                Importar desde CSV
+              </Button>
+            </>
+          }
+          highlights={[
+            { icon: Tag, title: "Precios e impuestos", desc: "Definí precio, costo, IVA y descuentos por artículo." },
+            { icon: Boxes, title: "Control de stock", desc: "Seguí existencias por depósito y sucursal." },
+            { icon: Layers, title: "Combos y recetas", desc: "Armá packs, combos dinámicos y producción." },
+          ]}
+        />
+      ) : (
       <DataTable
             tableId="items"
             data={filteredRows}
@@ -596,6 +648,7 @@ function ItemsPageInner() {
               </>
             }
           />
+      )}
     </div>
   )
 }
