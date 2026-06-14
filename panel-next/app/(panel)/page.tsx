@@ -99,14 +99,14 @@ export default function DashboardPage() {
   const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
   const orders = useDashboardWidget<OrdersWidget>("orders", opts)
 
-  // "Negocio nuevo / sin contenido": cero catálogo (itemsCount es lifetime) y
-  // cero transacciones del mes. Ambas condiciones evitan falsos positivos en
-  // negocios establecidos con un rango tranquilo. En ese caso mostramos el
-  // hero de bienvenida (Hero115) en vez del dashboard lleno de ceros.
+  // "Negocio sin actividad" = cero transacciones (el dashboard es de ventas).
+  // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
+  // artículos y contactos, así que esos nunca son 0. La señal real de "no hay
+  // nada para mostrar" es que todavía no se vendió. transactionsCount viene del
+  // mes actual → para una cuenta nueva (nunca vendió) es 0 → mostramos el hero.
   const isEmptyState =
     !info.isLoading &&
     !info.error &&
-    (info.data?.itemsCount ?? 1) === 0 &&
     (info.data?.transactionsCount ?? 1) === 0
 
   if (isEmptyState) {
