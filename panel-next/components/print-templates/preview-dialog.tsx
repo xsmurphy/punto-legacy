@@ -49,9 +49,9 @@ export function PreviewDialog({ open, config, mm, onClose }: Props) {
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         showCloseButton
-        className="w-[95vw] h-[95vh] max-w-none sm:max-w-none p-0 gap-0 overflow-hidden flex flex-col"
+        className="w-[95vw] h-[95vh] max-w-none sm:max-w-none p-0 gap-0 overflow-hidden flex flex-col print:contents"
       >
-        <DialogHeader className="flex-row items-center justify-between border-b px-4 py-3 pr-12">
+        <DialogHeader className="flex-row items-center justify-between border-b px-4 py-3 pr-12 print:hidden">
           <div>
             <DialogTitle>Vista previa</DialogTitle>
             <DialogDescription>
@@ -66,6 +66,45 @@ export function PreviewDialog({ open, config, mm, onClose }: Props) {
 
         <ScaledPaper widthPx={widthPx} heightPx={heightPx} config={config} />
       </DialogContent>
+      {/*
+        Reglas @media print scoped al body. Ocultar todo el viewport
+        del browser y dejar visible SOLO el papel marcado con
+        `data-print-root`. Resetea transform/border/shadow/posición
+        para que el papel ocupe la hoja real con sus dimensiones en
+        px (1mm = 3.78px) sin escalado del preview.
+        Sin esto, window.print() imprime el modal completo (header,
+        Imprimir, sidebar de fondo, URL del footer del browser).
+      */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          [data-print-root],
+          [data-print-root] * {
+            visibility: visible !important;
+          }
+          [data-print-root] {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            transform: none !important;
+            box-shadow: none !important;
+            border: 0 !important;
+            margin: 0 !important;
+          }
+          /* @page con tamaño y margen 0 para que no quede el header/footer
+             del browser (URL, fecha) — eso ya el usuario lo controla desde
+             "More settings" del print dialog. */
+          @page {
+            margin: 0;
+          }
+          html,
+          body {
+            background: white !important;
+          }
+        }
+      `}</style>
     </Dialog>
   )
 }
@@ -123,6 +162,7 @@ function ScaledPaper({
         style={{ width: `${widthPx * scale}px`, height: `${heightPx * scale}px` }}
       >
         <div
+          data-print-root
           className="absolute left-0 top-0 border border-dashed border-muted-foreground/30 bg-white shadow-sm print:border-0 print:shadow-none"
           style={{
             width: `${widthPx}px`,
