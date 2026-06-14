@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/date-picker"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -433,10 +434,9 @@ function ContactFormBody({
                 <FormItem>
                   <FormLabel>Cumpleaños</FormLabel>
                   <FormControl>
-                    <Input
-                      type="date"
-                      className="tabular-nums"
-                      {...field}
+                    <DatePicker
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
                     />
                   </FormControl>
                   <FormMessage />

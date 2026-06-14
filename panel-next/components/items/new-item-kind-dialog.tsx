@@ -25,25 +25,9 @@ const GROUPS: Array<{ key: GroupKey; kinds: ItemKind[] }> = [
   { key: "Otros", kinds: ["combo_fijo", "combo_dinamico", "descuento", "giftcard"] },
 ]
 
-export function NewItemKindDialog({
-  open: openProp,
-  onOpenChange,
-  showTrigger = true,
-}: {
-  /** Modo controlado — para abrir el dialog desde otro CTA (ej. SectionHero). */
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  /** Si false, no renderea el botón trigger propio (uso controlado externo). */
-  showTrigger?: boolean
-} = {}) {
+export function NewItemKindDialog() {
   const router = useRouter()
-  const [internalOpen, setInternalOpen] = React.useState(false)
-  const isControlled = openProp !== undefined
-  const open = isControlled ? openProp : internalOpen
-  const setOpen = (o: boolean) => {
-    if (!isControlled) setInternalOpen(o)
-    onOpenChange?.(o)
-  }
+  const [open, setOpen] = React.useState(false)
 
   const pick = (kind: ItemKind) => {
     setOpen(false)
@@ -52,14 +36,12 @@ export function NewItemKindDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {showTrigger && (
-        <DialogTrigger asChild>
-          <Button>
-            <Plus className="size-4" />
-            Nuevo artículo
-          </Button>
-        </DialogTrigger>
-      )}
+      <DialogTrigger asChild>
+        <Button>
+          <Plus className="size-4" />
+          Nuevo artículo
+        </Button>
+      </DialogTrigger>
       <DialogContent className="flex max-h-[85vh] w-[min(90vw,720px)] max-w-none flex-col gap-0 p-0 sm:max-w-none">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>¿Qué tipo de artículo querés crear?</DialogTitle>

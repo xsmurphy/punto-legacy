@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Plus, AlertCircle, Users, History, Sparkles, Wallet, Truck, ClipboardList } from "lucide-react"
+import { Plus, AlertCircle, Users } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -28,7 +28,6 @@ function formatBday(iso: string): string {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ContactListItem } from "@/lib/types/contact"
 import { EmptyState } from "@/components/empty-state"
-import { SectionHero } from "@/components/section-hero"
 
 export default function ContactsPage() {
   const router = useRouter()
@@ -43,11 +42,6 @@ export default function ContactsPage() {
     if (statusFilter === "archived") return rows.filter((r) => r.status !== 1)
     return rows
   }, [data, statusFilter])
-
-  // "Sin contenido aún" = el tenant no tiene contactos de este tipo. Mostramos
-  // el SectionHero (por tipo) en vez de la tabla. El search/status son
-  // client-side: si data.contacts está vacío, no hay contactos de verdad.
-  const isEmptyState = !isLoading && !error && (data?.contacts?.length ?? 0) === 0
 
   const columns = React.useMemo<ColumnDef<ContactListItem>[]>(
     () => [
@@ -231,52 +225,9 @@ export default function ContactsPage() {
         </div>
       )}
 
-      {isEmptyState ? (
-        isSupplier ? (
-          <SectionHero
-            icon={Truck}
-            eyebrow="Proveedores"
-            title="Registrá tu primer proveedor"
-            description="Llevá el control de a quién le comprás. Asociá facturas de compra, seguí lo que debés y tené sus datos siempre a mano."
-            actions={
-              <Button asChild>
-                <Link href="/contacts/new?type=2">
-                  <Plus className="size-4" />
-                  Nuevo proveedor
-                </Link>
-              </Button>
-            }
-            highlights={[
-              { icon: ClipboardList, title: "Compras asociadas", desc: "Vinculá cada factura de compra a su proveedor." },
-              { icon: Wallet, title: "Cuentas por pagar", desc: "Seguí saldos pendientes y vencimientos." },
-              { icon: Truck, title: "Datos de contacto", desc: "RUC, teléfono y dirección siempre a mano." },
-            ]}
-          />
-        ) : (
-          <SectionHero
-            icon={Users}
-            eyebrow="Clientes"
-            title="Sumá tu primer cliente"
-            description="Construí la base de clientes de tu negocio. Guardá sus datos, seguí su historial de compras y entendé quién te compra más."
-            actions={
-              <Button asChild>
-                <Link href="/contacts/new">
-                  <Plus className="size-4" />
-                  Nuevo cliente
-                </Link>
-              </Button>
-            }
-            highlights={[
-              { icon: History, title: "Historial de compras", desc: "Cada venta queda registrada en su perfil." },
-              { icon: Sparkles, title: "Segmentación", desc: "Identificá clientes VIP, nuevos y en riesgo." },
-              { icon: Wallet, title: "Cuenta corriente", desc: "Manejá ventas a crédito y cobros." },
-            ]}
-          />
-        )
-      ) : (
-      /* DataTable sin Card wrapper — el DataTable interno provee border-y
+      {/* DataTable sin Card wrapper — el DataTable interno provee border-y
           (top+bottom de la tabla) y los rows tienen divisores. El feedback del
-          user fue claro: sin bordes externos. */
+          user fue claro: sin bordes externos. */}
       <DataTable
         tableId="contacts"
         data={filteredRows}
@@ -316,7 +267,6 @@ export default function ContactsPage() {
           </Select>
         }
       />
-      )}
     </div>
   )
 }

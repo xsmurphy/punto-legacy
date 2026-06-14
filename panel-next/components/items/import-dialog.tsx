@@ -26,24 +26,8 @@ import { api } from "@/lib/api-client"
 import { useImportItems, importTemplateUrl, type ImportReport } from "@/hooks/use-items"
 import { cn } from "@/lib/utils"
 
-export function ImportItemsDialog({
-  open: openProp,
-  onOpenChange,
-  showTrigger = true,
-}: {
-  /** Modo controlado — para abrir el dialog desde otro CTA (ej. SectionHero). */
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  /** Si false, no renderea el botón trigger propio (uso controlado externo). */
-  showTrigger?: boolean
-} = {}) {
-  const [internalOpen, setInternalOpen] = React.useState(false)
-  const isControlled = openProp !== undefined
-  const open = isControlled ? openProp : internalOpen
-  const setOpen = (o: boolean) => {
-    if (!isControlled) setInternalOpen(o)
-    onOpenChange?.(o)
-  }
+export function ImportItemsDialog() {
+  const [open, setOpen] = React.useState(false)
   const [file, setFile] = React.useState<File | null>(null)
   const [mode, setMode] = React.useState<"insert" | "update">("insert")
   const [report, setReport] = React.useState<ImportReport | null>(null)
@@ -121,14 +105,12 @@ export function ImportItemsDialog({
         if (!v) reset()
       }}
     >
-      {showTrigger && (
-        <DialogTrigger asChild>
-          <Button variant="outline">
-            <Upload className="size-4" />
-            Importar
-          </Button>
-        </DialogTrigger>
-      )}
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <Upload className="size-4" />
+          Importar
+        </Button>
+      </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Importar artículos desde CSV</DialogTitle>
