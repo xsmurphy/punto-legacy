@@ -233,6 +233,257 @@ export interface ExpenseRow {
   amount: number
 }
 
+// ── Users (Staff / Recursos) ─────────────────────────────────────────────────
+
+/** Fila del endpoint /v1/reports/users. Ventas por usuario/recurso del período. */
+export interface UserReportRow {
+  userId: string
+  name: string
+  usold: number
+  total: number
+  comission: number
+  discount: number
+  count: number
+}
+
+/** Respuesta de /v1/reports/users (array directo, no envuelto en rows). */
+export type UsersReportResponse = UserReportRow[]
+
+// ── Inventory movements ───────────────────────────────────────────────────────
+
+/** Fila del endpoint /v1/reports/inventory?dataset=movements. */
+export interface InventoryMovementRow {
+  stockId: string
+  stockDate: string
+  itemId: string
+  itemName: string
+  itemSKU: string
+  outletName: string
+  locationName: string
+  userName: string
+  source: string
+  transactionId: string
+  note: string
+  count: number
+  onHand: number
+  cogs: number
+}
+
+export type InventoryReportResponse = InventoryMovementRow[]
+
+// ── Stock levels ──────────────────────────────────────────────────────────────
+
+export interface StockDepot {
+  locationId: string
+  locationName: string
+  min: number
+  count: number
+}
+
+export interface StockRow {
+  itemId: string
+  name: string
+  sku: string
+  onHand: number
+  cogs: number
+  depots: StockDepot[]
+  principal: { min: number; count: number }
+}
+
+export interface StockReportResponse {
+  needsOutlet: boolean
+  rows: StockRow[]
+}
+
+// ── Production ────────────────────────────────────────────────────────────────
+
+export interface ProductionRow {
+  itemId: string
+  name: string
+  sku: string
+  category: string
+  outletName: string
+  userName: string
+  date: string
+  typeLabel: string
+  isOrder: boolean
+  units: number
+  average: number
+  cogs: number
+  wasteValue: number
+  utility: number
+}
+
+export interface ProductionTotals {
+  qty: number
+  cogs: number
+  utility: number
+}
+
+export interface ProductionReportResponse {
+  rows: ProductionRow[]
+  totals: ProductionTotals
+}
+
+// ── Gift cards ────────────────────────────────────────────────────────────────
+
+export interface GiftCardRow {
+  giftCardSoldId: string
+  transactionId: string
+  doc: string
+  beneficiaryId: string
+  beneficiary: string
+  expires: string
+  code: number
+  ucode: string
+  note: string
+  lastUsed: string
+  sendDate: string
+  outletName: string
+  value: number
+  color: string
+}
+
+export interface GiftcardsReportResponse {
+  rows: GiftCardRow[]
+}
+
+// ── Summary year ──────────────────────────────────────────────────────────────
+
+export interface SummaryYearMonth {
+  month: number
+  usold: number
+  count: number
+  discount: number
+  tax: number
+  salesTotal: number
+  expensesTotal: number
+  returnsTotal: number
+  nonAddingTotal: number
+  customers: number
+}
+
+export interface SummaryYearResponse {
+  year: number
+  years: number[]
+  months: SummaryYearMonth[]
+}
+
+// ── Cashflow ──────────────────────────────────────────────────────────────────
+
+export interface CashflowResponse {
+  cashSales: number
+  cashPayments: number
+  incomeTotal: number
+  stockPurchase: number
+  expensesPurchase: number
+  outPayment: number
+  outcomeTotal: number
+  remains: number
+  initialCash: number
+  accumulated: number
+}
+
+// ── vPayments (ePOS) ──────────────────────────────────────────────────────────
+
+export interface VPaymentRow {
+  status: string
+  deposited: boolean
+  date: string
+  payoutDate: string
+  depositedDate: string
+  authCode: string
+  operationNo: string
+  source: string
+  accountType: string
+  brand: string
+  outletName: string
+  amount: number
+  payoutAmount: number
+  eUID: string
+}
+
+export interface VPaymentsKpi {
+  sold: number
+  deposited: number
+  pendingDeposit: number
+  count: number
+}
+
+export interface VPaymentsReportResponse {
+  rows: VPaymentRow[]
+  kpi: VPaymentsKpi
+}
+
+// ── Schedule (Agendamientos) ──────────────────────────────────────────────────
+
+export interface ScheduleRow {
+  transactionId: string
+  transactionStatus: number
+  docInvoice: string
+  docTxId: string
+  scheduleNo: string
+  scheduledAt: string
+  outletName: string
+  userName: string
+  responsibleName: string
+  customerName: string
+  note: string
+  items: string[]
+  fromDate: string
+  toDate: string
+  total: number
+  attended: boolean
+}
+
+export interface ScheduleSummary {
+  new: number
+  ended: number
+  cancelled: number
+  noshow: number
+  blocked: number
+  totals: number
+}
+
+export interface ScheduleReportResponse {
+  rows: ScheduleRow[]
+  summary: ScheduleSummary
+}
+
+// ── Recurring (Facturas recurrentes) ─────────────────────────────────────────
+
+export interface RecurringRow {
+  recurringId: string
+  clientId: string
+  clientName: string
+  clientSecondName: string
+  invoiceNo: string
+  txUid: string
+  nextDate: string
+  endDate: string
+  frecuency: string
+  status: number
+  total: number
+}
+
+export interface RecurringReportResponse {
+  rows: RecurringRow[]
+}
+
+// ── Satisfaction (NPS) ────────────────────────────────────────────────────────
+
+export interface SatisfactionRow {
+  satisfactionId: string
+  level: number
+  date: string
+  customerName: string
+  comment: string
+  outletName: string
+  transactionId: string
+}
+
+export type SatisfactionReportResponse = SatisfactionRow[]
+
 // ── Sales summary (Resumen) — el más complejo del set ───────────────────────
 
 export interface SalesSummaryResponse {
