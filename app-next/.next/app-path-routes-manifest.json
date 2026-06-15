@@ -1,8 +1,8 @@
 {
   "/_not-found/page": "/_not-found",
   "/_global-error/page": "/_global-error",
+  "/api/pos/bootstrap/route": "/api/pos/bootstrap",
   "/page": "/",
   "/(pos)/register/page": "/register",
-  "/api/pos/bootstrap/route": "/api/pos/bootstrap",
   "/api/v1/[...path]/route": "/api/v1/[...path]"
 }

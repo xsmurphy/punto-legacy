@@ -1,0 +1,5 @@
+{
+  "/(pos)/register/page": "app/(pos)/register/page.js",
+  "/api/pos/bootstrap/route": "app/api/pos/bootstrap/route.js",
+  "/page": "app/page.js"
+}

@@ -1,52 +1,42 @@
+"use client"
+
 /**
- * Pantalla de caja principal — placeholder Sprint 0.
+ * Pantalla de caja principal — Slice A1.
  *
- * Esta es la ruta central del POS: `/(pos)/register`.
+ * Layout 2 columnas full-screen (fidelidad §6.1):
+ *   ┌─────────────────────────────────┬──────────────────────┐
+ *   │  ProductArea (~70%)             │  CartPanel (~30%)    │
+ *   │  - Grid de tiles (cat/producto) │  - Toolbar iconos    │
+ *   │  - CategoryBar inferior         │  - Lista de líneas   │
+ *   │  - FAB "+" + info de sesión     │  - Controles activos │
+ *   │                                 │  - Total verde       │
+ *   └─────────────────────────────────┴──────────────────────┘
  *
- * En Slice A se reemplaza con la pantalla real que incluye:
- *   ┌──────────────────────────────────────────────┐
- *   │  [Header: empresa | cajero | caja | reloj]   │
- *   ├─────────────────────┬────────────────────────┤
- *   │  Carrito de venta   │  Catálogo de items     │
- *   │  (izquierda ~40%)   │  (derecha ~60%)        │
- *   │                     │  ┌──────────────────┐  │
- *   │  Lista de items     │  │ Búsqueda + filtro│  │
- *   │  agregados          │  └──────────────────┘  │
- *   │                     │  [Categorías grid]     │
- *   │                     │  [Items grid]          │
- *   │  ─────────────────  │  [Hotkeys grid]        │
- *   │  Totales / cliente  │                        │
- *   │  Numpad / acciones  │                        │
- *   └─────────────────────┴────────────────────────┘
+ * Datos: fixture seed (dev) — hidratados en `useCatalogSeed()`.
+ * En producción el store se hidrata desde `/api/pos/bootstrap`.
  *
- * Fidelidad visual: espejo 1:1 de la pantalla legacy `app/index.php`
- * en modo `register`. Ver context/16 §2 y el render real de la caja legacy.
- *
- * Referencia legacy:
- *   app/index.php → estructura HTML del POS
- *   app/scripts/app.js → namespace `ncmTransactions` (lógica del carrito)
- *   app/scripts/app.js → namespace `ncmPayments` (cobro)
- *
- * TODO (Slice A):
- *   - Carrito: componente `<Cart>` con lista, cantidades, totales.
- *   - Catálogo: grilla de categorías + items con `searchItems()`.
- *   - Numpad: input de cantidad y monto.
- *   - Botón "Cobrar" → navega a `/pay` o abre modal de cobro.
- *   - Barcode scanner: `useBarcodeScanner()` + `findItemBySku()`.
- *   - Cliente: búsqueda inline con `searchCustomers()`.
+ * Ver context/16-app-next-rewrite.md §6.1 y §7 Slice A.
  */
 
+import { ProductArea } from "@/components/register/product-area"
+import { CartPanel } from "@/components/register/cart-panel"
+import { useCatalogSeed } from "@/hooks/use-catalog-seed"
+
 export default function RegisterPage() {
+  // Hidrata el catálogo con fixtures (dev seed).
+  // TODO (Slice A backend): reemplazar con hydrate() desde usePosBootstrap().
+  useCatalogSeed()
+
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-center">
-        <p className="text-lg font-semibold text-foreground">Caja — Slice A</p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Sprint 0 scaffold. La pantalla de caja se implementa en Slice A.
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Ver context/16-app-next-rewrite.md §7 Slice A.
-        </p>
+    <div className="flex h-full w-full overflow-hidden">
+      {/* Izquierda: grid de productos (~70%) */}
+      <div className="flex-[7] overflow-hidden">
+        <ProductArea />
+      </div>
+
+      {/* Derecha: panel de carrito (~30%) */}
+      <div className="flex-[3] overflow-hidden">
+        <CartPanel />
       </div>
     </div>
   )
