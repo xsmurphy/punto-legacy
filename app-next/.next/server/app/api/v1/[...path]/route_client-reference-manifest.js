@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/v1/[...path]/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"/Users/xstian/Dropbox/Punto/system/app-next/app/api/v1/[...path]/route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};
