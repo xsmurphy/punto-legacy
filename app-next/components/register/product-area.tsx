@@ -14,7 +14,7 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { Plus, ChevronLeft, User } from "lucide-react"
+import { Plus, ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -230,9 +230,6 @@ export function ProductArea() {
           showBack={view !== "categories"}
         />
       </div>
-
-      {/* ── Info de sesión ── */}
-      <SessionInfo />
     </div>
   )
 }
@@ -291,20 +288,3 @@ function FloatingCategoryBar({
   )
 }
 
-// ── Info de sesión ─────────────────────────────────────────────────────────────
-
-function SessionInfo() {
-  return (
-    <div className="absolute bottom-12 right-3 flex items-center gap-2 rounded-lg bg-background/70 px-2.5 py-1.5 backdrop-blur-sm">
-      <div className="flex size-6 items-center justify-center rounded-full bg-muted">
-        <User className="size-3.5 text-muted-foreground" />
-      </div>
-      <div className="flex flex-col leading-none">
-        <span className="text-[10px] font-medium text-foreground">
-          Central · Caja Principal
-        </span>
-        <span className="text-[9px] text-muted-foreground">v0.1.0-alpha</span>
-      </div>
-    </div>
-  )
-}
