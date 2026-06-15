@@ -34,6 +34,8 @@ import { cn } from "@/lib/utils"
 import { useCartStore, selectCartTotal } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
+import { ProductSearchDialog } from "@/components/register/product-search-dialog"
+import { CustomerDialog } from "@/components/register/customer-dialog"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -54,6 +56,10 @@ export function CartPanel() {
 
   const config = useCatalogStore((s) => s.config)
 
+  // ── Estado de apertura de modales ─────────────────────────────────────────
+  const [productSearchOpen, setProductSearchOpen] = React.useState(false)
+  const [customerDialogOpen, setCustomerDialogOpen] = React.useState(false)
+
   const totalValue = total
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
@@ -73,8 +79,21 @@ export function CartPanel() {
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
+      {/* ── Modales ── */}
+      <ProductSearchDialog
+        open={productSearchOpen}
+        onOpenChange={setProductSearchOpen}
+      />
+      <CustomerDialog
+        open={customerDialogOpen}
+        onOpenChange={setCustomerDialogOpen}
+      />
+
       {/* ── Toolbar ── */}
-      <CartToolbar />
+      <CartToolbar
+        onSearchClick={() => setProductSearchOpen(true)}
+        onCustomerClick={() => setCustomerDialogOpen(true)}
+      />
 
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
@@ -142,17 +161,35 @@ export function CartPanel() {
 
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 
-function CartToolbar() {
+function CartToolbar({
+  onSearchClick,
+  onCustomerClick,
+}: {
+  onSearchClick: () => void
+  onCustomerClick: () => void
+}) {
   return (
     <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
       <div className="flex items-center gap-0.5">
         <Button variant="ghost" size="icon-sm" aria-label="Ordenar" title="Ordenar líneas">
           <ArrowUpDown className="size-4" />
         </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Buscar" title="Buscar en el carrito">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Buscar producto"
+          title="Buscar producto"
+          onClick={onSearchClick}
+        >
           <Search className="size-4" />
         </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Cliente" title="Seleccionar cliente">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Seleccionar cliente"
+          title="Seleccionar cliente"
+          onClick={onCustomerClick}
+        >
           <User className="size-4" />
         </Button>
       </div>

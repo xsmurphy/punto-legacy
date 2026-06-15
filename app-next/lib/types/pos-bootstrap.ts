@@ -60,6 +60,12 @@ export interface PosItem {
   kind: string
   /** Si trackea stock — para mostrar alerta de stock bajo. */
   trackInventory: boolean
+  /**
+   * Stock actual del ítem en la caja activa (null si no trackea inventario
+   * o si no está disponible). Negativo = stock en rojo.
+   * Rellenado por el BFF bootstrap desde el depósito del outlet.
+   */
+  stock: number | null
 }
 
 // ── Cliente (para búsqueda en el POS) ────────────────────────────────────────

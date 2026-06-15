@@ -63,6 +63,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-002",
@@ -77,6 +78,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-003",
@@ -91,6 +93,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
 
   // Minutas
@@ -107,6 +110,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-005",
@@ -121,6 +125,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-006",
@@ -135,6 +140,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
 
   // Bebidas con alcohol
@@ -151,6 +157,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: true,
+    stock: 24,
   },
   {
     id: "item-008",
@@ -165,6 +172,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: true,
+    stock: -3,
   },
   {
     id: "item-009",
@@ -179,6 +187,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: true,
+    stock: 0,
   },
 
   // Promos
@@ -195,6 +204,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-011",
@@ -209,6 +219,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
 
   // Pizzas Gourmet
@@ -225,6 +236,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-013",
@@ -239,6 +251,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-014",
@@ -253,6 +266,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
   {
     id: "item-015",
@@ -267,6 +281,7 @@ export const fixtureItems: PosItem[] = [
     uom: null,
     kind: "product",
     trackInventory: false,
+    stock: null,
   },
 ]
 
