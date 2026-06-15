@@ -66,6 +66,15 @@ if ($id !== null && $resource === 'analytics') {
     apiOk($data);
 }
 
+// ── JSON body → $_POST (el front manda JSON, PHP no lo parsea automáticamente) ──
+$_raw = file_get_contents('php://input');
+if (is_string($_raw) && $_raw !== '') {
+    $_json = json_decode($_raw, true);
+    if (is_array($_json)) {
+        $_POST = array_merge($_POST, $_json);
+    }
+}
+
 // ── Recurso principal ───────────────────────────────────────────────────────
 // Defense-in-depth: cada case termina por apiOk/apiError (que llaman exit), así que el
 // fall-through no ocurre HOY — pero un break; en cada case previene un fall-through silente
