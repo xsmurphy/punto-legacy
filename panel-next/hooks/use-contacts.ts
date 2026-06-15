@@ -188,11 +188,6 @@ function serialize(values: ContactFormValues): Record<string, unknown> {
     phone: values.phone ?? "",
     email: values.email,
     note: values.note,
-    city: values.city,
-    location: values.location,
-    country: values.country,
-    address: values.address,
-    address2: values.address2,
     status: values.status ? 1 : 0,
   }
 }

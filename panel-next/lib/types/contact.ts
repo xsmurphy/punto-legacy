@@ -159,9 +159,4 @@ export interface ContactFormValues {
   email: string
   note: string
   status: boolean
-  city: string
-  location: string
-  country: string
-  address: string
-  address2: string
 }

@@ -82,11 +82,6 @@ const contactSchema = z
     email: z.union([z.string().email("Email inválido"), z.literal("")]),
     note: z.string(),
     status: z.boolean(),
-    city: z.string(),
-    location: z.string(),
-    country: z.string(),
-    address: z.string(),
-    address2: z.string(),
   })
   .refine(
     (v) => (v.kind === "persona" ? v.name.trim() !== "" : v.fiscalName.trim() !== ""),
@@ -133,11 +128,6 @@ export default function ContactEditPage() {
       email: data.email ?? "",
       note: data.note ?? "",
       status: (data.status ?? 1) === 1,
-      city: data.city ?? "",
-      location: data.location ?? "",
-      country: data.country ?? "",
-      address: data.address ?? "",
-      address2: data.address2 ?? "",
     })
   }, [data, form, isNew])
 
@@ -535,76 +525,6 @@ function ContactFormBody({
             />
           </Section>
 
-          {/* Dirección */}
-          <Section title="Dirección">
-            <FormField
-              control={form.control}
-              name="address"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Dirección principal</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Calle y número" autoComplete="street-address" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="address2"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Dirección 2 (referencia)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Apto, piso, entre calles" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="city"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Ciudad</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Asunción" autoComplete="address-level2" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="location"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Barrio / zona</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Carmelitas" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-            <FormField
-              control={form.control}
-              name="country"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>País</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Paraguay" autoComplete="country-name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </Section>
         </div>
   )
 }
@@ -616,9 +536,11 @@ type AddressFormState = {
   address: string
   location: string
   city: string
+  lat: number | null
+  lng: number | null
 }
 
-const emptyAddressForm = (): AddressFormState => ({ name: "", address: "", location: "", city: "" })
+const emptyAddressForm = (): AddressFormState => ({ name: "", address: "", location: "", city: "", lat: null, lng: null })
 
 function AddressesTab({ contactId }: { contactId: string }) {
   const { data: addresses, isLoading } = useCustomerAddresses(contactId)
@@ -631,9 +553,17 @@ function AddressesTab({ contactId }: { contactId: string }) {
   const [editing, setEditing] = React.useState<string | null>(null)
   const [form, setForm] = React.useState<AddressFormState>(emptyAddressForm())
 
+  const serializeForm = (f: AddressFormState) => ({
+    name: f.name,
+    address: f.address,
+    location: f.location,
+    city: f.city,
+    latLng: f.lat !== null && f.lng !== null ? `${f.lat},${f.lng}` : "",
+  })
+
   const handleAdd = async () => {
     try {
-      await addAddress.mutateAsync({ customerId: contactId, ...form })
+      await addAddress.mutateAsync({ customerId: contactId, ...serializeForm(form) })
       toast.success("Dirección agregada")
       setShowForm(false)
       setForm(emptyAddressForm())
@@ -644,7 +574,7 @@ function AddressesTab({ contactId }: { contactId: string }) {
 
   const handleUpdate = async (addr: CustomerAddress) => {
     try {
-      await updateAddress.mutateAsync({ addressId: addr.id, customerId: contactId, ...form })
+      await updateAddress.mutateAsync({ addressId: addr.id, customerId: contactId, ...serializeForm(form) })
       toast.success("Dirección actualizada")
       setEditing(null)
     } catch (e) {
@@ -775,7 +705,14 @@ function AddressesTab({ contactId }: { contactId: string }) {
                     className="size-8"
                     onClick={() => {
                       setEditing(addr.id)
-                      setForm({ name: addr.name, address: addr.address, location: addr.location, city: addr.city })
+                      setForm({
+                        name: addr.name,
+                        address: addr.address,
+                        location: addr.location,
+                        city: addr.city,
+                        lat: addr.lat !== null ? Number(addr.lat) : null,
+                        lng: addr.lng !== null ? Number(addr.lng) : null,
+                      })
                     }}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -858,7 +795,89 @@ function AddressFormFields({
           onChange={(e) => onChange({ ...form, location: e.target.value })}
         />
       </div>
+
+      {/* Coordenadas */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium">Latitud</label>
+          <Input
+            type="number"
+            inputMode="decimal"
+            step="0.0000001"
+            placeholder="-25.2867"
+            value={form.lat ?? ""}
+            onChange={(e) => onChange({ ...form, lat: e.target.value === "" ? null : Number(e.target.value) })}
+            className="tabular-nums"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium">Longitud</label>
+          <Input
+            type="number"
+            inputMode="decimal"
+            step="0.0000001"
+            placeholder="-57.6478"
+            value={form.lng ?? ""}
+            onChange={(e) => onChange({ ...form, lng: e.target.value === "" ? null : Number(e.target.value) })}
+            className="tabular-nums"
+          />
+        </div>
+      </div>
+
+      <AddressMapParser
+        onParsed={(lat, lng) => {
+          onChange({ ...form, lat, lng })
+          toast.success(`Coordenadas: ${lat}, ${lng}`)
+        }}
+      />
     </>
+  )
+}
+
+function AddressMapParser({ onParsed }: { onParsed: (lat: number, lng: number) => void }) {
+  const [text, setText] = React.useState("")
+
+  const parse = () => {
+    if (!text.trim()) return
+    const patterns = [
+      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /q=(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/,
+    ]
+    for (const re of patterns) {
+      const m = text.match(re)
+      if (m) {
+        const lat = Number(m[1])
+        const lng = Number(m[2])
+        if (Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180) {
+          onParsed(lat, lng)
+          setText("")
+          return
+        }
+      }
+    }
+    toast.error("No pude extraer coordenadas", {
+      description: "Pegá un link largo de Google Maps o el texto 'lat,lng'.",
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
+      <label className="text-xs text-muted-foreground">
+        Pegar link de Google Maps o &quot;lat,lng&quot;
+      </label>
+      <div className="flex gap-2">
+        <Input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="https://www.google.com/maps/@-25.28,-57.64,17z"
+          className="text-xs"
+        />
+        <Button type="button" variant="outline" size="sm" onClick={parse}>
+          Extraer
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -1491,11 +1510,6 @@ function emptyValues(): ContactFormValues {
     email: "",
     note: "",
     status: true,
-    city: "",
-    location: "",
-    country: "",
-    address: "",
-    address2: "",
   }
 }
 
