@@ -472,7 +472,9 @@ function CartBottom({
         </Button>
       </div>
 
-      {/* Botón cobrar full-width verde (marca Punto) */}
+      {/* Botón cobrar full-width verde marca Punto (#01D7A1).
+          Texto invierte por tema vía `text-foreground` (oscuro en light, claro
+          en dark) → light = negro sobre verde, dark = blanco sobre verde. */}
       <Button
         disabled={lineCount === 0}
         onClick={lineCount > 0 ? onPayClick : undefined}
@@ -480,7 +482,7 @@ function CartBottom({
           "h-auto w-full rounded-xl px-4 py-4 text-2xl font-bold transition-all active:scale-[0.98]",
           lineCount === 0
             ? "bg-muted text-muted-foreground hover:bg-muted"
-            : "bg-[#01D7A1] text-[#060A0E] hover:bg-[#01D7A1]/90",
+            : "bg-[#01D7A1] text-foreground hover:bg-[#01D7A1]/90",
         )}
         aria-label={`Cobrar ${totalFormatted}`}
       >
