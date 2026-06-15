@@ -9,13 +9,13 @@
  *   - Lista de líneas: badge cantidad + nombre + precio.
  *   - Línea activa: nombre grande + controles +/x1/−/X roja + acciones de línea.
  *   - Tacho (vaciar carrito).
- *   - Bottom: toggles CRÉDITO/INTERNO + botón full-width verde con total.
- *   - Watermark "Punto" en carrito vacío.
+ *   - Bottom: toggles CRÉDITO/INTERNO + IVA + botón full-width verde con total.
+ *   - Watermark con logo Punto en carrito vacío.
  */
 
 import * as React from "react"
 import {
-  ArrowUpDown,
+  Menu,
   Search,
   User,
   MoreHorizontal,
@@ -29,13 +29,14 @@ import {
   MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { useCartStore, selectCartTotal } from "@/lib/cart/store"
+import { useCartStore, selectCartTotal, selectCartIva } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
+import { PayDialog } from "@/components/register/pay-dialog"
+import { PuntoLogo } from "@/components/layout/punto-logo"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -45,10 +46,13 @@ export function CartPanel() {
   const customer = useCartStore((s) => s.customer)
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
+  const ivaRemoved = useCartStore((s) => s.ivaRemoved)
   const total = useCartStore(selectCartTotal)
+  const iva = useCartStore(selectCartIva)
   const clear = useCartStore((s) => s.clear)
   const toggleCredito = useCartStore((s) => s.toggleCredito)
   const toggleInterno = useCartStore((s) => s.toggleInterno)
+  const toggleIva = useCartStore((s) => s.toggleIva)
   const selectLine = useCartStore((s) => s.selectLine)
   const removeLine = useCartStore((s) => s.removeLine)
   const incQty = useCartStore((s) => s.incQty)
@@ -59,6 +63,7 @@ export function CartPanel() {
   // ── Estado de apertura de modales ─────────────────────────────────────────
   const [productSearchOpen, setProductSearchOpen] = React.useState(false)
   const [customerDialogOpen, setCustomerDialogOpen] = React.useState(false)
+  const [payDialogOpen, setPayDialogOpen] = React.useState(false)
 
   const totalValue = total
 
@@ -87,6 +92,10 @@ export function CartPanel() {
       <CustomerDialog
         open={customerDialogOpen}
         onOpenChange={setCustomerDialogOpen}
+      />
+      <PayDialog
+        open={payDialogOpen}
+        onOpenChange={setPayDialogOpen}
       />
 
       {/* ── Toolbar ── */}
@@ -149,11 +158,15 @@ export function CartPanel() {
       <CartBottom
         credito={credito}
         interno={interno}
+        ivaRemoved={ivaRemoved}
+        iva={iva}
         onToggleCredito={toggleCredito}
         onToggleInterno={toggleInterno}
+        onToggleIva={toggleIva}
         total={totalValue}
         lineCount={lines.length}
         config={config}
+        onPayClick={() => setPayDialogOpen(true)}
       />
     </div>
   )
@@ -169,33 +182,59 @@ function CartToolbar({
   onCustomerClick: () => void
 }) {
   return (
-    <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
-      <div className="flex items-center gap-0.5">
-        <Button variant="ghost" size="icon-sm" aria-label="Ordenar" title="Ordenar líneas">
-          <ArrowUpDown className="size-4" />
-        </Button>
+    <div className="flex items-center border-b border-border px-1 py-1.5">
+      {/* Slot 1: Menú de módulos (stub) */}
+      <div className="flex flex-1 justify-center">
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="icon"
+          aria-label="Menú de módulos"
+          title="Menú de módulos"
+          onClick={() => {
+            // TODO: abre menú flotante de módulos (Slice posterior) — ver guía visual del owner
+          }}
+        >
+          <Menu className="size-5" />
+        </Button>
+      </div>
+
+      {/* Slot 2: Buscar producto */}
+      <div className="flex flex-1 justify-center">
+        <Button
+          variant="ghost"
+          size="icon"
           aria-label="Buscar producto"
           title="Buscar producto"
           onClick={onSearchClick}
         >
-          <Search className="size-4" />
+          <Search className="size-5" />
         </Button>
+      </div>
+
+      {/* Slot 3: Seleccionar cliente */}
+      <div className="flex flex-1 justify-center">
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="icon"
           aria-label="Seleccionar cliente"
           title="Seleccionar cliente"
           onClick={onCustomerClick}
         >
-          <User className="size-4" />
+          <User className="size-5" />
         </Button>
       </div>
-      <Button variant="ghost" size="icon-sm" aria-label="Más opciones" title="Más opciones">
-        <MoreHorizontal className="size-4" />
-      </Button>
+
+      {/* Slot 4: Más opciones */}
+      <div className="flex flex-1 justify-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Más opciones"
+          title="Más opciones"
+        >
+          <MoreHorizontal className="size-5" />
+        </Button>
+      </div>
     </div>
   )
 }
@@ -364,11 +403,8 @@ function ActiveLineControls({
 function EmptyCart() {
   return (
     <div className="flex h-full flex-col items-center justify-center select-none">
-      <span
-        className="text-7xl font-black tracking-tight text-muted-foreground/10"
-        aria-hidden
-      >
-        Punto
+      <span aria-hidden className="opacity-[0.12]">
+        <PuntoLogo variant="wordmark" className="h-14 w-[200px]" />
       </span>
     </div>
   )
@@ -379,26 +415,35 @@ function EmptyCart() {
 function CartBottom({
   credito,
   interno,
+  ivaRemoved,
+  iva,
   onToggleCredito,
   onToggleInterno,
+  onToggleIva,
   total,
   lineCount,
   config,
+  onPayClick,
 }: {
   credito: boolean
   interno: boolean
+  ivaRemoved: boolean
+  iva: number
   onToggleCredito: () => void
   onToggleInterno: () => void
+  onToggleIva: () => void
   total: number
   lineCount: number
   config: ReturnType<typeof useCatalogStore.getState>["config"]
+  onPayClick: () => void
 }) {
   const totalFormatted = formatMoney(total, config)
+  const ivaFormatted = formatMoney(iva, config)
 
   return (
     <div className="shrink-0 border-t border-border bg-background p-2 pt-2">
-      {/* Toggles CRÉDITO / INTERNO + contador de líneas */}
-      <div className="mb-2 flex items-center gap-1.5">
+      {/* Toggles CRÉDITO / INTERNO / IVA — centrados y distribuidos */}
+      <div className="mb-2 flex items-center justify-center gap-3">
         <ToggleChip
           label="CRÉDITO"
           active={credito}
@@ -409,19 +454,30 @@ function CartBottom({
           active={interno}
           onClick={onToggleInterno}
         />
-        <div className="flex-1" />
-        {lineCount > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {lineCount} {lineCount === 1 ? "ítem" : "ítems"}
-          </span>
-        )}
+        {/* X <valor IVA> — botón que elimina el IVA informativo */}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onToggleIva}
+          aria-label={ivaRemoved ? "Restaurar IVA" : "Eliminar IVA"}
+          className={cn(
+            "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide h-auto",
+            ivaRemoved
+              ? "text-muted-foreground/50"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <X className="size-3" />
+          <span>{ivaFormatted}</span>
+        </Button>
       </div>
 
       {/* Botón cobrar full-width verde (marca Punto) */}
       <Button
         disabled={lineCount === 0}
+        onClick={lineCount > 0 ? onPayClick : undefined}
         className={cn(
-          "h-auto w-full rounded-xl px-4 py-3 text-base font-bold transition-all active:scale-[0.98]",
+          "h-auto w-full rounded-xl px-4 py-4 text-2xl font-bold transition-all active:scale-[0.98]",
           lineCount === 0
             ? "bg-muted text-muted-foreground hover:bg-muted"
             : "bg-[#01D7A1] text-[#060A0E] hover:bg-[#01D7A1]/90",

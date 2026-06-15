@@ -41,6 +41,17 @@ export interface CartLine {
 export const selectCartTotal = (s: CartState): number =>
   s.lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0)
 
+/**
+ * Selector del IVA contenido (Paraguay 10%: precios incluyen IVA).
+ * Fórmula: iva = round(total / 11).
+ * Si ivaRemoved=true, devuelve 0 (IVA informativo eliminado por el cajero).
+ */
+export const selectCartIva = (s: CartState): number => {
+  if (s.ivaRemoved) return 0
+  const total = s.lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0)
+  return Math.round(total / 11)
+}
+
 interface CartState {
   lines: CartLine[]
   selectedLineId: string | null
@@ -50,6 +61,11 @@ interface CartState {
   credito: boolean
   /** Venta interna (consumo propio, sin factura fiscal). */
   interno: boolean
+  /**
+   * IVA eliminado por el cajero (informativo).
+   * Cuando es true, selectCartIva devuelve 0. El total NO cambia.
+   */
+  ivaRemoved: boolean
 
   // ── Acciones ──────────────────────────────────────────────────────────────
 
@@ -84,6 +100,9 @@ interface CartState {
   /** Alterna el flag de venta interna. */
   toggleInterno: () => void
 
+  /** Alterna el flag informativo de IVA removido. */
+  toggleIva: () => void
+
   /** Actualiza la nota de una línea. */
   setLineNote: (lineId: string, note: string) => void
 }
@@ -96,6 +115,7 @@ const initialState = {
   customer: null as PosCustomer | null,
   credito: false,
   interno: false,
+  ivaRemoved: false,
 }
 
 export const useCartStore = create<CartState>()((set, _get) => ({
@@ -182,6 +202,10 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   toggleInterno: () => {
     set((state) => ({ interno: !state.interno }))
+  },
+
+  toggleIva: () => {
+    set((state) => ({ ivaRemoved: !state.ivaRemoved }))
   },
 
   setLineNote: (lineId, note) => {

@@ -208,27 +208,27 @@ export function ProductArea() {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      {/* ── Grid scrolleable ── */}
-      <div className="flex-1 overflow-y-auto">{renderGrid()}</div>
+      {/* ── Grid scrolleable ── (ocupa todo, sin barra fija abajo) */}
+      <div className="flex-1 overflow-y-auto pb-20">{renderGrid()}</div>
 
-      {/* ── CategoryBar ── */}
-      <CategoryBar
-        activeId={activeCategoryId}
-        onBack={handleBack}
-        onSelect={handleCategoryClick}
-        showBack={view !== "categories"}
-      />
-
-      {/* ── FAB "+" ── */}
-      <div className="absolute bottom-14 left-3 z-10">
+      {/* ── FAB "+" flotante + CategoryBar flotante (misma línea) ── */}
+      {/* TODO: el FAB abre menú flotante de módulos (Mesas, Agendamiento, Órdenes…) */}
+      <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center gap-3">
         <Button
           size="icon"
           variant="secondary"
-          className="size-10 rounded-full shadow-md"
-          aria-label="Agregar producto"
+          className="size-12 shrink-0 rounded-full shadow-lg"
+          aria-label="Menú de módulos"
         >
-          <Plus className="size-5" />
+          <Plus className="size-6" />
         </Button>
+
+        <FloatingCategoryBar
+          activeId={activeCategoryId}
+          onBack={handleBack}
+          onSelect={handleCategoryClick}
+          showBack={view !== "categories"}
+        />
       </div>
 
       {/* ── Info de sesión ── */}
@@ -237,9 +237,11 @@ export function ProductArea() {
   )
 }
 
-// ── CategoryBar ───────────────────────────────────────────────────────────────
+// ── FloatingCategoryBar ───────────────────────────────────────────────────────
+// Barra de categorías FLOTANTE: pill rounded-full con backdrop-blur, NO border-t
+// fija al fondo. Vive en la misma línea horizontal que el FAB (ver ProductArea).
 
-function CategoryBar({
+function FloatingCategoryBar({
   activeId,
   onBack,
   onSelect,
@@ -251,12 +253,12 @@ function CategoryBar({
   showBack: boolean
 }) {
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-t border-border bg-background/80 px-2 backdrop-blur-sm">
+    <div className="flex h-12 flex-1 items-center gap-2 rounded-full border border-border bg-background/80 px-1.5 shadow-lg backdrop-blur-md">
       {/* Botón back circular */}
       <Button
         size="icon"
-        variant={showBack ? "outline" : "ghost"}
-        className="size-8 shrink-0 rounded-full"
+        variant={showBack ? "secondary" : "ghost"}
+        className="size-9 shrink-0 rounded-full"
         onClick={onBack}
         disabled={!showBack}
         aria-label="Volver a categorías"
@@ -264,22 +266,25 @@ function CategoryBar({
         <ChevronLeft className="size-4" />
       </Button>
 
-      {/* Chips de categorías — scrolleable */}
-      <div className="flex flex-1 gap-1.5 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Chips de categorías — scrolleable horizontal, scrollbar oculta */}
+      <div className="flex flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {fixtureCategories.map((cat) => (
-          <button
+          <Button
             key={cat.id}
+            type="button"
+            size="sm"
+            variant="ghost"
             onClick={() => onSelect(cat.id)}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+              "h-8 shrink-0 rounded-full px-3 text-xs font-medium",
               activeId === cat.id
-                ? "text-white"
-                : "bg-muted text-muted-foreground hover:bg-muted/80",
+                ? "text-white hover:text-white"
+                : "text-muted-foreground hover:text-foreground",
             )}
             style={activeId === cat.id ? { backgroundColor: cat.color } : undefined}
           >
             {cat.name}
-          </button>
+          </Button>
         ))}
       </div>
     </div>
