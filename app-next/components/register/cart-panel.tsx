@@ -472,18 +472,14 @@ function CartBottom({
         </Button>
       </div>
 
-      {/* Botón cobrar full-width verde marca Punto (#01D7A1).
-          Texto invierte por tema vía `text-foreground` (oscuro en light, claro
-          en dark) → light = negro sobre verde, dark = blanco sobre verde. */}
+      {/* Botón cobrar full-width — colores DEFAULT del Button shadcn (primary).
+          Convención del proyecto (panel-next): los botones no usan el verde de
+          marca; usan los tokens neutros del theme. Acá solo overrideamos
+          tamaño/padding para hacerlo prominente — los colores los pone shadcn. */}
       <Button
         disabled={lineCount === 0}
         onClick={lineCount > 0 ? onPayClick : undefined}
-        className={cn(
-          "h-auto w-full rounded-xl px-4 py-4 text-2xl font-bold transition-all active:scale-[0.98]",
-          lineCount === 0
-            ? "bg-muted text-muted-foreground hover:bg-muted"
-            : "bg-[#01D7A1] text-foreground hover:bg-[#01D7A1]/90",
-        )}
+        className="h-auto w-full rounded-xl px-4 py-4 text-2xl font-bold transition-all active:scale-[0.98]"
         aria-label={`Cobrar ${totalFormatted}`}
       >
         {lineCount === 0 ? "Sin items" : totalFormatted}
