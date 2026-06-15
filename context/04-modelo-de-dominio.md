@@ -9,7 +9,7 @@ Diseñado para PostgreSQL 16+. Archivo fuente: `db-schema-postgres.sql` (54KB).
 
 ### Principios de diseño
 
-1. **UUID v7 como PK** en todas las tablas (via `gen_random_uuid()`)
+1. **UUID como PK** en todas las tablas — v7 (ordenable por tiempo) vía `ncmInsert()` que llama `generateUuidV7()`; v4 random (no ordenable) cuando la fila la inserta `$db->AutoExecute()` directamente y cae al `DEFAULT gen_random_uuid()` de PG16 (ej. `stock`, `toTag`)
 2. **JSONB para extensibilidad** — campos que no necesitan índice van a `config`, `data`, o `meta`
 3. **Multi-tenant por `companyId`** — toda tabla con datos de tenant tiene FK a company
 4. **Merged tables** — `company` absorbe lo que antes era `setting` + `module` + `companyHours`
@@ -73,7 +73,7 @@ franchiser_to_tenant (acceso N→N franquiciador→tenant — NO propiedad/billi
 ### Invariantes del schema
 
 1. **companyId es NOT NULL** en toda tabla de datos de tenant
-2. **UUID v7 ordenable por tiempo** — permite ORDER BY id para orden cronológico
+2. **UUID v7 solo cuando se usa `ncmInsert()`** — `gen_random_uuid()` de PG16 es UUID v4 random, NO v7. `ORDER BY <tabla>Id` NO es cronológico en tablas que insertan vía `AutoExecute()` sin PK explícito. Para "fila más reciente" siempre usar columna timestamp (`stockDate`, `createdAt`, `transactionDate`). Bug real: `getItemStock`/`getAllItemStock` ordenaban por `stockId` → stock arbitrario; fijo en commit f02e7ac (2026-06-15). Auditar cualquier `ORDER BY *Id`/`max(*Id)` que asuma monotonía.
 3. **config JSONB en company** — acceso via `config->>'settingName'`, `config->>'settingRUC'`, etc.
 4. **No hay CASCADE DELETE** en FKs principales — las eliminaciones son soft (status/flag)
 5. **Timestamps**: `createdAt` (auto), `updatedAt` (trigger), timezone: `America/Asuncion`

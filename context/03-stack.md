@@ -99,7 +99,7 @@ versionados. Alpine queda con `^` (fuera del freeze legacy).
 |-----------|---------|
 | JWT | HS256, implementación custom en PHP |
 | Cookies | `_jwt` (app), `_jwt_panel` (panel), HttpOnly |
-| IDs | UUID v7 (gen_random_uuid() + ncmInsert) |
+| IDs | UUID v7 vía `ncmInsert()` (`generateUuidV7()`); UUID v4 random cuando cae al `DEFAULT gen_random_uuid()` de PG16 (tablas insertadas con `AutoExecute` sin PK explícito — NO ordenables por tiempo) |
 | enc()/dec() | Identity passthrough (legacy Hashids eliminado) |
 | CORS | Allowlist explícita |
 
