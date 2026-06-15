@@ -133,6 +133,15 @@ final class SaleService
             // legacy lo gatea con in_array(['creditsale','schedule'])). Dentro
             // de la tx: si falla, rollbackea con la venta.
             $this->persistRecurring($input, (string) $transId);
+
+            // ── B9 (35g): packs de servicios — crear sold_pack por cada pack vendido ──
+            // POST-COMMIT best-effort: si no hay cliente (clientId null), no podemos
+            // crear el sold_pack (contactId NOT NULL). Se loguea y omite sin fallar
+            // la venta. El sold_pack se crea DENTRO de la tx para garantizar
+            // atomicidad (pack creado ↔ venta persistida).
+            if ($input->clientId !== null) {
+                $this->persistPackSales($input, (string) $transId, $saleDetail);
+            }
         }
 
         // ── B11: cerrar la transacción ──────────────────────────────────────
@@ -1228,6 +1237,65 @@ final class SaleService
         // una vez por item con sesiones — redundante; lo hoistamos aquí).
         if ($hadSessions) {
             updateLastTimeEdit($companyId, 'calendar');
+        }
+    }
+
+    /**
+     * B9 (35g) — packs de servicios: crea sold_pack por cada línea de tipo 'pack' vendida.
+     *
+     * Corre DENTRO de la transacción principal: si falla (PG error), la tx entera
+     * hace rollback — la venta no persiste sin su pack. El clientId ya fue validado
+     * antes de entrar al bloque de la tx.
+     *
+     * Si el item tiene qty > 1, crea qty instancias independientes de sold_pack.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     */
+    private function persistPackSales(SaleInput $input, string $transId, array $saleDetail): void
+    {
+        $companyId = $this->ctx->companyId;
+        $contactId = $input->clientId; // ya validado como perteneciente al tenant
+
+        foreach ($saleDetail as $sD) {
+            $itemId = trim((string) ($sD['itemId'] ?? ''));
+            if ($itemId === '') {
+                continue;
+            }
+
+            // Verificar que el item es de tipo 'pack' (query directa — ncmExecute
+            // no está disponible sin COMPANY_ID constante definida, pero sí lo está
+            // porque apiAuthTenant ya corrió antes de instanciar SaleService).
+            $itmRow = $this->db->Execute(
+                'SELECT itemType FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [$itemId, $companyId]
+            );
+            if (!$itmRow || $itmRow->EOF) {
+                continue;
+            }
+            $itemType = strtolower((string) ($itmRow->fields['itemtype'] ?? ''));
+            if ($itemType !== 'pack') {
+                continue;
+            }
+
+            // packDurationDays desde item.data JSONB (flatteado por ncmExecute).
+            $fullRow      = ncmExecute(
+                'SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [$itemId, $companyId]
+            );
+            $durationDays = (int) (($fullRow['packDurationDays'] ?? null) ?: 30);
+
+            // Qty vendida del pack (puede ser > 1 → múltiples instancias).
+            $qty     = max(1, (int) ($sD['count'] ?? 1));
+            $outletId = $this->ctx->outletId ?: null;
+
+            for ($i = 0; $i < $qty; $i++) {
+                $this->db->Execute(
+                    "INSERT INTO sold_pack
+                       (packItemId, contactId, transactionId, outletId, companyId, expiresAt, status)
+                     VALUES (?, ?, ?, ?, ?, now() + INTERVAL '{$durationDays} days', 1)",
+                    [$itemId, $contactId, $transId, $outletId, $companyId]
+                );
+            }
         }
     }
 }
