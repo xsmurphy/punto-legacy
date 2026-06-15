@@ -181,7 +181,10 @@ final class Inventory
         $outletId = $outlet ?: OUTLET_ID;
 
         return ncmExecute(
-            'SELECT * FROM stock WHERE itemId = ? AND outletId = ? ORDER BY stockId DESC LIMIT 1',
+            // "Stock actual" = la fila más reciente. stockId es UUID v4 random en PG
+            // (no ordenable por tiempo) → ordenar por stockId daría una fila
+            // arbitraria. La recencia la da stockDate; stockId DESC sólo desempata.
+            'SELECT * FROM stock WHERE itemId = ? AND outletId = ? ORDER BY stockDate DESC, stockId DESC LIMIT 1',
             [$itemId, $outletId]
         );
     }
@@ -196,7 +199,7 @@ final class Inventory
         $count     = formatQty($inventory['stockOnHand']);
 
         $depo = ncmExecute(
-            'SELECT * FROM taxonomy WHERE taxonomyType = "location" AND outletId = ? ORDER BY taxonomyName ASC',
+            "SELECT * FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC",
             [$outletId],
             false,
             true
@@ -231,10 +234,17 @@ final class Inventory
      */
     public static function getAllItemStock(mixed $outlet = false, bool $all = false): array
     {
+        // "Stock actual" = la fila de stock MÁS RECIENTE por item. El legacy usaba
+        // max(stockId) (MySQL: PK autoincrement → max = última). En PG stockId es
+        // UUID v4 random (DEFAULT gen_random_uuid()), NO ordenable por tiempo, así
+        // que max(stockId)/ORDER BY stockId devolverían una fila ARBITRARIA. La
+        // recencia real la da stockDate (TIMESTAMPTZ DEFAULT now()); stockId DESC
+        // sólo desempata para determinismo. array_agg(...)[1] reemplaza max(uuid)
+        // (inexistente en PG) sin cambiar la estructura del JOIN.
         $sql = 'SELECT t1.itemId as itemId, t1.stockOnHand as onHand, t1.stockOnHandCOGS as cogs
                 FROM stock t1
                 JOIN (
-                    SELECT max(stockId) AS stockId
+                    SELECT (array_agg(stockId ORDER BY stockDate DESC, stockId DESC))[1] AS stockId
                     FROM stock
                     WHERE outletId = ?
                     GROUP BY itemId

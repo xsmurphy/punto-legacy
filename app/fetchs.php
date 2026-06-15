@@ -271,12 +271,11 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
             //$usedInvoiceNos = ncmExecute("SELECT invoiceNo as nos, tags as tag FROM transaction WHERE companyId = ? AND registerId = ? AND transactionType IN(0,3,7) AND transactionDate BETWEEN ? AND ? ORDER BY invoiceNo DESC",[COMPANY_ID, $rFields['registerId'], $TWO_MONTHS_AGO, $TODAY_END],false,true);
             //$usedInvoiceNos = ncmExecute("SELECT invoiceNo as nos, tags as tag FROM transaction WHERE companyId = ? AND registerId = ? AND transactionType IN(0,3,7) ORDER BY transactionDate DESC LIMIT 50",[COMPANY_ID, $rFields['registerId']],false,true);
             //$usedInvoiceNos = ncmExecute("SELECT invoiceNo as nos, tags as tag FROM transaction FORCE INDEX (idx_transaction_optimization) WHERE companyId = ? AND registerId = ? AND transactionType IN(0,3,7) ORDER BY transactionDate DESC LIMIT 50",[COMPANY_ID, $rFields['registerId']],false,true);
-		$usedInvoiceNos = ncmExecute("SELECT t1.invoiceNo as nos,t1.tags as tag
+		$usedInvoiceNos = ncmExecute("SELECT t1.invoiceNo as nos,t1.meta->>'tags' as tag
                           FROM transaction t1
                           JOIN (
                               SELECT t.transactionId
                               FROM transaction t
-                              FORCE INDEX (idx_transaction_optimization_2)
                               WHERE t.companyId = ?
                               AND t.registerId = ?
                               AND t.invoiceNo IS NOT NULL

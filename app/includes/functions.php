@@ -986,7 +986,8 @@ function lessInternalTotals($roc,$from,$to,$tTypes = false){
 
 	$tTypes = $tTypes ? db_prepare($tTypes) : '0,3';
 
-	$result = ncmExecute('SELECT transactionTotal, tags, transactionDiscount, transactionUnitsSold, transactionTax FROM transaction USE INDEX(transactionType,transactionDate) WHERE transactionDate BETWEEN ? AND ? AND transactionType IN(' . $tTypes . ') ' . $roc . ' LIMIT 5000',[$from,$to],1200,true);
+	// PG: sin USE INDEX (hint MySQL-only) y `tags` está demoted a meta JSONB (§22.8).
+	$result = ncmExecute("SELECT transactionTotal, meta->>'tags' AS tags, transactionDiscount, transactionUnitsSold, transactionTax FROM transaction WHERE transactionDate BETWEEN ? AND ? AND transactionType IN(" . $tTypes . ") " . $roc . " LIMIT 5000",[$from,$to],1200,true);
 
 	$total  	= 0;
 	$discount  	= 0;

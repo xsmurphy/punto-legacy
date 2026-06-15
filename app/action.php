@@ -1525,7 +1525,7 @@ if ($action) {
 
       if ($field == 'registerInvoiceNumber') {
 
-        $result = ncmExecute('SELECT invoiceNo FROM transaction WHERE transactionType IN(0,3,7) AND invoiceNo != ? AND registerId = ? AND tags NOT LIKE "%166227%" AND companyId = ? ORDER BY transactionId DESC LIMIT 1', [$number, REGISTER_ID, COMPANY_ID]);
+        $result = ncmExecute("SELECT invoiceNo FROM transaction WHERE transactionType IN(0,3,7) AND invoiceNo != ? AND registerId = ? AND (meta->>'tags') NOT LIKE '%166227%' AND companyId = ? ORDER BY transactionId DESC LIMIT 1", [$number, REGISTER_ID, COMPANY_ID]);
         if ($result) {
           if ($result['invoiceNo'] >= $number) {
             jsonDieMsg('true', 200, 'success');
@@ -1534,7 +1534,7 @@ if ($action) {
       }
 
       if ($field == "registerTicketNumber") {
-        $result = ncmExecute('SELECT invoiceNo FROM transaction WHERE transactionType IN(0,3,7) AND invoiceNo != ? AND registerId = ? AND tags LIKE "%166227%" AND companyId = ? ORDER BY transactionId DESC LIMIT 1', [$number, REGISTER_ID, COMPANY_ID]);
+        $result = ncmExecute("SELECT invoiceNo FROM transaction WHERE transactionType IN(0,3,7) AND invoiceNo != ? AND registerId = ? AND (meta->>'tags') LIKE '%166227%' AND companyId = ? ORDER BY transactionId DESC LIMIT 1", [$number, REGISTER_ID, COMPANY_ID]);
         if ($result) {
           if ($result['invoiceNo'] >= $number) {
             jsonDieMsg('true', 200, 'success');
