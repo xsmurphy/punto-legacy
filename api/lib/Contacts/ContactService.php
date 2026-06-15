@@ -90,6 +90,14 @@ final class ContactService
         if (isset($in['loyalty']))       $rec['contactLoyalty']       = $in['loyalty'];
         if (isset($in['loyaltyAmount'])) $rec['contactLoyaltyAmount'] = $in['loyaltyAmount'];
 
+        // priceListId vive en data JSONB; ncmInsert/ncmUpdate lo enrutan solos
+        // por ausencia del campo en el whitelist de la tabla contact.
+        // UUID vacío → null (limpiar asignación). Cadena vacía también limpia.
+        if (array_key_exists('priceListId', $in)) {
+            $plId = trim((string) ($in['priceListId'] ?? ''));
+            $rec['priceListId'] = $plId !== '' ? $plId : null;
+        }
+
         // contactLatLng vive en data JSONB; ncmInsert/ncmUpdate lo enrutan solos.
         if (!empty($in['lat']) && !empty($in['lng'])) {
             $rec['contactLatLng'] = strip_tags($in['lat'] . ',' . $in['lng']);
@@ -315,6 +323,8 @@ final class ContactService
             'location'    => $address['customerAddressLocation'] ?? ($row['contactLocation'] ?? null),
             'lat'         => $address['customerAddressLat'] ?? null,
             'lng'         => $address['customerAddressLng'] ?? null,
+            // priceListId desde data JSONB — null si el contacto no tiene lista asignada.
+            'priceListId' => $row['priceListId'] ?? null,
         ];
     }
 }

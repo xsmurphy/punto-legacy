@@ -38,6 +38,8 @@ export interface OutletFull extends OutletListItem {
   businessHours: unknown
   /** Catálogo de impuestos disponibles para el dropdown del form. Solo en GET single. */
   availableTaxes?: TaxOption[]
+  /** UUID de la lista de precios asignada a esta sucursal (desde data JSONB). */
+  priceListId?: string | null
 }
 
 export interface TaxOption {
@@ -64,4 +66,6 @@ export interface OutletFormValues {
   taxId: string
   ecom: boolean
   taxIncluded: boolean
+  /** UUID de la lista de precios asignada como default a esta sucursal. Null = precio base. */
+  priceListId: string | null
 }

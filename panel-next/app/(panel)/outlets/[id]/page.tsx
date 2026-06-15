@@ -49,6 +49,7 @@ import {
   useOutlet,
   useUpdateOutlet,
 } from "@/hooks/use-outlets"
+import { usePriceLists } from "@/hooks/use-price-lists"
 import type { OutletFormValues } from "@/lib/types/outlet"
 
 const outletSchema = z.object({
@@ -68,6 +69,7 @@ const outletSchema = z.object({
   taxId: z.string(),
   ecom: z.boolean(),
   taxIncluded: z.boolean(),
+  priceListId: z.string().nullable(),
 })
 
 export default function OutletEditPage() {
@@ -83,6 +85,7 @@ export default function OutletEditPage() {
   const create = useCreateOutlet()
   const update = useUpdateOutlet()
   const remove = useDeleteOutlet()
+  const { data: priceLists } = usePriceLists()
 
   const form = useForm<OutletFormValues>({
     resolver: zodResolver(outletSchema),
@@ -108,6 +111,7 @@ export default function OutletEditPage() {
       taxId: data.taxId ?? "",
       ecom: data.ecom ?? false,
       taxIncluded: data.taxIncluded ?? false,
+      priceListId: data.priceListId ?? null,
     })
   }, [data, form, isNew])
 
@@ -275,6 +279,42 @@ export default function OutletEditPage() {
                   <FormControl>
                     <Switch checked={field.value} onCheckedChange={field.onChange} />
                   </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="priceListId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Lista de precios por defecto</FormLabel>
+                  <Select
+                    value={field.value ?? ""}
+                    onValueChange={(v) => field.onChange(v === "" ? null : v)}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Precio base (sin lista)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="">Precio base (sin lista)</SelectItem>
+                      {(priceLists ?? [])
+                        .filter((pl) => pl.status)
+                        .map((pl) => (
+                          <SelectItem key={pl.priceListId} value={pl.priceListId}>
+                            {pl.priceListName}
+                            {pl.defaultAdjustment !== 0 && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                ({pl.defaultAdjustment > 0 ? "+" : "−"}{Math.abs(pl.defaultAdjustment)}%)
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -514,6 +554,7 @@ function emptyValues(): OutletFormValues {
     taxId: "",
     ecom: false,
     taxIncluded: false,
+    priceListId: null,
   }
 }
 

@@ -107,5 +107,6 @@ function serialize(values: OutletFormValues): Record<string, unknown> {
     status: values.status ? 1 : "",
     ecom: values.ecom ? 1 : "",
     taxIncluded: values.taxIncluded ? 1 : "",
+    priceListId: values.priceListId ?? "",
   }
 }

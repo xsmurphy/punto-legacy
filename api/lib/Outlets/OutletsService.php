@@ -94,6 +94,8 @@ final class OutletsService
             // Flags JSONB que no vienen de columnas.
             'outletEcom'            => $f['ecom'] ? 1 : 0,
             'itemsTaxIncluded'      => $f['taxIncluded'] ? 1 : 0,
+            // priceListId vive en data JSONB; ncmUpdate lo rutea solo.
+            'priceListId'           => isset($f['priceListId']) && $f['priceListId'] !== '' ? $f['priceListId'] : null,
         ];
 
         // lat/lng: nuevas columnas numéricas para cálculo de distancia haversine
@@ -367,6 +369,8 @@ final class OutletsService
             $row['taxIncluded']     = !empty($r['itemsTaxIncluded']);
             $bh = $r['outletBusinessHours'] ?? null;
             $row['businessHours']   = is_string($bh) ? json_decode($bh, true) : $bh;
+            // priceListId vive en data JSONB — flattened por ncmExecute/_flattenJsonb.
+            $row['priceListId'] = $r['priceListId'] ?? null;
         }
         return $row;
     }
