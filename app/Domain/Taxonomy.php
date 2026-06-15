@@ -126,23 +126,31 @@ final class Taxonomy
      * Array JSON de taxonomies por tipo. Excluye type='internal'.
      * Equivalente legacy: `getTaxonomyArray($type, $company, $compZero)`.
      *
-     * @param mixed $company  ID numérico de empresa, o false para usar $SQLcompanyId.
-     * @param bool  $compZero Si true, incluye también companyId=1 (defaults globales).
+     * @param mixed $company  UUID de empresa, o false para usar $SQLcompanyId.
+     * @param bool  $compZero Si true, incluye también los defaults globales.
      */
     public static function getArray(string $type, mixed $company, bool $compZero = false): string
     {
         global $SQLcompanyId;
 
-        $compZeroClause = $compZero ? 'companyId = 1 OR ' : '';
+        // compZero = incluir defaults globales. En PG los globales son
+        // companyId IS NULL (en MySQL eran companyId=1).
+        $globalScope = $compZero ? 'companyId IS NULL OR ' : '';
         if ($company) {
-            $company = $compZeroClause . 'companyId = ' . $company;
+            // $company es el UUID de la empresa → va parametrizado (`?`). Sin
+            // comillas PG da "trailing junk after numeric literal"; con `?` además
+            // queda a salvo de SQLi si un caller futuro pasa input no-JWT.
+            $companyClause = $globalScope . 'companyId = ?';
+            $params        = [$type, $company];
         } else {
-            $company = $compZeroClause . $SQLcompanyId;
+            // $SQLcompanyId ya es un clause con el UUID del JWT entre comillas.
+            $companyClause = $globalScope . $SQLcompanyId;
+            $params        = [$type];
         }
 
         $result = ncmExecute(
-            "SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = ? AND taxonomyExtra != 'internal' AND (" . $company . ') LIMIT 500',
-            [$type],
+            "SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = ? AND taxonomyExtra != 'internal' AND (" . $companyClause . ') LIMIT 500',
+            $params,
             false,
             true
         );
@@ -160,7 +168,8 @@ final class Taxonomy
     }
 
     /**
-     * Tags por defecto de la instancia base (companyId=1, excluye 'internal').
+     * Tags por defecto de la instancia base (globales, excluye 'internal').
+     * En PG los globales son companyId IS NULL (en MySQL eran companyId=1).
      * Equivalente legacy: `getTagsDefaults($idsOnly)`.
      *
      * @param bool $idsOnly Si true devuelve solo los IDs; si false, [{tagid, tagname}].
@@ -168,7 +177,7 @@ final class Taxonomy
     public static function getTagsDefaults(bool $idsOnly = false): array
     {
         $result = ncmExecute(
-            "SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = 'tag' AND companyId = 1 AND taxonomyExtra != 'internal' LIMIT 20",
+            "SELECT taxonomyName,taxonomyId FROM taxonomy WHERE taxonomyType = 'tag' AND companyId IS NULL AND taxonomyExtra != 'internal' LIMIT 20",
             [],
             false,
             true
