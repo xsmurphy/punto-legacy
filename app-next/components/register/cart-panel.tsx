@@ -54,8 +54,22 @@ export function CartPanel() {
 
   const config = useCatalogStore((s) => s.config)
 
-  const selectedLine = lines.find((l) => l.lineId === selectedLineId) ?? null
   const totalValue = total
+
+  // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
+  // El ref envuelve la línea activa + sus tools; si el pointerdown cae afuera,
+  // se cierra. Clickear otra línea: deselecciona y su onClick la selecciona.
+  const activeRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    if (!selectedLineId) return
+    function onPointerDown(e: PointerEvent) {
+      if (activeRef.current && !activeRef.current.contains(e.target as Node)) {
+        selectLine(null)
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [selectedLineId, selectLine])
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
@@ -74,7 +88,7 @@ export function CartPanel() {
             {lines.map((line) => {
               const isActive = line.lineId === selectedLineId
               return (
-                <div key={line.lineId}>
+                <div key={line.lineId} ref={isActive ? activeRef : undefined}>
                   <CartLineRow
                     line={line}
                     isActive={isActive}

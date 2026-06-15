@@ -102,6 +102,9 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   ...initialState,
 
   addItem: (item) => {
+    // Agregar NO selecciona la línea: por defecto la lista se ve compacta (solo
+    // info del producto). Los controles/tools aparecen solo al click en la línea
+    // (selectLine) y se ocultan al click afuera. Ver CartPanel.
     set((state) => {
       const existing = state.lines.find((l) => l.itemId === item.id)
       if (existing) {
@@ -109,7 +112,6 @@ export const useCartStore = create<CartState>()((set, _get) => ({
           lines: state.lines.map((l) =>
             l.itemId === item.id ? { ...l, qty: l.qty + 1 } : l,
           ),
-          selectedLineId: existing.lineId,
         }
       }
       const newLine: CartLine = {
@@ -121,7 +123,6 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       }
       return {
         lines: [...state.lines, newLine],
-        selectedLineId: newLine.lineId,
       }
     })
   },
@@ -129,10 +130,10 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   removeLine: (lineId) => {
     set((state) => {
       const remaining = state.lines.filter((l) => l.lineId !== lineId)
+      // Si se elimina la línea activa, volver al estado default (sin selección),
+      // no saltar a otra línea.
       const nextSelected =
-        state.selectedLineId === lineId
-          ? (remaining[remaining.length - 1]?.lineId ?? null)
-          : state.selectedLineId
+        state.selectedLineId === lineId ? null : state.selectedLineId
       return { lines: remaining, selectedLineId: nextSelected }
     })
   },
@@ -152,9 +153,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       if (line.qty <= 1) {
         const remaining = state.lines.filter((l) => l.lineId !== lineId)
         const nextSelected =
-          state.selectedLineId === lineId
-            ? (remaining[remaining.length - 1]?.lineId ?? null)
-            : state.selectedLineId
+          state.selectedLineId === lineId ? null : state.selectedLineId
         return { lines: remaining, selectedLineId: nextSelected }
       }
       return {
