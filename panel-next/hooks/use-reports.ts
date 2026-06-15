@@ -516,3 +516,24 @@ export interface SalesSummaryResponse {
     totalGiftCards: number
   }
 }
+
+/**
+ * Fila del endpoint /v1/reports/orders. Órdenes = transaction type=12.
+ * status: 0/1 Pendiente · 2 En Espera · 3 En Proceso · 4 Finalizado · 5 Enviado · 6 Cancelado.
+ * channel: 'ecom' (online) | 'local'.
+ */
+export interface OrderRow {
+  id: string
+  date: string
+  dueDate: string | null
+  orderNo: string
+  customerName: string
+  outletName: string
+  total: number
+  status: number
+  channel: "ecom" | "local"
+}
+
+export interface OrdersReportResponse {
+  rows: OrderRow[]
+}

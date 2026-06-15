@@ -71,7 +71,7 @@ const GROUPS: ReportGroup[] = [
       { title: "Movimientos de caja",   to: "/reports/expenses",        implemented: true  },
       { title: "Agendamientos",         to: "/reports/schedule",        implemented: true  },
       { title: "Facturas recurrentes",  to: "/reports/recurring",       implemented: true  },
-      { title: "Órdenes",               to: "/reports/orders",          implemented: false },
+      { title: "Órdenes",               to: "/reports/orders",          implemented: true  },
       { title: "Calificación de clientes", to: "/reports/satisfaction", implemented: true  },
     ],
   },
