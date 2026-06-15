@@ -2977,12 +2977,120 @@ include_once("libraries/countries.php");
           </div>
         </div>
 
+        {{! Packs activos — Alpine.js carga los datos lazy cuando se monta el template }}
+        <div class="col-xs-12 panel wrapper r-3x m-b-sm"
+             x-data="customerPacksPanel('{{customerId}}')"
+             x-init="load()">
+          <div class="text-u-c font-bold">Packs activos</div>
+          <div class="m-t-sm">
+            <template x-if="loading">
+              <div class="text-sm text-muted text-center m-t-sm">Cargando packs…</div>
+            </template>
+            <template x-if="!loading && packs.length === 0">
+              <div class="text-sm text-muted m-t-xs">Sin packs activos</div>
+            </template>
+            <template x-for="pack in packs" :key="pack.soldPackId">
+              <div class="b m-t-xs r-3x wrapper-sm">
+                <div class="font-bold" x-text="pack.packName"></div>
+                <div class="text-sm text-muted">
+                  <span x-show="pack.status === 1">
+                    Vence en <strong x-text="pack.daysLeft"></strong> días
+                  </span>
+                  <span x-show="pack.status === 0" class="text-danger">Vencido</span>
+                  <span x-show="pack.status === 2" class="text-muted">Consumido</span>
+                </div>
+                <template x-for="comp in pack.components" :key="comp.packComponentId">
+                  <div class="m-t-xs">
+                    <span x-text="comp.componentName" class="text-sm"></span>
+                    <span class="pull-right text-sm">
+                      <span x-text="comp.remaining"></span>/<span x-text="comp.total"></span>
+                    </span>
+                    <div class="progress progress-xs m-b-xs m-t-xs">
+                      <div class="progress-bar"
+                           :style="'width:' + Math.round((comp.remaining/comp.total)*100) + '%'"></div>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="pack.status === 1">
+                  <button type="button" class="btn btn-xs btn-info m-t-sm"
+                          @click="openRedeem(pack)">
+                    Canjear servicios
+                  </button>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <div class="col-xs-12 panel no-padder r-3x m-b-sm" id="ncmDBCustomerFiles"></div>
 
-        
+
 
       </div>
   </script>
+
+  {{! Modal de canje de packs — Alpine.js }}
+  <div id="packRedeemModal" class="modal fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content" x-data="packRedeemModal()" x-init="initFromGlobal()">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+          <h4 class="modal-title" x-text="packName || 'Canjear servicios'"></h4>
+        </div>
+        <div class="modal-body">
+          <template x-if="!pack">
+            <div class="text-center text-muted">Cargando…</div>
+          </template>
+          <template x-if="pack">
+            <div>
+              <div class="text-muted text-sm m-b">
+                Indicá cuántos de cada servicio se realizaron en esta sesión.
+              </div>
+              <template x-for="comp in pack.components" :key="comp.packComponentId">
+                <div x-show="comp.remaining > 0" class="row m-b-sm b-b wrapper-sm">
+                  <div class="col-xs-7">
+                    <div class="font-bold" x-text="comp.componentName"></div>
+                    <div class="text-sm text-muted">
+                      Disponibles: <span x-text="comp.remaining"></span>/<span x-text="comp.total"></span>
+                    </div>
+                  </div>
+                  <div class="col-xs-5 text-right">
+                    <div class="input-group" style="width:110px;display:inline-flex">
+                      <span class="input-group-btn">
+                        <button type="button" class="btn btn-default btn-sm"
+                                @click="decUsage(comp.packComponentId)">−</button>
+                      </span>
+                      <input type="number" class="form-control text-center" min="0"
+                             :max="comp.remaining"
+                             :value="usages[comp.packComponentId] || 0"
+                             @change="setUsage(comp.packComponentId, $event.target.value, comp.remaining)"
+                             style="width:50px" />
+                      <span class="input-group-btn">
+                        <button type="button" class="btn btn-default btn-sm"
+                                @click="incUsage(comp.packComponentId, comp.remaining)">+</button>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template x-if="error">
+                <div class="alert alert-danger m-t-sm text-sm" x-text="error"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-info font-bold"
+                  @click="confirm()"
+                  :disabled="saving || totalUsages() === 0">
+            <span x-show="saving"><i class="material-icons md-18">autorenew</i></span>
+            <span x-show="!saving">Confirmar canje</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <template id="customerRecordTpl">
     <div x-data="customerRecord()" x-init="load($root.dataset.cid)">

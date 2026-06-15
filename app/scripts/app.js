@@ -19645,6 +19645,134 @@ document.addEventListener('alpine:init', function () {
             }
         };
     });
+
+    // ── Packs activos del cliente en el modal de info ──────────────────────────
+    //
+    // Montado por Alpine.initTree() después del render Mustache del customerInfoTpl.
+    // El `customerId` viene del atributo procesado por Mustache en el template:
+    //   x-data="customerPacksPanel('{{customerId}}')"
+    // donde {{customerId}} es el ID encodeado del cliente (dec() en el back).
+    //
+    // Expone `openRedeem(pack)` que pone el pack seleccionado en el store global
+    // `ncmGlobals.packRedeemPack` y abre el modal #packRedeemModal.
+    Alpine.data('customerPacksPanel', function (customerId) {
+        return {
+            customerId: customerId,
+            packs: [],
+            loading: true,
+            load: function () {
+                var self = this;
+                var url = masterUrl + 'bff/sold_packs?l=' + ncmHttp.masterUrlParams({
+                    action: 'activePacks',
+                    contactId: customerId
+                });
+                ncmHttp.getit(url, function (result) {
+                    self.packs = Array.isArray(result) ? result : [];
+                    self.loading = false;
+                }, function () {
+                    self.packs = [];
+                    self.loading = false;
+                }, false, 'json');
+            },
+            openRedeem: function (pack) {
+                // Pasar el pack al modal Alpine de canje vía variable global temporal.
+                if (typeof ncmGlobals === 'undefined') { ncmGlobals = {}; }
+                ncmGlobals.packRedeemPack = JSON.parse(JSON.stringify(pack));
+                ncmGlobals.packRedeemCallback = function (updatedPack) {
+                    // Actualizar el pack en la lista sin reload completo.
+                    for (var i = 0; i < this.packs.length; i++) {
+                        if (this.packs[i].soldPackId === updatedPack.soldPackId) {
+                            this.packs[i] = updatedPack;
+                            break;
+                        }
+                    }
+                }.bind(this);
+                $('#packRedeemModal').modal('show');
+            }
+        };
+    });
+
+    // ── Modal de canje de servicios del pack ───────────────────────────────────
+    //
+    // El pack a canjear llega vía ncmGlobals.packRedeemPack (lo pone customerPacksPanel).
+    // `initFromGlobal()` se llama en x-init para capturarlo al abrir el modal.
+    Alpine.data('packRedeemModal', function () {
+        return {
+            pack: null,
+            packName: '',
+            usages: {},
+            saving: false,
+            error: null,
+            initFromGlobal: function () {
+                var self = this;
+                $('#packRedeemModal').on('show.bs.modal', function () {
+                    self.pack = (typeof ncmGlobals !== 'undefined' && ncmGlobals.packRedeemPack)
+                        ? JSON.parse(JSON.stringify(ncmGlobals.packRedeemPack))
+                        : null;
+                    self.packName = self.pack ? self.pack.packName : '';
+                    self.usages = {};
+                    self.error = null;
+                    self.saving = false;
+                });
+            },
+            setUsage: function (compId, val, max) {
+                var n = parseInt(val, 10) || 0;
+                this.usages[compId] = Math.min(Math.max(0, n), max);
+            },
+            incUsage: function (compId, max) {
+                var cur = this.usages[compId] || 0;
+                this.usages[compId] = Math.min(cur + 1, max);
+            },
+            decUsage: function (compId) {
+                var cur = this.usages[compId] || 0;
+                this.usages[compId] = Math.max(0, cur - 1);
+            },
+            totalUsages: function () {
+                var total = 0;
+                for (var k in this.usages) { total += this.usages[k] || 0; }
+                return total;
+            },
+            confirm: function () {
+                var self = this;
+                if (!self.pack || self.totalUsages() === 0) { return; }
+
+                // Construir array de usages solo con qty > 0.
+                var usageArr = [];
+                for (var compId in self.usages) {
+                    if (self.usages[compId] > 0) {
+                        usageArr.push({ packComponentId: compId, qty: self.usages[compId] });
+                    }
+                }
+
+                self.saving = true;
+                self.error = null;
+
+                var url = masterUrl + 'bff/sold_packs?l=' + ncmHttp.masterUrlParams({
+                    action: 'recordUsage',
+                    soldPackId: self.pack.soldPackId,
+                    usages: usageArr
+                });
+
+                ncmHttp.getit(url, function (result) {
+                    self.saving = false;
+                    if (result && result.ok === false) {
+                        self.error = result.error || 'No se pudo registrar el canje';
+                        return;
+                    }
+                    ncmAlerts.toast('Canje registrado');
+                    $('#packRedeemModal').modal('hide');
+                    // Notificar al panel de packs para actualizar.
+                    if (typeof ncmGlobals !== 'undefined' && ncmGlobals.packRedeemCallback && result && result.soldPackId) {
+                        ncmGlobals.packRedeemCallback(result);
+                    }
+                }, function () {
+                    self.saving = false;
+                    self.error = 'Error de conexión. Intentá de nuevo.';
+                }, false, 'json');
+            }
+        };
+    });
+
 });
 
 var ncmCustomer = {
@@ -19741,6 +19869,13 @@ var ncmCustomer = {
                     }
 
                     ncmUIX.mustache($this.find('.imodal-body'), resultPreview, $('#customerInfoTpl'));
+
+                    // Inicializar Alpine en el HTML recién inyectado (el template
+                    // customerInfoTpl contiene x-data="customerPacksPanel(...)").
+                    var imodalBody = $this.find('.imodal-body')[0];
+                    if (imodalBody && typeof Alpine !== 'undefined' && Alpine.initTree) {
+                        Alpine.initTree(imodalBody);
+                    }
 
                     $('.dropdown-toggle').dropdown();
                     $('.customerInfoMap').removeClass('hidden');
