@@ -128,6 +128,20 @@ export interface ContactAnalytics {
   }>
 }
 
+/** Una dirección de entrega del cliente — shape de `CustomerAddressService::shape()`. */
+export interface CustomerAddress {
+  id: string
+  name: string
+  address: string
+  default: boolean | null
+  location: string
+  city: string
+  latLng: string | false
+  lat: string | null
+  lng: string | null
+  customerId: string
+}
+
 /** Lo que el form de panel-next manda al backend en POST/PUT. */
 export interface ContactFormValues {
   /** "persona" → form muestra Nombre/Apellido; "empresa" → muestra Razón social.

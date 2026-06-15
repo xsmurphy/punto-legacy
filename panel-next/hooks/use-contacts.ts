@@ -7,6 +7,7 @@ import type {
   ContactFormValues,
   ContactFull,
   ContactListItem,
+  CustomerAddress,
 } from "@/lib/types/contact"
 
 /**
@@ -112,6 +113,61 @@ export function useArchiveContact() {
     mutationFn: (id) => api.del(`/v1/contacts?id=${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["contacts"] })
+    },
+  })
+}
+
+// ── Direcciones de cliente (customerAddress) ─────────────────────────────────
+
+export function useCustomerAddresses(customerId: string | undefined) {
+  return useQuery<CustomerAddress[]>({
+    queryKey: ["customerAddress", customerId],
+    queryFn: () =>
+      api.get<CustomerAddress[]>(`/v1/customer_address?customerId=${customerId}`),
+    enabled: !!customerId,
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAddAddress() {
+  const qc = useQueryClient()
+  return useMutation<unknown, Error, { customerId: string; name: string; address: string; location: string; city: string; latLng?: string }>({
+    mutationFn: (body) => api.post("/v1/customer_address", body),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["customerAddress", vars.customerId] })
+    },
+  })
+}
+
+export function useUpdateAddress() {
+  const qc = useQueryClient()
+  return useMutation<unknown, Error, { addressId: string; customerId: string; name: string; address: string; location: string; city: string; latLng?: string }>({
+    mutationFn: ({ addressId, ...body }) =>
+      api.put(`/v1/customer_address?id=${addressId}`, body),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["customerAddress", vars.customerId] })
+    },
+  })
+}
+
+export function useSetDefaultAddress() {
+  const qc = useQueryClient()
+  return useMutation<unknown, Error, { addressId: string; customerId: string }>({
+    mutationFn: ({ addressId, customerId }) =>
+      api.put(`/v1/customer_address?id=${addressId}&resource=default`, { customerId }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["customerAddress", vars.customerId] })
+    },
+  })
+}
+
+export function useDeleteAddress() {
+  const qc = useQueryClient()
+  return useMutation<unknown, Error, { addressId: string; customerId: string }>({
+    mutationFn: ({ addressId, customerId }) =>
+      api.del(`/v1/customer_address?id=${addressId}&customerId=${customerId}`),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["customerAddress", vars.customerId] })
     },
   })
 }

@@ -58,12 +58,17 @@ import {
   useContactAnalytics,
   useCreateContact,
   useUpdateContact,
+  useCustomerAddresses,
+  useAddAddress,
+  useUpdateAddress,
+  useSetDefaultAddress,
+  useDeleteAddress,
 } from "@/hooks/use-contacts"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { ContactAnalytics, ContactFormValues, ContactFull } from "@/lib/types/contact"
+import type { ContactAnalytics, ContactFormValues, ContactFull, CustomerAddress } from "@/lib/types/contact"
 
 const contactSchema = z
   .object({
@@ -179,7 +184,7 @@ export default function ContactEditPage() {
   }
 
   const kind = form.watch("kind")
-  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data">(
+  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data" | "addresses">(
     isNew ? "data" : "summary",
   )
   // Solo pedimos analytics cuando el contacto existe y el tenant lo abrió en
@@ -253,7 +258,7 @@ export default function ContactEditPage() {
           <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
         ) : (
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="summary" className="gap-1.5">
                 <BarChart3 className="size-3.5" />
                 Resumen
@@ -265,6 +270,10 @@ export default function ContactEditPage() {
               <TabsTrigger value="financial" className="gap-1.5">
                 <Wallet className="size-3.5" />
                 Financiero
+              </TabsTrigger>
+              <TabsTrigger value="addresses" className="gap-1.5">
+                <MapPin className="size-3.5" />
+                Direcciones
               </TabsTrigger>
               <TabsTrigger value="data" className="gap-1.5">
                 <User2 className="size-3.5" />
@@ -293,6 +302,9 @@ export default function ContactEditPage() {
                 isLoading={analytics.isLoading}
                 bootstrap={bootstrap}
               />
+            </TabsContent>
+            <TabsContent value="addresses" className="mt-6">
+              <AddressesTab contactId={id} />
             </TabsContent>
             <TabsContent value="data" className="mt-6">
               <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
@@ -594,6 +606,259 @@ function ContactFormBody({
             />
           </Section>
         </div>
+  )
+}
+
+// ── TAB: Direcciones ────────────────────────────────────────────────────────
+
+type AddressFormState = {
+  name: string
+  address: string
+  location: string
+  city: string
+}
+
+const emptyAddressForm = (): AddressFormState => ({ name: "", address: "", location: "", city: "" })
+
+function AddressesTab({ contactId }: { contactId: string }) {
+  const { data: addresses, isLoading } = useCustomerAddresses(contactId)
+  const addAddress = useAddAddress()
+  const updateAddress = useUpdateAddress()
+  const setDefault = useSetDefaultAddress()
+  const deleteAddress = useDeleteAddress()
+
+  const [showForm, setShowForm] = React.useState(false)
+  const [editing, setEditing] = React.useState<string | null>(null)
+  const [form, setForm] = React.useState<AddressFormState>(emptyAddressForm())
+
+  const handleAdd = async () => {
+    try {
+      await addAddress.mutateAsync({ customerId: contactId, ...form })
+      toast.success("Dirección agregada")
+      setShowForm(false)
+      setForm(emptyAddressForm())
+    } catch (e) {
+      toast.error("No se pudo agregar", { description: e instanceof Error ? e.message : undefined })
+    }
+  }
+
+  const handleUpdate = async (addr: CustomerAddress) => {
+    try {
+      await updateAddress.mutateAsync({ addressId: addr.id, customerId: contactId, ...form })
+      toast.success("Dirección actualizada")
+      setEditing(null)
+    } catch (e) {
+      toast.error("No se pudo actualizar", { description: e instanceof Error ? e.message : undefined })
+    }
+  }
+
+  const handleSetDefault = async (addr: CustomerAddress) => {
+    try {
+      await setDefault.mutateAsync({ addressId: addr.id, customerId: contactId })
+      toast.success("Dirección predeterminada actualizada")
+    } catch (e) {
+      toast.error("Error", { description: e instanceof Error ? e.message : undefined })
+    }
+  }
+
+  const handleDelete = async (addr: CustomerAddress) => {
+    try {
+      await deleteAddress.mutateAsync({ addressId: addr.id, customerId: contactId })
+      toast.success("Dirección eliminada")
+    } catch (e) {
+      toast.error("No se pudo eliminar", { description: e instanceof Error ? e.message : undefined })
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        {[1, 2].map((i) => <Skeleton key={i} className="h-24 w-full rounded-lg" />)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {addresses?.length
+            ? `${addresses.length} dirección${addresses.length !== 1 ? "es" : ""} registrada${addresses.length !== 1 ? "s" : ""}`
+            : "Sin direcciones registradas"}
+        </p>
+        {!showForm && (
+          <Button size="sm" variant="outline" onClick={() => { setShowForm(true); setForm(emptyAddressForm()) }}>
+            + Nueva dirección
+          </Button>
+        )}
+      </div>
+
+      {/* Formulario nueva dirección */}
+      {showForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Nueva dirección</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <AddressFormFields form={form} onChange={setForm} />
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={handleAdd} disabled={addAddress.isPending}>
+                {addAddress.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                Guardar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Lista de direcciones */}
+      {addresses?.length === 0 && !showForm && (
+        <EmptyStateBlock
+          icon={MapPin}
+          title="Sin direcciones"
+          description="Agregá una dirección de entrega para este cliente."
+        />
+      )}
+
+      {addresses?.map((addr) => (
+        <Card key={addr.id}>
+          <CardContent className="p-4">
+            {editing === addr.id ? (
+              <div className="flex flex-col gap-3">
+                <AddressFormFields form={form} onChange={setForm} />
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>
+                    Cancelar
+                  </Button>
+                  <Button size="sm" onClick={() => handleUpdate(addr)} disabled={updateAddress.isPending}>
+                    {updateAddress.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                    Guardar
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{addr.name || "Sin nombre"}</span>
+                    {addr.default && (
+                      <Badge variant="secondary" className="text-xs">Predeterminada</Badge>
+                    )}
+                  </div>
+                  {addr.address && (
+                    <span className="text-sm text-muted-foreground">{addr.address}</span>
+                  )}
+                  {(addr.location || addr.city) && (
+                    <span className="text-xs text-muted-foreground">
+                      {[addr.location, addr.city].filter(Boolean).join(", ")}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!addr.default && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-muted-foreground"
+                      onClick={() => handleSetDefault(addr)}
+                      disabled={setDefault.isPending}
+                    >
+                      Predeterminar
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    onClick={() => {
+                      setEditing(addr.id)
+                      setForm({ name: addr.name, address: addr.address, location: addr.location, city: addr.city })
+                    }}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar esta dirección?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Se eliminará &quot;{addr.name || addr.address}&quot; permanentemente.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => handleDelete(addr)}
+                          disabled={deleteAddress.isPending}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Eliminar
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function AddressFormFields({
+  form,
+  onChange,
+}: {
+  form: AddressFormState
+  onChange: (f: AddressFormState) => void
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium">Nombre / etiqueta</label>
+          <Input
+            placeholder="Casa, Trabajo, Depósito..."
+            value={form.name}
+            onChange={(e) => onChange({ ...form, name: e.target.value })}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium">Ciudad</label>
+          <Input
+            placeholder="Asunción"
+            value={form.city}
+            onChange={(e) => onChange({ ...form, city: e.target.value })}
+          />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium">Dirección</label>
+        <Input
+          placeholder="Calle y número"
+          value={form.address}
+          onChange={(e) => onChange({ ...form, address: e.target.value })}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium">Barrio / zona</label>
+        <Input
+          placeholder="Carmelitas, San Lorenzo..."
+          value={form.location}
+          onChange={(e) => onChange({ ...form, location: e.target.value })}
+        />
+      </div>
+    </>
   )
 }
 
