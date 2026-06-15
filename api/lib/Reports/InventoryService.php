@@ -43,9 +43,15 @@ final class InventoryService
             $params[] = $to;
         }
 
-        $order = $byDay ? 'ASC' : 'DESC';
+        // Orden CRONOLÓGICO por stockDate (TIMESTAMPTZ DEFAULT now(), siempre poblado).
+        // NO usar stockId: en PG es UUID v4 random (default gen_random_uuid() sin redefinir),
+        // así que ordenar por él da un orden ARBITRARIO, no temporal. stockId queda solo como
+        // desempate determinista para paginación estable cuando dos filas comparten stockDate
+        // (inserts de la misma transacción). byDay→ASC para que "la última del día gana" sea la
+        // más reciente; historial→DESC (más reciente primero). Ver memoria pg_uuid_v4_not_v7.
+        $order = $byDay ? 'ASC' : 'DESC'; // literal interno (no input de usuario) — sin SQLi
         $sql   = 'SELECT * FROM stock' . $where . $roc
-               . ' ORDER BY stockId ' . $order
+               . ' ORDER BY stockDate ' . $order . ', stockId ' . $order
                . ' LIMIT ' . (int) $limit . ' OFFSET ' . (int) $offset;
 
         $res = ncmExecute($sql, $params, false, true);
