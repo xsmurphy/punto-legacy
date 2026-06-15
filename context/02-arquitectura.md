@@ -209,6 +209,8 @@ El franchiser (`panel/franchiser.php`, gateado por `isParent`) es un **realm ten
 | ~~Action dispatcher~~ → **Vaciado (2026-06-01)** | `/app/action.php` tenía ~43+ acciones vía param `l=`; post-Slice 36 solo queda `processData`. El patrón BFF→API→Service lo reemplazó concern-por-concern. |
 | BFF 3 capas (Front→BFF→API→Service) | `/panel/` (completo) + **`/app/` en desacople progresivo** (slice 1: customerAddress ✅, 2026-05-28) |
 | **BFF same-origin Next.js (panel-next)** | `panel-next/app/api/v1/[...path]/route.ts` — catch-all que reenvía `/api/v1/*` al backend PHP preservando cookie `_jwt_panel`. `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Patrón canónico para CRUD en panel-next desde commit 580d79a (2026-06-12).** Ver §37 en `08-convenciones.md`. |
+| **BFF admin same-origin Next.js (panel-next)** | `panel-next/app/api/admin/[...path]/route.ts` — catch-all análogo al anterior para el realm admin. Solo forwarda cookie `_jwt_admin`; NUNCA forwarda `_jwt_panel`. Proxea a `panel/API/v1/admin/*`. Aislamiento de realm mantenido dentro del proceso Next.js. (commit be39b06, 2026-06-14) |
+| **Route group `(admin)` en panel-next** | `panel-next/app/(admin)/admin/*` — sub-app greenfield del realm admin dentro de panel-next. Layout propio, no comparte hooks ni contexto con `(panel)`. Path-based (`/admin`) dentro del mismo dominio, no subdominio dedicado. Ruta de login: `admin/login`. Páginas: dashboard, companies (list+detail), users (CRUD), requests, reports. (commits be39b06 + 605286e, 2026-06-14) |
 | Pub/Sub bridge | PHP → Redis → Node.js WS → Browser |
 | JSONB extensible | Columnas `config`, `data`, `meta` en tablas principales |
 | UUID v7 como PK | Todas las tablas (via `ncmInsert()`) |

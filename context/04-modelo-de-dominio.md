@@ -248,6 +248,102 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 | 25 | `25_contact_jsonb_demote2.sql` | Demota 9 columnas de `contact` a `contact.data` JSONB: `contactSecondName`, `contactAddress`, `contactAddress2`, `contactNote`, `contactCity`, `contactLocation`, `contactCountry`, `contactCI`, `contactBirthDay`. **DROP de `contactPhone2`** (eliminado por completo — decisión de producto). | Aplicada local 2026-06-12 |
 | 26 | `26_register_jsonb_demote.sql` | Demota 5 columnas de config fiscal de `register` a `register.data` JSONB: `registerInvoiceAuth`, `AuthExpiration`, `Prefix`, `Sufix`, `DocsLeadingZeros`. Los counters atómicos del POS (`registerDocNumber`, etc.) quedan como columnas reales (invariante: counters NO se demotan, ver §22.8 en `08-convenciones.md`). | Aplicada local 2026-06-12 |
 | 27 | `27_outlet_cleanup.sql` | Demota `outletNextExpirationDate` de `outlet` a `outlet.data` JSONB. **DROP TABLE IF EXISTS** de `setting`, `module`, `companyHours` (limpieza para instalaciones MySQL crudas que aún las tuvieran). | Aplicada local 2026-06-12 |
+| 28 | `28_billing.sql` | Crea tablas `ai_credit_ledger` y `billing_request`. Agrega columnas `company.aiCreditsBalance INT` y `plans.ai_credits_monthly INT`. | Aplicada 2026-06-14 |
+| 29 | `29_admin_audit.sql` | Crea tabla `admin_audit` con índices. Agrega helper `adminAudit()` en `panel/API/lib/admin_auth.php`. | Aplicada 2026-06-14 |
+| 30 | `30_billing_dlocal.sql` | Crea tablas `credit_pack` (catálogo + seed 3 packs) y `billing_invoice`. Agrega columna `ai_credit_ledger.relatedInvoiceId` + índice único parcial `uq_ai_credit_ledger_invoice_grant` (idempotencia anti doble-acreditación). | Aplicada 2026-06-14 |
+
+### Tabla `ai_credit_ledger` — ledger de créditos de IA (migración 28)
+
+Registro inmutable de movimientos de créditos de IA por tenant. Cada fila es un delta (entrada o salida).
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `id` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `companyId` | UUID NOT NULL | FK → `company(companyId)`. Multi-tenant scope. |
+| `delta` | INT NOT NULL | Positivo = acreditación; negativo = débito |
+| `balanceAfter` | INT NOT NULL | Saldo de `company.aiCreditsBalance` tras el movimiento |
+| `reason` | TEXT NOT NULL | Código de motivo: `'monthly_grant'`, `'pack_purchase'`, `'api_usage'`, etc. |
+| `tokensIn` | INT NULL | Tokens de input consumidos (para débitos de uso) |
+| `tokensOut` | INT NULL | Tokens de output consumidos (para débitos de uso) |
+| `meta` | JSONB NULL | Metadata libre por tipo de movimiento |
+| `relatedInvoiceId` | UUID NULL | FK → `billing_invoice(id)` — vincula el ledger a la factura de compra de pack |
+| `createdAt` | TIMESTAMPTZ | Timestamp de creación |
+
+**Índice único parcial** `uq_ai_credit_ledger_invoice_grant`: `UNIQUE (relatedInvoiceId) WHERE relatedInvoiceId IS NOT NULL` — garantiza que cada factura acredite exactamente una vez. Idempotencia de tercer nivel (además del lock de tx y el chequeo de `Affected_Rows` en el handler del webhook).
+
+### Tabla `billing_request` — solicitudes de cambio de plan (migración 28)
+
+Registro de pedidos de cambio de plan del tenant al equipo de plataforma. El admin los resuelve desde el panel admin.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `id` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `companyId` | UUID NOT NULL | FK → `company(companyId)` |
+| `requestedPlanCode` | SMALLINT NOT NULL | Plan al que el tenant quiere migrar |
+| `currentPlanCode` | SMALLINT NOT NULL | Plan actual al momento del pedido |
+| `status` | TEXT NOT NULL | `'pending'` / `'approved'` / `'rejected'` |
+| `note` | TEXT NULL | Nota del admin al resolver |
+| `createdAt` | TIMESTAMPTZ | — |
+| `resolvedAt` | TIMESTAMPTZ NULL | Timestamp de resolución |
+| `resolvedBy` | UUID NULL | FK loose → `admin_user(adminId)` |
+
+**Invariante operativa**: `resolveRequest()` en `CompanyAdminService` usa transacción con guard 409 en doble-resolución (SELECT FOR UPDATE sobre el `billing_request` antes de actualizar status).
+
+### Tabla `credit_pack` — catálogo de packs de créditos (migración 30)
+
+Catálogo de packs que el tenant puede comprar. La migración incluye seed de 3 packs iniciales.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `id` | UUID PK | — |
+| `name` | TEXT NOT NULL | Nombre del pack (display) |
+| `credits` | INT NOT NULL | Créditos que acredita este pack |
+| `priceUsd` | NUMERIC NOT NULL | Precio en USD |
+| `active` | BOOLEAN NOT NULL DEFAULT TRUE | Soft-disable para ocultar packs sin eliminarlos |
+| `createdAt` | TIMESTAMPTZ | — |
+
+### Tabla `billing_invoice` — facturas SaaS de compra de créditos (migración 30)
+
+Registro de facturas emitidas por compra de packs de créditos. Estado del ciclo de vida del pago.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `id` | UUID PK | — |
+| `companyId` | UUID NOT NULL | FK → `company(companyId)` |
+| `packId` | UUID NOT NULL | FK → `credit_pack(id)` |
+| `credits` | INT NOT NULL | Créditos del pack al momento de la compra (snapshot) |
+| `amountUsd` | NUMERIC NOT NULL | Monto cobrado (snapshot del precio del pack) |
+| `status` | TEXT NOT NULL | `'pending'` / `'paid'` / `'failed'` / `'refunded'` / `'cancelled'` |
+| `providerInvoiceId` | TEXT NULL | ID de la factura en dLocal Go |
+| `providerMetadata` | JSONB NULL | Payload raw de la respuesta del proveedor |
+| `createdAt` | TIMESTAMPTZ | — |
+| `updatedAt` | TIMESTAMPTZ | — |
+
+### Tabla `admin_audit` — log de auditoría de acciones admin (migración 29)
+
+Registro inmutable de cada mutación ejecutada por un super-admin. El helper `adminAudit()` en `panel/API/lib/admin_auth.php` hace el INSERT de forma best-effort (nunca lanza excepción para no romper el flujo principal).
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `id` | UUID PK | — |
+| `adminId` | UUID NOT NULL | FK loose → `admin_user(adminId)` (sin CASCADE — auditoría no se borra si se borra el admin) |
+| `adminEmail` | TEXT NOT NULL | Email del admin al momento de la acción (snapshot) |
+| `action` | TEXT NOT NULL | Código de acción: `'updateCompany'`, `'grantAiCredits'`, `'setAddons'`, `'resolveRequest'`, `'suspendCompany'`, `'deleteCompany'`, `'impersonate'`, `'createAdmin'`, `'updateAdmin'`, `'setAdminStatus'` |
+| `targetType` | TEXT NOT NULL | Tipo de entidad afectada: `'company'`, `'admin_user'`, `'billing_request'`, etc. |
+| `targetId` | UUID NULL | ID de la entidad afectada |
+| `targetName` | TEXT NULL | Nombre/label de la entidad al momento de la acción (snapshot) |
+| `meta` | JSONB NULL | Payload del cambio (qué campos se cambiaron y a qué valores) |
+| `ip` | TEXT NULL | IP del admin |
+| `createdAt` | TIMESTAMPTZ | — |
+
+**Índices**: `idx_admin_audit_admin` (adminId), `idx_admin_audit_target` (targetType, targetId), `idx_admin_audit_created` (createdAt DESC).
+
+### Nuevas columnas en tablas existentes (migraciones 28, 30)
+
+| Tabla | Columna nueva | Tipo | Descripción |
+|-------|---------------|------|-------------|
+| `company` | `aiCreditsBalance` | INT NOT NULL DEFAULT 0 | Saldo actual de créditos IA del tenant. Escribir SIEMPRE con `SELECT FOR UPDATE` + `Affected_Rows` (atomicidad). |
+| `plans` | `ai_credits_monthly` | INT NOT NULL DEFAULT 0 | Créditos IA que el plan otorga mensualmente (para el cron de grant mensual). |
 
 ### Endpoint `/v1/bootstrap` — campos de sucursal (commit fd5e5b3, 2026-06-12)
 

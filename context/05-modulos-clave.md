@@ -243,6 +243,49 @@ reportes, configuración de módulos, usuarios.
 
 **Stack**: Next.js 15, React 19, TypeScript, shadcn/ui, TanStack Table, TanStack Query.
 
+### /modules — Marketplace de módulos nativos (commit 59052ac, 2026-06-14)
+
+Página `app/(panel)/modules/page.tsx` — marketplace de módulos que el tenant puede activar/desactivar.
+
+**Catálogo**: `lib/modules-catalog.ts` — 19 módulos nativos en 5 categorías. Excluye integraciones de terceros (spotify/dropbox/mcal/tusfacturas/newton/osWidget/extraUsers).
+
+**Backend**: `Punto\Api\Modules\ModulesService` (`api/lib/Modules/ModulesService.php`) + endpoint `api/v1/modules.php` (gateado `apiAuthTenant(['panel'])`).
+
+**Patrón compat POS — double-write**: al activar/desactivar un módulo, el servicio escribe en DOS lugares:
+1. `company.moduleData` JSONB (patrón moderno)
+2. Columna flat de `company` (ej. `companyModule*`) — porque el POS lee los flags de columnas planas (`app/fetchs.php:448-456`)
+
+Hay una allowlist estricta de keys para el double-write. Código nuevo en /api escribe al JSONB; la lectura del POS sigue leyendo columnas planas.
+
+**Hook**: `hooks/use-modules.ts` — TanStack Query, patrón canónico CRUD panel-next.
+
+### /history-billing — Mi plan (Billing tenant, commits 0ff4906 + 53331fe + 8ce0739, 2026-06-14)
+
+Página `app/(panel)/history-billing/page.tsx` — vista de "Mi plan" para el tenant: plan activo, créditos de IA disponibles, historial del ledger, packs de créditos disponibles y flujo de compra.
+
+**Backend**: `Punto\Api\Billing\BillingService` (`api/lib/Billing/BillingService.php`) + endpoint `api/v1/billing.php` (gateado `apiAuthTenant(['panel'])`).
+
+Métodos del service:
+- `summary()` — plan activo, balance de créditos AI, features del plan
+- `plans()` — lista de planes disponibles
+- `aiLedger($from, $to)` — historial de movimientos de créditos AI (tabla `ai_credit_ledger`)
+- `requestPlanChange($requested)` — crea un `billing_request` pendiente de resolución por admin
+
+**Compra de créditos (dLocal Go, commit ca6a030)**: `Punto\Api\Billing\PaymentsService` (`api/lib/Billing/PaymentsService.php`) gestiona el flujo de compra de packs:
+- `createPackCheckout($packId, $tenantCtx)` — crea una `billing_invoice` + llama a dLocal Go para obtener redirect URL al checkout
+- `handleWebhook($payload, $signature)` — procesa webhooks de dLocal; acreditación atómica con `BeginTrans + SELECT FOR UPDATE invoice+company + UPDATE + Affected_Rows + ledger`; idempotencia en 3 capas (lock de tx + Affected_Rows + índice único `uq_ai_credit_ledger_invoice_grant`)
+
+**Proveedor dLocal Go** (`api/lib/Billing/Payments/DlocalGoProvider.php`):
+- Checkout tipo REDIRECT
+- `verifyWebhookSignature()` — HMAC-SHA256 + `hash_equals()`, fail-closed (401 si firma inválida)
+- `getPayment()` — re-query del estado de un pago
+
+**Endpoint webhook público**: `api/v1/billing-webhook.php` — sin JWT, lee `php://input` ANTES del bootstrap, verifica firma HMAC, devuelve 200 incluso ante errores internos (para no provocar reintentos del proveedor). Solo retorna 401 si la firma es inválida.
+
+**Hook**: `hooks/use-billing.ts`. **Tipos**: `lib/types/billing.ts`.
+
+Sin captura de tarjeta en el frontend — el flujo redirige al checkout de dLocal y retorna con `?checkout=success`.
+
 ### BFF catch-all same-origin (commit 580d79a, 2026-06-12)
 
 `panel-next/app/api/v1/[...path]/route.ts` — catch-all de Next.js que reenvía **todos** los requests a `/api/v1/*` al backend PHP (`NEXT_PUBLIC_API_URL`) preservando la cookie `_jwt_panel`. El `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Este es el patrón canónico para CRUD en panel-next** (antes solo existía para el income-chart). Ver §37 en `08-convenciones.md`.
@@ -268,9 +311,9 @@ Devuelve por contacto:
 
 Frontend perfil de contacto en panel-next reescrito a **4 tabs**: Resumen / Comportamiento / Financiero / Datos.
 
-### Módulo Reportes panel-next (commits 93b7ffb, 80c775c, 4e1bd90, 2026-06-12)
+### Módulo Reportes panel-next (commits 93b7ffb, 80c775c, 4e1bd90, ee61451, 780ec4b, 2026-06-12 a 2026-06-14)
 
-Landing `/reports` con 3 grupos del legacy (Ventas / Inventario / Admin). **10 reportes implementados**:
+Landing `/reports` con 3 grupos del legacy (Ventas / Inventario / Admin). **23 de 24 reportes implementados** (solo "Conteo de inventario" pendiente — sin endpoint ni vista legacy):
 
 | Reporte | Tipo |
 |---------|------|
@@ -285,12 +328,16 @@ Landing `/reports` con 3 grupos del legacy (Ventas / Inventario / Admin). **10 r
 | Marcas | ranking |
 | Pagos (métodos) | ranking |
 | Movimientos de caja | listado |
+| Órdenes | listado (nuevo, commit 780ec4b) |
+| + 11 reportes migrados en ee61451 | varios |
+
+**Nuevo backend — Órdenes** (commit 780ec4b): `Punto\Api\Reports\OrdersService` (`api/lib/Reports/OrdersService.php`) + endpoint `api/v1/reports/orders.php`. Fuente: `transaction type=12` (mismo origen que el widget de órdenes del dashboard). Estados según mapa de `panel/API/get_orders.php`: 0/1 Pendiente · 2 En espera · 3 En proceso · 4 Finalizado · 5 Enviado · 6 Cancelado.
 
 **Abstracciones compartidas**:
 - Hook genérico `useReport<T>` — fetching + estado de carga/error reutilizable por cualquier reporte.
 - Componente `<RankingReportPage>` — layout canónico para reportes tipo "ranking simple" (fecha, tabla, export).
 
-14 reportes marcados "Próximamente" en la landing.
+1 reporte marcado "Próximamente" en la landing (Conteo de inventario).
 
 ### `/settings` como Dialog modal (commit 67113d4, 2026-06-12)
 
@@ -333,6 +380,29 @@ Dashboard refactoreado al **layout 2-col del legacy (8/4)**:
 **Router** (`panel/router.php`): `/admin` + `/admin/login` → `panel/admin/home.html` / `panel/admin/login.html`; `/admin/users` → `panel/admin/users.html`; `/admin/companies` → `panel/admin/companies.html`.
 
 **Estado**: F0 (tabla+seed) ✅, F1 (auth) ✅, F2 (CRUD super-admins) ✅, F3.1 (companies read-only) ✅, F3.2 (update company) ✅, F3.3 (delete cascade soft+hard) ✅, F3.4 (billing view + plan selector + balance edit) ✅, F3.5 (impersonación JWT — "Ingresar como empresa") ✅ — **F3 COMPLETO**. Próximo: F4 (desacoplar SAAS_ADM/MASTER_COMPANY_ID) o F5 (login por teléfono). Ver plan completo en `10-roadmap.md § Admin realm`.
+
+### /admin en panel-next — Sub-app React greenfield (commits be39b06 + 605286e, 2026-06-14)
+
+El realm admin tiene ahora su propio route group React dentro de `panel-next/`: `app/(admin)/admin/*`. **Path-based dentro del mismo dominio** (`panel-next-dev.punto.la/admin`), no en subdominio dedicado.
+
+**Route group `(admin)`**: layout propio (`app/(admin)/layout.tsx`), no comparte hooks ni contexto con el route group `(panel)`. Rutas: `admin/login`, `admin/dashboard`, `admin/companies` (list+detail), `admin/users` (CRUD), `admin/requests`, `admin/reports`.
+
+**BFF catch-all admin** (`app/api/admin/[...path]/route.ts`): catch-all de Next.js que proxea a `panel/API/v1/admin/*`. Regla de aislamiento: **solo forwarda la cookie `_jwt_admin`** — NUNCA forwarda `_jwt_panel`. Esto mantiene el aislamiento criptográfico del realm admin incluso dentro del mismo proceso Next.js.
+
+**Componentes/hooks específicos del realm admin**:
+- `components/admin/admin-auth-guard.tsx` — guard de autenticación del admin
+- `components/admin/admin-sidebar.tsx` — sidebar standalone (no comparte nav con el panel tenant)
+- `hooks/use-admin.ts` — TanStack Query para el realm admin
+- `lib/api-admin.ts` — cliente HTTP del realm admin (usa `_jwt_admin`)
+
+**Reutiliza el backend admin existente**: `adminMiddleware()`, `_jwt_admin`, tabla `admin_user`. No hay nuevo backend — el que existe desde F0–F3 sigue siendo la fuente de verdad.
+
+**Dashboard y audit log (commit 605286e)**:
+
+- `AdminReportsService.php` (`panel/lib/admin/`): `overview()` (companies stats + MRR/ARR + byPlan + byCountry + newPerMonth + topAiCredits) + `payments(from,to)` (cross-tenant desde tabla `cpayments`). Endpoint: `panel/API/v1/admin/dashboard.php`.
+- `adminAudit()` helper en `panel/API/lib/admin_auth.php` — registra en tabla `admin_audit` (ver `04-modelo-de-dominio.md`). Best-effort, nunca lanza excepción. Wired en 10 handlers de mutación: updateCompany / grantAiCredits / setAddons / resolveRequest / suspendCompany / deleteCompany / impersonate + createAdmin / updateAdmin / setAdminStatus.
+
+**Búsqueda server-side en companies**: `CompanyAdminService::listAll` reescrito a SQL real con `WHERE` parametrizado (ILIKE sobre settingName/settingRUC/slug) + LIMIT/OFFSET + COUNT(*). El endpoint `companies.php` acepta `?q=&status=&plan=&blocked=&page=&pageSize=`. Antes el filtro era post-fetch en PHP (no escalaba).
 
 ---
 

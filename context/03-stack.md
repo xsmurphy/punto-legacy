@@ -114,6 +114,7 @@ versionados. Alpine queda con `^` (fuera del freeze legacy).
 | Resend / Mailgun | Email | Absorbe empresa |
 | DigitalOcean Spaces | File storage | Absorbe empresa |
 | Anthropic (Claude) | IA / Agente | Créditos al cliente |
+| **dLocal Go** | Pasarela de pagos SaaS — cobro de packs de créditos IA a tenants. Checkout tipo REDIRECT. Verificación de webhook por HMAC-SHA256 fail-closed. Provider: `Punto\Api\Billing\Payments\DlocalGoProvider`. (commit ca6a030, 2026-06-14) | Absorbe plataforma (fee por transacción) |
 
 ## Archivos de configuración clave
 

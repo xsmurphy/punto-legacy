@@ -100,6 +100,25 @@ Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el 
 | `PDF_API_KEY` | Generación de PDFs |
 | `NCM_SECRET` | Secret interno |
 
+### dLocal Go — pasarela de pagos SaaS (commit ca6a030, 2026-06-14)
+
+Variables requeridas para el flujo de compra de packs de créditos IA. Definidas en `app/includes/simple.config.php` + `.env.example`.
+
+| Variable | Descripción | Ejemplo |
+|----------|-------------|---------|
+| `DLOCAL_GO_API_KEY` | API Key pública de dLocal Go | (secret) |
+| `DLOCAL_GO_SECRET_KEY` | Secret Key para firma HMAC-SHA256 de checkouts | (secret) |
+| `DLOCAL_GO_WEBHOOK_SECRET` | Secret para verificar firma de webhooks entrantes | (secret) |
+| `DLOCAL_GO_ENVIRONMENT` | Entorno de dLocal | `sandbox` / `production` |
+| `DLOCAL_GO_BASE_URL` | URL base de la API de dLocal Go | `https://api.dlocalgo.com` |
+| `DLOCAL_GO_SUCCESS_URL` | URL de retorno tras pago exitoso | `https://panel.punto.la/history-billing?checkout=success` |
+| `DLOCAL_GO_BACK_URL` | URL de retorno si el usuario cancela | `https://panel.punto.la/history-billing` |
+| `DLOCAL_GO_NOTIFICATION_URL` | URL del webhook para notificaciones de pago | `https://api.punto.la/v1/billing-webhook.php` |
+
+**Setup en Coolify**: agregar todas las vars en el proyecto + configurar `DLOCAL_GO_NOTIFICATION_URL` en el dashboard de dLocal Go apuntando a `https://api.punto.la/v1/billing-webhook.php`.
+
+**Endpoint webhook** (`api/v1/billing-webhook.php`): público, sin JWT. Lee `php://input` ANTES del bootstrap. Verifica firma HMAC-SHA256 (`DlocalGoProvider::verifyWebhookSignature`), devuelve 401 si firma inválida y 200 en otros casos (para evitar loops de reintento del proveedor). La acreditación de créditos es atómica e idempotente — ver `04-modelo-de-dominio.md § billing_invoice` y el índice `uq_ai_credit_ledger_invoice_grant`.
+
 ### WebSocket
 
 | Variable | Contexto |
