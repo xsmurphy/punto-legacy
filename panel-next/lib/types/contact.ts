@@ -128,6 +128,33 @@ export interface ContactAnalytics {
   }>
 }
 
+// ── Packs de servicios ──────────────────────────────────────────────────────
+
+/** Componente de un pack con saldo restante — shape de PackService::listForContact(). */
+export interface SoldPackComponent {
+  packComponentId: string
+  componentName: string
+  total: number
+  used: number
+  remaining: number
+}
+
+/**
+ * Instancia de pack vendida a un cliente.
+ * status: 1=activo, 0=vencido/bloqueado, 2=consumido.
+ */
+export interface SoldPack {
+  soldPackId: string
+  packName: string
+  expiresAt: string
+  /** Días hasta vencimiento. Null si vencido. */
+  daysLeft: number | null
+  status: 0 | 1 | 2
+  components: SoldPackComponent[]
+}
+
+// ── Dirección de entrega ────────────────────────────────────────────────────
+
 /** Una dirección de entrega del cliente — shape de `CustomerAddressService::shape()`. */
 export interface CustomerAddress {
   id: string

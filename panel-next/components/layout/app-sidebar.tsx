@@ -35,9 +35,7 @@ import {
   ShieldCheck,
   Search,
   ChevronRight,
-  ReceiptText,
   ShoppingCart,
-  Component,
   Building2,
   Check,
 } from "lucide-react"
@@ -357,12 +355,6 @@ export function AppSidebar({
                     leftMenu():5722-5726). En el orden exacto del legacy. */}
                 <DropdownMenuGroup>
                   <DropdownMenuItem asChild>
-                    <Link href="/history-billing">
-                      <ReceiptText />
-                      Mi Plan
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
                     <Link href="/purchase">
                       <ShoppingCart />
                       Compras y Gastos
@@ -372,12 +364,6 @@ export function AppSidebar({
                     <Link href="/outlets">
                       <Building2 />
                       Sucursales
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/modules">
-                      <Component />
-                      Módulos
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>

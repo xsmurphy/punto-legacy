@@ -116,6 +116,20 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     group: "Configuración",
     keywords: ["editor", "template builder", "diseñar"],
   },
+  {
+    title: "Configuración · Módulos",
+    to: "/settings?section=modules",
+    icon: SettingsIcon,
+    group: "Configuración",
+    keywords: ["modulos", "modules", "activar", "feature", "rubro"],
+  },
+  {
+    title: "Configuración · Mi plan",
+    to: "/settings?section=plan",
+    icon: ReceiptText,
+    group: "Configuración",
+    keywords: ["plan", "billing", "creditos", "facturas", "suscripcion"],
+  },
 
   // Catálogo (deep-link a cada tab)
   {
@@ -140,14 +154,9 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     keywords: ["taxes", "iva", "tax", "impuesto"],
   },
 
-  // Acciones rápidas del menú user (también accesibles desde aquí)
-  {
-    title: "Mi Plan",
-    to: "/history-billing",
-    icon: ReceiptText,
-    group: "Operaciones",
-    keywords: ["plan", "billing", "estado de cuenta", "facturas", "pagos", "suscripción"],
-  },
+  // Acciones rápidas del menú user (también accesibles desde aquí). "Mi plan"
+  // se accede ahora como sección del modal /settings (ver entry de arriba en
+  // grupo Configuración), por eso no se repite acá.
   {
     title: "Compras y gastos",
     to: "/purchase",

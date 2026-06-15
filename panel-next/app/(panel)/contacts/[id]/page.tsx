@@ -56,6 +56,7 @@ import {
   useArchiveContact,
   useContact,
   useContactAnalytics,
+  useContactPacks,
   useCreateContact,
   useUpdateContact,
   useCustomerAddresses,
@@ -68,7 +69,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { ContactAnalytics, ContactFormValues, ContactFull, CustomerAddress } from "@/lib/types/contact"
+import type { ContactAnalytics, ContactFormValues, ContactFull, CustomerAddress, SoldPack } from "@/lib/types/contact"
 
 const contactSchema = z
   .object({
@@ -174,7 +175,7 @@ export default function ContactEditPage() {
   }
 
   const kind = form.watch("kind")
-  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data" | "addresses">(
+  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data" | "addresses" | "packs">(
     isNew ? "data" : "summary",
   )
   // Solo pedimos analytics cuando el contacto existe y el tenant lo abrió en
@@ -248,28 +249,34 @@ export default function ContactEditPage() {
           <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
         ) : (
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="summary" className="gap-1.5">
-                <BarChart3 className="size-3.5" />
-                Resumen
-              </TabsTrigger>
-              <TabsTrigger value="behavior" className="gap-1.5">
-                <Sparkles className="size-3.5" />
-                Comportamiento
-              </TabsTrigger>
-              <TabsTrigger value="financial" className="gap-1.5">
-                <Wallet className="size-3.5" />
-                Financiero
-              </TabsTrigger>
-              <TabsTrigger value="addresses" className="gap-1.5">
-                <MapPin className="size-3.5" />
-                Direcciones
-              </TabsTrigger>
-              <TabsTrigger value="data" className="gap-1.5">
-                <User2 className="size-3.5" />
-                Datos
-              </TabsTrigger>
-            </TabsList>
+            <div className="-mx-2 overflow-x-auto px-2">
+              <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
+                <TabsTrigger value="summary" className="gap-1.5">
+                  <BarChart3 className="size-3.5" />
+                  Resumen
+                </TabsTrigger>
+                <TabsTrigger value="behavior" className="gap-1.5">
+                  <Sparkles className="size-3.5" />
+                  Comportamiento
+                </TabsTrigger>
+                <TabsTrigger value="financial" className="gap-1.5">
+                  <Wallet className="size-3.5" />
+                  Financiero
+                </TabsTrigger>
+                <TabsTrigger value="addresses" className="gap-1.5">
+                  <MapPin className="size-3.5" />
+                  Direcciones
+                </TabsTrigger>
+                <TabsTrigger value="packs" className="gap-1.5">
+                  <Layers className="size-3.5" />
+                  Packs
+                </TabsTrigger>
+                <TabsTrigger value="data" className="gap-1.5">
+                  <User2 className="size-3.5" />
+                  Datos
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="summary" className="mt-6">
               <SummaryTab
@@ -295,6 +302,9 @@ export default function ContactEditPage() {
             </TabsContent>
             <TabsContent value="addresses" className="mt-6">
               <AddressesTab contactId={id} />
+            </TabsContent>
+            <TabsContent value="packs" className="mt-6">
+              <PacksTab contactId={id} />
             </TabsContent>
             <TabsContent value="data" className="mt-6">
               <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
@@ -878,6 +888,90 @@ function AddressMapParser({ onParsed }: { onParsed: (lat: number, lng: number) =
         </Button>
       </div>
     </div>
+  )
+}
+
+// ── TAB: Packs ──────────────────────────────────────────────────────────────
+
+function PacksTab({ contactId }: { contactId: string }) {
+  const { data: packs, isLoading } = useContactPacks(contactId)
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        {[1, 2].map((i) => <Skeleton key={i} className="h-28 w-full rounded-lg" />)}
+      </div>
+    )
+  }
+
+  if (!packs || packs.length === 0) {
+    return (
+      <EmptyStateBlock
+        icon={Layers}
+        title="Sin packs registrados"
+        description="Cuando el cliente compre un pack de servicios, aparecerá aquí con el historial de canjes."
+      />
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {packs.map((pack) => (
+        <PackCard key={pack.soldPackId} pack={pack} />
+      ))}
+    </div>
+  )
+}
+
+function PackCard({ pack }: { pack: SoldPack }) {
+  const statusLabel = pack.status === 1
+    ? `Activo — vence en ${pack.daysLeft ?? 0} días`
+    : pack.status === 0
+    ? "Vencido / Bloqueado"
+    : "Consumido completamente"
+
+  const statusVariant: "default" | "secondary" | "destructive" | "outline" = pack.status === 1
+    ? "default"
+    : pack.status === 2
+    ? "secondary"
+    : "destructive"
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-base font-semibold">{pack.packName}</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Vence: {new Date(pack.expiresAt).toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" })}
+            </p>
+          </div>
+          <Badge variant={statusVariant} className="shrink-0 text-xs">
+            {statusLabel}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="flex flex-col gap-2">
+          {pack.components.map((comp) => (
+            <div key={comp.packComponentId} className="flex items-center gap-3">
+              <span className="text-sm flex-1 min-w-0 truncate">{comp.componentName}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: comp.total > 0 ? `${Math.round((comp.remaining / comp.total) * 100)}%` : "0%" }}
+                  />
+                </div>
+                <span className="text-xs tabular-nums text-muted-foreground w-12 text-right">
+                  {comp.remaining}/{comp.total}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

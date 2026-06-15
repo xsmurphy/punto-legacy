@@ -30,6 +30,9 @@ proporcional al riesgo de la tarea:
 | Manual de marca | `11-design-system.md` |
 | **Panel rewrite** | `12-panel-rewrite.md` (crítico desde 2026-06-10) |
 | Plan refactor Items | `13-items-refactor-plan.md` |
+| **Análisis rewrite /app (POS)** | `14-app-rewrite-analysis.md` (2026-06-15) |
+| **Plan módulo de mesas** | `15-mesas-module-plan.md` (2026-06-15) |
+| **Rewrite POS (app-next)** | `16-app-next-rewrite.md` (2026-06-15) |
 | Bitácora de sesiones | `_session-log.md` |
 
 ### Archivos prohibidos para Read entero

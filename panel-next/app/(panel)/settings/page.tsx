@@ -2,11 +2,23 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag } from "lucide-react"
+import {
+  Loader2,
+  Building2,
+  Globe,
+  ScanLine,
+  Coins,
+  Check,
+  Palette,
+  FileText,
+  Tag,
+  Component,
+  ReceiptText,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -54,6 +66,8 @@ import { SUPPORTED_COUNTRIES } from "@/lib/countries"
 import { ThemePicker } from "@/components/theme-picker"
 import { DocumentsTab } from "@/components/settings/documents-tab"
 import { CompanyLogo } from "@/components/settings/company-logo"
+import { ModulesPanel } from "@/components/modules/modules-panel"
+import { PlanPanel } from "@/components/billing/plan-panel"
 import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
 
@@ -107,7 +121,25 @@ type SettingsSection =
   | "monedas"
   | "documentos"
   | "catalog"
+  | "modules"
+  | "plan"
   | "apariencia"
+
+const VALID_SECTIONS: readonly SettingsSection[] = [
+  "empresa",
+  "locale",
+  "pos",
+  "monedas",
+  "documentos",
+  "catalog",
+  "modules",
+  "plan",
+  "apariencia",
+] as const
+
+function isValidSection(value: string | null): value is SettingsSection {
+  return value !== null && (VALID_SECTIONS as readonly string[]).includes(value)
+}
 
 // `href` opcional: si está definido, el item del sidebar navega directo a esa
 // URL (cerrando el modal) en lugar de switchear la sección interna. Útil para
@@ -125,6 +157,8 @@ const SECTIONS: {
   { id: "monedas",    label: "Monedas",      icon: Coins },
   { id: "documentos", label: "Documentos",   icon: FileText },
   { id: "catalog",    label: "Catálogo",     icon: Tag, href: "/settings/catalog" },
+  { id: "modules",    label: "Módulos",      icon: Component },
+  { id: "plan",       label: "Mi plan",      icon: ReceiptText },
   { id: "apariencia", label: "Apariencia",   icon: Palette },
   // Redes sociales se fusionó a la sección Empresa (al final del tab) en vez
   // de tener una sección propia — el tab solo con 4 inputs estaba subutilizado.
@@ -135,12 +169,31 @@ const SECTIONS: {
 // Documentos y Catálogo no escriben configuración (son listados / navegación).
 const FORM_SECTIONS: SettingsSection[] = ["empresa", "locale", "pos", "apariencia"]
 
+// useSearchParams en App Router requiere un Suspense boundary cuando la página
+// se prerendea estáticamente (mismo issue que cazamos en commit b85c641 de
+// 2026-06-11). Wrapper minimal.
 export default function SettingsPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <SettingsModal />
+    </React.Suspense>
+  )
+}
+
+function SettingsModal() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data, isLoading, error } = useSettings()
   const update = useUpdateSettings()
   const [open, setOpen] = React.useState(true)
-  const [section, setSection] = React.useState<SettingsSection>("empresa")
+  // Deep-link `?section=modules|plan|empresa|...` — usado desde el menú user
+  // y el command palette para abrir el modal directo en la sección deseada.
+  // Solo se respeta el valor inicial; cambios posteriores son internos al modal.
+  const initialSection = React.useMemo<SettingsSection>(() => {
+    const raw = searchParams.get("section")
+    return isValidSection(raw) ? raw : "empresa"
+  }, [searchParams])
+  const [section, setSection] = React.useState<SettingsSection>(initialSection)
 
   // Cuando el modal se cierra, salimos de la ruta /settings. router.back() si
   // hay history (caso común: vino del sidebar dropdown); fallback a "/" para
@@ -322,6 +375,8 @@ export default function SettingsPage() {
                   {section === "monedas"    && <MonedasTab />}
                   {section === "documentos" && <DocumentsTab onNavigate={navigateAndClose} />}
                   {section === "catalog"    && <CatalogTab onNavigate={navigateAndClose} />}
+                  {section === "modules"    && <ModulesPanel />}
+                  {section === "plan"       && <PlanPanel />}
                   {section === "apariencia" && <AparienciaTab />}
                 </div>
                 {/* Save bar mobile — el header está oculto en mobile (hidden sm:flex)

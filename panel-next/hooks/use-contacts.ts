@@ -8,6 +8,7 @@ import type {
   ContactFull,
   ContactListItem,
   CustomerAddress,
+  SoldPack,
 } from "@/lib/types/contact"
 
 /**
@@ -169,6 +170,20 @@ export function useDeleteAddress() {
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["customerAddress", vars.customerId] })
     },
+  })
+}
+
+/**
+ * Packs del cliente (activos, vencidos y consumidos).
+ * GET /v1/sold_pack?contactId=<id>
+ */
+export function useContactPacks(contactId: string | undefined) {
+  return useQuery<SoldPack[]>({
+    queryKey: ["sold-packs", contactId],
+    queryFn: () =>
+      api.get<SoldPack[]>(`/v1/sold_pack?contactId=${contactId}`),
+    enabled: !!contactId,
+    staleTime: 30 * 1000,
   })
 }
 
