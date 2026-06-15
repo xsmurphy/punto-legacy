@@ -740,8 +740,11 @@ include_once("libraries/countries.php");
                   <a href="#" class="clickeable wrapper text-md block" data-type="toggleRemission"> 
                     <i class="material-icons text-muted m-r">local_shipping</i>Remisión
                   </a>
-                  <a href="#" class="clickeable wrapper text-md block" data-type="addOrder"> 
+                  <a href="#" class="clickeable wrapper text-md block" data-type="addOrder">
                     <i class="material-icons text-muted m-r">assignment</i>Orden
+                  </a>
+                  <a href="#" class="clickeable wrapper text-md block hide-basic" data-type="priceList" id="priceListMenuBtn">
+                    <i class="material-icons text-muted m-r">price_change</i>Lista de precios
                   </a>
                 </span>
 
@@ -2540,6 +2543,49 @@ include_once("libraries/countries.php");
           <div class="col-lg-4 col-sm-4 hidden-xs"></div>
         </div>
 
+
+        <!-- MODAL LISTA DE PRECIOS -->
+        <div class="imodal animated speed-5x momentumit" style="display:none;" id="modalPriceList" data-backdrop="1">
+          <div class="col-lg-4 col-sm-5 hidden-xs"></div>
+          <div class="col-lg-4 col-sm-5 col-xs-12 text-center bg-white clear r-24x imodal-content md-whiteframe-12dp no-padder"
+               x-data="ncmPriceListModal()">
+            <div class="imodal-header col-xs-12 no-padder wrapper-sm b-b">
+              <span class="h4 font-bold">Lista de precios</span>
+            </div>
+            <div class="imodal-body col-xs-12 wrapper text-left">
+              <p class="text-muted text-sm m-b">Seleccione una lista para aplicar sus precios al carrito. El precio base se restaura al limpiar la venta.</p>
+
+              <div class="list-group no-bg">
+                <!-- Opción: sin lista -->
+                <a href="#" class="list-group-item no-bg clickeable"
+                   :class="selected === null ? 'text-info font-bold' : ''"
+                   @click.prevent="pick(null)">
+                  <i class="material-icons m-r" x-text="selected === null ? 'radio_button_checked' : 'radio_button_unchecked'"></i>
+                  Precio base (sin lista)
+                </a>
+                <!-- Lista activa -->
+                <template x-for="pl in lists" :key="pl.priceListId">
+                  <a href="#" class="list-group-item no-bg clickeable"
+                     :class="selected === pl.priceListId ? 'text-info font-bold' : ''"
+                     @click.prevent="pick(pl.priceListId)">
+                    <i class="material-icons m-r" x-text="selected === pl.priceListId ? 'radio_button_checked' : 'radio_button_unchecked'"></i>
+                    <span x-text="pl.priceListName"></span>
+                    <small class="text-muted m-l" x-show="pl.defaultAdjustment != 0"
+                           x-text="(pl.defaultAdjustment > 0 ? '+' : '') + pl.defaultAdjustment + '%'"></small>
+                  </a>
+                </template>
+                <template x-if="!lists.length">
+                  <div class="wrapper text-muted text-center text-sm">No hay listas activas</div>
+                </template>
+              </div>
+            </div>
+            <div class="imodal-footer col-xs-12 wrapper-sm text-right b-t">
+              <a href="#" class="btn btn-default btn-rounded" onclick="$('#modalPriceList').imodal('hide')">Cerrar</a>
+            </div>
+          </div>
+          <div class="col-lg-4 col-sm-2 hidden-xs"></div>
+        </div>
+        <!-- MODAL LISTA DE PRECIOS END -->
 
         <!--NEW MODALS END-->
      

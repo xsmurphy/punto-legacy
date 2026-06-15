@@ -574,6 +574,10 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
                 $cusArray['diplomatic'] = $jcFields['diplomatic'];
               }
 
+              if(!is_null($jcFields) && !empty($jcFields['priceListId'])){
+                $cusArray['priceListId'] = $jcFields['priceListId'];
+              }
+
               $name     = toUTF8($cFields['contactName']);
               if(!$cFields['contactName'] && $cFields['contactSecondName']){
                 $name = toUTF8($cFields['contactSecondName']);
@@ -696,6 +700,75 @@ if(isset($_POST['companyId']) && isset($_POST['outletId'])){
 
     }
     //CUSTOMERS END
+
+    // PRICE LISTS — para el dropdown del cajero en la caja
+    if($LOAD == 'priceLists'){
+      $now  = date('Y-m-d H:i:s');
+
+      // Cabeceras de listas activas
+      $plRows = ncmExecute(
+        "SELECT \"priceListId\", \"priceListName\", \"defaultAdjustment\"
+           FROM price_list
+          WHERE \"companyId\" = ? AND \"status\" = true
+            AND (\"validFrom\" IS NULL OR \"validFrom\" <= ?)
+            AND (\"validTo\"   IS NULL OR \"validTo\"   >= ?)
+          ORDER BY \"priceListName\" ASC",
+        [COMPANY_ID, $now, $now],
+        false,
+        true
+      );
+
+      $plArray = [];
+      $plIds   = [];
+      if($plRows){
+        while(!$plRows->EOF){
+          $f = $plRows->fields;
+          $id = (string)$f['priceListId'];
+          $plArray[$id] = [
+            'priceListId'       => $id,
+            'priceListName'     => (string)$f['priceListName'],
+            'defaultAdjustment' => (float)$f['defaultAdjustment'],
+            'items'             => [],          // se llena abajo
+          ];
+          $plIds[] = $id;
+          $plRows->MoveNext();
+        }
+      }
+
+      // Ítems con override (fixedPrice o itemAdjustment) de esas listas
+      if(!empty($plIds)){
+        // Construimos lista de parámetros para el IN
+        $placeholders = implode(',', array_fill(0, count($plIds), '?'));
+        $params       = array_merge($plIds, [COMPANY_ID]);
+        $itemRows     = ncmExecute(
+          "SELECT \"priceListId\", \"itemId\",
+                  \"fixedPrice\", \"itemAdjustment\"
+             FROM price_list_item
+            WHERE \"priceListId\" IN ($placeholders)
+              AND \"companyId\" = ?",
+          $params,
+          false,
+          true
+        );
+        if($itemRows){
+          while(!$itemRows->EOF){
+            $fi  = $itemRows->fields;
+            $pid = (string)$fi['priceListId'];
+            if(isset($plArray[$pid])){
+              $plArray[$pid]['items'][] = [
+                'itemId'         => (string)$fi['itemId'],
+                'fixedPrice'     => $fi['fixedPrice'] !== null ? (float)$fi['fixedPrice'] : null,
+                'itemAdjustment' => $fi['itemAdjustment'] !== null ? (float)$fi['itemAdjustment'] : null,
+              ];
+            }
+            $itemRows->MoveNext();
+          }
+        }
+      }
+
+      echo json_encode(array_values($plArray));
+    }
+    // PRICE LISTS END
 
     //PRODUCTS
     if($LOAD == 'items'){

@@ -5713,6 +5713,13 @@ var ncmEvents = {
 
             tables('items');
 
+        } else if (type == 'priceList') {
+            // Abrir modal de selección de lista de precios.
+            // Dispatch de evento custom para que el componente Alpine sincronice su estado.
+            ncmActionSheet.hide();
+            document.getElementById('modalPriceList').dispatchEvent(new CustomEvent('price-list-open'));
+            $('#modalPriceList').imodal('show');
+
         } else if (type == 'reprintSale') {
             var bring = ncmTransactions.bringingSale;
             var data = bring.transactionDatas; //guardo ese contenido en la variable data
@@ -10534,6 +10541,7 @@ var ncmTransactions = {
     customDate: false,
     trUID: 0,
     discount: {},
+    activePriceListId: null,
     buildWindow: function (options) {
         var id = options.id;
         var tis = options.tis;
@@ -11480,6 +11488,7 @@ var ncmTransactions = {
         ncmCalendar.blocked = false;
         ncmGiftCards.giftCardAdd = false;
         ncmTransactions.returnSaleTags = false;
+        ncmTransactions.activePriceListId = null;
 
         //ncmTransactions.customerOrder         = false;
 
@@ -12806,6 +12815,7 @@ var ncmGlobals = {
     customersFltr: '',
     products: [],
     customers: [],
+    priceLists: [],
     lastDBUpdatedManually: false,
     currency: false
 };
@@ -12946,7 +12956,7 @@ var updateDB = {
         if (updateDB.checkLastUpdate && updateDB.getLastTimeUpdated()) {//si voy a update hago un ping para saber si hay nueva data
             updateDB.load('ping',
                 function (result) {
-                    $.when(updateDB.users(), updateDB.outlets(), updateDB.registers(), updateDB.settings(), updateDB.items(update), updateDB.customers(update)).done(function () {
+                    $.when(updateDB.users(), updateDB.outlets(), updateDB.registers(), updateDB.settings(), updateDB.items(update), updateDB.customers(update), updateDB.priceLists()).done(function () {
 
                         success && success();
                         updateDB.updatting = false;
@@ -12973,6 +12983,7 @@ var updateDB = {
 
                     ncmGlobals.products = ncmStorage.getEntry('productsObj');
                     ncmGlobals.customers = ncmStorage.getEntry('customersObj');
+                    ncmGlobals.priceLists = iftn(ncmStorage.getEntry('priceListsObj'), []);
 
                     buildItemCategoriesVar();
                     window.srcItemsArr = buildSearcheableTableArray(ncmGlobals.products);
@@ -12991,7 +13002,7 @@ var updateDB = {
 
                 });
         } else {
-            $.when(updateDB.settings(), updateDB.users(), updateDB.outlets(), updateDB.registers(), updateDB.items(update), updateDB.customers(update)).done(function () {
+            $.when(updateDB.settings(), updateDB.users(), updateDB.outlets(), updateDB.registers(), updateDB.items(update), updateDB.customers(update), updateDB.priceLists()).done(function () {
 
                 success && success();
                 updateDB.updatting = false;
@@ -13195,6 +13206,16 @@ var updateDB = {
                 });
 
                 updateDB.updateProgress(25, false, true);
+            });
+    },
+    priceLists: function () {
+        return updateDB.load('priceLists',
+            function (result) {
+                ncmGlobals.priceLists = iftn(result, []);
+                ncmStorage.addEntry('priceListsObj', ncmGlobals.priceLists);
+            },
+            function () {
+                ncmGlobals.priceLists = iftn(ncmStorage.getEntry('priceListsObj'), []);
             });
     },
     appConfig: function () {
@@ -19773,6 +19794,31 @@ document.addEventListener('alpine:init', function () {
         };
     });
 
+    /**
+     * Alpine component para el modal de selección de lista de precios.
+     * Lee ncmGlobals.priceLists y ncmTransactions.activePriceListId en el momento
+     * en que el modal se abre (via initModal() llamado desde ncmEvents).
+     */
+    Alpine.data('ncmPriceListModal', function () {
+        return {
+            lists: [],
+            selected: null,
+            init: function () {
+                var self = this;
+                // Sincronizar estado al abrir el modal
+                this.$el.addEventListener('price-list-open', function () {
+                    self.lists    = (ncmGlobals.priceLists && ncmGlobals.priceLists.length) ? ncmGlobals.priceLists : [];
+                    self.selected = ncmTransactions.activePriceListId || null;
+                });
+            },
+            pick: function (priceListId) {
+                this.selected = priceListId || null;
+                ncmPriceList.setActive(priceListId);
+                $('#modalPriceList').imodal('hide');
+            }
+        };
+    });
+
 });
 
 var ncmCustomer = {
@@ -20569,6 +20615,11 @@ var ncmCustomer = {
                 }
 
                 ncmTransactions.customer = cO;
+
+                // Si el cliente tiene lista de precios asignada, activarla
+                if (ncmHelpers.validity(cO.priceListId)) {
+                    ncmTransactions.activePriceListId = cO.priceListId;
+                }
             }
 
             //ncmWebSockets.checkoutScreen(); Se comenta ya que duplica el envio de datos
@@ -20671,6 +20722,80 @@ var ncmCustomer = {
         } else {
             callback && callback();
         }
+    }
+};
+
+/**
+ * ncmPriceList — helpers para listas de precios en el POS.
+ *
+ * Resolución local (sin round-trip):
+ *   1. fixedPrice del ítem en la lista  → precio exacto
+ *   2. itemAdjustment del ítem          → basePrice * (1 + adj/100)
+ *   3. defaultAdjustment de la lista    → basePrice * (1 + adj/100)
+ *   4. Sin lista activa                 → basePrice sin cambios
+ */
+var ncmPriceList = {
+    /** Devuelve el objeto lista activa o null. */
+    getActive: function () {
+        var id = ncmTransactions.activePriceListId;
+        if (!id || !ncmGlobals.priceLists || !ncmGlobals.priceLists.length) {
+            return null;
+        }
+        var found = null;
+        $.each(ncmGlobals.priceLists, function (i, pl) {
+            if (pl.priceListId === id) {
+                found = pl;
+                return false;// break
+            }
+        });
+        return found;
+    },
+
+    /** Aplica la lista activa al precio base de un ítem. Devuelve el precio final. */
+    applyToPrice: function (basePrice, itemId) {
+        var pl = ncmPriceList.getActive();
+        if (!pl) {
+            return basePrice;
+        }
+
+        // Buscar override de ítem
+        if (pl.items && pl.items.length) {
+            var override = null;
+            $.each(pl.items, function (i, it) {
+                if (it.itemId === itemId) {
+                    override = it;
+                    return false;// break
+                }
+            });
+
+            if (override) {
+                if (override.fixedPrice !== null && override.fixedPrice !== undefined) {
+                    return parseFloat(override.fixedPrice);
+                }
+                if (override.itemAdjustment !== null && override.itemAdjustment !== undefined) {
+                    return parseFloat((basePrice * (1 + override.itemAdjustment / 100)).toFixed(2));
+                }
+            }
+        }
+
+        // Ajuste global de la lista
+        if (pl.defaultAdjustment) {
+            return parseFloat((basePrice * (1 + pl.defaultAdjustment / 100)).toFixed(2));
+        }
+
+        return basePrice;
+    },
+
+    /** Establece la lista activa por ID y refresca la UI. */
+    setActive: function (priceListId) {
+        ncmTransactions.activePriceListId = priceListId || null;
+        tables('items');
+    },
+
+    /** Nombre de la lista activa para mostrar en la UI. */
+    activeName: function () {
+        var pl = ncmPriceList.getActive();
+        return pl ? pl.priceListName : '';
     }
 };
 
@@ -21516,8 +21641,14 @@ var itemsToTable = function () {
         }
 
         var itemTagsLine = iftn(tagsin, '', displaySelectedTags(tagsin).join(' - '));
+        // Si el ítem tiene precio base diferente (por lista de precios), mostrar tachado
+        var basePriceLabel = '';
+        if (item.basePrice !== undefined && item.basePrice !== price) {
+            var fBasePrice = ncmMaths.formatNumber({ number: item.basePrice, decimal: ncmGlobals.settings[0].decimal });
+            basePriceLabel = ' <span class="text-muted" style="text-decoration:line-through;font-size:11px;">' + stCurrency + fBasePrice + '</span>';
+        }
         var dataText = [
-            (sku ? sku + ' @ ' : '') + iftn(displayPrice, fPrice),
+            (sku ? sku + ' @ ' : '') + iftn(displayPrice, fPrice) + basePriceLabel,
             iftn(itmUser, '', '<i class="material-icons m-l-xs md-14">&#xe851;</i> ' + itmUser),
             iftn(itemTagsLine, '', '<i class="material-icons m-l-xs md-14">&#xe893;</i> ' + itemTagsLine),
             iftn(note, '', '<i class="material-icons m-l-xs md-14">&#xe0cb;</i> ' + note)
@@ -21694,12 +21825,14 @@ var customerToTable = function (callback) {
             var ruc = iftn(customer.ruc, '-');
             id = customer.customerId;
 
+            var activePLName = ncmPriceList.activeName();
             out = '<span class="inthelist clear" data-position="customer">' +
                 '   <div class="main lt">' +
                 '       <div class="col-xs-6 wrapper-md clickeable" data-id="' + id + '" data-type="customerInfoBtn">' +
                 '           <span class="block font-bold text-ellipsis">' + name + '</span>' +
                 '           <small class="text-danger customerHasOrdersMsg"></small> ' +
                 '           <small class="text-muted">' + ruc + '</small> ' +
+                (activePLName ? '           <small class="text-info"><i class="material-icons md-12" style="vertical-align:middle;font-size:12px;">price_change</i> ' + activePLName + '</small>' : '') +
                 '       </div>' +
                 '       <span class="col-xs-6 wrapper-md text-right text-md clickeable" data-type="rmItemFromList"> <i class="text-danger material-icons">close</i></span>' +
                 '   </div>' +
@@ -21907,6 +22040,13 @@ var ncmItems = {
                 object.exchange = exchange;
             }
             if (price) {
+                // Aplicar lista de precios activa (resolución local, sin round-trip)
+                var listPrice = ncmPriceList.applyToPrice(price, id);
+                if (listPrice !== price) {
+                    object.basePrice = price; // precio original para mostrar tachado
+                }
+                price = listPrice;
+
                 object.uniPrice = price;
                 object.price = price;
                 object.total = (price * count);
