@@ -4,8 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import type {
   AiLedgerEntry,
+  BillingInvoice,
+  BillingPack,
+  BillingPacksResult,
   BillingPlan,
   BillingSummary,
+  CheckoutResult,
   RequestPlanChangeResult,
 } from "@/lib/types/billing"
 
@@ -33,6 +37,36 @@ export function useAiLedger() {
     queryKey: ["billing", "ai-ledger"],
     queryFn: () => api.get<{ rows: AiLedgerEntry[] }>("/v1/billing?resource=ai-ledger"),
     staleTime: 60 * 1000,
+  })
+}
+
+/** Facturas emitidas por dLocal Go (historial de pagos). */
+export function useBillingInvoices() {
+  return useQuery<{ invoices: BillingInvoice[] }>({
+    queryKey: ["billing", "invoices"],
+    queryFn: () =>
+      api.get<{ invoices: BillingInvoice[] }>("/v1/billing?resource=invoices"),
+    staleTime: 60 * 1000,
+  })
+}
+
+/** Packs de créditos disponibles para compra + flag de pagos habilitados. */
+export function useBillingPacks() {
+  return useQuery<BillingPacksResult>({
+    queryKey: ["billing", "packs"],
+    queryFn: () => api.get<BillingPacksResult>("/v1/billing?resource=packs"),
+    staleTime: 60 * 1000,
+  })
+}
+
+/** Inicia el checkout dLocal para comprar un pack de créditos. */
+export function useCheckout() {
+  return useMutation<CheckoutResult, Error, { packId: string }>({
+    mutationFn: ({ packId }) =>
+      api.post<CheckoutResult>("/v1/billing", {
+        action: "checkout",
+        packId,
+      }),
   })
 }
 

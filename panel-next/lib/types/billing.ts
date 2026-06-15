@@ -94,3 +94,37 @@ export interface RequestPlanChangeResult {
   ok: boolean
   requestId: string
 }
+
+/** Factura emitida por dLocal Go (compra de pack o suscripción). */
+export interface BillingInvoice {
+  id: string
+  type: string
+  amount: number
+  currency: string
+  status: "pending" | "paid" | "failed" | "refunded" | "cancelled"
+  invoice: string
+  paidAt: string | null
+  date: string | null
+}
+
+/** Pack de créditos disponible para compra. */
+export interface BillingPack {
+  id: string
+  slug: string
+  name: string
+  credits: number
+  priceUsd: number
+  validityDays: number
+}
+
+/** Resultado del endpoint `resource=packs`. */
+export interface BillingPacksResult {
+  packs: BillingPack[]
+  paymentsEnabled: boolean
+}
+
+/** Resultado del checkout dLocal. */
+export interface CheckoutResult {
+  redirectUrl: string
+  invoiceId: string
+}

@@ -5,21 +5,23 @@ import {
   Wallet,
   Sparkles,
   Receipt,
-  Coins,
-  ArrowUpRight,
-  ArrowDownRight,
   Clock,
   XCircle,
-  MessageSquare,
-  PackageCheck,
+  Loader2,
 } from "lucide-react"
 
 import type { ColumnDef } from "@tanstack/react-table"
-import type { BillingPayment } from "@/lib/types/billing"
+import type { BillingInvoice, BillingPack } from "@/lib/types/billing"
 
-import { useBootstrap } from "@/hooks/use-bootstrap"
-import { useBilling, useAiLedger } from "@/hooks/use-billing"
-import { formatMoney } from "@/lib/format"
+import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
+
+import {
+  useBilling,
+  useBillingInvoices,
+  useBillingPacks,
+  useCheckout,
+} from "@/hooks/use-billing"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,11 +40,19 @@ import { EmptyState } from "@/components/empty-state"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-/** Badge de estado de pago — monocromático (solo tokens del design system). */
-function paymentStatusLabel(status: number) {
-  if (status === 1) return <Badge variant="secondary">Pagado</Badge>
-  if (status === 2) return <Badge variant="outline">Reembolsado</Badge>
-  return <Badge variant="outline">Pendiente</Badge>
+function invoiceStatusBadge(status: BillingInvoice["status"]) {
+  switch (status) {
+    case "paid":
+      return <Badge variant="secondary">Pagado</Badge>
+    case "pending":
+      return <Badge variant="outline">Pendiente</Badge>
+    case "failed":
+      return <Badge variant="outline">Fallido</Badge>
+    case "refunded":
+      return <Badge variant="outline">Reembolsado</Badge>
+    case "cancelled":
+      return <Badge variant="outline">Cancelado</Badge>
+  }
 }
 
 function fmtDate(s: string | null): string {
@@ -62,7 +72,7 @@ const nf = new Intl.NumberFormat("es-ES")
 
 // ── column defs ───────────────────────────────────────────────────────────────
 
-const paymentColumns: ColumnDef<BillingPayment, unknown>[] = [
+const invoiceColumns: ColumnDef<BillingInvoice, unknown>[] = [
   {
     id: "date",
     accessorKey: "date",
@@ -73,7 +83,7 @@ const paymentColumns: ColumnDef<BillingPayment, unknown>[] = [
     id: "invoice",
     accessorKey: "invoice",
     header: "Comprobante",
-    cell: ({ row }) => (row.original.invoice ? String(row.original.invoice) : "—"),
+    cell: ({ row }) => row.original.invoice || "—",
   },
   {
     id: "amount",
@@ -85,19 +95,174 @@ const paymentColumns: ColumnDef<BillingPayment, unknown>[] = [
     id: "status",
     accessorKey: "status",
     header: "Estado",
-    cell: ({ row }) => paymentStatusLabel(row.original.status),
+    cell: ({ row }) => invoiceStatusBadge(row.original.status),
   },
 ]
+
+// ── sub-components ────────────────────────────────────────────────────────────
+
+function FacturasCard() {
+  const { data, isLoading } = useBillingInvoices()
+  const invoices = data?.invoices ?? []
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base font-semibold">Facturas</CardTitle>
+        <CardDescription>
+          Tus pagos de suscripción y compras de créditos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : invoices.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="Sin facturas todavía"
+            description="Tus comprobantes de suscripción y compras de créditos van a aparecer acá."
+          />
+        ) : (
+          <DataTable<BillingInvoice>
+            tableId="billing-invoices"
+            data={invoices}
+            columns={invoiceColumns}
+            getRowId={(row) => row.id}
+            searchPlaceholder="Buscar comprobante…"
+            exportFileName={null}
+            pageSize={10}
+          />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function PackCard({ pack }: { pack: BillingPack }) {
+  const checkout = useCheckout()
+
+  function handleComprar() {
+    checkout.mutate(
+      { packId: pack.id },
+      {
+        onSuccess: (res) => {
+          if (res.redirectUrl) {
+            window.location.href = res.redirectUrl
+          }
+        },
+        onError: () => {
+          toast.error("No se pudo iniciar el pago. Intentá de nuevo.")
+        },
+      },
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold">{pack.name}</CardTitle>
+        <CardDescription>
+          {nf.format(pack.credits)} créditos · válido {pack.validityDays} días
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex items-center justify-between gap-4">
+        <span className="text-2xl font-bold tracking-tight tabular-nums">
+          USD {pack.priceUsd.toFixed(2)}
+        </span>
+        <Button
+          size="sm"
+          onClick={handleComprar}
+          disabled={checkout.isPending}
+          className="gap-2"
+        >
+          {checkout.isPending ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Redirigiendo…
+            </>
+          ) : (
+            "Comprar"
+          )}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ComprarCreditosTab() {
+  const { data, isLoading } = useBillingPacks()
+  const packs = data?.packs ?? []
+  const paymentsEnabled = data?.paymentsEnabled ?? false
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Skeleton className="h-32 rounded-xl" />
+        <Skeleton className="h-32 rounded-xl" />
+        <Skeleton className="h-32 rounded-xl" />
+      </div>
+    )
+  }
+
+  if (!paymentsEnabled || packs.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-2">
+          <EmptyState
+            icon={Sparkles}
+            showMarquee={false}
+            title="Compra de créditos — próximamente"
+            description="Pronto vas a poder comprar paquetes de créditos de IA directamente desde acá."
+          />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {packs.map((pack) => (
+        <PackCard key={pack.id} pack={pack} />
+      ))}
+    </div>
+  )
+}
 
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function HistoryBillingPage() {
-  const { data: bootstrap } = useBootstrap()
   const { data: billing, isLoading, isError } = useBilling()
-  const { data: ledgerData, isLoading: ledgerLoading } = useAiLedger()
+  const qc = useQueryClient()
 
-  const ledgerRows = ledgerData?.rows ?? []
-  const payments = billing?.payments ?? []
+  // Manejo del retorno de dLocal (?checkout=success)
+  React.useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("checkout") !== "success") return
+
+    toast.success(
+      "¡Pago recibido! Tus créditos se acreditan en unos instantes.",
+    )
+    void qc.invalidateQueries({ queryKey: ["billing"] })
+
+    // Segunda invalidación a los 4 s (el webhook es async)
+    const timer = setTimeout(() => {
+      void qc.invalidateQueries({ queryKey: ["billing"] })
+    }, 4000)
+
+    // Limpiar el query string de la URL
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname,
+    )
+
+    return () => clearTimeout(timer)
+  }, [qc])
 
   if (isLoading) {
     return (
@@ -127,7 +292,7 @@ export default function HistoryBillingPage() {
     )
   }
 
-  const { plan, usage, trial, balance, smsCredit, aiCredits, addons } = billing
+  const { plan, trial, aiCredits } = billing
 
   const monthly = aiCredits.monthly
   const creditsUsed = monthly > 0 ? Math.max(0, monthly - aiCredits.balance) : 0
@@ -233,203 +398,16 @@ export default function HistoryBillingPage() {
           <TabsTrigger value="comprar">Comprar créditos</TabsTrigger>
         </TabsList>
 
-        {/* Movimientos: facturas + movimientos de créditos */}
-        <TabsContent value="movimientos" className="mt-4 flex flex-col gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold">Facturas</CardTitle>
-              <CardDescription>
-                Tus pagos de suscripción y compras de créditos.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {payments.length === 0 ? (
-                <EmptyState
-                  icon={Receipt}
-                  title="Sin facturas todavía"
-                  description="Tus comprobantes de suscripción y compras de créditos van a aparecer acá."
-                />
-              ) : (
-                <DataTable<BillingPayment>
-                  tableId="billing-payments"
-                  data={payments}
-                  columns={paymentColumns}
-                  getRowId={(row) => row.id}
-                  searchPlaceholder="Buscar comprobante…"
-                  exportFileName={null}
-                  pageSize={10}
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold">
-                Movimientos de créditos
-              </CardTitle>
-              <CardDescription>
-                Altas y consumo de créditos de IA de tu cuenta.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {ledgerLoading ? (
-                <div className="flex flex-col gap-2">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              ) : ledgerRows.length === 0 ? (
-                <EmptyState
-                  icon={Coins}
-                  title="Sin movimientos de créditos"
-                  description="Cuando se acrediten o consuman créditos, vas a ver el detalle acá."
-                />
-              ) : (
-                <div className="flex flex-col divide-y">
-                  {ledgerRows.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="flex items-center justify-between gap-3 py-3"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        {entry.delta >= 0 ? (
-                          <ArrowUpRight className="size-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ArrowDownRight className="size-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <div className="flex min-w-0 flex-col">
-                          <span className="truncate text-sm">{entry.reason}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {fmtDate(entry.createdAt)}
-                          </span>
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-sm font-medium tabular-nums">
-                        {entry.delta >= 0 ? "+" : ""}
-                        {nf.format(entry.delta)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {/* Movimientos: facturas */}
+        <TabsContent value="movimientos" className="mt-4">
+          <FacturasCard />
         </TabsContent>
 
-        {/* Comprar créditos: próximamente */}
+        {/* Comprar créditos: packs dLocal */}
         <TabsContent value="comprar" className="mt-4">
-          <Card>
-            <CardContent className="py-2">
-              <EmptyState
-                icon={Sparkles}
-                showMarquee={false}
-                title="Compra de créditos — próximamente"
-                description="Pronto vas a poder comprar paquetes de créditos de IA directamente desde acá."
-              />
-            </CardContent>
-          </Card>
+          <ComprarCreditosTab />
         </TabsContent>
       </Tabs>
-
-      {/* ── Detalle del plan (límites + SMS + add-ons) ──────────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Límites del plan */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold">Límites del plan</CardTitle>
-            <CardDescription>Recursos usados vs. el tope de tu plan.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            {usage.length === 0 ? (
-              <EmptyState
-                icon={PackageCheck}
-                showMarquee={false}
-                title="Sin información de uso"
-                className="py-4"
-              />
-            ) : (
-              usage.map((row) => {
-                const unlimited = row.max === 0
-                const pct = unlimited
-                  ? 0
-                  : Math.min(100, Math.round((row.used / row.max) * 100))
-                return (
-                  <div key={row.key} className="flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{row.label}</span>
-                      <span className="font-medium tabular-nums">
-                        {unlimited
-                          ? `${nf.format(row.used)} / ∞`
-                          : `${nf.format(row.used)} / ${nf.format(row.max)}`}
-                      </span>
-                    </div>
-                    {!unlimited && <Progress value={pct} className="h-1.5" />}
-                  </div>
-                )
-              })
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-col gap-4">
-          {/* Créditos SMS */}
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Créditos SMS
-              </CardTitle>
-              <MessageSquare className="size-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tabular-nums">
-                  {nf.format(smsCredit)}
-                </span>
-                <span className="text-xs text-muted-foreground">créditos</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Balance de cuenta */}
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Saldo a favor
-              </CardTitle>
-              <Coins className="size-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold tabular-nums">
-                {formatMoney(balance, bootstrap)}
-              </span>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Add-ons (solo si hay) */}
-      {addons.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold">Add-ons contratados</CardTitle>
-            <CardDescription>Recursos adicionales activos en tu plan.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {addons.map((addon) => (
-              <div
-                key={addon.key}
-                className="flex items-center justify-between text-sm"
-              >
-                <span className="text-muted-foreground">{addon.label}</span>
-                <span className="font-medium tabular-nums">
-                  {nf.format(addon.qty)} uds.
-                </span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }
