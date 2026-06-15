@@ -23,6 +23,35 @@ function bffApiBase(): string
     return rtrim($base, '/');
 }
 
+/**
+ * Host header a forzar en las requests a la API compartida.
+ *
+ * En el deploy single-container conviene apuntar PUNTO_SHARED_API_BASE a
+ * `http://localhost:3000` (loopback in-container) en vez de `https://api.punto.la`
+ * (sale a Cloudflare y vuelve → round-trip extra + CF como punto de fallo +
+ * consume un 2º worker del pool por cada venta). Pero el `router.php` raíz
+ * despacha por Host header, así que el curl a localhost DEBE mandar
+ * `Host: api.punto.la` para rutear a /api. Eso lo controla PUNTO_SHARED_API_HOST.
+ *
+ * Si no está seteada → no se fuerza Host (comportamiento legacy: el Host lo
+ * deriva curl de la URL pública). 100% backwards-compatible.
+ */
+function bffApiHost(): ?string
+{
+    $h = getenv('PUNTO_SHARED_API_HOST');
+    return ($h !== false && $h !== '') ? $h : null;
+}
+
+/** Headers comunes a toda request BFF→API (+ Host override en deploy loopback). */
+function bffApiHeaders(): array
+{
+    $headers = ['Accept: application/json'];
+    if (($host = bffApiHost()) !== null) {
+        $headers[] = 'Host: ' . $host;
+    }
+    return $headers;
+}
+
 function bffApiGet(string $path, array $query = [], string $cookieName = '_jwt'): array
 {
     $url = bffApiBase() . '/' . ltrim($path, '/');
@@ -68,7 +97,7 @@ function bffApiSend(string $url, ?string $body, string $cookieName, string $meth
     $opts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
-        CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+        CURLOPT_HTTPHEADER     => bffApiHeaders(),
     ];
     if ($method === 'POST') {
         $opts[CURLOPT_POST] = true;
@@ -145,7 +174,7 @@ function bffApiGetMulti(array $requests, string $cookieName = '_jwt'): array
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 15,
-            CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+            CURLOPT_HTTPHEADER     => bffApiHeaders(),
             CURLOPT_HTTPGET        => true,
         ]);
         if ($jwt !== '') {

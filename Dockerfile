@@ -116,7 +116,10 @@ COPY router.php ./router.php
 RUN cd panel && composer dump-autoload --no-dev --optimize --classmap-authoritative
 RUN cd app   && composer dump-autoload --no-dev --optimize --classmap-authoritative
 
-ENV PHP_CLI_SERVER_WORKERS=8 \
+# 28 workers: el built-in server sirve panel+app+api+admin y el BFF de /app hace
+# self-HTTP (loopback in-container) → cada venta consume 2 workers. 8 se saturaba
+# bajo carga → 502. Overridable por env de Coolify.
+ENV PHP_CLI_SERVER_WORKERS=28 \
     APP_ENV=production
 
 # Entrypoint: configura PHP sessions en Redis al boot (sino se pierden en cada
