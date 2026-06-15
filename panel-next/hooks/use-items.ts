@@ -13,6 +13,7 @@ import {
   type ItemImage,
   type ItemListItem,
   type ItemLocation,
+  type PackComponent,
   type Taxonomy,
 } from "@/lib/types/item"
 
@@ -584,6 +585,8 @@ function serialize(
     itemMinDaysBetweenSessions: values.minDaysBetweenSessions ?? null,
     // Solo aplica a giftcard — para los otros kinds queda en JSONB sin uso.
     itemGiftcardColor: values.kind === "giftcard" ? values.giftcardColor : null,
+    // Solo aplica a pack — días hasta vencimiento de cada instancia vendida.
+    packDurationDays: values.kind === "pack" ? (values.packDurationDays ?? 30) : null,
   }
 }
 
@@ -629,4 +632,38 @@ export function parseCurrencies(raw: unknown): Record<string, number> {
     )
   }
   return {}
+}
+
+// ── Pack components ────────────────────────────────────────────────────────
+
+/**
+ * Lista los componentes de un pack (GET /v1/pack_component?packItemId=<id>).
+ * Solo activo cuando el item es de tipo "pack".
+ */
+export function usePackComponents(packItemId: string | undefined) {
+  return useQuery<PackComponent[]>({
+    queryKey: ["pack-components", packItemId],
+    queryFn: () => api.get<PackComponent[]>(`/v1/pack_component?packItemId=${packItemId}`),
+    enabled: !!packItemId,
+    staleTime: 30 * 1000,
+  })
+}
+
+/**
+ * Reemplaza todos los componentes de un pack (PUT /v1/pack_component?packItemId=<id>).
+ * Bulk replace: elimina los existentes e inserta los nuevos.
+ */
+export function useSetPackComponents() {
+  const qc = useQueryClient()
+  return useMutation<
+    PackComponent[],
+    Error,
+    { packItemId: string; components: Omit<PackComponent, "packComponentId">[] }
+  >({
+    mutationFn: ({ packItemId, components }) =>
+      api.put<PackComponent[]>(`/v1/pack_component?packItemId=${packItemId}`, { components }),
+    onSuccess: (_, { packItemId }) => {
+      qc.invalidateQueries({ queryKey: ["pack-components", packItemId] })
+    },
+  })
 }

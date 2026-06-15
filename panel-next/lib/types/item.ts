@@ -22,6 +22,7 @@ export type ItemKind =
   | "combo_dinamico"
   | "descuento"
   | "giftcard"
+  | "pack"
 
 export interface ItemCategory {
   id: string
@@ -61,6 +62,15 @@ export interface ComboGroup {
 
 /** Regla de precio del combo dinámico. */
 export type ComboPriceRule = "topPrice" | "lowPrice" | "average" | null
+
+/** Componente de un pack de servicios. */
+export interface PackComponent {
+  packComponentId: string
+  componentItemId: string
+  componentName: string
+  componentQty: number
+  sort: number
+}
 
 /** Compound / receta — ingrediente de un item de producción. */
 export interface ItemCompound {
@@ -203,6 +213,9 @@ export interface ItemFormValues {
 
   /** Para giftcard — color hex sin '#' del fondo de la tarjeta. */
   giftcardColor: string
+
+  /** Para pack — duración en días hasta que vence la instancia vendida. */
+  packDurationDays: number | null
 }
 
 export interface ItemAvailability {
@@ -381,6 +394,16 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
       showInventoryInfo: false, showCategorization: false, showUOM: false, showCompounds: false,
     },
   },
+  pack: {
+    label: "Pack / Combo de servicios",
+    description: "Vende un paquete de N servicios con vencimiento. El cliente los canjea desde el POS.",
+    group: "Otros",
+    backend: { itemType: "pack", itemCanSale: 1, itemTrackInventory: 0, itemProduction: 0 },
+    fields: {
+      showPrice: true, showCost: false, showTax: true, showDiscount: true,
+      showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
+    },
+  },
 }
 
 export const ALL_KINDS = Object.keys(KIND_META) as ItemKind[]
@@ -397,6 +420,7 @@ export function inferKind(item: Pick<ItemFull, "kind" | "itemType" | "itemCanSal
   if (item.itemType === "combo") return "combo_fijo"
   if (item.itemType === "discount") return "descuento"
   if (item.itemType === "giftcard") return "giftcard"
+  if (item.itemType === "pack") return "pack"
   if (item.itemType === "production" || toBool(item.itemProduction)) return "produccion_previa"
 
   const canSale = toBool(item.itemCanSale ?? 1)

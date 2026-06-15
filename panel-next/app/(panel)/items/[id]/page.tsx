@@ -102,6 +102,7 @@ import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
 import { ComboGroupsEditor } from "@/components/items/combo-groups-editor"
 import { LocationsEditor } from "@/components/items/locations-editor"
+import { PackComponentsEditor } from "@/components/items/pack-components-editor"
 import { CategoriesPicker, type SelectedCategory } from "@/components/items/categories-picker"
 
 const itemSchema = z.object({
@@ -118,6 +119,7 @@ const itemSchema = z.object({
     "combo_dinamico",
     "descuento",
     "giftcard",
+    "pack",
   ]),
   name: z.string().min(1, "El nombre es requerido"),
   sku: z.string(),
@@ -158,6 +160,7 @@ const itemSchema = z.object({
   validUntil: z.string().nullable(),
   minDaysBetweenSessions: z.number().int().nonnegative().nullable(),
   giftcardColor: z.string(),
+  packDurationDays: z.number().int().positive().nullable(),
 })
 
 type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
@@ -165,7 +168,7 @@ const KIND_GROUPS: Array<{ label: KindGroup; kinds: ItemKind[] }> = [
   { label: "Items de venta", kinds: ["producto", "servicio", "servicio_sesiones"] },
   { label: "Insumos", kinds: ["insumo_stock", "insumo_sin_stock", "insumo_control"] },
   { label: "Producción", kinds: ["produccion_previa", "produccion_directa"] },
-  { label: "Otros", kinds: ["combo_fijo", "combo_dinamico", "descuento", "giftcard"] },
+  { label: "Otros", kinds: ["combo_fijo", "combo_dinamico", "descuento", "giftcard", "pack"] },
 ]
 
 export default function ItemEditPage() {
@@ -250,6 +253,8 @@ export default function ItemEditPage() {
           : null,
       giftcardColor:
         toStr(data.itemGiftcardColor) || DEFAULT_GIFTCARD_COLOR,
+      packDurationDays:
+        typeof data.packDurationDays === "number" ? data.packDurationDays : null,
     })
     // Hidratar el multi-select de categorías desde el m2m. Si no hay nada y
     // el legacy `categoryId` apunta a una, la incluimos como única primary.
@@ -419,7 +424,7 @@ export default function ItemEditPage() {
                 Stock
               </TabsTrigger>
               <TabsTrigger value="produccion" className="gap-1.5" disabled={isNew}>
-                {kind === "combo_fijo" || kind === "combo_dinamico" ? (
+                {kind === "combo_fijo" || kind === "combo_dinamico" || kind === "pack" ? (
                   <>
                     <Package2 className="size-3.5" />
                     Componentes
@@ -620,6 +625,40 @@ function PerfilTab({
               </FormItem>
             )}
           />
+
+          {/* Duración del pack: solo cuando kind === 'pack'. */}
+          {kind === "pack" && (
+            <FormField
+              control={form.control}
+              name="packDurationDays"
+              render={({ field }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Duración (días)
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      placeholder="30"
+                      className="h-9 tabular-nums"
+                      value={field.value ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        field.onChange(v === "" ? null : parseInt(v, 10))
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription className="text-xs">
+                    Días desde la venta hasta que el pack vence. Los servicios no
+                    consumidos se pierden al vencer.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
 
           {/* Color de gift card: solo cuando kind === 'giftcard'. La tarjeta
               en el POS usa este color como background. Port del legacy
@@ -1468,6 +1507,25 @@ function ProduccionTab({
     )
   }
 
+  // Pack de servicios: usa PackComponentsEditor (tabla pack_component).
+  if (kind === "pack") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold tracking-tight">Servicios del pack</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            Agregá los servicios (o productos) que incluye este pack con la cantidad de
+            canjes disponibles. El cliente los consume desde el POS dentro del período
+            de vigencia configurado en Perfil.
+          </p>
+          <PackComponentsEditor itemId={id} />
+        </CardContent>
+      </Card>
+    )
+  }
+
   if (!visibility.showCompounds) {
     return (
       <Card>
@@ -1630,6 +1688,7 @@ function emptyValues(): ItemFormValues {
     validUntil: null,
     minDaysBetweenSessions: null,
     giftcardColor: DEFAULT_GIFTCARD_COLOR,
+    packDurationDays: 30,
   }
 }
 
