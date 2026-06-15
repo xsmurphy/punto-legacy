@@ -45,6 +45,8 @@ export interface ContactListItem {
   location: string | null
   lat: number | null
   lng: number | null
+  /** UUID de la lista de precios asignada a este contacto (desde data JSONB). */
+  priceListId: string | null
 }
 
 /** El detalle (GET ?id=) y el item de listado tienen exactamente el mismo shape
@@ -128,6 +130,28 @@ export interface ContactAnalytics {
   }>
 }
 
+/** Un componente dentro de un pack vendido — incluye saldo restante. */
+export interface SoldPackComponent {
+  packComponentId: string
+  componentItemId: string
+  name: string
+  componentQty: number
+  used: number
+  remaining: number
+}
+
+/** Un pack de servicios vendido a un contacto. */
+export interface SoldPack {
+  soldPackId: string
+  packItemId: string
+  packName: string
+  expiresAt: string
+  /** 1=activo, 0=bloqueado/vencido, 2=consumido. */
+  status: number
+  createdAt: string
+  components: SoldPackComponent[]
+}
+
 /** Una dirección de entrega del cliente — shape de `CustomerAddressService::shape()`. */
 export interface CustomerAddress {
   id: string
@@ -159,4 +183,6 @@ export interface ContactFormValues {
   email: string
   note: string
   status: boolean
+  /** UUID de la lista de precios asignada al contacto. Null = precio base. */
+  priceListId: string | null
 }

@@ -56,6 +56,7 @@ import {
   useArchiveContact,
   useContact,
   useContactAnalytics,
+  useContactPacks,
   useCreateContact,
   useUpdateContact,
   useCustomerAddresses,
@@ -65,10 +66,18 @@ import {
   useDeleteAddress,
 } from "@/hooks/use-contacts"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { usePriceLists } from "@/hooks/use-price-lists"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { ContactAnalytics, ContactFormValues, ContactFull, CustomerAddress } from "@/lib/types/contact"
+import type { ContactAnalytics, ContactFormValues, ContactFull, CustomerAddress, SoldPack } from "@/lib/types/contact"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 const contactSchema = z
   .object({
@@ -82,6 +91,7 @@ const contactSchema = z
     email: z.union([z.string().email("Email inválido"), z.literal("")]),
     note: z.string(),
     status: z.boolean(),
+    priceListId: z.string().nullable(),
   })
   .refine(
     (v) => (v.kind === "persona" ? v.name.trim() !== "" : v.fiscalName.trim() !== ""),
@@ -128,6 +138,7 @@ export default function ContactEditPage() {
       email: data.email ?? "",
       note: data.note ?? "",
       status: (data.status ?? 1) === 1,
+      priceListId: data.priceListId ?? null,
     })
   }, [data, form, isNew])
 
@@ -174,7 +185,7 @@ export default function ContactEditPage() {
   }
 
   const kind = form.watch("kind")
-  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data" | "addresses">(
+  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data" | "addresses" | "packs">(
     isNew ? "data" : "summary",
   )
   // Solo pedimos analytics cuando el contacto existe y el tenant lo abrió en
@@ -248,24 +259,28 @@ export default function ContactEditPage() {
           <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
         ) : (
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="summary" className="gap-1.5">
+            <TabsList className="flex h-auto w-full flex-wrap gap-1 justify-start bg-transparent p-0">
+              <TabsTrigger value="summary" className="gap-1.5 rounded-md border border-transparent data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm">
                 <BarChart3 className="size-3.5" />
                 Resumen
               </TabsTrigger>
-              <TabsTrigger value="behavior" className="gap-1.5">
+              <TabsTrigger value="behavior" className="gap-1.5 rounded-md border border-transparent data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm">
                 <Sparkles className="size-3.5" />
                 Comportamiento
               </TabsTrigger>
-              <TabsTrigger value="financial" className="gap-1.5">
+              <TabsTrigger value="financial" className="gap-1.5 rounded-md border border-transparent data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm">
                 <Wallet className="size-3.5" />
                 Financiero
               </TabsTrigger>
-              <TabsTrigger value="addresses" className="gap-1.5">
+              <TabsTrigger value="packs" className="gap-1.5 rounded-md border border-transparent data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <Layers className="size-3.5" />
+                Packs
+              </TabsTrigger>
+              <TabsTrigger value="addresses" className="gap-1.5 rounded-md border border-transparent data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm">
                 <MapPin className="size-3.5" />
                 Direcciones
               </TabsTrigger>
-              <TabsTrigger value="data" className="gap-1.5">
+              <TabsTrigger value="data" className="gap-1.5 rounded-md border border-transparent data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm">
                 <User2 className="size-3.5" />
                 Datos
               </TabsTrigger>
@@ -292,6 +307,9 @@ export default function ContactEditPage() {
                 isLoading={analytics.isLoading}
                 bootstrap={bootstrap}
               />
+            </TabsContent>
+            <TabsContent value="packs" className="mt-6">
+              <PacksTab contactId={id} />
             </TabsContent>
             <TabsContent value="addresses" className="mt-6">
               <AddressesTab contactId={id} />
@@ -322,6 +340,7 @@ function ContactFormBody({
   country: CountryCode
   setCountry: (c: CountryCode) => void
 }) {
+  const { data: priceLists } = usePriceLists()
   return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Identificación */}
@@ -460,6 +479,42 @@ function ContactFormBody({
                   <FormControl>
                     <Switch checked={field.value} onCheckedChange={field.onChange} />
                   </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="priceListId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Lista de precios</FormLabel>
+                  <Select
+                    value={field.value ?? ""}
+                    onValueChange={(v) => field.onChange(v === "" ? null : v)}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Precio base (sin lista)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="">Precio base (sin lista)</SelectItem>
+                      {(priceLists ?? [])
+                        .filter((pl) => pl.status)
+                        .map((pl) => (
+                          <SelectItem key={pl.priceListId} value={pl.priceListId}>
+                            {pl.priceListName}
+                            {pl.defaultAdjustment !== 0 && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                ({pl.defaultAdjustment > 0 ? "+" : "−"}{Math.abs(pl.defaultAdjustment)}%)
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -878,6 +933,90 @@ function AddressMapParser({ onParsed }: { onParsed: (lat: number, lng: number) =
         </Button>
       </div>
     </div>
+  )
+}
+
+// ── TAB: Packs ──────────────────────────────────────────────────────────────
+
+function PacksTab({ contactId }: { contactId: string }) {
+  const { data: packs, isLoading } = useContactPacks(contactId)
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)}
+      </div>
+    )
+  }
+
+  if (!packs || packs.length === 0) {
+    return (
+      <EmptyStateBlock
+        icon={Layers}
+        title="Sin packs activos"
+        description="Cuando este cliente compre un pack de servicios aparecerá aquí con el saldo disponible."
+      />
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {packs.map((pack) => <PackCard key={pack.soldPackId} pack={pack} />)}
+    </div>
+  )
+}
+
+function PackCard({ pack }: { pack: SoldPack }) {
+  const statusInfo = (() => {
+    if (pack.status === 2) return { label: "Consumido", variant: "secondary" as const }
+    if (pack.status === 0) return { label: "Vencido / bloqueado", variant: "destructive" as const }
+    return { label: "Activo", variant: "default" as const }
+  })()
+
+  const expiresAt = new Date(pack.expiresAt)
+  const now = new Date()
+  const daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base">{pack.packName}</CardTitle>
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge variant={statusInfo.variant} className="text-xs">{statusInfo.label}</Badge>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {pack.status === 1 && daysLeft > 0
+            ? `Vence ${niceDate(pack.expiresAt)} (${daysLeft} día${daysLeft !== 1 ? "s" : ""})`
+            : `Venció ${niceDate(pack.expiresAt)}`}
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {pack.components.map((comp) => {
+          const pct = comp.componentQty > 0 ? Math.round((comp.remaining / comp.componentQty) * 100) : 0
+          return (
+            <div key={comp.packComponentId} className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="truncate">{comp.name}</span>
+                <span className="ml-2 shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {comp.remaining} / {comp.componentQty}
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    pct > 50 ? "bg-chart-1" : pct > 20 ? "bg-chart-3" : "bg-destructive",
+                  )}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -1510,6 +1649,7 @@ function emptyValues(): ContactFormValues {
     email: "",
     note: "",
     status: true,
+    priceListId: null,
   }
 }
 

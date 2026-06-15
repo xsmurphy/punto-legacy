@@ -8,6 +8,7 @@ import type {
   ContactFull,
   ContactListItem,
   CustomerAddress,
+  SoldPack,
 } from "@/lib/types/contact"
 
 /**
@@ -172,6 +173,19 @@ export function useDeleteAddress() {
   })
 }
 
+/**
+ * Packs de servicios vendidos a un contacto. Incluye saldo de componentes y
+ * estado (activo / vencido / consumido). El backend hace lazy-expiry on read.
+ */
+export function useContactPacks(contactId: string | undefined) {
+  return useQuery<SoldPack[]>({
+    queryKey: ["sold-packs", contactId],
+    queryFn: () => api.get<SoldPack[]>(`/v1/sold_pack?contactId=${contactId}`),
+    enabled: !!contactId,
+    staleTime: 60 * 1000,
+  })
+}
+
 /** Mapea form values al payload que el endpoint espera (snake-ish keys del legacy). */
 function serialize(values: ContactFormValues): Record<string, unknown> {
   // Decidir name vs fiscalName por kind. El backend acepta ambos en el mismo
@@ -189,5 +203,6 @@ function serialize(values: ContactFormValues): Record<string, unknown> {
     email: values.email,
     note: values.note,
     status: values.status ? 1 : 0,
+    priceListId: values.priceListId ?? "",
   }
 }
