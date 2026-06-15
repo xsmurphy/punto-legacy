@@ -2,15 +2,18 @@
 /**
  * JWT Middleware para el módulo /app.
  *
- * Lee el token desde (en orden de prioridad):
+ * Lee TODOS los tokens candidatos de la request (ver _jwtExtractTokens):
  *   1. Header  Authorization: Bearer <token>
- *   2. Cookie  _jwt
- *   3. POST    _jwt
+ *   2. Cookie  _jwt_panel (realm panel) y _jwt (realm pos-app)
+ *   3. POST    _jwt_panel y _jwt
+ * y elige el que matchea el realm del endpoint (allowlist contra el claim `iss`).
+ * El browser puede mandar `_jwt` y `_jwt_panel` a la vez en app.punto.la — por
+ * eso se selecciona por realm, no "el primero".
  *
  * Comportamiento:
- *   - Token válido   → define AUTHED_* constants, retorna true
- *   - Sin token      → retorna false (sigue la ruta legacy)
- *   - Token inválido → responde 401 y muere (ataque activo o token expirado)
+ *   - Token válido del realm → define AUTHED_* constants, retorna true
+ *   - Sin ningún token       → retorna false (sigue la ruta legacy)
+ *   - Token inválido / de otro realm → responde 401 y muere
  *
  * Dependencias: jwt.php, simple.config.php (para leer JWT_SECRET desde $_ENV)
  */
@@ -25,23 +28,17 @@ function jwtAuthenticate(array $allowedRealms = ['pos-app']): bool
         return false;
     }
 
-    $token = _jwtExtractToken();
+    // Puede haber MÁS de un token presente en la misma request: el browser manda
+    // `_jwt` (POS, host-only) y `_jwt_panel` (panel, domain `.punto.la`) a la vez
+    // en `app.punto.la` cuando el usuario está logueado en ambos realms. Por eso
+    // NO alcanza con tomar "el primero": hay que elegir el candidato cuyo `iss`
+    // matchea la allowlist del endpoint. Si tomáramos el primero a ciegas, un
+    // `_jwt_panel` presente eclipsaría al `_jwt` válido del POS → 401 espurio.
+    $candidates = _jwtExtractTokens();
 
-    if ($token === null) {
+    if (empty($candidates)) {
         // Sin token: legacy path
         return false;
-    }
-
-    $payload = jwtDecode($token, $secret);
-
-    if ($payload === null) {
-        // Token presente pero inválido o expirado
-        http_response_code(401);
-        header('Content-Type: application/json');
-        die(json_encode([
-            'error' => 'Token inválido o expirado',
-            'code'  => 401,
-        ]));
     }
 
     // Realm gate: JWT_SECRET es COMPARTIDO entre POS y panel; el claim `iss`
@@ -51,11 +48,29 @@ function jwtAuthenticate(array $allowedRealms = ['pos-app']): bool
     // re-login es aceptable. La allowlist la declara cada endpoint (default POS):
     // los tokens POS son eternos (device pairing) y NO deben autenticar en
     // endpoints administrativos del panel — fail-closed por call-site.
-    if (!in_array($payload['iss'] ?? '', $allowedRealms, true)) {
+    $payload = null;
+    $sawValidButWrongRealm = false;
+    foreach ($candidates as $candidate) {
+        $decoded = jwtDecode($candidate, $secret);
+        if ($decoded === null) {
+            // Token presente pero inválido o expirado — probar el siguiente.
+            continue;
+        }
+        if (in_array($decoded['iss'] ?? '', $allowedRealms, true)) {
+            $payload = $decoded;
+            break;
+        }
+        // Firma válida pero realm equivocado (ej. `_jwt_panel` en endpoint POS).
+        $sawValidButWrongRealm = true;
+    }
+
+    if ($payload === null) {
         http_response_code(401);
         header('Content-Type: application/json');
         die(json_encode([
-            'error' => 'Token de otro realm',
+            'error' => $sawValidButWrongRealm
+                ? 'Token de otro realm'
+                : 'Token inválido o expirado',
             'code'  => 401,
         ]));
     }
@@ -220,37 +235,57 @@ function jwtSetCookie(string $token, int $ttl): void
     ]);
 }
 
-function _jwtExtractToken(): ?string
+/**
+ * Devuelve TODOS los tokens candidatos presentes en la request, en orden de
+ * prioridad, SIN filtrar por realm. La selección por realm la hace el caller
+ * (jwtAuthenticate / refresh / logout) contra el claim `iss`.
+ *
+ * Por qué una lista y no "el primero": el browser puede mandar `_jwt` (POS,
+ * host-only) y `_jwt_panel` (panel, domain `.punto.la`) a la vez en
+ * `app.punto.la`. Quedarse con el primero hacía que `_jwt_panel` eclipsara al
+ * `_jwt` del POS y devolviera 401 "Token de otro realm" aunque el token POS
+ * fuera válido. Ahora el caller recorre los candidatos y se queda con el que
+ * matchea su realm.
+ *
+ * @return string[] tokens crudos (sin decodificar), puede estar vacío.
+ */
+function _jwtExtractTokens(): array
 {
-    // 1. Authorization header
+    $tokens = [];
+
+    // 1. Authorization header (Bearer) — prioridad 1.
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/Bearer\s+(\S+)/i', $authHeader, $m)) {
-        return $m[1];
+        $tokens[] = $m[1];
     }
 
-    // 2. Cookie. Dos nombres distintos por realm:
+    // 2. Cookies. Dos nombres distintos por realm:
     //    - `_jwt_panel` → emitido por PanelAuth::issueJwt / issueJwtPanel (realm panel)
     //    - `_jwt`       → emitido por el login del POS / app (realm pos-app)
-    // Cuando el browser visita /api/v1/bootstrap desde panel-next-dev.punto.la
-    // manda ambas si las tiene. Probamos primero `_jwt_panel` (sesión interactiva
-    // del panel, TTL 24h) y caemos a `_jwt` (device pairing del POS, TTL 10
-    // años). La validación del realm la hace jwtAuthenticate() con la allowlist
-    // del endpoint contra el claim `iss` — un token panel en endpoint POS y
-    // viceversa quedan rechazados aunque la cookie esté presente.
     if (!empty($_COOKIE['_jwt_panel'])) {
-        return $_COOKIE['_jwt_panel'];
+        $tokens[] = $_COOKIE['_jwt_panel'];
     }
     if (!empty($_COOKIE['_jwt'])) {
-        return $_COOKIE['_jwt'];
+        $tokens[] = $_COOKIE['_jwt'];
     }
 
     // 3. POST field (clientes programáticos)
     if (!empty($_POST['_jwt_panel'])) {
-        return $_POST['_jwt_panel'];
+        $tokens[] = $_POST['_jwt_panel'];
     }
     if (!empty($_POST['_jwt'])) {
-        return $_POST['_jwt'];
+        $tokens[] = $_POST['_jwt'];
     }
 
-    return null;
+    return $tokens;
+}
+
+/**
+ * Back-compat: primer candidato según prioridad (header > cookie panel >
+ * cookie POS > POST). Realm-agnóstico — callers que necesiten un realm
+ * específico deben recorrer _jwtExtractTokens() y filtrar por `iss`.
+ */
+function _jwtExtractToken(): ?string
+{
+    return _jwtExtractTokens()[0] ?? null;
 }

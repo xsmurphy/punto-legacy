@@ -35,51 +35,65 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 }
 
 $secret = $_ENV['JWT_SECRET'] ?? '';
-$token  = $secret ? _jwtExtractToken() : null;
 
-if ($token !== null && $secret) {
-    $payload  = jwtDecode($token, $secret);
-    $isPosToken = is_array($payload) && (($payload['iss'] ?? '') === 'pos-app');
-
-    if ($isPosToken) {
-        $deviceId  = (string)($payload['did'] ?? '');
-        $companyId = (string)($payload['cid'] ?? '');
-        $userId    = (string)($payload['sub'] ?? '');
-
-        if ($deviceId !== '' && $companyId !== ''
-            && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $deviceId)
-            && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $companyId)
-        ) {
-            try {
-                // Doble guard tenant: revoke solo si companyId del JWT matchea
-                // el de la row (defense-in-depth contra forjado del did).
-                global $db;
-                $db->Execute(
-                    "UPDATE device SET status = 0, revokedAt = now(), revokedBy = ?
-                       WHERE deviceId = ? AND companyId = ?",
-                    [
-                        ($userId !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $userId)) ? $userId : null,
-                        $deviceId,
-                        $companyId,
-                    ]
-                );
-                // Invalidación inmediata del cache file (no esperar TTL 60s)
-                jwtInvalidateDeviceCache($deviceId);
-            } catch (\Throwable $e) {
-                error_log('[logout] revoke device falló: ' . $e->getMessage());
-                // Aunque falle el revoke server-side, igual matamos la cookie.
-            }
+// El browser puede mandar `_jwt` (POS) y `_jwt_panel` (panel) a la vez en
+// app.punto.la. Logout revoca el device del POS, así que elegimos el candidato
+// `iss=pos-app` entre todos los presentes (no el primero a ciegas — sino un
+// `_jwt_panel` presente haría que logout no revoque nada).
+$payload = null;
+if ($secret) {
+    foreach (_jwtExtractTokens() as $candidate) {
+        $decoded = jwtDecode($candidate, $secret);
+        if (is_array($decoded) && ($decoded['iss'] ?? '') === 'pos-app') {
+            $payload = $decoded;
+            break;
         }
     }
 }
 
-// Mata la cookie `_jwt` — expires en el pasado + path=/ (mismo path que jwtSetCookie)
-$isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+if ($payload !== null) {
+    $deviceId  = (string)($payload['did'] ?? '');
+    $companyId = (string)($payload['cid'] ?? '');
+    $userId    = (string)($payload['sub'] ?? '');
+
+    if ($deviceId !== '' && $companyId !== ''
+        && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $deviceId)
+        && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $companyId)
+    ) {
+        try {
+            // Doble guard tenant: revoke solo si companyId del JWT matchea
+            // el de la row (defense-in-depth contra forjado del did).
+            global $db;
+            $db->Execute(
+                "UPDATE device SET status = 0, revokedAt = now(), revokedBy = ?
+                   WHERE deviceId = ? AND companyId = ?",
+                [
+                    ($userId !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $userId)) ? $userId : null,
+                    $deviceId,
+                    $companyId,
+                ]
+            );
+            // Invalidación inmediata del cache file (no esperar TTL 60s)
+            jwtInvalidateDeviceCache($deviceId);
+        } catch (\Throwable $e) {
+            error_log('[logout] revoke device falló: ' . $e->getMessage());
+            // Aunque falle el revoke server-side, igual matamos la cookie.
+        }
+    }
+}
+
+// Mata la cookie `_jwt` — mismos atributos que jwtSetCookie (path/httponly/
+// samesite/secure) para que el browser la matchee y la borre. La detección
+// HTTPS lee X-Forwarded-Proto: detrás de Traefik/Cloudflare $_SERVER['HTTPS']
+// es 'off' aunque el cliente sea HTTPS, y un Secure distinto al del set puede
+// impedir el borrado.
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
 setcookie('_jwt', '', [
     'expires'  => 1,
     'path'     => '/',
     'httponly' => true,
-    'samesite' => 'Strict',
+    'samesite' => 'Lax',
     'secure'   => $isHttps,
 ]);
 

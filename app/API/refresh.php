@@ -27,25 +27,39 @@ if (!$secret) {
     die(json_encode(['error' => 'JWT no configurado en servidor']));
 }
 
-$token = _jwtExtractToken();
+// Realm gate: refresh solo emite tokens POS desde tokens POS. Un token panel
+// (mismo JWT_SECRET) NO debe poder refrescarse acá → privilege escalation.
+// El browser puede mandar `_jwt` y `_jwt_panel` a la vez en app.punto.la; por
+// eso recorremos los candidatos y nos quedamos con el `iss=pos-app` (si lo hay)
+// en vez del primero a ciegas.
+$candidates = _jwtExtractTokens();
 
-if ($token === null) {
+if (empty($candidates)) {
     http_response_code(401);
     die(json_encode(['error' => 'Token requerido']));
 }
 
-$payload = jwtDecode($token, $secret);
+$payload = null;
+$sawValidButWrongRealm = false;
+foreach ($candidates as $candidate) {
+    $decoded = jwtDecode($candidate, $secret);
+    if (!is_array($decoded)) {
+        continue; // inválido o expirado — probar el siguiente
+    }
+    if (($decoded['iss'] ?? '') === 'pos-app') {
+        $payload = $decoded;
+        break;
+    }
+    $sawValidButWrongRealm = true; // firma válida pero realm panel/admin
+}
 
 if ($payload === null) {
     http_response_code(401);
-    die(json_encode(['error' => 'Token inválido o expirado']));
-}
-
-// Realm gate: refresh solo emite tokens POS desde tokens POS. Un token panel
-// (mismo JWT_SECRET) NO debe poder refrescarse acá → privilege escalation.
-if (($payload['iss'] ?? '') !== 'pos-app') {
-    http_response_code(401);
-    die(json_encode(['error' => 'Token de otro realm']));
+    die(json_encode([
+        'error' => $sawValidButWrongRealm
+            ? 'Token de otro realm'
+            : 'Token inválido o expirado',
+    ]));
 }
 
 // Device pairing — si el JWT trae `did`, validar status antes de emitir
