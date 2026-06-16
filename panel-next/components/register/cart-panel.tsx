@@ -50,6 +50,7 @@ import { ProductSearchDialog } from "@/components/register/product-search-dialog
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
 import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
+import { PosMainMenuDrawer } from "@/components/register/pos-main-menu-drawer"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
@@ -194,26 +195,32 @@ function CartToolbar({
   onCancelSale: () => void
 }) {
   return (
-    <div className="flex h-14 shrink-0 items-center justify-end gap-1 border-b border-border px-3">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-9"
-        onClick={onSearch}
-        aria-label="Buscar producto"
-      >
-        <Search className="size-5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-9"
-        onClick={onCustomer}
-        aria-label="Cliente"
-      >
-        <User className="size-5" />
-      </Button>
-      <SaleOptionsDrawer onCancelSale={onCancelSale} />
+    <div className="flex h-14 shrink-0 items-center justify-between gap-1 border-b border-border px-3">
+      {/* Izquierda: menú principal del POS (≡) */}
+      <PosMainMenuDrawer />
+
+      {/* Derecha: herramientas de la venta */}
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9"
+          onClick={onSearch}
+          aria-label="Buscar producto"
+        >
+          <Search className="size-5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9"
+          onClick={onCustomer}
+          aria-label="Cliente"
+        >
+          <User className="size-5" />
+        </Button>
+        <SaleOptionsDrawer onCancelSale={onCancelSale} />
+      </div>
     </div>
   )
 }
