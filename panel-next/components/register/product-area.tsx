@@ -141,9 +141,11 @@ export function ProductArea() {
     return items.filter((i) => i.categoryId === view.categoryId)
   }, [view, items])
 
-  // Número de slots del grid (múltiplo de la cantidad de columnas) para slots vacíos
-  const COLS = 5
-  const ROWS_MIN = 3
+  // Grid de hotkeys de la caja: 6 columnas, 50 filas por defecto (300 slots).
+  // Los slots no ocupados por categorías/productos quedan como placeholders
+  // vacíos (configurables a futuro). La grilla scrollea vertical.
+  const COLS = 6
+  const ROWS_MIN = 50
   const MIN_TILES = COLS * ROWS_MIN
 
   const handleCategoryClick = (categoryId: string) => {
