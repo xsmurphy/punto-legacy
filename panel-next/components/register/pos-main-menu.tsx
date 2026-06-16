@@ -1,115 +1,215 @@
 "use client"
 
 /**
- * Menú principal del POS — overlay fullscreen translúcido.
+ * Menú principal del POS — modal tipo settings (sidebar + content area).
  *
- * Port de `ncmMenu` del legacy (app.js:849 + #bodyMainMenu en index.php):
- * un overlay a pantalla completa, translúcido sobre la caja, con botones
- * grandes ("Ver" + título, acento de borde izquierdo). Lo abre el botón
- * "≡" del toolbar de caja.
+ * Reemplaza el overlay fullscreen translúcido que venía del legacy. Ahora usa
+ * el mismo patrón de Dialog que /settings: sidebar a la izquierda con los
+ * items del menú, content area a la derecha con descripción + CTA.
  *
- * Distinto de los MÓDULOS (Hotkeys/Mesas/… → sidebar) y de las OPCIONES
- * DE VENTA (Imprimir/Descuento/… → SaleOptionsDrawer).
+ * Abre con el botón "≡" del toolbar de caja (Cart Panel) o con el atajo Q.
+ * ESC lo cierra vía el Dialog de shadcn (sin handler manual).
  *
- * Items (de #bodyMainMenu): Control de Caja · Transacciones · Agenda ·
- * Órdenes · Ajustes · Bloquear/Salir. La card de usuario abajo-izquierda
- * (sin el widget de Spotify del legacy). Cierra con ESC o click en backdrop.
+ * Items: Control de Caja · Transacciones · Agenda · Órdenes · Ajustes ·
+ * Cambiar Caja/Sucursal · Editar Hotkeys · Bloquear.
  */
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   Menu,
-  X,
   Calculator,
   ReceiptText,
   CalendarDays,
-  ClipboardList,
+  SquareKanban,
   Settings,
-  LogOut,
-  ChefHat,
   Store,
   LayoutGrid,
+  Lock,
   type LucideIcon,
 } from "lucide-react"
 
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
+import { useLockStore } from "@/lib/pos/lock-store"
 import { clearDeviceDefault } from "@/lib/pos/device"
 
-interface MenuEntry {
+// ── Tipos ────────────────────────────────────────────────────────────────────
+
+interface MenuSection {
   key: string
-  /** Etiqueta chica arriba del título (legacy "Ver"). */
-  sub: string
   label: string
-  /** Pista a la derecha del título (ej. atajo "(ESC)"). */
-  hint?: string
   icon: LucideIcon
-  href?: string
-  action?: boolean
+  description: string
+  ctaLabel: string
+  /** Si true, el CTA se muestra deshabilitado. */
+  disabled?: boolean
 }
 
-const ENTRIES: MenuEntry[] = [
-  { key: "drawer", sub: "Ver", label: "Control de Caja", icon: Calculator, action: true },
-  { key: "transactions", sub: "Ver", label: "Transacciones", icon: ReceiptText, href: "/reports/transactions" },
-  { key: "agenda", sub: "Ver", label: "Agenda", icon: CalendarDays, href: "/pos/calendario" },
-  { key: "orders", sub: "Ver", label: "Órdenes", icon: ClipboardList, href: "/pos/ordenes" },
-  { key: "settings", sub: "Ver", label: "Ajustes", icon: Settings, href: "/settings" },
-  { key: "change-register", sub: "Cambiar", label: "Caja / Sucursal", icon: Store, action: true },
-  { key: "edit-hotkeys", sub: "Editar", label: "Hotkeys", icon: LayoutGrid, action: true },
-  { key: "lock", sub: "Bloquear o", label: "Salir", hint: "(ESC)", icon: LogOut, action: true },
+// ── Constante de secciones (no acá los handlers — los armamos en el hook) ───
+
+const SECTIONS: Omit<MenuSection, "disabled">[] = [
+  {
+    key: "drawer",
+    label: "Control de Caja",
+    icon: Calculator,
+    description:
+      "Llevá el control de aperturas, cierres y arqueos de tu caja. Acá vas a ver el resumen del turno actual y poder cerrar la caja al final del día.",
+    ctaLabel: "Próximamente",
+  },
+  {
+    key: "transactions",
+    label: "Transacciones",
+    icon: ReceiptText,
+    description:
+      "Mirá el historial de ventas, devoluciones y otros movimientos. Las transacciones de esta caja y de las demás del comercio se listan en el panel.",
+    ctaLabel: "Ver transacciones",
+  },
+  {
+    key: "agenda",
+    label: "Agenda",
+    icon: CalendarDays,
+    description:
+      "Calendario de turnos y reservas. Útil para módulos con citas como peluquerías, consultorios y servicios.",
+    ctaLabel: "Abrir agenda",
+  },
+  {
+    key: "orders",
+    label: "Órdenes",
+    icon: SquareKanban,
+    description:
+      "Listado de órdenes activas y completadas — pedidos en cocina, deliveries y pickups.",
+    ctaLabel: "Ver órdenes",
+  },
+  {
+    key: "settings",
+    label: "Ajustes",
+    icon: Settings,
+    description:
+      "Configurá tu empresa, sucursales, monedas, impuestos y todo lo demás. Te lleva al panel de configuración.",
+    ctaLabel: "Ir a Ajustes",
+  },
+  {
+    key: "change-register",
+    label: "Cambiar Caja / Sucursal",
+    icon: Store,
+    description:
+      "Cambiá el dispositivo a otra caja o sucursal. Vas a tener que seleccionar la nueva caja del listado.",
+    ctaLabel: "Cambiar ahora",
+  },
+  {
+    key: "edit-hotkeys",
+    label: "Editar Hotkeys",
+    icon: LayoutGrid,
+    description:
+      "Configurá los accesos rápidos de la grilla de la caja. Arrastrá ítems para reordenar, asigná categorías y colores a cada slot.",
+    ctaLabel: "Editar Hotkeys",
+  },
+  {
+    key: "lock",
+    label: "Bloquear",
+    icon: Lock,
+    description:
+      "Bloqueá la caja para evitar usos no autorizados. Vas a necesitar tu PIN para reanudar la sesión.",
+    ctaLabel: "Bloquear ahora",
+  },
 ]
+
+// ── Componente principal ─────────────────────────────────────────────────────
 
 export function PosMainMenu() {
   const router = useRouter()
-  // Open desde el store global → permite abrirlo con el atajo "Q".
+
+  // Estado de apertura del modal — lo maneja el store global para que
+  // el atajo Q (use-pos-hotkeys.ts) pueda abrirlo sin importar PosMainMenu.
   const open = usePosUIStore((s) => s.menuOpen)
   const setOpen = usePosUIStore((s) => s.setMenuOpen)
-  const config = useCatalogStore((s) => s.config)
+
+  // Sección activa en el sidebar. null = pantalla de bienvenida vacía.
+  const [activeKey, setActiveKey] = React.useState<string | null>(null)
+
+  // Stores de dominio para los handlers de cada sección.
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const registers = useCatalogStore((s) => s.registers)
   const resetActiveRegister = useCatalogStore((s) => s.resetActiveRegister)
   const setHotkeysEditing = useHotkeysStore((s) => s.setEditing)
-  // Mostrar la caja que matchee el claim activo, no siempre la primera.
-  const register = registers.find((r) => r.id === activeRegisterId) ?? registers[0] ?? null
 
-  // ESC cierra (atajo histórico del legacy).
-  React.useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open])
-
-  const go = (entry: MenuEntry) => {
-    setOpen(false)
-    if (entry.href) {
-      router.push(entry.href)
-      return
-    }
-    if (entry.key === "change-register") {
-      // Limpiar el default del dispositivo y resetear la caja activa en el store.
-      // El guard del layout detecta activeRegisterId === '' y abre el modal de setup.
-      clearDeviceDefault()
-      resetActiveRegister()
-      return
-    }
-    if (entry.key === "edit-hotkeys") {
-      // Solo tiene sentido con caja activa (sin caja no hay grilla que editar).
-      if (!activeRegisterId) return
-      setHotkeysEditing(true)
-      return
-    }
-    // TODO (F2): Control de Caja (arqueo) y Bloquear/Salir (lock + logout).
+  // Resetear la sección al cerrar el modal para la próxima apertura.
+  const handleOpenChange = (v: boolean) => {
+    setOpen(v)
+    if (!v) setActiveKey(null)
   }
+
+  // ── Handlers por key ──────────────────────────────────────────────────────
+
+  const handleCta = (key: string) => {
+    switch (key) {
+      case "drawer":
+        // TODO (F2): Control de Caja — deshabilitado por ahora.
+        break
+      case "transactions":
+        setOpen(false)
+        router.push("/reports/transactions")
+        break
+      case "agenda":
+        setOpen(false)
+        router.push("/pos/calendario")
+        break
+      case "orders":
+        setOpen(false)
+        router.push("/pos/ordenes")
+        break
+      case "settings":
+        setOpen(false)
+        router.push("/settings")
+        break
+      case "change-register":
+        // Limpiar el default del dispositivo y resetear la caja activa.
+        // El guard del layout detecta activeRegisterId === '' y abre el modal de setup.
+        setOpen(false)
+        clearDeviceDefault()
+        resetActiveRegister()
+        break
+      case "edit-hotkeys":
+        // Solo habilitado con caja activa (sin caja no hay grilla que editar).
+        if (!activeRegisterId) break
+        setOpen(false)
+        setHotkeysEditing(true)
+        break
+      case "lock":
+        setOpen(false)
+        useLockStore.getState().lock()
+        break
+    }
+  }
+
+  // Sección activa enriquecida con el flag `disabled` calculado en runtime.
+  const sectionsWithState: MenuSection[] = SECTIONS.map((s) => ({
+    ...s,
+    disabled:
+      s.key === "drawer"
+        ? true
+        : s.key === "edit-hotkeys"
+          ? !activeRegisterId
+          : false,
+    ctaLabel:
+      s.key === "edit-hotkeys" && !activeRegisterId ? "Sin caja activa" : s.ctaLabel,
+  }))
+
+  const activeSection = sectionsWithState.find((s) => s.key === activeKey) ?? null
 
   return (
     <>
+      {/* Trigger ≡ — se mantiene idéntico al original para no romper el cart-panel */}
       <Button
         variant="ghost"
         size="icon"
@@ -120,83 +220,118 @@ export function PosMainMenu() {
         <Menu className="size-5" />
       </Button>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Menú del POS"
-          className="fixed inset-0 z-50"
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          // Modal sidebar+content. Overrides:
+          // - mobile fullscreen (el teclado virtual haría scroll en modal chico);
+          // - desktop 48rem clamped (más chico que /settings, es un menú);
+          // - reset de gap/padding (el grid interno maneja su layout).
+          className={cn(
+            "gap-0 overflow-hidden p-0",
+            "max-sm:!inset-0 max-sm:!h-dvh max-sm:!max-w-none max-sm:!w-auto max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none",
+            "sm:!max-w-[min(48rem,calc(100vw-2rem))] sm:!w-full",
+          )}
         >
-          {/* Backdrop translúcido sobre la caja */}
-          <div
-            className="absolute inset-0 bg-background/85 backdrop-blur-sm"
-            onClick={() => setOpen(false)}
-          />
+          {/* Header sr-only para a11y — el contenido visual es el grid */}
+          <DialogHeader className="sr-only">
+            <DialogTitle>Menú del POS</DialogTitle>
+            <DialogDescription>
+              Acciones y navegación de la caja: transacciones, agenda, ajustes y más.
+            </DialogDescription>
+          </DialogHeader>
 
-          {/* Cerrar (arriba-izquierda, como el legacy) */}
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="Cerrar menú"
-            className="absolute left-5 top-5 z-10 flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-6" />
-          </button>
+          {/* Grid: sidebar nav (izquierda) + content area (derecha) */}
+          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden sm:grid sm:h-[80vh] sm:grid-cols-[200px_1fr]">
 
-          {/* Grid de botones grandes, centrado */}
-          <div className="relative flex h-full w-full items-center justify-center p-6">
-            <div className="grid w-full max-w-4xl grid-cols-2 gap-x-8 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
-              {ENTRIES.map((entry) => (
-                <BigMenuButton key={entry.key} entry={entry} onClick={() => go(entry)} />
-              ))}
+            {/* Sidebar: vertical en desktop, horizontal scrolleable en mobile.
+                pr-12 en mobile deja lugar al botón X absolute del DialogContent. */}
+            <nav
+              aria-label="Secciones del menú del POS"
+              className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:border-r sm:p-3 sm:pr-3"
+            >
+              {sectionsWithState.map(({ key, label, icon: Icon }) => {
+                const active = activeKey === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setActiveKey(key)}
+                    className={cn(
+                      "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
+                      active
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    <span>{label}</span>
+                  </button>
+                )
+              })}
+            </nav>
+
+            {/* Content area */}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+
+              {/* Breadcrumb: solo visible en desktop, solo cuando hay sección activa */}
+              <header className="hidden items-center gap-2 border-b py-3 pl-6 pr-14 text-sm sm:flex">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <span>Menú del POS</span>
+                  {activeSection && (
+                    <>
+                      <span className="text-muted-foreground/50">›</span>
+                      <span className="text-foreground">{activeSection.label}</span>
+                    </>
+                  )}
+                </div>
+              </header>
+
+              {/* Sin sección seleccionada → empty state de bienvenida */}
+              {!activeSection ? (
+                <div className="flex flex-1 items-center justify-center p-6">
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <Menu className="size-12 text-muted-foreground" />
+                    <p className="text-lg font-semibold">Menú del POS</p>
+                    <p className="max-w-sm text-sm text-muted-foreground">
+                      Elegí una opción del menú para ver más detalles y acceder a las acciones de la caja.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Sección activa: descripción + CTA */
+                <div className="flex h-full flex-col">
+                  <div className="flex-1 overflow-y-auto px-6 py-6 sm:px-8">
+                    <div className="max-w-xl space-y-4">
+                      {/* Icono + título */}
+                      <div className="flex items-center gap-3">
+                        <span className="flex size-10 items-center justify-center rounded-lg bg-muted">
+                          <activeSection.icon className="size-5 text-foreground" />
+                        </span>
+                        <h2 className="text-xl font-bold">{activeSection.label}</h2>
+                      </div>
+                      {/* Descripción */}
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        {activeSection.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Barra inferior con CTA */}
+                  <div className="border-t bg-background px-6 py-4 sm:px-8">
+                    <Button
+                      onClick={() => handleCta(activeSection.key)}
+                      disabled={activeSection.disabled}
+                    >
+                      {activeSection.ctaLabel}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Card de usuario / sesión (abajo-izquierda). Sin Spotify. */}
-          <div className="absolute bottom-5 left-5 z-10 flex items-center gap-3 rounded-2xl border border-border bg-card/80 px-4 py-3 backdrop-blur-md">
-            <Avatar className="size-11">
-              <AvatarFallback className="bg-muted">
-                <ChefHat className="size-5 text-muted-foreground" />
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              {/* TODO (F2): nombre + rol del usuario activo (lock/session). */}
-              <p className="truncate text-sm font-semibold text-foreground">
-                {config?.companyName || "Punto"}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                {register?.name || "Caja"}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
-  )
-}
-
-function BigMenuButton({
-  entry,
-  onClick,
-}: {
-  entry: MenuEntry
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex flex-col items-start border-l-2 border-border/70 py-2 pl-4 text-left transition-colors hover:border-foreground"
-    >
-      <span className="text-sm font-medium text-muted-foreground">{entry.sub}</span>
-      <span className="text-2xl font-bold leading-tight text-foreground">
-        {entry.label}
-        {entry.hint && (
-          <span className="ml-1.5 align-middle text-sm font-normal text-muted-foreground">
-            {entry.hint}
-          </span>
-        )}
-      </span>
-    </button>
   )
 }
