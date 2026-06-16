@@ -19,7 +19,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   Menu,
-  ArrowDownWideNarrow,
+  AppWindowMac,
   Calculator,
   ReceiptText,
   CalendarDays,
@@ -221,7 +221,7 @@ export function PosMainMenu() {
         aria-label="Menú del POS"
         onClick={() => setOpen(true)}
       >
-        <ArrowDownWideNarrow className="size-5" />
+        <AppWindowMac className="size-5" />
       </Button>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>

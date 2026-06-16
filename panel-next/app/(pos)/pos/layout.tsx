@@ -146,7 +146,7 @@ export default function PosWorkspaceLayout({
   }, [bootstrap])
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
+    <div className="relative flex h-full w-full overflow-hidden">
       {/* Bloque izquierdo (intercambiable por ruta) — oculto en mobile. */}
       <div className="hidden flex-[7] overflow-hidden md:block">
         <RegisterGuard>{children}</RegisterGuard>

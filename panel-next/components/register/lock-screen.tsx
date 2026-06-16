@@ -109,7 +109,7 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      className="fixed inset-0 z-[200] flex flex-col items-center justify-start bg-background pt-[18vh]"
+      className="absolute inset-0 z-[60] flex flex-col items-center justify-start bg-background pt-[18vh]"
     >
       {/*
        * Input invisible — captura el teclado virtual en mobile cuando el
