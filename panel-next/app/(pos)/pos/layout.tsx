@@ -126,19 +126,22 @@ export default function PosWorkspaceLayout({
   // Atajos de teclado globales (Q/W/E/R/Enter) — operación rápida sin mouse.
   usePosHotkeys()
 
-  // Auto-lock al primer mount de la sesión si la cuenta tiene >1 usuario.
+  // Auto-lock al primer mount de la sesión SOLO si la cuenta tiene > 1 usuario.
   // Una vez aplicado no se vuelve a evaluar (ni en re-renders ni al desbloquear).
+  //
+  // - userCount > 1  → bloquear (regla del owner: comercio con varios cajeros).
+  // - userCount === 1 → no bloquea (dueño-cajero).
+  // - userCount undefined (backend no lo expone aún) → NO bloquea por default.
+  //   Asumimos 1 usuario hasta que el campo llegue al bootstrap (más seguro
+  //   contra falsos positivos: bloquear sin razón es peor UX que no bloquear).
   const { data: bootstrap } = useBootstrap()
   const autoLockApplied = React.useRef(false)
   React.useEffect(() => {
     if (autoLockApplied.current) return
-    if (!bootstrap) return // esperar a que llegue el bootstrap
+    if (!bootstrap) return
     autoLockApplied.current = true
     const userCount = bootstrap.userCount
-    // userCount undefined → mock dev: bloquear hasta que el backend exponga el campo.
-    // userCount > 1 → bloquear (regla del owner).
-    // userCount === 1 → no bloquear (dueño-cajero, comercio chico).
-    if (userCount === 1) return
+    if (typeof userCount !== "number" || userCount <= 1) return
     useLockStore.getState().lock()
   }, [bootstrap])
 
