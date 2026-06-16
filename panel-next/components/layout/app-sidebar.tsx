@@ -139,19 +139,34 @@ export function AppSidebar({
       {/* pt safe-area: en PWA iOS el header se superpone con status bar sin esto */}
       <SidebarHeader className="pt-[calc(0.5rem+env(safe-area-inset-top))]">
         <div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
-          {/* MARK — solo cuando collapsed. Click = re-abre el sidebar. */}
-          <button
-            type="button"
-            onClick={isCollapsed ? toggleSidebar : undefined}
-            aria-label={isCollapsed ? "Expandir menú" : "Punto"}
-            className={cn(
-              "hidden size-8 aspect-square shrink-0 items-center justify-center group-data-[collapsible=icon]:flex",
-              "cursor-pointer transition-opacity hover:opacity-90",
-            )}
-            tabIndex={isCollapsed ? 0 : -1}
-          >
-            <PuntoLogo variant="mark" className="size-8" />
-          </button>
+          {/* MARK — solo cuando collapsed.
+              En /pos el sidebar es siempre collapsed: el logo lleva al
+              dashboard (vuelve al panel). En el resto, expande el sidebar. */}
+          {isPos ? (
+            <Link
+              href="/"
+              aria-label="Ir al dashboard"
+              className={cn(
+                "hidden size-8 aspect-square shrink-0 items-center justify-center group-data-[collapsible=icon]:flex",
+                "cursor-pointer transition-opacity hover:opacity-90",
+              )}
+            >
+              <PuntoLogo variant="mark" className="size-8" />
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={isCollapsed ? toggleSidebar : undefined}
+              aria-label={isCollapsed ? "Expandir menú" : "Punto"}
+              className={cn(
+                "hidden size-8 aspect-square shrink-0 items-center justify-center group-data-[collapsible=icon]:flex",
+                "cursor-pointer transition-opacity hover:opacity-90",
+              )}
+              tabIndex={isCollapsed ? 0 : -1}
+            >
+              <PuntoLogo variant="mark" className="size-8" />
+            </button>
+          )}
 
           {/* WORDMARK — siempre Link al dashboard (comportamiento histórico
               del logo). El selector de sucursal vive en su propio chevron

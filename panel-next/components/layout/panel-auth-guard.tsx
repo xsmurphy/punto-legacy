@@ -9,9 +9,9 @@ import {
   ScanBarcode,
   LayoutDashboard,
   Flame,
-  Utensils,
+  SquaresIntersect,
   CalendarDays,
-  ClipboardList,
+  SquareKanban,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -45,9 +45,9 @@ const posNav: NavEntry[] = [
   // Hotkeys = grilla de la caja (ruta índice /pos). El botón para "volver
   // al listado de hotkeys". Los demás items intercambian el bloque izquierdo.
   { title: "Hotkeys", to: "/pos", icon: Flame },
-  { title: "Mesas", to: "/pos/mesas", icon: Utensils },
+  { title: "Espacios", to: "/pos/mesas", icon: SquaresIntersect },
   { title: "Calendario", to: "/pos/calendario", icon: CalendarDays },
-  { title: "Órdenes", to: "/pos/ordenes", icon: ClipboardList },
+  { title: "Órdenes", to: "/pos/ordenes", icon: SquareKanban },
 ]
 
 /**
