@@ -1,31 +1,41 @@
 /**
- * Layout del POS — full-screen, sin sidebar.
+ * Layout del POS — full-screen con icon-rail sidebar a la izquierda.
  *
- * El POS es una pantalla de caja de pantalla completa que el cajero
- * usa sin ninguna chrome de navegación extra. El layout es completamente
- * distinto al del panel-next (que tiene sidebar + header).
+ * Estructura (2026-06-16, pivote a design system panel-next):
+ *   ┌──┬─────────────────────────────────────────────┐
+ *   │  │                                             │
+ *   │ S│  SidebarInset (children: register, etc.)    │
+ *   │ I│                                             │
+ *   │ D│                                             │
+ *   │ E│                                             │
+ *   │  │                                             │
+ *   └──┴─────────────────────────────────────────────┘
  *
- * Este layout:
- *   1. Gate de auth via PosAuthGuard (verifica cookie _jwt realm pos-app).
- *   2. Fullscreen: body ocupa 100vh / 100dvh, sin scroll externo.
+ * El sidebar arranca colapsado (`defaultOpen={false}`) → estado
+ * permanente `collapsed`, lo que activa los tooltips nativos y
+ * deja el rail en `--sidebar-width-icon` (4rem custom).
  *
- * Las rutas hijas (register, pay, customers, etc.) manejan su propio
- * layout interno con las columnas/filas del POS.
- *
- * Ver context/16-app-next-rewrite.md §2 (fidelidad visual legacy = fullscreen)
- * y §7 Sprint 0.
+ * Ver context/16-app-next-rewrite.md y feedback del owner 2026-06-16.
  */
 
 import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
+import { PosSidebar } from "@/components/layout/pos-sidebar"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
     <PosAuthGuard>
-      {/* Full-screen container: ocupa toda la ventana, sin scroll externo.
-          Las pantallas del POS manejan su propio scroll interno si lo necesitan. */}
-      <div className="flex h-svh w-full flex-col overflow-hidden bg-background">
-        {children}
-      </div>
+      <SidebarProvider
+        defaultOpen={false}
+        // Width custom del rail: ~64px (vs 48px default del primitive).
+        // El POS necesita target táctil un poco más grande que un dashboard.
+        style={{ "--sidebar-width-icon": "4rem" } as React.CSSProperties}
+      >
+        <PosSidebar />
+        <SidebarInset className="flex h-svh flex-col overflow-hidden bg-background">
+          {children}
+        </SidebarInset>
+      </SidebarProvider>
     </PosAuthGuard>
   )
 }

@@ -27,17 +27,29 @@ import { ApiError } from "@/lib/api-client"
 import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
 import { Skeleton } from "@/components/ui/skeleton"
 
+// Bypass dev: cuando hidratamos con fixtures (NEXT_PUBLIC_USE_FIXTURES=1) no
+// hay JWT real → el BFF devuelve 401 y el guard redirige a /login que no
+// existe. En ese modo el guard se desactiva para poder verificar UI sin auth.
+const USE_FIXTURES = process.env.NEXT_PUBLIC_USE_FIXTURES === "1"
+
 export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { data: bootstrap, isLoading, error } = usePosBootstrap()
 
   React.useEffect(() => {
+    if (USE_FIXTURES) return
     if (error instanceof ApiError && error.status === 401) {
       // TODO (Slice A): implementar página de login del POS.
       // Por ahora redirige al login del panel-next mientras no existe el login propio.
       router.replace("/login")
     }
   }, [error, router])
+
+  // En modo fixtures, no esperamos el bootstrap real — el store se hidrata
+  // desde useCatalogSeed con los fixtures y la UI puede renderizar ya.
+  if (USE_FIXTURES) {
+    return <>{children}</>
+  }
 
   if (isLoading) {
     return (

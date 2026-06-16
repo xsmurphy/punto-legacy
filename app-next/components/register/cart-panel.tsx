@@ -3,36 +3,46 @@
 /**
  * Panel derecho del register — carrito de venta.
  *
- * Fidelidad §6.1:
- *   - Toolbar de iconos arriba (stubs).
- *   - Chip de cliente (display solo por ahora).
- *   - Lista de líneas: badge cantidad + nombre + precio.
- *   - Línea activa: nombre grande + controles +/x1/−/X roja + acciones de línea.
- *   - Tacho (vaciar carrito).
- *   - Bottom: toggles CRÉDITO/INTERNO + IVA + botón full-width verde con total.
- *   - Watermark con logo Punto en carrito vacío.
+ * Pivote 2026-06-16 (design system panel-next):
+ *   - Quitada la toolbar superior con 4 iconos (Menu/Search/User/More) —
+ *     ahora vive en el PosSidebar a la izquierda.
+ *   - Cart row expandido NO copia la grilla 4+5 cols del legacy. Usa
+ *     stepper [−][qty][+] + DropdownMenu de acciones (estilo shadcn).
+ *   - Botón cobrar: `rounded-full` verde brand `bg-brand`.
+ *   - Apertura de dialogs vía `usePosUIStore` (compartido con PosSidebar).
  */
 
 import * as React from "react"
 import {
-  Menu,
-  Search,
   User,
-  MoreHorizontal,
   X,
   Plus,
   Minus,
   Trash2,
-  ChevronDown,
+  Percent,
   DollarSign,
   Tag,
   MessageSquare,
+  MoreHorizontal,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { useCartStore, selectCartTotal, selectCartIva } from "@/lib/cart/store"
+import {
+  useCartStore,
+  selectCartTotal,
+  selectCartIva,
+  type CartLine,
+} from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { formatMoney } from "@/lib/format-money"
+import { formatMoney, formatAmount } from "@/lib/format-money"
+import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
@@ -60,16 +70,17 @@ export function CartPanel() {
 
   const config = useCatalogStore((s) => s.config)
 
-  // ── Estado de apertura de modales ─────────────────────────────────────────
-  const [productSearchOpen, setProductSearchOpen] = React.useState(false)
-  const [customerDialogOpen, setCustomerDialogOpen] = React.useState(false)
-  const [payDialogOpen, setPayDialogOpen] = React.useState(false)
+  // Estado de dialogs — compartido con el PosSidebar via store global.
+  const searchOpen = usePosUIStore((s) => s.searchOpen)
+  const setSearchOpen = usePosUIStore((s) => s.setSearchOpen)
+  const customerOpen = usePosUIStore((s) => s.customerOpen)
+  const setCustomerOpen = usePosUIStore((s) => s.setCustomerOpen)
+  const payOpen = usePosUIStore((s) => s.payOpen)
+  const setPayOpen = usePosUIStore((s) => s.setPayOpen)
 
   const totalValue = total
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
-  // El ref envuelve la línea activa + sus tools; si el pointerdown cae afuera,
-  // se cierra. Clickear otra línea: deselecciona y su onClick la selecciona.
   const activeRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     if (!selectedLineId) return
@@ -85,24 +96,9 @@ export function CartPanel() {
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
       {/* ── Modales ── */}
-      <ProductSearchDialog
-        open={productSearchOpen}
-        onOpenChange={setProductSearchOpen}
-      />
-      <CustomerDialog
-        open={customerDialogOpen}
-        onOpenChange={setCustomerDialogOpen}
-      />
-      <PayDialog
-        open={payDialogOpen}
-        onOpenChange={setPayDialogOpen}
-      />
-
-      {/* ── Toolbar ── */}
-      <CartToolbar
-        onSearchClick={() => setProductSearchOpen(true)}
-        onCustomerClick={() => setCustomerDialogOpen(true)}
-      />
+      <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+      <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
+      <PayDialog open={payOpen} onOpenChange={setPayOpen} />
 
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
@@ -117,19 +113,18 @@ export function CartPanel() {
               const isActive = line.lineId === selectedLineId
               return (
                 <div key={line.lineId} ref={isActive ? activeRef : undefined}>
-                  <CartLineRow
-                    line={line}
-                    isActive={isActive}
-                    config={config}
-                    onSelect={() => selectLine(isActive ? null : line.lineId)}
-                  />
-                  {isActive && (
-                    <ActiveLineControls
-                      lineId={line.lineId}
-                      qty={line.qty}
+                  {isActive ? (
+                    <CartRowExpanded
+                      line={line}
                       onInc={() => incQty(line.lineId)}
                       onDec={() => decQty(line.lineId)}
                       onRemove={() => removeLine(line.lineId)}
+                    />
+                  ) : (
+                    <CartRowCollapsed
+                      line={line}
+                      config={config}
+                      onSelect={() => selectLine(line.lineId)}
                     />
                   )}
                 </div>
@@ -166,75 +161,8 @@ export function CartPanel() {
         total={totalValue}
         lineCount={lines.length}
         config={config}
-        onPayClick={() => setPayDialogOpen(true)}
+        onPayClick={() => setPayOpen(true)}
       />
-    </div>
-  )
-}
-
-// ── Toolbar ───────────────────────────────────────────────────────────────────
-
-function CartToolbar({
-  onSearchClick,
-  onCustomerClick,
-}: {
-  onSearchClick: () => void
-  onCustomerClick: () => void
-}) {
-  return (
-    <div className="flex items-center border-b border-border px-1 py-1.5">
-      {/* Slot 1: Menú de módulos (stub) */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Menú de módulos"
-          title="Menú de módulos"
-          onClick={() => {
-            // TODO: abre menú flotante de módulos (Slice posterior) — ver guía visual del owner
-          }}
-        >
-          <Menu className="size-5" />
-        </Button>
-      </div>
-
-      {/* Slot 2: Buscar producto */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Buscar producto"
-          title="Buscar producto"
-          onClick={onSearchClick}
-        >
-          <Search className="size-5" />
-        </Button>
-      </div>
-
-      {/* Slot 3: Seleccionar cliente */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Seleccionar cliente"
-          title="Seleccionar cliente"
-          onClick={onCustomerClick}
-        >
-          <User className="size-5" />
-        </Button>
-      </div>
-
-      {/* Slot 4: Más opciones */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Más opciones"
-          title="Más opciones"
-        >
-          <MoreHorizontal className="size-5" />
-        </Button>
-      </div>
     </div>
   )
 }
@@ -270,129 +198,181 @@ function CustomerChip({
   )
 }
 
-// ── Fila de línea del carrito ─────────────────────────────────────────────────
+// ── Fila colapsada (no seleccionada) ──────────────────────────────────────────
 
-function CartLineRow({
+function CartRowCollapsed({
   line,
-  isActive,
   config,
   onSelect,
 }: {
-  line: { lineId: string; name: string; qty: number; unitPrice: number; note?: string }
-  isActive: boolean
+  line: CartLine
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   onSelect: () => void
 }) {
   const subtotal = line.qty * line.unitPrice
+  const hasDiscount = (line.discount ?? 0) > 0
+  const hasSeller = Boolean(line.sellerId)
+  const hasTags = (line.tags?.length ?? 0) > 0
+  const hasNote = Boolean(line.note && line.note.trim().length > 0)
+  const showSubtitle = hasSeller || hasTags || hasNote
 
   return (
     <button
       onClick={onSelect}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors",
-        isActive
-          ? "bg-accent"
-          : "hover:bg-muted/50",
+        "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
+        hasDiscount && "border-l-[3px] border-l-yellow-500",
       )}
     >
-      {/* Badge de cantidad */}
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+      <span
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
+          hasDiscount
+            ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-500"
+            : "border-border bg-muted/40 text-muted-foreground",
+        )}
+      >
         {line.qty}
       </span>
 
-      {/* Nombre + subtexto */}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{line.name}</p>
-        {line.note && (
-          <p className="truncate text-[10px] text-muted-foreground">{line.note}</p>
-        )}
-        {!line.note && (
-          <p className="truncate text-[10px] text-muted-foreground">
-            {line.qty > 1 && `x${line.qty} @ `}
-            {formatMoney(line.unitPrice, config)}
-          </p>
+        {showSubtitle && (
+          <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+            {hasSeller && (
+              <span className="inline-flex items-center gap-1" title="Vendedor asignado">
+                <User className="size-3" aria-hidden />
+              </span>
+            )}
+            {hasTags && (
+              <span className="inline-flex items-center gap-1" title="Etiquetas">
+                <Tag className="size-3" aria-hidden />
+              </span>
+            )}
+            {hasNote && (
+              <span className="inline-flex items-center gap-1 truncate" title={line.note}>
+                <MessageSquare className="size-3 shrink-0" aria-hidden />
+                <span className="truncate">{line.note}</span>
+              </span>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Precio total */}
       <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
-        {formatMoney(subtotal, config)}
+        {formatAmount(subtotal, config)}
       </span>
     </button>
   )
 }
 
-// ── Controles de línea activa ─────────────────────────────────────────────────
+// ── Fila expandida (seleccionada) ─────────────────────────────────────────────
+//
+// Diseño post-pivote (2026-06-16): NO grilla 4+5 del legacy.
+// Header con nombre del item + stepper [−][qty][+] + DropdownMenu de acciones.
 
-function ActiveLineControls({
-  lineId,
-  qty,
+function CartRowExpanded({
+  line,
   onInc,
   onDec,
   onRemove,
 }: {
-  lineId: string
-  qty: number
+  line: CartLine
   onInc: () => void
   onDec: () => void
   onRemove: () => void
 }) {
   return (
-    <div className="border-b border-border bg-accent/50 px-3 pb-2 pt-1">
-      {/* Fila de cantidad */}
-      <div className="mb-2 flex items-center justify-center gap-3">
-        <Button
-          size="icon-sm"
-          variant="outline"
-          onClick={onInc}
-          aria-label="Aumentar cantidad"
-          className="size-9 rounded-full"
-        >
-          <Plus className="size-4" />
-        </Button>
-
-        <span className="min-w-[3ch] text-center text-lg font-bold tabular-nums text-foreground">
-          x{qty}
+    <div className="border-y border-border bg-accent/40 px-3 py-3">
+      {/* Header — nombre del item, sutil. */}
+      <div className="mb-2 text-center">
+        <span className="truncate text-sm text-muted-foreground">
+          {line.name}
         </span>
-
-        <Button
-          size="icon-sm"
-          variant="outline"
-          onClick={onDec}
-          aria-label="Disminuir cantidad"
-          className="size-9 rounded-full"
-        >
-          <Minus className="size-4" />
-        </Button>
-
-        <Button
-          size="icon-sm"
-          variant="destructive"
-          onClick={onRemove}
-          aria-label="Eliminar línea"
-          className="size-9 rounded-full"
-        >
-          <X className="size-4" />
-        </Button>
       </div>
 
-      {/* Acciones de línea (stubs) */}
-      <div className="flex items-center justify-center gap-2">
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Opciones de línea" title="Opciones">
-          <ChevronDown className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Precio manual" title="Precio">
-          <DollarSign className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Vendedor" title="Vendedor">
-          <User className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Tag" title="Tag">
-          <Tag className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Comentario" title="Comentario">
-          <MessageSquare className="size-3" />
-        </Button>
+      {/* Stepper + acciones. Layout: [−] qty [+] ........ [⋯] */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onDec}
+            aria-label="Disminuir cantidad"
+          >
+            <Minus className="size-4" />
+          </Button>
+          <span className="min-w-[2ch] text-center text-lg font-semibold tabular-nums">
+            {line.qty}
+          </span>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onInc}
+            aria-label="Aumentar cantidad"
+          >
+            <Plus className="size-4" />
+          </Button>
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Acciones de línea"
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C3): abrir NumPad para editar precio unitario.
+              }}
+            >
+              <DollarSign />
+              Modificar precio
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C3): abrir NumPad % para descuento de línea.
+              }}
+            >
+              <Percent />
+              Aplicar descuento
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C2): abrir BottomSheet con selector de vendedor.
+              }}
+            >
+              <User />
+              Asignar vendedor
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C2): abrir BottomSheet con tags.
+              }}
+            >
+              <Tag />
+              Etiquetas
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C2): abrir BottomSheet con textarea de nota.
+              }}
+            >
+              <MessageSquare />
+              Comentario
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={onRemove}>
+              <X />
+              Eliminar línea
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )
@@ -442,7 +422,7 @@ function CartBottom({
 
   return (
     <div className="shrink-0 border-t border-border bg-background p-2 pt-2">
-      {/* Toggles CRÉDITO / INTERNO / IVA — centrados y distribuidos */}
+      {/* Toggles CRÉDITO / INTERNO / IVA */}
       <div className="mb-2 flex items-center justify-center gap-3">
         <ToggleChip
           label="CRÉDITO"
@@ -454,7 +434,6 @@ function CartBottom({
           active={interno}
           onClick={onToggleInterno}
         />
-        {/* X <valor IVA> — botón que elimina el IVA informativo */}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -472,14 +451,12 @@ function CartBottom({
         </Button>
       </div>
 
-      {/* Botón cobrar full-width — colores DEFAULT del Button shadcn (primary).
-          Convención del proyecto (panel-next): los botones no usan el verde de
-          marca; usan los tokens neutros del theme. Acá solo overrideamos
-          tamaño/padding para hacerlo prominente — los colores los pone shadcn. */}
+      {/* Botón cobrar — full pill verde brand (feedback owner 2026-06-16):
+          `rounded-full` 100% corner radius, `bg-brand`, sin hover translate. */}
       <Button
         disabled={lineCount === 0}
         onClick={lineCount > 0 ? onPayClick : undefined}
-        className="h-auto w-full rounded-xl px-4 py-4 text-2xl font-bold transition-all active:scale-[0.98]"
+        className="h-auto w-full rounded-full bg-brand px-4 py-4 text-2xl font-bold text-brand-foreground transition-all hover:bg-brand/90 active:scale-[0.98]"
         aria-label={`Cobrar ${totalFormatted}`}
       >
         {lineCount === 0 ? "Sin items" : totalFormatted}
@@ -505,7 +482,7 @@ function ToggleChip({
       className={cn(
         "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
         active
-          ? "border-[#01D7A1] bg-[#01D7A1]/20 text-[#01D7A1]"
+          ? "border-brand bg-brand/20 text-brand"
           : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground",
       )}
     >

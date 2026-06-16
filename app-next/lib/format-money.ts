@@ -6,14 +6,18 @@
  */
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 
-export function formatMoney(
+/**
+ * Formatea solo el número con separadores del tenant — sin currency.
+ * Usado en filas del carrito donde el símbolo "Gs" sólo va en el botón
+ * de cobrar (ver guía visual del owner 2026-06-16).
+ */
+export function formatAmount(
   value: number,
-  config: Pick<PosConfig, "currency" | "thousand" | "decimal"> | null,
+  config: Pick<PosConfig, "thousand" | "decimal"> | null,
 ): string {
   const thousand = config?.thousand === "comma" ? "," : "."
   const decimalSep = thousand === "," ? "." : ","
   const useDecimals = config?.decimal === "yes"
-  const currency = config?.currency ?? "Gs"
 
   const decimals = useDecimals ? 2 : 0
   const scaled = Math.round(value * Math.pow(10, decimals))
@@ -22,6 +26,13 @@ export function formatMoney(
   const decPart = decimals > 0 ? abs.slice(-decimals) : ""
   const withThousand = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, thousand)
 
-  const number = decPart ? `${withThousand}${decimalSep}${decPart}` : withThousand
-  return `${currency} ${number}`
+  return decPart ? `${withThousand}${decimalSep}${decPart}` : withThousand
+}
+
+export function formatMoney(
+  value: number,
+  config: Pick<PosConfig, "currency" | "thousand" | "decimal"> | null,
+): string {
+  const currency = config?.currency ?? "Gs"
+  return `${currency} ${formatAmount(value, config)}`
 }
