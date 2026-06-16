@@ -109,7 +109,7 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      className="absolute inset-0 z-[60] flex flex-col items-center justify-start bg-background pt-[18vh]"
+      className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-background"
     >
       {/*
        * Input invisible — captura el teclado virtual en mobile cuando el
@@ -187,7 +187,7 @@ export function LockScreen() {
                 "block rounded-full border-2 transition-colors duration-150",
                 filled
                   ? "border-foreground bg-foreground"
-                  : "border-muted-foreground/50 bg-transparent",
+                  : "border-foreground/40 bg-transparent",
                 justPopped && "animate-pin-pop",
               )}
               style={{ width: 30, height: 30 }}
