@@ -57,6 +57,50 @@ if ($method === 'GET' && $resource === 'list') {
     apiOk(['registers' => $registers]);
 }
 
+// GET ?resource=hotkeys = grilla de accesos directos (hotkeys) de la caja activa.
+// registerId del JWT. La usa el POS para hidratar la grilla configurable (chunk 2).
+if ($method === 'GET' && $resource === 'hotkeys') {
+    if ($registerId === '') {
+        apiError('Sin caja activa', 422);
+    }
+    apiOk(['hotkeys' => $svc->getHotkeys($registerId, $companyId)]);
+}
+
+// PUT ?resource=hotkeys = persistir la grilla de accesos directos en register.data.hotkeys.
+// registerId/companyId SIEMPRE del JWT. Valida + normaliza el shape server-side antes de guardar.
+if ($method === 'PUT' && $resource === 'hotkeys') {
+    if ($registerId === '') {
+        apiError('Sin caja activa', 422);
+    }
+    $raw = $_POST['hotkeys'] ?? null;
+    if (!is_array($raw)) {
+        apiError('Falta hotkeys (array)', 422);
+    }
+    // Shape canónico: {itemId, position, color, isCategory}. Descartamos entradas
+    // sin itemId. Defensivo: el front es la fuente, pero no confiamos en el payload.
+    $clean = [];
+    foreach ($raw as $h) {
+        if (!is_array($h)) {
+            continue;
+        }
+        $itemId = (string) ($h['itemId'] ?? '');
+        if ($itemId === '') {
+            continue;
+        }
+        $clean[] = [
+            'itemId'     => $itemId,
+            'position'   => (int) ($h['position'] ?? 0),
+            'color'      => (string) ($h['color'] ?? ''),
+            'isCategory' => (bool) ($h['isCategory'] ?? false),
+        ];
+    }
+    $ok = $svc->saveHotkeys($registerId, $companyId, $clean);
+    if (!$ok) {
+        apiError('No se pudo guardar la configuración de accesos', 500);
+    }
+    apiOk(['hotkeys' => $clean]);
+}
+
 // GET = numeración de documentos de la caja (docsNum). registerId del JWT.
 if ($method === 'GET') {
     // P1 code-review: sin caja activa no hay numeración que devolver.

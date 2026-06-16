@@ -76,6 +76,48 @@ final class RegisterService
     }
 
     /**
+     * Grilla de accesos directos (hotkeys) de la caja, desde register.data->'hotkeys'.
+     * Espejo del JSON que el legacy guarda en ncmHotKeys: [{itemId, position, color, isCategory}].
+     *
+     * @return array lista de hotkeys, o [] si la caja no existe o no tiene config.
+     */
+    public function getHotkeys(string $registerId, string $companyId): array
+    {
+        $row = ncmExecute(
+            "SELECT data->'hotkeys' AS hotkeys FROM register
+              WHERE registerId = ? AND companyId = ? LIMIT 1",
+            [$registerId, $companyId],
+            false
+        );
+        if (!$row || empty($row['hotkeys'])) {
+            return [];
+        }
+        $decoded = json_decode((string) $row['hotkeys'], true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Persiste la grilla de hotkeys en register.data.hotkeys (jsonb_set, crea data si falta).
+     * registerId/companyId SIEMPRE del JWT — nunca del request. El array ya viene validado
+     * y normalizado por el endpoint.
+     *
+     * @param array $hotkeys lista de {itemId, position, color, isCategory}.
+     * @return bool true si no hubo error de BD.
+     */
+    public function saveHotkeys(string $registerId, string $companyId, array $hotkeys): bool
+    {
+        global $db;
+        $json = json_encode(array_values($hotkeys), JSON_UNESCAPED_UNICODE);
+        $res = $db->Execute(
+            "UPDATE register
+                SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{hotkeys}', ?::jsonb, true)
+              WHERE registerId = ? AND companyId = ?",
+            [$json, $registerId, $companyId]
+        );
+        return $res !== false;
+    }
+
+    /**
      * Mayor entre el contador guardado en la caja y el último invoiceNo realmente usado
      * para $type. Corrige el bug PG del legacy getNextDocNumber()/getValue(): interpolaban
      * companyId (UUID) sin comillas en el WHERE → roto en PG. Acá va todo bindeado.
