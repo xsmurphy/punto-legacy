@@ -21,6 +21,18 @@ final class UsersService
 {
     private const TYPE_USER = 0;
 
+    /**
+     * Catálogo de roles del sistema. En el legacy estos vivían en
+     * `taxonomy WHERE taxonomyType='role'` indexados por `taxonomyExtra`
+     * (numérico), pero la BD de prod nunca tuvo seed → los IDs viven
+     * hardcoded en código (ver SignupService:221 — `role=1` al signup).
+     * Si en el futuro se reintroducen roles custom por empresa, joinear
+     * con `taxonomy r ON r.taxonomyExtra = c.role::text` (NO taxonomyId).
+     */
+    private const ROLES = [
+        '1' => 'Super Admin',
+    ];
+
     /** Listado de empleados activos/inactivos con info de rol y sucursal. */
     public function list(string $companyId, array $opts = []): array
     {
@@ -44,20 +56,16 @@ final class UsersService
                 c.contactEmail    AS email,
                 c.contactPhone    AS phone,
                 c.contactStatus   AS status,
-                c.contactColor    AS color,
+                c.data->>'contactColor' AS color,
                 c.lockPass,
-                c.contactInCalendar AS inCalendar,
-                c.contactCalendarPosition AS calendarPosition,
+                (c.data->>'contactInCalendar' = 'true') AS inCalendar,
+                COALESCE(NULLIF(c.data->>'contactCalendarPosition','')::int, 0) AS calendarPosition,
                 c.role            AS roleId,
-                r.taxonomyName    AS roleName,
                 c.outletId,
                 o.outletName,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
-            LEFT JOIN taxonomy r ON r.taxonomyId = c.role
-                                AND r.companyId  = c.companyId
-                                AND r.taxonomyType = 'role'
             LEFT JOIN outlet o ON o.outletId = c.outletId AND o.companyId = c.companyId
             WHERE {$where}
             ORDER BY c.contactName ASC
@@ -85,20 +93,16 @@ final class UsersService
                 c.contactEmail    AS email,
                 c.contactPhone    AS phone,
                 c.contactStatus   AS status,
-                c.contactColor    AS color,
+                c.data->>'contactColor' AS color,
                 c.lockPass,
-                c.contactInCalendar AS inCalendar,
-                c.contactCalendarPosition AS calendarPosition,
+                (c.data->>'contactInCalendar' = 'true') AS inCalendar,
+                COALESCE(NULLIF(c.data->>'contactCalendarPosition','')::int, 0) AS calendarPosition,
                 c.role            AS roleId,
-                r.taxonomyName    AS roleName,
                 c.outletId,
                 o.outletName,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
-            LEFT JOIN taxonomy r ON r.taxonomyId = c.role
-                                AND r.companyId  = c.companyId
-                                AND r.taxonomyType = 'role'
             LEFT JOIN outlet o ON o.outletId = c.outletId AND o.companyId = c.companyId
             WHERE c.contactId = ? AND c.companyId = ? AND c.type = ?
         ";
@@ -106,23 +110,13 @@ final class UsersService
         return $row ? $this->shape($row) : null;
     }
 
-    /** Roles disponibles para esta empresa (legacy: taxonomy con taxonomyType='role'). */
+    /** Roles disponibles. Catálogo del sistema (hardcoded — ver const ROLES). */
     public function roles(string $companyId): array
     {
-        $res = ncmExecute(
-            "SELECT taxonomyId AS id, taxonomyName AS name
-             FROM taxonomy
-             WHERE companyId = ? AND taxonomyType = 'role'
-             ORDER BY taxonomyName ASC",
-            [$companyId], false, true
-        );
+        unset($companyId); // catálogo es global; firma se mantiene por compat
         $rows = [];
-        if ($res && is_object($res)) {
-            while (!$res->EOF) {
-                $rows[] = ['id' => $res->fields['id'], 'name' => $res->fields['name']];
-                $res->MoveNext();
-            }
-            $res->Close();
+        foreach (self::ROLES as $id => $name) {
+            $rows[] = ['id' => $id, 'name' => $name];
         }
         return $rows;
     }
@@ -333,9 +327,12 @@ final class UsersService
         }
     }
 
-    /** Shape canónico para respuestas. */
-    private function shape(array $row): array
+    /** Shape canónico para respuestas. Acepta array o CaseInsensitiveArray (ncmExecute). */
+    private function shape(array|\CaseInsensitiveArray $row): array
     {
+        $roleId = $row['roleid'] ?? $row['roleId'] ?? null;
+        // Normalizamos a string para el lookup ('1' tanto desde int como string)
+        $roleKey = $roleId !== null && $roleId !== '' ? (string) $roleId : null;
         return [
             'id'               => $row['id']               ?? $row['contactid']               ?? null,
             'name'             => $row['name']              ?? $row['contactname']              ?? null,
@@ -346,8 +343,8 @@ final class UsersService
             'lockPass'         => $row['lockpass']          ?? $row['lockPass']                 ?? null,
             'inCalendar'       => (bool) ($row['incalendar'] ?? $row['contactincalendar']      ?? false),
             'calendarPosition' => (int) ($row['calendarposition'] ?? $row['contactcalendarposition'] ?? 0),
-            'roleId'           => $row['roleid']            ?? $row['roleId']                   ?? null,
-            'roleName'         => $row['rolename']          ?? $row['roleName']                 ?? null,
+            'roleId'           => $roleKey,
+            'roleName'         => $roleKey !== null ? (self::ROLES[$roleKey] ?? null) : null,
             'outletId'         => $row['outletid']          ?? $row['outletId']                 ?? null,
             'outletName'       => $row['outletname']        ?? $row['outletName']               ?? null,
             'createdAt'        => $row['createdat']         ?? $row['createdAt']                ?? null,
