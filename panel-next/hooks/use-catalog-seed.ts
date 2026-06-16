@@ -17,8 +17,9 @@
 
 import * as React from "react"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { fixtureBootstrap } from "@/lib/catalog/fixtures"
+import { fixtureBootstrap, fixtureHotkeys } from "@/lib/catalog/fixtures"
 import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
+import { useHotkeysStore } from "@/lib/hotkeys/store"
 
 const USE_FIXTURES = process.env.NEXT_PUBLIC_USE_FIXTURES === "1"
 
@@ -37,6 +38,10 @@ export function useCatalogSeed() {
         config: fixtureBootstrap.config,
         registers: fixtureBootstrap.registers,
       })
+      // Seed de hotkeys de ejemplo (solo si no hay config persistida).
+      if (useHotkeysStore.getState().hotkeys.length === 0) {
+        useHotkeysStore.getState().hydrate(fixtureHotkeys)
+      }
       return
     }
 

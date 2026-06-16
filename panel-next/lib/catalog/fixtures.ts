@@ -314,6 +314,22 @@ export const fixtureCustomers: PosCustomer[] = [
   },
 ]
 
+// ── Hotkeys de dev seed (config de ejemplo) ──────────────────────────────────
+// Mezcla de categorías (isCategory) e items, para ver la grilla configurada.
+// Shape idéntico a register.data.hotkeys. position = slot en la grilla 6×N.
+
+export const fixtureHotkeys = [
+  { itemId: "cat-menu", position: 0, color: "amber", isCategory: true },
+  { itemId: "cat-minutas", position: 1, color: "slate", isCategory: true },
+  { itemId: "cat-bebidas", position: 2, color: "sky", isCategory: true },
+  { itemId: "cat-promos", position: 3, color: "emerald", isCategory: true },
+  { itemId: "cat-pizzas", position: 4, color: "rose", isCategory: true },
+  { itemId: "item-001", position: 6, color: "", isCategory: false }, // Milanesa
+  { itemId: "item-007", position: 7, color: "violet", isCategory: false }, // Cerveza
+  { itemId: "item-012", position: 8, color: "", isCategory: false }, // Pizza Margherita
+  { itemId: "item-004", position: 10, color: "slate", isCategory: false }, // Hamburguesa
+]
+
 // ── Bootstrap completo para dev seed ─────────────────────────────────────────
 
 export const fixtureBootstrap = {

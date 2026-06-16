@@ -1,15 +1,16 @@
 "use client"
 
 /**
- * Área izquierda del register — grid de categorías/productos + barra inferior.
+ * Hotkeys — grilla de accesos rápidos de la caja (pantalla por defecto).
  *
- * Layout (fidelidad §6.1):
- *   - Grid de tiles: (a) categoría = color sólido + abreviatura estilo tabla
- *     periódica + label; (b) producto = imagen/color + nombre overlay.
- *   - Slots vacíos = tiles placeholder gris.
- *   - Barra inferior scrolleable: botón back circular + chips de categoría.
- *   - FAB "+" abajo-izquierda (stub).
- *   - Info de sesión: avatar + outlet + caja + versión.
+ * Renderiza la config de `useHotkeysStore` (espejo de register.data.hotkeys):
+ * cada slot apunta a un artículo (click → al carrito) o una categoría
+ * (click → entra a ver sus productos). Tiles con imagen de fondo o, sin
+ * imagen, color sólido + abreviatura (modo "tabla periódica").
+ *
+ * Modo edición (chunk 2): +/✕/color/drag&drop. Por ahora solo vista.
+ *
+ * Ver concepto: Square POS-style quick keys. Legacy: ncmHotKeys (app.js:23583).
  */
 
 import * as React from "react"
@@ -19,268 +20,209 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
-import { fixtureCategories } from "@/lib/catalog/fixtures"
+import { useHotkeysStore, hotkeyColorBg, type Hotkey } from "@/lib/hotkeys/store"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
-// ── Paleta de colores de categoría ───────────────────────────────────────────
-// Mapeamos categoryId a color. Los fixtures ya traen el color directamente.
+// Grilla 6 columnas × 50 filas (300 slots), scroll vertical.
+const COLS = 6
+const ROWS = 50
+const SLOTS = COLS * ROWS
 
-type CategoryMeta = (typeof fixtureCategories)[number]
+const DEFAULT_TILE = "#3f4651"
 
-function getCategoryMeta(categoryId: string | null): CategoryMeta | null {
-  if (!categoryId) return null
-  return fixtureCategories.find((c) => c.id === categoryId) ?? null
+function abbrev(name: string): string {
+  const t = name.trim()
+  if (!t) return "?"
+  const parts = t.split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return t.slice(0, 2)
 }
-
-// ── Tile de categoría ─────────────────────────────────────────────────────────
-
-function CategoryTile({
-  category,
-  onClick,
-  isActive,
-}: {
-  category: CategoryMeta
-  onClick: () => void
-  isActive: boolean
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "group relative flex aspect-square flex-col items-start justify-between overflow-hidden rounded-xl p-2.5 transition-all active:scale-95",
-        isActive && "ring-2 ring-white/60",
-      )}
-      style={{ backgroundColor: category.color }}
-      aria-label={category.name}
-    >
-      {/* Abreviatura estilo tabla periódica */}
-      <span className="text-3xl font-bold leading-none tracking-tight text-white/90">
-        {category.abbrev}
-      </span>
-      {/* Label abajo */}
-      <span className="line-clamp-2 text-left text-[11px] font-medium leading-tight text-white/80">
-        {category.name}
-      </span>
-      {/* Overlay de hover */}
-      <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
-    </button>
-  )
-}
-
-// ── Tile de producto ──────────────────────────────────────────────────────────
-
-function ProductTile({
-  item,
-  onClick,
-}: {
-  item: PosItem
-  onClick: () => void
-}) {
-  const catMeta = getCategoryMeta(item.categoryId)
-  const bgColor = catMeta?.color ?? "#6b7280"
-
-  return (
-    <button
-      onClick={onClick}
-      className="group relative flex aspect-square flex-col overflow-hidden rounded-xl transition-all active:scale-95"
-      aria-label={item.name}
-    >
-      {/* Fondo: imagen o color de categoría */}
-      {item.imageUrl ? (
-        <Image
-          src={item.imageUrl}
-          alt={item.name}
-          fill
-          sizes="(max-width: 768px) 33vw, 20vw"
-          className="object-cover"
-        />
-      ) : (
-        <div className="absolute inset-0" style={{ backgroundColor: bgColor }} />
-      )}
-
-      {/* Gradiente overlay abajo */}
-      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
-
-      {/* Nombre overlay */}
-      <div className="absolute inset-x-0 bottom-0 p-2">
-        <span className="line-clamp-2 text-left text-[11px] font-medium leading-tight text-white">
-          {item.name}
-        </span>
-      </div>
-
-      {/* Hover overlay */}
-      <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
-    </button>
-  )
-}
-
-// ── Tile placeholder ─────────────────────────────────────────────────────────
-
-function PlaceholderTile() {
-  return (
-    <div className="aspect-square rounded-xl bg-muted/40 dark:bg-muted/20" />
-  )
-}
-
-// ── Grid principal ────────────────────────────────────────────────────────────
-
-type GridView = "categories" | { categoryId: string }
 
 export function ProductArea() {
   const items = useCatalogStore((s) => s.items)
+  const hotkeys = useHotkeysStore((s) => s.hotkeys)
   const addItem = useCartStore((s) => s.addItem)
 
-  const [view, setView] = React.useState<GridView>("categories")
+  // Vista: grilla de hotkeys, o productos de una categoría (drill-in).
+  const [categoryId, setCategoryId] = React.useState<string | null>(null)
 
-  const activeCategoryId =
-    view === "categories" ? null : view.categoryId
+  // Índices auxiliares.
+  const itemById = React.useMemo(() => {
+    const m = new Map<string, PosItem>()
+    for (const i of items) m.set(i.id, i)
+    return m
+  }, [items])
 
-  // Items de la categoría activa
-  const visibleItems = React.useMemo(() => {
-    if (view === "categories") return []
-    return items.filter((i) => i.categoryId === view.categoryId)
-  }, [view, items])
+  // Categorías derivadas de los items (id → nombre).
+  const categoryName = React.useMemo(() => {
+    const m = new Map<string, string>()
+    for (const i of items) {
+      if (i.categoryId && !m.has(i.categoryId)) {
+        m.set(i.categoryId, i.categoryName ?? "Categoría")
+      }
+    }
+    return m
+  }, [items])
 
-  // Grid de hotkeys de la caja: 6 columnas, 50 filas por defecto (300 slots).
-  // Los slots no ocupados por categorías/productos quedan como placeholders
-  // vacíos (configurables a futuro). La grilla scrollea vertical.
-  const COLS = 6
-  const ROWS_MIN = 50
-  const MIN_TILES = COLS * ROWS_MIN
+  const hotkeyAt = React.useMemo(() => {
+    const m = new Map<number, Hotkey>()
+    for (const h of hotkeys) m.set(h.position, h)
+    return m
+  }, [hotkeys])
 
-  const handleCategoryClick = (categoryId: string) => {
-    setView({ categoryId })
-  }
+  const categoryItems = React.useMemo(
+    () => (categoryId ? items.filter((i) => i.categoryId === categoryId) : []),
+    [categoryId, items],
+  )
 
-  const handleBack = () => {
-    setView("categories")
+  const handleHotkeyClick = (h: Hotkey) => {
+    if (h.isCategory) {
+      setCategoryId(h.itemId)
+      return
+    }
+    const item = itemById.get(h.itemId)
+    if (item) addItem({ id: item.id, name: item.name, price: item.price })
   }
 
   const handleProductClick = (item: PosItem) => {
     addItem({ id: item.id, name: item.name, price: item.price })
   }
 
-  // ── Render del grid ────────────────────────────────────────────────────────
-
-  const renderGrid = () => {
-    if (view === "categories") {
-      const cats = fixtureCategories
-      const filled = cats.length
-      const total = Math.max(MIN_TILES, Math.ceil(filled / COLS) * COLS)
-      return (
-        <div
-          className="grid flex-1 gap-2 p-3"
-          style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}
-        >
-          {cats.map((cat) => (
-            <CategoryTile
-              key={cat.id}
-              category={cat}
-              isActive={activeCategoryId === cat.id}
-              onClick={() => handleCategoryClick(cat.id)}
-            />
-          ))}
-          {Array.from({ length: total - filled }).map((_, i) => (
-            <PlaceholderTile key={`ph-${i}`} />
-          ))}
-        </div>
-      )
-    }
-
-    const filled = visibleItems.length
-    const total = Math.max(MIN_TILES, Math.ceil(filled / COLS) * COLS)
-    return (
-      <div
-        className="grid flex-1 gap-2 p-3"
-        style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}
-      >
-        {visibleItems.map((item) => (
-          <ProductTile
-            key={item.id}
-            item={item}
-            onClick={() => handleProductClick(item)}
-          />
-        ))}
-        {Array.from({ length: total - filled }).map((_, i) => (
-          <PlaceholderTile key={`ph-${i}`} />
-        ))}
-      </div>
-    )
-  }
-
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      {/* ── Grid scrolleable ── (ocupa todo, sin barra fija abajo) */}
-      <div className="flex-1 overflow-y-auto pb-20">{renderGrid()}</div>
-
-      {/* ── CategoryBar flotante ──
-          El FAB de "Menú de módulos" se removió: su contenido (Hotkeys, Mesas,
-          Calendario, Órdenes…) vive ahora en el sidebar contextual del POS
-          (ver panelNav/posNav en panel-auth-guard). La barra de categorías
-          ocupa toda la fila. */}
-      <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center">
-        <FloatingCategoryBar
-          activeId={activeCategoryId}
-          onBack={handleBack}
-          onSelect={handleCategoryClick}
-          showBack={view !== "categories"}
-        />
-      </div>
-    </div>
-  )
-}
-
-// ── FloatingCategoryBar ───────────────────────────────────────────────────────
-// Barra de categorías FLOTANTE: pill rounded-full con backdrop-blur, NO border-t
-// fija al fondo. Vive en la misma línea horizontal que el FAB (ver ProductArea).
-
-function FloatingCategoryBar({
-  activeId,
-  onBack,
-  onSelect,
-  showBack,
-}: {
-  activeId: string | null
-  onBack: () => void
-  onSelect: (id: string) => void
-  showBack: boolean
-}) {
-  return (
-    <div className="flex h-12 flex-1 items-center gap-2 rounded-full border border-border bg-background/80 px-1.5 shadow-lg backdrop-blur-md">
-      {/* Botón back circular */}
-      <Button
-        size="icon"
-        variant={showBack ? "secondary" : "ghost"}
-        className="size-9 shrink-0 rounded-full"
-        onClick={onBack}
-        disabled={!showBack}
-        aria-label="Volver a categorías"
-      >
-        <ChevronLeft className="size-4" />
-      </Button>
-
-      {/* Chips de categorías — scrolleable horizontal, scrollbar oculta */}
-      <div className="flex flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {fixtureCategories.map((cat) => (
-          <Button
-            key={cat.id}
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => onSelect(cat.id)}
-            className={cn(
-              "h-8 shrink-0 rounded-full px-3 text-xs font-medium",
-              activeId === cat.id
-                ? "text-white hover:text-white"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            style={activeId === cat.id ? { backgroundColor: cat.color } : undefined}
+      <div className="flex-1 overflow-y-auto p-3">
+        {categoryId === null ? (
+          // ── Grilla de hotkeys ──
+          <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
           >
-            {cat.name}
-          </Button>
-        ))}
+            {Array.from({ length: SLOTS }).map((_, pos) => {
+              const h = hotkeyAt.get(pos)
+              if (!h) return <EmptySlot key={pos} />
+              return (
+                <HotkeyTile
+                  key={pos}
+                  hotkey={h}
+                  item={h.isCategory ? null : itemById.get(h.itemId) ?? null}
+                  label={
+                    h.isCategory
+                      ? categoryName.get(h.itemId) ?? "Categoría"
+                      : itemById.get(h.itemId)?.name ?? "—"
+                  }
+                  onClick={() => handleHotkeyClick(h)}
+                />
+              )
+            })}
+          </div>
+        ) : (
+          // ── Productos de la categoría (drill-in) ──
+          <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
+          >
+            {categoryItems.map((item) => (
+              <ProductTile key={item.id} item={item} onClick={() => handleProductClick(item)} />
+            ))}
+            {categoryItems.length === 0 && (
+              <p className="col-span-full py-10 text-center text-sm text-muted-foreground">
+                Sin productos en esta categoría.
+              </p>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Botón "volver a hotkeys" — solo dentro de una categoría. */}
+      {categoryId !== null && (
+        <div className="absolute bottom-3 left-3 z-10">
+          <Button
+            variant="secondary"
+            className="gap-2 rounded-full shadow-lg"
+            onClick={() => setCategoryId(null)}
+          >
+            <ChevronLeft className="size-4" />
+            Volver
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
 
+// ── Tile de hotkey (categoría o item) ─────────────────────────────────────────
+
+function HotkeyTile({
+  hotkey,
+  item,
+  label,
+  onClick,
+}: {
+  hotkey: Hotkey
+  item: PosItem | null
+  label: string
+  onClick: () => void
+}) {
+  const hasImage = !hotkey.isCategory && item?.imageUrl
+  const bg = hotkeyColorBg(hotkey.color) ?? DEFAULT_TILE
+
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className="group relative flex aspect-square flex-col items-start justify-between overflow-hidden rounded-xl p-2.5 text-left transition-all active:scale-95"
+      style={hasImage ? undefined : { backgroundColor: bg }}
+    >
+      {hasImage && item?.imageUrl ? (
+        <>
+          <Image src={item.imageUrl} alt={label} fill sizes="20vw" className="object-cover" />
+          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
+        </>
+      ) : (
+        // Modo tabla periódica: abreviatura grande + nombre abajo.
+        <span className="text-2xl font-bold leading-none tracking-tight text-white/90">
+          {abbrev(label)}
+        </span>
+      )}
+      <span
+        className={cn(
+          "line-clamp-2 text-[11px] font-medium leading-tight",
+          hasImage ? "absolute inset-x-0 bottom-0 z-10 p-2 text-white" : "text-white/85",
+        )}
+      >
+        {label}
+      </span>
+      <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
+    </button>
+  )
+}
+
+// ── Tile de producto (vista drill-in de categoría) ────────────────────────────
+
+function ProductTile({ item, onClick }: { item: PosItem; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={item.name}
+      className="group relative flex aspect-square flex-col overflow-hidden rounded-xl transition-all active:scale-95"
+      style={item.imageUrl ? undefined : { backgroundColor: DEFAULT_TILE }}
+    >
+      {item.imageUrl && (
+        <Image src={item.imageUrl} alt={item.name} fill sizes="20vw" className="object-cover" />
+      )}
+      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 p-2">
+        <span className="line-clamp-2 text-left text-[11px] font-medium leading-tight text-white">
+          {item.name}
+        </span>
+      </div>
+      <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
+    </button>
+  )
+}
+
+// ── Slot vacío ────────────────────────────────────────────────────────────────
+
+function EmptySlot() {
+  return <div className="aspect-square rounded-xl bg-muted/30 dark:bg-muted/15" />
+}
