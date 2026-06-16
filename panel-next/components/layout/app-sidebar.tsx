@@ -31,6 +31,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   ChevronsUpDown,
   LogOut,
+  Lock,
   Settings,
   ShieldCheck,
   Search,
@@ -44,6 +45,8 @@ import {
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { AppCommandPalette } from "@/components/layout/app-command-palette"
+import { useCatalogStore } from "@/lib/catalog/store"
+import { useLockStore } from "@/lib/pos/lock-store"
 
 export interface NavItem {
   title: string
@@ -359,6 +362,10 @@ export function AppSidebar({
                 align="end"
                 sideOffset={4}
               >
+                {isPos ? (
+                  <PosUserMenuContent userName={user.name} userRole={user.subtitle} />
+                ) : (
+                  <>
                 <DropdownMenuLabel className="p-0 font-normal">
                   <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                     <Avatar className="size-8 rounded-lg">
@@ -417,6 +424,8 @@ export function AppSidebar({
                   <LogOut />
                   Cerrar Sesión
                 </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
@@ -428,6 +437,57 @@ export function AppSidebar({
         nav={items}
       />
     </Sidebar>
+  )
+}
+
+// ── Menú de usuario del POS ──────────────────────────────────────────────
+//
+// En /pos el dropdown del usuario muestra SOLO 3 datos (Empresa /
+// Sucursal-Caja / Usuario-Rol) y la acción "Bloquear" (abre el lock screen).
+// No hay links de navegación (Mi Plan, Compras, Sucursales, Módulos,
+// Configuración, Cerrar Sesión) — el cajero no debe perderse navegando
+// fuera de la caja.
+
+function PosUserMenuContent({
+  userName,
+  userRole,
+}: {
+  userName: string
+  userRole: string
+}) {
+  const config = useCatalogStore((s) => s.config)
+  const outlet = useCatalogStore((s) => s.outlet)
+  const registers = useCatalogStore((s) => s.registers)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const lock = useLockStore((s) => s.lock)
+
+  const register = registers.find((r) => r.id === activeRegisterId) ?? null
+  const company = config?.companyName?.trim() || "Punto"
+  const outletRegister =
+    outlet && register
+      ? `${outlet.name} - ${register.name}`
+      : outlet?.name || register?.name || "Sin caja"
+  const userLine = userRole ? `${userName} - ${userRole}` : userName
+
+  return (
+    <>
+      <DropdownMenuLabel className="p-0 font-normal">
+        <div className="grid gap-0.5 px-2 py-2 text-left text-sm leading-tight">
+          <span className="truncate text-sm font-semibold">{company}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {outletRegister}
+          </span>
+          <span className="truncate text-xs text-muted-foreground">
+            {userLine}
+          </span>
+        </div>
+      </DropdownMenuLabel>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={lock}>
+        <Lock />
+        Bloquear
+      </DropdownMenuItem>
+    </>
   )
 }
 

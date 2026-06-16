@@ -27,6 +27,7 @@
 import * as React from "react"
 import { CartPanel } from "@/components/register/cart-panel"
 import { DeviceSetupDialog } from "@/components/register/device-setup-dialog"
+import { LockScreen } from "@/components/register/lock-screen"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
@@ -135,6 +136,9 @@ export default function PosWorkspaceLayout({
       <div className="flex-1 overflow-hidden md:flex-[3]">
         <CartPanel />
       </div>
+
+      {/* Lock screen — overlay fullscreen activado desde el menú de usuario. */}
+      <LockScreen />
     </div>
   )
 }

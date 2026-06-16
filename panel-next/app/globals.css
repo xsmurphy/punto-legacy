@@ -101,6 +101,9 @@
        utilities `animate-marquee` / `animate-marquee-vertical` automáticas. */
     --animate-marquee: marquee var(--duration, 40s) linear infinite;
     --animate-marquee-vertical: marquee-vertical var(--duration, 40s) linear infinite;
+    /* Lock screen del POS (lib/pos/lock-store + components/register/lock-screen). */
+    --animate-pin-pop: pin-pop 220ms ease-out;
+    --animate-pin-shake: pin-shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
 }
 
 @keyframes marquee {
@@ -111,6 +114,21 @@
 @keyframes marquee-vertical {
     from { transform: translateY(0); }
     to   { transform: translateY(calc(-100% - var(--gap, 1rem))); }
+}
+
+/* Bounce sutil al pintar un círculo del PIN. */
+@keyframes pin-pop {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.25); }
+    100% { transform: scale(1); }
+}
+
+/* Shake "código incorrecto" para los 4 círculos o el logo. */
+@keyframes pin-shake {
+    10%, 90%  { transform: translateX(-2px); }
+    20%, 80%  { transform: translateX(4px); }
+    30%, 50%, 70% { transform: translateX(-7px); }
+    40%, 60%  { transform: translateX(7px); }
 }
 
 /* LIGHT — fondo casi blanco, primary neutro oscuro. Brand verde Punto solo
