@@ -412,8 +412,10 @@ export function AppSidebar({
 // ── helpers de render ────────────────────────────────────────────────────
 
 function isItemActive(to: string, pathname: string): boolean {
-  const isHomeRoute = to === "/" || to === "/admin"
-  return isHomeRoute
+  // `/pos` es índice del workspace de caja: match exacto para que NO quede
+  // activo cuando se está en /pos/mesas, /pos/ordenes, etc.
+  const isExactRoute = to === "/" || to === "/admin" || to === "/pos"
+  return isExactRoute
     ? pathname === to
     : pathname === to || pathname.startsWith(to + "/")
 }

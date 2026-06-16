@@ -8,7 +8,6 @@ import {
   ChartPie,
   ScanBarcode,
   LayoutDashboard,
-  ShoppingCart,
   Flame,
   Utensils,
   CalendarDays,
@@ -43,8 +42,9 @@ const panelNav: NavEntry[] = [
 // vivía en el FAB flotante de la pantalla de caja vive ahora acá.
 // La vuelta al panel es por el logo (linkea al dashboard).
 const posNav: NavEntry[] = [
-  { title: "Caja", to: "/pos", icon: ShoppingCart },
-  { title: "Hotkeys", to: "/pos/hotkeys", icon: Flame },
+  // Hotkeys = grilla de la caja (ruta índice /pos). El botón para "volver
+  // al listado de hotkeys". Los demás items intercambian el bloque izquierdo.
+  { title: "Hotkeys", to: "/pos", icon: Flame },
   { title: "Mesas", to: "/pos/mesas", icon: Utensils },
   { title: "Calendario", to: "/pos/calendario", icon: CalendarDays },
   { title: "Órdenes", to: "/pos/ordenes", icon: ClipboardList },
