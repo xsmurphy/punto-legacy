@@ -158,21 +158,6 @@ export function CartPanel() {
         )}
       </div>
 
-      {/* ── Tacho (vaciar) ── */}
-      {lines.length > 0 && (
-        <div className="flex justify-center py-2">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={clear}
-            className="text-muted-foreground hover:text-destructive"
-            aria-label="Vaciar carrito"
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
-      )}
-
       {/* ── Bottom: toggles + botón cobrar ── */}
       <CartBottom
         credito={credito}
@@ -182,6 +167,7 @@ export function CartPanel() {
         onToggleCredito={toggleCredito}
         onToggleInterno={toggleInterno}
         onToggleIva={toggleIva}
+        onClear={clear}
         total={totalValue}
         lineCount={lines.length}
         config={config}
@@ -522,6 +508,7 @@ function CartBottom({
   onToggleCredito,
   onToggleInterno,
   onToggleIva,
+  onClear,
   total,
   lineCount,
   config,
@@ -534,6 +521,7 @@ function CartBottom({
   onToggleCredito: () => void
   onToggleInterno: () => void
   onToggleIva: () => void
+  onClear: () => void
   total: number
   lineCount: number
   config: ReturnType<typeof useCatalogStore.getState>["config"]
@@ -569,6 +557,16 @@ function CartBottom({
           <X className="size-3" />
           <span>{ivaFormatted}</span>
         </button>
+        {lineCount > 0 && (
+          <button
+            onClick={onClear}
+            aria-label="Vaciar carrito"
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-transparent px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
+          >
+            <Trash2 className="size-3" />
+            <span>VACIAR</span>
+          </button>
+        )}
       </div>
 
       {/* Botón cobrar — pill neutro del design system (Button default, --primary).
@@ -576,7 +574,7 @@ function CartBottom({
       <Button
         disabled={lineCount === 0}
         onClick={lineCount > 0 ? onPayClick : undefined}
-        className="h-auto w-full rounded-full px-4 py-4 text-2xl font-bold active:scale-[0.98]"
+        className="h-auto w-full rounded-full px-4 py-3 text-3xl font-bold active:scale-[0.98]"
         aria-label={`Cobrar ${totalFormatted}`}
       >
         {lineCount === 0 ? "Sin items" : totalFormatted}
