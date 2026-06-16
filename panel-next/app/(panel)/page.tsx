@@ -46,6 +46,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   DateRangePicker,
@@ -692,101 +693,66 @@ function SatisfactionCard({
   const det = data?.detractors.percent ?? 0
   const pas = data?.passives.percent ?? 0
   const pro = data?.promoters.percent ?? 0
+  const detCount = data?.detractors.count ?? 0
+  const pasCount = data?.passives.count ?? 0
+  const proCount = data?.promoters.count ?? 0
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">Satisfacción de clientes (NPS)</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {isLoading ? (
-          <Skeleton className="h-3 w-full rounded-full" />
-        ) : (
-          <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
-            {det > 0 && (
-              <div
-                className="bg-[var(--destructive)] transition-all"
-                style={{ width: `${det}%` }}
-                title={`Detractores · ${det}%`}
-              />
-            )}
-            {pas > 0 && (
-              <div
-                className="bg-[var(--muted-foreground)] transition-all"
-                style={{ width: `${pas}%` }}
-                title={`Pasivos · ${pas}%`}
-              />
-            )}
-            {pro > 0 && (
-              <div
-                className="bg-[var(--chart-1)] transition-all"
-                style={{ width: `${pro}%` }}
-                title={`Promotores · ${pro}%`}
-              />
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-3 gap-3">
-          <NpsLegend
-            dotColor="var(--destructive)"
-            label="Detractores"
-            percent={data?.detractors.percent ?? null}
-            count={data?.detractors.count ?? null}
-            isLoading={isLoading}
-          />
-          <NpsLegend
-            dotColor="var(--muted-foreground)"
-            label="Pasivos"
-            percent={data?.passives.percent ?? null}
-            count={data?.passives.count ?? null}
-            isLoading={isLoading}
-          />
-          <NpsLegend
-            dotColor="var(--chart-1)"
-            label="Promotores"
-            percent={data?.promoters.percent ?? null}
-            count={data?.promoters.count ?? null}
-            isLoading={isLoading}
-          />
-        </div>
-
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-2 px-1">
+      <h3 className="text-sm font-medium">Satisfacción de clientes (NPS)</h3>
+      {isLoading ? (
+        <Skeleton className="h-3 w-full rounded-full" />
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex h-3 w-full cursor-default overflow-hidden rounded-full bg-muted">
+              {det > 0 && (
+                <div
+                  className="bg-[var(--destructive)] transition-all"
+                  style={{ width: `${det}%` }}
+                />
+              )}
+              {pas > 0 && (
+                <div
+                  className="bg-[var(--muted-foreground)] transition-all"
+                  style={{ width: `${pas}%` }}
+                />
+              )}
+              {pro > 0 && (
+                <div
+                  className="bg-[var(--chart-1)] transition-all"
+                  style={{ width: `${pro}%` }}
+                />
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="flex flex-col gap-1 px-3 py-2">
+            <NpsTooltipRow color="var(--destructive)" label="Detractores" percent={det} count={detCount} />
+            <NpsTooltipRow color="var(--muted-foreground)" label="Pasivos" percent={pas} count={pasCount} />
+            <NpsTooltipRow color="var(--chart-1)" label="Promotores" percent={pro} count={proCount} />
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   )
 }
 
-function NpsLegend({
-  dotColor,
+function NpsTooltipRow({
+  color,
   label,
   percent,
   count,
-  isLoading,
 }: {
-  dotColor: string
+  color: string
   label: string
-  percent: number | null
-  count: number | null
-  isLoading: boolean
+  percent: number
+  count: number
 }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 text-center">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        <span
-          className="size-2 shrink-0 rounded-full"
-          style={{ backgroundColor: dotColor }}
-        />
-        {label}
-      </div>
-      {isLoading ? (
-        <Skeleton className="mx-auto h-5 w-10" />
-      ) : (
-        <>
-          <span className="text-base font-semibold tabular-nums">{percent ?? 0}%</span>
-          <span className="text-[10px] text-muted-foreground tabular-nums">
-            {count ?? 0} resp.
-          </span>
-        </>
-      )}
+    <div className="flex items-center gap-2 tabular-nums">
+      <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+      <span className="flex-1">{label}</span>
+      <span className="font-medium">{percent}%</span>
+      <span className="text-background/70">· {count} resp.</span>
     </div>
   )
 }
