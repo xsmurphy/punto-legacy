@@ -1375,6 +1375,19 @@ if (!function_exists('_getTableSchema')) {
                                'recurringFrecuency', 'recurringStatus', 'recurringTransactionData',
                                'companyId', 'data'],
             ],
+            // itemSold: líneas de venta/compra. Schema verificado vía
+            // information_schema.columns en prod. La columna 'taxId' que el
+            // panel legacy mete en el record NO existe físicamente — termina
+            // ruteada al JSONB 'meta' por _routeToJsonb. PK = itemSoldId (uuid).
+            'itemSold' => [
+                'pk'       => 'itemSoldId',
+                'jsonbCol' => 'meta',
+                'columns'  => ['itemSoldId', 'itemSoldTotal', 'itemSoldTax', 'itemSoldDate',
+                               'itemSoldUnits', 'itemSoldDiscount', 'itemSoldCogs',
+                               'itemSoldComission', 'itemSoldDescription',
+                               'itemSoldParent', 'itemSoldCategory',
+                               'itemId', 'userId', 'transactionId', 'meta'],
+            ],
             'tasks' => [
                 'pk'       => 'ID',
                 'jsonbCol' => 'data',
