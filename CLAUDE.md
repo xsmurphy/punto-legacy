@@ -63,22 +63,42 @@ gastaban tokens sin retorno). No los invoques aunque haya MCPs disponibles.
 
 ---
 
-## Workflow de Git (estricto — única rama)
+## Workflow de Git
 
-**Trabajamos en `main`. No usar feature branches ni worktrees aislados.**
+**Branch por subproyecto cuando hay sesiones paralelas; `main` para todo lo demás.**
 
-1. **code-reviewer** solo en commits de alto riesgo: schema/migrations,
+Cuando una sesión va a tocar exclusivamente `app-next/` o `panel-next/` y hay
+riesgo de que otra sesión esté tocando el otro en paralelo, trabajá en una
+branch dedicada del subproyecto. Esto evita stomp entre sesiones y simplifica
+el merge.
+
+Convención de nombres:
+- `app-next/<slice>` — ej. `app-next/slice-a6`, `app-next/qz-tray`
+- `panel-next/<slice>` — ej. `panel-next/billing-ui`, `panel-next/team-crud`
+- `api/<feature>` — solo para refactors grandes de `/api` PHP compartida
+- Cualquier otra cosa (fixes triviales, docs, hooks, settings) → directo en `main`
+
+Reglas:
+1. **Una branch toca UN subproyecto.** Si necesitás modificar `app-next/` Y
+   `panel-next/` en el mismo cambio, hacelo en `main` (los cambios cross-cutting
+   son la excepción que justifica saltearse la branch).
+2. **`api/`** y **`context/`** se pueden tocar desde la branch del subproyecto
+   que los necesita (ej. una branch `app-next/*` puede modificar
+   `api/v1/bootstrap.php` si su feature lo requiere — declaralo en el commit).
+3. **`code-reviewer`** solo en commits de alto riesgo: schema/migrations,
    auth/JWT, admin realm, aislamiento multi-tenant, billing/pagos,
    hard-delete, CORS, permisos. Trivial (UI/copy/1-archivo): skip.
-2. **Commit inmediato** — no acumular cambios sin commitear.
-3. **Push inmediato** — no acumular commits locales.
-4. **Excepción**: commits con prefix `wip:` saltean reviewer (NO push).
-5. **context-updater NO se invoca** post-commit. La bitácora se mantiene
+4. **Commit inmediato** dentro de la branch — no acumular cambios sin commitear.
+5. **Push inmediato de la branch a remoto** — sirve de respaldo y permite que
+   el owner mire el diff en GitHub mientras la sesión sigue.
+6. **Excepción `wip:`**: commits con prefix `wip:` saltean reviewer (NO push).
+7. **Merge a `main`** al cierre de sesión (o cuando el slice cierra), con
+   `git merge --no-ff` desde main para preservar la historia del slice. Borrar
+   la branch local + remota tras el merge.
+8. **`context-updater` NO se invoca** post-commit. La bitácora se mantiene
    manualmente con `/end-session` al cierre (UNA llamada por sesión, no
-   por commit).
-
-Si terminás en branch/worktree distinto de `main`: hacé el trabajo, al
-cerrar mergeá a `main` y eliminá el worktree.
+   por commit). El `_session-log.md` se actualiza desde `main` post-merge,
+   no desde la branch — así dos sesiones paralelas no compiten por ese archivo.
 
 ---
 

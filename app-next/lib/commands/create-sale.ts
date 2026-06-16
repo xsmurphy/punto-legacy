@@ -3,15 +3,21 @@
  *
  * offlineEligible: true (ver lib/commands/registry.ts).
  *
- * Estado actual (Slice A3): construye el payload canónico idempotente y
- * SIMULA éxito sin POST real a la API. El POST real se cablea en Slice A6
- * cuando haya auth + datos reales (ver TODO abajo).
+ * POST a `/api/v1/sales` (BFF → SaleService.php). El backend espera el
+ * payload como form-encoded `data[]=<JSON.stringify(payload)>` (patrón
+ * legacy de `action.php?action=processData`), por eso se usa
+ * `api.postLegacy()` en vez de `api.post()`.
+ *
+ * Idempotencia: el `uid` v4 client-side se persiste en una columna UNIQUE
+ * server-side. Si dos requests llegan con el mismo uid (retry, doble-click,
+ * cola offline), el segundo devuelve `duplicated:true` con el transactionId
+ * existente — el front lo trata como éxito.
  *
  * Cuando se active la fase offline:
  *   - El interceptor del registry detecta `!navigator.onLine`.
  *   - Persiste el payload en IndexedDB (Dexie) con estado 'pending'.
  *   - Al reconectar, el sync worker llama a `executeSale()` por cada pending.
- *   - El transactionUID garantiza deduplicación server-side.
+ *   - El uid garantiza deduplicación server-side.
  *
  * Referencia visual legacy: `app/scripts/app.js` namespace `ncmTransactions`
  * funciones: `saveSale()`, `buildSalePayload()`, `postSale()`.
@@ -20,6 +26,7 @@
  * Ver context/16-app-next-rewrite.md §7 Slice A y context/14-app-rewrite-analysis.md §9.
  */
 
+import { api } from "@/lib/api-client"
 import type { CartLine } from "@/lib/cart/store"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 
@@ -119,10 +126,20 @@ export interface CreateSaleResult {
   /** Total de la venta. */
   total: number
   /**
-   * true si esta ejecución fue simulada (sin POST real a la API).
-   * Quitado en Slice A6 cuando se conecte el POST real.
+   * true si el backend detectó que ya existía una venta con este uid y
+   * devolvió el transactionId existente (idempotencia). El front lo trata
+   * como éxito — la UI ya muestra "guardado" sin distinguir.
    */
-  simulated: boolean
+  duplicated: boolean
+}
+
+// ── Shape de respuesta del backend (/v1/sales POST) ──────────────────────────
+// SaleResult::toApiPayload() en api/lib/Sales/SaleResult.php.
+interface RawSaleResponse {
+  success: boolean
+  transactionId: string
+  uid: string
+  duplicated: boolean
 }
 
 // ── Input para buildPayload ───────────────────────────────────────────────────
@@ -193,21 +210,15 @@ export function buildApiPayload(payload: CreateSalePayload): Record<string, unkn
 // ── Executor ──────────────────────────────────────────────────────────────────
 
 /**
- * Ejecuta la venta.
+ * Ejecuta la venta. POST real al BFF `/api/v1/sales` (Slice A6).
  *
- * ⚠️  SIMULADO en Slice A3: construye el payload pero NO hace el POST real.
- *     Devuelve { ok: true, simulated: true, ... }.
- *
- * TODO (Slice A6): descomentar y reemplazar el bloque simulado por:
- *   ```ts
- *   import { api } from "@/lib/api-client"
- *   const apiPayload = buildApiPayload(payload)
- *   const result = await api.post<CreateSaleResult>("/v1/sales", apiPayload)
- *   return result
- *   ```
- *   El endpoint BFF `/api/v1/sales` reenvía a `api/v1/sales.php` (SaleService).
- *   Razón del diferimiento: contra fixtures no hay `_jwt` (realm pos-app) ni items
- *   reales → el POST daría 401/422. Se cablea cuando haya auth + datos reales.
+ * - Construye el payload canónico con `buildSalePayload()` y lo envuelve con
+ *   `buildApiPayload()` ({ uid, transaction: {...} }) como espera SaleInput.php.
+ * - Manda el wrapper via `api.postLegacy()` (form-encoded `data[]=<JSON>`).
+ * - Mapea la respuesta `{ success, transactionId, uid, duplicated }` a
+ *   `CreateSaleResult`.
+ * - Si el backend dice `duplicated:true` (mismo uid ya guardado), devuelve
+ *   ese transactionId existente como éxito — comportamiento idempotente.
  */
 export async function executeSale(
   input: BuildSaleInput,
@@ -225,27 +236,18 @@ export async function executeSale(
     throw new Error("Debe agregar al menos un método de pago")
   }
 
-  // ── TODO (Slice A6): POST real al BFF ────────────────────────────────────
-  // Descomentar y eliminar el bloque simulado cuando haya auth + datos reales:
-  //
-  //   import { api } from "@/lib/api-client"
-  //   const apiPayload = buildApiPayload(payload)
-  //   return api.post<CreateSaleResult>("/v1/sales", apiPayload)
-  //
-  // El BFF `/api/v1/sales` (Next route handler) reenvía al SaleService.php.
-  // Cablear en Slice A6 junto con el handoff de auth (cookie _jwt realm pos-app).
-
-  // ── Simulación (Slice A3) ────────────────────────────────────────────────
-  // Simula latencia mínima de red para feedback realista.
-  await new Promise<void>((resolve) => setTimeout(resolve, 300))
-
-  console.log("[createSale] PAYLOAD (auditar contra SaleInput.php):", JSON.stringify(payload, null, 2))
+  // ── POST real al BFF ──────────────────────────────────────────────────────
+  const apiPayload = buildApiPayload(payload)
+  const response = await api.postLegacy<RawSaleResponse>(
+    "/v1/sales",
+    apiPayload,
+  )
 
   return {
-    transactionId: crypto.randomUUID(),
-    transactionUID: payload.uid,
+    transactionId: response.transactionId,
+    transactionUID: response.uid,
     invoiceNumber: null,
     total: payload.subtotal,
-    simulated: true,
+    duplicated: response.duplicated === true,
   }
 }
