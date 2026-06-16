@@ -35,19 +35,21 @@ interface CatalogState {
   customers: PosCustomer[]
   config: PosConfig | null
   registers: PosRegister[]
+  /** UUID de la caja activa. '' = sin caja seleccionada (guard la pide). */
+  activeRegisterId: string
 
   // ── Acciones ──────────────────────────────────────────────────────────────
 
   /**
    * Hidrata el store con los datos del BFF bootstrap.
    * Llamar una vez al iniciar sesión de caja.
-   * TODO (Slice A): reemplazar el stub con fetch real.
    */
   hydrate: (data: {
     items: PosItem[]
     customers: PosCustomer[]
     config: PosConfig
     registers: PosRegister[]
+    activeRegisterId: string
   }) => void
 
   /** Actualiza un cliente en memoria tras un CREATE/UPDATE exitoso. */
@@ -67,6 +69,7 @@ const initialState = {
   customers: [],
   config: null,
   registers: [],
+  activeRegisterId: "",
 }
 
 export const useCatalogStore = create<CatalogState>()((set) => ({
@@ -80,6 +83,7 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       customers: data.customers,
       config: data.config,
       registers: data.registers,
+      activeRegisterId: data.activeRegisterId,
     })
   },
 

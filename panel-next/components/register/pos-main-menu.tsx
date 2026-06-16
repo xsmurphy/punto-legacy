@@ -60,7 +60,10 @@ export function PosMainMenu() {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
   const config = useCatalogStore((s) => s.config)
-  const register = useCatalogStore((s) => s.registers[0] ?? null)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const registers = useCatalogStore((s) => s.registers)
+  // Mostrar la caja que matchee el claim activo, no siempre la primera.
+  const register = registers.find((r) => r.id === activeRegisterId) ?? registers[0] ?? null
 
   // ESC cierra (atajo histórico del legacy).
   React.useEffect(() => {

@@ -89,6 +89,10 @@ apiOk([
         'id'   => $ctx['userId'],
         'role' => $ctx['roleId'],
     ],
+    // Caja activa del POS (claim `rid` del JWT). '' = sin caja seleccionada
+    // → el front fuerza el selector de caja (A7). La lista de cajas del outlet
+    // la trae GET /v1/register?resource=list.
+    'activeRegisterId' => $ctx['registerId'] ?? '',
     // Selector de sucursal del menú user (panel-next 2026-06-12). El front
     // muestra el subtitle con `activeOutletName` y lista `outlets` cuando
     // hay ≥2. POST /v1/active-outlet re-emite el JWT con el `oid` nuevo.

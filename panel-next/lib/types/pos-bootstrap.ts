@@ -99,4 +99,6 @@ export interface PosBootstrap {
   registers: PosRegister[]
   items: PosItem[]
   customers: PosCustomer[]
+  /** UUID de la caja activa en el claim del JWT. '' = sin caja seleccionada. */
+  activeRegisterId: string
 }

@@ -23,7 +23,19 @@ use Punto\Api\Sales\Exceptions\SaleAbortedException;
 use Punto\Api\Sales\SaleInput;
 use Punto\Api\Sales\SaleService;
 
-$authCtx = apiAuthTenant();
+// MULTI-REALM (A7, 2026-06-16): la caja vive dentro de panel-next y vende con
+// la sesión del panel (`_jwt_panel`), no con un realm pos-app aparte. El
+// `registerId` (caja activa) viene del claim `rid` del JWT — lo setea
+// /v1/active-register tras validar la caja. TODO (F2): gatear "puede vender"
+// por permiso RBAC cuando exista el modelo de cajero.
+$authCtx = apiAuthTenant(['panel', 'pos-app']);
+
+// A7 (P0 code-review): sin caja activa (rid=''), NO se puede vender — una
+// venta sin registerId quedaría huérfana de numeración fiscal. El front
+// fuerza el selector de caja, pero el guard es server-side (no confiar en él).
+if (($authCtx['registerId'] ?? '') === '') {
+    apiError('Seleccioná una caja antes de vender', 403);
+}
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);

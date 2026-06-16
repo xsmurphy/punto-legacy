@@ -14,15 +14,55 @@ require_once __DIR__ . '/../lib/services/RegisterService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\RegisterService;
 
-$ctx        = apiAuthTenant();
+// MULTI-REALM (A7): la caja vive dentro del panel; acepta el realm panel
+// además de pos-app.
+$ctx        = apiAuthTenant(['panel', 'pos-app']);
 $companyId  = $ctx['companyId'];
 $registerId = $ctx['registerId'];
+$outletId   = $ctx['outletId'];
 
 $svc        = new RegisterService(TenantContext::fromAuth($ctx));
 $method     = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$resource   = (string) ($_GET['resource'] ?? '');
+
+// GET ?resource=list = cajas activas de la sucursal activa (selector de caja
+// del POS, A7). companyId + outletId SIEMPRE del JWT (no del request).
+if ($method === 'GET' && $resource === 'list') {
+    // P1 code-review: sin sucursal activa no listamos (evita query con
+    // outletId='' que rompería el invariante de scope-por-outlet).
+    if ($outletId === '') {
+        apiError('Sin sucursal activa', 422);
+    }
+    $rs = ncmExecute(
+        'SELECT registerId, registerName
+           FROM register
+          WHERE companyId = ? AND outletId = ? AND registerStatus = TRUE
+          ORDER BY registerName ASC',
+        [$companyId, $outletId],
+        false,
+        true
+    );
+    $registers = [];
+    if ($rs && is_object($rs)) {
+        while (!$rs->EOF) {
+            $f = $rs->fields;
+            $registers[] = [
+                'id'   => (string) ($f['registerId'] ?? $f['registerid'] ?? ''),
+                'name' => (string) ($f['registerName'] ?? $f['registername'] ?? ''),
+            ];
+            $rs->MoveNext();
+        }
+        $rs->Close();
+    }
+    apiOk(['registers' => $registers]);
+}
 
 // GET = numeración de documentos de la caja (docsNum). registerId del JWT.
 if ($method === 'GET') {
+    // P1 code-review: sin caja activa no hay numeración que devolver.
+    if ($registerId === '') {
+        apiError('Sin caja activa', 422);
+    }
     apiOk($svc->docNumbers($registerId, $companyId));
 }
 

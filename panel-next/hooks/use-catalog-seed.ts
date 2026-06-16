@@ -37,6 +37,8 @@ export function useCatalogSeed() {
         customers: fixtureBootstrap.customers,
         config: fixtureBootstrap.config,
         registers: fixtureBootstrap.registers,
+        // En fixtures el guard no debe bloquear: auto-seleccionamos la primera caja.
+        activeRegisterId: fixtureBootstrap.registers[0]?.id ?? "",
       })
       // Seed de hotkeys de ejemplo (solo si no hay config persistida).
       if (useHotkeysStore.getState().hotkeys.length === 0) {
@@ -51,6 +53,7 @@ export function useCatalogSeed() {
         customers: bootstrap.customers,
         config: bootstrap.config,
         registers: bootstrap.registers,
+        activeRegisterId: bootstrap.activeRegisterId,
       })
     }
   }, [status, hydrate, bootstrap])

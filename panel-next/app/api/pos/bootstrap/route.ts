@@ -71,7 +71,17 @@ interface UpstreamBootstrap {
   user: { id: string | number; role: number }
   activeOutletId: string
   activeOutletName: string
+  activeRegisterId?: string
   outlets: Array<{ id: string; name: string }>
+}
+
+interface UpstreamRegisterRow {
+  id: string
+  name: string
+}
+
+interface UpstreamRegisterList {
+  registers: UpstreamRegisterRow[]
 }
 
 // Shape real de /v1/items rows — viene de presentItem() + _flattenJsonb().
@@ -230,13 +240,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const base = getTargetBase()
   const headers = buildUpstreamHeaders(req)
 
-  // Fan-out paralelo. Los 3 endpoints son independientes en el backend
+  // Fan-out paralelo. Los 4 endpoints son independientes en el backend
   // (cada uno hace su propia auth y SELECTs distintos).
   let bsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamBootstrap>>>
   let itemsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamItemsList>>>
   let customersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamContactsList>>>
+  let registersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamRegisterList>>>
   try {
-    ;[bsRes, itemsRes, customersRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -246,6 +257,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       fetchUpstream<UpstreamContactsList>(
         base,
         "/v1/contacts?type=1&limit=500&offset=0",
+        headers,
+      ),
+      fetchUpstream<UpstreamRegisterList>(
+        base,
+        "/v1/register?resource=list",
         headers,
       ),
     ])
@@ -269,7 +285,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (
     bsRes.status === 401 ||
     itemsRes.status === 401 ||
-    customersRes.status === 401
+    customersRes.status === 401 ||
+    registersRes.status === 401
   ) {
     return NextResponse.json(
       {
@@ -281,10 +298,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // 5xx en cualquiera → loguear snippet + 502 al front.
+  // registers: si falla con 5xx también bloquea (sin lista no se puede elegir caja).
+  // Si devuelve lista vacía (data.registers = []), está OK — el guard lo mostrará.
   for (const [label, r] of [
     ["bootstrap", bsRes],
     ["items", itemsRes],
     ["contacts", customersRes],
+    ["registers", registersRes],
   ] as const) {
     if (r.status >= 500) {
       const snippet =
@@ -300,7 +320,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (
     bsRes.status >= 500 ||
     itemsRes.status >= 500 ||
-    customersRes.status >= 500
+    customersRes.status >= 500 ||
+    registersRes.status >= 500
   ) {
     return NextResponse.json(
       {
@@ -311,8 +332,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     )
   }
 
-  // Si alguno devolvió 4xx no-401 (ej. 403), también propagamos 502 — es
-  // un estado inválido para el POS.
+  // Si alguno de los 3 core devolvió 4xx no-401 (ej. 403), propagamos 502.
+  // registers: null → tratar como lista vacía (no bloqueante).
   if (bsRes.data === null || itemsRes.data === null || customersRes.data === null) {
     return NextResponse.json(
       {
@@ -344,13 +365,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const customers: PosCustomer[] = contactsList.contacts.map(reshapeCustomer)
 
-  // TODO (A7): el endpoint /v1/register.php hoy solo devuelve docNumbers para
-  // el registerId del JWT — no lista los registers del outlet. Para el
-  // selector de caja (Slice A7) hace falta agregar resource=list o un
-  // /v1/outlets/<id>/registers nuevo. Por ahora devolvemos array vacío:
-  // el front no muestra selector y asume que el registerId vino fijado al
-  // emitir el JWT (handoff desde panel o login POS).
-  const registers: PosRegister[] = []
+  // Cajas del outlet activo. Si el fetch falló (null), degradar a lista vacía.
+  const registers: PosRegister[] = (registersRes.data?.registers ?? []).map(
+    (r): PosRegister => ({
+      id: r.id,
+      name: r.name,
+      outletId: bs.activeOutletId ?? "",
+      expeditionPoint: null, // TODO (A7+): exponer desde el endpoint cuando esté disponible
+    }),
+  )
 
   const bootstrap: PosBootstrap = {
     config: reshapeConfig(bs),
@@ -365,6 +388,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     registers,
     items,
     customers,
+    activeRegisterId: bs.activeRegisterId ?? "",
   }
 
   return NextResponse.json(bootstrap)

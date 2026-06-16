@@ -60,9 +60,17 @@ final class PanelAuth
      * pertenencia del outlet al tenant (ej. `/v1/auth/active-outlet` para
      * cambiar de sucursal sin re-loguear), saltea la resolución por SQL.
      * Default `null` → comportamiento original (primer outlet activo).
+     *
+     * `$registerIdOverride` (NUEVO 2026-06-16, A7) — caja activa del POS.
+     * El claim `rid` (que SaleService usa para numeración/asociación de la
+     * venta) arranca en '' al loguear; `/v1/active-register` lo setea tras
+     * validar que la caja pertenece a company+outlet. Default `null` → `rid=''`.
      */
-    public static function issueJwt(array|\ArrayAccess $user, ?string $outletIdOverride = null): array
-    {
+    public static function issueJwt(
+        array|\ArrayAccess $user,
+        ?string $outletIdOverride = null,
+        ?string $registerIdOverride = null,
+    ): array {
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
             return ['token' => null, 'expiresIn' => 0];
@@ -91,7 +99,7 @@ final class PanelAuth
             'sub'  => (string) $user['contactId'],
             'cid'  => (string) $user['companyId'],
             'oid'  => $resolvedOutletId,
-            'rid'  => '',
+            'rid'  => $registerIdOverride ?? '',
             'role' => (int) $user['role'],
             'iat'  => $now,
             'exp'  => $now + $ttl,
