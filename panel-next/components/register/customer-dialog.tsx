@@ -122,8 +122,8 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-xl"
-        showCloseButton={true}
+        className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none sm:max-w-xl"
+        showCloseButton={false}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Buscar o crear cliente</DialogTitle>
@@ -132,8 +132,8 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        {/* ── Input grande arriba (fijo) ── */}
-        <div className="shrink-0 px-5 py-5">
+        {/* ── Pill del input (separado del panel) ── */}
+        <div className="shrink-0 rounded-full bg-popover px-6 py-4 shadow-lg">
           <Input
             ref={searchInputRef}
             value={searchQuery}
@@ -147,13 +147,13 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
 
         {/* Vacío → form de crear cliente. Con texto → lista de clientes. */}
         {isSearching ? (
-          <div className="flex-1 overflow-y-auto border-t border-border">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
             {searchResults.length === 0 ? (
               <p className="py-10 text-center text-sm text-muted-foreground">
                 Sin resultados para “{trimmed}”.
               </p>
             ) : (
-              <ul role="listbox" aria-label="Resultados de clientes">
+              <ul role="listbox" aria-label="Resultados de clientes" className="overflow-y-auto py-1">
                 {searchResults.map((c) => (
                   <CustomerResultRow
                     key={c.id}
@@ -165,7 +165,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
             )}
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
             <CreateCustomerForm onCreated={handleCustomerCreated} />
           </div>
         )}

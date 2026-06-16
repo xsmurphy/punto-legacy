@@ -76,7 +76,7 @@ export function ProductSearchDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-lg"
+        className="top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none sm:max-w-lg"
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
@@ -86,8 +86,8 @@ export function ProductSearchDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* ── Input grande arriba (fijo; vacío = solo esto) ── */}
-        <div className="shrink-0 px-5 py-5">
+        {/* ── Pill del input (separado del listado) ── */}
+        <div className="shrink-0 rounded-full bg-popover px-6 py-4 shadow-lg">
           <Input
             ref={inputRef}
             value={query}
@@ -99,15 +99,15 @@ export function ProductSearchDialog({
           />
         </div>
 
-        {/* ── Resultados: solo cuando hay texto ── */}
+        {/* ── Resultados: panel separado (gap del padre) ── */}
         {trimmed.length > 0 && (
-          <div className="max-h-[60vh] flex-1 overflow-y-auto border-t border-border">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
             {results.length === 0 ? (
               <p className="py-10 text-center text-sm text-muted-foreground">
                 Sin resultados para “{trimmed}”.
               </p>
             ) : (
-              <ul role="listbox" aria-label="Resultados de búsqueda">
+              <ul role="listbox" aria-label="Resultados de búsqueda" className="overflow-y-auto py-1">
                 {results.map((item) => (
                   <ProductResultRow
                     key={item.id}
