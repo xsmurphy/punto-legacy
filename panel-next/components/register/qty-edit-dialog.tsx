@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { Delete } from "lucide-react"
 
 interface QtyEditDialogProps {
   open: boolean
@@ -52,18 +51,6 @@ export function QtyEditDialog({
     }
   }, [open, initialQty])
 
-  function pressDigit(d: string) {
-    setDraft((prev) => {
-      // Si el draft es "0" o vacío y se aprieta un dígito → reemplaza.
-      if (prev === "0" || prev === "") return d
-      return prev + d
-    })
-  }
-
-  function pressBack() {
-    setDraft((prev) => (prev.length <= 1 ? "" : prev.slice(0, -1)))
-  }
-
   function confirm() {
     const n = Math.max(0, Math.floor(Number(draft) || 0))
     onConfirm(n)
@@ -85,7 +72,9 @@ export function QtyEditDialog({
           <DialogDescription className="truncate">{itemName}</DialogDescription>
         </DialogHeader>
 
-        {/* Display + input invisible para teclado físico */}
+        {/* Visor: sin bordes, look nativo (no parece input).
+            El softkeyboard on-screen para touch llegará como feature global
+            opt-in que aplica a todos los campos numéricos del POS. */}
         <div className="my-2">
           <input
             ref={inputRef}
@@ -98,29 +87,12 @@ export function QtyEditDialog({
               setDraft(v)
             }}
             className={cn(
-              "h-20 w-full rounded-xl border border-border bg-muted/40",
+              "h-20 w-full border-none bg-transparent",
               "text-center text-5xl font-bold tabular-nums",
-              "focus:outline-none focus:ring-2 focus:ring-ring",
+              "outline-none focus:outline-none focus:ring-0",
             )}
             aria-label="Cantidad"
           />
-        </div>
-
-        {/* Numpad on-screen (touch). El input mantiene foco; preventDefault
-            en mousedown evita perder foco. */}
-        <div className="grid grid-cols-3 gap-2">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
-            <NumPadButton key={d} onClick={() => pressDigit(d)}>
-              {d}
-            </NumPadButton>
-          ))}
-          <NumPadButton onClick={() => setDraft("")} aria-label="Limpiar">
-            C
-          </NumPadButton>
-          <NumPadButton onClick={() => pressDigit("0")}>0</NumPadButton>
-          <NumPadButton onClick={pressBack} aria-label="Borrar último dígito">
-            <Delete className="size-5" />
-          </NumPadButton>
         </div>
 
         <div className="mt-2 flex gap-2">
@@ -133,28 +105,5 @@ export function QtyEditDialog({
         </div>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function NumPadButton({
-  children,
-  onClick,
-  ...rest
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button
-      type="button"
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={cn(
-        "h-14 rounded-xl border border-border bg-muted/40",
-        "text-xl font-semibold transition-colors",
-        "hover:bg-muted active:scale-[0.97]",
-        "flex items-center justify-center",
-      )}
-      {...rest}
-    >
-      {children}
-    </button>
   )
 }

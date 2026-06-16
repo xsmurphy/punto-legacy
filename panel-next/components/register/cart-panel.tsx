@@ -20,7 +20,6 @@ import {
   X,
   Plus,
   Minus,
-  Trash2,
   Percent,
   DollarSign,
   Tag,
@@ -400,9 +399,9 @@ function CartRowExpanded({
 
   return (
     <div className="bg-accent/40 px-3 py-3">
-      {/* Header — nombre del item, sutil. */}
+      {/* Header — nombre del item en negrita. */}
       <div className="mb-2 text-center">
-        <span className="truncate text-sm text-muted-foreground">
+        <span className="truncate text-sm font-bold text-foreground">
           {line.name}
         </span>
       </div>
@@ -468,11 +467,11 @@ function CartRowExpanded({
         onClose={() => setQtyOpen(false)}
       />
 
-      {/* Más opciones — drawer inferior (no dropdown). */}
+      {/* Más opciones — drawer inferior (no dropdown). Título = nombre del ítem. */}
       <Drawer open={moreOpen} onOpenChange={setMoreOpen}>
         <DrawerContent className="mx-auto max-w-lg">
           <DrawerHeader className="pb-2">
-            <DrawerTitle>Opciones de la línea</DrawerTitle>
+            <DrawerTitle className="truncate">{line.name}</DrawerTitle>
           </DrawerHeader>
           <div className="grid grid-cols-2 gap-2 p-4 pt-2 sm:grid-cols-3">
             <LineActionTile icon={DollarSign} label="Modificar precio" onClick={() => setMoreOpen(false)} />
@@ -593,23 +592,21 @@ function CartBottom({
           onClick={onToggleIva}
           aria-label={ivaRemoved ? "Restaurar IVA" : "Eliminar IVA"}
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
+            "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
             ivaRemoved
               ? "border-border bg-transparent text-muted-foreground/50"
               : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground hover:text-foreground",
           )}
         >
-          <X className="size-3" />
-          <span>{ivaFormatted}</span>
+          {ivaFormatted}
         </button>
         {lineCount > 0 && (
           <button
             onClick={onClear}
             aria-label="Vaciar carrito"
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-transparent px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
+            className="rounded-full border border-destructive/40 bg-transparent px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-destructive transition-colors hover:bg-destructive/10"
           >
-            <Trash2 className="size-3" />
-            <span>VACIAR</span>
+            VACIAR
           </button>
         )}
       </div>
