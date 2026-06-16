@@ -36,4 +36,10 @@ export interface Bootstrap {
   activeOutletName: string
   /** Sucursales activas del tenant. Pintar selector solo cuando `length > 1`. */
   outlets: Array<{ id: string; name: string }>
+  /**
+   * Cantidad de usuarios activos del tenant. Si > 1, el POS se inicia
+   * bloqueado y exige PIN para operar. Opcional — TODO backend en
+   * /v1/bootstrap.php (junto con user.name y user.roleName ya anotados).
+   */
+  userCount?: number
 }

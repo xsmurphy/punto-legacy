@@ -33,8 +33,9 @@ import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useSetActiveRegister } from "@/hooks/use-active-register"
-import { useSetActiveOutlet } from "@/hooks/use-bootstrap"
+import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { getDeviceDefault, clearDeviceDefault } from "@/lib/pos/device"
+import { useLockStore } from "@/lib/pos/lock-store"
 
 function RegisterGuard({ children }: { children: React.ReactNode }) {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
@@ -124,6 +125,22 @@ export default function PosWorkspaceLayout({
   useHotkeys()
   // Atajos de teclado globales (Q/W/E/R/Enter) — operación rápida sin mouse.
   usePosHotkeys()
+
+  // Auto-lock al primer mount de la sesión si la cuenta tiene >1 usuario.
+  // Una vez aplicado no se vuelve a evaluar (ni en re-renders ni al desbloquear).
+  const { data: bootstrap } = useBootstrap()
+  const autoLockApplied = React.useRef(false)
+  React.useEffect(() => {
+    if (autoLockApplied.current) return
+    if (!bootstrap) return // esperar a que llegue el bootstrap
+    autoLockApplied.current = true
+    const userCount = bootstrap.userCount
+    // userCount undefined → mock dev: bloquear hasta que el backend exponga el campo.
+    // userCount > 1 → bloquear (regla del owner).
+    // userCount === 1 → no bloquear (dueño-cajero, comercio chico).
+    if (userCount === 1) return
+    useLockStore.getState().lock()
+  }, [bootstrap])
 
   return (
     <div className="flex h-full w-full overflow-hidden">

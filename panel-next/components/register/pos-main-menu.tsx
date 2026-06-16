@@ -57,6 +57,7 @@ import {
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
+import { useCartStore } from "@/lib/cart/store"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -882,6 +883,10 @@ function ModulesPanel() {
 
 /** Panel de configuración del dispositivo POS. Largo y scrolleable. */
 function AjustesPanel() {
+  // Flag de agrupado de repetidos — wireado al store real del carrito.
+  const mergeRepeated = useCartStore((s) => s.mergeRepeated)
+  const setMergeRepeated = useCartStore((s) => s.setMergeRepeated)
+
   // Estado local de los toggles — TODO (backend): cargar y guardar desde config del tenant.
   const [opciones, setOpciones] = React.useState({
     controlCaja: true,
@@ -1000,6 +1005,21 @@ function AjustesPanel() {
               Opciones del POS
             </p>
             <div>
+
+              {/* Toggle: Agrupar productos repetidos — wireado al useCartStore. */}
+              <div className="flex items-center justify-between gap-3 border-b border-border px-1 py-3">
+                <div>
+                  <p className="text-sm">Agrupar productos repetidos</p>
+                  <p className="text-xs text-muted-foreground">
+                    Sumar cantidad al tocar el mismo producto seguido. Si tocás otro entre medio, se crea una línea nueva — útil para promos con descuento por línea.
+                  </p>
+                </div>
+                <Switch
+                  checked={mergeRepeated}
+                  onCheckedChange={setMergeRepeated}
+                />
+              </div>
+
               {toggleOpciones.map(({ key, label }, idx) => (
                 <div
                   key={key}

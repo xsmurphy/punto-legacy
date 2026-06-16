@@ -111,12 +111,31 @@ interface CartState {
    */
   ivaRemoved: boolean
 
+  /**
+   * Controla cómo se agrupan los ítems repetidos al agregar al carrito.
+   *
+   * - true (default): suma cantidad solo si el ítem nuevo coincide con el
+   *   ÚLTIMO ítem agregado (la última línea del array). Si entre medio se
+   *   agregó otro ítem, se crea una línea nueva — útil para ventas normales
+   *   donde el cajero va sumando el mismo producto varias veces seguidas.
+   * - false: siempre crea una línea nueva, independientemente de si ya hay
+   *   otras líneas del mismo ítem — útil para promos con descuento por línea
+   *   (ej. 2x1 donde cada línea lleva un descuento diferente).
+   *
+   * TODO (F2): persistir mergeRepeated en register.data del backend para que
+   * sobreviva recargas y se sincronice entre dispositivos de la misma caja.
+   */
+  mergeRepeated: boolean
+
   // ── Acciones ──────────────────────────────────────────────────────────────
 
   /**
    * Agrega un item al carrito.
-   * Si ya existe una línea con el mismo itemId, incrementa la cantidad.
-   * Si no existe, crea una línea nueva y la selecciona.
+   *
+   * El comportamiento depende del flag `mergeRepeated`:
+   * - true: suma cantidad si el ítem coincide con el ÚLTIMO del array; si no,
+   *   crea línea nueva.
+   * - false: siempre crea una línea nueva.
    */
   addItem: (item: { id: string; name: string; price: number }) => void
 
@@ -152,6 +171,9 @@ interface CartState {
 
   /** Actualiza la nota de una línea. */
   setLineNote: (lineId: string, note: string) => void
+
+  /** Fija el flag de agrupado de ítems repetidos. */
+  setMergeRepeated: (v: boolean) => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -163,6 +185,7 @@ const initialState = {
   credito: false,
   interno: false,
   ivaRemoved: false,
+  mergeRepeated: true,
 }
 
 export const useCartStore = create<CartState>()((set, _get) => ({
@@ -173,24 +196,31 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     // info del producto). Los controles/tools aparecen solo al click en la línea
     // (selectLine) y se ocultan al click afuera. Ver CartPanel.
     set((state) => {
-      const existing = state.lines.find((l) => l.itemId === item.id)
-      if (existing) {
-        return {
-          lines: state.lines.map((l) =>
-            l.itemId === item.id ? { ...l, qty: l.qty + 1 } : l,
-          ),
-        }
-      }
-      const newLine: CartLine = {
+      const newLine = (): CartLine => ({
         lineId: crypto.randomUUID(),
         itemId: item.id,
         name: item.name,
         qty: 1,
         unitPrice: item.price,
+      })
+
+      if (!state.mergeRepeated) {
+        // Siempre crear línea nueva — útil para promos con descuento por línea.
+        return { lines: [...state.lines, newLine()] }
       }
-      return {
-        lines: [...state.lines, newLine],
+
+      // mergeRepeated=true: sumar solo si el ítem coincide con el ÚLTIMO del array.
+      // Si B rompe la cadena A-A, el próximo A crea una línea nueva.
+      const lastLine = state.lines.at(-1)
+      if (lastLine && lastLine.itemId === item.id) {
+        return {
+          lines: state.lines.map((l) =>
+            l.lineId === lastLine.lineId ? { ...l, qty: l.qty + 1 } : l,
+          ),
+        }
       }
+
+      return { lines: [...state.lines, newLine()] }
     })
   },
 
@@ -278,6 +308,10 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         l.lineId === lineId ? { ...l, note } : l,
       ),
     }))
+  },
+
+  setMergeRepeated: (v) => {
+    set({ mergeRepeated: v })
   },
 }))
 
