@@ -497,12 +497,16 @@ final class TransactionsService
             // viven en el JSONB pero _flattenJsonb los re-expone como columnas
             // virtuales en `$r`. registerReturnPrefix nunca fue columna —
             // siempre vivió en `data`, accedido ahora también vía flatten.
+            // ncmExecute(getAssoc=true) devuelve CaseInsensitiveArray por fila
+            // → array_key_exists() rompe (espera array puro). Usamos ?? null
+            // que funciona con ArrayAccess y mantiene la semántica original
+            // (returnPrefix=null cuando la key no existe en el JSONB).
             $map[(string) $r['registerId']] = [
                 'name'             => (string) ($r['registerName'] ?? ''),
                 'invoiceAuth'      => (string) ($r['registerInvoiceAuth'] ?? ''),
                 'invoicePrefix'    => (string) ($r['registerInvoicePrefix'] ?? ''),
                 'docsLeadingZeros' => (int) ($r['registerDocsLeadingZeros'] ?? 0),
-                'returnPrefix'     => array_key_exists('registerReturnPrefix', $r)
+                'returnPrefix'     => isset($r['registerReturnPrefix'])
                     ? (string) $r['registerReturnPrefix'] : null,
             ];
         }
