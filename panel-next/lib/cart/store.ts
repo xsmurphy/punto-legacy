@@ -47,21 +47,44 @@ export interface CartLine {
   tags?: string[]
 }
 
-/** Selector helper para el total — úsalo en componentes:
- *  const total = useCartStore(selectCartTotal)
+/**
+ * Tasa del IVA. Por ahora hardcodeada al modelo paraguayo (10% incluido en
+ * precio final del item). TODO: cuando el catálogo exponga `taxRate` por item
+ * (y el config del tenant exponga el modo "incluido / no incluido"), derivarlo
+ * de ahí — soporta multi-tax y otros países.
  */
-export const selectCartTotal = (s: CartState): number =>
-  s.lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0)
+const TAX_RATE = 0.10
 
 /**
- * Selector del IVA contenido (Paraguay 10%: precios incluyen IVA).
- * Fórmula: iva = round(total / 11).
- * Si ivaRemoved=true, devuelve 0 (IVA informativo eliminado por el cajero).
+ * Total del carrito.
+ * - ivaRemoved = false → suma de precios finales (con IVA incluido) por qty.
+ * - ivaRemoved = true  → cada línea pasa a precio SIN IVA: round(price / 1.1).
+ *   Ej: 100.000 (con IVA) → 90.909 (sin IVA). Al desactivar `ivaRemoved`, vuelve
+ *   al precio original porque `unitPrice` no se muta — el cálculo es derivado.
+ *   Redondeo por línea (no por total) para evitar arrastrar fracciones.
+ */
+export const selectCartTotal = (s: CartState): number => {
+  return s.lines.reduce((sum, line) => {
+    const lineTotal = line.qty * line.unitPrice
+    if (s.ivaRemoved) {
+      return sum + Math.round(lineTotal / (1 + TAX_RATE))
+    }
+    return sum + lineTotal
+  }, 0)
+}
+
+/**
+ * IVA contenido en la venta (informativo del chip "Gs <iva>").
+ * Si ivaRemoved=true, devuelve 0 (el cajero acaba de removerlo).
+ * Si no, IVA = total * rate / (1+rate) — para 10%: total/11.
  */
 export const selectCartIva = (s: CartState): number => {
   if (s.ivaRemoved) return 0
-  const total = s.lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0)
-  return Math.round(total / 11)
+  const totalWithTax = s.lines.reduce(
+    (sum, line) => sum + line.qty * line.unitPrice,
+    0,
+  )
+  return Math.round((totalWithTax * TAX_RATE) / (1 + TAX_RATE))
 }
 
 interface CartState {

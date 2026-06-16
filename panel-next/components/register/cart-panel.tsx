@@ -115,6 +115,21 @@ export function CartPanel() {
     setConfirmClearOpen(false)
   }, [clear])
 
+  // Quitar IVA modifica el total de la venta. Confirmamos antes de quitarlo.
+  // Reactivar (devolver el IVA) es no-destructivo → directo.
+  const [confirmIvaOpen, setConfirmIvaOpen] = React.useState(false)
+  const askToggleIva = React.useCallback(() => {
+    if (ivaRemoved) {
+      toggleIva() // restaurar IVA, sin confirm
+      return
+    }
+    setConfirmIvaOpen(true)
+  }, [ivaRemoved, toggleIva])
+  const doToggleIva = React.useCallback(() => {
+    toggleIva()
+    setConfirmIvaOpen(false)
+  }, [toggleIva])
+
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
@@ -134,6 +149,25 @@ export function CartPanel() {
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
+
+      {/* Confirm de quitar IVA — modifica el total de la venta. */}
+      <AlertDialog open={confirmIvaOpen} onOpenChange={setConfirmIvaOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Quitar el IVA de la venta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Los precios de los ítems con IVA se recalcularán sin el impuesto,
+              modificando el total. Podés reactivarlo para restaurarlo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={doToggleIva}>
+              Quitar IVA
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Confirm de vaciar — acción destructiva. */}
       <AlertDialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
@@ -211,7 +245,7 @@ export function CartPanel() {
         iva={iva}
         onToggleCredito={toggleCredito}
         onToggleInterno={toggleInterno}
-        onToggleIva={toggleIva}
+        onToggleIva={askToggleIva}
         onClear={askClear}
         total={totalValue}
         lineCount={lines.length}
