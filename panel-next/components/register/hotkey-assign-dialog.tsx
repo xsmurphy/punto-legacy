@@ -94,7 +94,7 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-lg">
         <DialogHeader className="sr-only">
-          <DialogTitle>Asignar acceso directo</DialogTitle>
+          <DialogTitle>Asignar hotkey</DialogTitle>
           <DialogDescription>
             Elegí un artículo o una categoría para el slot.
           </DialogDescription>

@@ -117,7 +117,7 @@ export function ProductArea() {
     setEditing(false)
     try {
       await saveHotkeys()
-      toast.success("Accesos directos guardados")
+      toast.success("Hotkeys guardados")
     } catch {
       toast.error("No se pudieron guardar los cambios")
     }
@@ -408,7 +408,7 @@ function EditableEmptySlot({
       onClick={onAdd}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      aria-label="Agregar acceso directo"
+      aria-label="Agregar hotkey"
       className={cn(
         "aspect-square rounded-xl border border-dashed border-muted-foreground/30",
         "flex items-center justify-center bg-sidebar transition-colors",

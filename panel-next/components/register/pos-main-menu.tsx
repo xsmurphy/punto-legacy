@@ -59,7 +59,7 @@ const ENTRIES: MenuEntry[] = [
   { key: "orders", sub: "Ver", label: "Órdenes", icon: ClipboardList, href: "/pos/ordenes" },
   { key: "settings", sub: "Ver", label: "Ajustes", icon: Settings, href: "/settings" },
   { key: "change-register", sub: "Cambiar", label: "Caja / Sucursal", icon: Store, action: true },
-  { key: "edit-hotkeys", sub: "Editar", label: "Accesos directos", icon: LayoutGrid, action: true },
+  { key: "edit-hotkeys", sub: "Editar", label: "Hotkeys", icon: LayoutGrid, action: true },
   { key: "lock", sub: "Bloquear o", label: "Salir", hint: "(ESC)", icon: LogOut, action: true },
 ]
 

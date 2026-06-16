@@ -203,7 +203,7 @@ function HotkeyEditGuide() {
           <LayoutGrid className="size-6 text-muted-foreground" />
         </span>
         <h2 className="text-base font-semibold text-foreground">
-          Editando accesos directos
+          Editando Hotkeys
         </h2>
         <p className="max-w-[15rem] text-sm text-muted-foreground">
           Configurá la grilla de la caja. Tus cambios se guardan al tocar “Listo”.
@@ -212,9 +212,9 @@ function HotkeyEditGuide() {
 
       <ul className="flex w-full max-w-xs flex-col gap-3.5 text-left">
         <GuideStep icon={Plus} text="Tocá un slot vacío para agregar un artículo o categoría." />
-        <GuideStep icon={Move} text="Arrastrá un acceso para moverlo de lugar." />
-        <GuideStep icon={Palette} text="Elegí un color para los accesos sin imagen." />
-        <GuideStep icon={X} text="Tocá la ✕ de un acceso para quitarlo." />
+        <GuideStep icon={Move} text="Arrastrá un hotkey para moverlo de lugar." />
+        <GuideStep icon={Palette} text="Elegí un color para los hotkeys sin imagen." />
+        <GuideStep icon={X} text="Tocá la ✕ de un hotkey para quitarlo." />
         <GuideStep icon={Check} text="Tocá “Listo”, arriba a la izquierda, para guardar." />
       </ul>
     </div>
