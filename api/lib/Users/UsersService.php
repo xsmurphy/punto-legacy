@@ -49,13 +49,15 @@ final class UsersService
                 c.contactInCalendar AS inCalendar,
                 c.contactCalendarPosition AS calendarPosition,
                 c.role            AS roleId,
-                r.name            AS roleName,
+                r.taxonomyName    AS roleName,
                 c.outletId,
                 o.outletName,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
-            LEFT JOIN role r  ON r.roleId = c.role        AND r.companyId = c.companyId
+            LEFT JOIN taxonomy r ON r.taxonomyId = c.role
+                                AND r.companyId  = c.companyId
+                                AND r.taxonomyType = 'role'
             LEFT JOIN outlet o ON o.outletId = c.outletId AND o.companyId = c.companyId
             WHERE {$where}
             ORDER BY c.contactName ASC
@@ -88,13 +90,15 @@ final class UsersService
                 c.contactInCalendar AS inCalendar,
                 c.contactCalendarPosition AS calendarPosition,
                 c.role            AS roleId,
-                r.name            AS roleName,
+                r.taxonomyName    AS roleName,
                 c.outletId,
                 o.outletName,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
-            LEFT JOIN role r  ON r.roleId = c.role        AND r.companyId = c.companyId
+            LEFT JOIN taxonomy r ON r.taxonomyId = c.role
+                                AND r.companyId  = c.companyId
+                                AND r.taxonomyType = 'role'
             LEFT JOIN outlet o ON o.outletId = c.outletId AND o.companyId = c.companyId
             WHERE c.contactId = ? AND c.companyId = ? AND c.type = ?
         ";
@@ -102,11 +106,14 @@ final class UsersService
         return $row ? $this->shape($row) : null;
     }
 
-    /** Roles disponibles para esta empresa (tabla `role`). */
+    /** Roles disponibles para esta empresa (legacy: taxonomy con taxonomyType='role'). */
     public function roles(string $companyId): array
     {
-        $res  = ncmExecute(
-            "SELECT roleId AS id, name FROM role WHERE companyId = ? ORDER BY name ASC",
+        $res = ncmExecute(
+            "SELECT taxonomyId AS id, taxonomyName AS name
+             FROM taxonomy
+             WHERE companyId = ? AND taxonomyType = 'role'
+             ORDER BY taxonomyName ASC",
             [$companyId], false, true
         );
         $rows = [];
