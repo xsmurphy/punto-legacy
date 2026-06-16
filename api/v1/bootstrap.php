@@ -9,18 +9,20 @@
  * sirve HTML). Las pide acá, vía el BFF, al cargar — y con ellas formatea números
  * y pinta el chrome (título, currency). La API es la única capa con BD.
  *
- * Auth: realm `panel` (apiAuthTenant(['panel'])). Tenant por COMPANY_ID del JWT.
+ * Auth: MULTI-REALM — `apiAuthTenant(['panel','pos-app'])`. Tenant por COMPANY_ID del JWT.
+ * Tanto el panel admin como el POS (app-next) leen este bootstrap para hidratar
+ * config de tenant (currency, decimales, taxName, outlets) en el primer paint.
  * Respuesta: envelope canónico { ok, data, meta }.
  *
  * Port FIEL de panel/API/v1/bootstrap.php (Fase 2 del desacople de /panel). Cambios:
- * `apiMiddleware()` → `apiAuthTenant(['panel'])`; `PANEL_AUTHED_USER`/`PANEL_AUTHED_ROLE`
+ * `apiMiddleware()` → `apiAuthTenant(['panel','pos-app'])`; `PANEL_AUTHED_USER`/`PANEL_AUTHED_ROLE`
  * → `$ctx['userId']`/`$ctx['roleId']`. SQL y shape de respuesta idénticos — el front
- * (muchos a_*.js) depende del shape exacto.
+ * (muchos a_*.js + app-next BFF) depende del shape exacto.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'pos-app']);
 
 $row = ncmExecute(
     "SELECT
