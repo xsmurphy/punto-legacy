@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -357,13 +356,13 @@ function EmpresaTab({
   logoUrl: string | null
   hasLogo: boolean
 }) {
-  // Layout sin Cards. 2 columnas en lg con divs simples — solo título y los
-  // FormFields debajo. Visualmente más limpio que tener 4 cards bordeadas en
-  // un modal que ya tiene su propio borde. Redes sociales vive al final del
-  // tab como sub-bloque (movido desde el tab Social, que se eliminó).
+  // Solo "Identidad de la empresa" en este tab — los datos fiscales (razón
+  // social, RUC), contacto (teléfono, email, dirección) y redes sociales
+  // viven a nivel sucursal porque cada local puede tener su propia ficha
+  // fiscal y canales de contacto. Para editarlos: /outlets/<id>.
   return (
     <div className="flex flex-col gap-8">
-      <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1">
         <Subsection title="Identidad de la empresa">
           {/* Logo + Nombre en la misma fila — el logo es la identidad
               principal de la empresa, va a la izquierda del nombre como en
@@ -431,171 +430,7 @@ function EmpresaTab({
           />
         </Subsection>
 
-        <Subsection title="Datos fiscales">
-          <FormField
-            control={form.control}
-            name="billingName"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Razón social</FormLabel>
-                <FormControl>
-                  <Input placeholder="Nombre fiscal" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="ruc"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>RUC</FormLabel>
-                <FormControl>
-                  <Input placeholder="80012345-6" className="tabular-nums" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="billDetail"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Detalle adicional de facturación</FormLabel>
-                <FormControl>
-                  <Textarea
-                    rows={2}
-                    placeholder="Datos extra que aparecen en facturas"
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </Subsection>
-
-        <Subsection title="Contacto" className="lg:col-span-2">
-          <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Teléfono</FormLabel>
-                  <FormControl>
-                    <Input type="tel" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" placeholder="contacto@miempresa.com" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="address"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Dirección</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Calle y número" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="city"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Ciudad</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Asunción" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </Subsection>
       </div>
-
-      {/* Redes sociales fusionadas al final del tab Empresa — antes era un tab
-          propio "Social" con solo 4 inputs. */}
-      <Subsection
-        title="Redes sociales"
-        description="Los links aparecen en facturas digitales, catálogo online y comprobantes."
-      >
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="social.facebook"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Facebook</FormLabel>
-                <FormControl>
-                  <Input placeholder="https://facebook.com/miempresa" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="social.instagram"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Instagram</FormLabel>
-                <FormControl>
-                  <Input placeholder="https://instagram.com/miempresa" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="social.youtube"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>YouTube</FormLabel>
-                <FormControl>
-                  <Input placeholder="https://youtube.com/@miempresa" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="social.twitter"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Twitter / X</FormLabel>
-                <FormControl>
-                  <Input placeholder="https://twitter.com/miempresa" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-      </Subsection>
     </div>
   )
 }
