@@ -50,7 +50,7 @@ import { ProductSearchDialog } from "@/components/register/product-search-dialog
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
 import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
-import { PosMainMenuDrawer } from "@/components/register/pos-main-menu-drawer"
+import { PosMainMenu } from "@/components/register/pos-main-menu"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
@@ -194,13 +194,14 @@ function CartToolbar({
   onCustomer: () => void
   onCancelSale: () => void
 }) {
+  // 4 botones distribuidos proporcionalmente a lo largo del toolbar (cada uno
+  // ocupa un cuarto, centrado) — espejo del col-xs-3 del legacy.
   return (
-    <div className="flex h-14 shrink-0 items-center justify-between gap-1 border-b border-border px-3">
-      {/* Izquierda: menú principal del POS (≡) */}
-      <PosMainMenuDrawer />
-
-      {/* Derecha: herramientas de la venta */}
-      <div className="flex items-center gap-1">
+    <div className="flex h-14 shrink-0 items-center border-b border-border px-1">
+      <div className="flex flex-1 justify-center">
+        <PosMainMenu />
+      </div>
+      <div className="flex flex-1 justify-center">
         <Button
           variant="ghost"
           size="icon"
@@ -210,6 +211,8 @@ function CartToolbar({
         >
           <Search className="size-5" />
         </Button>
+      </div>
+      <div className="flex flex-1 justify-center">
         <Button
           variant="ghost"
           size="icon"
@@ -219,6 +222,8 @@ function CartToolbar({
         >
           <User className="size-5" />
         </Button>
+      </div>
+      <div className="flex flex-1 justify-center">
         <SaleOptionsDrawer onCancelSale={onCancelSale} />
       </div>
     </div>
