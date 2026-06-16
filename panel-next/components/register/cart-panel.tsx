@@ -27,6 +27,10 @@ import {
   MessageSquare,
   MoreHorizontal,
   Search,
+  LayoutGrid,
+  Move,
+  Palette,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,6 +48,7 @@ import {
   type CartLine,
 } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { formatMoney, formatAmount } from "@/lib/format-money"
 import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
@@ -75,6 +80,9 @@ export function CartPanel() {
 
   const config = useCatalogStore((s) => s.config)
 
+  // Modo edición de hotkeys: el panel de venta muestra una guía en su lugar.
+  const editingHotkeys = useHotkeysStore((s) => s.editing)
+
   // Estado de dialogs — compartido con el PosSidebar via store global.
   const searchOpen = usePosUIStore((s) => s.searchOpen)
   const setSearchOpen = usePosUIStore((s) => s.setSearchOpen)
@@ -105,6 +113,10 @@ export function CartPanel() {
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
 
+      {editingHotkeys ? (
+        <HotkeyEditGuide />
+      ) : (
+        <>
       {/* ── Toolbar propia de la caja (buscar / cliente / acciones) ── */}
       <CartToolbar
         onSearch={() => setSearchOpen(true)}
@@ -175,7 +187,54 @@ export function CartPanel() {
         config={config}
         onPayClick={() => setPayOpen(true)}
       />
+        </>
+      )}
     </div>
+  )
+}
+
+// ── Guía del modo edición de hotkeys ──────────────────────────────────────────
+
+function HotkeyEditGuide() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-7 px-6 text-center">
+      <div className="flex flex-col items-center gap-2">
+        <span className="flex size-12 items-center justify-center rounded-full bg-muted">
+          <LayoutGrid className="size-6 text-muted-foreground" />
+        </span>
+        <h2 className="text-base font-semibold text-foreground">
+          Editando accesos directos
+        </h2>
+        <p className="max-w-[15rem] text-sm text-muted-foreground">
+          Configurá la grilla de la caja. Tus cambios se guardan al tocar “Listo”.
+        </p>
+      </div>
+
+      <ul className="flex w-full max-w-xs flex-col gap-3.5 text-left">
+        <GuideStep icon={Plus} text="Tocá un slot vacío para agregar un artículo o categoría." />
+        <GuideStep icon={Move} text="Arrastrá un acceso para moverlo de lugar." />
+        <GuideStep icon={Palette} text="Elegí un color para los accesos sin imagen." />
+        <GuideStep icon={X} text="Tocá la ✕ de un acceso para quitarlo." />
+        <GuideStep icon={Check} text="Tocá “Listo”, arriba a la izquierda, para guardar." />
+      </ul>
+    </div>
+  )
+}
+
+function GuideStep({
+  icon: Icon,
+  text,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  text: string
+}) {
+  return (
+    <li className="flex items-start gap-3">
+      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted">
+        <Icon className="size-4 text-muted-foreground" />
+      </span>
+      <span className="text-sm text-foreground">{text}</span>
+    </li>
   )
 }
 
