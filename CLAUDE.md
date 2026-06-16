@@ -67,23 +67,25 @@ gastaban tokens sin retorno). No los invoques aunque haya MCPs disponibles.
 
 **Branch por subproyecto cuando hay sesiones paralelas; `main` para todo lo demás.**
 
-Cuando una sesión va a tocar exclusivamente `app-next/` o `panel-next/` y hay
-riesgo de que otra sesión esté tocando el otro en paralelo, trabajá en una
+Cuando una sesión va a tocar exclusivamente `panel-next/` (o `api/`) y hay
+riesgo de que otra sesión esté tocando algo en paralelo, trabajá en una
 branch dedicada del subproyecto. Esto evita stomp entre sesiones y simplifica
 el merge.
 
+> **El POS vive dentro de `panel-next/` en `app/(pos)/pos`** (fusión 2026-06-16).
+> El subproyecto `app-next/` fue eliminado — su contenido se movió al panel.
+> Ya NO existen branches `app-next/*`.
+
 Convención de nombres:
-- `app-next/<slice>` — ej. `app-next/slice-a6`, `app-next/qz-tray`
-- `panel-next/<slice>` — ej. `panel-next/billing-ui`, `panel-next/team-crud`
+- `panel-next/<slice>` — ej. `panel-next/pos-fusion`, `panel-next/team-crud`
 - `api/<feature>` — solo para refactors grandes de `/api` PHP compartida
 - Cualquier otra cosa (fixes triviales, docs, hooks, settings) → directo en `main`
 
 Reglas:
-1. **Una branch toca UN subproyecto.** Si necesitás modificar `app-next/` Y
-   `panel-next/` en el mismo cambio, hacelo en `main` (los cambios cross-cutting
-   son la excepción que justifica saltearse la branch).
+1. **Una branch toca UN subproyecto.** Si necesitás un cambio cross-cutting
+   (ej. `panel-next/` Y `api/` a la vez de forma acoplada), hacelo en `main`.
 2. **`api/`** y **`context/`** se pueden tocar desde la branch del subproyecto
-   que los necesita (ej. una branch `app-next/*` puede modificar
+   que los necesita (ej. una branch `panel-next/*` puede modificar
    `api/v1/bootstrap.php` si su feature lo requiere — declaralo en el commit).
 3. **`code-reviewer`** solo en commits de alto riesgo: schema/migrations,
    auth/JWT, admin realm, aislamiento multi-tenant, billing/pagos,
