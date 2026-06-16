@@ -99,4 +99,12 @@ apiOk([
     'activeOutletId'   => OUTLET_ID,
     'activeOutletName' => $activeOutletName,
     'outlets'          => $outlets,
+    // Cantidad de usuarios (type=0) activos del tenant — usado por el POS
+    // para auto-activar el lock screen al entrar cuando hay > 1 usuario
+    // (regla de owner: comercio con varios cajeros se inicia bloqueado).
+    'userCount'        => (int) (ncmExecute(
+        'SELECT COUNT(*) AS c FROM contact WHERE companyId = ? AND type = 0 AND contactStatus > 0',
+        [COMPANY_ID],
+        false
+    )['c'] ?? 0),
 ]);
