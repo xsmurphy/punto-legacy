@@ -54,6 +54,7 @@ import {
   useCartStore,
   selectCartTotal,
   selectCartIva,
+  lineSubtotal,
   type CartLine,
 } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -396,7 +397,10 @@ function CartRowCollapsed({
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   onSelect: () => void
 }) {
-  const subtotal = line.qty * line.unitPrice
+  // Subtotal mostrado respeta el flag ivaRemoved — la suma de las líneas
+  // debe coincidir con el total del botón cobrar.
+  const ivaRemoved = useCartStore((s) => s.ivaRemoved)
+  const subtotal = lineSubtotal(line, ivaRemoved)
   const hasDiscount = (line.discount ?? 0) > 0
   const hasSeller = Boolean(line.sellerId)
   const hasTags = (line.tags?.length ?? 0) > 0

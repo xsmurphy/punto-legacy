@@ -56,21 +56,30 @@ export interface CartLine {
 const TAX_RATE = 0.10
 
 /**
- * Total del carrito.
- * - ivaRemoved = false → suma de precios finales (con IVA incluido) por qty.
- * - ivaRemoved = true  → cada línea pasa a precio SIN IVA: round(price / 1.1).
- *   Ej: 100.000 (con IVA) → 90.909 (sin IVA). Al desactivar `ivaRemoved`, vuelve
- *   al precio original porque `unitPrice` no se muta — el cálculo es derivado.
- *   Redondeo por línea (no por total) para evitar arrastrar fracciones.
+ * Subtotal de una línea ajustado por el flag `ivaRemoved`. El cálculo vive
+ * acá (no en el componente) para que el listado de líneas y el total siempre
+ * usen la misma regla — si están desincronizados, la suma de líneas no
+ * coincide con el total.
+ *
+ * - ivaRemoved = false → qty * unitPrice (precio con IVA incluido).
+ * - ivaRemoved = true  → round(qty * unitPrice / 1.10) — precio sin IVA.
+ *   Ej: 25.000 → 22.727, 10.000 → 9.091, 32.000 → 29.091. Suma = 60.909
+ *   (coincide con selectCartTotal).
+ */
+export function lineSubtotal(line: CartLine, ivaRemoved: boolean): number {
+  const raw = line.qty * line.unitPrice
+  return ivaRemoved ? Math.round(raw / (1 + TAX_RATE)) : raw
+}
+
+/**
+ * Total del carrito. Suma de los subtotales por línea (idéntico cálculo que
+ * `lineSubtotal`), así la suma del listado coincide con el total.
+ *
+ * Al desactivar `ivaRemoved`, vuelve al precio original porque `unitPrice` no
+ * se muta — el cálculo es derivado.
  */
 export const selectCartTotal = (s: CartState): number => {
-  return s.lines.reduce((sum, line) => {
-    const lineTotal = line.qty * line.unitPrice
-    if (s.ivaRemoved) {
-      return sum + Math.round(lineTotal / (1 + TAX_RATE))
-    }
-    return sum + lineTotal
-  }, 0)
+  return s.lines.reduce((sum, line) => sum + lineSubtotal(line, s.ivaRemoved), 0)
 }
 
 /**
