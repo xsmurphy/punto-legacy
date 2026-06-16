@@ -6,6 +6,20 @@
 > (`context/12`). La feasibility y los subsistemas están analizados en
 > `context/14`; las decisiones fiscales/numeración en `context/14 §9`.
 
+> ⚠️ **DESACTUALIZADO desde 2026-06-16 — FUSIÓN.** El subproyecto `app-next/`
+> standalone **fue eliminado**: el POS se fusionó DENTRO de `panel-next` en
+> `app/(pos)/pos` (un solo dominio/deploy, design system y auth `_jwt_panel`
+> compartidos). Razón: el muro de seguridad real está en la API (realm +
+> RBAC), no en el dominio. El sidebar del panel es contextual en `/pos`
+> (módulos POS), siempre colapsado. Estado de slices: A1/A2/A3/A6 ✅;
+> **A7 caja activa ✅** (claim `rid` del JWT vía `POST /v1/active-register`,
+> guard server-side en `/v1/sales`); hotkeys = grilla config-driven
+> (`register.data.hotkeys`, sin migración) chunk 1 ✅; **pendiente**: A5
+> impresión, crear-cliente backend, F2 (lock/`_jwt_pos`/RBAC), hotkeys modo
+> edición. Ya NO hay subdominio `app-next.punto.la`. Lo de abajo (§4 BFF, §6
+> pantallas, §8 UX) sigue válido como spec; las refs a `app-next/` mapean a
+> `panel-next/`. Ver `_session-log` 2026-06-16 para el detalle.
+
 ---
 
 ## 0. TL;DR
