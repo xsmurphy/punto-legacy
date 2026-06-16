@@ -38,6 +38,9 @@ export function LockScreen() {
   // re-animar los anteriores cuando React reusa el mismo DOM.
   const [poppedIndex, setPoppedIndex] = React.useState(-1)
 
+  // Ref al input invisible — necesario para abrir el teclado virtual en mobile.
+  const hiddenInputRef = React.useRef<HTMLInputElement>(null)
+
   // Resetear estado cada vez que entra en locked (evita PIN colgado).
   React.useEffect(() => {
     if (locked) {
@@ -106,17 +109,70 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-background"
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-start bg-background pt-[18vh]"
     >
-      {/* Logo — max 60px de alto. */}
-      <div className={cn("mb-12", shake && "animate-pin-shake")}>
-        <PuntoLogo variant="mark" className="size-[60px]" />
+      {/*
+       * Input invisible — captura el teclado virtual en mobile cuando el
+       * usuario toca la zona de los círculos. En desktop el listener global
+       * de keydown sigue funcionando igual sin importar el foco.
+       *
+       * Usamos sr-only en lugar de display:none/visibility:hidden para que el
+       * browser permita el focus y abra el teclado del OS en mobile.
+       * inputMode="numeric" + pattern="[0-9]*" dan el teclado numérico en iOS/Android.
+       */}
+      <input
+        ref={hiddenInputRef}
+        className="sr-only"
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        aria-hidden="false"
+        aria-label="Ingrese su código de acceso"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        readOnly={false}
+        onChange={(e) => {
+          // Los teclados virtuales disparan onChange (no siempre keydown).
+          // Tomamos solo el último carácter ingresado y lo procesamos.
+          const last = e.target.value.slice(-1)
+          if (/^[0-9]$/.test(last)) {
+            setError(false)
+            setPin((prev) => {
+              if (prev.length >= PIN_LENGTH) return prev
+              const next = prev + last
+              setPoppedIndex(next.length - 1)
+              return next
+            })
+          }
+          // Vaciamos el input para que el próximo dígito se capture igual.
+          e.target.value = ""
+        }}
+        onKeyDown={(e) => {
+          // Backspace desde teclado virtual → borrar último dígito.
+          if (e.key === "Backspace") {
+            e.preventDefault()
+            setError(false)
+            setPin((prev) => prev.slice(0, -1))
+          }
+        }}
+      />
+
+      {/* Logo — max 35px de alto, junto a los círculos. */}
+      <div className={cn("mb-6", shake && "animate-pin-shake")}>
+        <PuntoLogo variant="mark" className="size-[35px]" />
       </div>
 
-      {/* PIN dots: 30px de diámetro, 52px de separación. */}
+      {/* PIN dots: 30px de diámetro, 52px de separación.
+          Al tocar esta zona en mobile se abre el teclado virtual. */}
       <div
+        role="button"
+        tabIndex={-1}
+        aria-label="Toca para ingresar tu código"
+        onClick={() => hiddenInputRef.current?.focus()}
         className={cn(
-          "flex items-center",
+          "flex items-center cursor-pointer",
           shake && "animate-pin-shake",
         )}
         style={{ gap: 52 }}
@@ -141,24 +197,24 @@ export function LockScreen() {
       </div>
 
       {/* Ícono de candado + texto + nombre de la empresa. */}
-      <div className="mt-12 flex flex-col items-center gap-1.5">
+      <div className="mt-8 flex flex-col items-center gap-1">
         <Lock
           aria-hidden
           className={cn(
-            "size-6 transition-colors",
+            "size-4 transition-colors",
             error ? "text-destructive" : "text-muted-foreground",
           )}
         />
         <p
           className={cn(
-            "text-sm transition-colors",
+            "text-xs transition-colors",
             error ? "font-semibold text-destructive" : "text-muted-foreground",
           )}
         >
           {error ? "Código incorrecto" : "Ingrese su código de usuario"}
         </p>
         {!error && outletName && (
-          <p className="text-base font-bold text-foreground">{outletName}</p>
+          <p className="text-sm font-bold text-foreground">{outletName}</p>
         )}
       </div>
     </div>

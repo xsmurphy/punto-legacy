@@ -23,7 +23,7 @@ import * as React from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { SearchCode } from "lucide-react"
+import { SearchCode, ChevronDown } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -31,16 +31,14 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -55,9 +53,8 @@ const customerFormSchema = z.object({
   // DATOS DE FACTURACIÓN
   fiscalName: z.string().min(1, "Requerido"),
   tin: z.string().optional(),
-  tinType: z.enum(["RUC", "CI", "PASS", "OTRO"]),
 
-  // DATOS PERSONALES
+  // DATOS PERSONALES (opcionales — sección colapsada por default)
   firstName: z.string().min(1, "Requerido"),
   lastName: z.string().optional(),
   ci: z.string().optional(),
@@ -67,7 +64,6 @@ const customerFormSchema = z.object({
   phoneValue: z.string().optional(),
   phoneE164: z.string().nullable().optional(),
   phoneCountry: z.string().optional(),
-  address: z.string().optional(),
   birthdate: z.string().optional(), // ISO yyyy-MM-dd
 })
 
@@ -225,7 +221,6 @@ function CreateCustomerForm({
     defaultValues: {
       fiscalName: "",
       tin: "",
-      tinType: "RUC",
       firstName: "",
       lastName: "",
       ci: "",
@@ -233,7 +228,6 @@ function CreateCustomerForm({
       phoneValue: "",
       phoneE164: null,
       phoneCountry: "PY",
-      address: "",
       birthdate: "",
     },
   })
@@ -343,146 +337,123 @@ function CreateCustomerForm({
             </div>
           </div>
 
-          {/* Tipo de identificación */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="tinType" className="text-xs">
-              Tipo de Identificación
-            </Label>
-            <Controller
-              name="tinType"
-              control={control}
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="tinType" className="w-full">
-                    <SelectValue placeholder="Seleccioná…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="RUC">RUC</SelectItem>
-                    <SelectItem value="CI">Cédula de Identidad</SelectItem>
-                    <SelectItem value="PASS">Pasaporte</SelectItem>
-                    <SelectItem value="OTRO">Otro</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
         </div>
       </div>
 
       <Separator />
 
-      {/* ── Sección DATOS PERSONALES ── */}
-      <div className="px-4 pb-4 pt-4">
-        <p className="mb-3 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-          Datos Personales
-        </p>
-
-        <div className="grid grid-cols-2 gap-3">
-          {/* Nombre */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="firstName" className="text-xs">
-              Nombre
-            </Label>
-            <Input
-              id="firstName"
-              placeholder="Nombre…"
-              aria-invalid={!!errors.firstName}
-              {...register("firstName")}
-            />
-            {errors.firstName && (
-              <p className="text-xs text-destructive">{errors.firstName.message}</p>
-            )}
-          </div>
-
-          {/* Apellido */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="lastName" className="text-xs">
-              Apellido
-            </Label>
-            <Input
-              id="lastName"
-              placeholder="Apellido…"
-              {...register("lastName")}
-            />
-          </div>
-
-          {/* Doc. de Identidad */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="ci" className="text-xs">
-              Doc. de Identidad
-            </Label>
-            <Input
-              id="ci"
-              placeholder="N° CI…"
-              {...register("ci")}
-            />
-          </div>
-
-          {/* E-mail */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="email" className="text-xs">
-              E-mail
-            </Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="ejemplo@mail.com"
-              aria-invalid={!!errors.email}
-              {...register("email")}
-            />
-            {errors.email && (
-              <p className="text-xs text-destructive">{errors.email.message}</p>
-            )}
-          </div>
-
-          {/* Teléfono — span 2 cols */}
-          <div className="col-span-2 flex flex-col gap-1">
-            <Label htmlFor="phone" className="text-xs">
-              Teléfono
-            </Label>
-            <Controller
-              name="phoneValue"
-              control={control}
-              render={({ field }) => (
-                <PhoneInput
-                  id="phone"
-                  value={field.value ?? ""}
-                  country="PY"
-                  onChange={(v) => {
-                    field.onChange(v.value)
-                    setValue("phoneE164", v.e164)
-                    setValue("phoneCountry", v.country)
-                  }}
-                />
-              )}
-            />
-          </div>
-
-          {/* Dirección */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="address" className="text-xs">
-              Dirección
-            </Label>
-            <Input
-              id="address"
-              placeholder="Calle, número…"
-              {...register("address")}
-            />
-          </div>
-
-          {/* Fecha de nacimiento */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="birthdate" className="text-xs">
-              Fecha de Nacimiento
-            </Label>
-            <Input
-              id="birthdate"
-              type="date"
-              {...register("birthdate")}
-            />
-          </div>
+      {/* ── Sección DATOS PERSONALES — colapsada por default ── */}
+      <Collapsible defaultOpen={false}>
+        <div className="px-4 pt-4 pb-2">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between text-[10px] font-bold tracking-widest text-muted-foreground uppercase hover:text-foreground transition-colors [&[data-state=open]>svg]:rotate-180"
+            >
+              Datos personales (opcional)
+              <ChevronDown className="size-3 transition-transform duration-200" />
+            </button>
+          </CollapsibleTrigger>
         </div>
-      </div>
+
+        <CollapsibleContent>
+          <div className="px-4 pb-4">
+            <div className="grid grid-cols-2 gap-3">
+              {/* Nombre */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="firstName" className="text-xs">
+                  Nombre
+                </Label>
+                <Input
+                  id="firstName"
+                  placeholder="Nombre…"
+                  aria-invalid={!!errors.firstName}
+                  {...register("firstName")}
+                />
+                {errors.firstName && (
+                  <p className="text-xs text-destructive">{errors.firstName.message}</p>
+                )}
+              </div>
+
+              {/* Apellido */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="lastName" className="text-xs">
+                  Apellido
+                </Label>
+                <Input
+                  id="lastName"
+                  placeholder="Apellido…"
+                  {...register("lastName")}
+                />
+              </div>
+
+              {/* Doc. de Identidad */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="ci" className="text-xs">
+                  Doc. de Identidad
+                </Label>
+                <Input
+                  id="ci"
+                  placeholder="N° CI…"
+                  {...register("ci")}
+                />
+              </div>
+
+              {/* E-mail */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="email" className="text-xs">
+                  E-mail
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="ejemplo@mail.com"
+                  aria-invalid={!!errors.email}
+                  {...register("email")}
+                />
+                {errors.email && (
+                  <p className="text-xs text-destructive">{errors.email.message}</p>
+                )}
+              </div>
+
+              {/* Teléfono — mismo row que Fecha de Nacimiento */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="phone" className="text-xs">
+                  Teléfono
+                </Label>
+                <Controller
+                  name="phoneValue"
+                  control={control}
+                  render={({ field }) => (
+                    <PhoneInput
+                      id="phone"
+                      value={field.value ?? ""}
+                      country="PY"
+                      onChange={(v) => {
+                        field.onChange(v.value)
+                        setValue("phoneE164", v.e164)
+                        setValue("phoneCountry", v.country)
+                      }}
+                    />
+                  )}
+                />
+              </div>
+
+              {/* Fecha de Nacimiento — mismo row que Teléfono */}
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="birthdate" className="text-xs">
+                  Fecha de Nacimiento
+                </Label>
+                <Input
+                  id="birthdate"
+                  type="date"
+                  {...register("birthdate")}
+                />
+              </div>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       </div>
     </form>

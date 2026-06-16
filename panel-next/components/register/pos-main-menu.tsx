@@ -75,6 +75,11 @@ interface MenuSection {
   ctaLabel?: string
   /** Si true, el CTA se muestra deshabilitado. */
   disabled?: boolean
+  /**
+   * Acción directa al hacer click en el sidebar: si está definido, ejecuta
+   * `onSelect` en lugar de cambiar `activeKey` al content area.
+   */
+  onSelect?: (helpers: { setOpen: (v: boolean) => void; activeRegisterId: string }) => void
 }
 
 // ── Context para pasar router/setOpen a los custom panels sin prop-drilling ──
@@ -141,11 +146,14 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
   },
   {
     key: "edit-hotkeys",
-    label: "Editar Hotkeys",
+    label: "HotKeys",
     icon: LayoutGrid,
-    description:
-      "Configurá los accesos rápidos de la grilla de la caja. Arrastrá ítems para reordenar, asigná categorías y colores a cada slot.",
-    ctaLabel: "Editar Hotkeys",
+    // Sin CustomContent ni description: el click ejecuta onSelect directo.
+    onSelect: ({ setOpen, activeRegisterId }) => {
+      if (!activeRegisterId) return
+      setOpen(false)
+      useHotkeysStore.getState().setEditing(true)
+    },
   },
 ]
 
@@ -234,20 +242,32 @@ export function PosMainMenu() {
               aria-label="Secciones del menú del POS"
               className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:border-r sm:p-3 sm:pr-3"
             >
-              {sectionsWithState.map(({ key, label, icon: Icon }) => {
+              {sectionsWithState.map(({ key, label, icon: Icon, onSelect, disabled }) => {
                 const active = activeKey === key
+                // Items con onSelect (ej. HotKeys) no muestran content area:
+                // ejecutan la acción directo al click. Si están disabled
+                // (sin caja activa), el click no hace nada y se muestran atenuados.
+                const handleClick = () => {
+                  if (onSelect) {
+                    onSelect({ setOpen, activeRegisterId: activeRegisterId ?? "" })
+                  } else {
+                    setActiveKey(key)
+                  }
+                }
                 return (
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setActiveKey(key)}
+                    onClick={handleClick}
                     className={cn(
                       "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
                       active
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                      disabled && "cursor-not-allowed opacity-50",
                     )}
                     aria-current={active ? "page" : undefined}
+                    aria-disabled={disabled ?? undefined}
                   >
                     <Icon className="size-4 shrink-0" />
                     <span>{label}</span>
@@ -284,8 +304,12 @@ export function PosMainMenu() {
                   </div>
                 </div>
               ) : activeSection.CustomContent ? (
-                /* Sección con contenido custom — ocupa todo el content area */
-                <activeSection.CustomContent />
+                /* Sección con contenido custom — ocupa todo el content area.
+                   min-h-0 es crítico para que el flex-child no expanda más allá
+                   del contenedor y el panel interno pueda scrollear. */
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <activeSection.CustomContent />
+                </div>
               ) : (
                 /* Sección default: descripción + CTA */
                 <div className="flex h-full flex-col">

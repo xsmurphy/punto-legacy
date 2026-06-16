@@ -70,7 +70,10 @@ export function ProductSearchDialog({
 
   function handleSelect(item: PosItem) {
     addItem({ id: item.id, name: item.name, price: item.price })
-    onOpenChange(false)
+    // No cerramos el modal — el cajero puede seguir agregando productos.
+    // Limpiamos la búsqueda y devolvemos el foco al input para el siguiente artículo.
+    setQuery("")
+    setTimeout(() => inputRef.current?.focus(), 0)
   }
 
   return (

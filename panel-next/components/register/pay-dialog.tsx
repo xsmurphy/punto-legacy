@@ -388,7 +388,7 @@ function PayPhase({
               key={row.rowId}
               row={row}
               canRemove={rows.length > 1}
-              autoFocus={i === 0}
+              autoFocus={i === 0 || i === rows.length - 1}
               onUpdateMethod={onUpdateMethod}
               onUpdateAmount={onUpdateAmount}
               onRemove={onRemoveRow}

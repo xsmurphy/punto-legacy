@@ -18,7 +18,13 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             encaje exacto en el viewport y no se pase ~16px. En mobile no hay
             margen → h-svh completo. */}
         <SidebarInset className="h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
-          <SidebarTrigger className="fixed left-[calc(0.75rem+env(safe-area-inset-left))] top-[calc(0.75rem+env(safe-area-inset-top))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
+          {/*
+           * Trigger mobile del sidebar — en /pos lo movemos a la esquina
+           * inferior-derecha, justo encima de la barra CartBottom (chips + cobrar),
+           * para que no se superponga con el botón ≡ del toolbar del POS.
+           * right-[...] + bottom-[...] alinea con el margen del carrito.
+           */}
+          <SidebarTrigger className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
           {children}
         </SidebarInset>
       </PanelAuthGuard>
