@@ -330,7 +330,7 @@ function PayPhase({
               "mt-0.5 text-[10px] font-bold uppercase tracking-wide",
               credito
                 ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                : "border-[#01D7A1]/30 bg-[#01D7A1]/10 text-[#01D7A1]",
+                : "border-border bg-muted text-foreground",
             )}
           >
             {credito ? "Crédito" : "Contado"}
@@ -392,9 +392,9 @@ function PayPhase({
         {/* Vuelto / faltante */}
         <div className="mt-4 space-y-1.5">
           {showChange && (
-            <div className="flex items-center justify-between rounded-lg border border-[#01D7A1]/30 bg-[#01D7A1]/10 px-3 py-2">
-              <span className="text-xs font-semibold text-[#01D7A1]">Vuelto</span>
-              <span className="text-lg font-black tabular-nums text-[#01D7A1]">
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2">
+              <span className="text-xs font-semibold text-foreground">Vuelto</span>
+              <span className="text-lg font-black tabular-nums text-foreground">
                 {formatMoney(changeAmount, config)}
               </span>
             </div>
@@ -444,12 +444,7 @@ function PayPhase({
         <Button
           disabled={!canConfirm}
           onClick={onConfirm}
-          className={cn(
-            "flex-[2] font-bold transition-all active:scale-[0.98]",
-            canConfirm
-              ? "bg-[#01D7A1] text-[#060A0E] hover:bg-[#01D7A1]/90"
-              : "bg-muted text-muted-foreground",
-          )}
+          className="flex-[2] font-bold transition-all active:scale-[0.98]"
         >
           {submitting ? "Procesando..." : "Confirmar venta"}
         </Button>
@@ -536,7 +531,7 @@ function SuccessPhase({ result, total, config, onPrint, onClose }: SuccessPhaseP
   return (
     <div className="flex flex-col items-center gap-5 px-6 py-8">
       {/* Ícono de éxito */}
-      <CheckCircle2 className="size-16 text-[#01D7A1]" strokeWidth={1.5} />
+      <CheckCircle2 className="size-16 text-primary" strokeWidth={1.5} />
 
       <div className="flex flex-col items-center gap-1 text-center">
         <h2 className="text-xl font-bold text-foreground">¡Venta confirmada!</h2>
@@ -563,7 +558,7 @@ function SuccessPhase({ result, total, config, onPrint, onClose }: SuccessPhaseP
 
         {/* Nueva venta */}
         <Button
-          className="w-full bg-[#01D7A1] font-bold text-[#060A0E] hover:bg-[#01D7A1]/90"
+          className="w-full font-bold"
           onClick={onClose}
         >
           Nueva venta
