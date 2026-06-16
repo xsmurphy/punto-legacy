@@ -18,15 +18,18 @@
  */
 
 import * as React from "react"
+import { Lock } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { STUB_PIN, useLockStore } from "@/lib/pos/lock-store"
+import { useCatalogStore } from "@/lib/catalog/store"
 
 const PIN_LENGTH = 4
 
 export function LockScreen() {
   const locked = useLockStore((s) => s.locked)
   const unlock = useLockStore((s) => s.unlock)
+  const outletName = useCatalogStore((s) => s.outlet?.name)
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -103,15 +106,21 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-10 bg-background"
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-background"
     >
-      {/* Logo */}
-      <div className={cn(shake && "animate-pin-shake")}>
-        <PuntoLogo variant="mark" className="size-20" />
+      {/* Logo — max 60px de alto. */}
+      <div className={cn("mb-12", shake && "animate-pin-shake")}>
+        <PuntoLogo variant="mark" className="size-[60px]" />
       </div>
 
-      {/* PIN dots */}
-      <div className={cn("flex items-center gap-5", shake && "animate-pin-shake")}>
+      {/* PIN dots: 30px de diámetro, 52px de separación. */}
+      <div
+        className={cn(
+          "flex items-center",
+          shake && "animate-pin-shake",
+        )}
+        style={{ gap: 52 }}
+      >
         {Array.from({ length: PIN_LENGTH }).map((_, i) => {
           const filled = i < pin.length
           const justPopped = i === poppedIndex && filled
@@ -119,26 +128,39 @@ export function LockScreen() {
             <span
               key={i}
               className={cn(
-                "block size-4 rounded-full border-2 transition-colors duration-150",
+                "block rounded-full border-2 transition-colors duration-150",
                 filled
                   ? "border-foreground bg-foreground"
                   : "border-muted-foreground/50 bg-transparent",
                 justPopped && "animate-pin-pop",
               )}
+              style={{ width: 30, height: 30 }}
             />
           )
         })}
       </div>
 
-      {/* Hint / error */}
-      <p
-        className={cn(
-          "h-5 text-sm transition-colors",
-          error ? "font-semibold text-destructive" : "text-muted-foreground",
+      {/* Ícono de candado + texto + nombre de la empresa. */}
+      <div className="mt-12 flex flex-col items-center gap-1.5">
+        <Lock
+          aria-hidden
+          className={cn(
+            "size-6 transition-colors",
+            error ? "text-destructive" : "text-muted-foreground",
+          )}
+        />
+        <p
+          className={cn(
+            "text-sm transition-colors",
+            error ? "font-semibold text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {error ? "Código incorrecto" : "Ingrese su código de usuario"}
+        </p>
+        {!error && outletName && (
+          <p className="text-base font-bold text-foreground">{outletName}</p>
         )}
-      >
-        {error ? "Código incorrecto" : "Ingresá tu PIN para reanudar"}
-      </p>
+      </div>
     </div>
   )
 }

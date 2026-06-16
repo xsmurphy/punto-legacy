@@ -47,6 +47,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import { AppCommandPalette } from "@/components/layout/app-command-palette"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { useBootstrap } from "@/hooks/use-bootstrap"
 
 export interface NavItem {
   title: string
@@ -363,7 +364,7 @@ export function AppSidebar({
                 sideOffset={4}
               >
                 {isPos ? (
-                  <PosUserMenuContent userName={user.name} userRole={user.subtitle} />
+                  <PosUserMenuContent />
                 ) : (
                   <>
                 <DropdownMenuLabel className="p-0 font-normal">
@@ -448,13 +449,10 @@ export function AppSidebar({
 // Configuración, Cerrar Sesión) — el cajero no debe perderse navegando
 // fuera de la caja.
 
-function PosUserMenuContent({
-  userName,
-  userRole,
-}: {
-  userName: string
-  userRole: string
-}) {
+function PosUserMenuContent() {
+  // Leemos del bootstrap directamente — el prop `user` del sidebar tiene
+  // shape (name=company, subtitle=scope) que NO mapea a "usuario - rol".
+  const { data: bootstrap } = useBootstrap()
   const config = useCatalogStore((s) => s.config)
   const outlet = useCatalogStore((s) => s.outlet)
   const registers = useCatalogStore((s) => s.registers)
@@ -462,12 +460,21 @@ function PosUserMenuContent({
   const lock = useLockStore((s) => s.lock)
 
   const register = registers.find((r) => r.id === activeRegisterId) ?? null
-  const company = config?.companyName?.trim() || "Punto"
+  const company =
+    (bootstrap?.companyName || config?.companyName || "Punto").trim()
   const outletRegister =
     outlet && register
       ? `${outlet.name} - ${register.name}`
       : outlet?.name || register?.name || "Sin caja"
-  const userLine = userRole ? `${userName} - ${userRole}` : userName
+
+  // Usuario - Rol: solo si el bootstrap los provee (hoy opcional — TODO
+  // backend en lib/types/bootstrap.ts). Si no hay nombre, no renderizamos
+  // la línea para evitar mostrar "Roquetas - Todas las sucursales" que era
+  // ruido del prop legacy.
+  const userName = bootstrap?.user?.name?.trim() || ""
+  const roleName = bootstrap?.user?.roleName?.trim() || ""
+  const userLine =
+    userName && roleName ? `${userName} - ${roleName}` : userName || roleName
 
   return (
     <>
@@ -477,9 +484,11 @@ function PosUserMenuContent({
           <span className="truncate text-xs text-muted-foreground">
             {outletRegister}
           </span>
-          <span className="truncate text-xs text-muted-foreground">
-            {userLine}
-          </span>
+          {userLine && (
+            <span className="truncate text-xs text-muted-foreground">
+              {userLine}
+            </span>
+          )}
         </div>
       </DropdownMenuLabel>
       <DropdownMenuSeparator />

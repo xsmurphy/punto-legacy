@@ -22,6 +22,13 @@ export interface Bootstrap {
   user: {
     id: string | number
     role: number
+    /** Nombre legible del usuario logueado (ej. "Christian Murphy").
+     *  Opcional — TODO backend: exponerlo desde /v1/bootstrap.php (hoy solo
+     *  trae id+role). Mientras tanto el menú de usuario del POS oculta la
+     *  línea cuando no llega. */
+    name?: string
+    /** Etiqueta legible del rol (ej. "Cajero"). Opcional — mismo TODO que `name`. */
+    roleName?: string
   }
   /** UUID del outlet activo (claim `oid` del JWT). '' si el tenant aún no tiene outlets. */
   activeOutletId: string
