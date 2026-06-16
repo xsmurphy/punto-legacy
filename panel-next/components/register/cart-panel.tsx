@@ -195,27 +195,29 @@ function CartToolbar({
   onCancelSale: () => void
 }) {
   return (
-    <div className="flex items-center justify-end gap-0.5 border-b border-border px-2 py-1.5">
+    <div className="flex h-14 shrink-0 items-center justify-end gap-1 border-b border-border px-3">
       <Button
         variant="ghost"
         size="icon"
+        className="size-9"
         onClick={onSearch}
         aria-label="Buscar producto"
       >
-        <Search className="size-4" />
+        <Search className="size-5" />
       </Button>
       <Button
         variant="ghost"
         size="icon"
+        className="size-9"
         onClick={onCustomer}
         aria-label="Cliente"
       >
-        <User className="size-4" />
+        <User className="size-5" />
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Acciones de venta">
-            <MoreHorizontal className="size-4" />
+          <Button variant="ghost" size="icon" className="size-9" aria-label="Acciones de venta">
+            <MoreHorizontal className="size-5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">

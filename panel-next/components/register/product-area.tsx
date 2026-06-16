@@ -14,7 +14,7 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { Plus, ChevronLeft } from "lucide-react"
+import { ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -211,18 +211,12 @@ export function ProductArea() {
       {/* ── Grid scrolleable ── (ocupa todo, sin barra fija abajo) */}
       <div className="flex-1 overflow-y-auto pb-20">{renderGrid()}</div>
 
-      {/* ── FAB "+" flotante + CategoryBar flotante (misma línea) ── */}
-      {/* TODO: el FAB abre menú flotante de módulos (Mesas, Agendamiento, Órdenes…) */}
-      <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center gap-3">
-        <Button
-          size="icon"
-          variant="secondary"
-          className="size-12 shrink-0 rounded-full shadow-lg"
-          aria-label="Menú de módulos"
-        >
-          <Plus className="size-6" />
-        </Button>
-
+      {/* ── CategoryBar flotante ──
+          El FAB de "Menú de módulos" se removió: su contenido (Hotkeys, Mesas,
+          Calendario, Órdenes…) vive ahora en el sidebar contextual del POS
+          (ver panelNav/posNav en panel-auth-guard). La barra de categorías
+          ocupa toda la fila. */}
+      <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center">
         <FloatingCategoryBar
           activeId={activeCategoryId}
           onBack={handleBack}

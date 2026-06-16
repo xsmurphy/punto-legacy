@@ -1,13 +1,18 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import {
   ShoppingBasket,
   Contact,
   ChartPie,
   ScanBarcode,
   LayoutDashboard,
+  ShoppingCart,
+  Zap,
+  Utensils,
+  CalendarDays,
+  ClipboardList,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -28,9 +33,21 @@ const panelNav: NavEntry[] = [
   { title: "Artículos", to: "/items", icon: ShoppingBasket },
   { title: "Contactos", to: "/contacts", icon: Contact },
   { title: "Reportes", to: "/reports", icon: ChartPie },
-  // Caja = POS legacy (subdomain distinto). SSO via /bff/pos-redirect.php
-  // en el legacy; cuando se migre, este `to` apunta al endpoint Next equivalente.
+  // Caja = POS dentro del propio panel (route group (pos), ruta /pos).
   { title: "Caja", to: "/pos", icon: ScanBarcode },
+]
+
+// Nav del POS — el sidebar es CONTEXTUAL: en /pos muestra los módulos de la
+// caja en vez de las secciones del panel (decisión del owner 2026-06-16:
+// "el menú de items del sidebar cambia en el /pos"). El contenido que antes
+// vivía en el FAB flotante de la pantalla de caja vive ahora acá.
+// La vuelta al panel es por el logo (linkea al dashboard).
+const posNav: NavEntry[] = [
+  { title: "Caja", to: "/pos", icon: ShoppingCart },
+  { title: "Hotkeys", to: "/pos/hotkeys", icon: Zap },
+  { title: "Mesas", to: "/pos/mesas", icon: Utensils },
+  { title: "Calendario", to: "/pos/calendario", icon: CalendarDays },
+  { title: "Órdenes", to: "/pos/ordenes", icon: ClipboardList },
 ]
 
 /**
@@ -43,6 +60,10 @@ const panelNav: NavEntry[] = [
  */
 export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
+  // Sidebar contextual: dentro de /pos se muestran los módulos de la caja.
+  const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
+  const nav = isPos ? posNav : panelNav
   const { data: bootstrap, isLoading, error } = useBootstrap()
   // El logo de la empresa lo trae /v1/settings (no /v1/bootstrap). Se
   // muestra en el avatar del menu user del footer. staleTime 60s del hook
@@ -126,7 +147,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     <>
       <AppSidebar
         scope="Panel"
-        items={panelNav}
+        items={nav}
         user={user}
         companyLogo={settings?.hasLogo ? settings.logo : null}
         outlets={outlets}
