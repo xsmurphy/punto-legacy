@@ -141,6 +141,20 @@ export const api = {
       body: form,
       ...opts,
     }),
+  /**
+   * POST a endpoints PHP legacy que leen $_POST['data'][0] con el payload
+   * como string JSON (patrón de action.php?action=processData y sales.php).
+   * Manda FormData con data[]=<JSON.stringify(payload)>.
+   */
+  postLegacy: <T>(
+    path: string,
+    payload: Record<string, unknown>,
+    opts?: { jwt?: string },
+  ) => {
+    const form = new FormData()
+    form.append("data[]", JSON.stringify(payload))
+    return request<T>(path, { method: "POST", body: form, ...opts })
+  },
   put: <T>(path: string, body?: Json, opts?: { jwt?: string }) =>
     request<T>(path, {
       method: "PUT",
