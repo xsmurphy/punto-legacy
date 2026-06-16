@@ -47,6 +47,7 @@ import {
   DrawerTrigger,
 } from "@/components/ui/drawer"
 import { cn } from "@/lib/utils"
+import { usePosUIStore } from "@/lib/ui/store"
 
 interface SaleOption {
   key: string
@@ -62,7 +63,9 @@ export function SaleOptionsDrawer({
 }: {
   onCancelSale: () => void
 }) {
-  const [open, setOpen] = React.useState(false)
+  // Open desde el store global → permite abrirlo con el atajo "R".
+  const open = usePosUIStore((s) => s.optionsOpen)
+  const setOpen = usePosUIStore((s) => s.setOptionsOpen)
 
   // Set de opciones de MODO VENTA. TODO (modos): cuando existan Órdenes /
   // Agenda, derivar este array del modo activo. TODO (RBAC): gatear

@@ -377,11 +377,12 @@ function PayPhase({
         </div>
 
         <div className="flex flex-col gap-2">
-          {rows.map((row) => (
+          {rows.map((row, i) => (
             <PaymentRow
               key={row.rowId}
               row={row}
               canRemove={rows.length > 1}
+              autoFocus={i === 0}
               onUpdateMethod={onUpdateMethod}
               onUpdateAmount={onUpdateAmount}
               onRemove={onRemoveRow}
@@ -458,6 +459,8 @@ function PayPhase({
 interface PaymentRowProps {
   row: PayRow
   canRemove: boolean
+  /** Autofocus del monto (solo la primera fila, al abrir el modal de cobro). */
+  autoFocus?: boolean
   onUpdateMethod: (rowId: string, methodId: string) => void
   onUpdateAmount: (rowId: string, amount: number | null) => void
   onRemove: (rowId: string) => void
@@ -466,6 +469,7 @@ interface PaymentRowProps {
 function PaymentRow({
   row,
   canRemove,
+  autoFocus,
   onUpdateMethod,
   onUpdateAmount,
   onRemove,
@@ -496,6 +500,7 @@ function PaymentRow({
         onChange={(val) => onUpdateAmount(row.rowId, val)}
         placeholder="0"
         aria-label={`Monto ${row.methodId}`}
+        autoFocus={autoFocus}
       />
 
       {/* Botón eliminar fila */}

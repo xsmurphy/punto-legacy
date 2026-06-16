@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
+import { usePosUIStore } from "@/lib/ui/store"
 import { clearDeviceDefault } from "@/lib/pos/device"
 
 interface MenuEntry {
@@ -64,7 +65,9 @@ const ENTRIES: MenuEntry[] = [
 
 export function PosMainMenu() {
   const router = useRouter()
-  const [open, setOpen] = React.useState(false)
+  // Open desde el store global → permite abrirlo con el atajo "Q".
+  const open = usePosUIStore((s) => s.menuOpen)
+  const setOpen = usePosUIStore((s) => s.setMenuOpen)
   const config = useCatalogStore((s) => s.config)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const registers = useCatalogStore((s) => s.registers)
