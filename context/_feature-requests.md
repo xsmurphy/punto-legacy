@@ -1,0 +1,252 @@
+<!-- Feature requests reales de clientes, capturados directo del soporte / contacto comercial.
+     NO confundir con roadmap técnico (`10-roadmap.md`) — esto es la pila de productos del usuario.
+     Formato: una sección por área del producto. Cada item lleva análisis breve de complejidad,
+     dependencias técnicas conocidas y una etiqueta de tamaño (S/M/L/XL). Más reciente arriba. -->
+
+# Feature requests — clientes
+
+## 2026-06-16 — batch comercial (soporte → owner)
+
+Lista compilada por soporte tras múltiples contactos con clientes que pidieron paridad con el panel legacy y features nuevas. Sin priorización todavía — pendiente decisión del owner sobre cuáles entran al sprint del rewrite y cuáles esperan.
+
+---
+
+### Contactos / Usuarios
+
+**Permisos granulares por usuario (override sobre el rol)** — `XL`
+> "Si hay dos cajeros con el mismo rol, que se pueda habilitar a uno permisos que el otro no tiene."
+
+- Hoy el modelo de roles es plano: `contact.role` (smallint) → 1 = Super Admin, hardcoded. Sin granularidad ni override per-user.
+- Implica: tabla `userPermission` (o JSONB `overridePermissions` en contacto) + UI de "permisos" en el form de equipo + integración con `apiAuthTenant`/ACL del backend para chequear permisos efectivos = rol_base ∪ user_override.
+- **Bloqueante**: el rewrite todavía no tiene matriz de permisos. Resolverlo bien fuerza definir las claves de permiso del sistema (cobrar, devolver, dar descuento, ver reportes, etc) — eso es deuda pendiente igual.
+- Alta demanda comercial — gastronomía y retail con varios cajeros lo piden.
+
+---
+
+### Artículos
+
+**Shortcuts "Producir / Contabilizar / Ajustar / Comprar" arriba de Artículos** — `S`
+> Recuperar los 4 botones grandes que estaban en el header del listado de items en el legacy.
+
+- Regresión visual del rewrite. Son links a otros módulos (`/purchase`, `/inventory-count`, `/bulk-adjustment`, `/production`) que ya existen.
+- Decisión a tomar: ¿toolbar fijo en `/items` o un dropdown "Acciones" para no saturar el header?
+
+**Predefinido fijo dentro de combos (item base + guarniciones opcionales)** — `M`
+> Una hamburguesa fija + N guarniciones a elegir. Hoy todos los items del combo son seleccionables.
+
+- `ComboGroupService` ya existe (`api/lib/Items/ComboGroupService.php`). Hay que verificar si soporta items "obligatorios fijos" (qty fija, no seleccionables) vs "elegibles" (sourceType=manual/category con minSelection/maxSelection).
+- Posible que el modelo de datos lo soporte parcialmente y solo falte la UI; posible que requiera flag `isFixed` por línea del combo.
+
+---
+
+### Reportes / Transacciones
+
+**Columna "Tipo de Documento"** — `S`
+> Falta identificar factura / nota de crédito / venta interna en el listado.
+
+- `transaction` tiene `transactionDoc` y `transactionType` (0=venta, 3=ticket, 5=cobro, 6=NC, etc). Mapeo a label legible + columna en DataTable. Datos ya están en el endpoint.
+
+**Columnas descuento / subtotal / IVA / total gravado** — `S`
+> Faltan columnas estándar de facturación.
+
+- Campos disponibles: `transactionDiscount`, `transactionTax`, `transactionTotal`. Solo agregar al SELECT del service y a las columnas del DataTable.
+
+**Export RG90 + Libro Ventas** — `L`
+> Reportes regulatorios paraguayos. El legacy los exportaba.
+
+- Formato definido por la SET — requiere replicar el mapeo del legacy (`panel/reports/rg90.php` o similar). Verificar si el código del export está en el monolito y portarlo.
+- Crítico para clientes paraguayos formales.
+
+**Pagos recibidos y cotizaciones** — `S`
+> Vistas `cobros` y `quotes` del legacy.
+
+- El endpoint `/v1/reports/transactions?view=cobros|quotes` YA existe (lo vi al diagnosticar el bug de array_key_exists). Solo falta UI en `/reports/transactions` para alternar entre vistas (tabs o filtro).
+
+---
+
+### Reportes / Productos y Servicios
+
+**Modos DETALLADO y COMBOS** — `M`
+> Hoy solo hay vista agregada por producto.
+
+- Detallado = una row por venta del producto. Combos = expansión de items del combo.
+- Requiere endpoints adicionales o flags en el endpoint actual (`view=detail|combos`).
+
+**Columnas descuento / usuario / comisiones / fecha / cliente** — `S`
+> Agregar columnas al reporte.
+
+- Datos disponibles vía `itemSold` JOIN `transaction`. Solo extender el query del service.
+
+---
+
+### Reportes / Análisis de Clientes
+
+**Modos "listas" y "análisis"** — `M`
+> Dual view: listado tabular crudo + vista analítica (segmentos, gráficos).
+
+- "Listas" probablemente es la vista actual. "Análisis" requiere KPIs nuevos (segmentación por consumo, frecuencia, churn por cliente).
+
+**Columnas cumpleaños / dirección / ciudad / descuentos aplicados** — `S`
+> Agregar columnas al listado de clientes.
+
+- Cumpleaños, dirección y ciudad viven en `contact.data` JSONB tras la migración 25. Hay que extraer con `data->>'contactBirthDay'`, etc. Descuentos requiere agregación de `transaction.transactionDiscount` por cliente.
+
+---
+
+### Reportes / Staff y Usuarios
+
+**Drill-down por usuario con cliente / fecha / N° documento** — `M`
+> Click en un cajero → detalle de cada venta que hizo.
+
+- Vista detalle del reporte. Requiere endpoint que filtre `transaction.userId` y devuelva filas individuales (no agregadas).
+
+---
+
+### Reportes / Medios de Pagos
+
+**Modo detallado + columna "caja"** — `S`
+> Hoy es solo agregado.
+
+- Datos disponibles (`transaction.registerId` → JOIN con `register.registerName`). Vista detallada + extender el SELECT.
+
+---
+
+### Reportes / Compras y Gastos
+
+**Columnas documento / prefijo / tipo / usuario / subtotal / descuentos** — `S`
+> Paridad con el reporte de transacciones.
+
+- Mismos campos del modelo `transaction` ya existentes. Extender el query.
+
+**Export RG90 y Libro Compras** — `L`
+> Equivalente al Libro Ventas para compras.
+
+- Mismo trabajo que el RG90 de ventas pero del lado de compras.
+
+**Vista de pagos realizados** — `S`
+> Equivalente a "pagos recibidos" pero para compras.
+
+- Pattern conocido — `dataset` flag en el endpoint o vista separada.
+
+---
+
+### Órdenes
+
+**Descontar stock al hacer pedido (opcional / setting)** — `M`
+> Hoy el descuento del stock probablemente pasa al facturar.
+
+- Decisión de modelo: ¿se reserva stock al tomar la orden (transaccional) o solo al facturar (actual)? Si se reserva → necesita ledger de reservas para devolverlo si la orden se cancela.
+- Setting por tenant o por outlet.
+
+**Finalizar en lote pedidos terminados** — `M`
+> Multi-select + acción bulk.
+
+- UX típica de tablas. El backend probablemente acepta múltiples updates en paralelo.
+
+**Listar pedidos pendientes para facturar** — `M`
+> Vista dedicada de pedidos sin factura aún.
+
+- Filtro por `transactionStatus IN (pendiente, terminado pero sin factura)`. Pantalla nueva o filtro nuevo en la existente.
+
+**Procesar Órdenes → volver a Módulos si no se completa el cobro** — `S`
+> UX fix: si abrís Procesar Órdenes desde el listado de módulos y cancelás el cobro, el sistema no te devuelve a Módulos.
+
+- Cambio de navegación / breadcrumb history. Bajo riesgo.
+
+---
+
+### Features mayores (no son solo "columnas" — son módulos o cambios de modelo)
+
+**Suscripciones recurrentes como paquetes** — `XL`
+> "Agregar suscripciones como paquetes" — un cliente que paga mensual por un paquete de servicios.
+
+- Modelo nuevo: `subscription` (planId, contactId, status, nextBillingDate). Worker de cobro automático. Integración con cuenta corriente del cliente.
+- Distinto a la tabla `plans` (que es para el plan SaaS del tenant). Es para que los tenants vendan suscripciones A SUS clientes.
+
+**"Recibo de dinero" como tipo de transacción propio** — `M`
+> Hoy se está usando "venta de servicio (crédito interno)" como hack para recibir dinero sin que sea una venta.
+
+- Nuevo `transactionType` o flag. NO suma a ventas; SÍ entra al cajón. Reportes deben excluirlo de "ventas brutas".
+- Hay precedente: `NonAddingSales` ya separa este tipo de movimientos en el resumen.
+
+**Múltiples comisiones por producto+profesional** — `XL`
+> "Cuando varios profesionales hacen el mismo servicio con comisiones distintas, hoy hay que crear N copias del servicio."
+
+- Modelo actual: `item.commission` único por producto. Necesario: tabla `itemCommission` (itemId, userId, percent) o JSONB `commissions: {userId: percent}` en item.
+- El `itemSold` ya guarda `itemSoldComission` (calculada al vender). Solo cambia QUÉ comisión aplica según el `userId` de la venta.
+- Demanda alta en estética/belleza.
+
+**Comisiones diferentes por servicio Y por profesional** — `XL`
+> Combinación del anterior — variable por ambos ejes.
+
+- Mismo modelo. Va junto con el item anterior.
+
+**Mesas asignadas a meseros (mesero solo ve sus mesas)** — `M`
+> Restricción de acceso por mesa. Cada mesero solo ve y opera sus mesas.
+
+- Nueva relación `table → userId` (asignación). Filtro en el listado de mesas + permission check al abrir orden.
+
+**Contar personas atendidas por mesero** — `S`
+> Capturar # de comensales al abrir una mesa, agregar al reporte de staff.
+
+- Campo `partySize` o `guests` en la transacción de mesa. Reporte ya tiene la dimensión userId; solo agregar suma.
+
+**Último costo de compra en producción (fix cálculo COGS)** — `M`
+> Bug en el cálculo de utilidad cuando se compra mercadería específicamente para producción: el sistema descuenta antes de calcular el costo de la producción, lo que mete ruido en el cálculo de precio final cuando se usa "% sobre costo".
+
+- Bug semántico de `manageStock` / `Inventory::manageStock` + cálculo de `itemSoldCogs` para items producidos.
+- Probablemente requiere snapshot del `lastPurchaseCost` por item antes de descontar.
+
+**Precios mayoristas / minoristas / por cajas + variantes (color y talle)** — `XXL`
+> Modelo de variantes (S/M/L, rojo/azul) + tiered pricing.
+
+- Cambio MAYOR de modelo. Hoy items son planos. Requiere:
+  - Variantes: `itemVariant` (size, color, sku propio, stock propio).
+  - Tiered pricing: tabla `priceList` ya existe — extenderla con conditional por contacto/grupo.
+- Inversión enorme. Decidir scope: ¿soportar tiered pricing primero (sin variantes) y variantes después?
+- Cliente Macatera Chuchi (mencionado al final) es el caso emblemático.
+
+**Reporte de transferencias enviadas / recibidas con auditoría** — `M`
+> Para auditar movimientos entre sucursales: qué se envió, quién aceptó.
+
+- `transaction` tipo 12 (transferencia) ya existe. Reporte específico con columnas: origen / destino / itemsSold / fromUserId / toUserId / fecha aceptación.
+
+**Solución para clientes con catálogos enormes (Macatera Chuchi)** — `M / XL`
+> "Ver qué solución podemos dar a clientes con miles de productos."
+
+- Performance: paginación server-side, virtualización en DataTable, lazy load de imágenes.
+- UX: búsqueda más fina (códigos cortos, atajos), categorías colapsables.
+- Si va con variantes (request anterior) → cambia el approach (un item "padre" con N variantes en vez de N items planos).
+
+---
+
+## Sugerencia de orden (no decidido — para discutir)
+
+**Quick wins (sprint 1)** — todo `S/M` con valor inmediato y baja deuda:
+1. Columnas faltantes en Transacciones (tipo doc, descuento, IVA, subtotal)
+2. Columnas faltantes en Productos / Clientes / Compras
+3. Pagos recibidos y cotizaciones en `/reports/transactions` (endpoint ya existe)
+4. Detalle por usuario en Staff
+5. Shortcuts en /items (Producir/Ajustar/Comprar)
+6. Procesar Órdenes navigation fix
+
+**Antes del próximo deploy comercial (sprint 2)**:
+7. Export RG90 + Libro Ventas + Libro Compras (regulatorio)
+8. Permisos granulares por usuario (bloquea features que requieren ACL fina)
+9. Recibo de dinero como tipo de transacción propio
+10. Combos con item fijo
+
+**Esfuerzo grande, planificar aparte**:
+- Suscripciones como paquetes
+- Comisiones múltiples (producto × profesional)
+- Variantes (color/talle) + tiered pricing
+- Solución catálogos grandes (probablemente va con variantes)
+
+**Operacional (cuando el módulo Mesas sea prioridad)**:
+- Mesas asignadas a meseros
+- Conteo de personas atendidas
+- Stock opcional al hacer pedido
+
+---
+
+*Próximo paso sugerido — el owner marca con [x] / etiqueta de prioridad los items que entran al sprint y movemos los compromisos al `10-roadmap.md` como tareas formales.*
