@@ -139,7 +139,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar clientes"
-            className="h-auto border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-medium placeholder:text-muted-foreground focus-visible:ring-0"
+            className="h-auto border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-semibold placeholder:text-muted-foreground focus-visible:ring-0"
             autoComplete="off"
             aria-label="Buscar clientes"
           />
@@ -479,9 +479,8 @@ function CreateCustomerForm({
         <Button
           type="submit"
           disabled={isSubmitting}
-          className="bg-[#01D7A1] text-[#060A0E] hover:bg-[#01D7A1]/90 font-bold"
         >
-          CREAR CLIENTE
+          Crear cliente
         </Button>
       </div>
     </form>

@@ -89,7 +89,7 @@ export function ProductArea() {
   }
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden bg-sidebar">
       <div className="flex-1 overflow-y-auto p-3">
         {categoryId === null ? (
           // ── Grilla de hotkeys ──

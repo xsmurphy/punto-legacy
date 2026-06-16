@@ -93,7 +93,7 @@ export function ProductSearchDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar productos o servicios"
-            className="h-auto border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-medium placeholder:text-muted-foreground focus-visible:ring-0"
+            className="h-auto rounded-full border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-semibold placeholder:text-muted-foreground focus-visible:ring-0"
             autoComplete="off"
             aria-label="Buscar producto"
           />

@@ -99,7 +99,7 @@ export function CartPanel() {
   }, [selectedLineId, selectLine])
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-background">
+    <div className="flex h-full flex-col border-l border-border bg-sidebar">
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
@@ -346,7 +346,7 @@ function CartRowExpanded({
   onRemove: () => void
 }) {
   return (
-    <div className="border-y border-border bg-accent/40 px-3 py-3">
+    <div className="bg-accent/40 px-3 py-3">
       {/* Header — nombre del item, sutil. */}
       <div className="mb-2 text-center">
         <span className="truncate text-sm text-muted-foreground">
@@ -446,7 +446,7 @@ function CartRowExpanded({
 function EmptyCart() {
   return (
     <div className="flex h-full flex-col items-center justify-center select-none">
-      <span aria-hidden className="opacity-[0.12]">
+      <span aria-hidden className="flex justify-center opacity-[0.12]">
         <PuntoLogo variant="wordmark" className="h-14 w-[200px]" />
       </span>
     </div>
@@ -485,8 +485,8 @@ function CartBottom({
 
   return (
     <div className="shrink-0 border-t border-border bg-background p-2 pt-2">
-      {/* Toggles CRÉDITO / INTERNO / IVA */}
-      <div className="mb-2 flex items-center justify-center gap-3">
+      {/* Toggles CRÉDITO / INTERNO / IVA — distribuidos de forma pareja */}
+      <div className="mb-2 flex items-center justify-center gap-2">
         <ToggleChip
           label="CRÉDITO"
           active={credito}
@@ -497,21 +497,19 @@ function CartBottom({
           active={interno}
           onClick={onToggleInterno}
         />
-        <Button
-          variant="ghost"
-          size="icon-xs"
+        <button
           onClick={onToggleIva}
           aria-label={ivaRemoved ? "Restaurar IVA" : "Eliminar IVA"}
           className={cn(
-            "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide h-auto",
+            "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
             ivaRemoved
-              ? "text-muted-foreground/50"
-              : "text-muted-foreground hover:text-foreground",
+              ? "border-border bg-transparent text-muted-foreground/50"
+              : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground hover:text-foreground",
           )}
         >
           <X className="size-3" />
           <span>{ivaFormatted}</span>
-        </Button>
+        </button>
       </div>
 
       {/* Botón cobrar — full pill verde brand (feedback owner 2026-06-16):
