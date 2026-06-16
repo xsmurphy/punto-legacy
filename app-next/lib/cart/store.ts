@@ -33,6 +33,18 @@ export interface CartLine {
   note?: string
   /** ID del vendedor asignado a esta línea (stub — sin UI aún). */
   sellerId?: string
+  /**
+   * Descuento aplicado a la línea (porcentaje). El borde izquierdo del row
+   * se pone amarillo cuando es > 0 (espejo del b-l b-3x b-warning del legacy).
+   * UI de modificación: TODO Slice posterior (modal numpad con %).
+   */
+  discount?: number
+  /**
+   * Tags / etiquetas asignadas a la línea (ids de taxonomy). Se renderizan
+   * como un icono <Tag /> debajo del nombre cuando hay al menos 1.
+   * UI de modificación: TODO Slice posterior (drawer con autocomplete).
+   */
+  tags?: string[]
 }
 
 /** Selector helper para el total — úsalo en componentes:

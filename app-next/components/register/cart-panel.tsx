@@ -23,16 +23,21 @@ import {
   Plus,
   Minus,
   Trash2,
-  ChevronDown,
+  Percent,
   DollarSign,
   Tag,
   MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { useCartStore, selectCartTotal, selectCartIva } from "@/lib/cart/store"
+import {
+  useCartStore,
+  selectCartTotal,
+  selectCartIva,
+  type CartLine,
+} from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { formatMoney } from "@/lib/format-money"
+import { formatMoney, formatAmount } from "@/lib/format-money"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
@@ -117,19 +122,18 @@ export function CartPanel() {
               const isActive = line.lineId === selectedLineId
               return (
                 <div key={line.lineId} ref={isActive ? activeRef : undefined}>
-                  <CartLineRow
-                    line={line}
-                    isActive={isActive}
-                    config={config}
-                    onSelect={() => selectLine(isActive ? null : line.lineId)}
-                  />
-                  {isActive && (
-                    <ActiveLineControls
-                      lineId={line.lineId}
-                      qty={line.qty}
+                  {isActive ? (
+                    <CartRowExpanded
+                      line={line}
                       onInc={() => incQty(line.lineId)}
                       onDec={() => decQty(line.lineId)}
                       onRemove={() => removeLine(line.lineId)}
+                    />
+                  ) : (
+                    <CartRowCollapsed
+                      line={line}
+                      config={config}
+                      onSelect={() => selectLine(line.lineId)}
                     />
                   )}
                 </div>
@@ -270,131 +274,231 @@ function CustomerChip({
   )
 }
 
-// ── Fila de línea del carrito ─────────────────────────────────────────────────
+// ── Fila colapsada (no seleccionada) ──────────────────────────────────────────
+//
+// Espejo del `.main` del legacy (#itemLineTpl en app/index.php:4003):
+//   <badge qty> Nombre del producto       <amount sin currency>
+//                 <iconos+texto del subtítulo>
+//
+// Si line.discount > 0 → borde izquierdo amarillo (el `b-l b-3x b-warning`
+// del itemsToTable original). Iconos del subtítulo: usuario, tags, nota —
+// se renderizan SOLO cuando existen (no mostrar slots vacíos).
 
-function CartLineRow({
+function CartRowCollapsed({
   line,
-  isActive,
   config,
   onSelect,
 }: {
-  line: { lineId: string; name: string; qty: number; unitPrice: number; note?: string }
-  isActive: boolean
+  line: CartLine
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   onSelect: () => void
 }) {
   const subtotal = line.qty * line.unitPrice
+  const hasDiscount = (line.discount ?? 0) > 0
+  const hasSeller = Boolean(line.sellerId)
+  const hasTags = (line.tags?.length ?? 0) > 0
+  const hasNote = Boolean(line.note && line.note.trim().length > 0)
+  const showSubtitle = hasSeller || hasTags || hasNote
 
   return (
     <button
       onClick={onSelect}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors",
-        isActive
-          ? "bg-accent"
-          : "hover:bg-muted/50",
+        "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
+        // Borde izquierdo amarillo cuando hay descuento — espejo del
+        // `b-l b-3x b-warning` del template legacy.
+        hasDiscount && "border-l-[3px] border-l-yellow-500",
       )}
     >
-      {/* Badge de cantidad */}
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
+      {/* Círculo de cantidad — bg oscuro (NO blanco). Tinte amarillo cuando
+          hay descuento, para hacer eco al borde izquierdo. */}
+      <span
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
+          hasDiscount
+            ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-500"
+            : "border-border bg-muted/40 text-muted-foreground",
+        )}
+      >
         {line.qty}
       </span>
 
-      {/* Nombre + subtexto */}
+      {/* Nombre + subtexto (iconos solo si hay datos asociados) */}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{line.name}</p>
-        {line.note && (
-          <p className="truncate text-[10px] text-muted-foreground">{line.note}</p>
-        )}
-        {!line.note && (
-          <p className="truncate text-[10px] text-muted-foreground">
-            {line.qty > 1 && `x${line.qty} @ `}
-            {formatMoney(line.unitPrice, config)}
-          </p>
+        {showSubtitle && (
+          <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+            {hasSeller && (
+              <span className="inline-flex items-center gap-1" title="Vendedor asignado">
+                <User className="size-3" aria-hidden />
+              </span>
+            )}
+            {hasTags && (
+              <span className="inline-flex items-center gap-1" title="Etiquetas">
+                <Tag className="size-3" aria-hidden />
+              </span>
+            )}
+            {hasNote && (
+              <span className="inline-flex items-center gap-1 truncate" title={line.note}>
+                <MessageSquare className="size-3 shrink-0" aria-hidden />
+                <span className="truncate">{line.note}</span>
+              </span>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Precio total */}
+      {/* Precio total — sin currency. El "Gs" sólo aparece en el botón de
+          cobrar (convención del owner 2026-06-16). */}
       <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
-        {formatMoney(subtotal, config)}
+        {formatAmount(subtotal, config)}
       </span>
     </button>
   )
 }
 
-// ── Controles de línea activa ─────────────────────────────────────────────────
+// ── Fila expandida (seleccionada) ─────────────────────────────────────────────
+//
+// Reemplaza completamente el `.main` del row colapsado por:
+//   - Header centrado con el nombre del item (gris/muted).
+//   - Grid 4 columnas full-width sin redondeos: [+] [xN] [−] [×]
+//   - Grid 5 columnas full-width sin redondeos para herramientas:
+//     [discount] [price] [user] [tags] [note]
+//
+// Click en `xN` (TODO C3): abre el NumPad para editar la cantidad.
+// Click en `price` / `discount` (TODO C3): abre el NumPad correspondiente.
+// Click en `user` / `tags` / `note` (TODO C2): abre BottomSheet con el
+// formulario respectivo. Por ahora son no-op visualmente correctos.
 
-function ActiveLineControls({
-  lineId,
-  qty,
+function CartRowExpanded({
+  line,
   onInc,
   onDec,
   onRemove,
 }: {
-  lineId: string
-  qty: number
+  line: CartLine
   onInc: () => void
   onDec: () => void
   onRemove: () => void
 }) {
   return (
-    <div className="border-b border-border bg-accent/50 px-3 pb-2 pt-1">
-      {/* Fila de cantidad */}
-      <div className="mb-2 flex items-center justify-center gap-3">
-        <Button
-          size="icon-sm"
-          variant="outline"
-          onClick={onInc}
-          aria-label="Aumentar cantidad"
-          className="size-9 rounded-full"
-        >
-          <Plus className="size-4" />
-        </Button>
-
-        <span className="min-w-[3ch] text-center text-lg font-bold tabular-nums text-foreground">
-          x{qty}
+    <div className="border-y border-border bg-accent/40">
+      {/* Header — solo el nombre, centrado, gris (igual al mock del owner). */}
+      <div className="flex items-center justify-center px-3 py-2.5">
+        <span className="truncate text-sm font-medium text-muted-foreground">
+          {line.name}
         </span>
+      </div>
 
-        <Button
-          size="icon-sm"
-          variant="outline"
-          onClick={onDec}
-          aria-label="Disminuir cantidad"
-          className="size-9 rounded-full"
+      {/* Fila de cantidad: 4 botones full-width, sin redondeo, separados por
+          un divider sutil. El × ocupa el cuarto slot con bg destructivo. */}
+      <div className="grid grid-cols-4 gap-px bg-border">
+        <ToolbarSquare onClick={onInc} aria-label="Aumentar cantidad" title="Aumentar">
+          <Plus className="size-5" />
+        </ToolbarSquare>
+        <ToolbarSquare
+          aria-label="Modificar cantidad"
+          title="Modificar cantidad"
+          onClick={() => {
+            // TODO (C3): abrir NumPad para editar cantidad.
+          }}
         >
-          <Minus className="size-4" />
-        </Button>
-
-        <Button
-          size="icon-sm"
-          variant="destructive"
+          <span className="text-base font-bold tabular-nums">
+            x{line.qty}
+          </span>
+        </ToolbarSquare>
+        <ToolbarSquare onClick={onDec} aria-label="Disminuir cantidad" title="Disminuir">
+          <Minus className="size-5" />
+        </ToolbarSquare>
+        <ToolbarSquare
           onClick={onRemove}
           aria-label="Eliminar línea"
-          className="size-9 rounded-full"
+          title="Eliminar"
+          variant="destructive"
         >
-          <X className="size-4" />
-        </Button>
+          <X className="size-5" />
+        </ToolbarSquare>
       </div>
 
-      {/* Acciones de línea (stubs) */}
-      <div className="flex items-center justify-center gap-2">
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Opciones de línea" title="Opciones">
-          <ChevronDown className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Precio manual" title="Precio">
-          <DollarSign className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Vendedor" title="Vendedor">
-          <User className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Tag" title="Tag">
-          <Tag className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" className="rounded-full" aria-label="Comentario" title="Comentario">
-          <MessageSquare className="size-3" />
-        </Button>
+      {/* Fila de herramientas: 5 botones full-width, sin redondeo. */}
+      <div className="grid grid-cols-5 gap-px bg-border">
+        <ToolbarSquare
+          aria-label="Descuento"
+          title="Descuento"
+          onClick={() => {
+            // TODO (C3): abrir NumPad % para descuento de línea.
+          }}
+        >
+          <Percent className="size-4" />
+        </ToolbarSquare>
+        <ToolbarSquare
+          aria-label="Precio manual"
+          title="Precio"
+          onClick={() => {
+            // TODO (C3): abrir NumPad para editar precio unitario.
+          }}
+        >
+          <DollarSign className="size-4" />
+        </ToolbarSquare>
+        <ToolbarSquare
+          aria-label="Vendedor"
+          title="Vendedor"
+          onClick={() => {
+            // TODO (C2): abrir BottomSheet con selector de vendedor.
+          }}
+        >
+          <User className="size-4" />
+        </ToolbarSquare>
+        <ToolbarSquare
+          aria-label="Etiquetas"
+          title="Etiquetas"
+          onClick={() => {
+            // TODO (C2): abrir BottomSheet con tags.
+          }}
+        >
+          <Tag className="size-4" />
+        </ToolbarSquare>
+        <ToolbarSquare
+          aria-label="Comentario"
+          title="Comentario"
+          onClick={() => {
+            // TODO (C2): abrir BottomSheet con textarea de nota.
+          }}
+        >
+          <MessageSquare className="size-4" />
+        </ToolbarSquare>
       </div>
     </div>
+  )
+}
+
+// Botón cuadrado full-width sin redondeos — base de las toolbars expandidas.
+// El gap-px del grid contenedor pinta los dividers (bg-border en el grid +
+// bg-card en cada celda).
+function ToolbarSquare({
+  children,
+  onClick,
+  variant = "default",
+  ...rest
+}: {
+  children: React.ReactNode
+  onClick?: () => void
+  variant?: "default" | "destructive"
+} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "children">) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex h-12 items-center justify-center transition-colors",
+        variant === "destructive"
+          ? "bg-destructive/15 text-destructive hover:bg-destructive/25"
+          : "bg-card text-foreground hover:bg-muted",
+      )}
+      {...rest}
+    >
+      {children}
+    </button>
   )
 }
 
