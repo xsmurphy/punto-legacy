@@ -1,17 +1,17 @@
-import { cookies } from "next/headers"
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { PanelAuthGuard } from "@/components/layout/panel-auth-guard"
+import { PosSidebarProvider } from "@/components/layout/pos-sidebar-provider"
 
 /**
  * Layout del POS — vive dentro del shell del panel (mismo AppSidebar + auth)
  * pero con el área de contenido full-bleed (sin padding) porque la caja maneja
  * su propio layout 2-columnas a pantalla completa.
+ *
+ * Sidebar SIEMPRE colapsado y no expandible en /pos (PosSidebarProvider).
  */
-export default async function PosLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = await cookies()
-  const defaultOpen = cookieStore.get("sidebar_state")?.value === "true"
+export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider defaultOpen={defaultOpen}>
+    <PosSidebarProvider>
       <PanelAuthGuard>
         {/* En desktop el SidebarInset (variante inset) agrega m-2 (8px arriba +
             8px abajo = 1rem). Restamos ese 1rem del alto para que la caja
@@ -22,6 +22,6 @@ export default async function PosLayout({ children }: { children: React.ReactNod
           {children}
         </SidebarInset>
       </PanelAuthGuard>
-    </SidebarProvider>
+    </PosSidebarProvider>
   )
 }
