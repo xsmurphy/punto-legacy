@@ -75,7 +75,11 @@ export const useHotkeysStore = create<HotkeysState>()(
 
       addHotkey: (position, itemId, isCategory) =>
         set((s) => {
+          // No sobrescribir un slot ocupado.
           if (s.hotkeys.some((h) => h.position === position)) return s
+          // Un ítem o categoría sólo puede estar en UN slot a la vez:
+          // si ya está asignado en otro lado, no lo duplicamos.
+          if (s.hotkeys.some((h) => h.itemId === itemId && h.isCategory === isCategory)) return s
           return {
             hotkeys: [...s.hotkeys, { itemId, position, color: "", isCategory }],
           }

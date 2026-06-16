@@ -44,7 +44,19 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const items = useCatalogStore((s) => s.items)
+  const hotkeys = useHotkeysStore((s) => s.hotkeys)
   const addHotkey = useHotkeysStore((s) => s.addHotkey)
+
+  // Sets de ya-asignados (separados por tipo) para deshabilitar duplicados.
+  // Un ítem/categoría sólo puede ocupar UN slot a la vez.
+  const assignedItemIds = React.useMemo(
+    () => new Set(hotkeys.filter((h) => !h.isCategory).map((h) => h.itemId)),
+    [hotkeys],
+  )
+  const assignedCategoryIds = React.useMemo(
+    () => new Set(hotkeys.filter((h) => h.isCategory).map((h) => h.itemId)),
+    [hotkeys],
+  )
 
   // Categorías únicas derivadas de los items.
   const categories = React.useMemo(() => {
@@ -131,7 +143,12 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
             ) : (
               <ul role="listbox" aria-label="Artículos">
                 {itemResults.map((item) => (
-                  <ItemRow key={item.id} item={item} onSelect={() => handleSelectItem(item)} />
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    assigned={assignedItemIds.has(item.id)}
+                    onSelect={() => handleSelectItem(item)}
+                  />
                 ))}
               </ul>
             )}
@@ -145,24 +162,33 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
               </p>
             ) : (
               <ul role="listbox" aria-label="Categorías">
-                {categoryResults.map((cat) => (
-                  <li key={cat.id} role="option" aria-selected={false}>
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleSelectCategory(cat.id)}
-                      className={cn(
-                        "flex h-auto w-full items-center justify-start gap-3 rounded-none px-4 py-2.5",
-                        "font-normal hover:bg-muted/50",
-                      )}
-                    >
-                      {/* Ícono de carpeta estilizado */}
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-bold text-foreground">
-                        {cat.name.trim()[0]?.toUpperCase() ?? "?"}
-                      </span>
-                      <span className="truncate text-sm text-foreground">{cat.name}</span>
-                    </Button>
-                  </li>
-                ))}
+                {categoryResults.map((cat) => {
+                  const assigned = assignedCategoryIds.has(cat.id)
+                  return (
+                    <li key={cat.id} role="option" aria-selected={false}>
+                      <Button
+                        variant="ghost"
+                        disabled={assigned}
+                        onClick={() => handleSelectCategory(cat.id)}
+                        className={cn(
+                          "flex h-auto w-full items-center justify-start gap-3 rounded-none px-4 py-2.5",
+                          "font-normal hover:bg-muted/50",
+                          assigned && "opacity-50",
+                        )}
+                      >
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-bold text-foreground">
+                          {cat.name.trim()[0]?.toUpperCase() ?? "?"}
+                        </span>
+                        <span className="truncate text-sm text-foreground">{cat.name}</span>
+                        {assigned && (
+                          <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Ya asignada
+                          </span>
+                        )}
+                      </Button>
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </TabsContent>
@@ -174,16 +200,26 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
 
 // ── Fila de artículo ──────────────────────────────────────────────────────────
 
-function ItemRow({ item, onSelect }: { item: PosItem; onSelect: () => void }) {
+function ItemRow({
+  item,
+  assigned,
+  onSelect,
+}: {
+  item: PosItem
+  assigned: boolean
+  onSelect: () => void
+}) {
   const initial = item.name.trim()[0]?.toUpperCase() ?? "?"
   return (
     <li role="option" aria-selected={false}>
       <button
+        disabled={assigned}
         onClick={onSelect}
         className={cn(
           "flex w-full items-center gap-3 px-4 py-2.5 text-left",
           "transition-colors hover:bg-muted/50 active:bg-muted",
           "focus-visible:outline-none focus-visible:bg-muted/50",
+          assigned && "cursor-not-allowed opacity-50 hover:bg-transparent",
         )}
       >
         <Avatar size="default" className="shrink-0">
@@ -196,6 +232,11 @@ function ItemRow({ item, onSelect }: { item: PosItem; onSelect: () => void }) {
             <p className="truncate text-xs text-muted-foreground">› {item.categoryName}</p>
           )}
         </div>
+        {assigned && (
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Ya asignado
+          </span>
+        )}
       </button>
     </li>
   )
