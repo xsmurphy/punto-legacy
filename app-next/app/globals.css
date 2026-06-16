@@ -59,6 +59,11 @@
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
 
+    /* Brand verde Punto — usado en CTAs prominentes del POS (botón cobrar)
+       y accents de marca. NO usar como surface ni en panel-next. */
+    --color-brand: var(--brand);
+    --color-brand-foreground: var(--brand-foreground);
+
     /* Linear radius scale: 6 / 8 / 12 / 16 / 24 */
     --radius: 0.7rem;
     --radius-sm: 0.375rem;

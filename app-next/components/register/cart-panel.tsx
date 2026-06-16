@@ -3,22 +3,18 @@
 /**
  * Panel derecho del register — carrito de venta.
  *
- * Fidelidad §6.1:
- *   - Toolbar de iconos arriba (stubs).
- *   - Chip de cliente (display solo por ahora).
- *   - Lista de líneas: badge cantidad + nombre + precio.
- *   - Línea activa: nombre grande + controles +/x1/−/X roja + acciones de línea.
- *   - Tacho (vaciar carrito).
- *   - Bottom: toggles CRÉDITO/INTERNO + IVA + botón full-width verde con total.
- *   - Watermark con logo Punto en carrito vacío.
+ * Pivote 2026-06-16 (design system panel-next):
+ *   - Quitada la toolbar superior con 4 iconos (Menu/Search/User/More) —
+ *     ahora vive en el PosSidebar a la izquierda.
+ *   - Cart row expandido NO copia la grilla 4+5 cols del legacy. Usa
+ *     stepper [−][qty][+] + DropdownMenu de acciones (estilo shadcn).
+ *   - Botón cobrar: `rounded-full` verde brand `bg-brand`.
+ *   - Apertura de dialogs vía `usePosUIStore` (compartido con PosSidebar).
  */
 
 import * as React from "react"
 import {
-  Menu,
-  Search,
   User,
-  MoreHorizontal,
   X,
   Plus,
   Minus,
@@ -27,8 +23,16 @@ import {
   DollarSign,
   Tag,
   MessageSquare,
+  MoreHorizontal,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
   useCartStore,
@@ -38,6 +42,7 @@ import {
 } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney, formatAmount } from "@/lib/format-money"
+import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
@@ -65,16 +70,17 @@ export function CartPanel() {
 
   const config = useCatalogStore((s) => s.config)
 
-  // ── Estado de apertura de modales ─────────────────────────────────────────
-  const [productSearchOpen, setProductSearchOpen] = React.useState(false)
-  const [customerDialogOpen, setCustomerDialogOpen] = React.useState(false)
-  const [payDialogOpen, setPayDialogOpen] = React.useState(false)
+  // Estado de dialogs — compartido con el PosSidebar via store global.
+  const searchOpen = usePosUIStore((s) => s.searchOpen)
+  const setSearchOpen = usePosUIStore((s) => s.setSearchOpen)
+  const customerOpen = usePosUIStore((s) => s.customerOpen)
+  const setCustomerOpen = usePosUIStore((s) => s.setCustomerOpen)
+  const payOpen = usePosUIStore((s) => s.payOpen)
+  const setPayOpen = usePosUIStore((s) => s.setPayOpen)
 
   const totalValue = total
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
-  // El ref envuelve la línea activa + sus tools; si el pointerdown cae afuera,
-  // se cierra. Clickear otra línea: deselecciona y su onClick la selecciona.
   const activeRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     if (!selectedLineId) return
@@ -90,24 +96,9 @@ export function CartPanel() {
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
       {/* ── Modales ── */}
-      <ProductSearchDialog
-        open={productSearchOpen}
-        onOpenChange={setProductSearchOpen}
-      />
-      <CustomerDialog
-        open={customerDialogOpen}
-        onOpenChange={setCustomerDialogOpen}
-      />
-      <PayDialog
-        open={payDialogOpen}
-        onOpenChange={setPayDialogOpen}
-      />
-
-      {/* ── Toolbar ── */}
-      <CartToolbar
-        onSearchClick={() => setProductSearchOpen(true)}
-        onCustomerClick={() => setCustomerDialogOpen(true)}
-      />
+      <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+      <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
+      <PayDialog open={payOpen} onOpenChange={setPayOpen} />
 
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
@@ -170,75 +161,8 @@ export function CartPanel() {
         total={totalValue}
         lineCount={lines.length}
         config={config}
-        onPayClick={() => setPayDialogOpen(true)}
+        onPayClick={() => setPayOpen(true)}
       />
-    </div>
-  )
-}
-
-// ── Toolbar ───────────────────────────────────────────────────────────────────
-
-function CartToolbar({
-  onSearchClick,
-  onCustomerClick,
-}: {
-  onSearchClick: () => void
-  onCustomerClick: () => void
-}) {
-  return (
-    <div className="flex items-center border-b border-border px-1 py-1.5">
-      {/* Slot 1: Menú de módulos (stub) */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Menú de módulos"
-          title="Menú de módulos"
-          onClick={() => {
-            // TODO: abre menú flotante de módulos (Slice posterior) — ver guía visual del owner
-          }}
-        >
-          <Menu className="size-5" />
-        </Button>
-      </div>
-
-      {/* Slot 2: Buscar producto */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Buscar producto"
-          title="Buscar producto"
-          onClick={onSearchClick}
-        >
-          <Search className="size-5" />
-        </Button>
-      </div>
-
-      {/* Slot 3: Seleccionar cliente */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Seleccionar cliente"
-          title="Seleccionar cliente"
-          onClick={onCustomerClick}
-        >
-          <User className="size-5" />
-        </Button>
-      </div>
-
-      {/* Slot 4: Más opciones */}
-      <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Más opciones"
-          title="Más opciones"
-        >
-          <MoreHorizontal className="size-5" />
-        </Button>
-      </div>
     </div>
   )
 }
@@ -275,14 +199,6 @@ function CustomerChip({
 }
 
 // ── Fila colapsada (no seleccionada) ──────────────────────────────────────────
-//
-// Espejo del `.main` del legacy (#itemLineTpl en app/index.php:4003):
-//   <badge qty> Nombre del producto       <amount sin currency>
-//                 <iconos+texto del subtítulo>
-//
-// Si line.discount > 0 → borde izquierdo amarillo (el `b-l b-3x b-warning`
-// del itemsToTable original). Iconos del subtítulo: usuario, tags, nota —
-// se renderizan SOLO cuando existen (no mostrar slots vacíos).
 
 function CartRowCollapsed({
   line,
@@ -305,13 +221,9 @@ function CartRowCollapsed({
       onClick={onSelect}
       className={cn(
         "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
-        // Borde izquierdo amarillo cuando hay descuento — espejo del
-        // `b-l b-3x b-warning` del template legacy.
         hasDiscount && "border-l-[3px] border-l-yellow-500",
       )}
     >
-      {/* Círculo de cantidad — bg oscuro (NO blanco). Tinte amarillo cuando
-          hay descuento, para hacer eco al borde izquierdo. */}
       <span
         className={cn(
           "flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
@@ -323,7 +235,6 @@ function CartRowCollapsed({
         {line.qty}
       </span>
 
-      {/* Nombre + subtexto (iconos solo si hay datos asociados) */}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{line.name}</p>
         {showSubtitle && (
@@ -348,8 +259,6 @@ function CartRowCollapsed({
         )}
       </div>
 
-      {/* Precio total — sin currency. El "Gs" sólo aparece en el botón de
-          cobrar (convención del owner 2026-06-16). */}
       <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
         {formatAmount(subtotal, config)}
       </span>
@@ -359,16 +268,8 @@ function CartRowCollapsed({
 
 // ── Fila expandida (seleccionada) ─────────────────────────────────────────────
 //
-// Reemplaza completamente el `.main` del row colapsado por:
-//   - Header centrado con el nombre del item (gris/muted).
-//   - Grid 4 columnas full-width sin redondeos: [+] [xN] [−] [×]
-//   - Grid 5 columnas full-width sin redondeos para herramientas:
-//     [discount] [price] [user] [tags] [note]
-//
-// Click en `xN` (TODO C3): abre el NumPad para editar la cantidad.
-// Click en `price` / `discount` (TODO C3): abre el NumPad correspondiente.
-// Click en `user` / `tags` / `note` (TODO C2): abre BottomSheet con el
-// formulario respectivo. Por ahora son no-op visualmente correctos.
+// Diseño post-pivote (2026-06-16): NO grilla 4+5 del legacy.
+// Header con nombre del item + stepper [−][qty][+] + DropdownMenu de acciones.
 
 function CartRowExpanded({
   line,
@@ -382,123 +283,98 @@ function CartRowExpanded({
   onRemove: () => void
 }) {
   return (
-    <div className="border-y border-border bg-accent/40">
-      {/* Header — solo el nombre, centrado, gris (igual al mock del owner). */}
-      <div className="flex items-center justify-center px-3 py-2.5">
-        <span className="truncate text-sm font-medium text-muted-foreground">
+    <div className="border-y border-border bg-accent/40 px-3 py-3">
+      {/* Header — nombre del item, sutil. */}
+      <div className="mb-2 text-center">
+        <span className="truncate text-sm text-muted-foreground">
           {line.name}
         </span>
       </div>
 
-      {/* Fila de cantidad: 4 botones full-width, sin redondeo, separados por
-          un divider sutil. El × ocupa el cuarto slot con bg destructivo. */}
-      <div className="grid grid-cols-4 gap-px bg-border">
-        <ToolbarSquare onClick={onInc} aria-label="Aumentar cantidad" title="Aumentar">
-          <Plus className="size-5" />
-        </ToolbarSquare>
-        <ToolbarSquare
-          aria-label="Modificar cantidad"
-          title="Modificar cantidad"
-          onClick={() => {
-            // TODO (C3): abrir NumPad para editar cantidad.
-          }}
-        >
-          <span className="text-base font-bold tabular-nums">
-            x{line.qty}
+      {/* Stepper + acciones. Layout: [−] qty [+] ........ [⋯] */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onDec}
+            aria-label="Disminuir cantidad"
+          >
+            <Minus className="size-4" />
+          </Button>
+          <span className="min-w-[2ch] text-center text-lg font-semibold tabular-nums">
+            {line.qty}
           </span>
-        </ToolbarSquare>
-        <ToolbarSquare onClick={onDec} aria-label="Disminuir cantidad" title="Disminuir">
-          <Minus className="size-5" />
-        </ToolbarSquare>
-        <ToolbarSquare
-          onClick={onRemove}
-          aria-label="Eliminar línea"
-          title="Eliminar"
-          variant="destructive"
-        >
-          <X className="size-5" />
-        </ToolbarSquare>
-      </div>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onInc}
+            aria-label="Aumentar cantidad"
+          >
+            <Plus className="size-4" />
+          </Button>
+        </div>
 
-      {/* Fila de herramientas: 5 botones full-width, sin redondeo. */}
-      <div className="grid grid-cols-5 gap-px bg-border">
-        <ToolbarSquare
-          aria-label="Descuento"
-          title="Descuento"
-          onClick={() => {
-            // TODO (C3): abrir NumPad % para descuento de línea.
-          }}
-        >
-          <Percent className="size-4" />
-        </ToolbarSquare>
-        <ToolbarSquare
-          aria-label="Precio manual"
-          title="Precio"
-          onClick={() => {
-            // TODO (C3): abrir NumPad para editar precio unitario.
-          }}
-        >
-          <DollarSign className="size-4" />
-        </ToolbarSquare>
-        <ToolbarSquare
-          aria-label="Vendedor"
-          title="Vendedor"
-          onClick={() => {
-            // TODO (C2): abrir BottomSheet con selector de vendedor.
-          }}
-        >
-          <User className="size-4" />
-        </ToolbarSquare>
-        <ToolbarSquare
-          aria-label="Etiquetas"
-          title="Etiquetas"
-          onClick={() => {
-            // TODO (C2): abrir BottomSheet con tags.
-          }}
-        >
-          <Tag className="size-4" />
-        </ToolbarSquare>
-        <ToolbarSquare
-          aria-label="Comentario"
-          title="Comentario"
-          onClick={() => {
-            // TODO (C2): abrir BottomSheet con textarea de nota.
-          }}
-        >
-          <MessageSquare className="size-4" />
-        </ToolbarSquare>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Acciones de línea"
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C3): abrir NumPad para editar precio unitario.
+              }}
+            >
+              <DollarSign />
+              Modificar precio
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C3): abrir NumPad % para descuento de línea.
+              }}
+            >
+              <Percent />
+              Aplicar descuento
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C2): abrir BottomSheet con selector de vendedor.
+              }}
+            >
+              <User />
+              Asignar vendedor
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C2): abrir BottomSheet con tags.
+              }}
+            >
+              <Tag />
+              Etiquetas
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                // TODO (C2): abrir BottomSheet con textarea de nota.
+              }}
+            >
+              <MessageSquare />
+              Comentario
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={onRemove}>
+              <X />
+              Eliminar línea
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
-  )
-}
-
-// Botón cuadrado full-width sin redondeos — base de las toolbars expandidas.
-// El gap-px del grid contenedor pinta los dividers (bg-border en el grid +
-// bg-card en cada celda).
-function ToolbarSquare({
-  children,
-  onClick,
-  variant = "default",
-  ...rest
-}: {
-  children: React.ReactNode
-  onClick?: () => void
-  variant?: "default" | "destructive"
-} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "children">) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex h-12 items-center justify-center transition-colors",
-        variant === "destructive"
-          ? "bg-destructive/15 text-destructive hover:bg-destructive/25"
-          : "bg-card text-foreground hover:bg-muted",
-      )}
-      {...rest}
-    >
-      {children}
-    </button>
   )
 }
 
@@ -546,7 +422,7 @@ function CartBottom({
 
   return (
     <div className="shrink-0 border-t border-border bg-background p-2 pt-2">
-      {/* Toggles CRÉDITO / INTERNO / IVA — centrados y distribuidos */}
+      {/* Toggles CRÉDITO / INTERNO / IVA */}
       <div className="mb-2 flex items-center justify-center gap-3">
         <ToggleChip
           label="CRÉDITO"
@@ -558,7 +434,6 @@ function CartBottom({
           active={interno}
           onClick={onToggleInterno}
         />
-        {/* X <valor IVA> — botón que elimina el IVA informativo */}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -576,14 +451,12 @@ function CartBottom({
         </Button>
       </div>
 
-      {/* Botón cobrar full-width — colores DEFAULT del Button shadcn (primary).
-          Convención del proyecto (panel-next): los botones no usan el verde de
-          marca; usan los tokens neutros del theme. Acá solo overrideamos
-          tamaño/padding para hacerlo prominente — los colores los pone shadcn. */}
+      {/* Botón cobrar — full pill verde brand (feedback owner 2026-06-16):
+          `rounded-full` 100% corner radius, `bg-brand`, sin hover translate. */}
       <Button
         disabled={lineCount === 0}
         onClick={lineCount > 0 ? onPayClick : undefined}
-        className="h-auto w-full rounded-xl px-4 py-4 text-2xl font-bold transition-all active:scale-[0.98]"
+        className="h-auto w-full rounded-full bg-brand px-4 py-4 text-2xl font-bold text-brand-foreground transition-all hover:bg-brand/90 active:scale-[0.98]"
         aria-label={`Cobrar ${totalFormatted}`}
       >
         {lineCount === 0 ? "Sin items" : totalFormatted}
@@ -609,7 +482,7 @@ function ToggleChip({
       className={cn(
         "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
         active
-          ? "border-[#01D7A1] bg-[#01D7A1]/20 text-[#01D7A1]"
+          ? "border-brand bg-brand/20 text-brand"
           : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground",
       )}
     >
