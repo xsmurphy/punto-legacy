@@ -76,7 +76,7 @@ export function ProductSearchDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-lg"
+        className="top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-lg"
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
@@ -86,8 +86,8 @@ export function ProductSearchDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* ── Input grande centrado (vacío = solo esto) ── */}
-        <div className="px-5 py-5">
+        {/* ── Input grande arriba (fijo; vacío = solo esto) ── */}
+        <div className="shrink-0 px-5 py-5">
           <Input
             ref={inputRef}
             value={query}

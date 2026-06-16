@@ -122,7 +122,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[90vh] flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
+        className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-xl"
         showCloseButton={true}
       >
         <DialogHeader className="sr-only">
@@ -132,8 +132,8 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        {/* ── Input grande centrado ── */}
-        <div className="px-5 py-5">
+        {/* ── Input grande arriba (fijo) ── */}
+        <div className="shrink-0 px-5 py-5">
           <Input
             ref={searchInputRef}
             value={searchQuery}
@@ -165,10 +165,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
             )}
           </div>
         ) : (
-          <div className="border-t border-border">
-            <p className="px-5 pt-4 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-              Crear cliente
-            </p>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border">
             <CreateCustomerForm onCreated={handleCustomerCreated} />
           </div>
         )}
@@ -273,9 +270,31 @@ function CreateCustomerForm({
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-0">
-      {/* ── Sección DATOS DE FACTURACIÓN ── */}
-      <div className="px-4 pb-4 pt-4">
+    <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+      {/* ── Barra de acciones ARRIBA — guardar sin scrollear ── */}
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-background px-4 py-3">
+        <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+          Crear cliente
+        </p>
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="link"
+            onClick={handleClear}
+            className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Borrar
+          </Button>
+          <Button type="submit" disabled={isSubmitting}>
+            Crear cliente
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Campos (scrolleables) ── */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* ── Sección DATOS DE FACTURACIÓN ── */}
+        <div className="px-4 pb-4 pt-4">
         <p className="mb-3 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Datos de Facturación
         </p>
@@ -465,23 +484,6 @@ function CreateCustomerForm({
         </div>
       </div>
 
-      {/* ── Acciones ── */}
-      <div className="flex items-center justify-between border-t border-border px-4 py-3">
-        <Button
-          type="button"
-          variant="link"
-          onClick={handleClear}
-          className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
-        >
-          Borrar Formulario
-        </Button>
-
-        <Button
-          type="submit"
-          disabled={isSubmitting}
-        >
-          Crear cliente
-        </Button>
       </div>
     </form>
   )
