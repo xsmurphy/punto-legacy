@@ -99,7 +99,7 @@ export function CartPanel() {
   }, [selectedLineId, selectLine])
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-sidebar">
+    <div className="flex h-full flex-col bg-sidebar">
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
@@ -197,7 +197,7 @@ function CartToolbar({
   // 4 botones distribuidos proporcionalmente a lo largo del toolbar (cada uno
   // ocupa un cuarto, centrado) — espejo del col-xs-3 del legacy.
   return (
-    <div className="flex h-14 shrink-0 items-center border-b border-border px-1">
+    <div className="flex h-14 shrink-0 items-center px-1">
       <div className="flex flex-1 justify-center">
         <PosMainMenu />
       </div>
@@ -242,7 +242,7 @@ function CustomerChip({
   if (!customer) return null
 
   return (
-    <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+    <div className="flex items-center gap-2 px-3 py-1.5">
       <div className="flex-1 min-w-0">
         <p className="truncate text-xs font-medium text-foreground">{customer.name}</p>
         {customer.tin && (
@@ -484,7 +484,7 @@ function CartBottom({
   const ivaFormatted = formatMoney(iva, config)
 
   return (
-    <div className="shrink-0 border-t border-border bg-background p-2 pt-2">
+    <div className="shrink-0 bg-sidebar p-2 pt-2">
       {/* Toggles CRÉDITO / INTERNO / IVA — distribuidos de forma pareja */}
       <div className="mb-2 flex items-center justify-center gap-2">
         <ToggleChip

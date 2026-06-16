@@ -29,12 +29,14 @@ import {
   LogOut,
   ChefHat,
   Store,
+  LayoutGrid,
   type LucideIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { clearDeviceDefault } from "@/lib/pos/device"
 
 interface MenuEntry {
@@ -56,6 +58,7 @@ const ENTRIES: MenuEntry[] = [
   { key: "orders", sub: "Ver", label: "Órdenes", icon: ClipboardList, href: "/pos/ordenes" },
   { key: "settings", sub: "Ver", label: "Ajustes", icon: Settings, href: "/settings" },
   { key: "change-register", sub: "Cambiar", label: "Caja / Sucursal", icon: Store, action: true },
+  { key: "edit-hotkeys", sub: "Editar", label: "Accesos directos", icon: LayoutGrid, action: true },
   { key: "lock", sub: "Bloquear o", label: "Salir", hint: "(ESC)", icon: LogOut, action: true },
 ]
 
@@ -66,6 +69,7 @@ export function PosMainMenu() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const registers = useCatalogStore((s) => s.registers)
   const resetActiveRegister = useCatalogStore((s) => s.resetActiveRegister)
+  const setHotkeysEditing = useHotkeysStore((s) => s.setEditing)
   // Mostrar la caja que matchee el claim activo, no siempre la primera.
   const register = registers.find((r) => r.id === activeRegisterId) ?? registers[0] ?? null
 
@@ -90,6 +94,12 @@ export function PosMainMenu() {
       // El guard del layout detecta activeRegisterId === '' y abre el modal de setup.
       clearDeviceDefault()
       resetActiveRegister()
+      return
+    }
+    if (entry.key === "edit-hotkeys") {
+      // Solo tiene sentido con caja activa (sin caja no hay grilla que editar).
+      if (!activeRegisterId) return
+      setHotkeysEditing(true)
       return
     }
     // TODO (F2): Control de Caja (arqueo) y Bloquear/Salir (lock + logout).

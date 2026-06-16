@@ -28,6 +28,7 @@ import * as React from "react"
 import { CartPanel } from "@/components/register/cart-panel"
 import { DeviceSetupDialog } from "@/components/register/device-setup-dialog"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
+import { useHotkeys } from "@/hooks/use-hotkeys"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useSetActiveRegister } from "@/hooks/use-active-register"
 import { useSetActiveOutlet } from "@/hooks/use-bootstrap"
@@ -117,6 +118,8 @@ export default function PosWorkspaceLayout({
 }) {
   // Hidrata el catálogo una vez; persiste mientras se navega entre vistas.
   useCatalogSeed()
+  // Carga los hotkeys de la caja activa desde el backend y los hidrata en el store.
+  useHotkeys()
 
   return (
     <div className="flex h-full w-full overflow-hidden">

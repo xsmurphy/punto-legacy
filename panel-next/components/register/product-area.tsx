@@ -15,12 +15,15 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft, Plus, X, Check, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
-import { useHotkeysStore, hotkeyColorBg, type Hotkey } from "@/lib/hotkeys/store"
+import { useHotkeysStore, hotkeyColorBg, HOTKEY_COLORS, type Hotkey } from "@/lib/hotkeys/store"
+import { useHotkeys } from "@/hooks/use-hotkeys"
+import { HotkeyAssignDialog } from "@/components/register/hotkey-assign-dialog"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
 // Grilla 6 columnas × 50 filas (300 slots), scroll vertical.
@@ -41,10 +44,24 @@ function abbrev(name: string): string {
 export function ProductArea() {
   const items = useCatalogStore((s) => s.items)
   const hotkeys = useHotkeysStore((s) => s.hotkeys)
+  const editing = useHotkeysStore((s) => s.editing)
+  const setEditing = useHotkeysStore((s) => s.setEditing)
+  const removeHotkey = useHotkeysStore((s) => s.removeHotkey)
+  const setColor = useHotkeysStore((s) => s.setColor)
+  const moveHotkey = useHotkeysStore((s) => s.moveHotkey)
+  const clearAll = useHotkeysStore((s) => s.clearAll)
   const addItem = useCartStore((s) => s.addItem)
+
+  const { saveHotkeys, isSaving } = useHotkeys()
 
   // Vista: grilla de hotkeys, o productos de una categoría (drill-in).
   const [categoryId, setCategoryId] = React.useState<string | null>(null)
+
+  // Slot cuyo diálogo de asignación está abierto (null = cerrado).
+  const [assigningSlot, setAssigningSlot] = React.useState<number | null>(null)
+
+  // Drag & drop nativo: posición de origen.
+  const dragFrom = React.useRef<number | null>(null)
 
   // Índices auxiliares.
   const itemById = React.useMemo(() => {
@@ -75,7 +92,15 @@ export function ProductArea() {
     [categoryId, items],
   )
 
+  // Al salir del modo edición, salir también del drill-in si hubiera.
+  React.useEffect(() => {
+    if (!editing) setCategoryId(null)
+  }, [editing])
+
   const handleHotkeyClick = (h: Hotkey) => {
+    // En modo edición los clicks no hacen nada (los controles de edición
+    // están en el overlay; el click en el tile base se ignora).
+    if (editing) return
     if (h.isCategory) {
       setCategoryId(h.itemId)
       return
@@ -88,8 +113,52 @@ export function ProductArea() {
     addItem({ id: item.id, name: item.name, price: item.price })
   }
 
+  /** Guardar y salir del modo edición. */
+  async function handleDone() {
+    setEditing(false)
+    try {
+      await saveHotkeys()
+      toast.success("Accesos directos guardados")
+    } catch {
+      toast.error("No se pudieron guardar los cambios")
+    }
+  }
+
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-sidebar">
+    <div className="relative flex h-full flex-col overflow-hidden">
+      {/* ── Barra de edición ───────────────────────────────────────────── */}
+      {editing && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background/80 px-3 py-2 backdrop-blur-sm">
+          <p className="text-xs font-medium text-muted-foreground">
+            Modo edición — arrastrá para mover
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={clearAll}
+            >
+              Vaciar todo
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={handleDone}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
+              Listo
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-3">
         {categoryId === null ? (
           // ── Grilla de hotkeys ──
@@ -99,7 +168,21 @@ export function ProductArea() {
           >
             {Array.from({ length: SLOTS }).map((_, pos) => {
               const h = hotkeyAt.get(pos)
-              if (!h) return <EmptySlot key={pos} />
+              if (!h) {
+                return (
+                  <EditableEmptySlot
+                    key={pos}
+                    editing={editing}
+                    onAdd={() => setAssigningSlot(pos)}
+                    onDragOver={(e) => { if (editing) e.preventDefault() }}
+                    onDrop={() => {
+                      if (!editing || dragFrom.current === null) return
+                      moveHotkey(dragFrom.current, pos)
+                      dragFrom.current = null
+                    }}
+                  />
+                )
+              }
               return (
                 <HotkeyTile
                   key={pos}
@@ -110,7 +193,17 @@ export function ProductArea() {
                       ? categoryName.get(h.itemId) ?? "Categoría"
                       : itemById.get(h.itemId)?.name ?? "—"
                   }
+                  editing={editing}
                   onClick={() => handleHotkeyClick(h)}
+                  onRemove={() => removeHotkey(pos)}
+                  onColorChange={(color) => setColor(pos, color)}
+                  onDragStart={() => { dragFrom.current = pos }}
+                  onDragOver={(e) => { if (editing) e.preventDefault() }}
+                  onDrop={() => {
+                    if (!editing || dragFrom.current === null) return
+                    moveHotkey(dragFrom.current, pos)
+                    dragFrom.current = null
+                  }}
                 />
               )
             })}
@@ -146,6 +239,12 @@ export function ProductArea() {
           </Button>
         </div>
       )}
+
+      {/* Diálogo de asignación de slot vacío. */}
+      <HotkeyAssignDialog
+        position={assigningSlot}
+        onClose={() => setAssigningSlot(null)}
+      />
     </div>
   )
 }
@@ -156,44 +255,100 @@ function HotkeyTile({
   hotkey,
   item,
   label,
+  editing,
   onClick,
+  onRemove,
+  onColorChange,
+  onDragStart,
+  onDragOver,
+  onDrop,
 }: {
   hotkey: Hotkey
   item: PosItem | null
   label: string
+  editing: boolean
   onClick: () => void
+  onRemove: () => void
+  onColorChange: (color: string) => void
+  onDragStart: () => void
+  onDragOver: (e: React.DragEvent) => void
+  onDrop: () => void
 }) {
   const hasImage = !hotkey.isCategory && item?.imageUrl
   const bg = hotkeyColorBg(hotkey.color) ?? DEFAULT_TILE
 
   return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      className="group relative flex aspect-square flex-col items-start justify-between overflow-hidden rounded-xl p-2.5 text-left transition-all active:scale-95"
-      style={hasImage ? undefined : { backgroundColor: bg }}
+    <div
+      className="group relative aspect-square"
+      draggable={editing}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
-      {hasImage && item?.imageUrl ? (
-        <>
-          <Image src={item.imageUrl} alt={label} fill sizes="20vw" className="object-cover" />
-          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
-        </>
-      ) : (
-        // Modo tabla periódica: abreviatura grande + nombre abajo.
-        <span className="text-2xl font-bold leading-none tracking-tight text-white/90">
-          {abbrev(label)}
-        </span>
-      )}
-      <span
+      <button
+        onClick={onClick}
+        aria-label={label}
         className={cn(
-          "line-clamp-2 text-[11px] font-medium leading-tight",
-          hasImage ? "absolute inset-x-0 bottom-0 z-10 p-2 text-white" : "text-white/85",
+          "relative flex h-full w-full flex-col items-start justify-between overflow-hidden rounded-xl p-2.5 text-left transition-all",
+          editing ? "cursor-grab active:cursor-grabbing" : "active:scale-95",
         )}
+        style={hasImage ? undefined : { backgroundColor: bg }}
       >
-        {label}
-      </span>
-      <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
-    </button>
+        {hasImage && item?.imageUrl ? (
+          <>
+            <Image src={item.imageUrl} alt={label} fill sizes="20vw" className="object-cover" />
+            <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
+          </>
+        ) : (
+          // Modo tabla periódica: abreviatura grande + nombre abajo.
+          <span className="text-2xl font-bold leading-none tracking-tight text-white/90">
+            {abbrev(label)}
+          </span>
+        )}
+        <span
+          className={cn(
+            "line-clamp-2 text-[11px] font-medium leading-tight",
+            hasImage ? "absolute inset-x-0 bottom-0 z-10 p-2 text-white" : "text-white/85",
+          )}
+        >
+          {label}
+        </span>
+        <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
+      </button>
+
+      {/* Overlay de edición (solo en modo edición) */}
+      {editing && (
+        <div className="absolute inset-0 flex flex-col justify-between rounded-xl p-1 ring-1 ring-white/20">
+          {/* Botón eliminar (arriba-derecha) */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRemove() }}
+              aria-label="Quitar"
+              className="flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+          {/* Selector de color (abajo) */}
+          <div className="flex flex-wrap gap-0.5 justify-center">
+            {HOTKEY_COLORS.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onColorChange(c.key) }}
+                aria-label={`Color ${c.key}`}
+                className={cn(
+                  "size-3 rounded-full transition-transform hover:scale-125",
+                  hotkey.color === c.key && "ring-2 ring-white ring-offset-1 ring-offset-black/40",
+                )}
+                style={{ backgroundColor: c.bg }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -223,6 +378,35 @@ function ProductTile({ item, onClick }: { item: PosItem; onClick: () => void }) 
 
 // ── Slot vacío ────────────────────────────────────────────────────────────────
 
-function EmptySlot() {
-  return <div className="aspect-square rounded-xl bg-muted/30 dark:bg-muted/15" />
+function EditableEmptySlot({
+  editing,
+  onAdd,
+  onDragOver,
+  onDrop,
+}: {
+  editing: boolean
+  onAdd: () => void
+  onDragOver: (e: React.DragEvent) => void
+  onDrop: () => void
+}) {
+  if (!editing) {
+    return <div className="aspect-square rounded-xl bg-muted/30 dark:bg-muted/15" />
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onAdd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      aria-label="Agregar acceso directo"
+      className={cn(
+        "aspect-square rounded-xl border border-dashed border-muted-foreground/30",
+        "flex items-center justify-center bg-muted/20 transition-colors",
+        "hover:border-muted-foreground/60 hover:bg-muted/40",
+      )}
+    >
+      <Plus className="size-4 text-muted-foreground/50" />
+    </button>
+  )
 }
