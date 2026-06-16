@@ -36,6 +36,8 @@ export function useCatalogSeed() {
         items: fixtureBootstrap.items,
         customers: fixtureBootstrap.customers,
         config: fixtureBootstrap.config,
+        outlet: fixtureBootstrap.outlet,
+        outlets: fixtureBootstrap.outlets,
         registers: fixtureBootstrap.registers,
         // En fixtures el guard no debe bloquear: auto-seleccionamos la primera caja.
         activeRegisterId: fixtureBootstrap.registers[0]?.id ?? "",
@@ -52,6 +54,8 @@ export function useCatalogSeed() {
         items: bootstrap.items,
         customers: bootstrap.customers,
         config: bootstrap.config,
+        outlet: bootstrap.outlet,
+        outlets: bootstrap.outlets,
         registers: bootstrap.registers,
         activeRegisterId: bootstrap.activeRegisterId,
       })

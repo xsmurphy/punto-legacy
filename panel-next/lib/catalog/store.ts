@@ -34,6 +34,10 @@ interface CatalogState {
   items: PosItem[]
   customers: PosCustomer[]
   config: PosConfig | null
+  /** Sucursal activa (outlet). */
+  outlet: { id: string; name: string } | null
+  /** Todas las sucursales del tenant (para el selector de setup). */
+  outlets: Array<{ id: string; name: string }>
   registers: PosRegister[]
   /** UUID de la caja activa. '' = sin caja seleccionada (guard la pide). */
   activeRegisterId: string
@@ -48,6 +52,8 @@ interface CatalogState {
     items: PosItem[]
     customers: PosCustomer[]
     config: PosConfig
+    outlet: { id: string; name: string }
+    outlets: Array<{ id: string; name: string }>
     registers: PosRegister[]
     activeRegisterId: string
   }) => void
@@ -57,6 +63,12 @@ interface CatalogState {
 
   /** Actualiza un item en memoria si el precio/config cambia. */
   patchItem: (item: PosItem) => void
+
+  /**
+   * Resetea la caja activa a '' para forzar que el guard vuelva a mostrar
+   * el modal de selección (acción "Cambiar caja/sucursal").
+   */
+  resetActiveRegister: () => void
 
   /** Reset completo (logout / cambio de outlet). */
   reset: () => void
@@ -68,6 +80,8 @@ const initialState = {
   items: [],
   customers: [],
   config: null,
+  outlet: null,
+  outlets: [] as Array<{ id: string; name: string }>,
   registers: [],
   activeRegisterId: "",
 }
@@ -82,6 +96,8 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       items: data.items,
       customers: data.customers,
       config: data.config,
+      outlet: data.outlet,
+      outlets: data.outlets,
       registers: data.registers,
       activeRegisterId: data.activeRegisterId,
     })
@@ -99,6 +115,10 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
     set((state) => ({
       items: state.items.map((i) => (i.id === item.id ? item : i)),
     }))
+  },
+
+  resetActiveRegister: () => {
+    set({ activeRegisterId: "" })
   },
 
   reset: () => set(initialState),

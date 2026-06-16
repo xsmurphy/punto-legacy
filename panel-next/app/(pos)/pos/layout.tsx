@@ -14,10 +14,11 @@
  * Los items del sidebar del POS navegan entre estas rutas: solo cambia el
  * bloque izquierdo, el carrito de la derecha no se desmonta.
  *
- * Guard de caja activa (Slice A7):
- *   - Sin caja → muestra RegisterSelectorDialog (bloquea el POS).
- *   - 1 sola caja → auto-selecciona con useSetActiveRegister una vez.
- *   - 0 cajas → selector con mensaje "no hay cajas configuradas".
+ * Guard de caja activa (Slice A7 + setup de dispositivo):
+ *   - Sin caja activa + default en localStorage → aplica en silencio (sin modal).
+ *     Si el outletId del default difiere de la sucursal activa → useSetActiveOutlet
+ *     primero; luego useSetActiveRegister.
+ *   - Sin caja activa + sin default → DeviceSetupDialog (2 pasos: sucursal → caja).
  *   - Caja activa → render normal.
  *
  * Responsive: en mobile el bloque izquierdo se oculta (solo carrito).
@@ -25,49 +26,87 @@
 
 import * as React from "react"
 import { CartPanel } from "@/components/register/cart-panel"
-import { RegisterSelectorDialog } from "@/components/register/register-selector-dialog"
+import { DeviceSetupDialog } from "@/components/register/device-setup-dialog"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useSetActiveRegister } from "@/hooks/use-active-register"
+import { useSetActiveOutlet } from "@/hooks/use-bootstrap"
+import { getDeviceDefault, clearDeviceDefault } from "@/lib/pos/device"
 
 function RegisterGuard({ children }: { children: React.ReactNode }) {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const registers = useCatalogStore((s) => s.registers)
+  const outlet = useCatalogStore((s) => s.outlet)
   const status = useCatalogStore((s) => s.status)
-  const { mutate, isPending } = useSetActiveRegister()
 
-  // Guard de auto-selección para cuando hay exactamente 1 caja.
-  // El ref evita que se llame más de una vez aunque el componente re-renderice.
-  const autoSelectFiredRef = React.useRef(false)
+  const { mutate: setRegister, isPending: isPendingRegister } =
+    useSetActiveRegister()
+  const { mutate: setOutlet, isPending: isPendingOutlet } = useSetActiveOutlet()
 
+  // Ref para que los efectos de auto-aplicación no se disparen más de una vez.
+  const autoApplyFiredRef = React.useRef(false)
+
+  // Intentar aplicar el default del dispositivo en silencio al montar.
+  // Solo cuando status === "ready" y aún no hay caja activa.
   React.useEffect(() => {
-    if (
-      status === "ready" &&
-      activeRegisterId === "" &&
-      registers.length === 1 &&
-      !isPending &&
-      !autoSelectFiredRef.current
-    ) {
-      autoSelectFiredRef.current = true
-      mutate(registers[0].id)
+    if (status !== "ready") return
+    if (activeRegisterId !== "") return
+    if (autoApplyFiredRef.current) return
+
+    const deviceDefault = getDeviceDefault()
+    if (!deviceDefault) return
+
+    // Marcar disparado para no volver a ejecutar en re-renders.
+    autoApplyFiredRef.current = true
+
+    const { outletId, registerId } = deviceDefault
+
+    // ¿La sucursal del default ya es la activa?
+    if (outlet?.id === outletId) {
+      // Misma sucursal → solo seleccionar la caja.
+      setRegister(registerId, {
+        onError: () => {
+          // Si la caja ya no existe, limpiar el default para que muestre el modal.
+          clearDeviceDefault()
+        },
+      })
+    } else {
+      // Distinta sucursal → cambiar sucursal primero, luego seleccionar caja.
+      setOutlet(outletId, {
+        onSuccess: () => {
+          setRegister(registerId, {
+            onError: () => {
+              clearDeviceDefault()
+            },
+          })
+        },
+        onError: () => {
+          // La sucursal ya no existe → limpiar default y dejar que muestre el modal.
+          clearDeviceDefault()
+        },
+      })
     }
-  }, [status, activeRegisterId, registers, isPending, mutate])
+  }, [status, activeRegisterId, outlet, setRegister, setOutlet])
 
   // Mientras el catálogo no está hidratado, no renderizar el guard
   // (evita flicker del selector mientras llega el bootstrap).
   if (status !== "ready") return <>{children}</>
 
-  // Sin caja activa → mostrar selector (bloquea el POS).
-  if (activeRegisterId === "") {
+  // Mientras se está aplicando el default en silencio, no mostrar el modal.
+  const isApplyingDefault =
+    (isPendingRegister || isPendingOutlet) && autoApplyFiredRef.current
+
+  // Sin caja activa → mostrar setup de dispositivo (2 pasos).
+  if (activeRegisterId === "" && !isApplyingDefault) {
     return (
       <>
         {children}
-        <RegisterSelectorDialog />
+        <DeviceSetupDialog />
       </>
     )
   }
 
-  // Caja activa → render normal.
+  // Caja activa (o aplicando default en silencio) → render normal.
   return <>{children}</>
 }
 

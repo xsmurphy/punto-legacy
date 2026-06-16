@@ -96,6 +96,8 @@ export interface PosBootstrap {
     id: string
     name: string
   }
+  /** Todas las sucursales disponibles para el tenant. */
+  outlets: Array<{ id: string; name: string }>
   registers: PosRegister[]
   items: PosItem[]
   customers: PosCustomer[]

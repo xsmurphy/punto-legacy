@@ -385,6 +385,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       id: bs.activeOutletId ?? "",
       name: bs.activeOutletName ?? "",
     },
+    // Lista completa de sucursales del tenant (para el selector de 2 pasos).
+    outlets: Array.isArray(bs.outlets) ? bs.outlets : [],
     registers,
     items,
     customers,

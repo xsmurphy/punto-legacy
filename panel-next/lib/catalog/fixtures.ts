@@ -339,4 +339,6 @@ export const fixtureBootstrap = {
   customers: fixtureCustomers,
   user: { id: "1", role: 1 },
   outlet: { id: "out-1", name: "Central" },
+  // Lista completa de sucursales (para el selector de setup en fixtures).
+  outlets: [{ id: "out-1", name: "Central" }],
 }

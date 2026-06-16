@@ -28,12 +28,14 @@ import {
   Settings,
   LogOut,
   ChefHat,
+  Store,
   type LucideIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { clearDeviceDefault } from "@/lib/pos/device"
 
 interface MenuEntry {
   key: string
@@ -53,6 +55,7 @@ const ENTRIES: MenuEntry[] = [
   { key: "agenda", sub: "Ver", label: "Agenda", icon: CalendarDays, href: "/pos/calendario" },
   { key: "orders", sub: "Ver", label: "Órdenes", icon: ClipboardList, href: "/pos/ordenes" },
   { key: "settings", sub: "Ver", label: "Ajustes", icon: Settings, href: "/settings" },
+  { key: "change-register", sub: "Cambiar", label: "Caja / Sucursal", icon: Store, action: true },
   { key: "lock", sub: "Bloquear o", label: "Salir", hint: "(ESC)", icon: LogOut, action: true },
 ]
 
@@ -62,6 +65,7 @@ export function PosMainMenu() {
   const config = useCatalogStore((s) => s.config)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const registers = useCatalogStore((s) => s.registers)
+  const resetActiveRegister = useCatalogStore((s) => s.resetActiveRegister)
   // Mostrar la caja que matchee el claim activo, no siempre la primera.
   const register = registers.find((r) => r.id === activeRegisterId) ?? registers[0] ?? null
 
@@ -79,6 +83,13 @@ export function PosMainMenu() {
     setOpen(false)
     if (entry.href) {
       router.push(entry.href)
+      return
+    }
+    if (entry.key === "change-register") {
+      // Limpiar el default del dispositivo y resetear la caja activa en el store.
+      // El guard del layout detecta activeRegisterId === '' y abre el modal de setup.
+      clearDeviceDefault()
+      resetActiveRegister()
       return
     }
     // TODO (F2): Control de Caja (arqueo) y Bloquear/Salir (lock + logout).
