@@ -547,6 +547,7 @@ switch ($method) {
         // los grupos — los standalone tendrán 0).
         $sql = "SELECT i.itemId, i.itemName, i.itemSKU, i.itemType, i.itemKind, i.itemStatus,
                        i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
+                       i.itemCanSale, i.itemTrackInventory, i.taxId,
                        i.itemIsParent, i.itemParentId,
                        i.categoryId, i.brandId, i.outletId, i.data,
                        cat.taxonomyName AS categoryName,
