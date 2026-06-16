@@ -61,7 +61,10 @@ export function MoneyInput({
   const [draft, setDraft] = React.useState("")
   const valueAtFocusRef = React.useRef<number | null>(value)
 
-  const display = focused ? draft : formatted
+  // Si el usuario está tipeando (hay dígitos en el draft), mostramos el valor
+  // formateado (20.000) en lugar del draft crudo (20000). Sin dígitos → vacío.
+  const hasDraftInput = (draft.match(/\d/g) ?? []).length > 0
+  const display = focused ? (hasDraftInput ? formatted : "") : formatted
 
   return (
     <Input

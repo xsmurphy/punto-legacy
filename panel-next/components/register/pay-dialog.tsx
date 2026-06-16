@@ -31,7 +31,7 @@
  */
 
 import * as React from "react"
-import { Plus, X, Printer, CheckCircle2 } from "lucide-react"
+import { Plus, X, Printer, BicepsFlexed } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -229,7 +229,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
-      <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+      <DialogContent
+        className={cn(
+          "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0",
+          phase === "success" ? "sm:max-w-lg" : "sm:max-w-md",
+        )}
+      >
         {phase === "pay" ? (
           <PayPhase
             total={total}
@@ -256,6 +261,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           <SuccessPhase
             result={saleResult}
             total={total}
+            changeAmount={changeAmount}
             config={config}
             onPrint={handlePrint}
             onClose={handleClose}
@@ -386,6 +392,18 @@ function PayPhase({
               onUpdateMethod={onUpdateMethod}
               onUpdateAmount={onUpdateAmount}
               onRemove={onRemoveRow}
+              onEnter={() => {
+                // Enter en el monto: si ya se cubre el total → confirmar;
+                // si todavía falta → agregar otro método de pago.
+                if (paidTotal >= total && canConfirm) {
+                  onConfirm()
+                } else {
+                  onAddRow()
+                  // Nota: el foco al nuevo input queda para el cajero (Tab).
+                  // El nuevo row no tiene autoFocus; implementar autofocus
+                  // requeriría refs imperativos — se omite por simplicidad.
+                }
+              }}
             />
           ))}
         </div>
@@ -464,6 +482,8 @@ interface PaymentRowProps {
   onUpdateMethod: (rowId: string, methodId: string) => void
   onUpdateAmount: (rowId: string, amount: number | null) => void
   onRemove: (rowId: string) => void
+  /** Llamado cuando el usuario aprieta Enter en el input de monto. */
+  onEnter: () => void
 }
 
 function PaymentRow({
@@ -473,6 +493,7 @@ function PaymentRow({
   onUpdateMethod,
   onUpdateAmount,
   onRemove,
+  onEnter,
 }: PaymentRowProps) {
   return (
     <div className="flex items-center gap-2">
@@ -501,6 +522,12 @@ function PaymentRow({
         placeholder="0"
         aria-label={`Monto ${row.methodId}`}
         autoFocus={autoFocus}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            onEnter()
+          }
+        }}
       />
 
       {/* Botón eliminar fila */}
@@ -527,43 +554,74 @@ function PaymentRow({
 interface SuccessPhaseProps {
   result: CreateSaleResult | null
   total: number
+  /** Monto del vuelto; si > 0 se muestra debajo del total. */
+  changeAmount: number
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   onPrint: () => void
   onClose: () => void
 }
 
-function SuccessPhase({ result, total, config, onPrint, onClose }: SuccessPhaseProps) {
+function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }: SuccessPhaseProps) {
+  // Cambio 7: Enter en la pantalla de éxito dispara impresión del ticket.
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Enter") return
+      // Ignorar Enter si el foco está en un campo de texto
+      const target = e.target as HTMLElement
+      const tag = target.tagName.toLowerCase()
+      if (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        target.isContentEditable
+      ) return
+      e.preventDefault()
+      onPrint()
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [onPrint])
+
   return (
-    <div className="flex flex-col items-center gap-5 px-6 py-8">
-      {/* Ícono de éxito */}
-      <CheckCircle2 className="size-16 text-primary" strokeWidth={1.5} />
+    // Cambio 4: fondo verde brand + texto oscuro sobre toda la pantalla de éxito
+    <div className="flex flex-col items-center gap-5 bg-[#01D7A1] px-6 py-8 text-[#060A0E]">
+      {/* Cambio 4: ícono BicepsFlexed en lugar de CheckCircle2 */}
+      <BicepsFlexed className="size-16" strokeWidth={1.5} />
 
       <div className="flex flex-col items-center gap-1 text-center">
-        <h2 className="text-xl font-bold text-foreground">¡Venta confirmada!</h2>
-        <p className="text-3xl font-black tabular-nums text-foreground">
+        <h2 className="text-xl font-bold">¡Venta confirmada!</h2>
+        <p className="text-3xl font-black tabular-nums">
           {formatMoney(total, config)}
         </p>
+        {/* Cambio 3: mostrar vuelto si hubo */}
+        {changeAmount > 0 && (
+          <div className="mt-2 rounded-lg bg-white/15 px-4 py-2 text-center">
+            <p className="text-xs uppercase tracking-wider opacity-80">Vuelto</p>
+            <p className="text-2xl font-bold tabular-nums">{formatMoney(changeAmount, config)}</p>
+          </div>
+        )}
         {result?.duplicated && (
-          <Badge variant="outline" className="mt-1 text-[10px] text-muted-foreground">
+          <Badge variant="outline" className="mt-1 text-[10px] opacity-70">
             ya guardada previamente — uid idempotente
           </Badge>
         )}
       </div>
 
-      <div className="flex w-full flex-col gap-2">
+      {/* Cambio 6: botones lado a lado en lugar de columna */}
+      <div className="flex w-full gap-3">
         {/* Imprimir ticket — stub (Slice A5) */}
         <Button
           variant="outline"
-          className="w-full gap-2"
+          className="flex-1 gap-2 border-white/30 bg-transparent hover:bg-white/10"
           onClick={onPrint}
         >
           <Printer className="size-4" />
           Imprimir ticket
         </Button>
 
-        {/* Nueva venta */}
+        {/* Nueva venta — CTA prominente sobre el verde */}
         <Button
-          className="w-full font-bold"
+          className="flex-1 bg-white font-bold text-[#060A0E] hover:bg-white/90"
           onClick={onClose}
         >
           Nueva venta
