@@ -13,7 +13,11 @@ export default async function PosLayout({ children }: { children: React.ReactNod
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <PanelAuthGuard>
-        <SidebarInset className="h-svh overflow-hidden">
+        {/* En desktop el SidebarInset (variante inset) agrega m-2 (8px arriba +
+            8px abajo = 1rem). Restamos ese 1rem del alto para que la caja
+            encaje exacto en el viewport y no se pase ~16px. En mobile no hay
+            margen → h-svh completo. */}
+        <SidebarInset className="h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
           <SidebarTrigger className="fixed left-[calc(0.75rem+env(safe-area-inset-left))] top-[calc(0.75rem+env(safe-area-inset-top))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
           {children}
         </SidebarInset>
