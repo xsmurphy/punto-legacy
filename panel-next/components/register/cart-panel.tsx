@@ -617,9 +617,11 @@ function LineActionTile({
 function EmptyCart() {
   return (
     <div className="flex h-full flex-col items-center justify-center select-none">
-      {/* Logo centrado — 10px menos que el original (h-14 = 56px → h-[46px]). */}
+      {/* Logo centrado — 10px menos que el original (h-14 = 56px → h-[46px]).
+          width explícito (proporción 100:28 del wordmark) porque el SVG
+          interno usa `fill` y w-auto colapsa a 0. */}
       <span aria-hidden className="flex justify-center opacity-[0.12]">
-        <PuntoLogo variant="wordmark" className="h-[46px] w-auto" />
+        <PuntoLogo variant="wordmark" className="h-[46px] w-[165px]" />
       </span>
     </div>
   )

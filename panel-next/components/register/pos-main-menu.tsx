@@ -19,6 +19,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   Menu,
+  ArrowDownWideNarrow,
   Calculator,
   ReceiptText,
   CalendarDays,
@@ -58,6 +59,7 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
+import { ThemePicker } from "@/components/theme-picker"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -80,7 +82,11 @@ interface MenuSection {
    * Acción directa al hacer click en el sidebar: si está definido, ejecuta
    * `onSelect` en lugar de cambiar `activeKey` al content area.
    */
-  onSelect?: (helpers: { setOpen: (v: boolean) => void; activeRegisterId: string }) => void
+  onSelect?: (helpers: {
+    setOpen: (v: boolean) => void
+    activeRegisterId: string
+    router: ReturnType<typeof import("next/navigation").useRouter>
+  }) => void
 }
 
 // ── Context para pasar router/setOpen a los custom panels sin prop-drilling ──
@@ -150,9 +156,13 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     label: "HotKeys",
     icon: LayoutGrid,
     // Sin CustomContent ni description: el click ejecuta onSelect directo.
-    onSelect: ({ setOpen, activeRegisterId }) => {
+    onSelect: ({ setOpen, activeRegisterId, router }) => {
       if (!activeRegisterId) return
       setOpen(false)
+      // El editor de hotkeys vive en /pos (ProductArea). Si el usuario está
+      // en otra ruta del POS (mesas / agenda / ordenes), navegar antes de
+      // activar el modo edición para que el panel izquierdo lo muestre.
+      router.push("/pos")
       useHotkeysStore.getState().setEditing(true)
     },
   },
@@ -211,7 +221,7 @@ export function PosMainMenu() {
         aria-label="Menú del POS"
         onClick={() => setOpen(true)}
       >
-        <Menu className="size-5" />
+        <ArrowDownWideNarrow className="size-5" />
       </Button>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -250,7 +260,7 @@ export function PosMainMenu() {
                 // (sin caja activa), el click no hace nada y se muestran atenuados.
                 const handleClick = () => {
                   if (onSelect) {
-                    onSelect({ setOpen, activeRegisterId: activeRegisterId ?? "" })
+                    onSelect({ setOpen, activeRegisterId: activeRegisterId ?? "", router })
                   } else {
                     setActiveKey(key)
                   }
@@ -1038,6 +1048,15 @@ function AjustesPanel() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Sección: Apariencia — selector light/dark/system (reusa ThemePicker
+              del panel: misma UX que /settings, consistencia entre POS y panel). */}
+          <div>
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Apariencia
+            </p>
+            <ThemePicker />
           </div>
 
           {/* Sección: Acción peligrosa */}

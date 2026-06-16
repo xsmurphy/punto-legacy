@@ -118,7 +118,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none sm:max-w-xl"
+        className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl"
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">

@@ -29,9 +29,9 @@ export function useCatalogSeed() {
   const { data: bootstrap } = usePosBootstrap()
 
   React.useEffect(() => {
-    if (status !== "idle") return
-
+    // Fixtures: hidratar solo la primera vez (no re-pegar al fixture).
     if (USE_FIXTURES) {
+      if (status !== "idle") return
       hydrate({
         items: fixtureBootstrap.items,
         customers: fixtureBootstrap.customers,
@@ -49,6 +49,10 @@ export function useCatalogSeed() {
       return
     }
 
+    // Bootstrap real: re-hidratar cada vez que el bootstrap cambia
+    // (no solo en idle). Esto es lo que permite que al cambiar de caja
+    // (POST /v1/active-register → invalidate → refetch), el catalog store
+    // refleje el nuevo activeRegisterId sin necesidad de refrescar la página.
     if (bootstrap) {
       hydrate({
         items: bootstrap.items,
