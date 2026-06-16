@@ -178,8 +178,8 @@ export default function TransactionsReportPage() {
           <BackLink />
           <h1 className="text-2xl font-semibold">Transacciones</h1>
           <p className="text-sm text-muted-foreground">
-            Ventas del período (incluye facturas, tickets y notas de crédito).
-            Cap de 5.000 filas server-side — afiná el rango si necesitás más historial.
+            Todas las ventas del período: facturas, tickets y notas de crédito.
+            Si necesitás ver más de 5.000 movimientos, achicá el rango de fechas.
           </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} />
