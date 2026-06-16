@@ -407,67 +407,52 @@ function CartRowExpanded({
         </span>
       </div>
 
-      {/* Layout: [−][qty][+]  ......  [Vendedor] [Quitar] [⋯] */}
+      {/* Layout: [−][qty][+]  ......  [Vendedor] [Quitar] [⋯]
+          Botones cuadrados con fondo levemente más oscuro que el panel. */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={onDec}
-            aria-label="Disminuir cantidad"
-          >
+        <div className="flex items-center gap-1.5">
+          <LineToolButton onClick={onDec} aria-label="Disminuir cantidad">
             <Minus className="size-4" />
-          </Button>
+          </LineToolButton>
           {/* Cantidad clickable → numpad para tipear cantidades grandes. */}
           <button
             type="button"
             onClick={() => setQtyOpen(true)}
             aria-label="Editar cantidad"
             className={cn(
-              "min-w-[2.5rem] rounded-md px-2 py-0.5 text-center text-lg font-semibold tabular-nums",
-              "transition-colors hover:bg-muted active:bg-muted/80",
+              "min-w-[2.5rem] rounded-md border border-border bg-muted px-2 py-0.5 text-center text-lg font-semibold tabular-nums",
+              "transition-colors hover:bg-muted/70 active:bg-muted/60",
             )}
           >
             {line.qty}
           </button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={onInc}
-            aria-label="Aumentar cantidad"
-          >
+          <LineToolButton onClick={onInc} aria-label="Aumentar cantidad">
             <Plus className="size-4" />
-          </Button>
+          </LineToolButton>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon-sm"
+        <div className="flex items-center gap-1.5">
+          <LineToolButton
             onClick={() => {
               // TODO (C2): abrir selector de vendedor.
             }}
             aria-label="Asignar vendedor"
           >
             <User className="size-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
+          </LineToolButton>
+          <LineToolButton
             onClick={onRemove}
             aria-label="Quitar de la venta"
             className="text-muted-foreground hover:border-destructive hover:text-destructive"
           >
             <X className="size-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
+          </LineToolButton>
+          <LineToolButton
             onClick={() => setMoreOpen(true)}
             aria-label="Más opciones"
           >
             <MoreHorizontal className="size-4" />
-          </Button>
+          </LineToolButton>
         </div>
       </div>
 
@@ -498,6 +483,27 @@ function CartRowExpanded({
         </DrawerContent>
       </Drawer>
     </div>
+  )
+}
+
+function LineToolButton({
+  children,
+  className,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex size-8 items-center justify-center rounded-md border border-border bg-muted",
+        "text-foreground transition-colors hover:bg-muted/70 active:bg-muted/60",
+        "disabled:pointer-events-none disabled:opacity-50",
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </button>
   )
 }
 
