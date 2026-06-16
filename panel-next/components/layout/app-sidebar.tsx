@@ -38,8 +38,6 @@ import {
   ChevronRight,
   ReceiptText,
   ShoppingCart,
-  Component,
-  Building2,
   Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -396,18 +394,6 @@ export function AppSidebar({
                     <Link href="/purchase">
                       <ShoppingCart />
                       Compras y Gastos
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/outlets">
-                      <Building2 />
-                      Sucursales
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/modules">
-                      <Component />
-                      Módulos
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>

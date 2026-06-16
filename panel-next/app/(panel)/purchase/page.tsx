@@ -64,13 +64,13 @@ function makeRowId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
-function emptyLine(isProduct = true): FormLine {
+function emptyLine(isProduct = true, taxId = ""): FormLine {
   return {
     rowId: makeRowId(),
     isProduct,
     units: 1,
     price: null,
-    taxId: "",
+    taxId,
     taxValue: 0,
   }
 }
@@ -124,6 +124,27 @@ export default function NewPurchasePage() {
     return { sub, tax, discount: disc, total: sub - disc }
   }, [lines, discount])
 
+  // Refs por línea para enfocar el primer campo editable cuando se crea una
+  // nueva (vía Tab desde Impuesto). Map en lugar de array porque las líneas
+  // se identifican por rowId, no por índice.
+  const firstFieldRefs = React.useRef<Map<string, HTMLElement>>(new Map())
+  const registerFirstField = React.useCallback((rowId: string, el: HTMLElement | null) => {
+    if (el) firstFieldRefs.current.set(rowId, el)
+    else firstFieldRefs.current.delete(rowId)
+  }, [])
+  // rowId pendiente de focusear tras un re-render (sino el ref del nuevo row
+  // todavía no está registrado en el momento del setLines).
+  const pendingFocusRef = React.useRef<string | null>(null)
+  React.useLayoutEffect(() => {
+    const id = pendingFocusRef.current
+    if (!id) return
+    const el = firstFieldRefs.current.get(id)
+    if (el) {
+      el.focus()
+      pendingFocusRef.current = null
+    }
+  })
+
   const updateLine = (rowId: string, patch: Partial<FormLine>) => {
     setLines((curr) =>
       curr.map((l) => (l.rowId === rowId ? { ...l, ...patch } : l)),
@@ -134,7 +155,16 @@ export default function NewPurchasePage() {
       curr.length === 1 ? [emptyLine()] : curr.filter((l) => l.rowId !== rowId),
     )
   }
-  const addLine = () => setLines((curr) => [...curr, emptyLine()])
+  // Nueva línea hereda taxId e isProduct (modo descripción) de la última.
+  // Si no hay líneas previas, default a producto + sin impuesto.
+  const addLine = () => {
+    setLines((curr) => {
+      const last = curr[curr.length - 1]
+      const next = emptyLine(last ? last.isProduct : true, last ? (last.taxId ?? "") : "")
+      pendingFocusRef.current = next.rowId
+      return [...curr, next]
+    })
+  }
 
   const canSubmit =
     outletId !== "" &&
@@ -353,12 +383,15 @@ export default function NewPurchasePage() {
               </Button>
             </div>
             <div className="flex flex-col gap-2">
-              {lines.map((l) => (
+              {lines.map((l, idx) => (
                 <LineRow
                   key={l.rowId}
                   line={l}
+                  isLast={idx === lines.length - 1}
                   onChange={(p) => updateLine(l.rowId, p)}
                   onRemove={() => removeLine(l.rowId)}
+                  onTabFromTax={addLine}
+                  registerFirstField={(el) => registerFirstField(l.rowId, el)}
                 />
               ))}
             </div>
@@ -415,11 +448,21 @@ function Total({ label, value }: { label: string; value: string }) {
 
 interface LineRowProps {
   line: FormLine
+  isLast: boolean
   onChange: (patch: Partial<FormLine>) => void
   onRemove: () => void
+  onTabFromTax: () => void
+  registerFirstField: (el: HTMLElement | null) => void
 }
 
-function LineRow({ line, onChange, onRemove }: LineRowProps) {
+function LineRow({
+  line,
+  isLast,
+  onChange,
+  onRemove,
+  onTabFromTax,
+  registerFirstField,
+}: LineRowProps) {
   const { data: taxes } = useTaxes()
   const taxOptions = taxes?.taxes ?? []
 
@@ -433,6 +476,15 @@ function LineRow({ line, onChange, onRemove }: LineRowProps) {
     onChange({ taxValue: Number(calculated.toFixed(2)) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.units, line.price, line.taxId])
+
+  // Tab desde el SelectTrigger de Impuesto en la ÚLTIMA línea → crea una
+  // nueva línea en lugar de salir del form. Shift+Tab usa el back-nav default.
+  const onTaxKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!isLast) return
+    if (e.key !== "Tab" || e.shiftKey) return
+    e.preventDefault()
+    onTabFromTax()
+  }
 
   return (
     <div className="flex flex-col gap-2 rounded border bg-background/40 p-2.5">
@@ -482,9 +534,11 @@ function LineRow({ line, onChange, onRemove }: LineRowProps) {
                   price: defaultCost ?? line.price,
                 })
               }
+              triggerRef={registerFirstField}
             />
           ) : (
             <Input
+              ref={(el) => registerFirstField(el)}
               value={line.title ?? ""}
               onChange={(e) => onChange({ title: e.target.value })}
               placeholder="Descripción del gasto"
@@ -514,7 +568,7 @@ function LineRow({ line, onChange, onRemove }: LineRowProps) {
             value={line.taxId ?? ""}
             onValueChange={(v) => onChange({ taxId: v })}
           >
-            <SelectTrigger>
+            <SelectTrigger onKeyDown={onTaxKeyDown}>
               <SelectValue placeholder="Impuesto" />
             </SelectTrigger>
             <SelectContent>
@@ -663,10 +717,12 @@ function ProductPicker({
   value,
   displayName,
   onChange,
+  triggerRef,
 }: {
   value: string
   displayName: string
   onChange: (id: string, name: string, defaultCost?: number) => void
+  triggerRef?: (el: HTMLElement | null) => void
 }) {
   const [open, setOpen] = React.useState(false)
   const [q, setQ] = React.useState("")
@@ -680,6 +736,7 @@ function ProductPicker({
           type="button"
           variant="outline"
           role="combobox"
+          ref={triggerRef}
           className="w-full justify-between font-normal"
         >
           {value && displayName ? (

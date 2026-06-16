@@ -4,11 +4,16 @@ import * as React from "react"
 import Link from "next/link"
 import { ArrowLeft, Plus, Loader2, Users, Pencil, CircleOff, Shield } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
+import type { CountryCode } from "libphonenumber-js"
 import { toast } from "sonner"
 import { z } from "zod"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 
+import { cn } from "@/lib/utils"
+import { HOTKEY_COLORS } from "@/lib/hotkeys/store"
+import { DEFAULT_COUNTRY } from "@/lib/countries"
+import { PhoneInput } from "@/components/forms/phone-input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -313,11 +318,17 @@ function TeamForm({
           <FormField
             control={form.control}
             name="phone"
-            render={({ field }) => (
+            render={({ field, fieldState }) => (
               <FormItem>
                 <FormLabel>Teléfono</FormLabel>
                 <FormControl>
-                  <Input type="tel" placeholder="0981 000 000" {...field} />
+                  <PhoneInput
+                    value={field.value}
+                    country={DEFAULT_COUNTRY as CountryCode}
+                    onChange={(v) => field.onChange(v.e164 ?? v.value)}
+                    onBlur={field.onBlur}
+                    aria-invalid={!!fieldState.error}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -331,7 +342,23 @@ function TeamForm({
                 <FormLabel>Color</FormLabel>
                 <div className="flex items-center gap-3">
                   <FormControl>
-                    <Input type="color" className="h-9 w-14 cursor-pointer px-1 py-1" {...field} />
+                    <div className="flex items-center gap-2">
+                      {HOTKEY_COLORS.map((c) => (
+                        <button
+                          key={c.key}
+                          type="button"
+                          onClick={() => field.onChange(c.bg)}
+                          className={cn(
+                            "size-7 rounded-full transition-all",
+                            field.value === c.bg
+                              ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
+                              : "hover:scale-110",
+                          )}
+                          style={{ backgroundColor: c.bg }}
+                          aria-label={`Color ${c.key}`}
+                        />
+                      ))}
+                    </div>
                   </FormControl>
                   <span className="text-xs text-muted-foreground">
                     Aparece en la agenda y en el avatar.
