@@ -9,7 +9,7 @@
  *     producto / cliente / menú de acciones de venta) vuelve a vivir DENTRO
  *     del CartPanel — es lo único "propio de la caja".
  *   - Cart row expandido NO copia la grilla 4+5 cols del legacy. Usa
- *     stepper [−][qty][+] + DropdownMenu de acciones (estilo shadcn).
+ *     stepper [−][qty][+] + acciones rápidas (vendedor / quitar / más).
  *   - Botón cobrar: `rounded-full` verde brand `bg-brand`.
  *   - Apertura de dialogs vía `usePosUIStore`.
  */
@@ -34,12 +34,12 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer"
+import { QtyEditDialog } from "@/components/register/qty-edit-dialog"
 import { cn } from "@/lib/utils"
 import {
   useCartStore,
@@ -77,6 +77,7 @@ export function CartPanel() {
   const removeLine = useCartStore((s) => s.removeLine)
   const incQty = useCartStore((s) => s.incQty)
   const decQty = useCartStore((s) => s.decQty)
+  const setQty = useCartStore((s) => s.setQty)
 
   const config = useCatalogStore((s) => s.config)
 
@@ -142,6 +143,7 @@ export function CartPanel() {
                       line={line}
                       onInc={() => incQty(line.lineId)}
                       onDec={() => decQty(line.lineId)}
+                      onSetQty={(q) => setQty(line.lineId, q)}
                       onRemove={() => removeLine(line.lineId)}
                     />
                   ) : (
@@ -377,19 +379,25 @@ function CartRowCollapsed({
 // ── Fila expandida (seleccionada) ─────────────────────────────────────────────
 //
 // Diseño post-pivote (2026-06-16): NO grilla 4+5 del legacy.
-// Header con nombre del item + stepper [−][qty][+] + DropdownMenu de acciones.
+// Header con nombre + stepper [−][qty][+] + acciones rápidas (vendedor/quitar/más).
+// "más" abre Drawer (no Dropdown). Qty es clickable → numpad.
 
 function CartRowExpanded({
   line,
   onInc,
   onDec,
+  onSetQty,
   onRemove,
 }: {
   line: CartLine
   onInc: () => void
   onDec: () => void
+  onSetQty: (qty: number) => void
   onRemove: () => void
 }) {
+  const [qtyOpen, setQtyOpen] = React.useState(false)
+  const [moreOpen, setMoreOpen] = React.useState(false)
+
   return (
     <div className="bg-accent/40 px-3 py-3">
       {/* Header — nombre del item, sutil. */}
@@ -399,7 +407,7 @@ function CartRowExpanded({
         </span>
       </div>
 
-      {/* Stepper + acciones. Layout: [−] qty [+] ........ [⋯] */}
+      {/* Layout: [−][qty][+]  ......  [Vendedor] [Quitar] [⋯] */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Button
@@ -410,9 +418,18 @@ function CartRowExpanded({
           >
             <Minus className="size-4" />
           </Button>
-          <span className="min-w-[2ch] text-center text-lg font-semibold tabular-nums">
+          {/* Cantidad clickable → numpad para tipear cantidades grandes. */}
+          <button
+            type="button"
+            onClick={() => setQtyOpen(true)}
+            aria-label="Editar cantidad"
+            className={cn(
+              "min-w-[2.5rem] rounded-md px-2 py-0.5 text-center text-lg font-semibold tabular-nums",
+              "transition-colors hover:bg-muted active:bg-muted/80",
+            )}
+          >
             {line.qty}
-          </span>
+          </button>
           <Button
             variant="outline"
             size="icon-sm"
@@ -423,66 +440,88 @@ function CartRowExpanded({
           </Button>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              aria-label="Acciones de línea"
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem
-              onClick={() => {
-                // TODO (C3): abrir NumPad para editar precio unitario.
-              }}
-            >
-              <DollarSign />
-              Modificar precio
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                // TODO (C3): abrir NumPad % para descuento de línea.
-              }}
-            >
-              <Percent />
-              Aplicar descuento
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                // TODO (C2): abrir BottomSheet con selector de vendedor.
-              }}
-            >
-              <User />
-              Asignar vendedor
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                // TODO (C2): abrir BottomSheet con tags.
-              }}
-            >
-              <Tag />
-              Etiquetas
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                // TODO (C2): abrir BottomSheet con textarea de nota.
-              }}
-            >
-              <MessageSquare />
-              Comentario
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={onRemove}>
-              <X />
-              Eliminar línea
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => {
+              // TODO (C2): abrir selector de vendedor.
+            }}
+            aria-label="Asignar vendedor"
+          >
+            <User className="size-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={onRemove}
+            aria-label="Quitar de la venta"
+            className="text-muted-foreground hover:border-destructive hover:text-destructive"
+          >
+            <X className="size-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => setMoreOpen(true)}
+            aria-label="Más opciones"
+          >
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </div>
       </div>
+
+      {/* Numpad de cantidad. */}
+      <QtyEditDialog
+        open={qtyOpen}
+        initialQty={line.qty}
+        itemName={line.name}
+        onConfirm={(q) => {
+          onSetQty(q)
+          setQtyOpen(false)
+        }}
+        onClose={() => setQtyOpen(false)}
+      />
+
+      {/* Más opciones — drawer inferior (no dropdown). */}
+      <Drawer open={moreOpen} onOpenChange={setMoreOpen}>
+        <DrawerContent className="mx-auto max-w-lg">
+          <DrawerHeader className="pb-2">
+            <DrawerTitle>Opciones de la línea</DrawerTitle>
+          </DrawerHeader>
+          <div className="grid grid-cols-2 gap-2 p-4 pt-2 sm:grid-cols-3">
+            <LineActionTile icon={DollarSign} label="Modificar precio" onClick={() => setMoreOpen(false)} />
+            <LineActionTile icon={Percent} label="Aplicar descuento" onClick={() => setMoreOpen(false)} />
+            <LineActionTile icon={Tag} label="Etiquetas" onClick={() => setMoreOpen(false)} />
+            <LineActionTile icon={MessageSquare} label="Comentario" onClick={() => setMoreOpen(false)} />
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
+  )
+}
+
+function LineActionTile({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-4",
+        "text-center transition-colors hover:bg-muted active:scale-[0.98]",
+      )}
+    >
+      <Icon className="size-5 text-foreground" />
+      <span className="text-xs font-medium text-foreground">{label}</span>
+    </button>
   )
 }
 

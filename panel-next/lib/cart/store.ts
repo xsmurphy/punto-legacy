@@ -97,6 +97,9 @@ interface CartState {
   /** Decrementa la cantidad. Si llega a 0, elimina la línea. */
   decQty: (lineId: string) => void
 
+  /** Fija la cantidad absoluta de una línea (numpad). 0 o negativo → elimina. */
+  setQty: (lineId: string, qty: number) => void
+
   /** Selecciona una línea (muestra controles +/−). Null = deseleccionar. */
   selectLine: (lineId: string | null) => void
 
@@ -191,6 +194,23 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       return {
         lines: state.lines.map((l) =>
           l.lineId === lineId ? { ...l, qty: l.qty - 1 } : l,
+        ),
+      }
+    })
+  },
+
+  setQty: (lineId, qty) => {
+    set((state) => {
+      // qty ≤ 0 → eliminar la línea (consistente con decQty).
+      if (qty <= 0) {
+        const remaining = state.lines.filter((l) => l.lineId !== lineId)
+        const nextSelected =
+          state.selectedLineId === lineId ? null : state.selectedLineId
+        return { lines: remaining, selectedLineId: nextSelected }
+      }
+      return {
+        lines: state.lines.map((l) =>
+          l.lineId === lineId ? { ...l, qty } : l,
         ),
       }
     })
