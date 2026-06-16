@@ -99,6 +99,22 @@ export interface OrdersWidget {
   onlineCount: number
 }
 
+export interface TablesWidget {
+  tablesCount: number
+  totalTables: number
+  occupacy: number
+  freeTables: number
+}
+
+export interface ScheduleWidget {
+  scheduledCount: number
+  occupancy: number
+  shiftHours: number
+  workingHours: number
+  freeHours: number
+  blockedHours: number
+}
+
 export interface TopHoursWidget {
   hour: string[]  // ej. "14:00 Ventas"
   total: number[] // mismo orden que hour, tickets vendidos en esa hora

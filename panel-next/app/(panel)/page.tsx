@@ -6,19 +6,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   ChevronRight,
-  CreditCard,
-  Wallet,
-  Users as UsersIcon,
   TrendingUp,
-  TrendingDown,
-  PackageCheck,
-  Layers,
-  Smile,
-  Meh,
-  Frown,
-  Receipt,
-  ShoppingBag,
-  Gift,
 } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { Hero115 } from "@/components/hero115"
@@ -27,24 +15,21 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Cell,
-  Legend,
+  ComposedChart,
   Line,
   Pie,
   PieChart,
-  Bar,
-  BarChart,
   ResponsiveContainer,
-  Tooltip,
   XAxis,
   YAxis,
 } from "recharts"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import {
   Table,
   TableBody,
@@ -53,6 +38,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   DateRangePicker,
@@ -63,14 +56,16 @@ import {
 import {
   useDashboardWidget,
   useIncomeChart,
+  type CustomersRatesWidget,
   type CustomersWidget,
   type IncomeChartData,
-  type IncomeChartPoint,
   type IncomeOutcomeStatsWidget,
   type InfoWidget,
   type OrdersWidget,
   type PaymentStatusWidget,
   type SatisfactionWidget,
+  type ScheduleWidget,
+  type TablesWidget,
   type TopHoursWidget,
   type TopItemRow,
   type TopTaxonomyRow,
@@ -93,11 +88,14 @@ export default function DashboardPage() {
   const incomeChart = useIncomeChart(opts)
   const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", opts)
   const customers = useDashboardWidget<CustomersWidget>("customers", opts)
+  const customersRates = useDashboardWidget<CustomersRatesWidget>("customersRates", opts)
   const topItems = useDashboardWidget<TopItemRow[]>("topItems", opts)
   const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", opts)
   const topHours = useDashboardWidget<TopHoursWidget>("topHours", opts)
   const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
   const orders = useDashboardWidget<OrdersWidget>("orders", opts)
+  const tables = useDashboardWidget<TablesWidget>("tables", opts)
+  const schedule = useDashboardWidget<ScheduleWidget>("schedule", opts)
 
   // "Negocio sin actividad" = cero transacciones (el dashboard es de ventas).
   // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
@@ -137,25 +135,22 @@ export default function DashboardPage() {
       {/* Layout 2-col espejo del legacy (8/4): main col con widgets de negocio,
           sidebar derecho con resumen/módulos opcionales/plan. Stack en <lg. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_22rem]">
-        {/* ── MAIN COLUMN (8/12 legacy) ─────────────────────────────────── */}
+        {/* ── MAIN COLUMN ────────────────────────────────────────────────── */}
         <div className="flex min-w-0 flex-col gap-4">
-          {/* KPI ROW — 4 cards compactos. Los 2 monetarios (Ingresos/Egresos)
-              llevan sparkline reusando la serie de incomeChart (mismo endpoint
-              que el chart grande de abajo — sin fetch extra). Tickets y Ticket
-              promedio van sin sparkline porque no hay serie temporal disponible
-              hoy (requeriría endpoint nuevo). */}
-          <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MetricCard
+          {/* KPI ROW — 2 cards grandes: Ingresos y Egresos. Tickets / Ticket
+              promedio se mueven a la card "Información general" en sidebar. */}
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <BigMetricCard
               label="Ingresos"
               href="/reports/summary"
               currency={bootstrap?.currency ?? ""}
               value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
               isLoading={stats.isLoading}
               sparkline={incomeChart.data?.data.map((p) => p.ingresos)}
-              sparklineColor="var(--brand)"
+              sparklineColor="var(--chart-1)"
               trend="up"
             />
-            <MetricCard
+            <BigMetricCard
               label="Egresos"
               href="/purchase"
               currency={bootstrap?.currency ?? ""}
@@ -165,26 +160,11 @@ export default function DashboardPage() {
               sparklineColor="var(--destructive)"
               trend="down"
             />
-            <MetricCard
-              label="Tickets"
-              value={stats.isLoading ? null : formatInt(stats.data?.count, bootstrap)}
-              isLoading={stats.isLoading}
-              hint="emitidos en el período"
-            />
-            <MetricCard
-              label="Ticket promedio"
-              currency={bootstrap?.currency ?? ""}
-              value={fmtMoney(stats.data?.customerAverage, bootstrap, stats.isLoading)}
-              isLoading={stats.isLoading}
-              hint={stats.isLoading ? "" : `Margen ${stats.data?.margin ?? 0}%`}
-            />
           </section>
 
-          {/* Chart full-width: Margen / Ingresos / Egresos. Antes ocupaba 2/3
-              del row con Ganancias al lado — Ganancias salió porque ya está
-              implícito en Ingresos vs Egresos del row 1. */}
+          {/* Chart Ingresos vs Egresos + Margen */}
           <section>
-            <IncomeAreaChart
+            <IncomeOutcomeChart
               data={incomeChart.data}
               isLoading={incomeChart.isLoading}
               error={incomeChart.error}
@@ -212,7 +192,11 @@ export default function DashboardPage() {
 
           {/* Clientes + Top 5 Artículos */}
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <CustomersCard data={customers.data} isLoading={customers.isLoading} />
+            <CustomersCard
+              data={customers.data}
+              rates={customersRates.data}
+              isLoading={customers.isLoading}
+            />
             <TopItemsCard
               data={topItems.data ?? []}
               isLoading={topItems.isLoading}
@@ -230,7 +214,7 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        {/* ── SIDEBAR (4/12 legacy) ─────────────────────────────────────── */}
+        {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
           <SatisfactionCard
             data={satisfaction.data}
@@ -241,6 +225,8 @@ export default function DashboardPage() {
             isLoading={orders.isLoading}
             bootstrap={bootstrap}
           />
+          <TablesCard data={tables.data} isLoading={tables.isLoading} />
+          <ScheduleCard data={schedule.data} isLoading={schedule.isLoading} />
           <InfoGeneralCard
             stats={stats.data}
             info={info.data}
@@ -258,24 +244,16 @@ export default function DashboardPage() {
 // ── KPI cards ──────────────────────────────────────────────────────────────
 
 /**
- * MetricCard — KPI compacto con sparkline opcional al pie. Patrón del shadcn
- * dashboard reference: label arriba, valor grande, hint sutil, sparkline.
- * Pasar `sparkline` (array de números) para los KPIs que tengan serie temporal
- * disponible (Ingresos/Egresos vía useIncomeChart); omitirlo para KPIs sin
- * serie (Tickets, Ticket promedio — requeriría endpoint nuevo).
- *
- * `trend` solo afecta el ícono del label (ArrowUp/Down). El delta % vs período
- * anterior NO se calcula hoy porque el backend no devuelve la comparación;
- * queda como follow-up cuando se quiera replicar el "+X% from last month" del
- * mockup de referencia.
+ * BigMetricCard — KPI card grande con label uppercase, valor enorme y
+ * sparkline al pie. Sin íconos en el title. La flecha trend va al lado del
+ * label como indicador semántico.
  */
-function MetricCard({
+function BigMetricCard({
   label,
   href,
   currency,
   value,
   isLoading,
-  hint,
   sparkline,
   sparklineColor,
   trend,
@@ -285,19 +263,23 @@ function MetricCard({
   currency?: string
   value: React.ReactNode
   isLoading: boolean
-  hint?: string
   sparkline?: number[]
   sparklineColor?: string
   trend?: "up" | "down"
 }) {
   const TrendIcon = trend === "up" ? ArrowUpRight : trend === "down" ? ArrowDownRight : null
-  const trendColor = trend === "up" ? "text-[var(--brand)]" : trend === "down" ? "text-destructive" : ""
+  const trendColor =
+    trend === "up"
+      ? "text-[var(--chart-1)]"
+      : trend === "down"
+        ? "text-destructive"
+        : ""
 
   return (
     <Card className="relative overflow-hidden">
-      <CardContent className="flex flex-col gap-2">
+      <CardContent className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {TrendIcon && <TrendIcon className={cn("size-3.5 shrink-0", trendColor)} />}
             <span className="truncate">{label}</span>
           </div>
@@ -313,22 +295,18 @@ function MetricCard({
         </div>
 
         {isLoading ? (
-          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-10 w-40" />
         ) : (
-          <div className="flex items-baseline gap-1.5">
+          <div className="flex items-baseline gap-2">
             {currency && (
-              <span className="text-xs font-normal text-muted-foreground">{currency}</span>
+              <span className="text-sm font-normal text-muted-foreground">{currency}</span>
             )}
-            <span className="text-2xl font-bold tracking-tight tabular-nums">{value}</span>
+            <span className="text-3xl font-bold tracking-tight tabular-nums">{value}</span>
           </div>
         )}
 
-        {hint && !isLoading && (
-          <span className="text-xs text-muted-foreground">{hint}</span>
-        )}
-
         {sparkline && sparkline.length > 1 && (
-          <Sparkline values={sparkline} color={sparklineColor ?? "var(--brand)"} />
+          <Sparkline values={sparkline} color={sparklineColor ?? "var(--chart-1)"} />
         )}
       </CardContent>
     </Card>
@@ -336,7 +314,7 @@ function MetricCard({
 }
 
 /**
- * Sparkline — mini line+area chart sin ejes ni labels. Recharts ResponsiveContainer
+ * Sparkline — mini area chart sin ejes ni labels. Recharts ResponsiveContainer
  * adentro de un wrapper de altura fija para que se ancle al ancho del card.
  */
 function Sparkline({ values, color }: { values: number[]; color: string }) {
@@ -344,12 +322,13 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
     () => values.map((v, i) => ({ i, v })),
     [values],
   )
+  const gradId = React.useId()
   return (
-    <div className="-mx-1 mt-1 h-10">
+    <div className="-mx-1 mt-1 h-12">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
           <defs>
-            <linearGradient id={`spark-${color}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={color} stopOpacity={0.25} />
               <stop offset="100%" stopColor={color} stopOpacity={0} />
             </linearGradient>
@@ -359,7 +338,7 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
             dataKey="v"
             stroke={color}
             strokeWidth={1.5}
-            fill={`url(#spark-${color})`}
+            fill={`url(#${gradId})`}
             isAnimationActive={false}
             dot={false}
             activeDot={false}
@@ -370,9 +349,15 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   )
 }
 
-// ── Income chart (line/area) ──────────────────────────────────────────────
+// ── Income chart (ComposedChart Bars + Line vía shadcn) ───────────────────
 
-function IncomeAreaChart({
+const incomeChartConfig = {
+  ingresos: { label: "Ingresos", color: "var(--chart-1)" },
+  egresos: { label: "Egresos", color: "var(--destructive)" },
+  margen: { label: "Margen", color: "var(--chart-3)" },
+} satisfies ChartConfig
+
+function IncomeOutcomeChart({
   data,
   isLoading,
   error,
@@ -387,10 +372,12 @@ function IncomeAreaChart({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">Margen, Ingresos y Egresos</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">
+            Margen, Ingresos y Egresos
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <Skeleton className="h-[220px] w-full" />
+          <Skeleton className="h-[240px] w-full" />
         </CardContent>
       </Card>
     )
@@ -400,10 +387,12 @@ function IncomeAreaChart({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">Margen, Ingresos y Egresos</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">
+            Margen, Ingresos y Egresos
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+          <div className="flex h-[240px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
             {error?.message || "No se pudieron cargar los datos del chart."}
           </div>
         </CardContent>
@@ -424,7 +413,7 @@ function IncomeAreaChart({
       </CardHeader>
       <CardContent>
         {!hasData ? (
-          <div className="flex h-[220px] items-center justify-center">
+          <div className="flex h-[240px] items-center justify-center">
             <EmptyState
               icon={TrendingUp}
               title="Sin movimientos en este período"
@@ -433,97 +422,67 @@ function IncomeAreaChart({
             />
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={data.data} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
-              {/* IMPORTANTE: usamos `var(--token)` directo (no `hsl(var(--token))`)
-                  porque las tokens de color están en oklch — hsl() las descarta. */}
-              <defs>
-                <linearGradient id="grIng" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="grEgr" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--destructive)" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="var(--destructive)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
+          <ChartContainer config={incomeChartConfig} className="h-[240px] w-full">
+            <ComposedChart data={data.data} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis
                 dataKey="bucket"
                 tickFormatter={(v: string) => formatBucketLabel(v, data.isDay)}
                 fontSize={10}
                 stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
               />
               <YAxis
                 fontSize={10}
                 stroke="var(--muted-foreground)"
                 tickFormatter={(v: number) => compactNumber(v)}
+                tickLine={false}
+                axisLine={false}
               />
-              <Tooltip content={<ChartTooltip bootstrap={bootstrap} isDay={data.isDay} />} />
-              <Legend
-                wrapperStyle={{ fontSize: 11 }}
-                iconType="circle"
-                formatter={(value: string) => <span className="text-muted-foreground">{value}</span>}
+              <ChartTooltip
+                cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                content={
+                  <ChartTooltipContent
+                    labelFormatter={(label) => formatBucketLabel(String(label), data.isDay)}
+                    formatter={(value, name) => (
+                      <div className="flex w-full items-center justify-between gap-3">
+                        <span className="text-muted-foreground">
+                          {incomeChartConfig[name as keyof typeof incomeChartConfig]?.label ?? name}
+                        </span>
+                        <span className="font-medium tabular-nums">
+                          {formatMoney(Number(value) || 0, bootstrap)}
+                        </span>
+                      </div>
+                    )}
+                  />
+                }
               />
-              <Area
-                type="monotone"
+              <ChartLegend content={<ChartLegendContent />} />
+              <Bar
                 dataKey="ingresos"
-                name="Ingresos"
-                stroke="var(--chart-1)"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#grIng)"
+                fill="var(--color-ingresos)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={32}
               />
-              <Area
-                type="monotone"
+              <Bar
                 dataKey="egresos"
-                name="Egresos"
-                stroke="var(--destructive)"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#grEgr)"
+                fill="var(--color-egresos)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={32}
               />
               <Line
                 type="monotone"
                 dataKey="margen"
-                name="Margen"
-                stroke="var(--chart-3)"
+                stroke="var(--color-margen)"
                 strokeWidth={2}
                 dot={false}
               />
-            </AreaChart>
-          </ResponsiveContainer>
+            </ComposedChart>
+          </ChartContainer>
         )}
       </CardContent>
     </Card>
-  )
-}
-
-function ChartTooltip({
-  active,
-  payload,
-  label,
-  bootstrap,
-  isDay,
-}: {
-  active?: boolean
-  payload?: Array<{ name?: string; value?: number; color?: string }>
-  label?: string
-  bootstrap?: ReturnType<typeof useBootstrap>["data"]
-  isDay?: boolean
-}) {
-  if (!active || !payload || payload.length === 0) return null
-  return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow">
-      <div className="mb-1 font-medium">{label ? formatBucketLabel(label, !!isDay) : ""}</div>
-      {payload.map((p, i) => (
-        <div key={i} className="flex items-center gap-2 tabular-nums">
-          <span className="size-2 rounded-full" style={{ backgroundColor: p.color }} />
-          <span className="text-muted-foreground">{p.name}:</span>
-          <span className="font-medium">{formatMoney(p.value ?? 0, bootstrap)}</span>
-        </div>
-      ))}
-    </div>
   )
 }
 
@@ -544,7 +503,18 @@ function compactNumber(v: number): string {
   return String(Math.round(v))
 }
 
-// ── Órdenes + Satisfacción ─────────────────────────────────────────────────
+// ── Órdenes / Espacios / Agendamientos ─────────────────────────────────────
+
+/**
+ * Helper: el endpoint devuelve `[]` (PHP array vacío) cuando el módulo está
+ * apagado para el tenant. React Query lo recibe como array. Detectamos eso
+ * para mostrar el ModuleOffCard.
+ */
+function isModuleOff<T>(data: T | undefined): boolean {
+  if (data === undefined || data === null) return true
+  if (Array.isArray(data)) return true
+  return false
+}
 
 function OrdersCard({
   orders,
@@ -555,15 +525,11 @@ function OrdersCard({
   isLoading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
-  // Si el módulo orders está apagado, el endpoint devuelve [] (vacío).
-  if (!isLoading && !orders) return <ModuleOffCard title="Órdenes" />
+  if (!isLoading && isModuleOff(orders)) return <ModuleOffCard title="Órdenes" />
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <ShoppingBag className="size-4 text-muted-foreground" />
-          Órdenes en curso
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">Órdenes en curso</CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-4">
         <Stat
@@ -579,6 +545,104 @@ function OrdersCard({
   )
 }
 
+function TablesCard({
+  data,
+  isLoading,
+}: {
+  data: TablesWidget | undefined
+  isLoading: boolean
+}) {
+  if (!isLoading && isModuleOff(data)) return <ModuleOffCard title="Espacios" />
+  const occ = Math.max(0, Math.min(100, data?.occupacy ?? 0))
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">Espacios</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-4">
+          <Stat
+            label="Ocupados"
+            value={isLoading ? null : String(data?.tablesCount ?? 0)}
+          />
+          <Stat
+            label="Disponibles"
+            value={isLoading ? null : String(data?.freeTables ?? 0)}
+          />
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-2 w-full rounded-full" />
+        ) : (
+          <div className="flex flex-col gap-1">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-[var(--chart-1)] transition-all"
+                style={{ width: `${occ}%` }}
+              />
+            </div>
+            <div className="text-[10px] text-muted-foreground tabular-nums">
+              {occ}% de ocupación
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ScheduleCard({
+  data,
+  isLoading,
+}: {
+  data: ScheduleWidget | undefined
+  isLoading: boolean
+}) {
+  if (!isLoading && isModuleOff(data)) return <ModuleOffCard title="Agendamientos" />
+  const occ = Math.max(0, Math.min(100, data?.occupancy ?? 0))
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">Agendamientos</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Stat
+          label="Reservas"
+          value={isLoading ? null : String(data?.scheduledCount ?? 0)}
+        />
+        {isLoading ? (
+          <Skeleton className="h-2 w-full rounded-full" />
+        ) : (
+          <div className="flex flex-col gap-1">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-[var(--chart-1)] transition-all"
+                style={{ width: `${occ}%` }}
+              />
+            </div>
+            <div className="text-[10px] text-muted-foreground tabular-nums">
+              {occ}% de ocupación
+            </div>
+          </div>
+        )}
+        {!isLoading && data && (
+          <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground tabular-nums">
+            <div className="flex items-center justify-between">
+              <span>Horas trabajadas</span>
+              <span>{data.workingHours}h</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Horas libres</span>
+              <span>{data.freeHours}h</span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Satisfacción (NPS) — sin caritas, solo dots + número ──────────────────
+
 function SatisfactionCard({
   data,
   isLoading,
@@ -586,42 +650,39 @@ function SatisfactionCard({
   data: SatisfactionWidget | undefined
   isLoading: boolean
 }) {
-  if (!isLoading && !data) return <ModuleOffCard title="Satisfacción (NPS)" />
+  if (!isLoading && isModuleOff(data)) return <ModuleOffCard title="Satisfacción (NPS)" />
   const det = data?.detractors.percent ?? 0
   const pas = data?.passives.percent ?? 0
   const pro = data?.promoters.percent ?? 0
-  const totalResp = (data?.detractors.count ?? 0) + (data?.passives.count ?? 0) + (data?.promoters.count ?? 0)
+  const totalResp =
+    (data?.detractors.count ?? 0) + (data?.passives.count ?? 0) + (data?.promoters.count ?? 0)
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <Smile className="size-4 text-muted-foreground" />
-          Satisfacción de clientes (NPS)
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">Satisfacción de clientes (NPS)</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {/* Barra apilada con los 3 segmentos (espejo del legacy) */}
         {isLoading ? (
           <Skeleton className="h-3 w-full rounded-full" />
         ) : (
           <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
             {det > 0 && (
               <div
-                className="bg-destructive transition-all"
+                className="bg-[var(--destructive)] transition-all"
                 style={{ width: `${det}%` }}
                 title={`Detractores · ${det}%`}
               />
             )}
             {pas > 0 && (
               <div
-                className="bg-amber-500 transition-all"
+                className="bg-[var(--muted-foreground)] transition-all"
                 style={{ width: `${pas}%` }}
                 title={`Pasivos · ${pas}%`}
               />
             )}
             {pro > 0 && (
               <div
-                className="bg-emerald-500 transition-all"
+                className="bg-[var(--chart-1)] transition-all"
                 style={{ width: `${pro}%` }}
                 title={`Promotores · ${pro}%`}
               />
@@ -631,21 +692,21 @@ function SatisfactionCard({
 
         <div className="grid grid-cols-3 gap-3">
           <NpsLegend
-            icon={<Frown className="size-3.5 text-destructive" />}
+            dotColor="var(--destructive)"
             label="Detractores"
             percent={data?.detractors.percent ?? null}
             count={data?.detractors.count ?? null}
             isLoading={isLoading}
           />
           <NpsLegend
-            icon={<Meh className="size-3.5 text-amber-500" />}
+            dotColor="var(--muted-foreground)"
             label="Pasivos"
             percent={data?.passives.percent ?? null}
             count={data?.passives.count ?? null}
             isLoading={isLoading}
           />
           <NpsLegend
-            icon={<Smile className="size-3.5 text-emerald-500" />}
+            dotColor="var(--chart-1)"
             label="Promotores"
             percent={data?.promoters.percent ?? null}
             count={data?.promoters.count ?? null}
@@ -664,22 +725,25 @@ function SatisfactionCard({
 }
 
 function NpsLegend({
-  icon,
+  dotColor,
   label,
   percent,
   count,
   isLoading,
 }: {
-  icon: React.ReactNode
+  dotColor: string
   label: string
   percent: number | null
   count: number | null
   isLoading: boolean
 }) {
   return (
-    <div className="flex flex-col gap-0.5 text-center">
-      <div className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {icon}
+    <div className="flex flex-col items-center gap-0.5 text-center">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span
+          className="size-2 shrink-0 rounded-full"
+          style={{ backgroundColor: dotColor }}
+        />
         {label}
       </div>
       {isLoading ? (
@@ -687,7 +751,9 @@ function NpsLegend({
       ) : (
         <>
           <span className="text-base font-semibold tabular-nums">{percent ?? 0}%</span>
-          <span className="text-[10px] text-muted-foreground tabular-nums">{count ?? 0} resp.</span>
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {count ?? 0} resp.
+          </span>
         </>
       )}
     </div>
@@ -695,6 +761,13 @@ function NpsLegend({
 }
 
 // ── Tipos de ventas + Cuentas por cobrar ──────────────────────────────────
+
+const donutChartConfig = {
+  contado: { label: "Al contado", color: "var(--chart-1)" },
+  credito: { label: "A crédito", color: "var(--chart-3)" },
+  cobrado: { label: "Cobrado", color: "var(--chart-1)" },
+  porcobrar: { label: "Por cobrar", color: "var(--chart-3)" },
+} satisfies ChartConfig
 
 function PaymentSplitCard({
   title,
@@ -720,12 +793,10 @@ function PaymentSplitCard({
   const totalCount = (leftCount ?? 0) + (rightCount ?? 0)
 
   // Donut data — recharts ignora segments con value=0. Para mostrar un donut
-  // incluso cuando todo es 0 usamos un placeholder gris.
+  // incluso cuando todo es 0 usamos un placeholder gris (var(--muted)).
   const pieData =
     total > 0
       ? [
-          // Color principal = verde Punto (chart-1), segundo segment = chart-3
-          // (verde oscuro) — paleta monocromática como en Sleep Report.
           { name: leftLabel, value: left, color: "var(--chart-1)" },
           { name: rightLabel, value: right, color: "var(--chart-3)" },
         ]
@@ -734,25 +805,22 @@ function PaymentSplitCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          {isSaleType ? <Wallet className="size-4 text-muted-foreground" /> : <CreditCard className="size-4 text-muted-foreground" />}
-          {title}
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="flex items-center gap-4">
-        <div className="relative size-32 shrink-0">
+      <CardContent className="flex flex-col items-center gap-4">
+        <div className="relative size-36 shrink-0">
           {isLoading ? (
             <Skeleton className="size-full rounded-full" />
           ) : (
             <>
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartContainer config={donutChartConfig} className="size-full">
                 <PieChart>
                   <Pie
                     data={pieData}
                     dataKey="value"
                     cx="50%"
                     cy="50%"
-                    innerRadius="62%"
+                    innerRadius="65%"
                     outerRadius="100%"
                     paddingAngle={total > 0 ? 2 : 0}
                     strokeWidth={0}
@@ -761,27 +829,45 @@ function PaymentSplitCard({
                       <Cell key={i} fill={entry.color} />
                     ))}
                   </Pie>
-                  {total > 0 && <Tooltip content={<DonutTooltip bootstrap={bootstrap} />} />}
+                  {total > 0 && (
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          hideLabel
+                          formatter={(value, _name, item) => (
+                            <div className="flex w-full items-center justify-between gap-3">
+                              <span className="text-muted-foreground">
+                                {(item?.payload as { name?: string } | undefined)?.name}
+                              </span>
+                              <span className="font-medium tabular-nums">
+                                {formatMoney(Number(value) || 0, bootstrap)}
+                              </span>
+                            </div>
+                          )}
+                        />
+                      }
+                    />
+                  )}
                 </PieChart>
-              </ResponsiveContainer>
+              </ChartContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-base font-bold tabular-nums">{totalCount}</span>
-                <span className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                <span className="text-xl font-bold tabular-nums">{totalCount}</span>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   ventas
                 </span>
               </div>
             </>
           )}
         </div>
-        <div className="flex flex-1 flex-col gap-2">
+        <div className="grid w-full grid-cols-2 gap-3">
           <SplitRow
-            dot="bg-primary"
+            dotColor="var(--chart-1)"
             label={leftLabel}
             amount={isLoading ? null : formatMoney(left, bootstrap)}
             count={isLoading ? null : formatInt(leftCount, bootstrap)}
           />
           <SplitRow
-            dot="bg-muted-foreground/40"
+            dotColor="var(--chart-3)"
             label={rightLabel}
             amount={isLoading ? null : formatMoney(right, bootstrap)}
             count={isLoading ? null : formatInt(rightCount, bootstrap)}
@@ -793,12 +879,12 @@ function PaymentSplitCard({
 }
 
 function SplitRow({
-  dot,
+  dotColor,
   label,
   amount,
   count,
 }: {
-  dot: string
+  dotColor: string
   label: string
   amount: string | null
   count: string | null
@@ -806,38 +892,22 @@ function SplitRow({
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-        <span className={cn("size-2 rounded-full", dot)} />
+        <span
+          className="size-2 shrink-0 rounded-full"
+          style={{ backgroundColor: dotColor }}
+        />
         {label}
       </div>
       {amount === null ? (
         <Skeleton className="h-6 w-20" />
       ) : (
         <>
-          <span className="text-base font-semibold tabular-nums">{amount}</span>
-          <span className="text-[10px] text-muted-foreground tabular-nums">{count} ventas</span>
+          <span className="text-xl font-semibold tabular-nums">{amount}</span>
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {count} ventas
+          </span>
         </>
       )}
-    </div>
-  )
-}
-
-function DonutTooltip({
-  active,
-  payload,
-  bootstrap,
-}: {
-  active?: boolean
-  payload?: Array<{ name?: string; value?: number; payload?: { name?: string } }>
-  bootstrap?: ReturnType<typeof useBootstrap>["data"]
-}) {
-  if (!active || !payload || payload.length === 0) return null
-  const p = payload[0]
-  return (
-    <div className="rounded-md border bg-popover px-2 py-1 text-xs shadow">
-      <div className="font-medium">{p.payload?.name ?? p.name}</div>
-      <div className="tabular-nums text-muted-foreground">
-        {formatMoney(p.value ?? 0, bootstrap)}
-      </div>
     </div>
   )
 }
@@ -846,18 +916,24 @@ function DonutTooltip({
 
 function CustomersCard({
   data,
+  rates,
   isLoading,
 }: {
   data: CustomersWidget | undefined
+  rates: CustomersRatesWidget | undefined
   isLoading: boolean
 }) {
+  // El widget customersRates puede devolver retention/growth/churn como
+  // strings o numbers según el backend. Normalizamos para mostrarlos como
+  // porcentajes con barra de progreso fina.
+  const retention = toPct(rates?.retention)
+  const growth = toPct(rates?.growth)
+  const churn = toPct(rates?.churn)
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <UsersIcon className="size-4 text-muted-foreground" />
-          Clientes
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">Clientes</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-3">
@@ -868,25 +944,83 @@ function CustomersCard({
           <Stat
             label="Nuevos"
             value={isLoading ? null : formatInt(data?.new, undefined)}
-            icon={<TrendingUp className="size-3.5 text-emerald-500" />}
           />
           <Stat
             label="Recurrentes"
             value={isLoading ? null : formatInt(data?.old, undefined)}
-            icon={<TrendingDown className="size-3.5 text-amber-500" />}
           />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Tasa de retorno</span>
-            <span className="font-medium tabular-nums">
-              {isLoading ? "…" : `${data?.returnRate ?? 0}%`}
-            </span>
-          </div>
-          <Progress value={Math.min(100, Math.max(0, data?.returnRate ?? 0))} className="h-1.5" />
+        <div className="flex flex-col gap-2">
+          <RateRow
+            label="Tasa de retorno"
+            percent={data?.returnRate ?? null}
+            isLoading={isLoading}
+            barColor="var(--chart-1)"
+          />
+          {retention !== null && (
+            <RateRow
+              label="Retención"
+              percent={retention}
+              isLoading={isLoading}
+              barColor="var(--chart-1)"
+            />
+          )}
+          {growth !== null && (
+            <RateRow
+              label="Crecimiento"
+              percent={growth}
+              isLoading={isLoading}
+              barColor="var(--chart-1)"
+            />
+          )}
+          {churn !== null && (
+            <RateRow
+              label="Pérdida (churn)"
+              percent={churn}
+              isLoading={isLoading}
+              barColor="var(--destructive)"
+            />
+          )}
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function toPct(v: unknown): number | null {
+  if (v === undefined || v === null) return null
+  const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN
+  if (!Number.isFinite(n)) return null
+  return n
+}
+
+function RateRow({
+  label,
+  percent,
+  isLoading,
+  barColor,
+}: {
+  label: string
+  percent: number | null
+  isLoading: boolean
+  barColor: string
+}) {
+  const clamped = Math.max(0, Math.min(100, percent ?? 0))
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium tabular-nums">
+          {isLoading ? "…" : `${percent ?? 0}%`}
+        </span>
+      </div>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${clamped}%`, backgroundColor: barColor }}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -936,10 +1070,7 @@ function InfoGeneralCard({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <Receipt className="size-4 text-muted-foreground" />
-          Información general
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">Información general</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col divide-y divide-border">
         {rows.map((r) => (
@@ -1044,11 +1175,12 @@ function planValue(
   return `${cur} / ${formatInt(max, bootstrap)}`
 }
 
-/**
- * Horarios Pico — bar chart vertical mostrando hasta 6 horas top.
- * Las etiquetas del backend vienen como "14:00 Ventas" → recortamos a "14:00"
- * para el eje X. Se muestra empty state cuando no hay datos.
- */
+// ── Horarios Pico ────────────────────────────────────────────────────────
+
+const topHoursChartConfig = {
+  total: { label: "Ventas", color: "var(--chart-1)" },
+} satisfies ChartConfig
+
 function TopHoursCard({
   data,
   isLoading,
@@ -1067,10 +1199,7 @@ function TopHoursCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <TrendingUp className="size-4 text-muted-foreground" />
-          Horarios pico
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">Horarios pico</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -1085,7 +1214,7 @@ function TopHoursCard({
             />
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={200}>
+          <ChartContainer config={topHoursChartConfig} className="h-[200px] w-full">
             <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
               <XAxis
@@ -1101,19 +1230,13 @@ function TopHoursCard({
                 axisLine={false}
                 width={28}
               />
-              <Tooltip
-                cursor={{ fill: "var(--accent)", opacity: 0.5 }}
-                contentStyle={{
-                  background: "var(--popover)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: "var(--foreground)" }}
+              <ChartTooltip
+                cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                content={<ChartTooltipContent />}
               />
-              <Bar dataKey="total" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         )}
       </CardContent>
     </Card>
@@ -1134,10 +1257,7 @@ function TopItemsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <PackageCheck className="size-4 text-muted-foreground" />
-          Top 5 Artículos
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">Top 5 Artículos</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -1148,7 +1268,7 @@ function TopItemsCard({
           </div>
         ) : data.length === 0 ? (
           <EmptyState
-            icon={PackageCheck}
+            icon={TrendingUp}
             title="Sin ventas en este período"
             showMarquee={false}
             className="border-0 py-6"
@@ -1180,7 +1300,11 @@ function TopItemsCard({
   )
 }
 
-// ── Top 10 Categorías ────────────────────────────────────────────────────
+// ── Top 10 Categorías — BarChart horizontal ──────────────────────────────
+
+const topCategoriesChartConfig = {
+  total: { label: "Ventas", color: "var(--chart-1)" },
+} satisfies ChartConfig
 
 function TopCategoriesCard({
   data,
@@ -1189,14 +1313,14 @@ function TopCategoriesCard({
   data: TopTaxonomyRow[]
   isLoading: boolean
 }) {
-  const max = data.reduce((m, r) => Math.max(m, r.total), 0)
+  // BarChart horizontal: eje Y = title, eje X = total. La altura se calcula
+  // según cantidad de filas para que no se aplasten (28px por bar mínimo).
+  const chartHeight = Math.max(200, data.length * 28)
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <Layers className="size-4 text-muted-foreground" />
-          Top 10 Categorías
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">Top 10 Categorías</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -1207,28 +1331,46 @@ function TopCategoriesCard({
           </div>
         ) : data.length === 0 ? (
           <EmptyState
-            icon={Layers}
+            icon={TrendingUp}
             title="Sin ventas en este período"
             showMarquee={false}
             className="border-0 py-6"
           />
         ) : (
-          <div className="flex flex-col gap-2">
-            {data.map((row, i) => (
-              <div key={`${row.title}-${i}`} className="flex flex-col gap-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium">{row.title}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {row.total.toFixed(0)}
-                  </span>
-                </div>
-                <Progress
-                  value={max > 0 ? (row.total / max) * 100 : 0}
-                  className="h-1"
-                />
-              </div>
-            ))}
-          </div>
+          <ChartContainer
+            config={topCategoriesChartConfig}
+            className="w-full"
+            style={{ height: `${chartHeight}px` }}
+          >
+            <BarChart
+              data={data}
+              layout="vertical"
+              margin={{ top: 4, right: 12, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => compactNumber(v)}
+              />
+              <YAxis
+                type="category"
+                dataKey="title"
+                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                tickLine={false}
+                axisLine={false}
+                width={100}
+                interval={0}
+              />
+              <ChartTooltip
+                cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                content={<ChartTooltipContent />}
+              />
+              <Bar dataKey="total" fill="var(--color-total)" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ChartContainer>
         )}
       </CardContent>
     </Card>
@@ -1240,16 +1382,13 @@ function TopCategoriesCard({
 function Stat({
   label,
   value,
-  icon,
 }: {
   label: string
   value: string | null
-  icon?: React.ReactNode
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {icon}
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
       {value === null ? (
@@ -1261,44 +1400,11 @@ function Stat({
   )
 }
 
-function PlanStat({
-  label,
-  value,
-  max,
-  bootstrap,
-}: {
-  label: string
-  value: string | null
-  max?: number
-  bootstrap?: ReturnType<typeof useBootstrap>["data"]
-}) {
-  return (
-    <div className="flex flex-col gap-1 rounded-md border bg-muted/30 p-3">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      {value === null ? (
-        <Skeleton className="h-6 w-16" />
-      ) : (
-        <>
-          <span className="text-base font-semibold tabular-nums">{value}</span>
-          {max ? (
-            <span className="text-[10px] text-muted-foreground tabular-nums">
-              / {formatInt(max, bootstrap)} permitidos
-            </span>
-          ) : null}
-        </>
-      )}
-    </div>
-  )
-}
-
 function ModuleOffCard({ title }: { title: string }) {
   return (
     <Card className="opacity-60">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <Gift className="size-4" />
-          {title}
-        </CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-xs text-muted-foreground">
