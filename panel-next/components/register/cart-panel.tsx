@@ -27,8 +27,6 @@ import {
   MessageSquare,
   MoreHorizontal,
   Search,
-  Printer,
-  Coins,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -51,6 +49,7 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
+import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
@@ -214,52 +213,7 @@ function CartToolbar({
       >
         <User className="size-5" />
       </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="size-9" aria-label="Acciones de venta">
-            <MoreHorizontal className="size-5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem
-            onClick={() => {
-              // TODO (F2+): imprimir comprobante / pre-cuenta.
-            }}
-          >
-            <Printer />
-            Imprimir
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              // TODO (F2+): abrir NumPad % para descuento global de la venta.
-            }}
-          >
-            <Percent />
-            Descuento global
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              // TODO (F2+): abrir editor de nota de venta.
-            }}
-          >
-            <MessageSquare />
-            Nota de venta
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              // TODO (F2+): selector de moneda de la venta.
-            }}
-          >
-            <Coins />
-            Moneda
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={onCancelSale}>
-            <X />
-            Cancelar venta
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <SaleOptionsDrawer onCancelSale={onCancelSale} />
     </div>
   )
 }
