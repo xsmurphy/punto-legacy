@@ -23,6 +23,15 @@ $svc    = new \Punto\Api\Outlets\OutletsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
+// ── JSON body → $_POST (el front manda JSON, PHP no lo parsea automáticamente) ──
+$_raw = file_get_contents('php://input');
+if (is_string($_raw) && $_raw !== '') {
+    $_json = json_decode($_raw, true);
+    if (is_array($_json)) {
+        $_POST = array_merge($_POST, $_json);
+    }
+}
+
 if ($method === 'POST') {
     // Permiso de escritura: bloquea el rol read-only (7) — misma convención que los reportes con WRITE.
     if ((int) $ctx['roleId'] === 7) {
@@ -89,6 +98,7 @@ if ($method === 'POST') {
         'ecom'            => (bool) validateHttp('ecom', 'post'),
         'taxIncluded'     => (bool) validateHttp('taxIncluded', 'post'),
         'businessHours'   => (string) (validateHttp('businessHours', 'post') ?: ''),
+        'priceListId'     => (string) (validateHttp('priceListId', 'post') ?: '') ?: null,
     ];
 
     if ($action === 'create') {
