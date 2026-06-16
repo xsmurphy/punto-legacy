@@ -33,6 +33,16 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Drawer,
   DrawerContent,
   DrawerHeader,
@@ -93,6 +103,18 @@ export function CartPanel() {
 
   const totalValue = total
 
+  // Confirm para vaciar la venta — acción destructiva. Tanto el chip VACIAR
+  // del bottom como el "Cancelar venta" del drawer de opciones pasan por acá.
+  const [confirmClearOpen, setConfirmClearOpen] = React.useState(false)
+  const askClear = React.useCallback(() => {
+    if (lines.length === 0) return // nada que limpiar
+    setConfirmClearOpen(true)
+  }, [lines.length])
+  const doClear = React.useCallback(() => {
+    clear()
+    setConfirmClearOpen(false)
+  }, [clear])
+
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
@@ -113,6 +135,28 @@ export function CartPanel() {
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
 
+      {/* Confirm de vaciar — acción destructiva. */}
+      <AlertDialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Vaciar la venta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se quitarán todos los ítems de la venta en curso. Esta acción no se
+              puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={doClear}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Vaciar venta
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {editingHotkeys ? (
         <HotkeyEditGuide />
       ) : (
@@ -121,7 +165,7 @@ export function CartPanel() {
       <CartToolbar
         onSearch={() => setSearchOpen(true)}
         onCustomer={() => setCustomerOpen(true)}
-        onCancelSale={clear}
+        onCancelSale={askClear}
       />
 
       {/* ── Chip de cliente ── */}
@@ -168,7 +212,7 @@ export function CartPanel() {
         onToggleCredito={toggleCredito}
         onToggleInterno={toggleInterno}
         onToggleIva={toggleIva}
-        onClear={clear}
+        onClear={askClear}
         total={totalValue}
         lineCount={lines.length}
         config={config}
@@ -619,7 +663,7 @@ function CartBottom({
         className="h-auto w-full rounded-full px-4 py-3 text-3xl font-bold active:scale-[0.98]"
         aria-label={`Cobrar ${totalFormatted}`}
       >
-        {lineCount === 0 ? "Sin items" : totalFormatted}
+        {totalFormatted}
       </Button>
     </div>
   )
