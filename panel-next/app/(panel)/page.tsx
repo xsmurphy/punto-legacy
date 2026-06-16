@@ -143,7 +143,6 @@ export default function DashboardPage() {
             <BigMetricCard
               label="Ingresos"
               href="/reports/summary"
-              currency={bootstrap?.currency ?? ""}
               value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
               isLoading={stats.isLoading}
               sparkline={incomeChart.data?.data.map((p) => p.ingresos)}
@@ -153,23 +152,67 @@ export default function DashboardPage() {
             <BigMetricCard
               label="Egresos"
               href="/purchase"
-              currency={bootstrap?.currency ?? ""}
               value={fmtMoney(stats.data?.expenses, bootstrap, stats.isLoading)}
               isLoading={stats.isLoading}
               sparkline={incomeChart.data?.data.map((p) => p.egresos)}
-              sparklineColor="var(--destructive)"
+              sparklineColor="var(--muted-foreground)"
               trend="down"
             />
           </section>
 
-          {/* Chart Ingresos vs Egresos + Margen */}
-          <section>
+          {/* Chart Ingresos vs Egresos + Margen — con sidebar de KPIs derivados
+              (Ganancia / Margen% / Cant. Ventas) a la derecha en lg+. */}
+          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_15rem]">
             <IncomeOutcomeChart
               data={incomeChart.data}
               isLoading={incomeChart.isLoading}
               error={incomeChart.error}
               bootstrap={bootstrap}
             />
+            <div className="flex flex-col gap-3">
+              <Card>
+                <CardContent className="flex flex-col items-center gap-1 py-6">
+                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Ganancia
+                  </span>
+                  {stats.isLoading ? (
+                    <Skeleton className="h-8 w-32" />
+                  ) : (
+                    <span className="text-2xl font-bold tabular-nums text-[var(--chart-1)]">
+                      {formatMoney(stats.data?.revenue, bootstrap)}
+                    </span>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="grid grid-cols-2 divide-x divide-border py-4">
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Margen
+                    </span>
+                    {stats.isLoading ? (
+                      <Skeleton className="h-6 w-12" />
+                    ) : (
+                      <span className="text-xl font-bold tabular-nums">
+                        {stats.data?.margin ?? 0}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Cant. Ventas
+                    </span>
+                    {stats.isLoading ? (
+                      <Skeleton className="h-6 w-12" />
+                    ) : (
+                      <span className="text-xl font-bold tabular-nums">
+                        {formatInt(stats.data?.count, bootstrap)}
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </section>
 
           {/* Tipos de ventas + Cuentas por cobrar — donuts lado a lado */}
@@ -251,7 +294,6 @@ export default function DashboardPage() {
 function BigMetricCard({
   label,
   href,
-  currency,
   value,
   isLoading,
   sparkline,
@@ -260,7 +302,6 @@ function BigMetricCard({
 }: {
   label: string
   href?: string
-  currency?: string
   value: React.ReactNode
   isLoading: boolean
   sparkline?: number[]
@@ -272,7 +313,7 @@ function BigMetricCard({
     trend === "up"
       ? "text-[var(--chart-1)]"
       : trend === "down"
-        ? "text-destructive"
+        ? "text-[var(--muted-foreground)]"
         : ""
 
   return (
@@ -298,9 +339,6 @@ function BigMetricCard({
           <Skeleton className="h-10 w-40" />
         ) : (
           <div className="flex items-baseline gap-2">
-            {currency && (
-              <span className="text-sm font-normal text-muted-foreground">{currency}</span>
-            )}
             <span className="text-3xl font-bold tracking-tight tabular-nums">{value}</span>
           </div>
         )}
@@ -353,7 +391,7 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
 
 const incomeChartConfig = {
   ingresos: { label: "Ingresos", color: "var(--chart-1)" },
-  egresos: { label: "Egresos", color: "var(--destructive)" },
+  egresos: { label: "Egresos", color: "var(--muted-foreground)" },
   margen: { label: "Margen", color: "var(--chart-3)" },
 } satisfies ChartConfig
 
@@ -654,8 +692,6 @@ function SatisfactionCard({
   const det = data?.detractors.percent ?? 0
   const pas = data?.passives.percent ?? 0
   const pro = data?.promoters.percent ?? 0
-  const totalResp =
-    (data?.detractors.count ?? 0) + (data?.passives.count ?? 0) + (data?.promoters.count ?? 0)
   return (
     <Card>
       <CardHeader>
@@ -714,11 +750,6 @@ function SatisfactionCard({
           />
         </div>
 
-        {!isLoading && (
-          <div className="text-center text-[10px] text-muted-foreground tabular-nums">
-            {totalResp} respuestas en total
-          </div>
-        )}
       </CardContent>
     </Card>
   )
@@ -808,20 +839,20 @@ function PaymentSplitCard({
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">
-        <div className="relative size-36 shrink-0">
+        <div className="relative h-[200px] w-[200px] shrink-0">
           {isLoading ? (
             <Skeleton className="size-full rounded-full" />
           ) : (
             <>
-              <ChartContainer config={donutChartConfig} className="size-full">
+              <ChartContainer config={donutChartConfig} className="size-full aspect-square">
                 <PieChart>
                   <Pie
                     data={pieData}
                     dataKey="value"
                     cx="50%"
                     cy="50%"
-                    innerRadius="65%"
-                    outerRadius="100%"
+                    innerRadius={90}
+                    outerRadius={100}
                     paddingAngle={total > 0 ? 2 : 0}
                     strokeWidth={0}
                   >
@@ -1047,9 +1078,7 @@ function InfoGeneralCard({
   const rows: { label: string; value: React.ReactNode; href?: string }[] = [
     {
       label: "Ticket promedio",
-      value: loading
-        ? null
-        : `${bootstrap?.currency ?? ""} ${fmtMoney(stats?.customerAverage, bootstrap, false)}`,
+      value: loading ? null : fmtMoney(stats?.customerAverage, bootstrap, false),
     },
     {
       label: "Clientes en total",
