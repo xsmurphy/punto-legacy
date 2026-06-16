@@ -23,7 +23,7 @@ import * as React from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Search, SearchCode } from "lucide-react"
+import { SearchCode } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -90,10 +90,13 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   const patchCustomer = useCatalogStore((s) => s.patchCustomer)
   const setCustomer = useCartStore((s) => s.setCustomer)
 
+  // Vacío = mostrar el form de crear cliente; con texto = listar clientes.
+  const trimmed = searchQuery.trim()
   const searchResults = React.useMemo(
-    () => searchCustomers(customers, searchQuery, 20),
-    [customers, searchQuery],
+    () => (trimmed ? searchCustomers(customers, trimmed, 20) : []),
+    [customers, trimmed],
   )
+  const isSearching = trimmed.length > 0
 
   // Reset on open / close.
   React.useEffect(() => {
@@ -129,29 +132,28 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        {/* ── Barra de búsqueda ── */}
-        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <Search className="size-5 shrink-0 text-muted-foreground" />
+        {/* ── Input grande centrado ── */}
+        <div className="px-5 py-5">
           <Input
             ref={searchInputRef}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar clientes…"
-            className="h-auto flex-1 rounded-none border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0"
+            placeholder="Buscar clientes"
+            className="h-auto border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-medium placeholder:text-muted-foreground focus-visible:ring-0"
             autoComplete="off"
             aria-label="Buscar clientes"
           />
         </div>
 
-        {/* ── Resultados de búsqueda (solo si hay query o hay resultados) ── */}
-        {(searchQuery.length > 0 || searchResults.length > 0) && (
-          <div className="border-b border-border">
+        {/* Vacío → form de crear cliente. Con texto → lista de clientes. */}
+        {isSearching ? (
+          <div className="flex-1 overflow-y-auto border-t border-border">
             {searchResults.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-muted-foreground">
-                Sin resultados.
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Sin resultados para “{trimmed}”.
               </p>
             ) : (
-              <ul>
+              <ul role="listbox" aria-label="Resultados de clientes">
                 {searchResults.map((c) => (
                   <CustomerResultRow
                     key={c.id}
@@ -162,10 +164,14 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
               </ul>
             )}
           </div>
+        ) : (
+          <div className="border-t border-border">
+            <p className="px-5 pt-4 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+              Crear cliente
+            </p>
+            <CreateCustomerForm onCreated={handleCustomerCreated} />
+          </div>
         )}
-
-        {/* ── Formulario de creación ── */}
-        <CreateCustomerForm onCreated={handleCustomerCreated} />
       </DialogContent>
     </Dialog>
   )

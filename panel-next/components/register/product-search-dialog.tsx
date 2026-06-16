@@ -14,7 +14,6 @@
  */
 
 import * as React from "react"
-import { Search } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -62,9 +61,11 @@ export function ProductSearchDialog({
     }
   }, [open])
 
+  // Vacío = sin lista (solo el input). Solo busca cuando hay texto.
+  const trimmed = query.trim()
   const results = React.useMemo(
-    () => searchItems(items, query, 50),
-    [items, query],
+    () => (trimmed ? searchItems(items, trimmed, 50) : []),
+    [items, trimmed],
   )
 
   function handleSelect(item: PosItem) {
@@ -85,39 +86,40 @@ export function ProductSearchDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* ── Barra de búsqueda grande ── */}
-        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <Search className="size-5 shrink-0 text-muted-foreground" />
+        {/* ── Input grande centrado (vacío = solo esto) ── */}
+        <div className="px-5 py-5">
           <Input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar producto por nombre o SKU…"
-            className="h-auto flex-1 rounded-none border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0"
+            placeholder="Buscar productos o servicios"
+            className="h-auto border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-medium placeholder:text-muted-foreground focus-visible:ring-0"
             autoComplete="off"
             aria-label="Buscar producto"
           />
         </div>
 
-        {/* ── Lista de resultados ── */}
-        <div className="flex-1 overflow-y-auto">
-          {results.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              {query ? "Sin resultados para esa búsqueda." : "Empezá a escribir para buscar."}
-            </p>
-          ) : (
-            <ul role="listbox" aria-label="Resultados de búsqueda">
-              {results.map((item) => (
-                <ProductResultRow
-                  key={item.id}
-                  item={item}
-                  config={config}
-                  onSelect={() => handleSelect(item)}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
+        {/* ── Resultados: solo cuando hay texto ── */}
+        {trimmed.length > 0 && (
+          <div className="max-h-[60vh] flex-1 overflow-y-auto border-t border-border">
+            {results.length === 0 ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Sin resultados para “{trimmed}”.
+              </p>
+            ) : (
+              <ul role="listbox" aria-label="Resultados de búsqueda">
+                {results.map((item) => (
+                  <ProductResultRow
+                    key={item.id}
+                    item={item}
+                    config={config}
+                    onSelect={() => handleSelect(item)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )
