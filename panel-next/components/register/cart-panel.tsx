@@ -571,12 +571,12 @@ function CartBottom({
         </button>
       </div>
 
-      {/* Botón cobrar — full pill verde brand (feedback owner 2026-06-16):
-          `rounded-full` 100% corner radius, `bg-brand`, sin hover translate. */}
+      {/* Botón cobrar — pill neutro del design system (Button default, --primary).
+          `rounded-full` 100% corner radius; solo override de tamaño. */}
       <Button
         disabled={lineCount === 0}
         onClick={lineCount > 0 ? onPayClick : undefined}
-        className="h-auto w-full rounded-full bg-brand px-4 py-4 text-2xl font-bold text-brand-foreground transition-all hover:bg-brand/90 active:scale-[0.98]"
+        className="h-auto w-full rounded-full px-4 py-4 text-2xl font-bold active:scale-[0.98]"
         aria-label={`Cobrar ${totalFormatted}`}
       >
         {lineCount === 0 ? "Sin items" : totalFormatted}
