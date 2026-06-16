@@ -137,17 +137,32 @@ final class UsersService
             throw new \InvalidArgumentException('La contraseña es obligatoria para nuevos usuarios');
         }
 
+        $lockPass = trim((string) ($in['lockPass'] ?? ''));
+        if ($lockPass !== '' && !preg_match('/^\d{4}$/', $lockPass)) {
+            throw new \InvalidArgumentException('El código POS debe tener 4 dígitos numéricos');
+        }
+        if ($this->pinIsTaken($lockPass, $companyId, null)) {
+            throw new \InvalidArgumentException('El código POS ya está en uso por otro usuario');
+        }
+
+        $email = trim((string) ($in['email'] ?? ''));
+        if ($email !== '' && $this->emailIsTaken($email, $companyId, null)) {
+            throw new \InvalidArgumentException('Ya hay un usuario con ese email');
+        }
+
+        $this->assertPlanLimit($companyId);
+
         [$hash, $salt] = self::hashPassword((string) $password);
 
         $rec = [
             'contactName'              => $name,
-            'contactEmail'             => $in['email']            ?? null,
+            'contactEmail'             => $email !== '' ? $email : null,
             'contactPhone'             => $in['phone']            ?? null,
             'contactPassword'          => $hash,
             'salt'                     => $salt,
             'role'                     => $in['roleId']           ?? null,
             'outletId'                 => $in['outletId']         ?? null,
-            'lockPass'                 => $in['lockPass']         ?? null,
+            'lockPass'                 => $lockPass !== '' ? $lockPass : null,
             'contactInCalendar'        => !empty($in['inCalendar']) ? true : false,
             'contactCalendarPosition'  => isset($in['calendarPosition']) ? (int) $in['calendarPosition'] : 0,
             'contactColor'             => $in['color']            ?? null,
@@ -178,7 +193,11 @@ final class UsersService
             $rec['contactName'] = trim($in['name']);
         }
         if (array_key_exists('email', $in)) {
-            $rec['contactEmail'] = $in['email'] ?: null;
+            $email = trim((string) ($in['email'] ?? ''));
+            if ($email !== '' && $this->emailIsTaken($email, $companyId, $id)) {
+                throw new \InvalidArgumentException('Ya hay un usuario con ese email');
+            }
+            $rec['contactEmail'] = $email !== '' ? $email : null;
         }
         if (array_key_exists('phone', $in)) {
             $rec['contactPhone'] = $in['phone'] ?: null;
@@ -195,7 +214,14 @@ final class UsersService
             $rec['outletId'] = $in['outletId'] ?: null;
         }
         if (array_key_exists('lockPass', $in)) {
-            $rec['lockPass'] = $in['lockPass'] ?: null;
+            $lockPass = trim((string) ($in['lockPass'] ?? ''));
+            if ($lockPass !== '' && !preg_match('/^\d{4}$/', $lockPass)) {
+                throw new \InvalidArgumentException('El código POS debe tener 4 dígitos numéricos');
+            }
+            if ($this->pinIsTaken($lockPass, $companyId, $id)) {
+                throw new \InvalidArgumentException('El código POS ya está en uso por otro usuario');
+            }
+            $rec['lockPass'] = $lockPass !== '' ? $lockPass : null;
         }
         if (array_key_exists('inCalendar', $in)) {
             $rec['contactInCalendar'] = !empty($in['inCalendar']) ? true : false;
@@ -227,6 +253,78 @@ final class UsersService
     }
 
     // ── privados ──────────────────────────────────────────────────────────────
+
+    /** True si ya existe otro empleado activo en la empresa con ese PIN. */
+    private function pinIsTaken(string $pin, string $companyId, ?string $excludeId): bool
+    {
+        if ($pin === '') return false;
+        $sql = "SELECT contactId FROM contact
+                WHERE companyId = ? AND type = ? AND lockPass = ? AND contactStatus > 0";
+        $params = [$companyId, self::TYPE_USER, $pin];
+        if ($excludeId !== null) {
+            $sql .= " AND contactId <> ?";
+            $params[] = $excludeId;
+        }
+        $sql .= " LIMIT 1";
+        $row = ncmExecute($sql, $params);
+        return $row !== false && $row !== null;
+    }
+
+    /** True si ya existe otro empleado activo en la empresa con ese email. */
+    private function emailIsTaken(string $email, string $companyId, ?string $excludeId): bool
+    {
+        if ($email === '') return false;
+        $sql = "SELECT contactId FROM contact
+                WHERE companyId = ? AND type = ? AND LOWER(contactEmail) = LOWER(?) AND contactStatus > 0";
+        $params = [$companyId, self::TYPE_USER, $email];
+        if ($excludeId !== null) {
+            $sql .= " AND contactId <> ?";
+            $params[] = $excludeId;
+        }
+        $sql .= " LIMIT 1";
+        $row = ncmExecute($sql, $params);
+        return $row !== false && $row !== null;
+    }
+
+    /**
+     * Lanza InvalidArgumentException si la empresa alcanzó el tope de usuarios
+     * del plan. Paridad con `checkPlanMaxReached` del legacy: el tope efectivo
+     * es `plans.max_users * max(1, outlets)`. Si el plan no define tope (0/null),
+     * no hay límite.
+     */
+    private function assertPlanLimit(string $companyId): void
+    {
+        $current = (int) (ncmExecute(
+            "SELECT COUNT(*) AS c FROM contact
+              WHERE companyId = ? AND type = ? AND contactStatus > 0",
+            [$companyId, self::TYPE_USER]
+        )['c'] ?? 0);
+
+        $planCode = (string) (ncmExecute(
+            "SELECT plan FROM company WHERE companyId = ? LIMIT 1",
+            [$companyId]
+        )['plan'] ?? '');
+        if ($planCode === '') return;
+
+        $planRow = ncmExecute(
+            "SELECT max_users FROM plans WHERE plan_code = ? LIMIT 1",
+            [$planCode]
+        );
+        $maxPerOutlet = (int) ($planRow['max_users'] ?? 0);
+        if ($maxPerOutlet <= 0) return;
+
+        $outlets = (int) (ncmExecute(
+            "SELECT COUNT(*) AS c FROM outlet WHERE companyId = ?",
+            [$companyId]
+        )['c'] ?? 0);
+        $max = $maxPerOutlet * max(1, $outlets);
+
+        if ($current >= $max) {
+            throw new \InvalidArgumentException(
+                "Alcanzaste el límite de usuarios de tu plan ({$current}/{$max})"
+            );
+        }
+    }
 
     /** Shape canónico para respuestas. */
     private function shape(array $row): array

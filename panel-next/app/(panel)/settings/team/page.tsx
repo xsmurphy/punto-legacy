@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowLeft, Plus, Loader2, Users, Pencil, CircleOff, Circle, Shield } from "lucide-react"
+import { ArrowLeft, Plus, Loader2, Users, Pencil, CircleOff, Shield } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -42,6 +42,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -72,8 +73,8 @@ const teamSchema = z
     password:         z.string(),
     roleId:           z.string(),
     outletId:         z.string(),
-    lockPass:         z.string().refine((v) => v === "" || /^\d+$/.test(v), {
-      message: "El código POS debe ser numérico",
+    lockPass:         z.string().refine((v) => v === "" || /^\d{4}$/.test(v), {
+      message: "El código POS debe tener 4 dígitos",
     }),
     inCalendar:       z.boolean(),
     color:            z.string(),
@@ -182,6 +183,17 @@ function buildColumns(
       },
     },
     {
+      accessorKey: "lockPass",
+      header: "Código POS",
+      cell: ({ row }) =>
+        row.original.lockPass ? (
+          <span className="font-mono tabular-nums">{row.original.lockPass}</span>
+        ) : (
+          <span className="text-muted-foreground text-xs">—</span>
+        ),
+      meta: { className: "tabular-nums" },
+    },
+    {
       accessorKey: "outletName",
       header: "Sucursal",
       cell: ({ row }) =>
@@ -200,8 +212,8 @@ function buildColumns(
       header: "Estado",
       cell: ({ row }) =>
         row.original.status === 1 ? (
-          <Badge variant="outline" className="gap-1 text-emerald-600 border-emerald-200">
-            <Circle className="size-2 fill-emerald-500 stroke-none" />
+          <Badge variant="outline" className="gap-1.5">
+            <span className="size-1.5 rounded-full bg-[var(--chart-1)]" />
             Activo
           </Badge>
         ) : (
@@ -359,14 +371,23 @@ function TeamForm({
               <FormItem>
                 <FormLabel>Código POS</FormLabel>
                 <FormControl>
-                  <Input
+                  <InputOTP
+                    maxLength={4}
+                    value={field.value}
+                    onChange={field.onChange}
                     inputMode="numeric"
-                    placeholder="PIN numérico para la caja"
-                    {...field}
-                  />
+                    pattern="^[0-9]*$"
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={1} />
+                      <InputOTPSlot index={2} />
+                      <InputOTPSlot index={3} />
+                    </InputOTPGroup>
+                  </InputOTP>
                 </FormControl>
                 <FormDescription className="text-xs">
-                  Código de desbloqueo en la pantalla de la caja.
+                  Código de 4 dígitos para desbloquear la pantalla de la caja.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
