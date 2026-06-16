@@ -105,13 +105,17 @@ export function AppSidebar({
   onSelectAllOutlets,
 }: AppSidebarProps) {
   const pathname = usePathname()
+  // En /pos no hay command palette (⌘K / botón "Buscar"): es una herramienta
+  // del panel, no de la caja. La caja tiene su propia búsqueda (lupa del POS).
+  const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
   const { toggleSidebar, state, isMobile } = useSidebar()
   const isCollapsed = state === "collapsed"
   const [commandOpen, setCommandOpen] = useState(false)
 
   // Atajo ⌘K / Ctrl+K para abrir el palette. (⌘B sigue siendo el toggle del
-  // sidebar — viene del SidebarProvider.)
+  // sidebar — viene del SidebarProvider.) Desactivado en /pos.
   React.useEffect(() => {
+    if (isPos) return
     const handler = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
@@ -120,7 +124,7 @@ export function AppSidebar({
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [])
+  }, [isPos])
 
   const userInitials = user.name
     .split(" ")
@@ -250,31 +254,34 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        {/* Searchbox-trigger del Command Palette (⌘K). Por ahora solo visual. */}
-        <SidebarGroup className="pt-1 pb-0">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="Buscar (⌘K)"
-                  onClick={() => setCommandOpen(true)}
-                  // Solo border, sin bg ni rounded override — hereda
-                  // `rounded-xl` y el bg transparente del SidebarMenuButton
-                  // (cva del primitive shadcn). `cursor-pointer` + override
-                  // explícito del hover para que se vea con #E3E5E9 (el
-                  // `--sidebar-accent` default es casi indistinguible del bg).
-                  className="h-10 cursor-pointer border border-border text-base text-muted-foreground hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
-                >
-                  <Search />
-                  <span>Buscar…</span>
-                  <kbd className="ml-auto hidden items-center gap-0.5 rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground sm:inline-flex">
-                    <span className="text-xs">⌘</span>K
-                  </kbd>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {/* Searchbox-trigger del Command Palette (⌘K). Solo en el panel —
+            en /pos no se muestra (la caja tiene su propia búsqueda). */}
+        {!isPos && (
+          <SidebarGroup className="pt-1 pb-0">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="Buscar (⌘K)"
+                    onClick={() => setCommandOpen(true)}
+                    // Solo border, sin bg ni rounded override — hereda
+                    // `rounded-xl` y el bg transparente del SidebarMenuButton
+                    // (cva del primitive shadcn). `cursor-pointer` + override
+                    // explícito del hover para que se vea con #E3E5E9 (el
+                    // `--sidebar-accent` default es casi indistinguible del bg).
+                    className="h-10 cursor-pointer border border-border text-base text-muted-foreground hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] [&>svg]:size-5 md:h-9 md:text-sm md:[&>svg]:size-4"
+                  >
+                    <Search />
+                    <span>Buscar…</span>
+                    <kbd className="ml-auto hidden items-center gap-0.5 rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground sm:inline-flex">
+                      <span className="text-xs">⌘</span>K
+                    </kbd>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupContent>
