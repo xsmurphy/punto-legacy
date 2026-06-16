@@ -99,7 +99,7 @@ export function CartPanel() {
   }, [selectedLineId, selectLine])
 
   return (
-    <div className="flex h-full flex-col bg-sidebar">
+    <div className="flex h-full flex-col border-l border-border bg-background">
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
@@ -484,7 +484,7 @@ function CartBottom({
   const ivaFormatted = formatMoney(iva, config)
 
   return (
-    <div className="shrink-0 bg-sidebar p-2 pt-2">
+    <div className="shrink-0 bg-background p-2 pt-2">
       {/* Toggles CRÉDITO / INTERNO / IVA — distribuidos de forma pareja */}
       <div className="mb-2 flex items-center justify-center gap-2">
         <ToggleChip

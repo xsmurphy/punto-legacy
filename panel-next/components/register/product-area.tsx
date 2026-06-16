@@ -390,7 +390,7 @@ function EditableEmptySlot({
   onDrop: () => void
 }) {
   if (!editing) {
-    return <div className="aspect-square rounded-xl bg-muted/30 dark:bg-muted/15" />
+    return <div className="aspect-square rounded-xl bg-sidebar" />
   }
 
   return (
@@ -402,7 +402,7 @@ function EditableEmptySlot({
       aria-label="Agregar acceso directo"
       className={cn(
         "aspect-square rounded-xl border border-dashed border-muted-foreground/30",
-        "flex items-center justify-center bg-muted/20 transition-colors",
+        "flex items-center justify-center bg-sidebar transition-colors",
         "hover:border-muted-foreground/60 hover:bg-muted/40",
       )}
     >
