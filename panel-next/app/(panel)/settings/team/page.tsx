@@ -16,12 +16,12 @@ import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 import { FormSection } from "@/components/forms/form-section"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -631,17 +631,17 @@ export default function TeamPage() {
         />
       )}
 
-      {/* Sheet crear/editar */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
-          <SheetHeader className="mb-6">
-            <SheetTitle>{editing ? "Editar usuario" : "Nuevo usuario"}</SheetTitle>
-            <SheetDescription>
+      {/* Dialog crear/editar — modal centrado, NO drawer lateral */}
+      <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar usuario" : "Nuevo usuario"}</DialogTitle>
+            <DialogDescription>
               {editing
                 ? `Modificando datos de ${editing.name}.`
                 : "Completá los datos del nuevo integrante del equipo."}
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <TeamForm
             isEdit={!!editing}
             form={form}
@@ -650,8 +650,8 @@ export default function TeamPage() {
             isPending={isPending}
             onSubmit={onSubmit}
           />
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirm desactivar */}
       <AlertDialog open={!!deactivating} onOpenChange={(o) => !o && setDeactivating(null)}>
