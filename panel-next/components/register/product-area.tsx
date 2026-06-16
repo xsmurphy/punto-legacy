@@ -80,6 +80,12 @@ export function ProductArea() {
     return m
   }, [items])
 
+  // Lista para la barra flotante de categorías (preserva el orden de aparición).
+  const categoryList = React.useMemo(
+    () => Array.from(categoryName.entries()).map(([id, name]) => ({ id, name })),
+    [categoryName],
+  )
+
   const hotkeyAt = React.useMemo(() => {
     const m = new Map<number, Hotkey>()
     for (const h of hotkeys) m.set(h.position, h)
@@ -158,7 +164,7 @@ export function ProductArea() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 overflow-y-auto p-3 pb-20">
         {categoryId === null ? (
           // ── Grilla de hotkeys ──
           <div
@@ -225,17 +231,49 @@ export function ProductArea() {
         )}
       </div>
 
-      {/* Botón "volver a hotkeys" — solo dentro de una categoría. */}
-      {categoryId !== null && (
-        <div className="absolute bottom-3 left-3 z-10">
-          <Button
-            variant="secondary"
-            className="gap-2 rounded-full shadow-lg"
-            onClick={() => setCategoryId(null)}
-          >
-            <ChevronLeft className="size-4" />
-            Volver
-          </Button>
+      {/* Barra flotante de categorías — pill oscura con scroll horizontal.
+          Oculta en modo edición para no estorbar. */}
+      {!editing && categoryList.length > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
+          <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-neutral-900/85 py-1.5 pl-1.5 pr-3 shadow-lg backdrop-blur-md">
+            {/* Botón circular back: vuelve a hotkeys cuando hay drill-in. */}
+            <button
+              type="button"
+              onClick={() => setCategoryId(null)}
+              disabled={categoryId === null}
+              aria-label="Volver a hotkeys"
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-full bg-neutral-700/80 text-white transition-colors",
+                categoryId !== null ? "hover:bg-neutral-600" : "opacity-50",
+              )}
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            {/* Lista scrolleable de categorías. */}
+            <div
+              className="flex items-center gap-1 overflow-x-auto whitespace-nowrap"
+              style={{ scrollbarWidth: "none" }}
+            >
+              {categoryList.map((cat) => {
+                const active = cat.id === categoryId
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setCategoryId(cat.id)}
+                    className={cn(
+                      "shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-colors",
+                      active
+                        ? "bg-white text-neutral-900"
+                        : "text-white/80 hover:text-white",
+                    )}
+                  >
+                    {cat.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
 
