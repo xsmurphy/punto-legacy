@@ -543,9 +543,9 @@ function SuccessPhase({ result, total, config, onPrint, onClose }: SuccessPhaseP
         <p className="text-3xl font-black tabular-nums text-foreground">
           {formatMoney(total, config)}
         </p>
-        {result?.simulated && (
+        {result?.duplicated && (
           <Badge variant="outline" className="mt-1 text-[10px] text-muted-foreground">
-            simulado (Slice A3 — sin POST real)
+            ya guardada previamente — uid idempotente
           </Badge>
         )}
       </div>
