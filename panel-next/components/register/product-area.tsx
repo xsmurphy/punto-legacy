@@ -14,7 +14,6 @@
  */
 
 import * as React from "react"
-import Image from "next/image"
 import { ChevronLeft, Plus, X, Check, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -296,7 +295,12 @@ function HotkeyTile({
       >
         {hasImage && item?.imageUrl ? (
           <>
-            <Image src={item.imageUrl} alt={label} fill sizes="20vw" className="object-cover" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={item.imageUrl}
+              alt={label}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
             <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
           </>
         ) : (
@@ -318,33 +322,33 @@ function HotkeyTile({
 
       {/* Overlay de edición (solo en modo edición) */}
       {editing && (
-        <div className="absolute inset-0 flex flex-col justify-between rounded-xl p-1 ring-1 ring-white/20">
+        <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/30">
           {/* Botón eliminar (arriba-derecha) */}
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onRemove() }}
-              aria-label="Quitar"
-              className="flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive"
-            >
-              <X className="size-3" />
-            </button>
-          </div>
-          {/* Selector de color (abajo) */}
-          <div className="flex flex-wrap gap-0.5 justify-center">
-            {HOTKEY_COLORS.map((c) => (
-              <button
-                key={c.key}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onColorChange(c.key) }}
-                aria-label={`Color ${c.key}`}
-                className={cn(
-                  "size-3 rounded-full transition-transform hover:scale-125",
-                  hotkey.color === c.key && "ring-2 ring-white ring-offset-1 ring-offset-black/40",
-                )}
-                style={{ backgroundColor: c.bg }}
-              />
-            ))}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRemove() }}
+            aria-label="Quitar"
+            className="pointer-events-auto absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive"
+          >
+            <X className="size-3" />
+          </button>
+          {/* Selector de color: pill centrado con fondo oscuro (no pisa el título) */}
+          <div className="pointer-events-auto absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
+            <div className="flex gap-1 rounded-full bg-black/70 px-2 py-1.5 shadow-lg">
+              {HOTKEY_COLORS.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onColorChange(c.key) }}
+                  aria-label={`Color ${c.key}`}
+                  className={cn(
+                    "size-3.5 rounded-full transition-transform hover:scale-125",
+                    hotkey.color === c.key && "ring-2 ring-white ring-offset-1 ring-offset-black/60",
+                  )}
+                  style={{ backgroundColor: c.bg }}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -363,7 +367,12 @@ function ProductTile({ item, onClick }: { item: PosItem; onClick: () => void }) 
       style={item.imageUrl ? undefined : { backgroundColor: DEFAULT_TILE }}
     >
       {item.imageUrl && (
-        <Image src={item.imageUrl} alt={item.name} fill sizes="20vw" className="object-cover" />
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.imageUrl}
+          alt={item.name}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
       )}
       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 p-2">
