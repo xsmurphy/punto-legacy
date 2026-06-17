@@ -10,9 +10,7 @@
  * Endpoints expuestos:
  *   GET  /api/pos/drawer           → resumen completo (list, date, subtotal, total, tips, returns)
  *   GET  /api/pos/drawer?check=1   → { isOpen: bool }
- *   POST /api/pos/drawer           → abrir/cerrar caja (body: { type, amount, date, user })
- *   POST /api/pos/drawer/expense   → extracción (body: { amount, note, date })
- *   POST /api/pos/drawer/income    → ingreso    (body: { amount, note, date })
+ *   POST /api/pos/drawer           → { action: "open"|"close"|"expense"|"income", amount, date, note?, user? }
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -109,10 +107,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 }
 
 // ── POST /api/pos/drawer  ─────────────────────────────────────────────────────
-// Body: { action: "open"|"close"|"expense"|"income", amount, note?, date }
-// El backend de apertura/cierre usa action.php (legacy POS realm).
-// El backend de expense/income también usa action.php.
-// Exponemos un único endpoint POST con `action` para simplificar el front.
+// Body: { action: "open"|"close"|"expense"|"income", amount, date, note?, user? }
+// Repunta a /v1/drawer.php (POST JSON) — ya no usa /action.php (legacy muerto).
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let body: Record<string, unknown>
@@ -123,56 +119,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const action = body.action as string | undefined
-
-  if (action === "open" || action === "close") {
-    // Apertura/cierre: action.php con key `openCloseDrawer`
-    const params = new URLSearchParams()
-    params.set(
-      "data[]",
-      JSON.stringify({
-        openCloseDrawer: {
-          type: action,
-          amount: body.amount ?? 0,
-          date: body.date ?? new Date().toISOString().replace("T", " ").slice(0, 19),
-          user: body.user ?? "",
-          timestamp: Date.now(),
-        },
-      }),
-    )
-    return proxyToApi("POST", "/action.php", req, params)
+  if (!action || !["open", "close", "expense", "income"].includes(action)) {
+    return NextResponse.json({ ok: false, error: { message: "Acción no soportada" } }, { status: 400 })
   }
 
-  if (action === "expense") {
-    // Extracción de efectivo
-    const params = new URLSearchParams()
-    params.set(
-      "data[]",
-      JSON.stringify({
-        expense: {
-          amount: body.amount ?? 0,
-          note: body.note ?? "",
-          date: body.date ?? new Date().toISOString().replace("T", " ").slice(0, 19),
-        },
-      }),
-    )
-    return proxyToApi("POST", "/action.php", req, params)
+  const payload: Record<string, unknown> = {
+    action,
+    amount: body.amount ?? 0,
+    date: body.date ?? new Date().toISOString().replace("T", " ").slice(0, 19),
+    note: body.note ?? "",
+    user: body.user ?? "",
   }
 
-  if (action === "income") {
-    // Ingreso de efectivo
-    const params = new URLSearchParams()
-    params.set(
-      "data[]",
-      JSON.stringify({
-        drwrIncome: {
-          amount: body.amount ?? 0,
-          note: body.note ?? "",
-          date: body.date ?? new Date().toISOString().replace("T", " ").slice(0, 19),
-        },
-      }),
-    )
-    return proxyToApi("POST", "/action.php", req, params)
-  }
-
-  return NextResponse.json({ ok: false, error: { message: "Acción no soportada" } }, { status: 400 })
+  return proxyToApi("POST", "/v1/drawer.php", req, JSON.stringify(payload), {
+    "content-type": "application/json",
+  })
 }

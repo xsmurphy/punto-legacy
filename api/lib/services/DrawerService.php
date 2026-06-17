@@ -122,6 +122,191 @@ final class DrawerService
         return $out;
     }
 
+    // ========================================================================
+    // MUTACIONES — porteadas de app/action.php (handlers openCloseDrawer,
+    // expense, drwrIncome). Antes estas acciones iban a /action.php (monolito
+    // legacy); ahora van a POST /v1/drawer.php → estos métodos.
+    // ========================================================================
+
+    /**
+     * Abre la caja. Falla si ya hay una abierta (devuelve 'Already Open').
+     *
+     * @return string|true 'Already Open' si ya está abierta; true en éxito.
+     * @throws \RuntimeException en error de DB.
+     */
+    public function open(float $amount, string $date, string $userId): string|true
+    {
+        global $db;
+
+        $existing = $this->findOpenRow($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
+        if ($existing !== null) {
+            return 'Already Open';
+        }
+
+        $record = [
+            'drawerOpenDate'   => $date,
+            'drawerOpenAmount' => $amount,
+            'drawerUserOpen'   => $userId,
+            'drawerUserClose'  => null,
+            'drawerUID'        => 0,
+            'registerId'       => $this->ctx->registerId,
+            'outletId'         => $this->ctx->outletId,
+            'companyId'        => $this->ctx->companyId,
+        ];
+
+        try {
+            $ok = $db->AutoExecute('drawer', $record, 'INSERT');
+        } catch (\Throwable $e) {
+            // El índice uidx_drawer_register_open (mig 34) protege contra race:
+            // si dos requests pasan el findOpenRow simultáneamente, el segundo
+            // falla con unique violation acá.
+            if (stripos($e->getMessage(), 'uidx_drawer_register_open') !== false
+                || stripos($e->getMessage(), 'duplicate key') !== false) {
+                return 'Already Open';
+            }
+            throw new \RuntimeException($e->getMessage());
+        }
+        if ($ok === false) {
+            throw new \RuntimeException($db->ErrorMsg() ?: 'Error al abrir caja');
+        }
+
+        return true;
+    }
+
+    /**
+     * Cierra la caja abierta. Falla si ya está cerrada o si la fecha de cierre
+     * es anterior a la de apertura.
+     *
+     * @return string|true 'Already Closed' / 'Invalid Close Date' / true.
+     * @throws \RuntimeException en error de DB.
+     */
+    public function close(float $amount, string $date, string $userId): string|true
+    {
+        global $db;
+
+        $row = $this->findOpenRow($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
+        if ($row === null) {
+            return 'Already Closed';
+        }
+
+        if (strtotime((string) $row['drawerOpenDate']) > strtotime($date)) {
+            return 'Invalid Close Date';
+        }
+
+        $ok = ncmExecute(
+            'UPDATE drawer SET drawerCloseDate = ?, drawerCloseAmount = ?, drawerUserClose = ? WHERE drawerId = ?',
+            [$date, $amount, $userId, $row['drawerId']]
+        );
+
+        if ($ok === false) {
+            throw new \RuntimeException('Error al cerrar caja');
+        }
+
+        return true;
+    }
+
+    /**
+     * Registra una extracción de efectivo desde la caja.
+     * Idempotente: si ya existe un movimiento con el mismo monto y fecha para
+     * este registro, devuelve 'Expense Already Exists' sin crear duplicado.
+     *
+     * @return string|true 'Expense Already Exists' / true.
+     * @throws \RuntimeException en error de DB.
+     */
+    public function addExpense(float $amount, string $note, string $date): string|true
+    {
+        global $db;
+
+        $exists = ncmExecute(
+            'SELECT expensesId FROM expenses WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? LIMIT 1',
+            [$amount, $date, $this->ctx->registerId]
+        );
+        if ($exists) {
+            return 'Expense Already Exists';
+        }
+
+        $record = [
+            // fix: expensesNameId es NOT NULL REFERENCES taxonomy en el schema original.
+            // Los movimientos de caja no tienen categoría real. La migración
+            // 33_expenses_name_nullable.sql hace la columna nullable para este caso.
+            'expensesNameId'        => null,
+            'expensesAmount'        => $amount,
+            'expensesDate'          => $date,
+            'expensesDescription'   => $note,
+            // type IS NULL = extracción (según DrawerService::getExpenses)
+            'userId'                => $this->ctx->userId,
+            'registerId'            => $this->ctx->registerId,
+            'outletId'              => $this->ctx->outletId,
+            'companyId'             => $this->ctx->companyId,
+        ];
+
+        $ok = $db->AutoExecute('expenses', $record, 'INSERT');
+        if ($ok === false) {
+            throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar extracción');
+        }
+
+        return true;
+    }
+
+    /**
+     * Registra un ingreso de efectivo a la caja.
+     * Idempotente: mismo control de duplicado que addExpense.
+     *
+     * @return string|true 'Income Already Exists' / true.
+     * @throws \RuntimeException en error de DB.
+     */
+    public function addIncome(float $amount, string $note, string $date): string|true
+    {
+        global $db;
+
+        $exists = ncmExecute(
+            'SELECT expensesId FROM expenses WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? LIMIT 1',
+            [(float) $amount, $date, $this->ctx->registerId]
+        );
+        if ($exists) {
+            return 'Income Already Exists';
+        }
+
+        $record = [
+            'expensesNameId'        => null,
+            'expensesAmount'        => (float) $amount,
+            'expensesDate'          => $date,
+            'expensesDescription'   => $note,
+            'type'                  => 1, // type = 1 = ingreso (según DrawerService::getIncome)
+            'userId'                => $this->ctx->userId,
+            'registerId'            => $this->ctx->registerId,
+            'outletId'              => $this->ctx->outletId,
+            'companyId'             => $this->ctx->companyId,
+        ];
+
+        $ok = $db->AutoExecute('expenses', $record, 'INSERT');
+        if ($ok === false) {
+            throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar ingreso');
+        }
+
+        return true;
+    }
+
+    // ========================================================================
+    // HELPERS PRIVADOS
+    // ========================================================================
+
+    /**
+     * Devuelve la fila del drawer abierto (drawerId + drawerOpenDate) o null.
+     * Centraliza la query de "hay caja abierta" usada por open() y close().
+     */
+    private function findOpenRow(string $registerId, string $outletId, string $companyId): ?array
+    {
+        $row = ncmExecute(
+            "SELECT drawerId, drawerOpenDate FROM drawer
+             WHERE registerId = ? AND outletId = ? AND companyId = ?
+             AND (drawerCloseDate IS NULL OR drawerCloseDate < '2000-01-01 00:00:00')
+             ORDER BY drawerOpenDate DESC LIMIT 1",
+            [$registerId, $outletId, $companyId]
+        );
+        return $row ?: null;
+    }
+
     /**
      * Resumen completo de la caja actual: list, date, subtotal, total, tips, returns.
      * Composite legacy/backward-compat — el path vigente es la composición en el BFF

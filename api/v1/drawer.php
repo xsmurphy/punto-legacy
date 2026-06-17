@@ -63,4 +63,68 @@ if ($method === 'GET') {
     apiOk($data);
 }
 
+// --- POST: mutaciones de caja (abrir, cerrar, extracción, ingreso) ----------
+// Body JSON: { action: "open"|"close"|"expense"|"income", amount, date, note?, user? }
+// Portado de app/action.php handlers: openCloseDrawer, expense, drwrIncome.
+if ($method === 'POST') {
+    // Guard: mutaciones de caja requieren registerId activo. El JWT del panel
+    // tiene rid='' por default; solo el JWT pos-app o un panel que llamó
+    // /v1/active-register llegan acá con registerId no vacío. Sin esta guarda,
+    // un panel sin caja activa crearía drawers fantasma con registerId=''.
+    if ($registerId === '' || $registerId === null) {
+        apiError('Caja no seleccionada (registerId vacío). Activá una caja antes de operar.', 403);
+    }
+
+    $rawBody = file_get_contents('php://input');
+    $body    = json_decode($rawBody ?: '', true);
+
+    if (!is_array($body)) {
+        apiError('Body JSON inválido', 400);
+    }
+
+    $action = trim((string) ($body['action'] ?? ''));
+    $amount = isset($body['amount']) ? (float) $body['amount'] : 0.0;
+    $date   = trim((string) ($body['date'] ?? ''));
+    $note   = trim((string) ($body['note'] ?? ''));
+    $user   = trim((string) ($body['user'] ?? ''));
+
+    if ($date === '') {
+        $date = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    }
+
+    // userId del JWT tiene precedencia; $user del body es solo para auditoría/email del legacy
+    $userId = $ctx['userId'] ?? '';
+
+    try {
+        switch ($action) {
+            case 'open':
+                $result = $svc->open($amount, $date, $userId);
+                break;
+            case 'close':
+                $result = $svc->close($amount, $date, $userId);
+                break;
+            case 'expense':
+                $result = $svc->addExpense($amount, $note, $date);
+                break;
+            case 'income':
+                $result = $svc->addIncome($amount, $note, $date);
+                break;
+            default:
+                apiError("Acción '$action' no soportada", 400);
+        }
+    } catch (\RuntimeException $e) {
+        apiError($e->getMessage(), 500);
+    }
+
+    // $result es true en éxito, o un string con el motivo de idempotencia
+    // (Already Open, Already Closed, etc.) — se devuelve como ok=true para
+    // que el front lo maneje igual que el legacy (jsonDieMsg con 200+success).
+    if ($result === true) {
+        apiOk(['message' => 'true']);
+    } else {
+        // Idempotencia: la acción ya fue aplicada — respuesta 200 con mensaje
+        apiOk(['message' => $result]);
+    }
+}
+
 apiError('Operación no reconocida', 400);
