@@ -3,6 +3,9 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-16 (tarde) — fixes panel-next + cleanup masivo de contexto + workflow
+Commits `1ce7a08..1ec8880` (9). Highlights: fix `itemSold` en `_getTableSchema()` (422 vacío en /purchase); 5 fixes UX panel-next (phone flags, Tab→nueva línea en /purchase, favicon, menú settings); poda agresiva context/ (-44.5%, archives + split convenciones); `context-updater` apagado definitivamente; nueva `_feature-requests.md` con 32 pedidos del batch comercial.
+
 ## 2026-06-16 — POS post-fusión: pulido masivo, lock screen y módulos
 Commits `556789c..5220d63` (~74). Highlights: fusión POS dentro de panel-next y eliminación de app-next; slices A6/A7 (BFF bootstrap, caja activa, JWT con `rid`); lock screen scoped + IVA real + rework UX del menú principal.
 
