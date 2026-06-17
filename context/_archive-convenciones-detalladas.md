@@ -1,9 +1,14 @@
-<!-- REGLA: Actualizar cuando se agregue una convención nueva, se modifique una existente,
-     o el usuario indique que una regla cambió. Marcar TO-CONFIRM las no validadas aún. -->
+<!-- ARCHIVE — convenciones detalladas / contexto histórico.
+     Los invariantes críticos (los que rompen el sistema si se ignoran) viven en
+     `08-convenciones-criticas.md`. Este archivo conserva el detalle expandido,
+     recetas, contexto histórico, y convenciones no-críticas para consulta.
+     No se carga automáticamente — leer bajo demanda con Grep + offset/limit. -->
 
-# 08 — Convenciones de Colaboración
+# Archive — Convenciones detalladas
 
-Versión detallada de las reglas listadas en CLAUDE.md.
+Versión expandida histórica del antiguo `08-convenciones.md`. Los invariantes
+que rompen el sistema migraron a `08-convenciones-criticas.md`; lo demás queda
+acá como referencia.
 
 ---
 

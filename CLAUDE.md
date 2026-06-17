@@ -18,19 +18,23 @@ proporcional al riesgo de la tarea:
 | Tema | Archivo |
 |---|---|
 | Producto / negocio | `01-producto.md` |
-| Arquitectura, flujos | `02-arquitectura.md` (641 L) |
+| Arquitectura, flujos | `02-arquitectura.md` (614 L) |
 | Stack, versiones | `03-stack.md` |
 | Schema, dominio | `04-modelo-de-dominio.md` |
 | Módulos | `05-modulos-clave.md` |
 | Infra, deploy, env vars | `06-infraestructura.md` |
 | Glosario | `07-glosario.md` |
-| **Convenciones de código** | `08-convenciones.md` (1590 L — usar Grep) |
+| **Convenciones críticas** | `08-convenciones-criticas.md` (241 L — invariantes nada más) |
 | Costos / créditos IA | `09-costos-y-creditos.md` |
-| **Roadmap** | `10-roadmap.md` (1637 L — usar Grep) |
+| **Roadmap (vivo)** | `10-roadmap.md` (699 L) |
 | Manual de marca | `11-design-system.md` |
 | **Panel rewrite** | `12-panel-rewrite.md` (crítico desde 2026-06-10) |
 | Plan refactor Items | `13-items-refactor-plan.md` |
+| Plan mesas | `15-mesas-module-plan.md` |
+| Rewrite POS (app-next) | `16-app-next-rewrite.md` |
 | Bitácora de sesiones | `_session-log.md` |
+
+> Items completados / docs superseded archivados en `_archive-*.md` (no se leen en uso normal).
 
 ### Archivos prohibidos para Read entero
 
@@ -39,7 +43,7 @@ explotan el contexto:
 
 - `graphify-out/graph.json` (2.1 MB) — datos crudos del grafo, sirve solo a graphify
 - `graphify-out/graph.html` (1.9 MB), `graph.svg` (5.3 MB) — visualizaciones
-- `context/10-roadmap.md` y `context/08-convenciones.md` (>1500 L cada uno) — Grep primero
+- `context/_archive-convenciones-detalladas.md` (1697 L) y `context/_archive-roadmap-completado.md` (1058 L) — son archives, no contexto vivo; Grep solo si necesitás referencia histórica
 
 Mempalace y Graphify **pueden usarse si la tarea lo justifica** (decisión
 revisada 2026-06-16). Antes la regla era "no usar nunca" porque gastaban
@@ -54,7 +58,7 @@ directo al código — no los invoques por protocolo.
 
 1. **Templating: Alpine.js, NO Mustache.js.** Todo template/UI nuevo se hace con
    Alpine (`x-data`/`x-for`/`x-if`/`x-text`/`x-html`). Prohibido crear nuevos
-   templates Mustache. Patrón Alpine: `context/08-convenciones.md` §24.
+   templates Mustache. Patrón Alpine: `context/08-convenciones-criticas.md` §24.
 
 2. **Marca: "Punto", NO "ENCOM".** No introducir "ENCOM" en código/UI/datos
    nuevos. El rename del nombre BD (`encomdb`), claves de permisos

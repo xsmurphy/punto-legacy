@@ -225,10 +225,18 @@ app-next/  (Next.js 15 PWA — separado de panel-next por necesidades offline/PW
 > nuevo cubra el core 100%. Coexisten en subdominios (`app.punto.la` legacy →
 > `app-next.punto.la` o flip cuando esté listo).
 
-**F0 — Sprint 0 / plumbing (1 sprint)**
-Scaffold `app-next/`, stack base, cliente `/api` + BFF same-origin, auth POS
-(handoff JWT `_jwt`, realm `pos-app`), shell + layout, data layer base
-(Zustand+Dexie+delta-sync del catálogo). Login + bootstrap (`fetchs` equivalente).
+**F0 — Sprint 0 / plumbing — ✅ COMPLETO (commits 2ead57f, 218ad54, dc3b5e5, 513bf9d, 2026-06-15)**
+
+Scaffold `app-next/` ✅ — Next.js 15, React 19, TS, shadcn, Tailwind, TanStack Query. Stack idéntico a panel-next. Dockerfile + `.dockerignore` para deploy en Coolify ✅.
+
+Slices implementados:
+- **Scaffold base**: `app/(pos)/layout.tsx`, `app/api/v1/[...path]/route.ts` (catch-all BFF same-origin → PHP `/api`), `app/api/pos/bootstrap/route.ts` (auth handoff JWT `_jwt` realm `pos-app`), `hooks/use-pos-bootstrap.ts`, `hooks/use-catalog-seed.ts`.
+- **Data layer base**: `lib/catalog/store.ts` (Zustand, catálogo en memoria), `lib/catalog/search.ts` (índice de búsqueda local), `lib/catalog/fixtures.ts` (datos de desarrollo), `lib/cart/store.ts` (estado del carrito).
+- **Hardware stubs**: `lib/hardware/qz-tray.ts`, `lib/hardware/ticket-builder.ts`, `lib/hardware/barcode-scanner.ts` (hook keyboard-wedge).
+- **Realtime stub**: `lib/realtime/ncm-ws.ts` (cliente WS portado de ncm-ws.js).
+- **Commands**: `lib/commands/create-sale.ts`, `lib/commands/create-customer.ts`, `lib/commands/registry.ts`.
+- **Slice A1 — pantalla de caja** (`app/(pos)/register/page.tsx`): carrito de venta, búsqueda de productos, listado de ítems del catálogo en memoria, UI con shadcn.
+- **Slice A2 — modales de búsqueda**: modal de búsqueda de productos y modal de selección/búsqueda de cliente, integrados en la pantalla de caja.
 
 **F1 — Núcleo de caja (online-first) — el grueso del valor**
 Pantalla de venta (carrito + categorías + búsqueda local indexada), cobro
