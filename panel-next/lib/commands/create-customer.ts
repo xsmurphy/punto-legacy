@@ -3,23 +3,25 @@
  *
  * offlineEligible: true (ver lib/commands/registry.ts).
  *
- * Hoy ejecuta ONLINE: llama al BFF → `api/v1/contacts` (POST).
- * Cuando se active la fase offline: el interceptor persiste en IndexedDB
- * y sincroniza al reconectar. No hay UID client-side aquí: el backend
- * retorna el UUID asignado y el store se parchea con `patchCustomer()`.
+ * Ejecuta ONLINE: llama al BFF → `api/v1/contacts` (POST).
+ * El backend (ContactService::create) recibe:
+ *   fiscalName → razón social (contactName si no viene name)
+ *   name       → nombre de la persona (contactSecondName)
+ *   phone      → E.164 (contactPhone)
+ *   tin        → RUC (contactTIN)
+ *   ci         → cédula (contactCI)
+ *   email      → (contactEmail)
+ * y retorna el UUID asignado.
  *
- * TODO (Slice A): implementar la lógica real:
- *   1. Validar campos mínimos (nombre + teléfono en E.164).
- *   2. Llamar `api.post('/v1/contacts', payload)`.
- *   3. Llamar `useCatalogStore.getState().patchCustomer(result)`.
- *   4. Retornar el PosCustomer creado para seleccionarlo en el carrito.
+ * Cuando se active la fase offline: el interceptor persiste en IndexedDB
+ * y sincroniza al reconectar. El uid garantiza deduplicación server-side.
  *
  * Teléfono: SIEMPRE en E.164 al backend. La UI captura en formato nacional
  * y convierte con libphonenumber-js antes de llamar este comando.
  * Ver convención §31 en context/08-convenciones.md.
  *
  * Referencia visual legacy: `app/scripts/app.js` namespace `ncmCustomer`
- * funciones: `newCustomer()`, `saveCustomer()`, las 8 subvistas del CRUD.
+ * funciones: `newCustomer()`, `saveCustomer()`.
  *
  * Ver context/16-app-next-rewrite.md §7 Slice A.
  */
@@ -44,31 +46,71 @@ export interface CreateCustomerPayload {
   note?: string
 }
 
+// ── Shape de respuesta del backend (/v1/contacts POST) ───────────────────────
+// ContactService::create retorna el UUID del contacto nuevo.
+// contacts.php devuelve { ok: true, data: { id: string } }.
+interface RawContactCreateResponse {
+  id: string
+}
+
 // ── Executor ──────────────────────────────────────────────────────────────────
 
 /**
- * Crea un cliente nuevo y retorna el PosCustomer para parchear el store.
- * TODO (Slice A): implementar.
+ * Crea un cliente nuevo en el backend y retorna el PosCustomer para parchear el store.
+ *
+ * Flow:
+ *   1. POST /v1/contacts con el payload del form.
+ *   2. Backend crea el contacto y retorna el UUID real.
+ *   3. Retornamos un PosCustomer con el UUID real (no client-side).
+ *
+ * Si el POST falla, lanza un ApiError que el caller debe mostrar como toast.
+ * El caller NO debe cerrar el dialog en ese caso.
  */
 export async function executeCreateCustomer(
-  _payload: CreateCustomerPayload,
+  payload: CreateCustomerPayload,
 ): Promise<PosCustomer> {
-  // TODO (Slice A): implementar.
-  // const result = await api.post<{ id: string; name: string; phone: string | null; tin: string | null }>("/v1/contacts", _payload)
-  // return { id: result.id, name: result.name, phone: result.phone, tin: result.tin, storeCredit: 0, isCreditable: false }
-  throw new Error("createCustomer: no implementado aún — ver TODO en lib/commands/create-customer.ts")
+  const result = await api.post<RawContactCreateResponse>("/v1/contacts", {
+    name: payload.name,
+    fiscalName: payload.fiscalName ?? payload.name,
+    phone: payload.phone ?? undefined,
+    tin: payload.tin ?? undefined,
+    ci: payload.ci ?? undefined,
+    email: payload.email ?? undefined,
+    note: payload.note ?? undefined,
+    // type 1 = cliente (TYPE_CUSTOMER en ContactService)
+    type: 1,
+  } as Record<string, unknown>)
+
+  return {
+    id: result.id,
+    name: payload.fiscalName?.trim() || payload.name,
+    phone: payload.phone ?? null,
+    tin: payload.tin?.trim() || null,
+    storeCredit: 0,
+    isCreditable: false,
+  }
 }
 
 /**
  * Edita un cliente existente y retorna el PosCustomer actualizado.
- * TODO (Slice A): implementar.
  */
 export async function executeUpdateCustomer(
-  _customerId: string,
-  _payload: Partial<CreateCustomerPayload>,
+  customerId: string,
+  payload: Partial<CreateCustomerPayload>,
 ): Promise<PosCustomer> {
-  // TODO (Slice A): implementar.
-  throw new Error("updateCustomer: no implementado aún — ver TODO en lib/commands/create-customer.ts")
+  const result = await api.put<{ id: string; name: string; phone: string | null; tin: string | null }>(
+    `/v1/contacts?id=${customerId}`,
+    payload as Record<string, unknown>,
+  )
+
+  return {
+    id: result.id,
+    name: result.name,
+    phone: result.phone ?? null,
+    tin: result.tin ?? null,
+    storeCredit: 0,
+    isCreditable: false,
+  }
 }
 
 export { api }

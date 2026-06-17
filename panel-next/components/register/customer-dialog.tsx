@@ -7,14 +7,14 @@
  *   - Barra "Buscar clientes" arriba → searchCustomers() local.
  *   - Lista de resultados (nombre + doc); click → setCustomer + cierra.
  *   - Panel "CREAR CLIENTE" con 2 secciones:
- *       DATOS DE FACTURACIÓN: Razón Social, RUC/N° doc + lupa stub, Tipo ID,
+ *       DATOS DE FACTURACIÓN: Razón Social, RUC/N° doc + lupa turuc.com.py, Tipo ID,
  *                             botón CREAR CLIENTE, link Borrar Formulario.
  *       DATOS PERSONALES: Nombre y Apellido, Doc. Identidad, E-mail,
  *                         Teléfono (PhoneInput → E.164), Dirección,
  *                         Fecha de Nacimiento. 2 columnas.
  *   - Form: react-hook-form + Zod.
- *   - Al crear: agrega al catalog store local (patchCustomer) + setCustomer
- *     + cierra. TODO cablear executeCreateCustomer (ver lib/commands/create-customer.ts).
+ *   - Al crear: POST al backend via executeCreateCustomer → patchCustomer + setCustomer
+ *     + cierra. Si falla: toast de error, dialog permanece abierto.
  *
  * Ver context/16-app-next-rewrite.md §6.1 y §7 Slice A2.
  */
@@ -23,7 +23,8 @@ import * as React from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { SearchCode, ChevronDown } from "lucide-react"
+import { SearchCode, ChevronDown, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import {
   Dialog,
   DialogContent,
@@ -41,9 +42,12 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { PhoneInput } from "@/components/forms/phone-input"
+import { DatePicker } from "@/components/date-picker"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
 import { searchCustomers } from "@/lib/catalog/search"
+import { executeCreateCustomer } from "@/lib/commands/create-customer"
+import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
 
@@ -55,7 +59,7 @@ const customerFormSchema = z.object({
   tin: z.string().optional(),
 
   // DATOS PERSONALES (opcionales — sección colapsada por default)
-  firstName: z.string().min(1, "Requerido"),
+  firstName: z.string().optional(),
   lastName: z.string().optional(),
   ci: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
@@ -146,7 +150,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
             {searchResults.length === 0 ? (
               <p className="py-10 text-center text-sm text-muted-foreground">
-                Sin resultados para “{trimmed}”.
+                Sin resultados para "{trimmed}".
               </p>
             ) : (
               <ul role="listbox" aria-label="Resultados de clientes" className="overflow-y-auto py-1">
@@ -215,6 +219,8 @@ function CreateCustomerForm({
     control,
     reset,
     setValue,
+    getValues,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<CustomerFormValues>({
     resolver: zodResolver(customerFormSchema),
@@ -232,35 +238,81 @@ function CreateCustomerForm({
     },
   })
 
+  const birthdateValue = watch("birthdate") ?? ""
+
   async function onSubmit(values: CustomerFormValues) {
-    /**
-     * TODO (próximo chunk): cablear executeCreateCustomer desde
-     * lib/commands/create-customer.ts con el payload real al backend.
-     * Por ahora: crear el PosCustomer localmente con un UUID client-side
-     * y parcharlo en el catalog store. Esto permite probar el flujo UX
-     * completo sin necesidad del backend.
-     *
-     * Cuando se implemente: llamar `executeCreateCustomer({ name, fiscalName,
-     * phone: values.phoneE164, tin: values.tin, ci: values.ci,
-     * email: values.email })` y usar el PosCustomer retornado.
-     */
+    // Nombre display: razón social tiene prioridad; si no, nombre + apellido.
     const displayName =
       values.fiscalName.trim() ||
-      `${values.firstName} ${values.lastName ?? ""}`.trim()
-    const newCustomer: PosCustomer = {
-      id: crypto.randomUUID(),
-      name: displayName,
-      phone: values.phoneE164 ?? null,
-      tin: values.tin?.trim() || null,
-      storeCredit: 0,
-      isCreditable: false,
+      `${values.firstName ?? ""} ${values.lastName ?? ""}`.trim()
+
+    try {
+      const customer = await executeCreateCustomer({
+        name: displayName,
+        fiscalName: values.fiscalName.trim() || undefined,
+        phone: values.phoneE164 ?? null,
+        tin: values.tin?.trim() || undefined,
+        ci: values.ci?.trim() || undefined,
+        email: values.email?.trim() || undefined,
+      })
+      reset()
+      onCreated(customer)
+    } catch (err) {
+      // Mostrar el mensaje del backend si está disponible, sino genérico.
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : "No se pudo crear el cliente. Intentá de nuevo."
+      toast.error(msg)
+      // NO cerrar el dialog — el cajero corrige y reintenta.
     }
-    onCreated(newCustomer)
-    reset()
   }
 
   function handleClear() {
     reset()
+  }
+
+  // Lookup del RUC contra el padrón público (turuc.com.py). El endpoint acepta
+  // solo el número de documento (sin dígito verificador). Al recibir los datos
+  // auto-completa Razón Social y reemplaza el campo TIN con el RUC formateado
+  // (ej. "7659394" → "7659394-0").
+  const [lookingUpRuc, setLookingUpRuc] = React.useState(false)
+  async function handleLookupRuc() {
+    const raw = (getValues("tin") || "").trim()
+    const doc = raw.replace(/[^\d]/g, "") // sólo dígitos
+    if (!doc) {
+      toast.warning("Ingresá un RUC para buscar")
+      return
+    }
+    setLookingUpRuc(true)
+    try {
+      const res = await fetch(
+        `https://turuc.com.py/api/contribuyente/${doc}`,
+        { headers: { accept: "application/json" } },
+      )
+      if (!res.ok) {
+        toast.error(res.status === 404 ? "RUC no encontrado" : "No se pudo consultar el RUC")
+        return
+      }
+      const json = (await res.json()) as {
+        data?: { razonSocial?: string; ruc?: string; estado?: string }
+      }
+      const data = json.data
+      if (!data?.razonSocial) {
+        toast.error("RUC sin datos disponibles")
+        return
+      }
+      setValue("fiscalName", data.razonSocial, { shouldValidate: true, shouldDirty: true })
+      if (data.ruc) {
+        setValue("tin", data.ruc, { shouldValidate: true, shouldDirty: true })
+      }
+      const estadoSuffix = data.estado ? ` · ${data.estado}` : ""
+      toast.success(`${data.razonSocial}${estadoSuffix}`)
+    } catch {
+      toast.error("Error de red al consultar el RUC")
+    } finally {
+      setLookingUpRuc(false)
+    }
   }
 
   return (
@@ -280,6 +332,7 @@ function CreateCustomerForm({
             Borrar
           </Button>
           <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
             Crear cliente
           </Button>
         </div>
@@ -289,172 +342,172 @@ function CreateCustomerForm({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* ── Sección DATOS DE FACTURACIÓN ── */}
         <div className="px-4 pb-4 pt-4">
-        <p className="mb-3 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
-          Datos de Facturación
-        </p>
+          <p className="mb-3 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+            Datos de Facturación
+          </p>
 
-        <div className="flex flex-col gap-3">
-          {/* Razón Social */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="fiscalName" className="text-xs">
-              Razón Social
-            </Label>
-            <Input
-              id="fiscalName"
-              placeholder="Nombre o razón social…"
-              aria-invalid={!!errors.fiscalName}
-              {...register("fiscalName")}
-            />
-            {errors.fiscalName && (
-              <p className="text-xs text-destructive">{errors.fiscalName.message}</p>
-            )}
-          </div>
-
-          {/* RUC / N° documento + lupa stub */}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="tin" className="text-xs">
-              RUC / N° Documento
-            </Label>
-            <div className="flex gap-2">
+          <div className="flex flex-col gap-3">
+            {/* Razón Social */}
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="fiscalName" className="text-xs">
+                Razón Social
+              </Label>
               <Input
-                id="tin"
-                placeholder="ej. 80012345-6"
-                className="flex-1"
-                {...register("tin")}
+                id="fiscalName"
+                aria-invalid={!!errors.fiscalName}
+                {...register("fiscalName")}
               />
-              {/* Lupa de búsqueda SET — stub (Slice siguiente) */}
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                disabled
-                title="Búsqueda SET (próximamente)"
-                aria-label="Buscar en el SET"
-                className="shrink-0"
-              >
-                <SearchCode className="size-4" />
-              </Button>
+              {errors.fiscalName && (
+                <p className="text-xs text-destructive">{errors.fiscalName.message}</p>
+              )}
             </div>
-          </div>
 
-        </div>
-      </div>
-
-      <Separator />
-
-      {/* ── Sección DATOS PERSONALES — colapsada por default ── */}
-      <Collapsible defaultOpen={false}>
-        <div className="px-4 pt-4 pb-2">
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex w-full items-center justify-between text-[10px] font-bold tracking-widest text-muted-foreground uppercase hover:text-foreground transition-colors [&[data-state=open]>svg]:rotate-180"
-            >
-              Datos personales (opcional)
-              <ChevronDown className="size-3 transition-transform duration-200" />
-            </button>
-          </CollapsibleTrigger>
-        </div>
-
-        <CollapsibleContent>
-          <div className="px-4 pb-4">
-            <div className="grid grid-cols-2 gap-3">
-              {/* Nombre */}
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="firstName" className="text-xs">
-                  Nombre
-                </Label>
+            {/* RUC / N° documento + lupa turuc.com.py */}
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="tin" className="text-xs">
+                RUC / N° Documento
+              </Label>
+              <div className="flex gap-2">
                 <Input
-                  id="firstName"
-                  placeholder="Nombre…"
-                  aria-invalid={!!errors.firstName}
-                  {...register("firstName")}
+                  id="tin"
+                  placeholder="ej. 80012345-6"
+                  className="flex-1"
+                  {...register("tin")}
                 />
-                {errors.firstName && (
-                  <p className="text-xs text-destructive">{errors.firstName.message}</p>
-                )}
-              </div>
-
-              {/* Apellido */}
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="lastName" className="text-xs">
-                  Apellido
-                </Label>
-                <Input
-                  id="lastName"
-                  placeholder="Apellido…"
-                  {...register("lastName")}
-                />
-              </div>
-
-              {/* Doc. de Identidad */}
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="ci" className="text-xs">
-                  Doc. de Identidad
-                </Label>
-                <Input
-                  id="ci"
-                  placeholder="N° CI…"
-                  {...register("ci")}
-                />
-              </div>
-
-              {/* E-mail */}
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="email" className="text-xs">
-                  E-mail
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="ejemplo@mail.com"
-                  aria-invalid={!!errors.email}
-                  {...register("email")}
-                />
-                {errors.email && (
-                  <p className="text-xs text-destructive">{errors.email.message}</p>
-                )}
-              </div>
-
-              {/* Teléfono — mismo row que Fecha de Nacimiento */}
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="phone" className="text-xs">
-                  Teléfono
-                </Label>
-                <Controller
-                  name="phoneValue"
-                  control={control}
-                  render={({ field }) => (
-                    <PhoneInput
-                      id="phone"
-                      value={field.value ?? ""}
-                      country="PY"
-                      onChange={(v) => {
-                        field.onChange(v.value)
-                        setValue("phoneE164", v.e164)
-                        setValue("phoneCountry", v.country)
-                      }}
-                    />
+                {/* Lupa: lookup contra el padrón público de RUC (turuc.com.py) */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={handleLookupRuc}
+                  disabled={lookingUpRuc}
+                  title="Buscar datos del RUC"
+                  aria-label="Buscar datos del RUC"
+                  className="shrink-0"
+                >
+                  {lookingUpRuc ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <SearchCode className="size-4" />
                   )}
-                />
-              </div>
-
-              {/* Fecha de Nacimiento — mismo row que Teléfono */}
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="birthdate" className="text-xs">
-                  Fecha de Nacimiento
-                </Label>
-                <Input
-                  id="birthdate"
-                  type="date"
-                  {...register("birthdate")}
-                />
+                </Button>
               </div>
             </div>
           </div>
-        </CollapsibleContent>
-      </Collapsible>
+        </div>
 
+        <Separator />
+
+        {/* ── Sección DATOS PERSONALES — colapsada por default ── */}
+        <Collapsible defaultOpen={false}>
+          <div className="px-4 pt-4 pb-4">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-[10px] font-bold tracking-widest text-muted-foreground uppercase hover:text-foreground transition-colors [&[data-state=open]>svg]:rotate-180"
+              >
+                Datos personales (opcional)
+                <ChevronDown className="size-3 transition-transform duration-200" />
+              </button>
+            </CollapsibleTrigger>
+          </div>
+
+          <CollapsibleContent>
+            <div className="px-4 pb-4">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Nombre */}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="firstName" className="text-xs">
+                    Nombre
+                  </Label>
+                  <Input
+                    id="firstName"
+                    aria-invalid={!!errors.firstName}
+                    {...register("firstName")}
+                  />
+                  {errors.firstName && (
+                    <p className="text-xs text-destructive">{errors.firstName.message}</p>
+                  )}
+                </div>
+
+                {/* Apellido */}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="lastName" className="text-xs">
+                    Apellido
+                  </Label>
+                  <Input
+                    id="lastName"
+                    {...register("lastName")}
+                  />
+                </div>
+
+                {/* Doc. de Identidad */}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="ci" className="text-xs">
+                    Doc. de Identidad
+                  </Label>
+                  <Input
+                    id="ci"
+                    {...register("ci")}
+                  />
+                </div>
+
+                {/* E-mail */}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="email" className="text-xs">
+                    E-mail
+                  </Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="ejemplo@mail.com"
+                    aria-invalid={!!errors.email}
+                    {...register("email")}
+                  />
+                  {errors.email && (
+                    <p className="text-xs text-destructive">{errors.email.message}</p>
+                  )}
+                </div>
+
+                {/* Teléfono */}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="phone" className="text-xs">
+                    Teléfono
+                  </Label>
+                  <Controller
+                    name="phoneValue"
+                    control={control}
+                    render={({ field }) => (
+                      <PhoneInput
+                        id="phone"
+                        value={field.value ?? ""}
+                        country="PY"
+                        onChange={(v) => {
+                          field.onChange(v.value)
+                          setValue("phoneE164", v.e164)
+                          setValue("phoneCountry", v.country)
+                        }}
+                      />
+                    )}
+                  />
+                </div>
+
+                {/* Fecha de Nacimiento — DatePicker shadcn, no input nativo */}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="birthdate" className="text-xs">
+                    Fecha de Nacimiento
+                  </Label>
+                  <DatePicker
+                    id="birthdate"
+                    value={birthdateValue}
+                    onChange={(v) => setValue("birthdate", v, { shouldDirty: true })}
+                    placeholder="Seleccionar fecha"
+                  />
+                </div>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
     </form>
   )
