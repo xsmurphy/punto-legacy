@@ -232,11 +232,10 @@ final class ContactAnalyticsService
              LIMIT 3",
             array_merge([$companyId, $contactId], $txTypes)
         );
-        // PG fold-to-lowercase: fetchAll() copia las keys tal cual.
-        $outletIds   = array_map(fn($r) => (string) $r['outletid'], $byOutlet);
+        $outletIds   = array_map(fn($r) => (string) $r['outletId'], $byOutlet);
         $outletName  = $this->outletNamesByIds($outletIds, $companyId);
         $byOutlet = array_map(function ($r) use ($outletName) {
-            $id = (string) $r['outletid'];
+            $id = (string) $r['outletId'];
             return [
                 'outletId' => $id,
                 'name'     => (string) ($outletName[$id] ?? '(sin nombre)'),
@@ -362,17 +361,17 @@ final class ContactAnalyticsService
         return $out;
     }
 
-    /** @return array<int,array<string,mixed>> Lista de rows o []. */
+    /** @return array<int,\CaseInsensitiveArray> Lista de rows o []. */
     private function fetchAll(string $sql, array $params): array
     {
         $rs = ncmExecute($sql, $params, false, true);
         if (!$rs || !is_object($rs)) return [];
         $out = [];
         while (!$rs->EOF) {
-            $f = $rs->fields;
-            $row = [];
-            foreach ($f as $k => $v) { $row[(string)$k] = $v; }
-            $out[] = $row;
+            // Preservar CaseInsensitiveArray (DB wrapper) — sin esto, los
+            // accesos camelCase como $r['itemId'] caen porque PG folds-to-
+            // lowercase y un array plano no resolvería la diferencia.
+            $out[] = new \CaseInsensitiveArray(iterator_to_array($rs->fields));
             $rs->MoveNext();
         }
         $rs->Close();
@@ -389,10 +388,8 @@ final class ContactAnalyticsService
              WHERE companyId = ? AND itemId IN ($marks)",
             array_merge([$companyId], $ids)
         );
-        // PG folds identificadores sin quotes a lowercase. fetchAll() copia
-        // las keys exactas que devuelve el driver → lowercase.
         $map = [];
-        foreach ($rows as $r) { $map[(string)$r['itemid']] = (string)($r['itemname'] ?? ''); }
+        foreach ($rows as $r) { $map[(string)$r['itemId']] = (string)($r['itemName'] ?? ''); }
         return $map;
     }
 
@@ -407,7 +404,7 @@ final class ContactAnalyticsService
             array_merge([$companyId], $ids)
         );
         $map = [];
-        foreach ($rows as $r) { $map[(string)$r['taxonomyid']] = (string)($r['taxonomyname'] ?? ''); }
+        foreach ($rows as $r) { $map[(string)$r['taxonomyId']] = (string)($r['taxonomyName'] ?? ''); }
         return $map;
     }
 
@@ -422,7 +419,7 @@ final class ContactAnalyticsService
             array_merge([$companyId], $ids)
         );
         $map = [];
-        foreach ($rows as $r) { $map[(string)$r['outletid']] = (string)($r['outletname'] ?? ''); }
+        foreach ($rows as $r) { $map[(string)$r['outletId']] = (string)($r['outletName'] ?? ''); }
         return $map;
     }
 }
