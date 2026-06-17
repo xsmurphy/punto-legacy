@@ -828,9 +828,8 @@ function AddressesTab({ contactId }: { contactId: string }) {
       )}
 
       {addresses?.map((addr) => (
-        <Card key={addr.id}>
-          <CardContent className="p-4">
-            {editing === addr.id ? (
+        <div key={addr.id} className="rounded-lg border bg-card px-3 py-2.5">
+          {editing === addr.id ? (
               <div className="flex flex-col gap-3">
                 <AddressFormFields form={form} onChange={setForm} />
                 <div className="flex gap-2 justify-end">
@@ -900,8 +899,7 @@ function AddressesTab({ contactId }: { contactId: string }) {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+        </div>
       ))}
     </div>
   )
@@ -1094,48 +1092,44 @@ function SummaryTab({
   const visits = analytics?.visits
   const segment = analytics?.segment
   return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">Segmento</span>
-            {isLoading ? <Skeleton className="h-5 w-20" /> : (
-              <Badge variant={segmentVariant(segment?.key)}>{segment?.label ?? "—"}</Badge>
-            )}
-            {contact?.date && (
-              <span className="ml-2 text-xs text-muted-foreground">Cliente desde {niceDate(contact.date)}</span>
-            )}
-          </div>
-          <div className="flex flex-col items-end text-xs text-muted-foreground">
-            <span>Última visita</span>
-            {isLoading ? <Skeleton className="h-4 w-24" /> : (
-              <span className="font-medium text-foreground">
-                {lastVisitLabel(visits?.lastAt, visits?.daysSinceLast)}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Total gastado" value={isLoading ? null : formatMoney(totals?.spent, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard label="Compras" value={isLoading ? null : formatInt(totals?.purchases, bootstrap)} />
-        <KpiCard label="Artículos" value={isLoading ? null : formatInt(totals?.itemsBought, bootstrap)} />
-        <KpiCard label="Ticket promedio" value={isLoading ? null : formatMoney(totals?.avgTicket, bootstrap)} hint={bootstrap?.currency} />
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Segmento</span>
+          {isLoading ? <Skeleton className="h-5 w-20" /> : (
+            <Badge variant={segmentVariant(segment?.key)}>{segment?.label ?? "—"}</Badge>
+          )}
+          {contact?.date && (
+            <span className="ml-1 text-xs text-muted-foreground">Cliente desde {niceDate(contact.date)}</span>
+          )}
+        </div>
+        <div className="flex items-baseline gap-1.5 text-xs">
+          <span className="text-muted-foreground">Última visita</span>
+          {isLoading ? <Skeleton className="h-4 w-24" /> : (
+            <span className="font-medium text-foreground">
+              {lastVisitLabel(visits?.lastAt, visits?.daysSinceLast)}
+            </span>
+          )}
+        </div>
       </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">Actividad</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <KpiCard label="Total gastado" value={isLoading ? null : formatMoney(totals?.spent, bootstrap)} />
+        <KpiCard label="Compras" value={isLoading ? null : formatInt(totals?.purchases, bootstrap)} />
+        <KpiCard label="Artículos" value={isLoading ? null : formatInt(totals?.itemsBought, bootstrap)} />
+        <KpiCard label="Ticket promedio" value={isLoading ? null : formatMoney(totals?.avgTicket, bootstrap)} />
+      </div>
+
+      <div className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Actividad</div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <DetailRow label="Primera operación" value={isLoading ? null : niceDate(visits?.firstAt ?? null)} />
           <DetailRow label="Frecuencia promedio" value={isLoading ? null : freqLabel(visits?.avgDaysBetween ?? null)} />
           <DetailRow label="Descuento acumulado" value={isLoading ? null : formatMoney(totals?.discountTotal, bootstrap)} />
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         <TopItemsCard items={analytics?.topItems ?? []} isLoading={isLoading} bootstrap={bootstrap} />
         <TopCategoriesCard items={analytics?.topCategories ?? []} isLoading={isLoading} bootstrap={bootstrap} />
       </div>
@@ -1306,11 +1300,11 @@ function FinancialTab({
   const f = analytics?.financial
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Crédito a favor" value={isLoading ? null : formatMoney(f?.storeCredit, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard label="Loyalty acumulado" value={isLoading ? null : formatMoney(f?.loyalty, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard label="Línea de crédito" value={isLoading ? null : formatMoney(f?.creditLine, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard label="Cuentas por cobrar" value={isLoading ? null : formatMoney(f?.openInvoices, bootstrap)} hint={bootstrap?.currency} />
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <KpiCard label="Crédito a favor" value={isLoading ? null : formatMoney(f?.storeCredit, bootstrap)} />
+        <KpiCard label="Loyalty acumulado" value={isLoading ? null : formatMoney(f?.loyalty, bootstrap)} />
+        <KpiCard label="Línea de crédito" value={isLoading ? null : formatMoney(f?.creditLine, bootstrap)} />
+        <KpiCard label="Cuentas por cobrar" value={isLoading ? null : formatMoney(f?.openInvoices, bootstrap)} />
       </div>
       <Card>
         <CardHeader className="pb-2">
@@ -1334,24 +1328,19 @@ function FinancialTab({
 // ── Helpers compartidos ───────────────────────────────────────────────────────
 
 function KpiCard({
-  label, value, hint,
+  label, value,
 }: {
-  label: string; value: React.ReactNode; hint?: string
+  label: string; value: React.ReactNode
 }) {
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-1 p-4">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">
-          {label}
-        </div>
-        {value === null ? <Skeleton className="h-7 w-24" /> : (
-          <div className="flex items-baseline gap-1.5">
-            {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-            <span className="text-xl font-semibold tabular-nums">{value}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      {value === null ? <Skeleton className="h-5 w-20" /> : (
+        <span className="text-base font-semibold tabular-nums leading-tight">{value}</span>
+      )}
+    </div>
   )
 }
 
@@ -1376,29 +1365,23 @@ function TopItemsCard({
   items: ContactAnalytics["topItems"]; isLoading: boolean; bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <ShoppingBag className="size-4 text-muted-foreground" /> Productos preferidos
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="flex flex-col gap-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-6 w-full" />)}</div>
-        ) : items.length === 0 ? <EmptyState label="Sin compras registradas." /> : (
-          <div className="flex flex-col divide-y divide-border">
-            {items.map((it) => (
-              <div key={it.itemId} className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0">
-                <span className="truncate">{it.name}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {Math.round(it.count)} ud · {formatMoney(it.total, bootstrap)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Productos preferidos</div>
+      {isLoading ? (
+        <div className="flex flex-col gap-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-5 w-full" />)}</div>
+      ) : items.length === 0 ? <EmptyState label="Sin compras registradas." /> : (
+        <div className="flex flex-col divide-y divide-border">
+          {items.map((it) => (
+            <div key={it.itemId} className="flex items-center justify-between gap-2 py-1.5 text-sm first:pt-0 last:pb-0">
+              <span className="truncate">{it.name}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {Math.round(it.count)} ud · {formatMoney(it.total, bootstrap)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1408,27 +1391,21 @@ function TopCategoriesCard({
   items: ContactAnalytics["topCategories"]; isLoading: boolean; bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <Layers className="size-4 text-muted-foreground" /> Categorías favoritas
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="flex flex-col gap-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-6 w-full" />)}</div>
-        ) : items.length === 0 ? <EmptyState label="Sin categorías registradas." /> : (
-          <div className="flex flex-col divide-y divide-border">
-            {items.map((c) => (
-              <div key={c.taxonomyId} className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0">
-                <span className="truncate">{c.name}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">{formatMoney(c.total, bootstrap)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Categorías favoritas</div>
+      {isLoading ? (
+        <div className="flex flex-col gap-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-5 w-full" />)}</div>
+      ) : items.length === 0 ? <EmptyState label="Sin categorías registradas." /> : (
+        <div className="flex flex-col divide-y divide-border">
+          {items.map((c) => (
+            <div key={c.taxonomyId} className="flex items-center justify-between gap-2 py-1.5 text-sm first:pt-0 last:pb-0">
+              <span className="truncate">{c.name}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{formatMoney(c.total, bootstrap)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
