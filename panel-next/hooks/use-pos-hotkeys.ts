@@ -85,8 +85,11 @@ export function usePosHotkeys(): void {
           ui.setOptionsOpen(true)
           break
         case "enter": {
-          // Si hay un botón/link enfocado, dejamos que Enter lo active (no cobramos).
-          if (isInteractiveTarget(e.target)) break
+          // Enter en venta = "Cobrar". Si hay líneas en el cart y no hay overlay
+          // abierto, abre el modal de pago aunque el focus esté en un botón
+          // (típico: el cajero acaba de clickear un producto del grid y su
+          // focus queda en ese botón). Los overlays ya están skipeados arriba
+          // por anyOverlayOpen.
           const lines = useCartStore.getState().lines
           if (lines.length > 0) {
             e.preventDefault()
