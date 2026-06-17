@@ -29,10 +29,37 @@ import type {
   PosCustomer,
   PosItem,
   PosRegister,
+  PaymentMethodConfig,
 } from "@/lib/types/pos-bootstrap"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+// ── Fallback de métodos de pago ───────────────────────────────────────────────
+// Hardcoded hasta que el owner decida exponer taxonomy paymentMethod via /v1.
+
+const FALLBACK_PAYMENT_METHODS: PaymentMethodConfig[] = [
+  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false },
+  {
+    id: "tcredito",
+    name: "T. Crédito",
+    code: "S",
+    hasChange: false,
+    requiresIdentifier: true,
+    identifierLabel: "Nro de operación",
+    identifierPlaceholder: "Ej. 123456",
+  },
+  {
+    id: "tdebito",
+    name: "T. Débito",
+    code: "D",
+    hasChange: false,
+    requiresIdentifier: true,
+    identifierLabel: "Nro de operación",
+    identifierPlaceholder: "Ej. 123456",
+  },
+  { id: "transferencia", name: "Transferencia", code: "F", hasChange: false, requiresIdentifier: false },
+]
 
 // ── Resolución de upstream (idéntica al catch-all) ────────────────────────────
 
@@ -390,6 +417,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     registers,
     items,
     customers,
+    paymentMethods: FALLBACK_PAYMENT_METHODS,
     activeRegisterId: bs.activeRegisterId ?? "",
   }
 

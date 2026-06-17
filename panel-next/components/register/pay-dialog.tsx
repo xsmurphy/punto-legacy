@@ -1,37 +1,21 @@
 "use client"
 
 /**
- * Pantalla de cobro — Slice A3.
+ * Pantalla de cobro — Slice A3 (refactor visor central).
  *
- * Abierto por el botón verde de total en CartPanel.
- * Cubre:
- *   - Contado (type=0): multi-método, vuelto en efectivo.
- *   - Crédito (type=3): requiere cliente; se habilita confirmar sin suma completa
- *     (queda a cuenta del cliente).
+ * UX: visor central numérico grande + botones de método. El cajero tipea el
+ * monto (o deja vacío para aplicar el restante) y presiona el botón/hotkey
+ * del método. Si el método requiere identificador, abre un sub-diálogo.
  *
- * Reglas de layout (fidelidad §6.1 — no hay screenshot legacy de esta pantalla,
- * se sigue el estándar POS: total prominente arriba, métodos al centro, confirmar
- * abajo):
- *   ┌─────────────────────────────────────┐
- *   │  TOTAL A PAGAR (grande)             │
- *   │  Tipo: Contado / Crédito            │
- *   │  [alerta si crédito sin cliente]    │
- *   ├─────────────────────────────────────┤
- *   │  Métodos de pago                    │
- *   │  [+ Agregar método]                 │
- *   │  fila: método ▼  [MoneyInput]  [X]  │
- *   ├─────────────────────────────────────┤
- *   │  Efectivo: vuelto (si aplica)       │
- *   │  Faltante / A cuenta                │
- *   ├─────────────────────────────────────┤
- *   │  [Cancelar]        [Confirmar ✓]    │
- *   └─────────────────────────────────────┘
+ * Fases:
+ *   pay     → visor + métodos aplicados + botones
+ *   success → pantalla verde de confirmación
  *
  * Ver context/16-app-next-rewrite.md §7 Slice A3.
  */
 
 import * as React from "react"
-import { Plus, X, Printer, BicepsFlexed } from "lucide-react"
+import { X, Printer, BicepsFlexed } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -40,51 +24,68 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { MoneyInput } from "@/components/ui/money-input"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useCartStore, selectCartTotal } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
 import { executeSale } from "@/lib/commands/create-sale"
-import type { SalePaymentMethod } from "@/lib/commands/create-sale"
-import type { CreateSaleResult } from "@/lib/commands/create-sale"
+import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-sale"
 import { useDrawerStatus } from "@/hooks/use-drawer"
+import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 
-// ── Métodos de pago disponibles ───────────────────────────────────────────────
-// Fixtures de config; en Slice A6 vienen del bootstrap del tenant.
+// ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
-export interface PaymentMethodConfig {
-  id: string
-  label: string
-  /** true = calcula vuelto cuando el monto supera el total. */
-  hasChange: boolean
-}
-
-export const PAYMENT_METHODS: PaymentMethodConfig[] = [
-  { id: "efectivo", label: "Efectivo", hasChange: true },
-  { id: "tarjeta", label: "Tarjeta", hasChange: false },
-  { id: "transferencia", label: "Transferencia", hasChange: false },
-  { id: "qr", label: "QR", hasChange: false },
+const FALLBACK_METHODS: PaymentMethodConfig[] = [
+  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false },
+  {
+    id: "tcredito",
+    name: "T. Crédito",
+    code: "S",
+    hasChange: false,
+    requiresIdentifier: true,
+    identifierLabel: "Nro de operación",
+    identifierPlaceholder: "Ej. 123456",
+  },
+  {
+    id: "tdebito",
+    name: "T. Débito",
+    code: "D",
+    hasChange: false,
+    requiresIdentifier: true,
+    identifierLabel: "Nro de operación",
+    identifierPlaceholder: "Ej. 123456",
+  },
+  { id: "transferencia", name: "Transferencia", code: "F", hasChange: false, requiresIdentifier: false },
 ]
 
-// ── Fila de pago (estado local) ───────────────────────────────────────────────
+// ── Tipo de pago aplicado ─────────────────────────────────────────────────────
 
-interface PayRow {
+interface AppliedPayment {
   rowId: string
-  methodId: string
-  amount: number | null
+  method: PaymentMethodConfig
+  amount: number
+  identifier: string | null
 }
 
-function makeRow(methodId = "efectivo"): PayRow {
-  return { rowId: crypto.randomUUID(), methodId, amount: null }
+// ── Helpers de display numérico ───────────────────────────────────────────────
+
+function parseDisplay(s: string): number {
+  if (!s) return 0
+  const digits = s.replace(/\D/g, "")
+  return digits ? Number(digits) : 0
+}
+
+/**
+ * Formatea el raw string del visor como número con separador de miles (PY: punto).
+ * Solo opera sobre los dígitos — descarta cualquier otro carácter previo.
+ */
+function formatDisplayInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "")
+  if (!digits) return ""
+  return Number(digits).toLocaleString("es-PY")
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -95,6 +96,7 @@ interface PayDialogProps {
 }
 
 // ── Estados del diálogo ───────────────────────────────────────────────────────
+
 type DialogPhase = "pay" | "success"
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -107,77 +109,153 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const clear = useCartStore((s) => s.clear)
   const total = useCartStore(selectCartTotal)
   const config = useCatalogStore((s) => s.config)
+  const storedMethods = useCatalogStore((s) => s.paymentMethods)
 
-  // Guard de caja: si el cajón está cerrado, bloquear el cobro.
+  const paymentMethods =
+    storedMethods.length > 0 ? storedMethods : FALLBACK_METHODS
+
+  // Guard de caja
   const { data: drawerStatus } = useDrawerStatus()
   const drawerClosed = drawerStatus !== undefined && !drawerStatus.isOpen
 
-  // ── Estado de filas de pago ───────────────────────────────────────────────
-  const [rows, setRows] = React.useState<PayRow[]>(() => [makeRow()])
+  // ── Estado ────────────────────────────────────────────────────────────────
+  const [display, setDisplay] = React.useState("")
+  const [applied, setApplied] = React.useState<AppliedPayment[]>([])
+  const [change, setChange] = React.useState(0)
+  const [pendingIdentifier, setPendingIdentifier] = React.useState<{
+    method: PaymentMethodConfig
+    amount: number
+  } | null>(null)
   const [phase, setPhase] = React.useState<DialogPhase>("pay")
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
 
-  // Resetear filas + fase cuando se abre el dialog
+  const displayRef = React.useRef<HTMLInputElement>(null)
+
+  // Resetear al abrir
   React.useEffect(() => {
     if (open) {
-      setRows([makeRow()])
+      setDisplay("")
+      setApplied([])
+      setChange(0)
+      setPendingIdentifier(null)
       setPhase("pay")
       setSaleResult(null)
       setErrorMsg(null)
+      // autofocus al visor
+      setTimeout(() => displayRef.current?.focus(), 50)
     }
   }, [open])
 
-  // ── Cálculos ──────────────────────────────────────────────────────────────
-  const paidTotal = rows.reduce((s, r) => s + (r.amount ?? 0), 0)
-  const remaining = total - paidTotal
-  const overpaid = paidTotal > total
+  // ── Derivados ─────────────────────────────────────────────────────────────
+  const appliedTotal = applied.reduce((s, r) => s + r.amount, 0)
+  const remaining = total - appliedTotal
 
-  // Vuelto: solo se calcula si algún método con hasChange cubre el exceso
-  const cashRow = rows.find((r) => {
-    const meta = PAYMENT_METHODS.find((m) => m.id === r.methodId)
-    return meta?.hasChange && (r.amount ?? 0) > 0
-  })
-  const cashMeta = cashRow ? PAYMENT_METHODS.find((m) => m.id === cashRow.methodId) : null
-  const showChange = cashMeta?.hasChange && overpaid
-  const changeAmount = showChange ? paidTotal - total : 0
+  // ── Aplicar un pago (sin identificador pendiente) ─────────────────────────
+  function applyPayment(
+    method: PaymentMethodConfig,
+    amount: number,
+    identifier: string | null,
+  ) {
+    setApplied((prev) => [
+      ...prev,
+      { rowId: crypto.randomUUID(), method, amount, identifier },
+    ])
+  }
 
-  // ── Validación para habilitar Confirmar ───────────────────────────────────
-  // Contado: suma ≥ total.
-  // Crédito: cliente presente (puede confirmar sin completar el pago = queda a cuenta).
+  function tryApplyPayment(method: PaymentMethodConfig, amount: number) {
+    if (method.requiresIdentifier) {
+      setPendingIdentifier({ method, amount })
+    } else {
+      applyPayment(method, amount, null)
+      setDisplay("")
+    }
+  }
+
+  function handleMethodClick(method: PaymentMethodConfig) {
+    if (credito) {
+      // En crédito no se cobra (o se cobra parcial opcionalmente) — el visor
+      // queda disponible pero no bloqueamos el botón confirmar por monto.
+      // Si hay display, se aplica como pago parcial.
+      const parsed = parseDisplay(display)
+      if (parsed > 0) {
+        tryApplyPayment(method, parsed)
+        setDisplay("")
+      }
+      return
+    }
+
+    if (remaining <= 0) return // ya cubierto
+
+    const parsed = parseDisplay(display)
+    const isEmpty = parsed === 0
+
+    if (isEmpty) {
+      // CASO A: aplica el restante completo
+      tryApplyPayment(method, remaining)
+    } else if (parsed < remaining) {
+      // CASO B: pago parcial
+      tryApplyPayment(method, parsed)
+      setDisplay("")
+    } else {
+      // CASO C: parsed >= remaining
+      if (method.hasChange) {
+        setChange(parsed - remaining)
+        tryApplyPayment(method, remaining)
+      } else {
+        toast.info(`${method.name} no acepta vuelto — se aplicó el monto exacto`)
+        tryApplyPayment(method, remaining)
+      }
+      setDisplay("")
+    }
+  }
+
+  // ── Input del visor ───────────────────────────────────────────────────────
+  function handleDisplayChange(raw: string) {
+    setDisplay(formatDisplayInput(raw))
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Enter con saldo cubierto → confirmar
+    if (e.key === "Enter") {
+      e.preventDefault()
+      if (canConfirm) handleConfirm()
+      return
+    }
+
+    // Backspace con visor vacío → elimina el último applied
+    if (e.key === "Backspace" && display === "") {
+      e.preventDefault()
+      setApplied((prev) => {
+        const next = prev.slice(0, -1)
+        // Si se eliminó el último, limpiar vuelto
+        if (next.length === 0) setChange(0)
+        return next
+      })
+      return
+    }
+
+    // Hotkeys de métodos (A/S/D/F…)
+    const key = e.key.toUpperCase()
+    const matched = paymentMethods.find(
+      (m) => m.code && m.code.toUpperCase() === key,
+    )
+    if (matched) {
+      e.preventDefault()
+      handleMethodClick(matched)
+    }
+  }
+
+  // ── Validación ────────────────────────────────────────────────────────────
   const creditoWithoutCustomer = credito && !customer
-  const cashSaleReady = !credito && paidTotal >= total && paidTotal > 0
+  const cashSaleReady = !credito && remaining <= 0 && appliedTotal > 0
   const creditSaleReady = credito && !!customer
-  const canConfirm = !creditoWithoutCustomer && (cashSaleReady || creditSaleReady) && !submitting && !drawerClosed
-
-  // ── Mutaciones de filas ───────────────────────────────────────────────────
-  function addRow() {
-    // Default: primer método que no esté ya usado, o efectivo si todos están usados
-    const usedIds = new Set(rows.map((r) => r.methodId))
-    const next = PAYMENT_METHODS.find((m) => !usedIds.has(m.id))
-    setRows((prev) => [...prev, makeRow(next?.id ?? "efectivo")])
-  }
-
-  function removeRow(rowId: string) {
-    setRows((prev) => {
-      const next = prev.filter((r) => r.rowId !== rowId)
-      // Siempre mantener al menos una fila
-      return next.length === 0 ? [makeRow()] : next
-    })
-  }
-
-  function updateRowMethod(rowId: string, methodId: string) {
-    setRows((prev) =>
-      prev.map((r) => (r.rowId === rowId ? { ...r, methodId } : r)),
-    )
-  }
-
-  function updateRowAmount(rowId: string, amount: number | null) {
-    setRows((prev) =>
-      prev.map((r) => (r.rowId === rowId ? { ...r, amount } : r)),
-    )
-  }
+  const canConfirm =
+    (cashSaleReady || creditSaleReady) &&
+    !creditoWithoutCustomer &&
+    !submitting &&
+    !drawerClosed
 
   // ── Confirmar venta ───────────────────────────────────────────────────────
   async function handleConfirm() {
@@ -185,15 +263,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     setSubmitting(true)
     setErrorMsg(null)
     try {
-      const payments: SalePaymentMethod[] = rows
-        .filter((r) => (r.amount ?? 0) > 0)
-        .map((r) => ({
-          name: r.methodId,
-          total: r.amount ?? 0,
-        }))
+      const payments: SalePaymentMethod[] = applied.map((r) => ({
+        name: r.method.id,
+        total: r.amount,
+        ...(r.identifier ? { identifier: r.identifier } : {}),
+      }))
 
-      // Para crédito sin pago inmediato, registrar un pago 0 de "crédito"
-      // para que el backend sepa que es a cuenta.
       const effectivePayments =
         payments.length === 0 && credito
           ? [{ name: "credito", total: 0 }]
@@ -205,27 +280,26 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         credito,
         interno,
         customer,
-        userId: null, // TODO (Slice A6): leer del contexto de sesión de caja
+        userId: null,
       })
 
       setSaleResult(result)
       setPhase("success")
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Error al confirmar la venta")
+      setErrorMsg(
+        err instanceof Error ? err.message : "Error al confirmar la venta",
+      )
     } finally {
       setSubmitting(false)
     }
   }
 
-  // ── Post-éxito: imprimir + limpiar ────────────────────────────────────────
   function handlePrint() {
-    // TODO (Slice A5): cablear impresión real (QZ Tray + ticket-builder)
     console.log("[PayDialog] Imprimir ticket — stub, se implementa en Slice A5")
   }
 
   function handleClose() {
     if (phase === "success") {
-      // Limpiar carrito y cerrar
       clear()
     }
     onOpenChange(false)
@@ -233,48 +307,70 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
-      <DialogContent
-        className={cn(
-          "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0",
-          phase === "success" ? "sm:max-w-lg" : "sm:max-w-md",
-        )}
-      >
-        {phase === "pay" ? (
-          <PayPhase
-            total={total}
-            credito={credito}
-            customer={customer}
-            creditoWithoutCustomer={creditoWithoutCustomer}
-            drawerClosed={drawerClosed}
-            rows={rows}
-            paidTotal={paidTotal}
-            remaining={remaining}
-            showChange={showChange ?? false}
-            changeAmount={changeAmount}
-            canConfirm={canConfirm}
-            submitting={submitting}
-            errorMsg={errorMsg}
-            config={config}
-            onAddRow={addRow}
-            onRemoveRow={removeRow}
-            onUpdateMethod={updateRowMethod}
-            onUpdateAmount={updateRowAmount}
-            onConfirm={handleConfirm}
-            onCancel={handleClose}
-          />
-        ) : (
-          <SuccessPhase
-            result={saleResult}
-            total={total}
-            changeAmount={changeAmount}
-            config={config}
-            onPrint={handlePrint}
-            onClose={handleClose}
-          />
-        )}
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+        <DialogContent
+          className={cn(
+            "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0",
+            phase === "success" ? "sm:max-w-lg" : "sm:max-w-md",
+          )}
+        >
+          {phase === "pay" ? (
+            <PayPhase
+              total={total}
+              credito={credito}
+              customer={customer}
+              creditoWithoutCustomer={creditoWithoutCustomer}
+              drawerClosed={drawerClosed}
+              applied={applied}
+              display={display}
+              displayRef={displayRef}
+              change={change}
+              remaining={remaining}
+              appliedTotal={appliedTotal}
+              canConfirm={canConfirm}
+              submitting={submitting}
+              errorMsg={errorMsg}
+              config={config}
+              paymentMethods={paymentMethods}
+              onDisplayChange={handleDisplayChange}
+              onKeyDown={handleKeyDown}
+              onMethodClick={handleMethodClick}
+              onRemoveApplied={(rowId) =>
+                setApplied((prev) => prev.filter((r) => r.rowId !== rowId))
+              }
+              onConfirm={handleConfirm}
+              onCancel={handleClose}
+            />
+          ) : (
+            <SuccessPhase
+              result={saleResult}
+              total={total}
+              changeAmount={change}
+              config={config}
+              onPrint={handlePrint}
+              onClose={handleClose}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Sub-diálogo de identificador (fuera del diálogo principal para evitar nesting) */}
+      <PaymentIdentifierDialog
+        open={pendingIdentifier !== null}
+        method={pendingIdentifier?.method ?? null}
+        amount={pendingIdentifier?.amount ?? 0}
+        config={config}
+        onConfirm={(identifier) => {
+          if (pendingIdentifier) {
+            applyPayment(pendingIdentifier.method, pendingIdentifier.amount, identifier)
+            setDisplay("")
+          }
+          setPendingIdentifier(null)
+        }}
+        onCancel={() => setPendingIdentifier(null)}
+      />
+    </>
   )
 }
 
@@ -286,19 +382,21 @@ interface PayPhaseProps {
   customer: ReturnType<typeof useCartStore.getState>["customer"]
   creditoWithoutCustomer: boolean
   drawerClosed: boolean
-  rows: PayRow[]
-  paidTotal: number
+  applied: AppliedPayment[]
+  display: string
+  displayRef: React.RefObject<HTMLInputElement | null>
+  change: number
   remaining: number
-  showChange: boolean
-  changeAmount: number
+  appliedTotal: number
   canConfirm: boolean
   submitting: boolean
   errorMsg: string | null
   config: ReturnType<typeof useCatalogStore.getState>["config"]
-  onAddRow: () => void
-  onRemoveRow: (rowId: string) => void
-  onUpdateMethod: (rowId: string, methodId: string) => void
-  onUpdateAmount: (rowId: string, amount: number | null) => void
+  paymentMethods: PaymentMethodConfig[]
+  onDisplayChange: (raw: string) => void
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
+  onMethodClick: (method: PaymentMethodConfig) => void
+  onRemoveApplied: (rowId: string) => void
   onConfirm: () => void
   onCancel: () => void
 }
@@ -309,28 +407,30 @@ function PayPhase({
   customer,
   creditoWithoutCustomer,
   drawerClosed,
-  rows,
-  paidTotal,
+  applied,
+  display,
+  displayRef,
+  change,
   remaining,
-  showChange,
-  changeAmount,
+  appliedTotal,
   canConfirm,
   submitting,
   errorMsg,
   config,
-  onAddRow,
-  onRemoveRow,
-  onUpdateMethod,
-  onUpdateAmount,
+  paymentMethods,
+  onDisplayChange,
+  onKeyDown,
+  onMethodClick,
+  onRemoveApplied,
   onConfirm,
   onCancel,
 }: PayPhaseProps) {
   return (
     <>
+      {/* Header */}
       <DialogHeader className="shrink-0 px-5 pb-3 pt-5">
         <DialogTitle className="sr-only">Cobro</DialogTitle>
 
-        {/* Total a pagar */}
         <div className="flex flex-col items-center gap-1 pb-1">
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Total a pagar
@@ -351,14 +451,12 @@ function PayPhase({
           </Badge>
         </div>
 
-        {/* Alerta crédito sin cliente */}
         {creditoWithoutCustomer && (
           <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-600 dark:text-amber-400">
             Seleccioná un cliente para venta a crédito
           </div>
         )}
 
-        {/* Cliente seleccionado (crédito con cliente) */}
         {credito && customer && (
           <div className="mt-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{customer.name}</span>
@@ -368,7 +466,6 @@ function PayPhase({
           </div>
         )}
 
-        {/* Guard: caja cerrada — bloquea el cobro */}
         {drawerClosed && (
           <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
             Abrí la caja antes de cobrar
@@ -378,86 +475,106 @@ function PayPhase({
 
       <Separator />
 
-      {/* Métodos de pago */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Métodos de pago
-          </span>
-          {rows.length < PAYMENT_METHODS.length && (
+      {/* Cuerpo scrolleable */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+
+        {/* Pagos ya aplicados */}
+        {applied.length > 0 && (
+          <div className="space-y-1.5">
+            {applied.map((r) => (
+              <div
+                key={r.rowId}
+                className="flex items-center gap-2 rounded-md bg-muted px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">{r.method.name}</span>
+                {r.identifier && (
+                  <span className="text-xs text-muted-foreground">· {r.identifier}</span>
+                )}
+                <span className="ml-auto tabular-nums font-semibold">
+                  {formatMoney(r.amount, config)}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 text-muted-foreground hover:text-destructive"
+                  onClick={() => onRemoveApplied(r.rowId)}
+                  aria-label="Quitar pago"
+                >
+                  <X className="size-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Visor central */}
+        <input
+          ref={displayRef}
+          type="text"
+          inputMode="numeric"
+          value={display}
+          onChange={(e) => onDisplayChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="0"
+          className="w-full bg-transparent text-center text-5xl font-black tabular-nums outline-none placeholder:text-muted-foreground/30"
+          aria-label="Monto a cobrar"
+        />
+
+        {/* Vuelto */}
+        {change > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2">
+            <span className="text-xs font-semibold">Vuelto</span>
+            <span className="text-xl font-black tabular-nums">
+              {formatMoney(change, config)}
+            </span>
+          </div>
+        )}
+
+        {/* Faltante */}
+        {!credito && remaining > 0 && appliedTotal > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <span className="text-xs font-semibold text-destructive">Faltante</span>
+            <span className="text-sm font-bold tabular-nums text-destructive">
+              {formatMoney(remaining, config)}
+            </span>
+          </div>
+        )}
+
+        {/* Queda a cuenta (crédito) */}
+        {credito && customer && (
+          <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+              Queda a cuenta
+            </span>
+            <span className="text-sm font-bold tabular-nums text-amber-600 dark:text-amber-400">
+              {remaining > 0 ? formatMoney(remaining, config) : "—"}
+            </span>
+          </div>
+        )}
+
+        {/* Grilla de métodos */}
+        <div className="grid grid-cols-2 gap-2">
+          {paymentMethods.map((m) => (
             <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-              onClick={onAddRow}
+              key={m.id}
+              variant="outline"
+              className="h-14 flex-col gap-0.5 text-sm font-semibold"
+              onClick={() => onMethodClick(m)}
+              disabled={!credito && remaining <= 0}
             >
-              <Plus className="size-3" />
-              Agregar método
+              <span>{m.name}</span>
+              {m.code && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({m.code})
+                </span>
+              )}
             </Button>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          {rows.map((row, i) => (
-            <PaymentRow
-              key={row.rowId}
-              row={row}
-              canRemove={rows.length > 1}
-              autoFocus={i === 0 || i === rows.length - 1}
-              onUpdateMethod={onUpdateMethod}
-              onUpdateAmount={onUpdateAmount}
-              onRemove={onRemoveRow}
-              onEnter={() => {
-                // Enter en el monto: si ya se cubre el total → confirmar;
-                // si todavía falta → agregar otro método de pago.
-                if (paidTotal >= total && canConfirm) {
-                  onConfirm()
-                } else {
-                  onAddRow()
-                  // Nota: el foco al nuevo input queda para el cajero (Tab).
-                  // El nuevo row no tiene autoFocus; implementar autofocus
-                  // requeriría refs imperativos — se omite por simplicidad.
-                }
-              }}
-            />
           ))}
-        </div>
-
-        {/* Vuelto / faltante */}
-        <div className="mt-4 space-y-1.5">
-          {showChange && (
-            <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2">
-              <span className="text-xs font-semibold text-foreground">Vuelto</span>
-              <span className="text-lg font-black tabular-nums text-foreground">
-                {formatMoney(changeAmount, config)}
-              </span>
-            </div>
-          )}
-
-          {!credito && remaining > 0 && paidTotal > 0 && (
-            <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <span className="text-xs font-semibold text-destructive">Faltante</span>
-              <span className="text-sm font-bold tabular-nums text-destructive">
-                {formatMoney(remaining, config)}
-              </span>
-            </div>
-          )}
-
-          {credito && customer && (
-            <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-                Queda a cuenta
-              </span>
-              <span className="text-sm font-bold tabular-nums text-amber-600 dark:text-amber-400">
-                {remaining > 0 ? formatMoney(remaining, config) : "—"}
-              </span>
-            </div>
-          )}
         </div>
 
         {/* Error */}
         {errorMsg && (
-          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {errorMsg}
           </div>
         )}
@@ -465,7 +582,7 @@ function PayPhase({
 
       <Separator />
 
-      {/* Footer: cancelar + confirmar */}
+      {/* Footer */}
       <div className="shrink-0 flex gap-2 px-5 py-4">
         <Button
           variant="outline"
@@ -487,89 +604,11 @@ function PayPhase({
   )
 }
 
-// ── Fila de método de pago ────────────────────────────────────────────────────
-
-interface PaymentRowProps {
-  row: PayRow
-  canRemove: boolean
-  /** Autofocus del monto (solo la primera fila, al abrir el modal de cobro). */
-  autoFocus?: boolean
-  onUpdateMethod: (rowId: string, methodId: string) => void
-  onUpdateAmount: (rowId: string, amount: number | null) => void
-  onRemove: (rowId: string) => void
-  /** Llamado cuando el usuario aprieta Enter en el input de monto. */
-  onEnter: () => void
-}
-
-function PaymentRow({
-  row,
-  canRemove,
-  autoFocus,
-  onUpdateMethod,
-  onUpdateAmount,
-  onRemove,
-  onEnter,
-}: PaymentRowProps) {
-  return (
-    <div className="flex items-center gap-2">
-      {/* Selector de método */}
-      <Select
-        value={row.methodId}
-        onValueChange={(val) => onUpdateMethod(row.rowId, val)}
-      >
-        <SelectTrigger className="w-[140px] shrink-0">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {PAYMENT_METHODS.map((m) => (
-            <SelectItem key={m.id} value={m.id}>
-              {m.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {/* MoneyInput para el monto */}
-      <MoneyInput
-        className="flex-1"
-        value={row.amount}
-        onChange={(val) => onUpdateAmount(row.rowId, val)}
-        placeholder="0"
-        aria-label={`Monto ${row.methodId}`}
-        autoFocus={autoFocus}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            onEnter()
-          }
-        }}
-      />
-
-      {/* Botón eliminar fila */}
-      {canRemove ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-muted-foreground hover:text-destructive"
-          onClick={() => onRemove(row.rowId)}
-          aria-label="Quitar método de pago"
-        >
-          <X className="size-4" />
-        </Button>
-      ) : (
-        // Placeholder para mantener alineación cuando no se puede eliminar
-        <div className="size-9 shrink-0" />
-      )}
-    </div>
-  )
-}
-
 // ── Fase de éxito ─────────────────────────────────────────────────────────────
 
 interface SuccessPhaseProps {
   result: CreateSaleResult | null
   total: number
-  /** Monto del vuelto; si > 0 se muestra debajo del total. */
   changeAmount: number
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   onPrint: () => void
@@ -577,11 +616,9 @@ interface SuccessPhaseProps {
 }
 
 function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }: SuccessPhaseProps) {
-  // Cambio 7: Enter en la pantalla de éxito dispara impresión del ticket.
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== "Enter") return
-      // Ignorar Enter si el foco está en un campo de texto
       const target = e.target as HTMLElement
       const tag = target.tagName.toLowerCase()
       if (
@@ -589,7 +626,8 @@ function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }:
         tag === "textarea" ||
         tag === "select" ||
         target.isContentEditable
-      ) return
+      )
+        return
       e.preventDefault()
       onPrint()
     }
@@ -598,9 +636,7 @@ function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }:
   }, [onPrint])
 
   return (
-    // Cambio 4: fondo verde brand + texto oscuro sobre toda la pantalla de éxito
     <div className="flex flex-col items-center gap-5 bg-[#01D7A1] px-6 py-8 text-[#060A0E]">
-      {/* Cambio 4: ícono BicepsFlexed en lugar de CheckCircle2 */}
       <BicepsFlexed className="size-16" strokeWidth={1.5} />
 
       <div className="flex flex-col items-center gap-1 text-center">
@@ -608,11 +644,12 @@ function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }:
         <p className="text-3xl font-black tabular-nums">
           {formatMoney(total, config)}
         </p>
-        {/* Cambio 3: mostrar vuelto si hubo */}
         {changeAmount > 0 && (
           <div className="mt-2 rounded-lg bg-white/15 px-4 py-2 text-center">
             <p className="text-xs uppercase tracking-wider opacity-80">Vuelto</p>
-            <p className="text-2xl font-bold tabular-nums">{formatMoney(changeAmount, config)}</p>
+            <p className="text-2xl font-bold tabular-nums">
+              {formatMoney(changeAmount, config)}
+            </p>
           </div>
         )}
         {result?.duplicated && (
@@ -622,9 +659,7 @@ function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }:
         )}
       </div>
 
-      {/* Cambio 6: botones lado a lado en lugar de columna */}
       <div className="flex w-full gap-3">
-        {/* Imprimir ticket — stub (Slice A5) */}
         <Button
           variant="outline"
           className="flex-1 gap-2 border-white/30 bg-transparent hover:bg-white/10"
@@ -633,8 +668,6 @@ function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }:
           <Printer className="size-4" />
           Imprimir ticket
         </Button>
-
-        {/* Nueva venta — CTA prominente sobre el verde */}
         <Button
           className="flex-1 bg-white font-bold text-[#060A0E] hover:bg-white/90"
           onClick={onClose}

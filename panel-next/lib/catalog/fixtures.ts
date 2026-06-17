@@ -9,7 +9,7 @@
  * En producción, el store se hidrata desde `/api/pos/bootstrap`.
  */
 
-import type { PosItem, PosCustomer, PosConfig, PosRegister } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosRegister, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 
 // ── Config de tenant ──────────────────────────────────────────────────────────
 
@@ -330,6 +330,31 @@ export const fixtureHotkeys = [
   { itemId: "item-004", position: 10, color: "slate", isCategory: false }, // Hamburguesa
 ]
 
+// ── Métodos de pago para dev seed ────────────────────────────────────────────
+
+export const fixturePaymentMethods: PaymentMethodConfig[] = [
+  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false },
+  {
+    id: "tcredito",
+    name: "T. Crédito",
+    code: "S",
+    hasChange: false,
+    requiresIdentifier: true,
+    identifierLabel: "Nro de operación",
+    identifierPlaceholder: "Ej. 123456",
+  },
+  {
+    id: "tdebito",
+    name: "T. Débito",
+    code: "D",
+    hasChange: false,
+    requiresIdentifier: true,
+    identifierLabel: "Nro de operación",
+    identifierPlaceholder: "Ej. 123456",
+  },
+  { id: "transferencia", name: "Transferencia", code: "F", hasChange: false, requiresIdentifier: false },
+]
+
 // ── Bootstrap completo para dev seed ─────────────────────────────────────────
 
 export const fixtureBootstrap = {
@@ -337,6 +362,7 @@ export const fixtureBootstrap = {
   registers: fixtureRegisters,
   items: fixtureItems,
   customers: fixtureCustomers,
+  paymentMethods: fixturePaymentMethods,
   user: { id: "1", role: 1 },
   outlet: { id: "out-1", name: "Central" },
   // Lista completa de sucursales (para el selector de setup en fixtures).

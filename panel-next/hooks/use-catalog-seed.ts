@@ -39,6 +39,7 @@ export function useCatalogSeed() {
         outlet: fixtureBootstrap.outlet,
         outlets: fixtureBootstrap.outlets,
         registers: fixtureBootstrap.registers,
+        paymentMethods: fixtureBootstrap.paymentMethods,
         // En fixtures el guard no debe bloquear: auto-seleccionamos la primera caja.
         activeRegisterId: fixtureBootstrap.registers[0]?.id ?? "",
       })
@@ -61,6 +62,7 @@ export function useCatalogSeed() {
         outlet: bootstrap.outlet,
         outlets: bootstrap.outlets,
         registers: bootstrap.registers,
+        paymentMethods: bootstrap.paymentMethods,
         activeRegisterId: bootstrap.activeRegisterId,
       })
     }

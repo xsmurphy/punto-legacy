@@ -8,6 +8,23 @@
  * Ver context/16-app-next-rewrite.md §4 (arquitectura BFF) y §7 Sprint 0/Slice A.
  */
 
+// ── Método de pago configurable ───────────────────────────────────────────────
+
+export interface PaymentMethodConfig {
+  id: string
+  name: string
+  /** Letra hotkey (A, S, D…). Opcional. */
+  code?: string
+  /** true = efectivo/similar: acepta vuelto cuando el monto supera el total. */
+  hasChange: boolean
+  /** true = pide un identificador antes de aplicar (voucher, nro de op, etc). */
+  requiresIdentifier: boolean
+  /** Label del campo (ej. "Nro de operación"). Null si !requiresIdentifier. */
+  identifierLabel?: string
+  /** Placeholder del input de identificador. */
+  identifierPlaceholder?: string
+}
+
 // ── Config del tenant ─────────────────────────────────────────────────────────
 
 export interface PosConfig {
@@ -101,6 +118,7 @@ export interface PosBootstrap {
   registers: PosRegister[]
   items: PosItem[]
   customers: PosCustomer[]
+  paymentMethods: PaymentMethodConfig[]
   /** UUID de la caja activa en el claim del JWT. '' = sin caja seleccionada. */
   activeRegisterId: string
 }
