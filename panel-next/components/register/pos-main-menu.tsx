@@ -683,7 +683,7 @@ function TransactionsPreview() {
         <Button
           onClick={() => {
             setOpen(false)
-            router.push("/reports/transactions")
+            router.push("/pos/transactions")
           }}
         >
           Ver todas las transacciones
