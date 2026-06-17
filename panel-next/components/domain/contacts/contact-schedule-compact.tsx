@@ -95,8 +95,6 @@ export function ContactScheduleCompact({ customerId }: Props) {
           icon={CalendarDays}
           title="Sin citas"
           description="No hay citas en el rango seleccionado."
-          showMarquee={false}
-          className="border-0 py-6"
         />
       ) : (
         <ul className="divide-y divide-border rounded-lg border">

@@ -96,8 +96,6 @@ export function ContactOrdersCompact({ customerId }: Props) {
           icon={ShoppingBag}
           title="Sin órdenes"
           description="No hay órdenes en el rango seleccionado."
-          showMarquee={false}
-          className="border-0 py-6"
         />
       ) : (
         <ul className="divide-y divide-border rounded-lg border">
