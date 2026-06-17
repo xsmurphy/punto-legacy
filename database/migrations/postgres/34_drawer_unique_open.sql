@@ -10,6 +10,8 @@
 --
 -- Idempotente.
 
+-- Postgres fold-to-lowercase: las columnas reales son `registerid` y
+-- `drawerclosedate` (sin quotes). Las migraciones previas usan ese estilo.
 CREATE UNIQUE INDEX IF NOT EXISTS uidx_drawer_register_open
-    ON drawer ("registerId")
-    WHERE "drawerCloseDate" IS NULL;
+    ON drawer (registerid)
+    WHERE drawerclosedate IS NULL;

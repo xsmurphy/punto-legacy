@@ -23,15 +23,16 @@ BEGIN
      AND tc.table_schema    = kcu.table_schema
     WHERE tc.table_name      = 'expenses'
       AND tc.constraint_type = 'FOREIGN KEY'
-      AND kcu.column_name    = 'expensesNameId'
+      AND kcu.column_name    = 'expensesnameid'
     LIMIT 1;
 
     IF v_constraint IS NOT NULL THEN
         EXECUTE 'ALTER TABLE expenses DROP CONSTRAINT ' || quote_ident(v_constraint);
-        RAISE NOTICE '[33] Dropped FK constraint % from expenses.expensesNameId', v_constraint;
+        RAISE NOTICE '[33] Dropped FK constraint % from expenses.expensesnameid', v_constraint;
     END IF;
 
     -- Nullable (idempotente: DROP NOT NULL es no-op si ya es nullable)
-    ALTER TABLE expenses ALTER COLUMN "expensesNameId" DROP NOT NULL;
-    RAISE NOTICE '[33] expenses.expensesNameId is now nullable';
+    -- Postgres fold-to-lowercase: la columna real es `expensesnameid` (sin quotes).
+    ALTER TABLE expenses ALTER COLUMN expensesnameid DROP NOT NULL;
+    RAISE NOTICE '[33] expenses.expensesnameid is now nullable';
 END $$;

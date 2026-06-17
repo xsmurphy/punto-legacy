@@ -143,19 +143,15 @@ final class DrawerService
             return 'Already Open';
         }
 
-        $record = [
-            'drawerOpenDate'   => $date,
-            'drawerOpenAmount' => $amount,
-            'drawerUserOpen'   => $userId,
-            'drawerUserClose'  => null,
-            'drawerUID'        => 0,
-            'registerId'       => $this->ctx->registerId,
-            'outletId'         => $this->ctx->outletId,
-            'companyId'        => $this->ctx->companyId,
-        ];
-
         try {
-            $ok = $db->AutoExecute('drawer', $record, 'INSERT');
+            $ok = $db->Execute(
+                'INSERT INTO drawer
+                    (drawerOpenDate, drawerOpenAmount, drawerUserOpen, drawerUID,
+                     registerId, outletId, companyId)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [$date, $amount, $userId, 0,
+                 $this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId]
+            );
         } catch (\Throwable $e) {
             // El índice uidx_drawer_register_open (mig 34) protege contra race:
             // si dos requests pasan el findOpenRow simultáneamente, el segundo
@@ -225,22 +221,16 @@ final class DrawerService
             return 'Expense Already Exists';
         }
 
-        $record = [
-            // fix: expensesNameId es NOT NULL REFERENCES taxonomy en el schema original.
-            // Los movimientos de caja no tienen categoría real. La migración
-            // 33_expenses_name_nullable.sql hace la columna nullable para este caso.
-            'expensesNameId'        => null,
-            'expensesAmount'        => $amount,
-            'expensesDate'          => $date,
-            'expensesDescription'   => $note,
-            // type IS NULL = extracción (según DrawerService::getExpenses)
-            'userId'                => $this->ctx->userId,
-            'registerId'            => $this->ctx->registerId,
-            'outletId'              => $this->ctx->outletId,
-            'companyId'             => $this->ctx->companyId,
-        ];
-
-        $ok = $db->AutoExecute('expenses', $record, 'INSERT');
+        // expensesNameId es NULL para movimientos de caja (mig 33 hace la columna nullable).
+        // type IS NULL = extracción (según DrawerService::getExpenses).
+        $ok = $db->Execute(
+            'INSERT INTO expenses
+                (expensesNameId, expensesAmount, expensesDate, expensesDescription,
+                 userId, registerId, outletId, companyId)
+             VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)',
+            [$amount, $date, $note,
+             $this->ctx->userId, $this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId]
+        );
         if ($ok === false) {
             throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar extracción');
         }
@@ -267,19 +257,15 @@ final class DrawerService
             return 'Income Already Exists';
         }
 
-        $record = [
-            'expensesNameId'        => null,
-            'expensesAmount'        => (float) $amount,
-            'expensesDate'          => $date,
-            'expensesDescription'   => $note,
-            'type'                  => 1, // type = 1 = ingreso (según DrawerService::getIncome)
-            'userId'                => $this->ctx->userId,
-            'registerId'            => $this->ctx->registerId,
-            'outletId'              => $this->ctx->outletId,
-            'companyId'             => $this->ctx->companyId,
-        ];
-
-        $ok = $db->AutoExecute('expenses', $record, 'INSERT');
+        // type = 1 = ingreso (según DrawerService::getIncome).
+        $ok = $db->Execute(
+            'INSERT INTO expenses
+                (expensesNameId, expensesAmount, expensesDate, expensesDescription,
+                 type, userId, registerId, outletId, companyId)
+             VALUES (NULL, ?, ?, ?, 1, ?, ?, ?, ?)',
+            [(float) $amount, $date, $note,
+             $this->ctx->userId, $this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId]
+        );
         if ($ok === false) {
             throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar ingreso');
         }
