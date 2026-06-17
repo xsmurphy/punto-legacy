@@ -28,6 +28,7 @@ import * as React from "react"
 import { CartPanel } from "@/components/register/cart-panel"
 import { DeviceSetupDialog } from "@/components/register/device-setup-dialog"
 import { LockScreen } from "@/components/register/lock-screen"
+import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
@@ -126,24 +127,31 @@ export default function PosWorkspaceLayout({
   // Atajos de teclado globales (Q/W/E/R/Enter) — operación rápida sin mouse.
   usePosHotkeys()
 
-  // Auto-lock al primer mount de la sesión SOLO si la cuenta tiene > 1 usuario.
-  // Una vez aplicado no se vuelve a evaluar (ni en re-renders ni al desbloquear).
-  //
-  // - userCount > 1  → bloquear (regla del owner: comercio con varios cajeros).
-  // - userCount === 1 → no bloquea (dueño-cajero).
-  // - userCount undefined (backend no lo expone aún) → NO bloquea por default.
-  //   Asumimos 1 usuario hasta que el campo llegue al bootstrap (más seguro
-  //   contra falsos positivos: bloquear sin razón es peor UX que no bloquear).
+  // Flujo de arranque:
+  //   1. Por default arrancamos con <PosLoadingScreen /> mientras bootstrap
+  //      no llegó. Esto evita el "flash" donde se ve el contenido del POS
+  //      por un tick antes de que el efecto del auto-lock decida bloquear.
+  //   2. Cuando llega bootstrap, decidimos SÍNCRONAMENTE (no en useEffect):
+  //      userCount > 1 → aplicamos lock antes del primer render del contenido.
+  //      userCount <= 1 (o undefined) → no bloqueamos.
+  //      Hacer esto sincrónicamente con un ref hace que el primer paint del
+  //      contenido ya respete la decisión: nunca se ve el POS desbloqueado
+  //      antes del LockScreen.
   const { data: bootstrap } = useBootstrap()
   const autoLockApplied = React.useRef(false)
-  React.useEffect(() => {
-    if (autoLockApplied.current) return
-    if (!bootstrap) return
+  if (!autoLockApplied.current && bootstrap) {
     autoLockApplied.current = true
     const userCount = bootstrap.userCount
-    if (typeof userCount !== "number" || userCount <= 1) return
-    useLockStore.getState().lock()
-  }, [bootstrap])
+    if (typeof userCount === "number" && userCount > 1) {
+      useLockStore.getState().lock()
+    }
+  }
+
+  // Loading screen mientras no llega bootstrap. Una vez llega, el render
+  // del POS ya nace con el lock aplicado (o sin lock) según userCount.
+  if (!bootstrap) {
+    return <PosLoadingScreen />
+  }
 
   return (
     <div className="relative flex h-full w-full overflow-hidden">

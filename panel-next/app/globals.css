@@ -104,6 +104,8 @@
     /* Lock screen del POS (lib/pos/lock-store + components/register/lock-screen). */
     --animate-pin-pop: pin-pop 220ms ease-out;
     --animate-pin-shake: pin-shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+    /* Loading screen del POS — barra indeterminada (un segmento que recorre la pista). */
+    --animate-pos-loading: pos-loading 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @keyframes marquee {
@@ -129,6 +131,12 @@
     20%, 80%  { transform: translateX(4px); }
     30%, 50%, 70% { transform: translateX(-7px); }
     40%, 60%  { transform: translateX(7px); }
+}
+
+/* Barra de carga del POS — un segmento que cruza la pista de izquierda a derecha. */
+@keyframes pos-loading {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
 }
 
 /* LIGHT — fondo casi blanco, primary neutro oscuro. Brand verde Punto solo
