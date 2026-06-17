@@ -350,6 +350,48 @@ Dashboard refactoreado al **layout 2-col del legacy (8/4)**:
 - **Columna principal (8)**: hero KPIs, income chart, donuts de métodos de pago, clientes recientes, Top 5 productos, horarios pico (`TopHoursCard` — nuevo componente).
 - **Columna lateral (4)**: NPS, órdenes activas, información general, plan activo.
 
+### Módulo Packs de Servicios (commits 5d8edb9..4c4d930, 2026-06-15)
+
+Suscripciones/combos de servicios: se define un ítem de tipo "pack" con N componentes (servicios incluidos), se vende como cualquier ítem y el sistema emite un `sold_pack` que el cliente consume por canje.
+
+**Schema**: tablas `pack_component`, `sold_pack`, `sold_pack_usage` (migración 31). Ver `context/04-modelo-de-dominio.md § Tablas de Packs de Servicios`.
+
+**Archivos clave**:
+
+| Capa | Archivo | Responsabilidad |
+|------|---------|----------------|
+| Migration | `database/migrations/postgres/31_pack_services.sql` | 3 tablas + índices |
+| Service | `api/lib/Packs/PackService.php` | CRUD de componentes (`pack_component`), consulta de packs activos por contacto, canje (`sold_pack_usage`), historial |
+| Endpoints | `api/v1/pack_component.php`, `api/v1/sold_pack.php`, `api/v1/sold_pack_usage.php` | gateados `apiAuthTenant(['panel','pos-app'])` |
+| Panel-next | editor de ítems — tab "Pack" con builder de componentes | `panel-next/` — tipo pack dentro del form de ítem |
+| Integración venta | `api/lib/Sales/SaleService.php` | al vender un ítem tipo pack, crea `sold_pack` automáticamente |
+| POS Alpine | `app/` | vista de packs activos del cliente + modal de canje |
+| Panel-next perfil | tab "Packs" en perfil de contacto | historial de canjes del cliente |
+
+**Invariantes**:
+- El balance por componente se computa en query (canjes usados vs `componentQty × qty`), nunca persiste.
+- Lazy expiry: `expiresAt < NOW()` se evalúa al leer, no hay cron.
+- `status` 1=activo, 0=bloqueado/vencido, 2=consumido completamente.
+
+### Módulo Listas de Precios (commits 14394b5..7f3c134, 2026-06-15)
+
+Listas de precios con ajuste porcentual global o override por ítem. Soporta recargos positivos (delivery) y descuentos negativos (mayorista). Se asigna a contactos o sucursales.
+
+**Schema**: tablas `price_list` y `price_list_item` (migración 32). Ver `context/04-modelo-de-dominio.md § Tablas de Listas de Precios`.
+
+**Archivos clave**:
+
+| Capa | Archivo | Responsabilidad |
+|------|---------|----------------|
+| Migration | `database/migrations/postgres/32_price_lists.sql` | 2 tablas + índices |
+| Service | `api/lib/PriceLists/PriceListService.php` | CRUD de listas, CRUD de overrides por ítem, resolución de precio (`price_resolve`) |
+| Endpoints | `api/v1/price_list.php`, `api/v1/price_list_item.php`, `api/v1/price_resolve.php` | gateados `apiAuthTenant(['panel','pos-app'])` |
+| Panel-next settings | `panel-next/app/(panel)/settings/` | página de gestión de listas de precios |
+| Asignación | panel-next — perfil de contacto y ficha de sucursal | dropdown de lista activa; guarda en `contact.data->>'priceListId'` y `outlet.data->>'priceListId'` |
+| POS Alpine | `app/` | F5: carga la lista al seleccionar cliente/sucursal, resuelve precio localmente |
+
+**Resolución de precio**: override de ítem con `fixedPrice` > override con `itemAdjustment` > `defaultAdjustment` de la lista > precio base. Lista del contacto tiene precedencia sobre lista de sucursal.
+
 ---
 
 ## /admin — Realm de super-admins de plataforma (iniciado 2026-05-28)
@@ -403,6 +445,89 @@ El realm admin tiene ahora su propio route group React dentro de `panel-next/`: 
 - `adminAudit()` helper en `panel/API/lib/admin_auth.php` — registra en tabla `admin_audit` (ver `04-modelo-de-dominio.md`). Best-effort, nunca lanza excepción. Wired en 10 handlers de mutación: updateCompany / grantAiCredits / setAddons / resolveRequest / suspendCompany / deleteCompany / impersonate + createAdmin / updateAdmin / setAdminStatus.
 
 **Búsqueda server-side en companies**: `CompanyAdminService::listAll` reescrito a SQL real con `WHERE` parametrizado (ILIKE sobre settingName/settingRUC/slug) + LIMIT/OFFSET + COUNT(*). El endpoint `companies.php` acepta `?q=&status=&plan=&blocked=&page=&pageSize=`. Antes el filtro era post-fetch en PHP (no escalaba).
+
+---
+
+## POS React — fusionado en panel-next (2026-06-16)
+
+> **El subproyecto `app-next/` fue ELIMINADO (fusión 2026-06-16).** El POS React vive dentro de `panel-next/` en el route group `app/(pos)/pos`. Ya NO existen branches `app-next/*`.
+
+**Propósito**: reescritura del POS legacy (`/app`, jQuery + Bootstrap 3) a React + Next.js + shadcn/ui. Ver `context/14-app-rewrite-analysis.md` para el análisis completo.
+
+**Stack**: Next.js 15, React 19, TypeScript, shadcn/ui, Tailwind, TanStack Query, Zustand. Comparte el mismo proceso Next.js y el mismo catch-all BFF que el panel.
+
+**Estado**: Slice A1 (pantalla de caja con carrito) + Slice A2 (modales búsqueda producto/cliente) + lock screen + menú POS + hotkeys. Backend de ventas: `/api` compartida (`SaleService`, realm `pos-app`).
+
+**Estructura de directorios** (dentro de `panel-next/`):
+
+| Directorio | Responsabilidad |
+|------------|----------------|
+| `app/(pos)/pos/` | Route group del POS: layout + página principal |
+| `components/register/` | Componentes de la caja: carrito, búsqueda, modales, lock screen, menú |
+| `lib/pos/` | Stores y helpers: `lock-store.ts` (Zustand), `device.ts` |
+| `lib/catalog/` | Store en memoria (Zustand) + índice de búsqueda local + fixtures dev |
+| `lib/cart/` | Store del carrito (Zustand) |
+| `lib/commands/` | Comandos de dominio: `create-sale.ts`, `create-customer.ts` |
+| `lib/hardware/` | QZ Tray tipado, ticket builder, barcode scanner hook |
+| `lib/realtime/` | Cliente WS (`ncm-ws.ts`) |
+| `lib/types/` | Tipos TS: `bootstrap.ts` (incluye `userCount`), `pos-session.ts` |
+| `hooks/` | `use-pos-bootstrap.ts`, `use-catalog-seed.ts` |
+
+**Reglas**:
+- Mismo patrón BFF same-origin que el panel (catch-all `app/api/v1/[...path]/route.ts`).
+- Shadcn-first, MoneyInput para montos, DataTable para listados — todas las convenciones aplican.
+- El catálogo vive en memoria (Zustand), hidratado de IndexedDB (Dexie, a incorporar en F2). Búsqueda local sin round-trips.
+- El backend de ventas es el mismo `/api` compartido (`SaleService` idempotente, realm `pos-app`).
+- Offline scope restringido: solo ventas simples contado/crédito + alta de clientes.
+
+### Lock screen del POS (commits f4fb03c..70b708c, 2026-06-16)
+
+Componente: `panel-next/components/register/lock-screen.tsx`. Store: `panel-next/lib/pos/lock-store.ts` (Zustand).
+
+**Scope**: overlay `absolute inset-0 z-[60]` scoped al workspace del POS — NO al viewport global. Esto es intencional: el lock bloquea la UI de caja sin interferir con el resto del layout de Next.js ni con la sesión del operador.
+
+**Funcionamiento**:
+- PIN 4 dígitos. Captura `keydown` global + input invisible `inputMode="numeric"` para teclado virtual en mobile/tablet.
+- Animaciones: `pin-pop` (bounce al agregar dígito), `pin-shake` (sacudida al PIN incorrecto) — definidas en `app/globals.css`.
+- Al desbloquear: toast "Hola, [user.name]" (fallback "¡Bienvenido!").
+- **Auto-lock**: se activa automáticamente cuando `bootstrap.userCount > 1` (más de un usuario en la empresa). Commit 70b708c. Si `userCount` es `undefined`, el default es NO bloquear (commit 60414b3 — fix para instalaciones que aún no tienen el campo en el bootstrap).
+
+**TODO F2 backend**: `STUB_PIN = "1234"` → endpoint real `POST /v1/lock-screen/verify` con re-emisión de `_jwt_pos`. Ver `context/10-roadmap.md § F2 — Backend pendiente del POS`.
+
+### Menú principal del POS (commits 162329b + 1a4ec47, 2026-06-16)
+
+Componente: `panel-next/components/register/pos-main-menu.tsx`.
+
+**8 secciones**: Control de Caja / Transacciones / Agenda / Órdenes / Impresoras / Módulos / Ajustes / HotKeys.
+
+**Patrón `CustomContent` + `onSelect`**: el tipo `MenuSection` admite dos extensiones opcionales:
+- `CustomContent?: React.ComponentType` — reemplaza el área de descripción+CTA default del content panel derecho con un componente propio (usado por Control de Caja, HotKeys, etc.).
+- `onSelect?: ({setOpen, router, activeRegisterId}) => void` — ejecuta una acción directa al hacer click en el item del sidebar, sin mostrar content (ej. navegar a una ruta, abrir un dialog). Si está presente, la sección no muestra area derecha.
+
+Estado inicial sin selección muestra un empty state en el content area.
+
+**TODO F2**: las secciones de Control de Caja (apertura/cierre/arqueo) y las previews de Transacciones/Agenda/Órdenes son mocks. Impresoras pendiente de persistencia en `register.data.printers`.
+
+### Bootstrap POS — campo `userCount` (commit 5220d63, 2026-06-16)
+
+`api/v1/bootstrap.php` (realm `pos-app`) ahora incluye `userCount`: count de `contact` con `type=0 AND status > 0` para el tenant. El front lo consume en `lock-store.ts` para decidir si activar el auto-lock.
+
+**TODOs en `panel-next/lib/types/bootstrap.ts`**:
+- `user.name?` — nombre del operador logueado (para el toast de bienvenida del lock)
+- `user.roleName?` — rol del operador (col `roleName` ya disponible en `UsersService` del backend)
+
+Ambos pendientes de agregar al SELECT del bootstrap PHP. Ver `context/10-roadmap.md § F2 — Backend pendiente del POS`.
+
+### Hotkeys del POS — endpoints `GET/PUT /v1/register?resource=hotkeys` (commit 92bf8c5)
+
+Endpoints para persistir el layout de acceso rápido del POS por caja.
+
+- `GET /v1/register?resource=hotkeys` — devuelve el array de hotkeys de la caja activa (scope `registerId+companyId` del JWT).
+- `PUT /v1/register?resource=hotkeys` — actualiza el array. Validación server-side: descarta entradas sin `itemId`.
+- Shape de cada hotkey: `{itemId: string, position: number, color: string, isCategory: boolean}`.
+- Persistencia: `register.data.hotkeys` (JSONB — migration 26 demote ya aplicada).
+
+**`mergeRepeated`** (commit 70b708c) — TODO F2: persistir en `register.data.mergeRepeated`. Hoy solo en memoria Zustand (default ON). Regla: si OFF → siempre crea línea nueva en el carrito; si ON → suma qty solo si el ítem coincide con la ÚLTIMA línea del array (A+A = 1 línea qty=2; A+B+A = 3 líneas separadas).
 
 ---
 

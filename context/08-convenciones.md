@@ -1632,3 +1632,61 @@ Next.js catch-all route.ts
 **Referencia**: `docs/PLAN_panel_desacople.md` (F3 marcada CANCELADA) documenta los handlers que quedaron pendientes — sirve de referencia para saber qué handlers in-process necesitarán portarse cuando el slice React llegue a esa funcionalidad.
 
 **Aplica a**: cualquier sesión que trabaje en `panel-next/`. La REGLA RAÍZ sigue siendo la misma: el BFF (ahora el fetch de Next.js/TanStack Query) nunca toca la BD directamente.
+
+---
+
+## §38 — Anti-patrón: gate `status !== "idle"` en hooks TanStack Query + Zustand store (establecido commit 4b79d5e, 2026-06-16)
+
+**Problema**: en hooks que combinan TanStack Query y un store Zustand local (ej. `hooks/use-catalog-seed.ts`), poner un guard `if (status !== "idle") return` bloquea la re-hidratación del store después del primer mount. Al cambiar de caja (o cualquier contexto que requiera re-seeding), el hook detecta `status === "success"` y sale antes de correr la lógica de seed — el store queda con datos stale.
+
+**Bug real**: `DeviceSetupDialog` colgado al cambiar de caja porque `use-catalog-seed.ts` no re-hidrataba el catalog store.
+
+**Regla**: el gate `status !== "idle"` solo aplica a fixtures/mocks de desarrollo (evitar que el mock sobreescriba datos reales). Con data real de TanStack Query, permitir que el `useEffect` corra cada vez que `data` cambia:
+
+```tsx
+// MAL — bloquea re-hidratación al cambiar de contexto
+useEffect(() => {
+  if (status !== "idle") return  // nunca re-corre después del primer success
+  seed(data)
+}, [data, status])
+
+// BIEN — re-hidrata siempre que data cambie
+useEffect(() => {
+  if (!data) return
+  seed(data)
+}, [data])
+
+// BIEN para fixtures — gate explícito solo en fixtures
+useEffect(() => {
+  if (isProduction) return  // no pisar datos reales con fixtures
+  seedWithFixtures()
+}, [])
+```
+
+**Aplica a**: cualquier hook en `panel-next/` o en el POS React que combine TanStack Query (`useQuery`) con un store Zustand para hidratación local.
+
+---
+
+## §39 — Patrón `CustomContent` + `onSelect` para modales tipo sidebar+content (establecido 2026-06-16, pos-main-menu)
+
+Para UIs del estilo "sidebar de items + area de contenido a la derecha" (como los Settings de macOS o el menú del POS), el tipo de cada sección acepta dos extensiones opcionales que evitan proliferación de `switch`/`if-else` en el render:
+
+```tsx
+interface MenuSection {
+  id: string
+  label: string
+  icon: React.ComponentType
+  // Reemplaza el area de contenido default (descripcion + CTA)
+  CustomContent?: React.ComponentType<{ onClose: () => void }>
+  // Ejecuta accion directa al click en el sidebar — NO muestra area de contenido
+  onSelect?: (ctx: { setOpen: Dispatch<boolean>; router: AppRouterInstance; activeRegisterId: string }) => void
+}
+```
+
+**Reglas**:
+- Si `onSelect` está presente → click en el sidebar ejecuta la acción y NO muestra content area.
+- Si `CustomContent` está presente (sin `onSelect`) → click muestra `<CustomContent>` en lugar del panel default.
+- Si ninguno está presente → comportamiento default: muestra descripción + CTA en el content panel.
+- Estado inicial sin sección seleccionada → empty state en el content panel (nunca auto-seleccionar la primera).
+
+**Primer uso**: `panel-next/components/register/pos-main-menu.tsx`. El patrón es replicable en cualquier UI panel-left + content-right de panel-next.

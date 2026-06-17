@@ -251,6 +251,8 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 | 28 | `28_billing.sql` | Crea tablas `ai_credit_ledger` y `billing_request`. Agrega columnas `company.aiCreditsBalance INT` y `plans.ai_credits_monthly INT`. | Aplicada 2026-06-14 |
 | 29 | `29_admin_audit.sql` | Crea tabla `admin_audit` con índices. Agrega helper `adminAudit()` en `panel/API/lib/admin_auth.php`. | Aplicada 2026-06-14 |
 | 30 | `30_billing_dlocal.sql` | Crea tablas `credit_pack` (catálogo + seed 3 packs) y `billing_invoice`. Agrega columna `ai_credit_ledger.relatedInvoiceId` + índice único parcial `uq_ai_credit_ledger_invoice_grant` (idempotencia anti doble-acreditación). | Aplicada 2026-06-14 |
+| 31 | `31_pack_services.sql` | Crea tablas `pack_component`, `sold_pack`, `sold_pack_usage` para el módulo de Packs de Servicios. | Aplicada 2026-06-15 |
+| 32 | `32_price_lists.sql` | Crea tablas `price_list` y `price_list_item` para el módulo de Listas de Precios. | Aplicada 2026-06-15 |
 
 ### Tabla `ai_credit_ledger` — ledger de créditos de IA (migración 28)
 
@@ -356,3 +358,137 @@ El bootstrap del panel-next ahora incluye campos de selector de sucursal:
 | `outlets` | array `{id, name}` | Lista de todas las sucursales activas del tenant |
 
 **Endpoint `POST /v1/active-outlet`** (commit fd5e5b3, 2026-06-12): cambia la sucursal activa re-emitiendo un JWT panel con nuevo claim `oid`. `PanelAuth::issueJwt` acepta `?string $outletIdOverride`. El nuevo token reemplaza la cookie `_jwt_panel` en la respuesta.
+
+### Endpoint `/v1/bootstrap` — campo `userCount` en realm POS (commit 5220d63, 2026-06-16)
+
+El bootstrap del realm `pos-app` (`api/v1/bootstrap.php`) ahora incluye:
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `userCount` | int | COUNT de `contact` con `type=0 AND status > 0` para el tenant. Consumido por `lock-store.ts` para activar auto-lock cuando hay más de un usuario. |
+
+**Campos pendientes** (TODO F2 — anotados en `panel-next/lib/types/bootstrap.ts`):
+- `user.name` — nombre del operador logueado (para el toast de bienvenida del lock screen).
+- `user.roleName` — rol del operador. La columna `roleName` ya existe en `UsersService` del backend; solo falta agregarlo al SELECT del bootstrap.
+
+### Columnas JSONB `register.data` — hotkeys y mergeRepeated (2026-06-16)
+
+La migración 26 demotó los campos fiscales de `register` a `register.data` JSONB. Los campos del POS React se persisten también en `register.data`:
+
+| Key | Tipo | Notas |
+|-----|------|-------|
+| `hotkeys` | `Array<{itemId, position, color, isCategory}>` | Layout de acceso rápido de la caja. Persistido vía `GET/PUT /v1/register?resource=hotkeys`. Validación server-side: descarta entradas sin `itemId`. |
+| `mergeRepeated` | boolean | Si `true` (default), agregar el mismo ítem consecutivamente suma qty en la última línea del carrito. Si `false`, siempre crea línea nueva. **TODO F2**: persistir en backend — hoy solo vive en memoria Zustand. |
+
+### Regla de IVA incluido — cálculo por línea en el POS (commits b06d029 + 3ee2adb, 2026-06-16)
+
+**Modelo Paraguay (único implementado)**: el IVA está incluido en el precio final (`itemPrice` ya incluye IVA). `TAX_RATE` = 10% hardcodeado.
+
+Cuando el usuario activa `ivaRemoved=true` en la venta:
+- Por línea: `Math.round(qty × unitPrice / 1.10)` — precio neto sin IVA.
+- El total de la venta = suma de los subtotales por línea (consistencia visual: 25k + 10k + 32k = 67k, no el 60.909 que sale de dividir el total bruto).
+
+**TODO multi-tax / multi-país**: derivar `taxRate` del campo `taxRate` por ítem del catálogo + modo (incluido/no incluido) de la config del tenant. Hoy el 10% está hardcodeado en el componente `sale-options-drawer.tsx`.
+
+### Tablas de Packs de Servicios (migración 31, 2026-06-15)
+
+Módulo de suscripciones/combos de servicios: define los componentes de un pack, registra las ventas de packs y los canjes individuales.
+
+#### Tabla `pack_component` — componentes de un pack
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `packComponentId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `packItemId` | UUID NOT NULL | FK → `item(itemId) ON DELETE CASCADE`. El ítem raíz de tipo pack. |
+| `componentItemId` | UUID NOT NULL | FK → `item(itemId)`. El servicio/ítem incluido en el pack. |
+| `componentQty` | SMALLINT NOT NULL DEFAULT 1 | Cantidad de este componente incluida en el pack. |
+| `sort` | SMALLINT NOT NULL DEFAULT 0 | Orden de visualización. |
+| `companyId` | UUID NOT NULL | Multi-tenant scope. |
+| `createdAt` | TIMESTAMPTZ | — |
+
+**Índices**: `idx_pack_component_pack` (packItemId, companyId), `idx_pack_component_company` (companyId).
+
+#### Tabla `sold_pack` — instancia de pack vendida a un cliente
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `soldPackId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `packItemId` | UUID NOT NULL | FK → `item(itemId)`. El ítem pack vendido. |
+| `contactId` | UUID NOT NULL | FK → `contact(contactId)`. Titular del pack. |
+| `transactionId` | UUID NULL | FK → `transaction(transactionId)`. Venta en que se emitió. |
+| `outletId` | UUID NULL | FK → `outlet(outletId)`. Sucursal donde se vendió. |
+| `companyId` | UUID NOT NULL | Multi-tenant scope. |
+| `expiresAt` | TIMESTAMPTZ NOT NULL | Vencimiento del pack. |
+| `status` | SMALLINT NOT NULL DEFAULT 1 | 1=activo, 0=bloqueado/vencido, 2=consumido completamente. |
+| `createdAt` / `updatedAt` | TIMESTAMPTZ | — |
+
+**Índices**: `idx_sold_pack_contact` (contactId, companyId, status), `idx_sold_pack_company` (companyId, status), `idx_sold_pack_tx` (transactionId).
+
+**Invariantes operativas**:
+- El **balance por componente** (canjes usados / total disponible) se computa en query vía `sold_pack_usage` — **nunca persistido** como columna.
+- **Lazy expiry on read**: `expiresAt < NOW()` se evalúa al consultar, no hay cron que cambie status.
+- Al vender un ítem tipo pack, `SaleService` crea automáticamente el `sold_pack` correspondiente.
+
+#### Tabla `sold_pack_usage` — cada canje individual de un servicio del pack
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `usageId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `soldPackId` | UUID NOT NULL | FK → `sold_pack(soldPackId) ON DELETE CASCADE`. |
+| `packComponentId` | UUID NOT NULL | FK → `pack_component(packComponentId)`. El componente canjeado. |
+| `qty` | SMALLINT NOT NULL DEFAULT 1 | Cantidad canjeada en esta operación. |
+| `performedBy` | UUID NULL | FK → `contact(contactId)`. Empleado que realizó el canje. |
+| `outletId` | UUID NULL | FK → `outlet(outletId)`. |
+| `companyId` | UUID NOT NULL | Multi-tenant scope. |
+| `notes` | TEXT NULL | Nota libre del canje. |
+| `performedAt` | TIMESTAMPTZ NOT NULL DEFAULT now() | — |
+
+**Índices**: `idx_pack_usage_sold` (soldPackId), `idx_pack_usage_company` (companyId), `idx_pack_usage_by` (performedBy WHERE NOT NULL).
+
+---
+
+### Tablas de Listas de Precios (migración 32, 2026-06-15)
+
+Módulo de listas con ajuste porcentual (o precio fijo) sobre el precio base de los ítems. Soporta recargos positivos (ej. plataformas delivery +15%) y descuentos negativos (ej. lista mayorista −20%).
+
+#### Tabla `price_list` — encabezado de la lista
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `priceListId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `priceListName` | VARCHAR(120) NOT NULL | Nombre de la lista (display). |
+| `defaultAdjustment` | DECIMAL(6,2) NOT NULL DEFAULT 0 | % de ajuste global. Negativo = descuento (ej. −10.00 = 10% off); positivo = recargo (ej. +15.00 = 15% de recargo para delivery). |
+| `validFrom` | TIMESTAMPTZ NULL | Inicio de vigencia. NULL = sin restricción. |
+| `validTo` | TIMESTAMPTZ NULL | Fin de vigencia. NULL = sin restricción. |
+| `status` | BOOLEAN NOT NULL DEFAULT true | Activa/inactiva. |
+| `companyId` | UUID NOT NULL | Multi-tenant scope. |
+| `createdAt` / `updatedAt` | TIMESTAMPTZ | — |
+
+**Índices**: `idx_price_list_company` (companyId, status).
+
+**Asignación**: la lista se asigna a un contacto vía `contact.data->>'priceListId'` o a una sucursal vía `outlet.data->>'priceListId'` (JSONB — no columna real, no indexada).
+
+#### Tabla `price_list_item` — override por ítem
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `priceListItemId` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `priceListId` | UUID NOT NULL | FK → `price_list(priceListId) ON DELETE CASCADE`. |
+| `itemId` | UUID NOT NULL | FK → `item(itemId) ON DELETE CASCADE`. |
+| `fixedPrice` | DECIMAL(15,2) NULL | Precio absoluto para este ítem. Ignora `defaultAdjustment` e `itemAdjustment`. |
+| `itemAdjustment` | DECIMAL(6,2) NULL | % override solo para este ítem (reemplaza `defaultAdjustment`). |
+| `companyId` | UUID NOT NULL | Multi-tenant scope. |
+| `createdAt` | TIMESTAMPTZ | — |
+
+**Constraints**: `UNIQUE (priceListId, itemId)` — un ítem tiene como mucho un override por lista. `fixedPrice` e `itemAdjustment` son **mutuamente excluyentes** (validado a nivel de aplicación).
+
+**Índices**: `idx_price_list_item_list` (priceListId, companyId), `idx_price_list_item_item` (itemId, companyId).
+
+**Resolución de precio por prioridad** (mayor a menor precedencia):
+1. Override por ítem con `fixedPrice` → precio absoluto.
+2. Override por ítem con `itemAdjustment` → `itemPrice * (1 + itemAdjustment/100)`.
+3. `defaultAdjustment` de la lista → `itemPrice * (1 + defaultAdjustment/100)`.
+4. Lista del contacto (`contact.data->>'priceListId'`) tiene precedencia sobre lista de sucursal (`outlet.data->>'priceListId'`).
+5. Sin lista asignada → precio base del ítem (`itemPrice`).
+
+**Resolución en el POS**: el POS carga la lista completa de la lista activa al seleccionar cliente/sucursal y resuelve el precio localmente (sin round-trip por ítem).

@@ -357,6 +357,23 @@ Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
 
 # Prioridad ALTA (próximas 4-8 semanas)
 
+## F2 — Backend pendiente del POS React (acumulado sesión 2026-06-16)
+
+Estos TODOs están anotados en el código pero requieren backend para completarse. El POS React funciona hoy con stubs.
+
+| # | Pendiente | Detalle |
+|---|-----------|---------|
+| 1 | **Separar `_jwt_pos` de `_jwt_panel`** | Cookie propia para el realm `pos-app`. El realm ya existe en backend; falta separar la cookie en el front React. |
+| 2 | **`POST /v1/device/unpair`** | Para "Eliminar dispositivo del comercio" (hoy no existe el endpoint). |
+| 3 | **`POST /v1/lock-screen/verify`** | Verificar PIN contra backend + re-emitir `_jwt_pos`. Hoy: `STUB_PIN = "1234"` en `lock-screen.tsx`. |
+| 4 | **`bootstrap.user.name` y `bootstrap.user.roleName`** | Agregar al SELECT del bootstrap PHP. `roleName` ya disponible en `UsersService`. |
+| 5 | **Persistir `register.data.mergeRepeated`** | Hoy solo en memoria Zustand (default ON). Falta `PUT /v1/register?resource=merge-repeated`. |
+| 6 | **Endpoints reales de Control de Caja** | Apertura, cierre y arqueo de caja con persistencia (hoy son mocks en el menú POS). |
+| 7 | **Endpoints reales de Transacciones / Agenda / Órdenes** | Las previews del menú POS son mocks estáticos. |
+| 8 | **Persistencia de impresoras** | Probable `register.data.printers` JSONB. |
+
+---
+
 ## panel-next — Selector de sucursal en menú del usuario (NUEVO 2026-06-12)
 
 **Feature ausente del panel-next que SÍ existe en legacy.** En el menú dropdown del usuario (sidebar bottom) el panel legacy permite, cuando la cuenta tiene ≥2 sucursales:
