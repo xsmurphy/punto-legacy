@@ -12,7 +12,7 @@
  *   customerId       UUID del contacto.
  *   variant          "panel" | "pos" (default "panel").
  *                    En "pos": oculta acciones destructivas (archivar), muestra
- *                    footer fijo "Cobrar a este cliente" y botón cerrar (X).
+ *                    footer fijo "Añadir" y botón cerrar (X).
  *   nav              "tabs" | "sidebar" (default "tabs").
  *                    "sidebar": aside izq ≈ 200 px + contenido a la derecha.
  *   onClose          Solo variant="pos". Llama al cerrar la X.
@@ -427,7 +427,7 @@ export function ContactDetailView({
                 onSelectForSale(posContact)
               }}
             >
-              Cobrar a este cliente
+              Añadir
             </Button>
           </div>
         )}

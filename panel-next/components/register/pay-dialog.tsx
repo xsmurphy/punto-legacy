@@ -632,14 +632,21 @@ function PayPhase({
           {paymentMethods.map((m) => (
             <Button
               key={m.id}
-              variant={m.isDefault ? "secondary" : "outline"}
+              variant={m.isDefault ? "default" : "outline"}
               className="h-9 justify-center gap-1.5 px-2 text-xs font-medium"
               onClick={() => onMethodClick(m)}
               disabled={!credito && remaining <= 0}
             >
               <span className="truncate">{m.name}</span>
               {m.code && (
-                <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border border-border/60 bg-background/60 px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                <kbd
+                  className={cn(
+                    "pointer-events-none inline-flex h-4 select-none items-center rounded px-1 font-mono text-[10px] font-medium",
+                    m.isDefault
+                      ? "border border-primary-foreground/25 bg-primary-foreground/10 text-primary-foreground/80"
+                      : "border border-border/60 bg-background/60 text-muted-foreground",
+                  )}
+                >
                   {m.code}
                 </kbd>
               )}

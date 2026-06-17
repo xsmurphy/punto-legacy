@@ -51,8 +51,6 @@ import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
 import {
-  Sheet,
-  SheetContent,
 } from "@/components/ui/sheet"
 import { ContactDetailView } from "@/components/domain/contacts/contact-detail-view"
 
@@ -128,11 +126,14 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
 
   return (
     <>
-    <Sheet
+    <Dialog
       open={!!detailCustomerId}
       onOpenChange={(o) => { if (!o) setDetailCustomerId(null) }}
     >
-      <SheetContent side="right" className="w-full sm:max-w-3xl p-0 flex flex-col">
+      <DialogContent
+        showCloseButton={false}
+        className="flex h-[85vh] max-h-[85vh] w-full max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+      >
         {detailCustomerId && (
           <ContactDetailView
             customerId={detailCustomerId}
@@ -146,8 +147,8 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
             }}
           />
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl"
