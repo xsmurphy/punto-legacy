@@ -232,7 +232,7 @@ final class ContactAnalyticsService
              LIMIT 3",
             array_merge([$companyId, $contactId], $txTypes)
         );
-        // PG fold-to-lowercase: $rs->fields trae las keys como las devuelve PG.
+        // PG fold-to-lowercase: fetchAll() copia las keys tal cual.
         $outletIds   = array_map(fn($r) => (string) $r['outletid'], $byOutlet);
         $outletName  = $this->outletNamesByIds($outletIds, $companyId);
         $byOutlet = array_map(function ($r) use ($outletName) {
@@ -389,8 +389,8 @@ final class ContactAnalyticsService
              WHERE companyId = ? AND itemId IN ($marks)",
             array_merge([$companyId], $ids)
         );
-        // Postgres folds identificadores sin quotes a lowercase; ADOdb
-        // expone $rs->fields con las keys exactas que devuelve PG → lowercase.
+        // PG folds identificadores sin quotes a lowercase. fetchAll() copia
+        // las keys exactas que devuelve el driver → lowercase.
         $map = [];
         foreach ($rows as $r) { $map[(string)$r['itemid']] = (string)($r['itemname'] ?? ''); }
         return $map;
