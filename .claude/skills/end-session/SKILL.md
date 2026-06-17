@@ -15,6 +15,22 @@ Cierra una jornada de trabajo escribiendo un bullet-list de 2-5 líneas en `cont
 
 ## Cómo funciona
 
+### Paso 0 — Delegar a Sonnet (OBLIGATORIO, antes de todo lo demás)
+
+Esta skill SIEMPRE se ejecuta en Sonnet. Razones: (a) es trabajo de escritura/síntesis mecánico, no decisional; (b) el usuario reservó Opus/Fable para conversación e implementación, no para cierres.
+
+Comprobá el modelo actual al inicio:
+
+- **Si el modelo NO es Sonnet** (estás en Opus/Fable/Haiku/etc):
+  1. Compilá un brief con: (a) `git log --oneline <hash-último-entry-del-session-log>..HEAD` de los commits de la sesión; (b) un resumen narrativo extraído de la conversación de qué se hizo, qué se decidió, qué quedó como TODO; (c) wrinkles técnicos o cosas non-obvious del flujo.
+  2. Llamá `Agent(subagent_type: "claude", model: "sonnet", description: "Run /end-session", prompt: "<brief + el resto de las instrucciones de esta skill>")` — incluí en el prompt los pasos 1+ de esta misma skill para que el sub-agente sepa qué ejecutar.
+  3. Reportá al usuario el resultado del sub-agente.
+  4. **SALÍ — no ejecutes los pasos 1+ vos mismo.**
+
+- **Si el modelo SÍ es Sonnet**: procedé con los pasos 1+ inline como siempre.
+
+### Pasos de ejecución
+
 1. **Leer git log de los commits desde el último entry del session log** — eso da el "qué pasó" objetivo.
 2. **Inferir el contexto** desde la conversación actual (qué se discutió, qué se aprobó, qué quedó como TODO).
 3. **Escribir un entry nuevo** al TOPE de `context/_session-log.md` con la fecha de hoy. Formato:
@@ -28,23 +44,27 @@ Cierra una jornada de trabajo escribiendo un bullet-list de 2-5 líneas en `cont
 - **Atención**: el agent escalate_to_human ahora deja nota interna cuando la notificación falla — verificar después del próximo deploy.
 ```
 
-4. **Sincronizar `/context/` y graphify** — después de escribir el entry, consolidar doc-sync de toda la sesión:
-   a. Listar commits de la sesión: `git log --oneline <hash-del-entry-anterior>..HEAD`
-   b. Evaluar cuáles califican como "cambio relevante" per CLAUDE.md (schema/migrations, auth/JWT, módulos nuevos, infra, convenciones, roadmap, términos del dominio).
-   c. Si hay al menos uno → invocar `Agent(subagent_type="context-updater")` **UNA SOLA VEZ**, pasando en el prompt la lista de commits + resumen de lo que cambió.
-   d. Si todos son triviales (UI/copy/fixes menores/wip) → skip. Anotar en el entry: `- Docs: sin cambios para /context/ (solo fixes menores).`
-   e. Reportar al usuario qué actualizó el context-updater (o confirmar skip con razón).
+4. **Editar docs de `/context/` MANUALMENTE si hubo cambio relevante** (la regla del owner — `context-updater` está apagado por completo):
+   a. Listar commits de la sesión: `git log --oneline <hash-del-entry-anterior>..HEAD`.
+   b. Evaluar cuáles califican como "cambio relevante" per CLAUDE.md (schema/migrations, auth/JWT, módulos nuevos, infra, convenciones críticas, roadmap, términos del dominio).
+   c. Si hay al menos uno → editar el doc correspondiente VOS MISMO con `Edit` (no es un agente aparte). Mantenelo breve — el detalle vive en el commit. Para cambios chicos a roadmap/glosario, agregar 1-2 líneas; si es un módulo nuevo, agregar la entrada al `05-modulos-clave.md`.
+   d. Si todos son triviales (UI/copy/fixes menores/wip) → skip.
+   e. **NUNCA** invocar `Agent(subagent_type="context-updater")`. Está apagado por decisión del owner (gastaba tokens regenerando graphify).
 5. Mantener el log en orden CRONOLÓGICO INVERSO (más reciente arriba).
-6. Cap del archivo: si pasa de ~200 líneas, archivar las primeras a `context/_session-log-archive-YYYY-MM.md` y dejar solo las últimas 3 semanas en el principal.
+6. Cap del archivo: si pasa de ~100 líneas, archivar las más viejas a `context/_session-log-archive-YYYY-MM.md` y dejar solo las últimas 3 semanas en el principal.
 
 ## Reglas estrictas
 
-- **`/end-session` es el único momento para context-updater.** No invocar el agente después de commits individuales — eso se consolidó acá. Una sola llamada al cierre cubre toda la sesión.
-- **No editar otros docs de `/context/` directamente** — eso es trabajo del context-updater agent invocado en el paso 4. El `/end-session` solo orquesta, no edita.
-- **No filtrar techstack** al log. El log es interno, pero igual: usar lenguaje de negocio cuando sea posible.
-- **Conciso**. 2-5 bullets máximo por entry. Si hubo más, sintetizar — no transcribir cada commit.
-- **Si la sesión fue trivial** (un fix chico, sin decisiones) NO escribir entry. Saturar el log con ruido lo vuelve inútil.
-- **No duplicar el commit log**. Los commits ya viven en git. El _session-log captura el WHY / contexto / pendientes — cosas que el commit no.
+- **`context-updater` NO se invoca NUNCA.** Está apagado. Si necesitás editar `context/*.md`, hacelo vos mismo con `Edit`.
+- **No regenerés graphify.** También apagado por la misma decisión.
+- **Formato del entry: corto.** 1 línea de titular + 1-2 líneas con rango de commits y highlights. El detalle vive en los commits. Patrón nuevo:
+  ```
+  ## 2026-06-16 — bugfixes team + purchase + dashboard
+  Commits `5220d63..1f2e45b` (47). Highlights: fix /v1/users (tabla role inexistente),
+  PIN POS 4 dígitos, rediseño dashboard, fix purchase itemSold schema.
+  ```
+- **Si la sesión fue trivial** (un fix chico, sin decisiones) NO escribir entry.
+- **No duplicar el commit log**. El _session-log es para el titular + highlights de un día, no para transcribir cada commit.
 
 ## Output esperado
 
