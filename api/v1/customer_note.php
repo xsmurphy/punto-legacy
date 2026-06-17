@@ -12,7 +12,7 @@ require_once __DIR__ . '/../lib/services/CustomerNoteService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\CustomerNoteService;
 
-$ctx       = apiAuthTenant();
+$ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId  = $ctx['companyId'];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {

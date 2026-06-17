@@ -16,7 +16,7 @@ require_once __DIR__ . '/../lib/services/CustomerAddressService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\CustomerAddressService;
 
-$ctx       = apiAuthTenant();
+$ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId  = $ctx['companyId'];
 
 $svc    = new CustomerAddressService(TenantContext::fromAuth($ctx));

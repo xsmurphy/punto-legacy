@@ -17,7 +17,7 @@ require_once __DIR__ . '/../lib/services/TransactionService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\TransactionService;
 
-$ctx        = apiAuthTenant();
+$ctx        = apiAuthTenant(['panel', 'pos-app']);
 $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 $userId     = $ctx['userId'];

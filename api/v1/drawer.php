@@ -13,7 +13,7 @@ require_once __DIR__ . '/../lib/services/DrawerService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\DrawerService;
 
-$ctx        = apiAuthTenant();
+$ctx        = apiAuthTenant(['panel', 'pos-app']);
 $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 $registerId = $ctx['registerId'];
