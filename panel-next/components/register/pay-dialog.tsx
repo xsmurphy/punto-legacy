@@ -1,15 +1,15 @@
 "use client"
 
 /**
- * Pantalla de cobro — Slice A3 (refactor visor central).
+ * Pantalla de cobro — Slice A3 (visor unificado + auto-confirm).
  *
- * UX: visor central numérico grande + botones de método. El cajero tipea el
- * monto (o deja vacío para aplicar el restante) y presiona el botón/hotkey
- * del método. Si el método requiere identificador, abre un sub-diálogo.
+ * UX: UN visor central grande que funciona simultáneamente como display del
+ * remaining y como input numérico editable. Al cubrir el total con un pago,
+ * la venta se confirma automáticamente sin pedir segundo click.
  *
  * Fases:
  *   pay     → visor + métodos aplicados + botones
- *   success → pantalla verde de confirmación
+ *   success → pantalla verde de confirmación con vuelto
  *
  * Ver context/16-app-next-rewrite.md §7 Slice A3.
  */
@@ -125,6 +125,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const [pendingIdentifier, setPendingIdentifier] = React.useState<{
     method: PaymentMethodConfig
     amount: number
+    changeOverride?: number
   } | null>(null)
   const [phase, setPhase] = React.useState<DialogPhase>("pay")
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
@@ -152,32 +153,102 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const appliedTotal = applied.reduce((s, r) => s + r.amount, 0)
   const remaining = total - appliedTotal
 
-  // ── Aplicar un pago (sin identificador pendiente) ─────────────────────────
-  function applyPayment(
+  // ── Confirmar venta ───────────────────────────────────────────────────────
+  async function handleConfirm(
+    appliedPayments: AppliedPayment[],
+    changeAmount: number,
+  ) {
+    setSubmitting(true)
+    setErrorMsg(null)
+    try {
+      const payments: SalePaymentMethod[] = appliedPayments.map((r) => ({
+        name: r.method.id,
+        total: r.amount,
+        ...(r.identifier ? { identifier: r.identifier } : {}),
+      }))
+
+      // Venta a crédito sin ningún pago inicial → se registra como crédito total
+      // TODO crédito 100%: revisar con el owner si esto aplica cuando se abre
+      // el dialog en modo crédito pero el cajero no aplica ningún pago.
+      const effectivePayments =
+        payments.length === 0 && credito
+          ? [{ name: "credito", total: 0 }]
+          : payments
+
+      const result = await executeSale({
+        lines,
+        payments: effectivePayments,
+        credito,
+        interno,
+        customer,
+        userId: null,
+      })
+
+      setChange(changeAmount)
+      setSaleResult(result)
+      setPhase("success")
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : "Error al confirmar la venta",
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ── Aplicar un pago ───────────────────────────────────────────────────────
+  /**
+   * Aplica un pago y, si el remaining llega a 0, confirma la venta
+   * automáticamente sin pedir un segundo click.
+   *
+   * `changeOverride` permite pasar el vuelto calculado externamente (Caso C
+   * con hasChange), porque el pago se registra por `remaining` aunque el
+   * cajero entregó `parsed` — la diferencia es el vuelto informativo.
+   */
+  async function applyPayment(
     method: PaymentMethodConfig,
     amount: number,
     identifier: string | null,
+    changeOverride?: number,
   ) {
-    setApplied((prev) => [
-      ...prev,
+    const newApplied: AppliedPayment[] = [
+      ...applied,
       { rowId: crypto.randomUUID(), method, amount, identifier },
-    ])
+    ]
+    const newAppliedTotal = newApplied.reduce((s, r) => s + r.amount, 0)
+    const newRemaining = total - newAppliedTotal
+    // changeOverride tiene prioridad: permite mostrar vuelto cuando el pago
+    // registrado es `remaining` pero el cajero entregó más (Caso C hasChange).
+    const newChange = changeOverride ?? (newRemaining < 0 ? Math.abs(newRemaining) : 0)
+
+    setApplied(newApplied)
+    setDisplay("")
+
+    if (newRemaining <= 0) {
+      // Venta cubierta → confirmar automáticamente
+      await handleConfirm(newApplied, newChange)
+    }
+    // Si newRemaining > 0: el cajero sigue agregando pagos
   }
 
-  function tryApplyPayment(method: PaymentMethodConfig, amount: number) {
+  function tryApplyPayment(
+    method: PaymentMethodConfig,
+    amount: number,
+    changeOverride?: number,
+  ) {
     if (method.requiresIdentifier) {
-      setPendingIdentifier({ method, amount })
+      setPendingIdentifier({ method, amount, changeOverride })
     } else {
-      applyPayment(method, amount, null)
-      setDisplay("")
+      void applyPayment(method, amount, null, changeOverride)
     }
   }
 
   function handleMethodClick(method: PaymentMethodConfig) {
     if (credito) {
-      // En crédito no se cobra (o se cobra parcial opcionalmente) — el visor
-      // queda disponible pero no bloqueamos el botón confirmar por monto.
-      // Si hay display, se aplica como pago parcial.
+      // En crédito: si hay monto tipeado, se aplica como pago parcial.
+      // Si no hay monto, un click en método con crédito no aplica nada
+      // (la venta a crédito 100% sin cobro inicial se confirma con el botón
+      // "Confirmar venta" — TODO crédito 100%: pendiente de definición con el owner).
       const parsed = parseDisplay(display)
       if (parsed > 0) {
         tryApplyPayment(method, parsed)
@@ -192,17 +263,18 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     const isEmpty = parsed === 0
 
     if (isEmpty) {
-      // CASO A: aplica el restante completo
+      // CASO A: aplica el restante completo → auto-confirm
       tryApplyPayment(method, remaining)
     } else if (parsed < remaining) {
-      // CASO B: pago parcial
+      // CASO B: pago parcial — el cajero sigue agregando pagos
       tryApplyPayment(method, parsed)
       setDisplay("")
     } else {
       // CASO C: parsed >= remaining
       if (method.hasChange) {
-        setChange(parsed - remaining)
-        tryApplyPayment(method, remaining)
+        // El pago se registra por `remaining` (lo que se cobra).
+        // El vuelto = parsed - remaining se muestra en la pantalla success.
+        tryApplyPayment(method, remaining, parsed - remaining)
       } else {
         toast.info(`${method.name} no acepta vuelto — se aplicó el monto exacto`)
         tryApplyPayment(method, remaining)
@@ -217,19 +289,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    // Enter con saldo cubierto → confirmar
-    if (e.key === "Enter") {
-      e.preventDefault()
-      if (canConfirm) handleConfirm()
-      return
-    }
-
     // Backspace con visor vacío → elimina el último applied
     if (e.key === "Backspace" && display === "") {
       e.preventDefault()
       setApplied((prev) => {
         const next = prev.slice(0, -1)
-        // Si se eliminó el último, limpiar vuelto
         if (next.length === 0) setChange(0)
         return next
       })
@@ -247,51 +311,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     }
   }
 
-  // ── Validación ────────────────────────────────────────────────────────────
+  // ── Validación (solo para crédito, que no tiene auto-confirm) ────────────
   const creditoWithoutCustomer = credito && !customer
-  const cashSaleReady = !credito && remaining <= 0 && appliedTotal > 0
-  const creditSaleReady = credito && !!customer
-  const canConfirm =
-    (cashSaleReady || creditSaleReady) &&
-    !creditoWithoutCustomer &&
-    !submitting &&
-    !drawerClosed
+  const creditSaleReady = credito && !!customer && !submitting && !drawerClosed
 
-  // ── Confirmar venta ───────────────────────────────────────────────────────
-  async function handleConfirm() {
-    if (!canConfirm) return
-    setSubmitting(true)
-    setErrorMsg(null)
-    try {
-      const payments: SalePaymentMethod[] = applied.map((r) => ({
-        name: r.method.id,
-        total: r.amount,
-        ...(r.identifier ? { identifier: r.identifier } : {}),
-      }))
-
-      const effectivePayments =
-        payments.length === 0 && credito
-          ? [{ name: "credito", total: 0 }]
-          : payments
-
-      const result = await executeSale({
-        lines,
-        payments: effectivePayments,
-        credito,
-        interno,
-        customer,
-        userId: null,
-      })
-
-      setSaleResult(result)
-      setPhase("success")
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : "Error al confirmar la venta",
-      )
-    } finally {
-      setSubmitting(false)
-    }
+  function handleCreditConfirm() {
+    if (!creditSaleReady) return
+    void handleConfirm(applied, 0)
   }
 
   function handlePrint() {
@@ -325,10 +351,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               applied={applied}
               display={display}
               displayRef={displayRef}
-              change={change}
               remaining={remaining}
               appliedTotal={appliedTotal}
-              canConfirm={canConfirm}
+              creditSaleReady={creditSaleReady}
               submitting={submitting}
               errorMsg={errorMsg}
               config={config}
@@ -339,7 +364,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               onRemoveApplied={(rowId) =>
                 setApplied((prev) => prev.filter((r) => r.rowId !== rowId))
               }
-              onConfirm={handleConfirm}
+              onCreditConfirm={handleCreditConfirm}
               onCancel={handleClose}
             />
           ) : (
@@ -363,8 +388,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         config={config}
         onConfirm={(identifier) => {
           if (pendingIdentifier) {
-            applyPayment(pendingIdentifier.method, pendingIdentifier.amount, identifier)
-            setDisplay("")
+            void applyPayment(
+              pendingIdentifier.method,
+              pendingIdentifier.amount,
+              identifier,
+              pendingIdentifier.changeOverride,
+            )
           }
           setPendingIdentifier(null)
         }}
@@ -385,10 +414,9 @@ interface PayPhaseProps {
   applied: AppliedPayment[]
   display: string
   displayRef: React.RefObject<HTMLInputElement | null>
-  change: number
   remaining: number
   appliedTotal: number
-  canConfirm: boolean
+  creditSaleReady: boolean
   submitting: boolean
   errorMsg: string | null
   config: ReturnType<typeof useCatalogStore.getState>["config"]
@@ -397,7 +425,7 @@ interface PayPhaseProps {
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
   onMethodClick: (method: PaymentMethodConfig) => void
   onRemoveApplied: (rowId: string) => void
-  onConfirm: () => void
+  onCreditConfirm: () => void
   onCancel: () => void
 }
 
@@ -410,10 +438,9 @@ function PayPhase({
   applied,
   display,
   displayRef,
-  change,
   remaining,
   appliedTotal,
-  canConfirm,
+  creditSaleReady,
   submitting,
   errorMsg,
   config,
@@ -422,26 +449,29 @@ function PayPhase({
   onKeyDown,
   onMethodClick,
   onRemoveApplied,
-  onConfirm,
+  onCreditConfirm,
   onCancel,
 }: PayPhaseProps) {
+  // El visor muestra lo tipeado si hay algo; si no, muestra el remaining.
+  // Esto se logra con placeholder: el input está vacío y el placeholder
+  // es el remaining formateado — visualmente se lee como el monto a cobrar.
+  const placeholderAmount = remaining > 0 ? remaining : 0
+  const placeholderText = formatMoney(placeholderAmount, config)
+
   return (
     <>
-      {/* Header */}
+      {/* Header — label + badge de modo */}
       <DialogHeader className="shrink-0 px-5 pb-3 pt-5">
         <DialogTitle className="sr-only">Cobro</DialogTitle>
 
-        <div className="flex flex-col items-center gap-1 pb-1">
+        <div className="flex items-center justify-between">
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Total a pagar
-          </span>
-          <span className="text-4xl font-black tabular-nums text-foreground">
-            {formatMoney(total, config)}
+            {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
           </span>
           <Badge
             variant={credito ? "secondary" : "outline"}
             className={cn(
-              "mt-0.5 text-[10px] font-bold uppercase tracking-wide",
+              "text-[10px] font-bold uppercase tracking-wide",
               credito
                 ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
                 : "border-border bg-muted text-foreground",
@@ -472,6 +502,30 @@ function PayPhase({
           </div>
         )}
       </DialogHeader>
+
+      {/* Visor unificado — display del remaining Y input numérico editable.
+          Cuando el cajero no tipeó nada, el placeholder muestra el remaining
+          formateado. Al tipear, el visor cambia al monto ingresado en tiempo real.
+          Autofocus garantiza que el teclado físico funcione desde el primer gesto. */}
+      <div className="shrink-0 px-5 py-4">
+        <input
+          ref={displayRef}
+          type="text"
+          inputMode="numeric"
+          value={display}
+          onChange={(e) => onDisplayChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={placeholderText}
+          className={cn(
+            "w-full bg-transparent text-center tabular-nums outline-none",
+            "text-5xl font-black text-foreground",
+            // Placeholder muestra el remaining con el mismo estilo que el texto
+            // tipeado — visualmente es un solo visor (no parece un campo vacío)
+            "placeholder:text-foreground",
+          )}
+          aria-label="Monto a cobrar"
+        />
+      </div>
 
       <Separator />
 
@@ -507,30 +561,7 @@ function PayPhase({
           </div>
         )}
 
-        {/* Visor central */}
-        <input
-          ref={displayRef}
-          type="text"
-          inputMode="numeric"
-          value={display}
-          onChange={(e) => onDisplayChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="0"
-          className="w-full bg-transparent text-center text-5xl font-black tabular-nums outline-none placeholder:text-muted-foreground/30"
-          aria-label="Monto a cobrar"
-        />
-
-        {/* Vuelto */}
-        {change > 0 && (
-          <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2">
-            <span className="text-xs font-semibold">Vuelto</span>
-            <span className="text-xl font-black tabular-nums">
-              {formatMoney(change, config)}
-            </span>
-          </div>
-        )}
-
-        {/* Faltante */}
+        {/* Faltante (visible solo cuando hay pagos parciales en contado) */}
         {!credito && remaining > 0 && appliedTotal > 0 && (
           <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
             <span className="text-xs font-semibold text-destructive">Faltante</span>
@@ -582,23 +613,27 @@ function PayPhase({
 
       <Separator />
 
-      {/* Footer */}
+      {/* Footer — solo Cancelar para contado (auto-confirm elimina el segundo click)
+          Para crédito, se mantiene "Confirmar venta" porque no hay auto-confirm
+          (el cajero puede querer registrar sin cobro inicial). */}
       <div className="shrink-0 flex gap-2 px-5 py-4">
         <Button
           variant="outline"
-          className="flex-1"
+          className={cn("flex-1", credito ? "flex-1" : "flex-[1]")}
           onClick={onCancel}
           disabled={submitting}
         >
           Cancelar
         </Button>
-        <Button
-          disabled={!canConfirm}
-          onClick={onConfirm}
-          className="flex-[2] font-bold transition-all active:scale-[0.98]"
-        >
-          {submitting ? "Procesando..." : "Confirmar venta"}
-        </Button>
+        {credito && (
+          <Button
+            disabled={!creditSaleReady}
+            onClick={onCreditConfirm}
+            className="flex-[2] font-bold transition-all active:scale-[0.98]"
+          >
+            {submitting ? "Procesando..." : "Confirmar venta"}
+          </Button>
+        )}
       </div>
     </>
   )
