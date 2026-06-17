@@ -3,22 +3,56 @@
 /**
  * Reporte de Movimientos de Caja — espejo de panel/reports/expenses.html.
  *
- * Lista las entradas/salidas manuales del cajón (no son ventas, son
- * extracciones e ingresos manuales que se cargan en el POS durante el día).
- * Backend: GET /v1/reports/expenses?from=&to= → array de rows con date,
- * outletName, registerName, userName, note, type (1=extracción, 2=ingreso),
- * amount.
+ * Lista las entradas/salidas manuales del cajón (extracciones e ingresos
+ * que se cargan desde el POS). El panel puede editar y eliminar registros
+ * existentes — NO crear nuevos (los movimientos se originan solo desde el POS).
  *
- * Las dos filas de KPI arriba: total de ingresos y total de extracciones.
+ * Backend: GET /v1/reports/expenses?from=&to= → { rows, users }
+ *          POST /v1/reports/expenses (action=update|delete)
  */
 
 import * as React from "react"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, Coins } from "lucide-react"
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Coins,
+  Pencil,
+  Trash2,
+} from "lucide-react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
@@ -26,8 +60,11 @@ import {
   rangeToBackend,
   type DateRangeValue,
 } from "@/components/date-range-picker"
+import { DatePicker } from "@/components/date-picker"
+import { MoneyInput } from "@/components/ui/money-input"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ExpenseRow } from "@/hooks/use-reports"
+import { useUpdateExpense, useDeleteExpense } from "@/hooks/use-expenses"
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
 
@@ -36,8 +73,23 @@ export default function ExpensesReportPage() {
   const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
-  const { data, isLoading, error } = useReport<ExpenseRow[]>("expenses", opts)
-  const rows = React.useMemo(() => data ?? [], [data])
+  const { data, isLoading, error } = useReport<{ rows: ExpenseRow[]; users: { id: string; name: string }[] }>(
+    "expenses",
+    opts,
+  )
+
+  // El endpoint devuelve { rows, users }. Si por algún motivo devolviera el array directo
+  // (compat con versiones previas), lo normalizamos.
+  const rows = React.useMemo(() => {
+    if (!data) return []
+    if (Array.isArray(data)) return data as ExpenseRow[]
+    return (data as { rows?: ExpenseRow[] }).rows ?? []
+  }, [data])
+
+  const users = React.useMemo(() => {
+    if (!data || Array.isArray(data)) return []
+    return (data as { users?: { id: string; name: string }[] }).users ?? []
+  }, [data])
 
   const totals = React.useMemo(() => {
     let income = 0
@@ -50,6 +102,58 @@ export default function ExpensesReportPage() {
     return { income, extraction, net: income - extraction }
   }, [rows])
 
+  // ── Estado de edición ─────────────────────────────────────────────────────
+  const [editRow, setEditRow] = React.useState<ExpenseRow | null>(null)
+  const [editDate, setEditDate] = React.useState<string>("")
+  const [editAmount, setEditAmount] = React.useState<number | null>(null)
+  const [editNote, setEditNote] = React.useState("")
+  const [editUser, setEditUser] = React.useState("")
+
+  function openEdit(row: ExpenseRow) {
+    setEditRow(row)
+    // Convertir "YYYY-MM-DD HH:mm:ss" → "YYYY-MM-DD" para el DatePicker
+    setEditDate(row.date ? row.date.slice(0, 10) : "")
+    setEditAmount(row.amount)
+    setEditNote(row.note ?? "")
+    setEditUser(row.userId ?? "")
+  }
+
+  // ── Estado de eliminación ─────────────────────────────────────────────────
+  const [deleteRow, setDeleteRow] = React.useState<ExpenseRow | null>(null)
+
+  // ── Mutaciones ────────────────────────────────────────────────────────────
+  const updateMutation = useUpdateExpense()
+  const deleteMutation = useDeleteExpense()
+
+  async function handleUpdate() {
+    if (!editRow || !editDate || editAmount === null) return
+    try {
+      await updateMutation.mutateAsync({
+        id: editRow.expensesId,
+        date: editDate, // ya es "YYYY-MM-DD"
+        total: editAmount,
+        note: editNote,
+        user: editUser,
+      })
+      toast.success("Movimiento actualizado")
+      setEditRow(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al actualizar")
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteRow) return
+    try {
+      await deleteMutation.mutateAsync({ id: deleteRow.expensesId })
+      toast.success("Movimiento eliminado")
+      setDeleteRow(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al eliminar")
+    }
+  }
+
+  // ── Columnas ──────────────────────────────────────────────────────────────
   const columns = React.useMemo<ColumnDef<ExpenseRow>[]>(
     () => [
       {
@@ -132,6 +236,34 @@ export default function ExpensesReportPage() {
         },
         meta: { label: "Monto", className: "tabular-nums text-right" },
       },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label="Editar"
+              onClick={() => openEdit(row.original)}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-destructive hover:text-destructive"
+              aria-label="Eliminar"
+              onClick={() => setDeleteRow(row.original)}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
+        ),
+        meta: { label: "Acciones" },
+        enableSorting: false,
+      },
     ],
     [bootstrap],
   )
@@ -143,7 +275,7 @@ export default function ExpensesReportPage() {
           <BackLink />
           <h1 className="text-2xl font-semibold">Movimientos de Caja</h1>
           <p className="text-sm text-muted-foreground">
-            Entradas y salidas manuales del cajón (no son ventas). Se cargan en el POS durante el día.
+            Entradas y salidas manuales del cajón. Se crean desde el POS; acá podés editar o eliminar.
           </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} />
@@ -154,7 +286,7 @@ export default function ExpensesReportPage() {
           <AlertCircle className="mt-0.5 size-4 text-destructive" />
           <div>
             <p className="font-medium">No se pudo cargar el reporte</p>
-            <p className="text-xs text-muted-foreground">{error.message}</p>
+            <p className="text-xs text-muted-foreground">{(error as Error).message}</p>
           </div>
         </div>
       )}
@@ -198,9 +330,95 @@ export default function ExpensesReportPage() {
           />
         }
       />
+
+      {/* Dialog de edición */}
+      <Dialog open={!!editRow} onOpenChange={(o) => { if (!o) setEditRow(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar movimiento</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Label>Fecha</Label>
+              <DatePicker value={editDate} onChange={(v) => setEditDate(v)} />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label>Monto</Label>
+              <MoneyInput value={editAmount} onChange={setEditAmount} />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label>Concepto</Label>
+              <Textarea
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+                placeholder="Concepto del movimiento"
+                rows={2}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label>Usuario</Label>
+              <Select value={editUser} onValueChange={setEditUser}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sin asignar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Sin asignar</SelectItem>
+                  {users.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditRow(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleUpdate}
+              disabled={!editDate || editDate === "" || editAmount === null || updateMutation.isPending}
+            >
+              {updateMutation.isPending ? "Guardando…" : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AlertDialog de eliminación */}
+      <AlertDialog open={!!deleteRow} onOpenChange={(o) => { if (!o) setDeleteRow(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar movimiento</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteRow
+                ? `¿Eliminar el movimiento del ${niceDateTime(deleteRow.date)} por ${bootstrap?.currency ?? ""} ${formatMoney(deleteRow.amount, bootstrap)}? Esta acción no se puede deshacer.`
+                : "¿Confirmar eliminación?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? "Eliminando…" : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
+
+// ── Sub-componentes ───────────────────────────────────────────────────────────
 
 function Stat({
   icon,

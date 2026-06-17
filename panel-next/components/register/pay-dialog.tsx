@@ -56,6 +56,7 @@ import { formatMoney } from "@/lib/format-money"
 import { executeSale } from "@/lib/commands/create-sale"
 import type { SalePaymentMethod } from "@/lib/commands/create-sale"
 import type { CreateSaleResult } from "@/lib/commands/create-sale"
+import { useDrawerStatus } from "@/hooks/use-drawer"
 
 // ── Métodos de pago disponibles ───────────────────────────────────────────────
 // Fixtures de config; en Slice A6 vienen del bootstrap del tenant.
@@ -107,6 +108,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const total = useCartStore(selectCartTotal)
   const config = useCatalogStore((s) => s.config)
 
+  // Guard de caja: si el cajón está cerrado, bloquear el cobro.
+  const { data: drawerStatus } = useDrawerStatus()
+  const drawerClosed = drawerStatus !== undefined && !drawerStatus.isOpen
+
   // ── Estado de filas de pago ───────────────────────────────────────────────
   const [rows, setRows] = React.useState<PayRow[]>(() => [makeRow()])
   const [phase, setPhase] = React.useState<DialogPhase>("pay")
@@ -144,7 +149,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const creditoWithoutCustomer = credito && !customer
   const cashSaleReady = !credito && paidTotal >= total && paidTotal > 0
   const creditSaleReady = credito && !!customer
-  const canConfirm = !creditoWithoutCustomer && (cashSaleReady || creditSaleReady) && !submitting
+  const canConfirm = !creditoWithoutCustomer && (cashSaleReady || creditSaleReady) && !submitting && !drawerClosed
 
   // ── Mutaciones de filas ───────────────────────────────────────────────────
   function addRow() {
@@ -241,6 +246,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
             credito={credito}
             customer={customer}
             creditoWithoutCustomer={creditoWithoutCustomer}
+            drawerClosed={drawerClosed}
             rows={rows}
             paidTotal={paidTotal}
             remaining={remaining}
@@ -279,6 +285,7 @@ interface PayPhaseProps {
   credito: boolean
   customer: ReturnType<typeof useCartStore.getState>["customer"]
   creditoWithoutCustomer: boolean
+  drawerClosed: boolean
   rows: PayRow[]
   paidTotal: number
   remaining: number
@@ -301,6 +308,7 @@ function PayPhase({
   credito,
   customer,
   creditoWithoutCustomer,
+  drawerClosed,
   rows,
   paidTotal,
   remaining,
@@ -357,6 +365,13 @@ function PayPhase({
             {customer.tin && (
               <span className="ml-1.5 text-muted-foreground">{customer.tin}</span>
             )}
+          </div>
+        )}
+
+        {/* Guard: caja cerrada — bloquea el cobro */}
+        {drawerClosed && (
+          <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
+            Abrí la caja antes de cobrar
           </div>
         )}
       </DialogHeader>

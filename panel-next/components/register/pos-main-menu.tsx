@@ -60,6 +60,16 @@ import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
+import { MoneyInput } from "@/components/ui/money-input"
+import { formatMoney } from "@/lib/format-money"
+import {
+  useDrawerStatus,
+  useDrawerSummary,
+  useOpenDrawer,
+  useCloseDrawer,
+  useDrawerExpense,
+  useDrawerIncome,
+} from "@/hooks/use-drawer"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -366,110 +376,223 @@ export function PosMainMenu() {
 // ── Control de Caja ──────────────────────────────────────────────────────────
 
 /**
- * Replica el diseño del legacy POS: resumen del turno activo con totales
- * por método de pago y acciones de cierre/extracción/ingreso/impresión.
+ * Panel de control de caja en el menú del POS.
+ *
+ * Muestra el estado real del cajón (abierto/cerrado), el resumen del turno
+ * (filas por método de pago, extracciones, ingresos, propinas, total) y
+ * expone las acciones: abrir, cerrar, extraer, ingresar efectivo.
+ *
+ * Datos: hook use-drawer → BFF /api/pos/drawer → api/v1/drawer.php
  */
 function ControlDeCajaPanel() {
-  // Fecha de apertura mock (demo).
-  // TODO (backend): obtener del endpoint GET /api/v1/pos/drawer/active
-  const apertura = new Intl.DateTimeFormat("es", {
-    weekday: "long",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(2026, 5, 3, 15, 35)) // miércoles, 3 jun. 2026 a las 15:35
+  // En el POS usamos el config del catalog store (ya hidratado por useCatalogSeed).
+  // useBootstrap no se necesita en el POS — el config viene del PosBootstrap.
+  const config = useCatalogStore((s) => s.config)
+  const { data: status, isLoading: statusLoading } = useDrawerStatus()
+  const { data: summary, isLoading: summaryLoading } = useDrawerSummary()
 
-  // Filas del resumen de caja (mock).
-  // TODO (backend): calcular desde movimientos de caja del turno activo.
-  const filas: { label: string; monto: string; bold?: boolean }[] = [
-    { label: "Caja Inicial", monto: "250.000" },
-    { label: "TRANSFERENCIA", monto: "966.400" },
-    { label: "Efectivo", monto: "4.087.500" },
-    { label: "T. Débito", monto: "2.368.125" },
-    { label: "T. Crédito", monto: "403.000" },
-    { label: "Extracciones (Efectivo)", monto: "20.000" },
-    { label: "Ingresos (Efectivo)", monto: "30.000" },
-    { label: "TOTAL DE EFECTIVO", monto: "4.347.500", bold: true },
-    { label: "PROPINAS", monto: "30.000", bold: true },
-    { label: "NOTA DE CRÉDITO", monto: "0", bold: true },
-  ]
+  const openDrawer  = useOpenDrawer()
+  const closeDrawer = useCloseDrawer()
+  const expense     = useDrawerExpense()
+  const income      = useDrawerIncome()
 
+  // Estado local del modal de monto (abre/cierra con apertura/cierre/movimiento)
+  type ModalMode = "open" | "close" | "expense" | "income" | null
+  const [modalMode, setModalMode] = React.useState<ModalMode>(null)
+  const [monto, setMonto] = React.useState<number | null>(null)
+  const [nota, setNota] = React.useState("")
+  const [actionError, setActionError] = React.useState<string | null>(null)
+
+  const isOpen = status?.isOpen ?? false
+  const loading = statusLoading || summaryLoading
+
+  function openModal(mode: ModalMode) {
+    setMonto(null)
+    setNota("")
+    setActionError(null)
+    setModalMode(mode)
+  }
+
+  async function handleConfirm() {
+    if (monto === null || monto <= 0) return
+    setActionError(null)
+    const date = new Date().toISOString().replace("T", " ").slice(0, 19)
+    try {
+      if (modalMode === "open")    await openDrawer.mutateAsync({ amount: monto, date })
+      if (modalMode === "close")   await closeDrawer.mutateAsync({ amount: monto, date })
+      if (modalMode === "expense") await expense.mutateAsync({ amount: monto, note: nota, date })
+      if (modalMode === "income")  await income.mutateAsync({ amount: monto, note: nota, date })
+      setModalMode(null)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Error desconocido")
+    }
+  }
+
+  const isPending =
+    openDrawer.isPending || closeDrawer.isPending || expense.isPending || income.isPending
+
+  // config es PosConfig | null — compatible con Pick<PosConfig, 'currency'|'thousand'|'decimal'>
+  const fmtConfig = config
+
+  const modalLabel: Record<NonNullable<ModalMode>, string> = {
+    open:    "Abrir caja — monto inicial",
+    close:   "Cerrar caja — monto contado",
+    expense: "Extracción de efectivo",
+    income:  "Ingreso de efectivo",
+  }
+
+  function niceDate(iso: string) {
+    if (!iso) return ""
+    const d = new Date(iso.replace(" ", "T"))
+    if (Number.isNaN(d.getTime())) return iso
+    return new Intl.DateTimeFormat("es", {
+      weekday: "long", day: "numeric", month: "short",
+      year: "numeric", hour: "2-digit", minute: "2-digit",
+    }).format(d)
+  }
+
+  // ── Modal de monto (inline en el panel, no un Dialog aparte) ──────────────
+  if (modalMode) {
+    const needsNote = modalMode === "expense" || modalMode === "income"
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+          <h3 className="text-base font-semibold">{modalLabel[modalMode]}</h3>
+          <MoneyInput
+            value={monto}
+            onChange={setMonto}
+            placeholder="0"
+            autoFocus
+            className="text-xl"
+          />
+          {needsNote && (
+            <Input
+              placeholder="Concepto (opcional)"
+              value={nota}
+              onChange={(e) => setNota(e.target.value)}
+            />
+          )}
+          {actionError && (
+            <p className="text-xs text-destructive">{actionError}</p>
+          )}
+        </div>
+        <div className="flex gap-2 border-t bg-background px-6 py-4">
+          <Button variant="ghost" onClick={() => setModalMode(null)} disabled={isPending}>
+            Cancelar
+          </Button>
+          <Button
+            className="flex-1"
+            onClick={handleConfirm}
+            disabled={!monto || monto <= 0 || isPending}
+          >
+            {isPending ? "Guardando…" : "Confirmar"}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Vista principal ────────────────────────────────────────────────────────
   return (
     <div className="flex h-full flex-col">
-      {/* Cuerpo scrolleable */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
+
         {/* Header: ícono + estado */}
         <div className="mb-1 flex flex-col items-center gap-1">
-          <DoorOpen className="size-16 text-muted-foreground" />
+          <DoorOpen className={cn("size-16", isOpen ? "text-emerald-500" : "text-muted-foreground")} />
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
-            Caja abierta
+            {loading ? "Cargando…" : isOpen ? "Caja abierta" : "Caja cerrada"}
           </p>
         </div>
 
-        {/* Subheader: fecha y hora de apertura */}
-        <p className="mb-6 text-center text-base font-semibold capitalize">
-          {apertura}
-        </p>
+        {/* Fecha de apertura */}
+        {summary?.date && (
+          <p className="mb-6 text-center text-sm font-medium capitalize text-muted-foreground">
+            {niceDate(summary.date)}
+          </p>
+        )}
 
-        {/* Listado de filas */}
-        <div className="divide-y divide-border">
-          {filas.map(({ label, monto, bold }) => (
-            <div
-              key={label}
-              className={cn(
-                "flex items-center justify-between px-1 py-3 text-sm",
-                bold && "font-bold",
-              )}
-            >
-              <span>{label}</span>
-              <span className="tabular-nums">{monto}</span>
+        {/* Resumen del turno */}
+        {summary && (
+          <>
+            <div className="divide-y divide-border">
+              {summary.list.map(({ name, amount }) => (
+                <div
+                  key={name}
+                  className="flex items-center justify-between px-1 py-2.5 text-sm"
+                >
+                  <span className="text-muted-foreground">{name}</span>
+                  <span className="tabular-nums font-medium">
+                    {formatMoney(amount, fmtConfig)}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* TOTAL grande */}
-        {/* TODO (backend): sumar todos los métodos de pago del turno */}
-        <div className="mt-4 flex items-center justify-between rounded-lg bg-muted/30 px-3 py-3">
-          <span className="text-base font-bold uppercase">TOTAL</span>
-          <span className="text-2xl font-black tabular-nums">8.085.025</span>
-        </div>
+            {summary.tips > 0 && (
+              <div className="mt-2 flex items-center justify-between px-1 py-2 text-sm font-bold">
+                <span className="uppercase">Propinas</span>
+                <span className="tabular-nums">{formatMoney(summary.tips, fmtConfig)}</span>
+              </div>
+            )}
+
+            {/* Total de efectivo */}
+            <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2.5">
+              <span className="text-sm font-bold uppercase">Total efectivo</span>
+              <span className="tabular-nums font-semibold">
+                {formatMoney(summary.subtotal, fmtConfig)}
+              </span>
+            </div>
+
+            {/* Total general */}
+            <div className="mt-2 flex items-center justify-between rounded-lg bg-accent px-3 py-3">
+              <span className="text-base font-bold uppercase">Total</span>
+              <span className="text-2xl font-black tabular-nums">
+                {formatMoney(summary.total, fmtConfig)}
+              </span>
+            </div>
+          </>
+        )}
+
+        {/* Caja cerrada: prompt para abrir */}
+        {!loading && !isOpen && !summary && (
+          <div className="mt-8 flex flex-col items-center gap-3 text-center">
+            <p className="text-sm text-muted-foreground">
+              La caja está cerrada. Abrila para empezar a cobrar.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Barra inferior con acciones */}
+      {/* Barra de acciones */}
       <div className="flex gap-2 border-t bg-background px-6 py-4">
-        <Button
-          variant="destructive"
-          className="flex-1"
-          onClick={() => console.log("TODO (F2): cerrar caja")}
-        >
-          Cerrar caja
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => console.log("TODO (F2): extracción de efectivo")}
-        >
-          <ArrowDown className="size-4" />
-          Extraer
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => console.log("TODO (F2): ingreso de efectivo")}
-        >
-          <ArrowUp className="size-4" />
-          Ingresar
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => console.log("TODO (F2): imprimir resumen de caja")}
-        >
-          <Printer className="size-4" />
-          Imprimir
-        </Button>
+        {isOpen ? (
+          <>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={() => openModal("close")}
+            >
+              Cerrar caja
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openModal("expense")}>
+              <ArrowDown className="size-4" />
+              Extraer
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openModal("income")}>
+              <ArrowUp className="size-4" />
+              Ingresar
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Printer className="size-4" />
+              Imprimir
+            </Button>
+          </>
+        ) : (
+          <Button className="flex-1" onClick={() => openModal("open")} disabled={loading}>
+            Abrir caja
+          </Button>
+        )}
       </div>
     </div>
   )
