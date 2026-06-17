@@ -583,19 +583,19 @@ function PayPhase({
           </div>
         )}
 
-        {/* Grilla de métodos */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* Grilla de métodos — compacta para escalar a 15+ métodos */}
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           {paymentMethods.map((m) => (
             <Button
               key={m.id}
               variant="outline"
-              className="h-14 flex-col gap-0.5 text-sm font-semibold"
+              className="h-9 justify-center gap-1 px-2 text-sm font-medium"
               onClick={() => onMethodClick(m)}
               disabled={!credito && remaining <= 0}
             >
-              <span>{m.name}</span>
+              <span className="truncate">{m.name}</span>
               {m.code && (
-                <span className="text-xs font-normal text-muted-foreground">
+                <span className="shrink-0 text-xs font-normal text-muted-foreground">
                   ({m.code})
                 </span>
               )}
