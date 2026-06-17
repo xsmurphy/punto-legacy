@@ -39,7 +39,7 @@ import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
 const FALLBACK_METHODS: PaymentMethodConfig[] = [
-  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false },
+  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false, isDefault: true },
   {
     id: "tcredito",
     name: "T. Crédito",
@@ -48,6 +48,7 @@ const FALLBACK_METHODS: PaymentMethodConfig[] = [
     requiresIdentifier: true,
     identifierLabel: "Nro de operación",
     identifierPlaceholder: "Ej. 123456",
+    isDefault: true,
   },
   {
     id: "tdebito",
@@ -57,8 +58,8 @@ const FALLBACK_METHODS: PaymentMethodConfig[] = [
     requiresIdentifier: true,
     identifierLabel: "Nro de operación",
     identifierPlaceholder: "Ej. 123456",
+    isDefault: true,
   },
-  { id: "transferencia", name: "Transferencia", code: "F", hasChange: false, requiresIdentifier: false },
 ]
 
 // ── Tipo de pago aplicado ─────────────────────────────────────────────────────
@@ -283,6 +284,61 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     }
   }
 
+  // ── Captura global de keystrokes ──────────────────────────────────────────
+  // Cualquier dígito / Backspace / letra de hotkey edita el visor o dispara
+  // el método correspondiente sin importar si el focus está en un botón, el
+  // body, etc. El input del visor ya maneja sus propios eventos cuando tiene
+  // focus — el check de target evita doble disparo.
+  React.useEffect(() => {
+    if (!open || phase !== "pay") return
+
+    function handleGlobalKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      // Si el target ya es un input/textarea editable (incluido el visor),
+      // dejá que ese elemento maneje el evento normalmente.
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+        return
+      }
+
+      // Dígito → append al display
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault()
+        setDisplay((prev) => formatDisplayInput(prev + e.key))
+        return
+      }
+
+      // Backspace: si hay dígitos en el visor, borra uno; si visor vacío,
+      // elimina el último pago aplicado.
+      if (e.key === "Backspace") {
+        e.preventDefault()
+        if (display === "") {
+          setApplied((prev) => {
+            const next = prev.slice(0, -1)
+            if (next.length === 0) setChange(0)
+            return next
+          })
+        } else {
+          setDisplay((prev) => formatDisplayInput(prev.slice(0, -1)))
+        }
+        return
+      }
+
+      // Hotkey letras (A/S/D…) → dispara el método correspondiente
+      const key = e.key.toUpperCase()
+      const matched = paymentMethods.find(
+        (m) => m.code && m.code.toUpperCase() === key,
+      )
+      if (matched) {
+        e.preventDefault()
+        handleMethodClick(matched)
+      }
+    }
+
+    window.addEventListener("keydown", handleGlobalKey)
+    return () => window.removeEventListener("keydown", handleGlobalKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, phase, display, paymentMethods])
+
   // ── Input del visor ───────────────────────────────────────────────────────
   function handleDisplayChange(raw: string) {
     setDisplay(formatDisplayInput(raw))
@@ -464,22 +520,9 @@ function PayPhase({
       <DialogHeader className="shrink-0 px-5 pb-3 pt-5">
         <DialogTitle className="sr-only">Cobro</DialogTitle>
 
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
-          </span>
-          <Badge
-            variant={credito ? "secondary" : "outline"}
-            className={cn(
-              "text-[10px] font-bold uppercase tracking-wide",
-              credito
-                ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                : "border-border bg-muted text-foreground",
-            )}
-          >
-            {credito ? "Crédito" : "Contado"}
-          </Badge>
-        </div>
+        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
+        </span>
 
         {creditoWithoutCustomer && (
           <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-600 dark:text-amber-400">
@@ -583,21 +626,22 @@ function PayPhase({
           </div>
         )}
 
-        {/* Grilla de métodos — compacta para escalar a 15+ métodos */}
-        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+        {/* Grilla de métodos — 3 cols. Defaults (Efectivo/T.Crédito/T.Débito) en
+            variant secondary (gris); custom del tenant en outline (blanco). */}
+        <div className="grid grid-cols-3 gap-1.5">
           {paymentMethods.map((m) => (
             <Button
               key={m.id}
-              variant="outline"
-              className="h-9 justify-center gap-1 px-2 text-sm font-medium"
+              variant={m.isDefault ? "secondary" : "outline"}
+              className="h-9 justify-center gap-1.5 px-2 text-xs font-medium"
               onClick={() => onMethodClick(m)}
               disabled={!credito && remaining <= 0}
             >
               <span className="truncate">{m.name}</span>
               {m.code && (
-                <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                  ({m.code})
-                </span>
+                <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border border-border/60 bg-background/60 px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                  {m.code}
+                </kbd>
               )}
             </Button>
           ))}

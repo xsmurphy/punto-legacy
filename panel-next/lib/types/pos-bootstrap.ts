@@ -23,6 +23,8 @@ export interface PaymentMethodConfig {
   identifierLabel?: string
   /** Placeholder del input de identificador. */
   identifierPlaceholder?: string
+  /** true = método del sistema (Efectivo, T. Crédito, T. Débito). Render destacado. */
+  isDefault?: boolean
 }
 
 // ── Config del tenant ─────────────────────────────────────────────────────────

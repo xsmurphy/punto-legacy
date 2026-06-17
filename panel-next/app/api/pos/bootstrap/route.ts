@@ -39,7 +39,7 @@ export const dynamic = "force-dynamic"
 // Hardcoded hasta que el owner decida exponer taxonomy paymentMethod via /v1.
 
 const FALLBACK_PAYMENT_METHODS: PaymentMethodConfig[] = [
-  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false },
+  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false, isDefault: true },
   {
     id: "tcredito",
     name: "T. Crédito",
@@ -48,6 +48,7 @@ const FALLBACK_PAYMENT_METHODS: PaymentMethodConfig[] = [
     requiresIdentifier: true,
     identifierLabel: "Nro de operación",
     identifierPlaceholder: "Ej. 123456",
+    isDefault: true,
   },
   {
     id: "tdebito",
@@ -57,8 +58,8 @@ const FALLBACK_PAYMENT_METHODS: PaymentMethodConfig[] = [
     requiresIdentifier: true,
     identifierLabel: "Nro de operación",
     identifierPlaceholder: "Ej. 123456",
+    isDefault: true,
   },
-  { id: "transferencia", name: "Transferencia", code: "F", hasChange: false, requiresIdentifier: false },
 ]
 
 // ── Resolución de upstream (idéntica al catch-all) ────────────────────────────
