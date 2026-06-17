@@ -41,8 +41,12 @@ explotan el contexto:
 - `graphify-out/graph.html` (1.9 MB), `graph.svg` (5.3 MB) — visualizaciones
 - `context/10-roadmap.md` y `context/08-convenciones.md` (>1500 L cada uno) — Grep primero
 
-Mempalace y Graphify **NO se usan** en este proyecto (decisión del owner —
-gastaban tokens sin retorno). No los invoques aunque haya MCPs disponibles.
+Mempalace y Graphify **pueden usarse si la tarea lo justifica** (decisión
+revisada 2026-06-16). Antes la regla era "no usar nunca" porque gastaban
+tokens regenerando sin retorno — ahora se permiten cuando agregan valor
+real (debug arquitectónico, contexto previo de decisiones, mapeo de
+dependencias entre módulos). Para tareas de día a día seguí pasando
+directo al código — no los invoques por protocolo.
 
 ---
 
