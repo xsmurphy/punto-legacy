@@ -26,7 +26,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import {
   Loader2, Archive, BarChart3, Wallet,
-  ClipboardList, ShoppingBag, Layers, TrendingUp,
+  ShoppingBag, Layers,
   CalendarDays, MapPin, Sparkles, Inbox, X,
   ClipboardList as OrdersIcon,
 } from "lucide-react"
@@ -38,6 +38,7 @@ import {
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts"
 
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
@@ -105,6 +106,8 @@ import type {
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { OrdersList } from "@/components/domain/orders/orders-list"
 import { ScheduleList } from "@/components/domain/schedule/schedule-list"
+import { ContactOrdersCompact } from "@/components/domain/contacts/contact-orders-compact"
+import { ContactScheduleCompact } from "@/components/domain/contacts/contact-schedule-compact"
 
 // ── Zod schema (igual que el de la page original) ────────────────────────────
 
@@ -140,6 +143,16 @@ export interface ContactDetailViewProps {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
+
+function initials(name: string | null | undefined): string {
+  if (!name) return "?"
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("")
+}
 
 export function ContactDetailView({
   customerId,
@@ -263,12 +276,8 @@ export function ContactDetailView({
       )}
       {tab === "packs" && <PacksTab contactId={customerId} />}
       {tab === "addresses" && <AddressesTab contactId={customerId} />}
-      {tab === "orders" && (
-        <OrdersList customerIdFilter={customerId} backHref="" />
-      )}
-      {tab === "schedule" && (
-        <ScheduleList customerIdFilter={customerId} backHref="" />
-      )}
+      {tab === "orders" && <ContactOrdersCompact customerId={customerId} />}
+      {tab === "schedule" && <ContactScheduleCompact customerId={customerId} />}
       {tab === "data" && (
         <ContactFormBody
           form={form}
@@ -293,20 +302,33 @@ export function ContactDetailView({
       >
         {/* Header */}
         <header className={cn(
-          "flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between shrink-0",
-          isPos && "px-4 pt-4",
+          "flex items-start justify-between gap-3 shrink-0",
+          isPos ? "px-4 pt-4 pb-2" : "pb-2",
         )}>
-          <div className="flex flex-col gap-1">
-            <h2 className="text-xl font-semibold">
+          <div className="flex items-center gap-3 min-w-0">
+            <Avatar size="lg" className="size-12 shrink-0">
+              <AvatarFallback className="text-sm font-medium">
+                {isLoading ? "…" : initials(data?.name)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <h2 className="text-xl font-semibold leading-tight truncate">
+                {isLoading ? <Skeleton className="h-6 w-40" /> : (data?.name || "Contacto")}
+              </h2>
               {isLoading ? (
-                <Skeleton className="h-6 w-40" />
+                <Skeleton className="h-4 w-56" />
               ) : (
-                data?.name || "Contacto"
+                <p className="text-xs text-muted-foreground truncate">
+                  {[
+                    data?.tin ? `RUC ${data.tin}` : null,
+                    data?.phone ?? null,
+                    data?.email ?? null,
+                  ].filter(Boolean).join(" · ") || "Sin datos de contacto"}
+                </p>
               )}
-            </h2>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Archivar: oculto en variant="pos" */}
+          <div className="flex items-center gap-2 shrink-0">
             {!isPos && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -336,13 +358,12 @@ export function ContactDetailView({
               <Button
                 type="submit"
                 size="sm"
-                disabled={update.isPending || (isLoading)}
+                disabled={update.isPending || isLoading}
               >
                 {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
                 Guardar
               </Button>
             )}
-            {/* Cerrar: solo variant="pos" */}
             {isPos && onClose && (
               <Button
                 type="button"
@@ -408,10 +429,10 @@ export function ContactDetailView({
 
         {/* Footer fijo — solo variant="pos" */}
         {isPos && onSelectForSale && (
-          <div className="shrink-0 border-t p-4">
+          <div className="shrink-0 border-t p-4 flex justify-end">
             <Button
               type="button"
-              className="w-full"
+              size="lg"
               disabled={isLoading || !data}
               onClick={() => {
                 if (!data) return
@@ -588,8 +609,8 @@ function ContactFormBody({
             <FormItem>
               <FormLabel>Lista de precios</FormLabel>
               <Select
-                value={field.value ?? ""}
-                onValueChange={(v) => field.onChange(v === "" ? null : v)}
+                value={field.value ?? "__none__"}
+                onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
               >
                 <FormControl>
                   <SelectTrigger className="w-full">
@@ -597,7 +618,7 @@ function ContactFormBody({
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="">Precio base (sin lista)</SelectItem>
+                  <SelectItem value="__none__">Precio base (sin lista)</SelectItem>
                   {(priceLists ?? [])
                     .filter((pl) => pl.status)
                     .map((pl) => (
@@ -1086,14 +1107,10 @@ function SummaryTab({
       </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard icon={<Wallet className="size-4 text-muted-foreground" />} label="Total gastado"
-          value={isLoading ? null : formatMoney(totals?.spent, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard icon={<ShoppingBag className="size-4 text-muted-foreground" />} label="Compras"
-          value={isLoading ? null : formatInt(totals?.purchases, bootstrap)} />
-        <KpiCard icon={<Layers className="size-4 text-muted-foreground" />} label="Artículos"
-          value={isLoading ? null : formatInt(totals?.itemsBought, bootstrap)} />
-        <KpiCard icon={<ClipboardList className="size-4 text-muted-foreground" />} label="Ticket promedio"
-          value={isLoading ? null : formatMoney(totals?.avgTicket, bootstrap)} hint={bootstrap?.currency} />
+        <KpiCard label="Total gastado" value={isLoading ? null : formatMoney(totals?.spent, bootstrap)} hint={bootstrap?.currency} />
+        <KpiCard label="Compras" value={isLoading ? null : formatInt(totals?.purchases, bootstrap)} />
+        <KpiCard label="Artículos" value={isLoading ? null : formatInt(totals?.itemsBought, bootstrap)} />
+        <KpiCard label="Ticket promedio" value={isLoading ? null : formatMoney(totals?.avgTicket, bootstrap)} hint={bootstrap?.currency} />
       </div>
 
       <Card>
@@ -1101,12 +1118,9 @@ function SummaryTab({
           <CardTitle className="text-base font-semibold tracking-tight">Actividad</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <DetailRow icon={<CalendarDays className="size-4 text-muted-foreground" />} label="Primera operación"
-            value={isLoading ? null : niceDate(visits?.firstAt ?? null)} />
-          <DetailRow icon={<TrendingUp className="size-4 text-muted-foreground" />} label="Frecuencia promedio"
-            value={isLoading ? null : freqLabel(visits?.avgDaysBetween ?? null)} />
-          <DetailRow icon={<Wallet className="size-4 text-muted-foreground" />} label="Descuento acumulado"
-            value={isLoading ? null : formatMoney(totals?.discountTotal, bootstrap)} />
+          <DetailRow label="Primera operación" value={isLoading ? null : niceDate(visits?.firstAt ?? null)} />
+          <DetailRow label="Frecuencia promedio" value={isLoading ? null : freqLabel(visits?.avgDaysBetween ?? null)} />
+          <DetailRow label="Descuento acumulado" value={isLoading ? null : formatMoney(totals?.discountTotal, bootstrap)} />
         </CardContent>
       </Card>
 
@@ -1282,14 +1296,10 @@ function FinancialTab({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard icon={<Wallet className="size-4 text-muted-foreground" />} label="Crédito a favor"
-          value={isLoading ? null : formatMoney(f?.storeCredit, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard icon={<Sparkles className="size-4 text-muted-foreground" />} label="Loyalty acumulado"
-          value={isLoading ? null : formatMoney(f?.loyalty, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard icon={<ClipboardList className="size-4 text-muted-foreground" />} label="Línea de crédito"
-          value={isLoading ? null : formatMoney(f?.creditLine, bootstrap)} hint={bootstrap?.currency} />
-        <KpiCard icon={<TrendingUp className="size-4 text-muted-foreground" />} label="Cuentas por cobrar"
-          value={isLoading ? null : formatMoney(f?.openInvoices, bootstrap)} hint={bootstrap?.currency} />
+        <KpiCard label="Crédito a favor" value={isLoading ? null : formatMoney(f?.storeCredit, bootstrap)} hint={bootstrap?.currency} />
+        <KpiCard label="Loyalty acumulado" value={isLoading ? null : formatMoney(f?.loyalty, bootstrap)} hint={bootstrap?.currency} />
+        <KpiCard label="Línea de crédito" value={isLoading ? null : formatMoney(f?.creditLine, bootstrap)} hint={bootstrap?.currency} />
+        <KpiCard label="Cuentas por cobrar" value={isLoading ? null : formatMoney(f?.openInvoices, bootstrap)} hint={bootstrap?.currency} />
       </div>
       <Card>
         <CardHeader className="pb-2">
@@ -1313,15 +1323,15 @@ function FinancialTab({
 // ── Helpers compartidos ───────────────────────────────────────────────────────
 
 function KpiCard({
-  icon, label, value, hint,
+  label, value, hint,
 }: {
-  icon: React.ReactNode; label: string; value: React.ReactNode; hint?: string
+  label: string; value: React.ReactNode; hint?: string
 }) {
   return (
     <Card>
       <CardContent className="flex flex-col gap-1 p-4">
-        <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-          {icon} {label}
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">
+          {label}
         </div>
         {value === null ? <Skeleton className="h-7 w-24" /> : (
           <div className="flex items-baseline gap-1.5">
@@ -1335,13 +1345,12 @@ function KpiCard({
 }
 
 function DetailRow({
-  icon, label, value,
+  label, value,
 }: {
-  icon: React.ReactNode; label: string; value: React.ReactNode
+  label: string; value: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2 text-sm">
-      {icon}
+    <div className="flex items-start gap-2 text-sm">
       <div className="flex flex-col">
         <span className="text-xs text-muted-foreground">{label}</span>
         {value === null ? <Skeleton className="h-4 w-20" /> : <span className="font-medium">{value}</span>}
