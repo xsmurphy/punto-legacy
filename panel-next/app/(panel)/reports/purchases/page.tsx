@@ -2,12 +2,19 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Plus, Receipt, ArrowLeft } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { DataTable } from "@/components/data-table/data-table"
+import {
+  DateRangePicker,
+  defaultDateRange,
+  rangeToBackend,
+  type DateRangeValue,
+} from "@/components/date-range-picker"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePurchases, type PurchaseListRow } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
@@ -20,12 +27,19 @@ import { EmptyState } from "@/components/empty-state"
  * del menú user del sidebar (→ `/purchase`), no desde acá. El botón "Nueva"
  * acá es un atajo a la misma URL.
  *
+ * Filtros activos: rango de fechas (DateRangePicker, server-side).
+ * Click en fila → `/purchase/[id]` para ver el detalle completo.
+ *
  * Esta primera vuelta soporta solo compras (transactionType=1). Orden,
  * devolución y reposición — variantes del mismo form — vienen después.
  */
 export default function PurchasesReportPage() {
+  const router = useRouter()
   const { data: bootstrap } = useBootstrap()
-  const purchases = usePurchases({ limit: 50 })
+  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const opts = React.useMemo(() => rangeToBackend(range), [range])
+
+  const purchases = usePurchases({ from: opts.from, to: opts.to, limit: 200 })
 
   const columns = React.useMemo<ColumnDef<PurchaseListRow>[]>(
     () => [
@@ -122,6 +136,10 @@ export default function PurchasesReportPage() {
         columns={columns}
         getRowId={(r) => r.id}
         isLoading={purchases.isLoading}
+        onRowClick={(r) => router.push(`/purchase/${r.id}`)}
+        toolbarSlot={
+          <DateRangePicker value={range} onChange={setRange} />
+        }
         emptyMessage={
           <EmptyState
             icon={Receipt}
