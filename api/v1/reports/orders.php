@@ -34,5 +34,7 @@ try {
     apiError($e->getMessage(), 500);
 }
 
+$customerId = trim((string) ($_GET['customerId'] ?? '')) ?: null;
+
 $svc = new \Punto\Api\Reports\OrdersService();
-apiOk(['rows' => $svc->listOrders($from, $to, $roc, COMPANY_ID)]);
+apiOk(['rows' => $svc->listOrders($from, $to, $roc, COMPANY_ID, $customerId)]);

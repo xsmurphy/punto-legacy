@@ -58,6 +58,8 @@ $ui  = (string) (validateHttp('ui') ?: '');
 $ui  = ($ui !== '' && preg_match($uuidRe, $ui)) ? $ui : '';
 $uit = validateHttp('uit') === 'cus' ? 'cus' : 'usr';
 
+$customerId = trim((string) ($_GET['customerId'] ?? '')) ?: null;
+
 try {
     $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
 } catch (\RuntimeException $e) {
@@ -71,5 +73,5 @@ if ($view === 'stats') {
 } elseif ($view === 'sessions') {
     apiOk($svc->sessions($from, $to, $companyId));
 } else {
-    apiOk($svc->detail(['ui' => $ui], $from, $to, $roc, $companyId));
+    apiOk($svc->detail(['ui' => $ui, 'customerId' => $customerId], $from, $to, $roc, $companyId));
 }

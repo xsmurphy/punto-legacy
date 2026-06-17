@@ -25,14 +25,19 @@ final class ScheduleService
 {
     private const TX_TYPE = 13;
 
-    /** Citas. $filters: ['ui'=>userId uuid]. */
+    /** Citas. $filters: ['ui'=>userId uuid, 'customerId'=>contactId uuid|null]. */
     public function detail(array $filters, $from, $to, string $roc, string $companyId): array
     {
-        $userClause = '';
+        $userClause     = '';
+        $customerClause = '';
         $params = [$from, $to];
-        if ($filters['ui']) {
+        if (!empty($filters['ui'])) {
             $userClause = ' AND userId = ?';
             $params[] = $filters['ui'];
+        }
+        if (!empty($filters['customerId'])) {
+            $customerClause = ' AND customerId = ?';
+            $params[] = $filters['customerId'];
         }
 
         $cols = "transactionId, transactionStatus, invoiceNo, transactionDate, outletId, userId,
@@ -40,7 +45,7 @@ final class ScheduleService
                  transactionParentId, meta->>'transactionDetails' AS transactionDetails";
         $sql = "SELECT $cols FROM transaction
                 WHERE transactionType = " . self::TX_TYPE . "
-                AND fromDate BETWEEN ? AND ?" . $userClause . $roc . "
+                AND fromDate BETWEEN ? AND ?" . $userClause . $customerClause . $roc . "
                 ORDER BY transactionDate DESC LIMIT 5000";
 
         $res = ncmExecute($sql, $params, false, false, true);

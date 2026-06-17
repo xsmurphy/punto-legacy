@@ -20,16 +20,23 @@ namespace Punto\Api\Reports;
 final class OrdersService
 {
     /** @return array filas [{id, date, dueDate, orderNo, customerName, outletName, total, status, channel}] */
-    public function listOrders($from, $to, $roc, $companyId)
+    public function listOrders($from, $to, $roc, $companyId, ?string $customerId = null)
     {
+        $customerClause = '';
+        $params = [$from, $to];
+        if ($customerId !== null && $customerId !== '') {
+            $customerClause = ' AND customerId = ?';
+            $params[] = $customerId;
+        }
+
         $res = ncmExecute(
             "SELECT transactionId, transactionDate, transactionDueDate, invoiceNo,
                     transactionTotal, transactionStatus, transactionName, customerId, outletId
              FROM transaction
-             WHERE transactionType = 12 AND transactionDate BETWEEN ? AND ?" . $roc . "
+             WHERE transactionType = 12 AND transactionDate BETWEEN ? AND ?" . $customerClause . $roc . "
              ORDER BY transactionDate DESC
              LIMIT 500",
-            [$from, $to], false, true
+            $params, false, true
         );
         if (!$res || !is_object($res)) {
             return [];
