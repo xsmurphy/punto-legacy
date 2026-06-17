@@ -61,13 +61,15 @@ const TAX_RATE = 0.10
  * usen la misma regla — si están desincronizados, la suma de líneas no
  * coincide con el total.
  *
- * - ivaRemoved = false → qty * unitPrice (precio con IVA incluido).
- * - ivaRemoved = true  → round(qty * unitPrice / 1.10) — precio sin IVA.
+ * - ivaRemoved = false → qty * unitPrice * (1 - discount/100).
+ * - ivaRemoved = true  → round(raw / 1.10) — precio sin IVA.
  *   Ej: 25.000 → 22.727, 10.000 → 9.091, 32.000 → 29.091. Suma = 60.909
  *   (coincide con selectCartTotal).
+ * - discount (0–100): porcentaje de descuento por línea. Aplica antes del IVA.
  */
 export function lineSubtotal(line: CartLine, ivaRemoved: boolean): number {
-  const raw = line.qty * line.unitPrice
+  const discountFactor = 1 - (line.discount ?? 0) / 100
+  const raw = line.qty * line.unitPrice * discountFactor
   return ivaRemoved ? Math.round(raw / (1 + TAX_RATE)) : raw
 }
 
@@ -174,6 +176,15 @@ interface CartState {
 
   /** Fija el flag de agrupado de ítems repetidos. */
   setMergeRepeated: (v: boolean) => void
+
+  /** Modifica el precio unitario de una línea (sin mutar el precio base del catálogo). */
+  setLinePrice: (lineId: string, price: number) => void
+
+  /**
+   * Aplica un descuento porcentual a una línea (0–100).
+   * 0 elimina el descuento. El subtotal se recalcula via lineSubtotal.
+   */
+  setLineDiscount: (lineId: string, discountPercent: number) => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -312,6 +323,25 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   setMergeRepeated: (v) => {
     set({ mergeRepeated: v })
+  },
+
+  setLinePrice: (lineId, price) => {
+    set((state) => ({
+      lines: state.lines.map((l) =>
+        l.lineId === lineId ? { ...l, unitPrice: price } : l,
+      ),
+    }))
+  },
+
+  setLineDiscount: (lineId, discountPercent) => {
+    const clamped = Math.min(100, Math.max(0, discountPercent))
+    set((state) => ({
+      lines: state.lines.map((l) =>
+        l.lineId === lineId
+          ? { ...l, discount: clamped === 0 ? undefined : clamped }
+          : l,
+      ),
+    }))
   },
 }))
 

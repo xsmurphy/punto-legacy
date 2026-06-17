@@ -49,6 +49,8 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer"
 import { QtyEditDialog } from "@/components/register/qty-edit-dialog"
+import { LinePriceDialog } from "@/components/register/line-price-dialog"
+import { LineDiscountDialog } from "@/components/register/line-discount-dialog"
 import { cn } from "@/lib/utils"
 import {
   useCartStore,
@@ -59,6 +61,8 @@ import {
 } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
+import { useLockStore } from "@/lib/pos/lock-store"
+import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
 import { formatMoney, formatAmount } from "@/lib/format-money"
 import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
@@ -67,6 +71,7 @@ import { PayDialog } from "@/components/register/pay-dialog"
 import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
 import { PosMainMenu } from "@/components/register/pos-main-menu"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { toast } from "sonner"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -88,11 +93,16 @@ export function CartPanel() {
   const incQty = useCartStore((s) => s.incQty)
   const decQty = useCartStore((s) => s.decQty)
   const setQty = useCartStore((s) => s.setQty)
+  const addItem = useCartStore((s) => s.addItem)
 
   const config = useCatalogStore((s) => s.config)
+  const catalogItems = useCatalogStore((s) => s.items)
 
   // Modo edición de hotkeys: el panel de venta muestra una guía en su lugar.
   const editingHotkeys = useHotkeysStore((s) => s.editing)
+
+  // Lock screen: cuando está activo el scanner debe estar pausado.
+  const locked = useLockStore((s) => s.locked)
 
   // Estado de dialogs — compartido con el PosSidebar via store global.
   const searchOpen = usePosUIStore((s) => s.searchOpen)
@@ -102,7 +112,39 @@ export function CartPanel() {
   const payOpen = usePosUIStore((s) => s.payOpen)
   const setPayOpen = usePosUIStore((s) => s.setPayOpen)
 
+  // Barcode scanner keyboard-wedge. Pausado cuando: lock activo, PayDialog
+  // abierto, SearchDialog abierto (el cajero está tipeando ahí).
+  // El scanner ignora teclas cuando el foco está en un input (ver hook),
+  // pero pausarlo explícitamente es la defensa extra.
+  const scannerDisabled = locked || payOpen || searchOpen
+
+  useBarcodeScanner({
+    enabled: !scannerDisabled,
+    minLength: 3,
+    maxTimeBetweenKeys: 100,
+    parseWeightBarcode: false,
+    onScan: ({ code }) => {
+      const match = catalogItems.find(
+        (item) => item.sku === code || item.id === code,
+      )
+      if (match) {
+        addItem({ id: match.id, name: match.name, price: match.price })
+      } else {
+        // Sin match: abrir búsqueda con el código pre-cargado no está disponible
+        // en la API actual del ProductSearchDialog, así que mostramos el toast.
+        toast.error(`Código no encontrado: ${code}`)
+      }
+    },
+  })
+
   const totalValue = total
+
+  const setLinePrice = useCartStore((s) => s.setLinePrice)
+  const setLineDiscount = useCartStore((s) => s.setLineDiscount)
+
+  // Dialogs de precio y descuento por línea.
+  const [priceLine, setPriceLine] = React.useState<CartLine | null>(null)
+  const [discountLine, setDiscountLine] = React.useState<CartLine | null>(null)
 
   // Confirm para vaciar la venta — acción destructiva. Tanto el chip VACIAR
   // del bottom como el "Cancelar venta" del drawer de opciones pasan por acá.
@@ -150,6 +192,28 @@ export function CartPanel() {
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
+
+      {/* Edición de precio por línea */}
+      <LinePriceDialog
+        open={priceLine !== null}
+        line={priceLine}
+        onConfirm={(lineId, price) => {
+          setLinePrice(lineId, price)
+          setPriceLine(null)
+        }}
+        onClose={() => setPriceLine(null)}
+      />
+
+      {/* Descuento por línea */}
+      <LineDiscountDialog
+        open={discountLine !== null}
+        line={discountLine}
+        onConfirm={(lineId, pct) => {
+          setLineDiscount(lineId, pct)
+          setDiscountLine(null)
+        }}
+        onClose={() => setDiscountLine(null)}
+      />
 
       {/* Confirm de quitar IVA — modifica el total de la venta. */}
       <AlertDialog open={confirmIvaOpen} onOpenChange={setConfirmIvaOpen}>
@@ -223,6 +287,8 @@ export function CartPanel() {
                       onDec={() => decQty(line.lineId)}
                       onSetQty={(q) => setQty(line.lineId, q)}
                       onRemove={() => removeLine(line.lineId)}
+                      onEditPrice={() => setPriceLine(line)}
+                      onApplyDiscount={() => setDiscountLine(line)}
                     />
                   ) : (
                     <CartRowCollapsed
@@ -450,9 +516,16 @@ function CartRowCollapsed({
         )}
       </div>
 
-      <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
-        {formatAmount(subtotal, config)}
-      </span>
+      <div className="flex shrink-0 flex-col items-end gap-0.5">
+        <span className="text-sm font-semibold tabular-nums text-foreground">
+          {formatAmount(subtotal, config)}
+        </span>
+        {hasDiscount && (
+          <span className="text-[10px] font-medium text-yellow-500">
+            -{Math.round(line.discount ?? 0)}%
+          </span>
+        )}
+      </div>
     </button>
   )
 }
@@ -469,12 +542,16 @@ function CartRowExpanded({
   onDec,
   onSetQty,
   onRemove,
+  onEditPrice,
+  onApplyDiscount,
 }: {
   line: CartLine
   onInc: () => void
   onDec: () => void
   onSetQty: (qty: number) => void
   onRemove: () => void
+  onEditPrice: () => void
+  onApplyDiscount: () => void
 }) {
   const [qtyOpen, setQtyOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
@@ -556,8 +633,16 @@ function CartRowExpanded({
             <DrawerTitle className="truncate">{line.name}</DrawerTitle>
           </DrawerHeader>
           <div className="grid grid-cols-2 gap-2 p-4 pt-2 sm:grid-cols-3">
-            <LineActionTile icon={DollarSign} label="Modificar precio" onClick={() => setMoreOpen(false)} />
-            <LineActionTile icon={Percent} label="Aplicar descuento" onClick={() => setMoreOpen(false)} />
+            <LineActionTile
+              icon={DollarSign}
+              label="Modificar precio"
+              onClick={() => { setMoreOpen(false); onEditPrice() }}
+            />
+            <LineActionTile
+              icon={Percent}
+              label="Aplicar descuento"
+              onClick={() => { setMoreOpen(false); onApplyDiscount() }}
+            />
             <LineActionTile icon={Tag} label="Etiquetas" onClick={() => setMoreOpen(false)} />
             <LineActionTile icon={MessageSquare} label="Comentario" onClick={() => setMoreOpen(false)} />
           </div>
