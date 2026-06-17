@@ -28,7 +28,7 @@
           {
             "type": "command",
             "if": "Bash(git push*)",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"git push completed. Tomá nota si fue un cambio relevante per CLAUDE.md (schema, auth/JWT, módulo nuevo, infra, convención, roadmap). NO invoques context-updater por commit — /end-session lo consolida en UNA sola llamada al cierre de la sesión. Si la sesión cierra sin /end-session, al inicio de la próxima verificá git log desde el último entry del session-log y correlo manualmente.\"}}'"
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"git push completed. Si fue cambio relevante per CLAUDE.md (schema, auth/JWT, módulo nuevo, infra, convención crítica, roadmap), anotalo mentalmente para incluir en /end-session al cierre.\"}}'"
           }
         ]
       }
