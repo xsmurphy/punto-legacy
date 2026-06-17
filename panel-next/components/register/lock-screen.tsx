@@ -19,10 +19,12 @@
 
 import * as React from "react"
 import { Lock } from "lucide-react"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { STUB_PIN, useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useBootstrap } from "@/hooks/use-bootstrap"
 
 const PIN_LENGTH = 4
 
@@ -30,6 +32,7 @@ export function LockScreen() {
   const locked = useLockStore((s) => s.locked)
   const unlock = useLockStore((s) => s.unlock)
   const outletName = useCatalogStore((s) => s.outlet?.name)
+  const { data: bootstrap } = useBootstrap()
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -87,6 +90,10 @@ export function LockScreen() {
     // Mini-pausa para que el último pop sea visible antes de evaluar.
     const id = setTimeout(() => {
       if (pin === STUB_PIN) {
+        // Saludo personalizado. Cuando el backend exponga user.name lo usamos;
+        // mientras tanto, fallback genérico para no mostrar "Hola, undefined".
+        const userName = bootstrap?.user?.name?.trim()
+        toast.success(userName ? `Hola, ${userName}` : "¡Bienvenido!")
         unlock()
       } else {
         // Shake + limpiar + mostrar error sutil.
@@ -100,7 +107,7 @@ export function LockScreen() {
       }
     }, 160)
     return () => clearTimeout(id)
-  }, [pin, unlock])
+  }, [pin, unlock, bootstrap])
 
   if (!locked) return null
 
@@ -109,7 +116,7 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-background"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background"
     >
       {/*
        * Input invisible — captura el teclado virtual en mobile cuando el
