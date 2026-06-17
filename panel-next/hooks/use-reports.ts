@@ -78,7 +78,7 @@ export interface TransactionRow {
   docNo: string
   invoiceNo: number | string | null
   authNo: number | string | null
-  payments: string[]
+  payments: Array<{ name: string }>
   note: string
   tags: string[]
   transactionType: number

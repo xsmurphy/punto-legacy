@@ -241,7 +241,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
             <div className="flex flex-wrap gap-1">
               {ps.slice(0, 2).map((p, i) => (
                 <Badge key={i} variant="outline" className="text-[10px]">
-                  {p}
+                  {p.name || "—"}
                 </Badge>
               ))}
               {ps.length > 2 && (
