@@ -23,7 +23,7 @@ import * as React from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { SearchCode, ChevronDown, Loader2 } from "lucide-react"
+import { SearchCode, ChevronDown, Loader2, MoreVertical } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -50,6 +50,11 @@ import { executeCreateCustomer } from "@/lib/commands/create-customer"
 import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
+import {
+  Sheet,
+  SheetContent,
+} from "@/components/ui/sheet"
+import { ContactDetailView } from "@/components/domain/contacts/contact-detail-view"
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
@@ -85,6 +90,7 @@ interface CustomerDialogProps {
 export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   const [searchQuery, setSearchQuery] = React.useState("")
   const searchInputRef = React.useRef<HTMLInputElement>(null)
+  const [detailCustomerId, setDetailCustomerId] = React.useState<string | null>(null)
 
   const customers = useCatalogStore((s) => s.customers)
   const patchCustomer = useCatalogStore((s) => s.patchCustomer)
@@ -102,6 +108,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   React.useEffect(() => {
     if (open) {
       setSearchQuery("")
+      setDetailCustomerId(null)
       const id = setTimeout(() => searchInputRef.current?.focus(), 50)
       return () => clearTimeout(id)
     }
@@ -120,6 +127,27 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   }
 
   return (
+    <>
+    <Sheet
+      open={!!detailCustomerId}
+      onOpenChange={(o) => { if (!o) setDetailCustomerId(null) }}
+    >
+      <SheetContent side="right" className="w-full sm:max-w-3xl p-0 flex flex-col">
+        {detailCustomerId && (
+          <ContactDetailView
+            customerId={detailCustomerId}
+            variant="pos"
+            nav="sidebar"
+            onClose={() => setDetailCustomerId(null)}
+            onSelectForSale={(contact) => {
+              setCustomer(contact)
+              setDetailCustomerId(null)
+              onOpenChange(false)
+            }}
+          />
+        )}
+      </SheetContent>
+    </Sheet>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl"
@@ -159,6 +187,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
                     key={c.id}
                     customer={c}
                     onSelect={() => handleSelectCustomer(c)}
+                    onDetail={() => setDetailCustomerId(c.id)}
                   />
                 ))}
               </ul>
@@ -171,6 +200,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
         )}
       </DialogContent>
     </Dialog>
+    </>
   )
 }
 
@@ -179,16 +209,18 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
 function CustomerResultRow({
   customer,
   onSelect,
+  onDetail,
 }: {
   customer: PosCustomer
   onSelect: () => void
+  onDetail: () => void
 }) {
   return (
-    <li>
+    <li className="flex items-center">
       <button
         onClick={onSelect}
         className={cn(
-          "flex w-full items-center gap-3 px-4 py-2.5 text-left",
+          "flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left",
           "transition-colors hover:bg-muted/50 active:bg-muted",
           "focus-visible:outline-none focus-visible:bg-muted/50",
         )}
@@ -202,6 +234,18 @@ function CustomerResultRow({
           )}
         </div>
       </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="mr-2 shrink-0 text-muted-foreground"
+        aria-label="Ver detalle del cliente"
+        onClick={(e) => {
+          e.stopPropagation()
+          onDetail()
+        }}
+      >
+        <MoreVertical className="size-4" />
+      </Button>
     </li>
   )
 }
