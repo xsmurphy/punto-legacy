@@ -55,6 +55,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+import { PuntoLogo } from "@/components/layout/punto-logo"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
@@ -238,12 +239,13 @@ export function PosMainMenu() {
         <DialogContent
           // Modal sidebar+content. Overrides:
           // - mobile fullscreen (el teclado virtual haría scroll en modal chico);
-          // - desktop 48rem clamped (más chico que /settings, es un menú);
+          // - desktop 64rem clamped (paritario con /settings y el detalle de
+          //   cliente — el menú escala mejor con módulos y info del tenant).
           // - reset de gap/padding (el grid interno maneja su layout).
           className={cn(
             "gap-0 overflow-hidden p-0",
             "max-sm:!inset-0 max-sm:!h-dvh max-sm:!max-w-none max-sm:!w-auto max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none",
-            "sm:!max-w-[min(48rem,calc(100vw-2rem))] sm:!w-full",
+            "sm:!max-w-[min(64rem,calc(100vw-2rem))] sm:!w-full",
           )}
         >
           {/* Header sr-only para a11y — el contenido visual es el grid */}
@@ -313,17 +315,9 @@ export function PosMainMenu() {
                 </div>
               </header>
 
-              {/* Sin sección seleccionada → empty state de bienvenida */}
+              {/* Sin sección seleccionada → resumen de la cuenta logueada */}
               {!activeSection ? (
-                <div className="flex flex-1 items-center justify-center p-6">
-                  <div className="flex flex-col items-center gap-3 text-center">
-                    <Menu className="size-12 text-muted-foreground" />
-                    <p className="text-lg font-semibold">Menú del POS</p>
-                    <p className="max-w-sm text-sm text-muted-foreground">
-                      Elegí una opción del menú para ver más detalles y acceder a las acciones de la caja.
-                    </p>
-                  </div>
-                </div>
+                <AccountOverview />
               ) : activeSection.CustomContent ? (
                 /* Sección con contenido custom — ocupa todo el content area.
                    min-h-0 es crítico para que el flex-child no expanda más allá
@@ -372,6 +366,83 @@ export function PosMainMenu() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Componentes custom para el content area
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── Resumen de la cuenta (default landing del menú) ──────────────────────────
+
+/**
+ * Panel inicial del menú del POS — muestra al cajero el contexto actual:
+ * empresa, sucursal, caja activa (con punto de expedición fiscal). Se renderiza
+ * cuando ninguna sección del sidebar está seleccionada. Hidratado desde el
+ * PosBootstrap del catalog store (sin round-trip).
+ */
+function AccountOverview() {
+  const config = useCatalogStore((s) => s.config)
+  const outlet = useCatalogStore((s) => s.outlet)
+  const registers = useCatalogStore((s) => s.registers)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const activeRegister = registers.find((r) => r.id === activeRegisterId) ?? null
+
+  return (
+    <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-6 sm:p-8">
+      {/* Header: logo + empresa */}
+      <div className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
+        <PuntoLogo variant="mark" className="size-9 shrink-0" />
+        <div className="flex min-w-0 flex-col">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Empresa
+          </span>
+          <span className="truncate text-base font-semibold leading-tight">
+            {config?.companyName || "—"}
+          </span>
+        </div>
+      </div>
+
+      {/* Sucursal · Caja activa */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Sucursal
+          </span>
+          <span className="truncate text-sm font-medium leading-tight">
+            {outlet?.name || "—"}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Caja activa
+          </span>
+          <span className="truncate text-sm font-medium leading-tight">
+            {activeRegister?.name || "Sin caja seleccionada"}
+          </span>
+        </div>
+      </div>
+
+      {/* Datos fiscales / país */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Punto de expedición
+          </span>
+          <span className="truncate text-sm font-medium leading-tight tabular-nums">
+            {activeRegister?.expeditionPoint || "—"}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            País
+          </span>
+          <span className="truncate text-sm font-medium leading-tight">
+            {config?.country || "—"}
+          </span>
+        </div>
+      </div>
+
+      <p className="mt-1 text-xs text-muted-foreground">
+        Elegí una opción del menú para acceder a las acciones de la caja.
+      </p>
+    </div>
+  )
+}
 
 // ── Control de Caja ──────────────────────────────────────────────────────────
 
