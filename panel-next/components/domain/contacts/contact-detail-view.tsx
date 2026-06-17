@@ -305,18 +305,18 @@ export function ContactDetailView({
           "flex items-start justify-between gap-3 shrink-0",
           isPos ? "px-4 pt-4 pb-2" : "pb-2",
         )}>
-          <div className="flex items-center gap-3 min-w-0">
-            <Avatar size="lg" className="size-12 shrink-0">
-              <AvatarFallback className="text-sm font-medium">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Avatar className="size-9 shrink-0">
+              <AvatarFallback className="text-xs font-medium">
                 {isLoading ? "…" : initials(data?.name)}
               </AvatarFallback>
             </Avatar>
-            <div className="flex flex-col gap-0.5 min-w-0">
-              <h2 className="text-xl font-semibold leading-tight truncate">
-                {isLoading ? <Skeleton className="h-6 w-40" /> : (data?.name || "Contacto")}
+            <div className="flex flex-col min-w-0">
+              <h2 className="text-sm font-medium leading-tight truncate">
+                {isLoading ? <Skeleton className="h-4 w-40" /> : (data?.name || "Contacto")}
               </h2>
               {isLoading ? (
-                <Skeleton className="h-4 w-56" />
+                <Skeleton className="h-3 w-56 mt-1" />
               ) : (
                 <p className="text-xs text-muted-foreground truncate">
                   {[
@@ -401,28 +401,39 @@ export function ContactDetailView({
             ))}
           </Tabs>
         ) : (
-          /* nav="sidebar" */
-          <div className="flex flex-1 min-h-0 gap-0">
-            <aside className="w-[200px] shrink-0 border-r flex flex-col py-2">
+          /* nav="sidebar" — paritario con app/(panel)/settings/page.tsx */
+          <div className="grid flex-1 min-h-0 grid-cols-[220px_1fr]">
+            <nav
+              aria-label="Secciones del cliente"
+              className="flex shrink-0 flex-col gap-0.5 border-r bg-card p-3"
+            >
               {sections.map((s) => (
                 <button
                   key={s.key}
                   type="button"
                   onClick={() => setTab(s.key)}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-2 text-sm text-left rounded-md mx-1 transition-colors",
+                    "flex w-full shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
                     tab === s.key
-                      ? "bg-accent text-accent-foreground font-medium border border-border"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                      ? "bg-accent font-medium text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   )}
+                  aria-current={tab === s.key ? "page" : undefined}
                 >
                   {s.icon}
-                  {s.label}
+                  <span>{s.label}</span>
                 </button>
               ))}
-            </aside>
-            <div className="flex-1 min-w-0 overflow-y-auto px-4 py-2">
-              {tabContent}
+            </nav>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <header className="flex items-center gap-2 border-b py-3 pl-6 pr-4 text-sm">
+                <span className="text-muted-foreground">Cliente</span>
+                <span className="text-muted-foreground/50">›</span>
+                <span className="text-foreground">{sections.find((s) => s.key === tab)?.label ?? ""}</span>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                {tabContent}
+              </div>
             </div>
           </div>
         )}
