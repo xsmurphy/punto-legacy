@@ -45,12 +45,20 @@ function niceDate(iso: string): string {
 
 interface OrdersListProps {
   backHref: string
+  /** Filtrar por cliente (UUID). Cuando se pasa, se omite el BackLink y el header de página. */
+  customerIdFilter?: string
 }
 
-export function OrdersList({ backHref }: OrdersListProps) {
+export function OrdersList({ backHref, customerIdFilter }: OrdersListProps) {
   const { data: bootstrap } = useBootstrap()
   const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
-  const opts = React.useMemo(() => rangeToBackend(range), [range])
+  const opts = React.useMemo(
+    () => ({
+      ...rangeToBackend(range),
+      ...(customerIdFilter ? { params: { customerId: customerIdFilter } } : {}),
+    }),
+    [range, customerIdFilter],
+  )
 
   const { data, isLoading, error } = useReport<OrdersReportResponse>("orders", opts)
   const rows = React.useMemo(() => data?.rows ?? [], [data])
@@ -130,16 +138,24 @@ export function OrdersList({ backHref }: OrdersListProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <BackLink backHref={backHref} />
-          <h1 className="text-2xl font-semibold">Órdenes</h1>
-          <p className="text-sm text-muted-foreground">
-            Órdenes del período con su estado y canal de venta.
-          </p>
+      {!customerIdFilter && (
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-1">
+            <BackLink backHref={backHref} />
+            <h1 className="text-2xl font-semibold">Órdenes</h1>
+            <p className="text-sm text-muted-foreground">
+              Órdenes del período con su estado y canal de venta.
+            </p>
+          </div>
+          <DateRangePicker value={range} onChange={setRange} />
+        </header>
+      )}
+      {customerIdFilter && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">Órdenes de este cliente</p>
+          <DateRangePicker value={range} onChange={setRange} />
         </div>
-        <DateRangePicker value={range} onChange={setRange} />
-      </header>
+      )}
 
       {error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
