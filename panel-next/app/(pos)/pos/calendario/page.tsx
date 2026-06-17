@@ -1,5 +1,13 @@
-import { ScheduleList } from "@/components/domain/schedule/schedule-list"
+import { CalendarDays } from "lucide-react"
+
+import { PosModulePlaceholder } from "@/components/register/pos-module-placeholder"
 
 export default function PosCalendarioPage() {
-  return <ScheduleList backHref="/pos" />
+  return (
+    <PosModulePlaceholder
+      title="Agenda"
+      description="Calendario de turnos, reservas y eventos. Próximamente."
+      icon={CalendarDays}
+    />
+  )
 }
