@@ -107,14 +107,16 @@ final class ContactAnalyticsService
              LIMIT 5",
             array_merge([$companyId, $contactId], $txTypes)
         );
-        // Resolución de nombre por item (1 query batch).
+        // Resolución de nombre + UOM por item (1 query batch).
         $itemIds  = array_map(fn($r) => (string) $r['id'], $topItems);
-        $itemName = $this->itemNamesByIds($itemIds, $companyId);
-        $topItems = array_map(function ($r) use ($itemName) {
-            $id = (string) $r['id'];
+        $itemMeta = $this->itemMetaByIds($itemIds, $companyId);
+        $topItems = array_map(function ($r) use ($itemMeta) {
+            $id   = (string) $r['id'];
+            $meta = $itemMeta[$id] ?? null;
             return [
                 'itemId' => $id,
-                'name'   => (string) ($itemName[$id] ?? '(sin nombre)'),
+                'name'   => (string) ($meta['name'] ?? '(sin nombre)'),
+                'uom'    => $meta['uom'] ?? null,
                 'count'  => (float) $r['count'],
                 'total'  => (float) $r['total'],
             ];
@@ -378,18 +380,29 @@ final class ContactAnalyticsService
         return $out;
     }
 
-    /** Map id => itemName. Batch SELECT escapado por companyId. */
-    private function itemNamesByIds(array $ids, string $companyId): array
+    /**
+     * Map id => {name, uom}. Batch SELECT escapado por companyId.
+     * itemUOM vive en el JSONB `data` (demoted en mig 07 — ver
+     * ItemCompoundService); se lee con `data->>'itemUOM'`.
+     */
+    private function itemMetaByIds(array $ids, string $companyId): array
     {
         if (!$ids) return [];
         $marks = implode(',', array_fill(0, count($ids), '?'));
         $rows = $this->fetchAll(
-            "SELECT itemId, itemName FROM item
+            "SELECT itemId, itemName, data->>'itemUOM' AS itemUOM FROM item
              WHERE companyId = ? AND itemId IN ($marks)",
             array_merge([$companyId], $ids)
         );
         $map = [];
-        foreach ($rows as $r) { $map[(string)$r['itemId']] = (string)($r['itemName'] ?? ''); }
+        foreach ($rows as $r) {
+            $map[(string)$r['itemId']] = [
+                'name' => (string) ($r['itemName'] ?? ''),
+                'uom'  => $r['itemUOM'] !== null && $r['itemUOM'] !== ''
+                    ? (string) $r['itemUOM']
+                    : null,
+            ];
+        }
         return $map;
     }
 

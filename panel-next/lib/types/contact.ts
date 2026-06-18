@@ -94,6 +94,8 @@ export interface ContactAnalytics {
   topItems: Array<{
     itemId: string
     name: string
+    /** Unidad de medida del item (kg, lt, cm, servicio…). Null si el item no tiene UOM. */
+    uom: string | null
     count: number
     total: number
   }>

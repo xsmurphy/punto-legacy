@@ -1375,7 +1375,7 @@ function TopItemsCard({
             <div key={it.itemId} className="flex items-center justify-between gap-2 py-1.5 text-sm first:pt-0 last:pb-0">
               <span className="truncate">{it.name}</span>
               <span className="text-xs text-muted-foreground tabular-nums">
-                {Math.round(it.count)} ud · {formatMoney(it.total, bootstrap)}
+                {Math.round(it.count)} {it.uom || "ud"} · {formatMoney(it.total, bootstrap)}
               </span>
             </div>
           ))}
