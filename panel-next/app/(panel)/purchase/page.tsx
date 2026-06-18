@@ -34,6 +34,7 @@ import { Switch } from "@/components/ui/switch"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useContacts, useCreateContact } from "@/hooks/use-contacts"
 import { useItems } from "@/hooks/use-items"
+import { api } from "@/lib/api-client"
 import { useTaxes } from "@/hooks/use-taxes"
 import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
@@ -762,36 +763,38 @@ function ProductPicker({
               {q.trim() === "" ? "Tipeá para buscar" : "Sin resultados"}
             </CommandEmpty>
             <CommandGroup>
-              {rows.map((r) => {
-                const cost = Number(r.itemCost) || 0
-                return (
-                  <CommandItem
-                    key={r.itemId}
-                    value={r.itemId}
-                    onSelect={() => {
-                      onChange(r.itemId, r.itemName, cost)
-                      setOpen(false)
-                      setQ("")
-                    }}
-                  >
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate">{r.itemName}</div>
-                        {r.itemSKU && (
-                          <div className="truncate text-xs text-muted-foreground">
-                            {r.itemSKU}
-                          </div>
-                        )}
-                      </div>
-                      {cost > 0 && (
-                        <div className="text-xs text-muted-foreground tabular-nums">
-                          cost: {cost}
+              {rows.map((r) => (
+                <CommandItem
+                  key={r.itemId}
+                  value={r.itemId}
+                  onSelect={async () => {
+                    setOpen(false)
+                    setQ("")
+                    // Setear nombre primero con precio 0; el último precio de
+                    // compra real llega en el segundo update tras el fetch.
+                    onChange(r.itemId, r.itemName, 0)
+                    try {
+                      const { price } = await api.get<{ price: number }>(
+                        `/v1/items?id=${r.itemId}&resource=last-purchase-price`,
+                      )
+                      onChange(r.itemId, r.itemName, price || 0)
+                    } catch {
+                      // Si falla el lookup, queda en 0 (estado seteado arriba).
+                    }
+                  }}
+                >
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate">{r.itemName}</div>
+                      {r.itemSKU && (
+                        <div className="truncate text-xs text-muted-foreground">
+                          {r.itemSKU}
                         </div>
                       )}
                     </div>
-                  </CommandItem>
-                )
-              })}
+                  </div>
+                </CommandItem>
+              ))}
             </CommandGroup>
           </CommandList>
         </Command>

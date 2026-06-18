@@ -203,6 +203,37 @@ if (in_array($resource, ['core', 'inventory', 'info'], true)) {
     apiOk($data);
 }
 
+// ── Último precio de compra del item ───────────────────────────────────────
+// GET /v1/items?id=<itemId>&resource=last-purchase-price
+//   → { price: number }   (0 si nunca se compró)
+// Usado en el form de /purchase para autorrellenar el precio cuando el
+// cajero selecciona un ítem.
+if ($resource === 'last-purchase-price') {
+    if ($method !== 'GET') {
+        apiError('Method not allowed for /items resource=last-purchase-price', 405);
+    }
+    $itemId = trim((string) ($_GET['id'] ?? ''));
+    if ($itemId === '') {
+        apiError('Falta id', 422);
+    }
+    // transactionType = 1 → compras (ver PurchasesService).
+    // Precio unitario = total / units. NULLIF evita división por cero.
+    $row = ncmExecute(
+        "SELECT (s.itemSoldTotal / NULLIF(s.itemSoldUnits, 0)) AS price
+           FROM itemSold s
+           JOIN transaction t ON s.transactionId = t.transactionId
+          WHERE t.companyId = ?
+            AND t.transactionType = 1
+            AND s.itemId = ?
+            AND s.itemSoldUnits > 0
+       ORDER BY t.transactionDate DESC
+          LIMIT 1",
+        [$companyId, $itemId]
+    );
+    $price = ($row && isset($row['price'])) ? (float) $row['price'] : 0.0;
+    apiOk(['price' => $price]);
+}
+
 // ── Rama Panel CRUD ───────────────────────────────────────────────────────
 $itemService = new \Punto\Api\Items\ItemService(new \Punto\Api\Items\ItemRepository($db));
 $locService  = new \Punto\Api\Items\LocationService($db);
