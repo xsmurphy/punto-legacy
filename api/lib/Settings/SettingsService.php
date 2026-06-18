@@ -131,6 +131,7 @@ final class SettingsService
         }
 
         $record = [
+            'settingName'              => $f['name'] ?? '',
             'settingAddress'           => $f['address'],
             'settingWebSite'           => $f['website'],
             'settingEmail'             => $f['email'],

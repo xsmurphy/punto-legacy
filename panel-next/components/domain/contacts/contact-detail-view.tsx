@@ -384,18 +384,20 @@ export function ContactDetailView({
         {/* Nav + Contenido */}
         {nav === "tabs" ? (
           <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className={isPos ? "flex-1 overflow-hidden flex flex-col" : ""}>
-            <TabsList className="flex h-auto w-full flex-wrap gap-1 justify-start bg-transparent p-0 shrink-0">
-              {sections.map((s) => (
-                <TabsTrigger
-                  key={s.key}
-                  value={s.key}
-                  className="gap-1.5 rounded-md border border-transparent data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm"
-                >
-                  {s.icon}
-                  {s.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+            <div className="-mx-2 overflow-x-auto px-2">
+              <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
+                {sections.map((s) => (
+                  <TabsTrigger
+                    key={s.key}
+                    value={s.key}
+                    className="gap-1.5"
+                  >
+                    {s.icon}
+                    {s.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
 
             {sections.map((s) => (
               <TabsContent key={s.key} value={s.key} className="mt-6">

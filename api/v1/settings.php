@@ -99,6 +99,7 @@ if ($method === 'POST') {
     $s = fn($k) => (string) (validateHttp($k, 'post') ?: '');
 
     $fields = [
+        'name'           => $s('name'),
         'address'        => $s('address'),
         'website'        => $s('website'),
         'email'          => $s('email'),

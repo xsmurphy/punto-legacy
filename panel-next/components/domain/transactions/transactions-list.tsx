@@ -114,7 +114,6 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
   )
 
   const rows = data?.rows ?? []
-  const totalAmount = rows.reduce((sum, r) => sum + (Number(r.total) || 0), 0)
 
   // POS-mode: Sheet state
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -300,17 +299,6 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
             <p className="font-medium">No se pudieron cargar las transacciones</p>
             <p className="text-xs text-muted-foreground">{error.message}</p>
           </div>
-        </div>
-      )}
-
-      {!isLoading && rows.length > 0 && (
-        <div className="flex flex-wrap gap-6 border-y py-3 text-sm">
-          <Stat label="Operaciones" value={rows.length.toString()} />
-          <Stat
-            label="Total"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totalAmount, bootstrap)}`}
-            emphasis
-          />
         </div>
       )}
 
@@ -531,33 +519,6 @@ function ItemRow({
       </div>
       <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
         {formatAmount(item.total, config)}
-      </span>
-    </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
       </span>
     </div>
   )

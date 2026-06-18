@@ -97,6 +97,7 @@ export function useDeleteCompanyLogo() {
  */
 function serialize(values: SettingsFormValues): Record<string, unknown> {
   return {
+    name: values.name,
     address: values.address,
     website: values.website,
     email: values.email,
