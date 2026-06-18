@@ -176,12 +176,17 @@ final class DrawersService
     public function close(string $drawerId, string $companyId, string $date, float $amount, string $userId): bool
     {
         global $db;
+        // Doble barrera: scope por companyId + `drawerCloseDate IS NULL` para no
+        // re-cerrar (pisar monto/fecha de) una caja ya cerrada. La edición de una
+        // caja cerrada se hace por `correct()`, no por re-close. Affected_Rows()=0
+        // ⇒ ya cerrada / no existe / de otra company ⇒ false.
         $r = $db->Execute(
             "UPDATE drawer SET drawerCloseAmount = ?, drawerCloseDate = ?, drawerUserClose = ?
-             WHERE drawerId = ? AND companyId = ?",
+             WHERE drawerId = ? AND companyId = ? AND drawerCloseDate IS NULL",
             [$amount, $date, ($userId !== '' ? $userId : null), $drawerId, $companyId]
         );
-        return $r !== false;
+        if ($r === false) return false;
+        return $db->Affected_Rows() > 0;
     }
 
     /** Corrige fechas/montos de apertura y cierre. SCOPEADO por companyId. */

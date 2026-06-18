@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 
 /**
@@ -536,4 +536,103 @@ export interface OrderRow {
 
 export interface OrdersReportResponse {
   rows: OrderRow[]
+}
+
+// ── Transaction detail (panel mode) ──────────────────────────────────────────
+
+export interface CobrosRow {
+  transactionId: string
+  parentId: string
+  parentInvoice: string
+  invoiceNo: string
+  date: string
+  customerName: string
+  userName: string
+  outletName: string
+  registerName: string
+  payments: Array<{ name: string }>
+  total: number
+  type: number
+}
+export interface CobrosReportResponse { rows: CobrosRow[] }
+
+export interface QuoteRow {
+  transactionId: string
+  invoiceNo: string
+  date: string
+  transactionStatus: string
+  customerName: string
+  customerTIN: string
+  userName: string
+  outletName: string
+  total: number
+  type: number
+}
+export interface QuotesReportResponse { rows: QuoteRow[] }
+
+export interface TxDetailItem {
+  itemSoldId: string
+  itemId: string
+  itemName: string
+  itemSoldUnits: number
+  itemSoldTotal: number
+  itemSoldTax: number
+  userId: string
+}
+
+export interface TxDetailFull {
+  transaction: {
+    transactionId: string
+    transactionDate: string
+    transactionDueDate: string | null
+    transactionNote: string | null
+    transactionType: number
+    transactionComplete: 0 | 1
+    transactionTotal: number
+    transactionDiscount: number
+    transactionTax: number
+    transactionPaymentType: Array<{ type: string; name: string; total: number; price: number; extra: string }>
+    invoiceNo: string | null
+    customerId: string | null
+    customerName: string | null
+    userId: string | null
+    userName: string | null
+    responsibleId: string | null
+    outletId: string | null
+    outletName: string | null
+    meta: { tags?: string[] } | null
+  }
+  items: TxDetailItem[]
+  creditNotes: Array<{ transactionId: string; transactionDate: string; transactionTotal: number; invoiceNo: string | null }>
+  appointments: Array<{ transactionId: string; transactionDate: string; transactionTotal: number }>
+  toTransactions: unknown[]
+  creditPayments: { total: number; paid: number; debt: number } | null
+}
+
+export function useTransactionDetail(id: string | null) {
+  return useQuery<TxDetailFull>({
+    queryKey: ["transaction-detail", id],
+    queryFn: () => api.get<TxDetailFull>(`/v1/reports/transactions?id=${id}`),
+    enabled: !!id,
+    staleTime: 30 * 1000,
+    retry: false,
+  })
+}
+
+/** Cierra una caja desde el panel (realm panel, companyId por JWT). */
+export function useCloseDrawerPanel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { drawerId: string; amount: number; date: string }) =>
+      api.post<{ id: string; action: string }>("/v1/reports/drawers", {
+        action: "close",
+        id: vars.drawerId,
+        closeAmount: vars.amount,
+        closeDate: vars.date,
+      }),
+    onSuccess: () => {
+      // Invalidar todos los queries de drawers para que el listado se refresque.
+      qc.invalidateQueries({ queryKey: ["reports", "drawers"] })
+    },
+  })
 }

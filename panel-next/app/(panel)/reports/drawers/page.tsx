@@ -33,12 +33,14 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type DrawerRow, type DrawersReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { DrawerDetailModal } from "@/components/reports/drawer-detail-modal"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
 
 export default function DrawersReportPage() {
   const { data: bootstrap } = useBootstrap()
   const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const [selectedDrawer, setSelectedDrawer] = React.useState<DrawerRow | null>(null)
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const { data, isLoading, error } = useReport<DrawersReportResponse>("drawers", opts)
@@ -209,6 +211,7 @@ export default function DrawersReportPage() {
         isLoading={isLoading}
         searchPlaceholder="Buscar por sucursal, caja, usuario…"
         exportFileName="control_de_cajas"
+        onRowClick={(row) => setSelectedDrawer(row)}
         emptyMessage={
           <EmptyState
             icon={Wallet}
@@ -216,6 +219,15 @@ export default function DrawersReportPage() {
             description="Ajustá el rango de fechas o esperá la próxima apertura."
           />
         }
+      />
+
+      <DrawerDetailModal
+        drawer={selectedDrawer}
+        onClose={() => setSelectedDrawer(null)}
+        onClosed={() => {
+          // El hook ya invalida la query — solo cerramos el modal.
+          setSelectedDrawer(null)
+        }}
       />
     </div>
   )
