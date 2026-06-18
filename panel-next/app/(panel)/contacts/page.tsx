@@ -1,14 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Plus, AlertCircle, Users } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   Select,
@@ -25,16 +24,27 @@ function formatBday(iso: string): string {
   if (!m) return iso
   return `${m[3]}/${m[2]}`
 }
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import type { ContactListItem } from "@/lib/types/contact"
 import { EmptyState } from "@/components/empty-state"
+import { TeamSection } from "@/components/domain/contacts/team-section"
 
-export default function ContactsPage() {
+type ActiveTab = "1" | "2" | "team"
+
+function ContactsPage() {
   const router = useRouter()
-  const [contactType, setContactType] = React.useState<ContactType>(1)
+  const searchParams = useSearchParams()
+  const initialTab: ActiveTab =
+    searchParams.get("tab") === "team" ? "team" : "1"
+
+  const [activeTab, setActiveTab] = React.useState<ActiveTab>(initialTab)
+
+  // contactType solo se usa cuando activeTab !== "team"
+  const contactType: ContactType = activeTab === "2" ? 2 : 1
+
   const { data, isLoading, error } = useContacts({ type: contactType })
   const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "archived">("all")
-  const isSupplier = contactType === 2
+  const isSupplier = activeTab === "2"
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.contacts ?? []
@@ -197,76 +207,100 @@ export default function ContactsPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Contactos</h1>
           <p className="text-sm text-muted-foreground">
-            Clientes y proveedores del negocio.
+            {activeTab === "team"
+              ? "Usuarios con acceso al panel y la caja."
+              : "Clientes y proveedores del negocio."}
           </p>
         </div>
-        <Button asChild>
-          <Link href={isSupplier ? "/contacts/new?type=2" : "/contacts/new"}>
-            <Plus className="size-4" />
-            {isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}
-          </Link>
-        </Button>
+        {activeTab !== "team" && (
+          <Button asChild>
+            <Link href={isSupplier ? "/contacts/new?type=2" : "/contacts/new"}>
+              <Plus className="size-4" />
+              {isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}
+            </Link>
+          </Button>
+        )}
       </header>
 
-      <Tabs value={String(contactType)} onValueChange={(v) => setContactType(Number(v) as ContactType)}>
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as ActiveTab)}
+      >
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="1">Clientes</TabsTrigger>
           <TabsTrigger value="2">Proveedores</TabsTrigger>
+          <TabsTrigger value="team">Equipo</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="team" className="mt-6">
+          <TeamSection />
+        </TabsContent>
       </Tabs>
 
-      {error && (
-        <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
-          <AlertCircle className="mt-0.5 size-4 text-destructive" />
-          <div>
-            <p className="font-medium">No se pudieron cargar los contactos</p>
-            <p className="text-xs text-muted-foreground">{error.message}</p>
-          </div>
-        </div>
-      )}
+      {activeTab !== "team" && (
+        <>
+          {error && (
+            <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+              <AlertCircle className="mt-0.5 size-4 text-destructive" />
+              <div>
+                <p className="font-medium">No se pudieron cargar los contactos</p>
+                <p className="text-xs text-muted-foreground">{error.message}</p>
+              </div>
+            </div>
+          )}
 
-      {/* DataTable sin Card wrapper — el DataTable interno provee border-y
-          (top+bottom de la tabla) y los rows tienen divisores. El feedback del
-          user fue claro: sin bordes externos. */}
-      <DataTable
-        tableId="contacts"
-        data={filteredRows}
-        columns={columns}
-        initialColumnVisibility={initialColumnVisibility}
-        getRowId={(r) => r.id}
-        onRowClick={(r) => router.push(`/contacts/${r.id}`)}
-        isLoading={isLoading}
-        searchPlaceholder="Buscar por nombre, teléfono, email, RUC…"
-        exportFileName="contactos"
-        emptyMessage={
-          <EmptyState
-            icon={Users}
-            title={isSupplier ? "Sin proveedores todavía" : "Sin clientes todavía"}
-            description={
-              <>
-                Creá el primero con el botón{" "}
-                <strong>{isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}</strong>{" "}
-                arriba a la derecha.
-              </>
+          {/* DataTable sin Card wrapper — el DataTable interno provee border-y
+              (top+bottom de la tabla) y los rows tienen divisores. El feedback del
+              user fue claro: sin bordes externos. */}
+          <DataTable
+            tableId="contacts"
+            data={filteredRows}
+            columns={columns}
+            initialColumnVisibility={initialColumnVisibility}
+            getRowId={(r) => r.id}
+            onRowClick={(r) => router.push(`/contacts/${r.id}`)}
+            isLoading={isLoading}
+            searchPlaceholder="Buscar por nombre, teléfono, email, RUC…"
+            exportFileName="contactos"
+            emptyMessage={
+              <EmptyState
+                icon={Users}
+                title={isSupplier ? "Sin proveedores todavía" : "Sin clientes todavía"}
+                description={
+                  <>
+                    Creá el primero con el botón{" "}
+                    <strong>{isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}</strong>{" "}
+                    arriba a la derecha.
+                  </>
+                }
+              />
+            }
+            toolbarSlot={
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
+              >
+                <SelectTrigger className="h-9 w-[140px]">
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="active">Activos</SelectItem>
+                  <SelectItem value="archived">Archivados</SelectItem>
+                </SelectContent>
+              </Select>
             }
           />
-        }
-        toolbarSlot={
-          <Select
-            value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
-          >
-            <SelectTrigger className="h-9 w-[140px]">
-              <SelectValue placeholder="Estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="active">Activos</SelectItem>
-              <SelectItem value="archived">Archivados</SelectItem>
-            </SelectContent>
-          </Select>
-        }
-      />
+        </>
+      )}
     </div>
+  )
+}
+
+export default function ContactsPageWrapper() {
+  return (
+    <React.Suspense fallback={null}>
+      <ContactsPage />
+    </React.Suspense>
   )
 }
