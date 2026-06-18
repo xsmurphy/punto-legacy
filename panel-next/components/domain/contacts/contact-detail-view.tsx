@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 import { EmptyState as EmptyStateBlock } from "@/components/empty-state"
 import { toast } from "sonner"
+import { useTheme } from "next-themes"
 import type { CountryCode } from "libphonenumber-js"
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
@@ -966,8 +967,17 @@ function AddressFormFields({
  * Preview embebido con OpenStreetMap. Sin API key, sin SDK extra; iframe nativo
  * con bbox = ±0.005° alrededor del pin (≈500m de zoom). Muestra el pin solo
  * cuando hay lat/lng válidos.
+ *
+ * Estilo por tema (CSS filters sobre el iframe):
+ *  - dark:  invert + hue-rotate clásico para mapas — convierte los blancos en
+ *           negros preservando los colores del marker (verde/azul siguen vivos).
+ *  - light: grayscale + tono suave para integrar con el design system del
+ *           proyecto sin saturar los amarillos de las calles.
  */
 function AddressMapPreview({ lat, lng }: { lat: number | null; lng: number | null }) {
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === "dark"
+
   if (lat === null || lng === null || Number.isNaN(lat) || Number.isNaN(lng)) {
     return (
       <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 text-xs text-muted-foreground">
@@ -979,12 +989,16 @@ function AddressMapPreview({ lat, lng }: { lat: number | null; lng: number | nul
   const bbox = `${lng - delta}%2C${lat - delta}%2C${lng + delta}%2C${lat + delta}`
   const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`
   const externalUrl = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`
+  const mapFilter = isDark
+    ? "invert(0.92) hue-rotate(180deg) brightness(0.95) contrast(0.85) saturate(0.7)"
+    : "grayscale(0.65) brightness(0.98) contrast(0.95)"
   return (
     <div className="flex flex-col gap-1.5">
       <iframe
         title="Mapa de la dirección"
         src={src}
         className="h-48 w-full rounded-lg border bg-muted"
+        style={{ filter: mapFilter }}
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
       />
