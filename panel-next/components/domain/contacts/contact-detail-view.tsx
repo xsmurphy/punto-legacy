@@ -33,6 +33,8 @@ import {
 import { EmptyState as EmptyStateBlock } from "@/components/empty-state"
 import { toast } from "sonner"
 import { useTheme } from "next-themes"
+import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl"
+import "maplibre-gl/dist/maplibre-gl.css"
 import type { CountryCode } from "libphonenumber-js"
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
@@ -963,45 +965,100 @@ function AddressFormFields({
   )
 }
 
+const OFM_STYLE_LIGHT = "https://tiles.openfreemap.org/styles/positron"
+const OFM_STYLE_DARK = "https://tiles.openfreemap.org/styles/fiord"
+
 /**
- * Preview embebido con OpenStreetMap. Sin API key, sin SDK extra; iframe nativo
- * con bbox = ±0.005° alrededor del pin (≈500m de zoom). Muestra el pin solo
- * cuando hay lat/lng válidos.
+ * Preview de la dirección con MapLibre GL + estilos vectoriales de OpenFreeMap.
+ *  - light → positron (gris claro tipo Carto)
+ *  - dark  → fiord (oscuro azulado)
  *
- * Estilo por tema (CSS filters sobre el iframe):
- *  - dark:  invert + hue-rotate clásico para mapas — convierte los blancos en
- *           negros preservando los colores del marker (verde/azul siguen vivos).
- *  - light: grayscale + tono suave para integrar con el design system del
- *           proyecto sin saturar los amarillos de las calles.
+ * Sin API key. El estilo se cambia en runtime con setStyle cuando alterna el
+ * tema; el marker se reaplica en cada style change porque MapLibre limpia
+ * markers al cambiar de style.
  */
 function AddressMapPreview({ lat, lng }: { lat: number | null; lng: number | null }) {
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === "dark"
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const mapRef = React.useRef<MapLibreMap | null>(null)
+  const markerRef = React.useRef<MapLibreMarker | null>(null)
 
-  if (lat === null || lng === null || Number.isNaN(lat) || Number.isNaN(lng)) {
+  const valid = lat !== null && lng !== null && !Number.isNaN(lat) && !Number.isNaN(lng)
+
+  React.useEffect(() => {
+    if (!valid || !containerRef.current) return
+    let cancelled = false
+
+    void import("maplibre-gl").then((mod) => {
+      if (cancelled || !containerRef.current) return
+      const maplibregl = mod.default ?? mod
+      if (mapRef.current) return
+
+      const map = new maplibregl.Map({
+        container: containerRef.current,
+        style: isDark ? OFM_STYLE_DARK : OFM_STYLE_LIGHT,
+        center: [lng as number, lat as number],
+        zoom: 15,
+        attributionControl: { compact: true },
+      })
+      mapRef.current = map
+      map.on("load", () => {
+        if (cancelled) return
+        markerRef.current = new maplibregl.Marker({ color: "var(--primary)" })
+          .setLngLat([lng as number, lat as number])
+          .addTo(map)
+      })
+    })
+
+    return () => {
+      cancelled = true
+      markerRef.current?.remove()
+      markerRef.current = null
+      mapRef.current?.remove()
+      mapRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valid])
+
+  // Cambio de tema → setStyle + re-aplicar el marker en 'styledata'.
+  React.useEffect(() => {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    const styleUrl = isDark ? OFM_STYLE_DARK : OFM_STYLE_LIGHT
+    map.setStyle(styleUrl)
+    const handler = () => {
+      if (!valid) return
+      void import("maplibre-gl").then((mod) => {
+        const maplibregl = mod.default ?? mod
+        markerRef.current?.remove()
+        markerRef.current = new maplibregl.Marker({ color: "var(--primary)" })
+          .setLngLat([lng as number, lat as number])
+          .addTo(map)
+      })
+      map.off("styledata", handler)
+    }
+    map.on("styledata", handler)
+  }, [isDark, lat, lng, valid])
+
+  // Cambio de coords → mover el centro y el marker (sin recrear el mapa).
+  React.useEffect(() => {
+    if (!mapRef.current || !valid) return
+    mapRef.current.setCenter([lng as number, lat as number])
+    markerRef.current?.setLngLat([lng as number, lat as number])
+  }, [lat, lng, valid])
+
+  if (!valid) {
     return (
       <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 text-xs text-muted-foreground">
         Ingresá latitud y longitud para previsualizar el mapa.
       </div>
     )
   }
-  const delta = 0.005
-  const bbox = `${lng - delta}%2C${lat - delta}%2C${lng + delta}%2C${lat + delta}`
-  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`
   const externalUrl = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`
-  const mapFilter = isDark
-    ? "invert(0.92) hue-rotate(180deg) brightness(0.95) contrast(0.85) saturate(0.7)"
-    : "grayscale(0.65) brightness(0.98) contrast(0.95)"
   return (
     <div className="flex flex-col gap-1.5">
-      <iframe
-        title="Mapa de la dirección"
-        src={src}
-        className="h-48 w-full rounded-lg border bg-muted"
-        style={{ filter: mapFilter }}
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-      />
+      <div ref={containerRef} className="h-48 w-full overflow-hidden rounded-lg border bg-muted" />
       <a
         href={externalUrl}
         target="_blank"
