@@ -180,7 +180,7 @@ final class CustomerAddressService
 
     // --- internos -----------------------------------------------------------
 
-    /** Mapea los campos del request (name/address/location/city/latLng) al record de BD. */
+    /** Mapea los campos del request (name/address/location/city/lat/lng/latLng) al record de BD. */
     private function fieldsToRecord(array $f): array
     {
         $record = [
@@ -190,11 +190,17 @@ final class CustomerAddressService
             'customerAddressCity'     => strip_tags($f['city'] ?? ''),
         ];
 
-        $latLng = $f['latLng'] ?? '';
-        if ($latLng !== '' && strpos($latLng, ',') !== false) {
-            [$lat, $lng] = explode(',', $latLng, 2);
-            $record['customerAddressLat'] = $lat;
-            $record['customerAddressLng'] = $lng;
+        // Coordenadas: leemos primero los campos directos (lat/lng) que el
+        // front nuevo manda como números. Fallback al string latLng "lat,lng"
+        // para back-compat con clientes legacy.
+        $lat = $f['lat'] ?? null;
+        $lng = $f['lng'] ?? null;
+        if (($lat === null || $lng === null) && !empty($f['latLng']) && strpos($f['latLng'], ',') !== false) {
+            [$lat, $lng] = explode(',', $f['latLng'], 2);
+        }
+        if ($lat !== null && $lat !== '' && $lng !== null && $lng !== '') {
+            $record['customerAddressLat'] = (float) $lat;
+            $record['customerAddressLng'] = (float) $lng;
         }
 
         return $record;

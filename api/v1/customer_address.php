@@ -27,6 +27,10 @@ $fieldsFromBody = static fn(): array => [
     'address'  => $_POST['address']  ?? '',
     'location' => $_POST['location'] ?? '',
     'city'     => $_POST['city']     ?? '',
+    // lat/lng pueden venir como números (cliente nuevo) o como string vacío.
+    // latLng se mantiene por back-compat con clientes legacy.
+    'lat'      => $_POST['lat']      ?? null,
+    'lng'      => $_POST['lng']      ?? null,
     'latLng'   => $_POST['latLng']   ?? '',
 ];
 

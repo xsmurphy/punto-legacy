@@ -130,9 +130,19 @@ export function useCustomerAddresses(customerId: string | undefined) {
   })
 }
 
+type AddressBody = {
+  customerId: string
+  name: string
+  address: string
+  location: string
+  city: string
+  lat?: number | null
+  lng?: number | null
+}
+
 export function useAddAddress() {
   const qc = useQueryClient()
-  return useMutation<unknown, Error, { customerId: string; name: string; address: string; location: string; city: string; latLng?: string }>({
+  return useMutation<unknown, Error, AddressBody>({
     mutationFn: (body) => api.post("/v1/customer_address", body),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["customerAddress", vars.customerId] })
@@ -142,7 +152,7 @@ export function useAddAddress() {
 
 export function useUpdateAddress() {
   const qc = useQueryClient()
-  return useMutation<unknown, Error, { addressId: string; customerId: string; name: string; address: string; location: string; city: string; latLng?: string }>({
+  return useMutation<unknown, Error, AddressBody & { addressId: string }>({
     mutationFn: ({ addressId, ...body }) =>
       api.put(`/v1/customer_address?id=${addressId}`, body),
     onSuccess: (_, vars) => {

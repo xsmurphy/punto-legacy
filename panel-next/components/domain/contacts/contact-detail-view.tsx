@@ -740,7 +740,8 @@ function AddressesTab({ contactId }: { contactId: string }) {
     address: f.address,
     location: f.location,
     city: f.city,
-    latLng: f.lat !== null && f.lng !== null ? `${f.lat},${f.lng}` : "",
+    lat: f.lat,
+    lng: f.lng,
   })
 
   const handleAdd = async () => {
@@ -956,7 +957,46 @@ function AddressFormFields({
           toast.success(`Coordenadas: ${lat}, ${lng}`)
         }}
       />
+      <AddressMapPreview lat={form.lat} lng={form.lng} />
     </>
+  )
+}
+
+/**
+ * Preview embebido con OpenStreetMap. Sin API key, sin SDK extra; iframe nativo
+ * con bbox = ±0.005° alrededor del pin (≈500m de zoom). Muestra el pin solo
+ * cuando hay lat/lng válidos.
+ */
+function AddressMapPreview({ lat, lng }: { lat: number | null; lng: number | null }) {
+  if (lat === null || lng === null || Number.isNaN(lat) || Number.isNaN(lng)) {
+    return (
+      <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 text-xs text-muted-foreground">
+        Ingresá latitud y longitud para previsualizar el mapa.
+      </div>
+    )
+  }
+  const delta = 0.005
+  const bbox = `${lng - delta}%2C${lat - delta}%2C${lng + delta}%2C${lat + delta}`
+  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`
+  const externalUrl = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`
+  return (
+    <div className="flex flex-col gap-1.5">
+      <iframe
+        title="Mapa de la dirección"
+        src={src}
+        className="h-48 w-full rounded-lg border bg-muted"
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+      />
+      <a
+        href={externalUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="self-end text-xs text-muted-foreground hover:text-foreground hover:underline"
+      >
+        Abrir en OpenStreetMap →
+      </a>
+    </div>
   )
 }
 
