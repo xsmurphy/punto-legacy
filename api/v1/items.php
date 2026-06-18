@@ -723,6 +723,23 @@ switch ($method) {
 
     case 'DELETE':
         if ($id === null) apiError('id es requerido para DELETE', 422);
+
+        // hard=1 → hard-delete (solo para items archivados, sin ventas).
+        // Default (sin hard) → soft-delete / archive.
+        if (!empty($_GET['hard'])) {
+            $result = $itemService->delete($id, $companyId);
+            if ($result === 'sold') {
+                apiError('No se puede eliminar: el artículo tiene ventas registradas. Permanecerá archivado.', 409);
+            }
+            if ($result === 'referenced') {
+                apiError('No se puede eliminar: el artículo está referenciado por otros registros (stock, inventario, compuestos). Permanecerá archivado.', 409);
+            }
+            if ($result !== true) {
+                apiError('No se pudo eliminar. El artículo puede no estar archivado o no pertenecer a esta empresa.', 422);
+            }
+            apiOk(['deleted' => true, 'itemId' => $id]);
+        }
+
         $ok = $itemService->archive($id, $companyId);
         if (!$ok) apiError('Archive falló', 500);
         apiOk(['archived' => true, 'itemId' => $id]);

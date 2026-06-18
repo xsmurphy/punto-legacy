@@ -11,9 +11,14 @@ namespace Punto\Api\Items;
  * "Servicio", "Insumo con stock", etc.) o el slug ("producto", "insumo_stock").
  *
  * Headers esperados (case-insensitive, sin acentos):
- *   KIND, NOMBRE, SKU, MARCA, CATEGORIA, DESCRIPCION, COSTO, PRECIO,
- *   IMPUESTO, SUCURSAL, DESCUENTO_PCT, UOM, MERMA_PCT, COMISION_PCT,
+ *   KIND, NOMBRE, SKU, MARCA, CATEGORIA, ETIQUETAS, DESCRIPCION, COSTO,
+ *   PRECIO, IMPUESTO, SUCURSAL, DESCUENTO_PCT, UOM, MERMA_PCT, COMISION_PCT,
  *   STOCK_MINIMO
+ *
+ * ETIQUETAS acepta aliases TAGS / LABELS. Celda puede ser lista separada por
+ * coma, punto-y-coma o pipe. Cada etiqueta se crea en taxonomy(type='tag')
+ * si no existe (getTaxonomyIdOrInsert). Los UUIDs se guardan en data.tags
+ * (JSONB) como array de strings — misma shape que SaleInput::normalizeTags.
  *
  * Delimitador: auto-detecta `,` vs `;` (gana el que más aparece en el body).
  * Máximo 2000 filas por subida (paridad con legacy).
@@ -22,8 +27,11 @@ final class ItemImporter
 {
     public const MAX_ROWS = 2000;
 
+    /** Tope de etiquetas por fila (evita N round-trips a DB por celdas abusivas). */
+    public const MAX_TAGS_PER_ROW = 20;
+
     public const HEADERS = [
-        'KIND', 'NOMBRE', 'SKU', 'MARCA', 'CATEGORIA', 'DESCRIPCION',
+        'KIND', 'NOMBRE', 'SKU', 'MARCA', 'CATEGORIA', 'ETIQUETAS', 'DESCRIPCION',
         'COSTO', 'PRECIO', 'IMPUESTO', 'SUCURSAL', 'DESCUENTO_PCT', 'UOM',
         'MERMA_PCT', 'COMISION_PCT', 'STOCK_MINIMO',
     ];
@@ -31,12 +39,12 @@ final class ItemImporter
     public const TEMPLATE_EXAMPLES = [
         [
             'producto', 'Café Espresso', 'CAF-001', 'Nespresso', 'Bebidas',
-            'Café espresso doble', '5000', '12000', '10', '', '0',
+            'Artesanal,Premium', 'Café espresso doble', '5000', '12000', '10', '', '0',
             'unidad', '0', '0', '5',
         ],
         [
             'servicio', 'Corte de cabello', 'SRV-001', '', 'Servicios',
-            'Corte y peinado', '0', '25000', '10', 'Central', '0',
+            '', 'Corte y peinado', '0', '25000', '10', 'Central', '0',
             '', '0', '10', '',
         ],
     ];
@@ -188,6 +196,11 @@ final class ItemImporter
             'STOCK_MIN'        => 'STOCK_MINIMO',
             'UNIDAD'           => 'UOM',
             'UNIDAD_DE_MEDIDA' => 'UOM',
+            // Etiquetas
+            'TAGS'             => 'ETIQUETAS',
+            'LABELS'           => 'ETIQUETAS',
+            'TAG'              => 'ETIQUETAS',
+            'LABEL'            => 'ETIQUETAS',
         ];
         return $aliases[$h] ?? $h;
     }
@@ -222,11 +235,29 @@ final class ItemImporter
         $categoryName = $get('CATEGORIA');
         $taxName      = $get('IMPUESTO');
         $outletLabel  = strtolower($get('SUCURSAL'));
+        $tagsRaw      = $get('ETIQUETAS');
 
         $brandId    = $brandName    !== '' ? \getTaxonomyIdOrInsert($brandName, 'brand') : null;
         $categoryId = $categoryName !== '' ? \getTaxonomyIdOrInsert($categoryName, 'category') : null;
         $taxId      = $taxName      !== '' ? \getTaxonomyIdOrInsert($taxName, 'tax') : null;
         $outletId   = ($outletLabel === '' || $outletLabel === 'todas') ? null : ($outlets[$outletLabel] ?? null);
+
+        // Resolver etiquetas: parsear lista separada por coma|punto-y-coma|pipe,
+        // crear en taxonomy(type='tag') si no existen, guardar array de UUIDs.
+        // Shape: list<string> (UUIDs) → se guarda en data.tags via JSONB routing.
+        $tagIds = [];
+        if ($tagsRaw !== '') {
+            $tagNames = preg_split('/[,;|]+/', $tagsRaw) ?: [];
+            foreach ($tagNames as $tagName) {
+                if (count($tagIds) >= self::MAX_TAGS_PER_ROW) break; // cap anti-abuso
+                $tagName = trim($tagName);
+                if ($tagName === '') continue;
+                $tagId = \getTaxonomyIdOrInsert($tagName, 'tag');
+                if ($tagId && !in_array($tagId, $tagIds, true)) {
+                    $tagIds[] = $tagId;
+                }
+            }
+        }
 
         $legacyFlags = $this->legacyFlagsForKind($kind);
 
@@ -255,6 +286,12 @@ final class ItemImporter
             'itemTaxIncluded'       => 1,
             'updated_at'            => \TODAY,
         ];
+
+        // Solo incluir tags si la columna ETIQUETAS estaba presente en el CSV
+        // (para no sobrescribir tags existentes en modo update cuando no viene la columna).
+        if (isset($headerMap['ETIQUETAS'])) {
+            $record['tags'] = !empty($tagIds) ? $tagIds : [];
+        }
 
         if ($existingId !== null) {
             $ok = $this->svc->update($existingId, $companyId, $record);

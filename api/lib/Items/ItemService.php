@@ -109,6 +109,19 @@ final class ItemService
         return $this->repo->archive($id, $companyId);
     }
 
+    /**
+     * Hard-delete de un item archivado.
+     *
+     * @return true                 → eliminado OK
+     * @return 'sold'               → tiene ventas asociadas, no se puede borrar
+     * @return 'referenced'         → referenciado por otros registros (stock/inventario/compuestos)
+     * @return false                → error de DB o item no archivado / no encontrado
+     */
+    public function delete(string $id, string $companyId)
+    {
+        return $this->repo->hardDelete($id, $companyId);
+    }
+
     public function find(string $id, string $companyId): ?CaseInsensitiveArray
     {
         return $this->repo->find($id, $companyId);

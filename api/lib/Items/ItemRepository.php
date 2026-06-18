@@ -69,6 +69,58 @@ final class ItemRepository
     }
 
     /**
+     * Hard-delete: DELETE físico de la tabla `item`.
+     *
+     * Precondición: el item debe tener itemStatus = 0 (archivado).
+     * Guards (en orden):
+     *   1. Ventas: filas en itemSold como ítem vendido (itemId) o como parent de
+     *      un compuesto vendido (itemSoldParent) → 'sold' (mensaje de negocio).
+     *   2. Cualquier otra FK que referencia item (stock, inventory, stockTrigger,
+     *      toCompound, production, upsell, item hijos, etc.) está declarada como
+     *      RESTRICT en el schema → el DELETE falla con violación de FK. La
+     *      detectamos de forma genérica (sin enumerar cada tabla) y devolvemos
+     *      'referenced' en vez de un false ambiguo.
+     *
+     * @return true|'sold'|'referenced'|false
+     *   - true          → eliminado OK
+     *   - 'sold'        → tiene ventas asociadas, no se puede borrar
+     *   - 'referenced'  → referenciado por otros registros (stock/inventario/etc.)
+     *   - false         → error de DB, o item no encontrado / no archivado
+     */
+    public function hardDelete(string $id, string $companyId)
+    {
+        // Guard 1: ventas asociadas (scope por companyId via JOIN a transaction).
+        // Cubre el ítem vendido directo (s.itemId) y el parent de un compuesto
+        // vendido (s.itemSoldParent), que de otro modo se saltaría el chequeo.
+        $countRow = ncmExecute(
+            "SELECT COUNT(*) AS n FROM itemSold s
+               JOIN transaction t ON t.transactionId = s.transactionId
+              WHERE (s.itemId = ? OR s.itemSoldParent = ?) AND t.companyId = ?",
+            [$id, $id, $companyId]
+        );
+        $soldCount = (int) ($countRow['n'] ?? 0);
+        if ($soldCount > 0) {
+            return 'sold';
+        }
+
+        // Solo borrar si está archivado (itemStatus=0) y pertenece a la company.
+        $sql = "DELETE FROM item WHERE itemId = ? AND companyId = ? AND itemStatus = 0";
+        $rs  = $this->db->Execute($sql, [$id, $companyId]);
+        if ($rs === false) {
+            // Guard 2: las FK a item son RESTRICT → un DELETE bloqueado lanza
+            // violación de FK (PG SQLSTATE 23503). La traducimos a 'referenced'
+            // para devolver un 409 claro en vez de un 500/422 confuso.
+            $err = (string) $this->db->ErrorMsg();
+            if (stripos($err, 'foreign key') !== false || stripos($err, '23503') !== false) {
+                return 'referenced';
+            }
+            return false;
+        }
+        // AffectedRows() = 0 significa que no encontró la fila (no archivado o no existe).
+        return $this->db->Affected_Rows() > 0;
+    }
+
+    /**
      * Búsqueda por nombre/SKU (ILIKE). Retorna array de filas crudas (CaseInsensitiveArray).
      */
     public function searchByName(string $pattern, string $companyId, int $limit = 200): array

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import * as XLSX from "xlsx"
 import { toast } from "sonner"
 import { Upload, FileText, Download, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react"
 
@@ -42,14 +43,42 @@ export function ImportItemsDialog() {
     if (inputRef.current) inputRef.current.value = ""
   }
 
-  const onPickFile = (f: File | null) => {
+  const onPickFile = async (f: File | null) => {
     if (!f) return setFile(null)
-    if (!/\.(csv|txt)$/i.test(f.name)) {
-      toast.error("Solo archivos CSV", {
-        description: "Si tenés un XLSX, exportalo como CSV desde Excel/Google Sheets primero.",
+
+    const isExcel = /\.(xlsx|xls)$/i.test(f.name)
+    const isCsv   = /\.(csv|txt)$/i.test(f.name)
+
+    if (!isExcel && !isCsv) {
+      toast.error("Formato no soportado", {
+        description: "Usá un archivo Excel (.xlsx/.xls) o CSV (.csv/.txt).",
       })
       return
     }
+
+    if (isExcel) {
+      // Parsear el Excel en el browser con SheetJS y convertir a CSV
+      // para que el backend siga recibiendo CSV puro.
+      try {
+        const buf  = await f.arrayBuffer()
+        const wb   = XLSX.read(buf, { type: "array" })
+        const ws   = wb.Sheets[wb.SheetNames[0]]
+        const csv  = XLSX.utils.sheet_to_csv(ws)
+        const blob = new Blob([csv], { type: "text/csv" })
+        const csvFile = new File([blob], "import.csv", { type: "text/csv" })
+        setFile(csvFile)
+        setReport(null)
+        toast.info("Excel convertido a CSV", {
+          description: `Se usará la primera hoja de "${f.name}".`,
+        })
+      } catch (e) {
+        toast.error("No se pudo leer el Excel", {
+          description: e instanceof Error ? e.message : undefined,
+        })
+      }
+      return
+    }
+
     setFile(f)
     setReport(null)
   }
@@ -113,10 +142,10 @@ export function ImportItemsDialog() {
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Importar artículos desde CSV</DialogTitle>
+          <DialogTitle>Importar artículos</DialogTitle>
           <DialogDescription>
-            Cargá un CSV con los artículos. Marca, categoría e impuesto se crean
-            automáticamente si no existen.
+            Cargá un CSV o Excel con los artículos. Marca, categoría, impuesto
+            y etiquetas se crean automáticamente si no existen.
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +182,7 @@ export function ImportItemsDialog() {
                 e.preventDefault()
                 setDragOver(false)
                 const f = e.dataTransfer.files?.[0] ?? null
-                onPickFile(f)
+                void onPickFile(f)
               }}
               onClick={() => inputRef.current?.click()}
               role="button"
@@ -162,9 +191,11 @@ export function ImportItemsDialog() {
               <input
                 ref={inputRef}
                 type="file"
-                accept=".csv,.txt,text/csv"
+                accept=".xlsx,.xls,.csv,.txt,text/csv"
                 className="hidden"
-                onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  void onPickFile(e.target.files?.[0] ?? null)
+                }}
               />
               {file ? (
                 <>
@@ -178,10 +209,11 @@ export function ImportItemsDialog() {
                 <>
                   <Upload className="size-8 text-muted-foreground/40" />
                   <p className="text-sm">
-                    Arrastrá un CSV o <span className="font-medium underline">click para elegir</span>
+                    Arrastrá un archivo o{" "}
+                    <span className="font-medium underline">click para elegir</span>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Máximo 2000 filas. Delimitador `,` o `;`.
+                    Excel (.xlsx/.xls) o CSV (.csv/.txt). Máximo 2000 filas.
                   </p>
                 </>
               )}

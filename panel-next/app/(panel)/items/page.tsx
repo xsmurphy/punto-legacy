@@ -16,6 +16,7 @@ import {
   FolderMinus,
   Pencil,
   Barcode,
+  Trash2,
 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { EmptyState } from "@/components/empty-state"
@@ -47,6 +48,7 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useArchiveItem,
+  useDeleteItem,
   useGroupItems,
   useItem,
   useItems,
@@ -86,6 +88,7 @@ function ItemsPageInner() {
   })
   const { data: bootstrap } = useBootstrap()
   const archive = useArchiveItem()
+  const hardDelete = useDeleteItem()
   const group = useGroupItems()
   const ungroup = useUngroupItems()
   const rename = useRenameItem()
@@ -530,25 +533,61 @@ function ItemsPageInner() {
                     Agrupar
                   </Button>
                 )}
-                <BulkArchiveDialog
-                  items={selected}
-                  isArchived={showArchived}
-                  onConfirm={async () => {
-                    try {
-                      await Promise.all(
-                        selected.map((i) => archive.mutateAsync(i.itemId)),
-                      )
-                      toast.success(
-                        `${selected.length} ${selected.length === 1 ? "artículo archivado" : "artículos archivados"}`,
-                      )
+                {/* Activos → Archivar. Archivados → Eliminar definitivamente. */}
+                {showArchived ? (
+                  <BulkDeleteDialog
+                    items={selected}
+                    onConfirm={async () => {
+                      let archived = 0
+                      for (const i of selected) {
+                        try {
+                          await hardDelete.mutateAsync(i.itemId)
+                        } catch (e) {
+                          // 409 = referenciado (ventas / stock / inventario / compuestos).
+                          // Ambos mensajes del backend incluyen "Permanecerá archivado".
+                          const msg = e instanceof Error ? e.message : "Error"
+                          if (msg.includes("Permanecerá archivado")) {
+                            archived++
+                            toast.warning(`"${i.itemName}" no se pudo eliminar`, {
+                              description: msg,
+                            })
+                          } else {
+                            toast.error(`No se pudo eliminar "${i.itemName}"`, {
+                              description: msg,
+                            })
+                          }
+                        }
+                      }
+                      const deleted = selected.length - archived
+                      if (deleted > 0) {
+                        toast.success(
+                          `${deleted} ${deleted === 1 ? "artículo eliminado" : "artículos eliminados"} definitivamente`,
+                        )
+                      }
                       clear()
-                    } catch (e) {
-                      toast.error("No se pudo archivar", {
-                        description: e instanceof Error ? e.message : undefined,
-                      })
-                    }
-                  }}
-                />
+                    }}
+                  />
+                ) : (
+                  <BulkArchiveDialog
+                    items={selected}
+                    isArchived={showArchived}
+                    onConfirm={async () => {
+                      try {
+                        await Promise.all(
+                          selected.map((i) => archive.mutateAsync(i.itemId)),
+                        )
+                        toast.success(
+                          `${selected.length} ${selected.length === 1 ? "artículo archivado" : "artículos archivados"}`,
+                        )
+                        clear()
+                      } catch (e) {
+                        toast.error("No se pudo archivar", {
+                          description: e instanceof Error ? e.message : undefined,
+                        })
+                      }
+                    }}
+                  />
+                )}
               </>
             )}
             emptyMessage={
@@ -640,6 +679,60 @@ function BulkArchiveDialog({
             }}
           >
             Archivar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function BulkDeleteDialog({
+  items,
+  onConfirm,
+}: {
+  items: ItemListItem[]
+  onConfirm: () => Promise<void>
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [pending, setPending] = React.useState(false)
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive"
+        >
+          <Trash2 className="size-3.5" />
+          Eliminar definitivamente
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            ¿Eliminar {items.length}{" "}
+            {items.length === 1 ? "artículo" : "artículos"} definitivamente?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta acción no se puede deshacer. Los artículos con ventas
+            registradas no serán eliminados y recibirás un aviso por cada uno.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={async (e) => {
+              e.preventDefault()
+              setPending(true)
+              await onConfirm()
+              setPending(false)
+              setOpen(false)
+            }}
+            disabled={pending}
+          >
+            {pending && <Loader2 className="size-4 animate-spin" />}
+            Eliminar definitivamente
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

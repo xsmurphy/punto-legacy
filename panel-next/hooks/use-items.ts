@@ -201,6 +201,18 @@ export function useArchiveItem() {
   })
 }
 
+/** Hard-delete: solo para items archivados (itemStatus=0) sin ventas asociadas.
+ *  El backend responde 409 si el item tiene ventas — el caller debe manejar ese caso. */
+export function useDeleteItem() {
+  const qc = useQueryClient()
+  return useMutation<{ deleted: boolean; itemId: string }, Error, string>({
+    mutationFn: (id) => api.del(`/v1/items?id=${id}&hard=1`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
 export interface ImportReport {
   created: number
   updated: number
