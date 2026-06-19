@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Tag, Building2, Receipt } from "lucide-react"
+import { ArrowLeft, Tag, Building2, Receipt, Tags } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -29,10 +29,17 @@ import {
   useUpdateTax,
   useDeleteTax,
 } from "@/hooks/use-taxes"
+import {
+  useTags,
+  useCreateTag,
+  useUpdateTag,
+  useDeleteTag,
+} from "@/hooks/use-tags"
 
 import type { Category, CategoryPayload } from "@/lib/types/category"
 import type { Brand, BrandPayload } from "@/lib/types/brand"
 import type { Tax, TaxPayload } from "@/lib/types/tax"
+import type { Tag as TagItem, TagPayload } from "@/lib/types/tag"
 
 // Suprimir warning de unused — exportado por completitud del módulo.
 void useCategory
@@ -42,9 +49,9 @@ void useCategory
  * componente genérico CatalogManager con su configuración (hooks, columns,
  * fields).
  */
-type CatalogTabValue = "categories" | "brands" | "taxes"
+type CatalogTabValue = "categories" | "brands" | "tags" | "taxes"
 
-const VALID_TABS: CatalogTabValue[] = ["categories", "brands", "taxes"]
+const VALID_TABS: CatalogTabValue[] = ["categories", "brands", "tags", "taxes"]
 
 function parseTab(raw: string | null): CatalogTabValue {
   return raw && (VALID_TABS as string[]).includes(raw) ? (raw as CatalogTabValue) : "categories"
@@ -78,7 +85,7 @@ export default function CatalogPage() {
         <div>
           <h1 className="text-2xl font-semibold">Catálogo</h1>
           <p className="text-sm text-muted-foreground">
-            Categorías, marcas e impuestos disponibles para los artículos.
+            Categorías, marcas, etiquetas e impuestos disponibles para los artículos.
           </p>
         </div>
       </header>
@@ -86,7 +93,7 @@ export default function CatalogPage() {
       <Tabs value={tab} onValueChange={onTabChange}>
         {/* TabsList full-width 3-col — antes era ancho-contenido y dejaba la
             mitad derecha vacía. grid-cols-3 + w-full estira cada tab. */}
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="categories" className="gap-1.5">
             <Tag className="size-3.5" />
             Categorías
@@ -94,6 +101,10 @@ export default function CatalogPage() {
           <TabsTrigger value="brands" className="gap-1.5">
             <Building2 className="size-3.5" />
             Marcas
+          </TabsTrigger>
+          <TabsTrigger value="tags" className="gap-1.5">
+            <Tags className="size-3.5" />
+            Etiquetas
           </TabsTrigger>
           <TabsTrigger value="taxes" className="gap-1.5">
             <Receipt className="size-3.5" />
@@ -106,6 +117,9 @@ export default function CatalogPage() {
         </TabsContent>
         <TabsContent value="brands" className="mt-6">
           <BrandsTab />
+        </TabsContent>
+        <TabsContent value="tags" className="mt-6">
+          <TagsTab />
         </TabsContent>
         <TabsContent value="taxes" className="mt-6">
           <TaxesTab />
@@ -193,6 +207,47 @@ function BrandsTab() {
       getLabel={(row) => row.name}
       emptyFormValues={{ name: "" }}
       exportFileName="marcas"
+    />
+  )
+}
+
+// ── Tags ───────────────────────────────────────────────────────────────────
+
+function TagsTab() {
+  const columns: ColumnDef<TagItem, unknown>[] = React.useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Nombre",
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+        meta: { label: "Nombre" },
+      },
+    ],
+    [],
+  )
+
+  const fields: CatalogField<TagPayload>[] = [
+    { name: "name", label: "Nombre", required: true, placeholder: "Ej: Promoción" },
+  ]
+
+  const { data, isLoading } = useTags()
+
+  return (
+    <CatalogManager<TagItem, TagPayload>
+      entitySingular="etiqueta"
+      entityPlural="etiquetas"
+      rows={data?.tags ?? []}
+      isLoading={isLoading}
+      useCreate={useCreateTag}
+      useUpdate={useUpdateTag}
+      useDelete={useDeleteTag}
+      columns={columns}
+      fields={fields}
+      toFormValues={(row) => ({ name: row.name })}
+      getId={(row) => row.id}
+      getLabel={(row) => row.name}
+      emptyFormValues={{ name: "" }}
+      exportFileName="etiquetas"
     />
   )
 }
