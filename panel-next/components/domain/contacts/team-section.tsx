@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Plus, Loader2, Users, Pencil, CircleOff, Shield } from "lucide-react"
+import { Plus, Loader2, Users, Shield, CircleOff } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import type { CountryCode } from "libphonenumber-js"
 import { toast } from "sonner"
@@ -27,16 +27,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
   Form,
   FormControl,
   FormDescription,
@@ -61,7 +51,6 @@ import {
   useTeamRoles,
   useCreateTeamMember,
   useUpdateTeamMember,
-  useDeleteTeamMember,
   type TeamMember,
   type TeamMemberFormValues,
 } from "@/hooks/use-team"
@@ -146,7 +135,6 @@ function avatarStyle(color: string | null) {
 
 function buildColumns(
   onEdit: (m: TeamMember) => void,
-  onDeactivate: (m: TeamMember) => void,
 ): ColumnDef<TeamMember, unknown>[] {
   return [
     {
@@ -226,36 +214,6 @@ function buildColumns(
             Inactivo
           </Badge>
         ),
-    },
-    {
-      id: "actions",
-      header: "",
-      enableSorting: false,
-      cell: ({ row }) => {
-        const m = row.original
-        return (
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-8"
-              onClick={() => onEdit(m)}
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-            {m.status === 1 && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8 text-muted-foreground hover:text-destructive"
-                onClick={() => onDeactivate(m)}
-              >
-                <CircleOff className="size-3.5" />
-              </Button>
-            )}
-          </div>
-        )
-      },
     },
   ]
 }
@@ -536,11 +494,8 @@ export function TeamSection() {
   const { data: outletsData } = useOutlets()
   const create = useCreateTeamMember()
   const update = useUpdateTeamMember()
-  const deactivate = useDeleteTeamMember()
-
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<TeamMember | null>(null)
-  const [deactivating, setDeactivating] = React.useState<TeamMember | null>(null)
 
   const form = useForm<TeamFormValues>({
     resolver: zodResolver(teamSchema),
@@ -587,24 +542,10 @@ export function TeamSection() {
     }
   }
 
-  async function onDeactivate() {
-    if (!deactivating) return
-    try {
-      await deactivate.mutateAsync(deactivating.id)
-      toast.success(`${deactivating.name} desactivado`)
-    } catch (e) {
-      toast.error("No se pudo desactivar el usuario", {
-        description: e instanceof Error ? e.message : undefined,
-      })
-    } finally {
-      setDeactivating(null)
-    }
-  }
-
   const members = data?.users ?? []
   const isPending = create.isPending || update.isPending
 
-  const columns = buildColumns(openEdit, (m) => setDeactivating(m))
+  const columns = buildColumns(openEdit)
 
   return (
     <div className="flex flex-col gap-6">
@@ -647,6 +588,7 @@ export function TeamSection() {
           getRowId={(m) => m.id}
           searchPlaceholder="Buscar por nombre…"
           exportFileName="equipo"
+          onRowClick={(m) => openEdit(m)}
         />
       )}
 
@@ -672,28 +614,6 @@ export function TeamSection() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm desactivar */}
-      <AlertDialog open={!!deactivating} onOpenChange={(o) => !o && setDeactivating(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Desactivar a {deactivating?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              El usuario no podrá ingresar al sistema. Podés reactivarlo desde el
-              botón Editar en cualquier momento.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={onDeactivate}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deactivate.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-              Desactivar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

@@ -182,11 +182,11 @@ final class DrawersService
         // ⇒ ya cerrada / no existe / de otra company ⇒ false.
         $r = $db->Execute(
             "UPDATE drawer SET drawerCloseAmount = ?, drawerCloseDate = ?, drawerUserClose = ?
-             WHERE drawerId = ? AND companyId = ? AND drawerCloseDate IS NULL",
+             WHERE drawerId = ? AND companyId = ? AND drawerCloseDate IS NULL
+             RETURNING drawerId",
             [$amount, $date, ($userId !== '' ? $userId : null), $drawerId, $companyId]
         );
-        if ($r === false) return false;
-        return $db->Affected_Rows() > 0;
+        return $r !== false && $r->RecordCount() > 0;
     }
 
     /** Corrige fechas/montos de apertura y cierre. SCOPEADO por companyId. */

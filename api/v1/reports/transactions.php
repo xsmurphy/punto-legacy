@@ -63,7 +63,7 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         $out = [];
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
-                $out[] = $rs->fields;
+                $out[] = $rs->GetRowAssoc();
                 $rs->MoveNext();
             }
         }
@@ -169,8 +169,9 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         ];
     }
 
-    // Construir respuesta: decodificar JSONB y limpiar campo grande
-    $txData = $tx;
+    // Construir respuesta: convertir a array plano para json_encode (CaseInsensitiveArray
+    // implementa ArrayAccess pero no JsonSerializable → json_encode daría {}).
+    $txData = $tx instanceof \CaseInsensitiveArray ? $tx->toArray() : (array) $tx;
     $rawPayments = json_decode($tx['transactionPaymentType'] ?? '[]', true) ?? [];
     // Resolver nombre legible de cada método de pago (igual que TransactionsService::paymentsFromJson)
     $txData['transactionPaymentType'] = array_map(function ($p) {
