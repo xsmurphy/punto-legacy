@@ -232,10 +232,11 @@ export function ProductArea() {
       </div>
 
       {/* Barra flotante de categorías — pill oscura con scroll horizontal.
-          Oculta en modo edición para no estorbar. */}
+          Ancho fijo (full del producto-area) para que se vea consistente
+          aunque haya 1 sola categoría o ninguna. Oculta en modo edición. */}
       {!editing && categoryList.length > 0 && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
-          <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-neutral-900/85 py-1.5 pl-1.5 pr-3 shadow-lg backdrop-blur-md">
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex px-3">
+          <div className="pointer-events-auto flex w-full items-center gap-2 rounded-full bg-neutral-900/85 py-1.5 pl-1.5 pr-3 shadow-lg backdrop-blur-md">
             {/* Botón circular back: vuelve a hotkeys cuando hay drill-in. */}
             <button
               type="button"
@@ -249,9 +250,9 @@ export function ProductArea() {
             >
               <ChevronLeft className="size-5" />
             </button>
-            {/* Lista scrolleable de categorías. */}
+            {/* Lista scrolleable de categorías — crece para llenar el ancho restante. */}
             <div
-              className="flex items-center gap-1 overflow-x-auto whitespace-nowrap"
+              className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap"
               style={{ scrollbarWidth: "none" }}
             >
               {categoryList.map((cat) => {
