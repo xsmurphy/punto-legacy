@@ -18,6 +18,7 @@ chdir(API_APP_DIR); // los includes de head.php/data.php son relativos al cwd
 
 require_once API_APP_DIR . '/includes/cors.php';
 require_once API_APP_DIR . '/includes/jwt_middleware.php';
+require_once API_APP_DIR . '/includes/realtime.php';
 require_once __DIR__ . '/lib/response.php';
 
 // Autoloader mínimo PSR-4 para código nuevo en `api/lib/` con namespace `Punto\Api\…`.
@@ -145,6 +146,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
             $__auditEndpoint,
             $__auditTargetId
         );
+        realtimeAfterMutation($__auditMethod, $__auditEndpoint, $__auditTargetId);
     }
 
     return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm');
@@ -192,5 +194,48 @@ function tenantAudit(array $ctx, string $method, string $endpoint, ?string $targ
     } catch (\Throwable $e) {
         // Best-effort: nunca interrumpir la request.
         error_log('[tenantAudit] Error insertando en tenant_audit: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Wire de invalidación realtime — mismo patrón que tenantAudit: se llama
+ * después de cada POST/PUT/PATCH/DELETE para que todos los browsers del
+ * tenant invaliden las queries afectadas.
+ *
+ * Mapeo cerrado endpoint→entity: si agregás un endpoint nuevo que muta,
+ * agregá la línea acá. No hay auto-detección.
+ */
+function realtimeAfterMutation(string $method, string $endpoint, ?string $targetId): void
+{
+    static $map = [
+        '/v1/items'                 => ['entity' => 'item',        'scope' => 'all'],
+        '/v1/contacts'              => ['entity' => 'contact',     'scope' => 'all'],
+        '/v1/customers'             => ['entity' => 'contact',     'scope' => 'all'],
+        '/v1/outlets'               => ['entity' => 'outlet',      'scope' => 'all'],
+        '/v1/categories'            => ['entity' => 'category',    'scope' => 'all'],
+        '/v1/brands'                => ['entity' => 'brand',       'scope' => 'all'],
+        '/v1/tags'                  => ['entity' => 'tag',         'scope' => 'all'],
+        '/v1/taxes'                 => ['entity' => 'tax',         'scope' => 'all'],
+        '/v1/transactions'          => ['entity' => 'transaction', 'scope' => 'dashboard'],
+        '/v1/orders'                => ['entity' => 'transaction', 'scope' => 'dashboard'],
+        '/v1/drawer'                => ['entity' => 'drawer',      'scope' => 'dashboard'],
+        '/v1/reports/drawers'       => ['entity' => 'drawer',      'scope' => 'dashboard'],
+        '/v1/settings'              => ['entity' => 'setting',     'scope' => 'all'],
+        '/v1/modules'               => ['entity' => 'setting',     'scope' => 'all'],
+        '/v1/price_list'            => ['entity' => 'item',        'scope' => 'all'],
+        '/v1/price_list_item'       => ['entity' => 'item',        'scope' => 'all'],
+    ];
+
+    foreach ($map as $prefix => $cfg) {
+        if (str_starts_with($endpoint, $prefix)) {
+            $op = match ($method) {
+                'POST'         => 'create',
+                'PUT', 'PATCH' => 'update',
+                'DELETE'       => 'delete',
+                default        => 'update',
+            };
+            realtimePublish($cfg['entity'], $op, $targetId, $cfg['scope']);
+            return;
+        }
     }
 }

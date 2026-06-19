@@ -17,6 +17,7 @@ import { toast } from "sonner"
 
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
+import { RealtimeWire } from "@/components/realtime-wire"
 import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { ApiError } from "@/lib/api-client"
@@ -157,7 +158,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         viewScope={viewScope}
         onSelectAllOutlets={handleSelectAllOutlets}
       />
-      {children}
+      <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
     </>
   )
 }
