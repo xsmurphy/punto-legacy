@@ -272,4 +272,4 @@ A medida que cada slice se cierra, se anota el commit en la **Cronología** al f
 
 ## Cronología de commits
 
-- TBD — Slices A+B: realtimePublish, wire en bootstrap, lib/realtime.ts, useRealtimeSync, RealtimeProvider + wire en PanelAuthGuard.
+- `02474e3` — Slices A+B: realtimePublish, wire en bootstrap, lib/realtime.ts, useRealtimeSync, RealtimeProvider + wire en PanelAuthGuard.
