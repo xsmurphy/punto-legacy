@@ -231,33 +231,26 @@ final class ItemImporter
         }
 
         // Resolver taxonomies (autocreate si no existen).
-        $brandName    = $get('MARCA');
-        $categoryName = $get('CATEGORIA');
-        $taxName      = $get('IMPUESTO');
-        $outletLabel  = strtolower($get('SUCURSAL'));
-        $tagsRaw      = $get('ETIQUETAS');
+        // CATEGORIA, MARCA y ETIQUETAS aceptan lista separada por coma|punto-y-coma|pipe.
+        // El primer ID de cada lista queda como "primario" (categoryId/brandId legacy 1:1)
+        // y todos van al m2m correspondiente (item_category/item_brand/item_tag).
+        $brandNames    = $this->parseTaxonomyList($get('MARCA'),    self::MAX_TAGS_PER_ROW);
+        $categoryNames = $this->parseTaxonomyList($get('CATEGORIA'), self::MAX_TAGS_PER_ROW);
+        $tagNames      = $this->parseTaxonomyList($get('ETIQUETAS'), self::MAX_TAGS_PER_ROW);
+        $taxName       = $get('IMPUESTO');
+        $outletLabel   = strtolower($get('SUCURSAL'));
 
-        $brandId    = $brandName    !== '' ? \getTaxonomyIdOrInsert($brandName, 'brand') : null;
-        $categoryId = $categoryName !== '' ? \getTaxonomyIdOrInsert($categoryName, 'category') : null;
-        $taxId      = $taxName      !== '' ? \getTaxonomyIdOrInsert($taxName, 'tax') : null;
+        $brandIds    = array_values(array_filter(array_map(fn($n) => \getTaxonomyIdOrInsert($n, 'brand'),    $brandNames)));
+        $categoryIds = array_values(array_filter(array_map(fn($n) => \getTaxonomyIdOrInsert($n, 'category'), $categoryNames)));
+        $tagIds      = array_values(array_filter(array_map(fn($n) => \getTaxonomyIdOrInsert($n, 'tag'),      $tagNames)));
+        $brandIds    = array_values(array_unique($brandIds));
+        $categoryIds = array_values(array_unique($categoryIds));
+        $tagIds      = array_values(array_unique($tagIds));
+
+        $brandId    = $brandIds[0]    ?? null;
+        $categoryId = $categoryIds[0] ?? null;
+        $taxId      = $taxName !== '' ? \getTaxonomyIdOrInsert($taxName, 'tax') : null;
         $outletId   = ($outletLabel === '' || $outletLabel === 'todas') ? null : ($outlets[$outletLabel] ?? null);
-
-        // Resolver etiquetas: parsear lista separada por coma|punto-y-coma|pipe,
-        // crear en taxonomy(type='tag') si no existen, guardar array de UUIDs.
-        // Shape: list<string> (UUIDs) → se guarda en data.tags via JSONB routing.
-        $tagIds = [];
-        if ($tagsRaw !== '') {
-            $tagNames = preg_split('/[,;|]+/', $tagsRaw) ?: [];
-            foreach ($tagNames as $tagName) {
-                if (count($tagIds) >= self::MAX_TAGS_PER_ROW) break; // cap anti-abuso
-                $tagName = trim($tagName);
-                if ($tagName === '') continue;
-                $tagId = \getTaxonomyIdOrInsert($tagName, 'tag');
-                if ($tagId && !in_array($tagId, $tagIds, true)) {
-                    $tagIds[] = $tagId;
-                }
-            }
-        }
 
         $legacyFlags = $this->legacyFlagsForKind($kind);
 
@@ -296,6 +289,12 @@ final class ItemImporter
         if ($existingId !== null) {
             $ok = $this->svc->update($existingId, $companyId, $record);
             if (!$ok) throw new \RuntimeException('Update falló');
+            $this->syncM2m(
+                $existingId,
+                isset($headerMap['CATEGORIA']) ? $categoryIds : null,
+                isset($headerMap['MARCA'])     ? $brandIds    : null,
+                isset($headerMap['ETIQUETAS']) ? $tagIds      : null,
+            );
             return 'updated';
         }
 
@@ -305,7 +304,79 @@ final class ItemImporter
         if ($newId === false) throw new \RuntimeException('No se pudo crear el item');
         $ok = $this->svc->update($newId, $companyId, $record);
         if (!$ok) throw new \RuntimeException('Update post-create falló');
+        $this->syncM2m(
+            $newId,
+            isset($headerMap['CATEGORIA']) ? $categoryIds : null,
+            isset($headerMap['MARCA'])     ? $brandIds    : null,
+            isset($headerMap['ETIQUETAS']) ? $tagIds      : null,
+        );
         return 'created';
+    }
+
+    /**
+     * Parsea una celda con separadores `,;|` en lista de nombres limpios.
+     * Aplica trim, descarta vacíos y duplicados (case-insensitive). Caps al
+     * número máximo configurable.
+     *
+     * @return list<string>
+     */
+    private function parseTaxonomyList(string $raw, int $max): array
+    {
+        if (trim($raw) === '') return [];
+        $parts = preg_split('/[,;|]+/', $raw) ?: [];
+        $out   = [];
+        $seen  = [];
+        foreach ($parts as $p) {
+            $name = trim($p);
+            if ($name === '') continue;
+            $key = mb_strtolower($name, 'UTF-8');
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $out[] = $name;
+            if (count($out) >= $max) break;
+        }
+        return $out;
+    }
+
+    /**
+     * Reemplaza el set m2m del item para cada relación cuya columna estuvo
+     * presente en el CSV ($ids === null → no tocar). El primer ID de cada
+     * array queda con isPrimary=true (paridad con el comportamiento de
+     * /v1/items?resource=categories|brands|tags).
+     *
+     * @param list<string>|null $categoryIds
+     * @param list<string>|null $brandIds
+     * @param list<string>|null $tagIds
+     */
+    private function syncM2m(string $itemId, ?array $categoryIds, ?array $brandIds, ?array $tagIds): void
+    {
+        if ($categoryIds !== null) {
+            $this->db->Execute('DELETE FROM item_category WHERE itemId = ?', [$itemId]);
+            foreach ($categoryIds as $i => $cid) {
+                $this->db->Execute(
+                    'INSERT INTO item_category (itemId, categoryId, isPrimary) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+                    [$itemId, $cid, $i === 0 ? 'true' : 'false']
+                );
+            }
+        }
+        if ($brandIds !== null) {
+            $this->db->Execute('DELETE FROM item_brand WHERE itemId = ?', [$itemId]);
+            foreach ($brandIds as $i => $bid) {
+                $this->db->Execute(
+                    'INSERT INTO item_brand (itemId, brandId, isPrimary) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+                    [$itemId, $bid, $i === 0 ? 'true' : 'false']
+                );
+            }
+        }
+        if ($tagIds !== null) {
+            $this->db->Execute('DELETE FROM item_tag WHERE itemId = ?', [$itemId]);
+            foreach ($tagIds as $tid) {
+                $this->db->Execute(
+                    'INSERT INTO item_tag (itemId, tagId) VALUES (?, ?) ON CONFLICT DO NOTHING',
+                    [$itemId, $tid]
+                );
+            }
+        }
     }
 
     private function resolveKind(string $raw): string
