@@ -531,6 +531,27 @@ Endpoints para persistir el layout de acceso rápido del POS por caja.
 
 ---
 
+## Módulo Auditoría Tenant (commits b5b5f95 + 793613c, 2026-06-19)
+
+Registro de mutaciones realizadas por usuarios del tenant. Retención automática 2 meses vía pg_cron.
+
+**Schema**: tabla `tenant_audit` (migración 35). Campos: `id`, `companyId`, `userId`, `method`, `path`, `statusCode`, `ip`, `userAgent`, `createdAt`. Ver `database/migrations/postgres/35_tenant_audit.sql`.
+
+**Instrumentación**: `tenantAudit()` se llama dentro de `apiAuthTenant()` en `api/bootstrap.php` — choke point único que captura TODAS las mutaciones (POST/PUT/DELETE) autenticadas del tenant. No requiere instrumentar endpoints individuales.
+
+**Retención**: migración 36 (`database/migrations/postgres/36_pg_cron_retention.sql`) programa un job pg_cron con `cron.schedule('0 3 * * *', ...)`. La mig es fail-tolerant — no rompe el boot si pg_cron no está disponible. **Paso manual**: habilitar `shared_preload_libraries='pg_cron'` en el Postgres managed de Coolify + restart antes del deploy para que la mig 36 programe la purga sola.
+
+**Archivos clave**:
+
+| Capa | Archivo |
+|------|---------|
+| Bootstrap/choke point | `api/bootstrap.php` — `apiAuthTenant()` + `tenantAudit()` |
+| Endpoint | `api/v1/reports/audit.php` — GET con filtros (fecha, userId, method, path) |
+| Migraciones | `database/migrations/postgres/35_tenant_audit.sql`, `36_pg_cron_retention.sql` |
+| UI panel-next | `panel-next/app/(panel)/reports/audit/page.tsx` |
+
+---
+
 ## /panel/standalone — Pantallas independientes
 
 **Propósito**: Vistas que corren en dispositivos dedicados (cocina, mostrador).

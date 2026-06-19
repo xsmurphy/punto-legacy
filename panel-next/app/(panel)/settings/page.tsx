@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -55,6 +55,8 @@ import { DocumentsTab } from "@/components/settings/documents-tab"
 import { CompanyLogo } from "@/components/settings/company-logo"
 import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
+import { ModulesPanel } from "@/components/modules/modules-panel"
+import { PlanPanel } from "@/components/billing/plan-panel"
 
 const settingsSchema = z.object({
   name: z.string(),
@@ -107,6 +109,8 @@ type SettingsSection =
   | "documentos"
   | "catalog"
   | "apariencia"
+  | "modules"
+  | "plan"
 
 // `href` opcional: si está definido, el item del sidebar navega directo a esa
 // URL (cerrando el modal) en lugar de switchear la sección interna. Útil para
@@ -127,7 +131,8 @@ const SECTIONS: {
   { id: "apariencia", label: "Apariencia",   icon: Palette },
   { id: "price-lists" as unknown as SettingsSection, label: "Listas de precios", icon: ListOrdered, href: "/settings/price-lists" },
   { id: "outlets"     as unknown as SettingsSection, label: "Sucursales",        icon: Building2,   href: "/outlets" },
-  { id: "modules"     as unknown as SettingsSection, label: "Módulos",           icon: Component,   href: "/modules" },
+  { id: "modules",    label: "Módulos",      icon: Component },
+  { id: "plan",       label: "Mi plan",      icon: CreditCard },
   // Redes sociales se fusionó a la sección Empresa (al final del tab) en vez
   // de tener una sección propia — el tab solo con 4 inputs estaba subutilizado.
 ]
@@ -325,6 +330,8 @@ export default function SettingsPage() {
                   {section === "documentos" && <DocumentsTab onNavigate={navigateAndClose} />}
                   {section === "catalog"    && <CatalogTab onNavigate={navigateAndClose} />}
                   {section === "apariencia" && <AparienciaTab />}
+                  {section === "modules"    && <ModulesPanel />}
+                  {section === "plan"       && <PlanPanel />}
                 </div>
                 {/* Save bar mobile — el header está oculto en mobile (hidden sm:flex)
                     así que repetimos el botón abajo para tener un CTA accesible

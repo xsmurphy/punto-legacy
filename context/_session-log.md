@@ -3,6 +3,43 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-19 — Auditoría tenant, edición de venta completa, cierre de caja panel y mejoras UX
+
+Commits `50eca3d..793613c` (7). Highlights: bug nombre empresa en /settings (3 capas); Team movido a tab en /contacts + redirect /settings/team; import items acepta .xlsx (SheetJS) + columna ETIQUETAS autocrea tags; archivar-antes-de-eliminar en items (hard-delete solo archivados sin ventas); modal detalle de caja + cerrar desde panel; detalle de venta con edición paridad completa (header+ítems+métodos de pago, gate editabilidad, docs asociados, tabs Pagos/Cotizaciones); módulo de auditoría tenant (tabla `tenant_audit`, instrumentación en `apiAuthTenant`, endpoint + UI, retención 2 meses vía pg_cron); mig 36 pg_cron fail-tolerant.
+
+### Archivos para retomar por área
+
+**Auditoría tenant**
+- `api/bootstrap.php` — `apiAuthTenant()` + `tenantAudit()` (choke point de instrumentación)
+- `api/v1/reports/audit.php` — endpoint GET con filtros
+- `database/migrations/postgres/35_tenant_audit.sql` + `36_tenant_audit_pgcron.sql`
+- `panel-next/app/(panel)/reports/audit/page.tsx` — UI listado de auditoría
+
+**Edición/detalle de venta**
+- `api/v1/reports/transactions.php` — GET (detalle + items + métodos de pago) y PUT (edición, gate de editabilidad en backend)
+- `panel-next/components/domain/transactions/transactions-list.tsx` — DataTable + modal de detalle/edición
+
+**Cierre de caja**
+- `api/lib/Reports/DrawersService.php` — `close()` con guard `drawerCloseDate IS NULL`
+- `panel-next/components/reports/drawer-detail-modal.tsx` — modal de detalle + botón cerrar caja
+
+**Import de items / archivar-eliminar**
+- `api/lib/Items/ItemImporter.php` — importador CSV/XLSX + autocreación de tags
+- `panel-next/components/items/import-dialog.tsx` — SheetJS → CSV → POST
+- `api/lib/Items/ItemRepository.php` — `hardDelete()` con guard ventas
+- `api/v1/items.php` — DELETE handler (activos→Archivar, archivados→hard-delete)
+
+**Migraciones auto**
+- `database/migrate.php` — runner, trackea `schema_migrations`, fail-fast
+- `docker-entrypoint.sh` — invoca migrate.php en cada deploy antes de arrancar PHP
+
+**Pendiente crítico**: pg_cron requiere habilitar `shared_preload_libraries='pg_cron'` + restart en el Postgres managed de Coolify antes de que la mig 36 pueda programar la purga. Si la 36 ya corrió en no-op, se necesita una mig nueva con el bloque de scheduling.
+
+---
+
+## 2026-06-17 — MVP POS slices + X-ray cliente + mapa MapLibre
+Commits `ce454a6..50eca3d` (39). Highlights: Slice 1 arqueo de caja (DrawerService + migs 33/34 race-condition-safe); Slice 3 gaps POS (barcode scanner, edición precio/descuento por línea, transacciones con duplicar/reimprimir); modal X-ray del cliente con `<ContactDetailView>` variant POS; pay dialog dinámico (métodos del bootstrap, grilla kbd, auto-confirm); bug fix coordenadas + mapa MapLibre/OpenFreeMap; autorrellenar precio con último precio de compra; fix `CaseInsensitiveArray` en `ContactAnalyticsService`.
+
 ## 2026-06-16 (tarde) — fixes panel-next + cleanup masivo de contexto + workflow
 Commits `1ce7a08..1ec8880` (9). Highlights: fix `itemSold` en `_getTableSchema()` (422 vacío en /purchase); 5 fixes UX panel-next (phone flags, Tab→nueva línea en /purchase, favicon, menú settings); poda agresiva context/ (-44.5%, archives + split convenciones); `context-updater` apagado definitivamente; nueva `_feature-requests.md` con 32 pedidos del batch comercial.
 

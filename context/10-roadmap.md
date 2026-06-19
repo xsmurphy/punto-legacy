@@ -272,8 +272,8 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 | 3 | **`POST /v1/lock-screen/verify`** | Verificar PIN contra backend + re-emitir `_jwt_pos`. Hoy: `STUB_PIN = "1234"` en `lock-screen.tsx`. |
 | 4 | **`bootstrap.user.name` y `bootstrap.user.roleName`** | Agregar al SELECT del bootstrap PHP. `roleName` ya disponible en `UsersService`. |
 | 5 | **Persistir `register.data.mergeRepeated`** | Hoy solo en memoria Zustand (default ON). Falta `PUT /v1/register?resource=merge-repeated`. |
-| 6 | **Endpoints reales de Control de Caja** | Apertura, cierre y arqueo de caja con persistencia (hoy son mocks en el menú POS). |
-| 7 | **Endpoints reales de Transacciones / Agenda / Órdenes** | Las previews del menú POS son mocks estáticos. |
+| 6 | ~~**Endpoints reales de Control de Caja**~~ ✓ | Implementado: `DrawerService` + `api/v1/drawer.php`. Migs 33/34 (expenses nullable + índice único parcial anti-race-condition). BFF `panel-next/app/api/pos/drawer/route.ts`. |
+| 7 | **Endpoints reales de Transacciones / Agenda / Órdenes** | Transacciones implementadas (duplicar/reimprimir). Agenda/Órdenes son módulos POS dedicados — pendiente planificación. |
 | 8 | **Persistencia de impresoras** | Probable `register.data.printers` JSONB. |
 
 ---

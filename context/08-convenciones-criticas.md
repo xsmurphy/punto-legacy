@@ -241,3 +241,56 @@ interface MenuSection {
 - Sin sección seleccionada → empty state. Nunca auto-seleccionar la primera.
 
 Primer uso: `panel-next/components/register/pos-main-menu.tsx`.
+
+---
+
+## §40 — PostgreSQL fold-to-lowercase y el wrapper DB
+
+### §40.1 — PG lowercasea identificadores sin quotes
+
+Todo identificador SQL sin comillas dobles (columnas, tablas, aliases) es lowercaseado por PG antes de ejecutar. Las migraciones y queries deben usar lowercase o quotes explícitas — nunca camelCase sin quotes en DDL.
+
+Correcto:
+```sql
+CREATE UNIQUE INDEX uidx_drawer_register_open ON drawer (registerid) WHERE status = 'open';
+```
+Incorrecto (PG lo lowercasea silenciosamente):
+```sql
+CREATE UNIQUE INDEX uidx_drawer_register_open ON drawer (registerId) WHERE status = 'open';
+```
+
+### §40.2 — NO usamos ADOdb — solo wrapper PDO propio
+
+El proyecto usa `class DB` en `app/includes/lib/DB.php` (wrapper PDO con API inspirada en ADOdb). **No es ADOdb**. No atribuirle comportamiento de ADOdb ni parchear ADOdb.
+
+La única superficie de DB válida es:
+- `ncmExecute` / `ncmInsert` / `ncmUpdate` (helpers globales del legacy)
+- `Punto\App\Database\Query` (PSR-4, delega a los helpers)
+
+### §40.3 — `CaseInsensitiveArray` resuelve el case-mismatch PG
+
+El wrapper devuelve filas como `CaseInsensitiveArray` para que accesos camelCase (`$row['contactId']`) funcionen aunque PG retorne `contactid` lowercase.
+
+**TRAMPA**: si un service hace `foreach ($rs->fields as $k => $v) { $arr[$k] = $v; }` para construir un array plano, **pierde `CaseInsensitiveArray`** y los accesos camelCase rompen silenciosamente.
+
+Correcto:
+```php
+// Preservar CaseInsensitiveArray al aplanar
+$arr = new CaseInsensitiveArray(iterator_to_array($rs->fields));
+```
+
+Este bug afectó `ContactAnalyticsService::fetchAll` (fix en commit `85a28fd`).
+
+---
+
+## §41 — `ncmExecute` con `forceObj: true` devuelve RECORDSET, no array
+
+Cuando `ncmExecute($db, $sql, $params, forceObj: true)` se usa para evitar el aplanado JSONB de `§18`, el valor de retorno es un **objeto RECORDSET** (DB wrapper interno), NO un array PHP.
+
+- Acceder con `$rs->fields['columna']` para la fila actual.
+- Iterar con `while (!$rs->EOF) { ... $rs->MoveNext(); }`.
+- Nunca tratar ese retorno como `array` ni hacer `foreach ($rs as ...)` directamente.
+
+Patrón correcto de referencia: `api/lib/Reports/UsersService.php:39`.
+
+Infringir esta convención produce output vacío silencioso (ítems/asociaciones que no aparecen). Causó regresiones en dos sub-agentes durante el detalle de venta (fix 8cc54e7).

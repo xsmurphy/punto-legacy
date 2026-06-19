@@ -33,7 +33,7 @@ import {
   ClipboardList,
   Tags,
   X,
-  MoreHorizontal,
+  MoreVertical,
   type LucideIcon,
 } from "lucide-react"
 
@@ -102,7 +102,7 @@ export function SaleOptionsDrawer({
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
         <Button variant="ghost" size="icon" className="size-9" aria-label="Opciones de venta">
-          <MoreHorizontal className="size-5" />
+          <MoreVertical className="size-5" />
         </Button>
       </DrawerTrigger>
       <DrawerContent className="mx-auto max-w-lg">
