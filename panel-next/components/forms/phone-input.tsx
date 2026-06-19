@@ -7,6 +7,7 @@ import {
   parsePhoneNumber,
   type CountryCode,
 } from "libphonenumber-js"
+import { formatPhone } from "@/lib/phone"
 import { Check, ChevronDown } from "lucide-react"
 
 import {
@@ -85,6 +86,14 @@ export function PhoneInput({
 }: PhoneInputProps) {
   const [open, setOpen] = React.useState(false)
   const selected = getCountry(country)
+
+  // Si el padre nos pasa E.164 ("+595..."), lo normalizamos a nacional para
+  // mostrar. Mientras el usuario tipea, el padre guarda formato nacional
+  // (parcial) que parsePhoneNumber no resuelve → retorna el valor tal cual.
+  const displayValue = React.useMemo(
+    () => formatPhone(value, country) || value,
+    [value, country],
+  )
 
   // Formateo on-input: AsYouType del país actual va dando formato nacional
   // mientras tipea ("981234" → "981 234"). Solo aceptamos dígitos + separadores
@@ -187,7 +196,7 @@ export function PhoneInput({
         autoFocus={autoFocus}
         disabled={disabled}
         placeholder={placeholder ?? "981 234 567"}
-        value={value}
+        value={displayValue}
         onChange={(e) => handleInput(e.target.value)}
         onBlur={onBlur}
         aria-invalid={ariaInvalid}

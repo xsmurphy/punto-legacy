@@ -668,7 +668,7 @@ function ContactFormBody({
                   value={field.value ?? ""}
                   country={country}
                   onChange={(v) => {
-                    field.onChange(v.e164)
+                    field.onChange(v.e164 ?? v.value)
                     setCountry(v.country)
                   }}
                   aria-invalid={!!fieldState.error}

@@ -16,6 +16,7 @@ import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 import { AlertCircle, ArrowLeft, AlertTriangle, Clock, Wallet } from "lucide-react"
+import { formatPhone } from "@/lib/phone"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -97,7 +98,7 @@ export default function OpenInvoicesReportPage() {
           const r = row.original
           return (
             <div className="flex flex-col text-xs text-muted-foreground tabular-nums">
-              {r.phone && <span>{r.phone}</span>}
+              {r.phone && <span>{formatPhone(r.phone)}</span>}
               {r.email && <span className="truncate">{r.email}</span>}
               {!r.phone && !r.email && "—"}
             </div>

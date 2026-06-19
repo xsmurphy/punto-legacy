@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Plus, AlertCircle, Users } from "lucide-react"
+import { formatPhone } from "@/lib/phone"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -85,7 +86,7 @@ function ContactsPage() {
         cell: ({ getValue }) => {
           const v = getValue() as string | null
           return v ? (
-            <span className="tabular-nums text-muted-foreground">{v}</span>
+            <span className="tabular-nums text-muted-foreground">{formatPhone(v)}</span>
           ) : (
             <span className="opacity-40">—</span>
           )

@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 
 import { cn } from "@/lib/utils"
+import { formatPhone } from "@/lib/phone"
 import { HOTKEY_COLORS } from "@/lib/hotkeys/store"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { PhoneInput } from "@/components/forms/phone-input"
@@ -103,7 +104,7 @@ function memberToForm(m: TeamMember): TeamFormValues {
   return {
     name:       m.name ?? "",
     email:      m.email ?? "",
-    phone:      m.phone ?? "",
+    phone:      formatPhone(m.phone),
     password:   "",
     roleId:     m.roleId ?? NONE,
     outletId:   m.outletId ?? NONE,
@@ -196,8 +197,10 @@ function buildColumns(
     {
       accessorKey: "phone",
       header: "Teléfono",
-      cell: ({ row }) =>
-        row.original.phone ?? <span className="text-muted-foreground text-xs">—</span>,
+      cell: ({ row }) => {
+        const p = formatPhone(row.original.phone)
+        return p ? p : <span className="text-muted-foreground text-xs">—</span>
+      },
     },
     {
       accessorKey: "status",
