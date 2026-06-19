@@ -158,6 +158,46 @@ export function useUpdateItemCategories() {
   })
 }
 
+/**
+ * Reemplaza el set de marcas (item_brand m2m) del item. El backend mantiene
+ * `item.brandId` (legacy 1:1) en sync con la marca isPrimary.
+ */
+export function useUpdateItemBrands() {
+  const qc = useQueryClient()
+  return useMutation<
+    { updated: boolean; brands: { id: string; name: string; isPrimary: boolean }[] },
+    Error,
+    { itemId: string; brands: { id: string; isPrimary: boolean }[] }
+  >({
+    mutationFn: ({ itemId, brands }) =>
+      api.put(`/v1/items?id=${itemId}&resource=brands`, { brands }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
+/**
+ * Reemplaza el set de etiquetas (item_tag m2m) del item. El backend mantiene
+ * `data.tags` JSONB en sync para consumers legacy.
+ */
+export function useUpdateItemTags() {
+  const qc = useQueryClient()
+  return useMutation<
+    { updated: boolean; tags: { id: string; name: string }[] },
+    Error,
+    { itemId: string; tags: string[] }
+  >({
+    mutationFn: ({ itemId, tags }) =>
+      api.put(`/v1/items?id=${itemId}&resource=tags`, { tags }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+      qc.invalidateQueries({ queryKey: ["items"] })
+    },
+  })
+}
+
 export function useCreateItem() {
   const qc = useQueryClient()
   return useMutation<ItemFull, Error, ItemFormValues>({

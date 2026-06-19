@@ -156,6 +156,8 @@ export interface ItemFull extends ItemListItem {
   itemDescription: string | null
   /** Categorías m2m — disponibles en el detalle, vacío en el listado. */
   categories: ItemCategory[]
+  brandsDetail?: { id: string; name: string; isPrimary: boolean }[]
+  tagsDetail?: { id: string; name: string }[]
   /** Galería de imágenes (0..5). Solo presente en el detalle. */
   images: ItemImage[]
   /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.

@@ -78,6 +78,8 @@ import {
   useItem,
   useTaxonomiesByType,
   useUpdateItemCategories,
+  useUpdateItemBrands,
+  useUpdateItemTags,
   useUpdateItem,
 } from "@/hooks/use-items"
 import { useOutlets } from "@/hooks/use-outlets"
@@ -104,6 +106,9 @@ import { ComboGroupsEditor } from "@/components/items/combo-groups-editor"
 import { LocationsEditor } from "@/components/items/locations-editor"
 import { PackComponentsEditor } from "@/components/items/pack-components-editor"
 import { CategoriesPicker, type SelectedCategory } from "@/components/items/categories-picker"
+import { BrandsPicker, type SelectedBrand } from "@/components/items/brands-picker"
+import { TagsPicker } from "@/components/items/tags-picker"
+import { useTags } from "@/hooks/use-tags"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -211,6 +216,10 @@ export default function ItemEditPage() {
   // se sincroniza con la categoría marcada como isPrimary acá.
   const [selectedCategories, setSelectedCategories] = React.useState<SelectedCategory[]>([])
   const updateItemCategories = useUpdateItemCategories()
+  const [selectedBrands, setSelectedBrands] = React.useState<SelectedBrand[]>([])
+  const updateItemBrands = useUpdateItemBrands()
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const updateItemTags = useUpdateItemTags()
 
   React.useEffect(() => {
     if (isNew || !data) return
@@ -267,6 +276,24 @@ export default function ItemEditPage() {
     } else {
       setSelectedCategories([])
     }
+    // Hidratar marcas — preferir brandsDetail (m2m); fallback al legacy brandId.
+    if (data.brandsDetail && data.brandsDetail.length > 0) {
+      setSelectedBrands(
+        data.brandsDetail.map((b) => ({ id: b.id, isPrimary: b.isPrimary })),
+      )
+    } else if (data.brandId) {
+      setSelectedBrands([{ id: data.brandId, isPrimary: true }])
+    } else {
+      setSelectedBrands([])
+    }
+    // Hidratar etiquetas — preferir tagsDetail (m2m); fallback al legacy data.tags.
+    if (data.tagsDetail && data.tagsDetail.length > 0) {
+      setSelectedTags(data.tagsDetail.map((t) => t.id))
+    } else if (Array.isArray(data.tags)) {
+      setSelectedTags(data.tags as string[])
+    } else {
+      setSelectedTags([])
+    }
   }, [data, form, isNew])
 
   const kind: ItemKind = form.watch("kind") ?? "producto"
@@ -284,6 +311,16 @@ export default function ItemEditPage() {
       form.setValue("categoryId", primaryCategoryId, { shouldDirty: false })
     }
   }, [primaryCategoryId, form])
+
+  const primaryBrandId = React.useMemo(
+    () => selectedBrands.find((b) => b.isPrimary)?.id ?? selectedBrands[0]?.id ?? "",
+    [selectedBrands],
+  )
+  React.useEffect(() => {
+    if (form.getValues("brandId") !== primaryBrandId) {
+      form.setValue("brandId", primaryBrandId, { shouldDirty: false })
+    }
+  }, [primaryBrandId, form])
 
   const onSubmit = async (values: ItemFormValues) => {
     try {
@@ -304,6 +341,19 @@ export default function ItemEditPage() {
           categories: selectedCategories,
         })
       }
+      // Persistir m2m de marcas.
+      if (selectedBrands.length > 0) {
+        await updateItemBrands.mutateAsync({
+          itemId: targetId,
+          brands: selectedBrands,
+        })
+      }
+      // Persistir m2m de etiquetas. Tolerar array vacío: el backend reemplaza
+      // (es legítimo querer "borrar todas las etiquetas").
+      await updateItemTags.mutateAsync({
+        itemId: targetId,
+        tags: selectedTags,
+      })
       if (isNew) {
         toast.success("Artículo creado")
         router.push(`/items/${targetId}`)
@@ -463,6 +513,10 @@ export default function ItemEditPage() {
               kind={kind}
               selectedCategories={selectedCategories}
               onCategoriesChange={setSelectedCategories}
+              selectedBrands={selectedBrands}
+              onBrandsChange={setSelectedBrands}
+              selectedTags={selectedTags}
+              onTagsChange={setSelectedTags}
             />
           </TabsContent>
           <TabsContent value="disponibilidad" className="mt-6">
@@ -823,17 +877,27 @@ function ConfigTab({
   kind,
   selectedCategories,
   onCategoriesChange,
+  selectedBrands,
+  onBrandsChange,
+  selectedTags,
+  onTagsChange,
 }: {
   form: UseFormReturn<ItemFormValues>
   visibility: KindFieldVisibility
   kind: ItemKind
   selectedCategories: SelectedCategory[]
   onCategoriesChange: (next: SelectedCategory[]) => void
+  selectedBrands: SelectedBrand[]
+  onBrandsChange: (next: SelectedBrand[]) => void
+  selectedTags: string[]
+  onTagsChange: (next: string[]) => void
 }) {
   const { data: categories } = useTaxonomiesByType("category")
   const { data: brands } = useTaxonomiesByType("brand")
   const { data: taxes } = useTaxonomiesByType("tax")
   const { data: outlets } = useOutlets()
+  const { data: tagsData } = useTags()
+  const tags = tagsData?.tags ?? []
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -854,30 +918,26 @@ function ConfigTab({
               />
               <FormMessage />
             </FormItem>
-            <FormField
-              control={form.control}
-              name="brandId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Marca</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sin marca" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {brands.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <FormItem>
+              <FormLabel>Marcas</FormLabel>
+              <BrandsPicker
+                options={brands.map((b) => ({ id: b.id, name: b.name }))}
+                value={selectedBrands}
+                onChange={onBrandsChange}
+                placeholder="Sin marca"
+              />
+              <FormMessage />
+            </FormItem>
+            <FormItem>
+              <FormLabel>Etiquetas</FormLabel>
+              <TagsPicker
+                options={tags.map((t) => ({ id: t.id, name: t.name }))}
+                value={selectedTags}
+                onChange={onTagsChange}
+                placeholder="Sin etiquetas"
+              />
+              <FormMessage />
+            </FormItem>
             <FormField
               control={form.control}
               name="outletId"
