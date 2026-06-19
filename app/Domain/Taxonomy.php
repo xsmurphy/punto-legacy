@@ -359,18 +359,23 @@ final class Taxonomy
      */
     public static function getIdOrInsert(mixed $name, string $type, bool $insertIt = true): mixed
     {
-        global $db, $SQLcompanyId;
+        global $db;
 
         if (!validity($name)) {
             return null;
         }
 
+        // Usar COMPANY_ID parametrizado en vez del SQL-fragment $SQLcompanyId:
+        // en /api esa global queda VACÍA (apiAuthTenant la define como local
+        // de función) → el SELECT queda truncado y nunca encuentra la fila →
+        // el caller termina creando una taxonomy nueva cada vez (bug del
+        // importador de items: dup de "Materia Prima" por cada upload).
         $obj = $db->Execute(
-            'SELECT taxonomyId FROM taxonomy WHERE taxonomyName = ? AND taxonomyType = ? AND ' . $SQLcompanyId,
-            [$name, $type]
+            'SELECT taxonomyId FROM taxonomy WHERE taxonomyName = ? AND taxonomyType = ? AND companyId = ?',
+            [$name, $type, COMPANY_ID]
         );
 
-        if (validity($obj->fields['taxonomyId'] ?? null)) {
+        if ($obj !== false && validity($obj->fields['taxonomyId'] ?? null)) {
             return $obj->fields['taxonomyId'];
         }
 
