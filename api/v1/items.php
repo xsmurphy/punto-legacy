@@ -137,6 +137,58 @@ function fetchItemCategories(string $itemId): array
 }
 
 /**
+ * Devuelve el array de marcas (id + name + isPrimary) de un item desde item_brand.
+ */
+function fetchItemBrands(string $itemId): array
+{
+    global $db;
+    $rs = $db->Execute(
+        'SELECT ib.brandId, ib.isPrimary, b.name
+           FROM item_brand ib
+           JOIN brand b ON b.brandId = ib.brandId
+          WHERE ib.itemId = ?
+          ORDER BY ib.isPrimary DESC, b.name',
+        [$itemId]
+    );
+    if ($rs === false) return [];
+    $out = [];
+    foreach ($rs->GetRows() as $r) {
+        $out[] = [
+            'id'        => $r['brandid'] ?? $r['brandId'],
+            'name'      => $r['name'] ?? '',
+            'isPrimary' => (bool) ($r['isprimary'] ?? $r['isPrimary'] ?? false),
+        ];
+    }
+    return $out;
+}
+
+/**
+ * Devuelve el array de etiquetas (id + name) de un item desde item_tag.
+ * Sin isPrimary — todas las etiquetas son equivalentes.
+ */
+function fetchItemTags(string $itemId): array
+{
+    global $db;
+    $rs = $db->Execute(
+        'SELECT it.tagId, t.name
+           FROM item_tag it
+           JOIN tag t ON t.tagId = it.tagId
+          WHERE it.itemId = ?
+          ORDER BY t.name',
+        [$itemId]
+    );
+    if ($rs === false) return [];
+    $out = [];
+    foreach ($rs->GetRows() as $r) {
+        $out[] = [
+            'id'   => $r['tagid'] ?? $r['tagId'],
+            'name' => $r['name'] ?? '',
+        ];
+    }
+    return $out;
+}
+
+/**
  * Mapea un itemKind a los flags legacy (dual-write).
  * El POS y el panel legacy siguen leyendo los flags viejos hasta Slice E.
  */
@@ -523,6 +575,8 @@ switch ($method) {
             if ($item === null) apiError('Item no encontrado', 404);
             $presented = presentItem($item->toArray());
             $presented['categories'] = fetchItemCategories($id);
+            $presented['brands']     = fetchItemBrands($id);
+            $presented['tags']       = fetchItemTags($id);
             // Galería: 0..5 imágenes ordenadas. Si el caller solo quiere los datos
             // del item sin tocar S3, esto es solo un SELECT — sin overhead extra.
             $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET, S3_KEY_PREFIX);
@@ -657,7 +711,11 @@ switch ($method) {
 
         $item = $itemService->find($newId, $companyId);
         $presented = $item !== null ? presentItem($item->toArray()) : ['itemId' => $newId];
-        if ($item !== null) $presented['categories'] = [];
+        if ($item !== null) {
+            $presented['categories'] = [];
+            $presented['brands']     = [];
+            $presented['tags']       = [];
+        }
         apiOk($presented, 201);
         break;
 
@@ -690,6 +748,57 @@ switch ($method) {
             apiOk(['updated' => true, 'categories' => fetchItemCategories($id)]);
         }
 
+        // Sub-recurso: brands m2m (paridad con categories — un item puede tener N marcas).
+        if ($resource === 'brands') {
+            $incoming = $_POST['brands'] ?? [];
+            if (!is_array($incoming)) apiError('brands debe ser array', 422);
+
+            $db->Execute('DELETE FROM item_brand WHERE itemId = ?', [$id]);
+            $hasPrimary = false;
+            $primaryId = null;
+            foreach ($incoming as $b) {
+                $bId       = $b['id'] ?? null;
+                $isPrimary = !empty($b['isPrimary']);
+                if (!$bId) continue;
+                if ($isPrimary && !$hasPrimary) {
+                    $hasPrimary = true;
+                    $primaryId  = $bId;
+                }
+                $db->Execute(
+                    'INSERT INTO item_brand (itemId, brandId, isPrimary) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+                    [$id, $bId, $isPrimary ? 'true' : 'false']
+                );
+            }
+            // Mantener item.brandId en sync con la primaria (legacy compat).
+            if ($primaryId !== null) {
+                $itemService->update($id, $companyId, ['brandId' => $primaryId]);
+            }
+            apiOk(['updated' => true, 'brands' => fetchItemBrands($id)]);
+        }
+
+        // Sub-recurso: tags m2m. data.tags JSONB se mantiene en sync para no
+        // romper consumers legacy (POS / data.tags) durante la transición.
+        if ($resource === 'tags') {
+            $incoming = $_POST['tags'] ?? [];
+            if (!is_array($incoming)) apiError('tags debe ser array', 422);
+
+            $db->Execute('DELETE FROM item_tag WHERE itemId = ?', [$id]);
+            $tagIds = [];
+            foreach ($incoming as $t) {
+                // Acepta tanto {id:"uuid"} como "uuid" directo.
+                $tId = is_array($t) ? ($t['id'] ?? null) : $t;
+                if (!$tId) continue;
+                $db->Execute(
+                    'INSERT INTO item_tag (itemId, tagId) VALUES (?, ?) ON CONFLICT DO NOTHING',
+                    [$id, $tId]
+                );
+                $tagIds[] = (string) $tId;
+            }
+            // Sync data.tags JSONB (consumers legacy lo siguen leyendo).
+            $itemService->update($id, $companyId, ['tags' => $tagIds]);
+            apiOk(['updated' => true, 'tags' => fetchItemTags($id)]);
+        }
+
         $patch = $_POST;
         unset($patch['id'], $patch['itemId'], $patch['companyId']);
         if (empty($patch)) apiError('Patch vacío', 422);
@@ -717,7 +826,11 @@ switch ($method) {
 
         $item = $itemService->find($id, $companyId);
         $presented = $item !== null ? presentItem($item->toArray()) : ['itemId' => $id];
-        if ($item !== null) $presented['categories'] = fetchItemCategories($id);
+        if ($item !== null) {
+            $presented['categories'] = fetchItemCategories($id);
+            $presented['brands']     = fetchItemBrands($id);
+            $presented['tags']       = fetchItemTags($id);
+        }
         apiOk($presented);
         break;
 

@@ -365,14 +365,13 @@ final class Taxonomy
             return null;
         }
 
-        // Usar COMPANY_ID parametrizado en vez del SQL-fragment $SQLcompanyId:
-        // en /api esa global queda VACÍA (apiAuthTenant la define como local
-        // de función) → el SELECT queda truncado y nunca encuentra la fila →
-        // el caller termina creando una taxonomy nueva cada vez (bug del
-        // importador de items: dup de "Materia Prima" por cada upload).
+        // Búsqueda case-insensitive: respeta el UNIQUE (companyId, type, lower(name))
+        // de la mig 38 — si en BD existe "Materia Prima" y el importer pasa
+        // "MATERIA PRIMA", encontramos el mismo ID en vez de chocar con el UNIQUE.
         $obj = $db->Execute(
-            'SELECT taxonomyId FROM taxonomy WHERE taxonomyName = ? AND taxonomyType = ? AND companyId = ?',
-            [$name, $type, COMPANY_ID]
+            'SELECT taxonomyId FROM taxonomy
+              WHERE LOWER(taxonomyName) = LOWER(?) AND taxonomyType = ? AND companyId = ?',
+            [(string) $name, $type, COMPANY_ID]
         );
 
         if ($obj !== false && validity($obj->fields['taxonomyId'] ?? null)) {
@@ -390,6 +389,20 @@ final class Taxonomy
         ];
         $insert = $db->AutoExecute('taxonomy', $record, 'INSERT');
 
-        return $insert === true ? $db->Insert_ID() : null;
+        if ($insert === true) {
+            return $db->Insert_ID();
+        }
+
+        // Race condition: dos requests crearon "Materia Prima" simultáneo,
+        // el segundo INSERT choca con UNIQUE — re-SELECT y devolvemos el ID
+        // que ganó (idempotencia para el caller).
+        $retry = $db->Execute(
+            'SELECT taxonomyId FROM taxonomy
+              WHERE LOWER(taxonomyName) = LOWER(?) AND taxonomyType = ? AND companyId = ?',
+            [(string) $name, $type, COMPANY_ID]
+        );
+        return ($retry !== false && validity($retry->fields['taxonomyId'] ?? null))
+            ? $retry->fields['taxonomyId']
+            : null;
     }
 }
