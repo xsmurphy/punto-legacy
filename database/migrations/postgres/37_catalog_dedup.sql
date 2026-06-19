@@ -43,15 +43,35 @@ UPDATE item i SET taxId = m.canonical_id
 UPDATE item i SET locationId = m.canonical_id
   FROM _dedup_map m WHERE i.locationId = m.duplicate_id;
 
--- 3. Reasignar FKs en outlet.
-UPDATE outlet o SET taxId = m.canonical_id
-  FROM _dedup_map m WHERE o.taxId = m.duplicate_id;
-UPDATE outlet o SET categoryId = m.canonical_id
-  FROM _dedup_map m WHERE o.categoryId = m.duplicate_id;
-
--- 4. Reasignar FK en toCategory.
-UPDATE toCategory tc SET categoryId = m.canonical_id
-  FROM _dedup_map m WHERE tc.categoryId = m.duplicate_id;
+-- 3. Reasignar FKs en outlet. Las columnas outlet.taxId / outlet.categoryId
+--    aparecen en db-schema-postgres.sql pero pueden no existir en BDs ya
+--    migradas (drop residual de schema antiguo). Self-heal: chequeo dinámico
+--    contra information_schema antes del UPDATE.
+DO $do$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'outlet' AND column_name = 'taxid'
+  ) THEN
+    EXECUTE 'UPDATE outlet o SET taxId = m.canonical_id
+               FROM _dedup_map m WHERE o.taxId = m.duplicate_id';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'outlet' AND column_name = 'categoryid'
+  ) THEN
+    EXECUTE 'UPDATE outlet o SET categoryId = m.canonical_id
+               FROM _dedup_map m WHERE o.categoryId = m.duplicate_id';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'tocategory' AND column_name = 'categoryid'
+  ) THEN
+    EXECUTE 'UPDATE toCategory tc SET categoryId = m.canonical_id
+               FROM _dedup_map m WHERE tc.categoryId = m.duplicate_id';
+  END IF;
+END
+$do$;
 
 -- 5. m2m item_category — DELETE filas que chocarían (item ya tiene canonical),
 --    luego UPDATE las que no.
