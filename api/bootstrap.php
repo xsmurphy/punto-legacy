@@ -133,5 +133,64 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         }
     }
 
+    // Auditoría: registrar mutaciones (POST/PUT/PATCH/DELETE) del tenant.
+    // GET no se audita. Best-effort: tenantAudit() absorbe cualquier error.
+    $__auditMethod = $_SERVER['REQUEST_METHOD'] ?? '';
+    if (in_array($__auditMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+        $__auditEndpoint = (string) (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '');
+        $__auditTargetId = isset($_GET['id']) ? (string) $_GET['id'] : null;
+        tenantAudit(
+            compact('companyId', 'outletId', 'userId', 'realm'),
+            $__auditMethod,
+            $__auditEndpoint,
+            $__auditTargetId
+        );
+    }
+
     return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm');
+}
+
+/**
+ * Registra una acción mutante del tenant en tenant_audit (best-effort, nunca lanza).
+ *
+ * Solo se llama para métodos POST/PUT/PATCH/DELETE desde apiAuthTenant().
+ * Si la DB no está lista o el INSERT falla, se loguea y se ignora.
+ *
+ * @param array       $ctx      Resultado de apiAuthTenant (companyId, userId, outletId, realm).
+ * @param string      $method   HTTP method.
+ * @param string      $endpoint Path de REQUEST_URI sin querystring.
+ * @param string|null $targetId ID del recurso si viene en $_GET['id'].
+ * @param array       $meta     Datos extra (vacío por defecto en la instrumentación base).
+ */
+function tenantAudit(array $ctx, string $method, string $endpoint, ?string $targetId = null, array $meta = []): void
+{
+    global $db;
+
+    if (!isset($db) || !is_object($db)) {
+        return;
+    }
+
+    try {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+
+        $db->Execute(
+            'INSERT INTO tenant_audit
+               ("companyId", "userId", "outletId", realm, method, endpoint, "targetId", meta, ip)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)',
+            [
+                $ctx['companyId'] ?: null,
+                $ctx['userId']    ?: null,
+                $ctx['outletId']  ?: null,
+                isset($ctx['realm'])    ? substr((string)$ctx['realm'],    0, 20)  : null,
+                $method                 ? substr($method,                  0, 10)  : null,
+                $endpoint               ? substr($endpoint,                0, 160) : null,
+                $targetId               ? substr($targetId,                0, 64)  : null,
+                json_encode($meta, JSON_UNESCAPED_UNICODE),
+                $ip                     ? substr($ip,                      0, 64)  : null,
+            ]
+        );
+    } catch (\Throwable $e) {
+        // Best-effort: nunca interrumpir la request.
+        error_log('[tenantAudit] Error insertando en tenant_audit: ' . $e->getMessage());
+    }
 }

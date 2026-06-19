@@ -556,6 +556,31 @@ export interface CobrosRow {
 }
 export interface CobrosReportResponse { rows: CobrosRow[] }
 
+// ── Auditoría Tenant ──────────────────────────────────────────────────────────
+
+/** Fila del endpoint /v1/reports/audit. */
+export interface AuditRow {
+  id: string
+  companyId: string
+  userId: string | null
+  outletId: string | null
+  realm: string | null
+  method: string
+  endpoint: string
+  targetId: string | null
+  meta: Record<string, unknown> | null
+  ip: string | null
+  createdAt: string
+  /** Resuelto por JOIN a contact en el backend. */
+  userName: string | null
+  /** Resuelto por JOIN a outlet en el backend. */
+  outletName: string | null
+}
+
+export interface AuditReportResponse {
+  rows: AuditRow[]
+}
+
 export interface QuoteRow {
   transactionId: string
   invoiceNo: string

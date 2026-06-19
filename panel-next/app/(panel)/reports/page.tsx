@@ -73,6 +73,7 @@ const GROUPS: ReportGroup[] = [
       { title: "Facturas recurrentes",  to: "/reports/recurring",       implemented: true  },
       { title: "Órdenes",               to: "/reports/orders",          implemented: true  },
       { title: "Calificación de clientes", to: "/reports/satisfaction", implemented: true  },
+      { title: "Auditoría",             to: "/reports/audit",           implemented: true  },
     ],
   },
 ]

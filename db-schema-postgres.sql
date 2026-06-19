@@ -1320,6 +1320,26 @@ CREATE TABLE IF NOT EXISTS admin_audit (
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit("createdAt");
 CREATE INDEX IF NOT EXISTS idx_admin_audit_action     ON admin_audit(action);
 
+-- Auditoría de acciones (mutaciones) de usuarios TENANT. Ver migración 35.
+-- Escrita best-effort desde apiAuthTenant() para POST/PUT/PATCH/DELETE.
+-- Retención: 2 meses vía pg_cron (migración 36, requiere extensión en el server).
+CREATE TABLE IF NOT EXISTS tenant_audit (
+  id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  "companyId" UUID         NOT NULL,
+  "userId"    UUID,
+  "outletId"  UUID,
+  realm       VARCHAR(20),
+  method      VARCHAR(10),
+  endpoint    VARCHAR(160),
+  "targetId"  VARCHAR(64),
+  meta        JSONB        DEFAULT '{}',
+  ip          VARCHAR(64),
+  "createdAt" TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_audit_company_created ON tenant_audit("companyId", "createdAt" DESC);
+CREATE INDEX IF NOT EXISTS idx_tenant_audit_created_at      ON tenant_audit("createdAt");
+
 
 -- ============================================================
 -- End of schema — 48 tables
