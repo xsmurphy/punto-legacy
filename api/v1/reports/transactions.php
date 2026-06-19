@@ -57,6 +57,19 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         apiError('id inválido', 422);
     }
 
+    // ncmExecute con forceObj=true devuelve el recordset ADOdb (NO un array) — hay
+    // que iterarlo para materializar las filas (patrón de Reports/UsersService).
+    $fetchAll = static function ($rs): array {
+        $out = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $out[] = $rs->fields;
+                $rs->MoveNext();
+            }
+        }
+        return $out;
+    };
+
     // 1. Cargar transacción principal con datos de contactos y outlet
     $tx = ncmExecute(
         "SELECT t.*,
@@ -92,7 +105,7 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
             [COMPANY_ID, $txId],
             false, true
         );
-        $items = is_array($rawItems) ? $rawItems : [];
+        $items = $fetchAll($rawItems);
     } elseif (!empty($tx['transactionDetails'])) {
         $decoded = json_decode($tx['transactionDetails'], true);
         if (is_array($decoded)) {
@@ -174,10 +187,10 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
 
     apiOk([
         'transaction'    => $txData,
-        'items'          => is_array($items)        ? $items        : [],
-        'creditNotes'    => is_array($creditNotes)  ? $creditNotes  : [],
-        'appointments'   => is_array($appointments) ? $appointments : [],
-        'toTransactions' => is_array($toTx)         ? $toTx         : [],
+        'items'          => $items,
+        'creditNotes'    => $fetchAll($creditNotes),
+        'appointments'   => $fetchAll($appointments),
+        'toTransactions' => $fetchAll($toTx),
         'creditPayments' => $creditPayments,
     ]);
 }
