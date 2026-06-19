@@ -7,7 +7,8 @@
  * Métodos emulados:
  *   Execute, execute, AutoExecute, Insert, GetAssoc, CacheGetAssoc,
  *   cacheExecute, SelectLimit, qstr, Prepare, Param, StartTrans,
- *   CompleteTrans, FailTrans, HasFailedTrans, ErrorMsg, ErrorNo,
+ *   CompleteTrans, FailTrans, HasFailedTrans, BeginTrans, CommitTrans,
+ *   RollbackTrans, Affected_Rows, ErrorMsg, ErrorNo,
  *   SetFetchMode, cacheFlush, Close, selectDb, Connect, NConnect
  *
  * Propiedades emuladas: debug, databaseType, cacheSecs, fetchMode, port
@@ -150,10 +151,11 @@ class DBResult
 // ─────────────────────────────────────────────────────────────────────────────
 class DB
 {
-    private ?PDO   $pdo       = null;
-    private string $lastError = '';
-    private int    $lastErrNo = 0;
-    private bool   $transOk  = true;
+    private ?PDO   $pdo          = null;
+    private string $lastError    = '';
+    private int    $lastErrNo    = 0;
+    private bool   $transOk      = true;
+    private int    $lastRowCount = 0;
 
     // Propiedades públicas de compatibilidad ADOdb
     public int    $port         = 5432;
@@ -236,6 +238,7 @@ class DB
             $trimmed      = ltrim($sql);
             $isSelect     = stripos($trimmed, 'SELECT') === 0 || stripos($trimmed, 'WITH') === 0;
             $hasReturning = (bool) preg_match('/\bRETURNING\b/i', $sql);
+            $this->lastRowCount = $stmt->rowCount();
             return new DBResult(($isSelect || $hasReturning) ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
         } catch (PDOException $e) {
             $this->lastError = $e->getMessage();
@@ -465,7 +468,42 @@ class DB
         return !$this->transOk;
     }
 
+    /**
+     * Inicia transacción directa (PDO nativo).
+     * Complemento de CommitTrans/RollbackTrans (patrón try/catch/rollback).
+     * Diferente de StartTrans/CompleteTrans (patrón ADOdb FailTrans).
+     */
+    public function BeginTrans(): void
+    {
+        $this->transOk = true;
+        $this->pdo->beginTransaction();
+    }
+
+    /** Confirma transacción directa. */
+    public function CommitTrans(): bool
+    {
+        $this->pdo->commit();
+        return true;
+    }
+
+    /** Revierte transacción directa. */
+    public function RollbackTrans(): bool
+    {
+        $this->pdo->rollBack();
+        $this->transOk = false;
+        return true;
+    }
+
     // ─── Diagnóstico ───────────────────────────────────────────────────────
+
+    /**
+     * Retorna filas afectadas por el último DML (INSERT/UPDATE/DELETE).
+     * Equivale a ADOdb->Affected_Rows(). Usa PDOStatement::rowCount() internamente.
+     */
+    public function Affected_Rows(): int
+    {
+        return $this->lastRowCount;
+    }
 
     public function ErrorMsg(): string { return $this->lastError; }
     public function ErrorNo(): int     { return $this->lastErrNo; }
