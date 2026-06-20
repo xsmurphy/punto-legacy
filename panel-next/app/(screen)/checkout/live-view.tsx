@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Separator } from "@/components/ui/separator"
 import type { CartPayload } from "./page"
 
@@ -21,7 +22,7 @@ export function LiveView({ cart }: Props) {
         <div>
           <p className="text-2xl text-muted-foreground font-medium">Total a pagar</p>
           <p
-            className="font-bold tabular-nums text-brand mt-2 leading-none"
+            className="font-bold tabular-nums text-foreground mt-2 leading-none"
             style={{ fontSize: "clamp(4rem, 10vw, 8rem)" }}
           >
             {formatMoney(cart.total)}
@@ -47,7 +48,7 @@ export function LiveView({ cart }: Props) {
         </p>
         <div className="flex flex-col gap-0">
           {cart.lines.map((line, i) => (
-            <span key={i}>
+            <React.Fragment key={i}>
               <div className="grid py-4" style={{ gridTemplateColumns: "3rem 1fr auto" }}>
                 <span className="text-2xl tabular-nums text-muted-foreground font-medium">
                   {line.qty}
@@ -58,7 +59,7 @@ export function LiveView({ cart }: Props) {
                 </span>
               </div>
               {i < cart.lines.length - 1 && <Separator />}
-            </span>
+            </React.Fragment>
           ))}
           {cart.lines.length === 0 && (
             <p className="text-xl text-muted-foreground">Sin artículos aún.</p>

@@ -20,7 +20,7 @@ export function ConfirmedView({ total, change }: Props) {
       <CheckCircle2 className="text-brand" style={{ width: "8rem", height: "8rem" }} />
       <div className="flex flex-col items-center gap-3 text-center">
         <h1
-          className="font-bold text-brand"
+          className="font-bold text-foreground"
           style={{ fontSize: "clamp(4rem, 10vw, 7rem)" }}
         >
           Cobrado
