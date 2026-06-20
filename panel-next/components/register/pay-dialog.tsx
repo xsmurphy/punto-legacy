@@ -35,6 +35,7 @@ import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
+import { api } from "@/lib/api-client"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -188,6 +189,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setChange(changeAmount)
       setSaleResult(result)
       setPhase("success")
+      void api.post("/v1/screens/publish", {
+        type: "sale-confirmed",
+        data: { total, change: changeAmount },
+      }).catch(() => {})
     } catch (err) {
       setErrorMsg(
         err instanceof Error ? err.message : "Error al confirmar la venta",
@@ -383,6 +388,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   function handleClose() {
     if (phase === "success") {
       clear()
+      void api.post("/v1/screens/publish", {
+        type: "cart-cleared",
+        data: {},
+      }).catch(() => {})
     }
     onOpenChange(false)
   }

@@ -224,6 +224,7 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         '/v1/modules'               => ['entity' => 'setting',     'scope' => 'all'],
         '/v1/price_list'            => ['entity' => 'item',        'scope' => 'all'],
         '/v1/price_list_item'       => ['entity' => 'item',        'scope' => 'all'],
+        '/v1/screens'               => ['entity' => 'screen',      'scope' => 'all'],
     ];
 
     foreach ($map as $prefix => $cfg) {

@@ -72,6 +72,7 @@ import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
 import { PosMainMenu } from "@/components/register/pos-main-menu"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { toast } from "sonner"
+import { useCartPublisher } from "@/hooks/use-cart-publisher"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -94,6 +95,7 @@ export function CartPanel() {
   const decQty = useCartStore((s) => s.decQty)
   const setQty = useCartStore((s) => s.setQty)
   const addItem = useCartStore((s) => s.addItem)
+  useCartPublisher()
 
   const config = useCatalogStore((s) => s.config)
   const catalogItems = useCatalogStore((s) => s.items)
