@@ -13,23 +13,95 @@
 require_once __DIR__ . '/../bootstrap.php';
 
 // ── Redis helper ─────────────────────────────────────────────────────────────
+//
+// NO usamos la extensión `phpredis` (no está disponible en el container PHP de
+// Punto). Mismo approach que `app/includes/ws_publish.php`: socket TCP + RESP
+// nativo, soporta REDIS_URL al estilo Coolify (redis://[user:pass@]host:port).
 
-function screensGetRedis(): ?Redis
+/** Devuelve [host, port, pass] desde REDIS_URL o variables sueltas. */
+function screensRedisConfig(): array
 {
-    try {
-        $r = new Redis();
-        $r->connect(
-            $_ENV['REDIS_HOST'] ?? '127.0.0.1',
-            intval($_ENV['REDIS_PORT'] ?? 6379)
-        );
-        $pass = $_ENV['REDIS_PASSWORD'] ?? '';
-        if ($pass !== '') {
-            $r->auth($pass);
-        }
-        return $r;
-    } catch (\Throwable $e) {
+    if (!empty($_ENV['REDIS_URL'])) {
+        $ru   = parse_url((string) $_ENV['REDIS_URL']);
+        $host = $ru['host'] ?? '127.0.0.1';
+        $port = (int) ($ru['port'] ?? 6379);
+        $pass = isset($ru['pass']) ? urldecode($ru['pass']) : '';
+    } else {
+        $host = $_ENV['REDIS_HOST'] ?? '127.0.0.1';
+        $port = (int) ($_ENV['REDIS_PORT'] ?? 6379);
+        $pass = (string) ($_ENV['REDIS_PASSWORD'] ?? '');
+    }
+    return [$host, $port, $pass];
+}
+
+/** Construye un comando RESP (mismo helper que ws_publish.php). */
+function screensRedisRespCmd(string ...$parts): string
+{
+    $out = '*' . count($parts) . "\r\n";
+    foreach ($parts as $part) {
+        $out .= '$' . strlen($part) . "\r\n" . $part . "\r\n";
+    }
+    return $out;
+}
+
+/** Lee una reply RESP del socket. Devuelve string|int|null. */
+function screensRedisReadReply($sock): mixed
+{
+    $line = fgets($sock);
+    if ($line === false) return null;
+    $type    = $line[0];
+    $payload = substr($line, 1, -2); // sin el \r\n
+    switch ($type) {
+        case '+': return $payload;            // simple string ("OK")
+        case '-': return null;                // error
+        case ':': return (int) $payload;      // integer (INCR, DEL)
+        case '$':                              // bulk string (GET)
+            $len = (int) $payload;
+            if ($len < 0) return null;        // nil
+            $data = '';
+            while (strlen($data) < $len) {
+                $chunk = fread($sock, $len - strlen($data));
+                if ($chunk === false || $chunk === '') break;
+                $data .= $chunk;
+            }
+            fread($sock, 2);                  // \r\n trailing
+            return $data;
+        default: return null;
+    }
+}
+
+/**
+ * Ejecuta UN comando Redis sobre un socket nuevo. Mantener simple — los
+ * endpoints de screens no son hot-path; el overhead de abrir socket por
+ * comando es despreciable contra la robustez de no mantener estado.
+ *
+ * Devuelve null si Redis no responde (caller maneja con apiError 503).
+ */
+function screensRedisCmd(string ...$args): mixed
+{
+    [$host, $port, $pass] = screensRedisConfig();
+    $errno = 0; $errstr = '';
+    $sock  = @fsockopen($host, $port, $errno, $errstr, 2);
+    if (!$sock) {
+        error_log("[screens] No se pudo conectar a Redis {$host}:{$port} — {$errstr}");
         return null;
     }
+    stream_set_timeout($sock, 2);
+
+    if ($pass !== '') {
+        fwrite($sock, screensRedisRespCmd('AUTH', $pass));
+        $authReply = screensRedisReadReply($sock);
+        if ($authReply !== 'OK') {
+            error_log('[screens] AUTH falló contra Redis');
+            fclose($sock);
+            return null;
+        }
+    }
+
+    fwrite($sock, screensRedisRespCmd(...$args));
+    $reply = screensRedisReadReply($sock);
+    fclose($sock);
+    return $reply;
 }
 
 // ── Routing sin auth ─────────────────────────────────────────────────────────
@@ -44,18 +116,16 @@ if ($method === 'POST' && $resource === 'request') {
     $ip  = (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '');
     $ip  = trim(explode(',', $ip)[0]);
 
-    $redis = screensGetRedis();
-    if ($redis === null) {
-        apiError('Servicio no disponible', 503);
-    }
-
     // Rate-limit: max 10 requests / 60s por IP
     $rateKey = 'screen:rate:' . $ip;
-    $count   = (int)$redis->incr($rateKey);
-    if ($count === 1) {
-        $redis->expire($rateKey, 60);
+    $count   = screensRedisCmd('INCR', $rateKey);
+    if ($count === null) {
+        apiError('Servicio no disponible', 503);
     }
-    if ($count > 10) {
+    if ((int)$count === 1) {
+        screensRedisCmd('EXPIRE', $rateKey, '60');
+    }
+    if ((int)$count > 10) {
         apiError('Demasiados intentos. Espera un momento.', 429);
     }
 
@@ -63,11 +133,15 @@ if ($method === 'POST' && $resource === 'request') {
     $pin = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
     // Guardar en Redis 5 minutos
-    $redis->setex(
+    $setexReply = screensRedisCmd(
+        'SETEX',
         'screen:pin:' . $pin,
-        300,
-        json_encode(['ip' => $ip, 'requestedAt' => time()])
+        '300',
+        (string) json_encode(['ip' => $ip, 'requestedAt' => time()])
     );
+    if ($setexReply === null) {
+        apiError('Servicio no disponible', 503);
+    }
 
     apiOk(['pin' => $pin, 'channel' => 'pairing:' . $pin]);
     exit;
@@ -138,19 +212,14 @@ switch (true) {
             apiError('pin y name son requeridos', 422);
         }
 
-        $redis = screensGetRedis();
-        if ($redis === null) {
-            apiError('Servicio no disponible', 503);
-        }
-
         $pinKey  = 'screen:pin:' . $pin;
-        $pinData = $redis->get($pinKey);
-        if ($pinData === false || $pinData === null) {
+        $pinData = screensRedisCmd('GET', $pinKey);
+        if ($pinData === null || $pinData === false || $pinData === '') {
             apiError('PIN inválido o expirado', 404);
         }
 
         // Eliminar PIN para que no se reutilice
-        $redis->del($pinKey);
+        screensRedisCmd('DEL', $pinKey);
 
         // Generar UUID para la pantalla
         $row       = ncmExecute('SELECT gen_random_uuid()::text AS id', []);
