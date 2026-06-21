@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-06-16 (poda agresiva — completados → archive)
+> **Última actualización:** 2026-06-21 (sync post-sprint catálogo m2m + realtime + checkout screen + reports rollup + agente IA AI-1..AI-3b)
 
 ---
 
@@ -223,39 +223,51 @@ de plataforma para los demás.
 
 | Aspecto | Estado |
 |---------|--------|
-| Backend | PHP 8.x, sin framework, archivos monolíticos |
-| DB | PostgreSQL 16 vía ADOdb + Docker ✅ |
-| Frontend | Bootstrap 3 + jQuery, HTML mezclado con PHP |
-| Auth (app) | JWT HS256 ✅ — cookie `_jwt` HttpOnly. Fallback Hashids legacy **ELIMINADO** (commit 2aa149f, 2026-06-04). `fetchs.php` JWT-only; `fetch.php` eliminado. Revocación per-device ✅ (tabla `device`, commit a3fefb4, 2026-06-06). |
-| Auth (panel) | JWT HS256 ✅ — 68/68 endpoints con apiMiddleware() |
-| IDs | UUID v7 ✅ — enc()/dec() identity, ncmInsert auto-genera PK |
-| API | ~68 endpoints en `panel/API/*.php`, todos con envelope canónico ✅ |
-| WebSockets | ~~Pusher~~ → ws-server propio (Node.js + Redis Pub/Sub) ✅ |
-| Seguridad | Bypass key eliminado, CORS allowlist, debug gateado, JWT realm isolation (claim `iss`) ✅ |
+| Backend | PHP 8.4, sin framework, wrapper PDO propio (`app/includes/lib/DB.php` — NO ADOdb) ✅ |
+| DB | PostgreSQL 16 + Docker, migrations runner automático ✅ |
+| Frontend (panel) | **panel-next** (Next.js 15 + React 19 + shadcn/ui + TanStack Query). Legacy panel eliminado. ✅ |
+| Frontend (POS) | **fusionado dentro de panel-next** en `app/(pos)/pos` desde 2026-06-16. ✅ |
+| Dominio | **app.punto.la** sirve panel + `/pos` + `/admin` + `/chat` + `/checkout` (POS legacy descontinuado, 2026-06-19) ✅ |
+| Auth realms | 3 cookies JWT distintas: `_jwt_panel` (panel, 24h), `_jwt` (pos-app, device pairing 10y), `_jwt_screen` (checkout screen, 10y). Realm gate por `iss` claim. ✅ |
+| IDs | UUID v4 (gen_random_uuid) ✅ — v7 fue dropeado en pivot |
+| API | `/v1/*` endpoints con envelope canónico, multi-realm allowlist explícita por endpoint ✅ |
+| WebSockets | ws-server propio (Node + Redis Pub/Sub) en `ws.punto.la`. Realtime sync panel↔POS funcionando (`<companyId>:invalidate` channel). ✅ |
+| Catálogo | M2M completo (category/brand/tag con item_*), UNIQUE case-insensitive, ItemImporter con separadores `\|` (sprint 2026-06-19). ✅ |
+| Reportes | Tablas de rollup pre-agregado (`report_rollup`, día/mes/año) — gated por `REPORTS_ROLLUP_ENABLED`. SummaryYear/Categories/Brands/PaymentMethods con cutover + `?verify=1`. ✅ |
+| Checkout Screen | Visor al cliente con device pairing por token persistente (`customer_display`), pareo por PIN, realtime via WS. ✅ |
+| Agente IA | Chat embebido (FAB + página `/chat`) vía **OpenRouter** (DeepSeek+Gemini default), AI SDK v6, 13 tools acotadas con `confirmToken`, billing débito atómico (`ai_credit_ledger`), historial localStorage con redacción de credenciales + auto-expiración 60s. ✅ AI-1..AI-3b. |
+| Seguridad | CORS allowlist, JWT realm isolation, tenant_audit de mutaciones, device revocation, credenciales auto-redactadas en chat. ✅ |
 
 ---
 
 ## Vista general de fases
 
 ```
-Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 → Phase 6
+Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase WS ✅ → Phase UUID ✅ → Phase PG ✅
                                   ↓
-                       Phase WS ✅ (completado durante Phase 2)
+              panel-next rewrite ✅ (greenfield Next/shadcn, plan context/12)
                                   ↓
-                       Phase UUID ✅ (enc/dec identity + UUID v7 en ncmInsert)
+                       Fusión POS → panel-next ✅ (2026-06-16)
                                   ↓
-                       Phase PG ✅ (PostgreSQL: schema v2 + JSONB + migrations PHP)
+                       Catálogo M2M ✅ (sprint 2026-06-19, context/14)
                                   ↓
-                             Phase AI ← SIGUIENTE
+                       Realtime sync ✅ (context/15)
+                                  ↓
+                       Checkout Screen ✅ (context/16)
+                                  ↓
+              Reports rollup RB-1+RB-2 ✅ (context/18) — RB-3 pendiente
+                                  ↓
+                  Agente IA AI-1..AI-3b ✅ (context/17) — AI-4/AI-5 pendiente
 ```
 
 ---
 
 ## Orden de ejecución actual (prioridad)
 
-1. **AHORA**: Phase AI.1 — agente básico + widget web + 5 tools solo lectura
-2. **Luego**: Phase AI.2 — bot de Telegram
-3. **Paralelo**: Migración endpoints legacy MySQL → PG (B2-B5), Phase 3, Phase 6
+1. **AHORA**: estabilizar el sprint reciente (smoke tests en prod, calibración de pricing del agente, verificación numérica del rollup con `?verify=1`).
+2. **Siguiente**: RB-3 (rollup stock/production/commissions/vpayments) + AI-4 (UI /admin para `ai_model_config`).
+3. **Después**: AI-5 (OCR de facturas, análisis libre sobre rollup), AI-3 tools extras según uso, dashboards custom por IA.
+4. **Paralelo / oportunista**: deuda técnica (JWT-only, schema consolidation) cuando bloquee algo.
 
 ---
 
@@ -267,14 +279,15 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 
 | # | Pendiente | Detalle |
 |---|-----------|---------|
-| 1 | **Separar `_jwt_pos` de `_jwt_panel`** | Cookie propia para el realm `pos-app`. El realm ya existe en backend; falta separar la cookie en el front React. |
+| 1 | ~~**Separar `_jwt_pos` de `_jwt_panel`**~~ ✓ | Cookies independientes ya funcionando (`_jwt` para realm pos-app, `_jwt_panel` para panel, `_jwt_screen` para checkout screen). Memoria [[jwt-two-tokens-rule]]. |
 | 2 | **`POST /v1/device/unpair`** | Para "Eliminar dispositivo del comercio" (hoy no existe el endpoint). |
 | 3 | **`POST /v1/lock-screen/verify`** | Verificar PIN contra backend + re-emitir `_jwt_pos`. Hoy: `STUB_PIN = "1234"` en `lock-screen.tsx`. |
 | 4 | **`bootstrap.user.name` y `bootstrap.user.roleName`** | Agregar al SELECT del bootstrap PHP. `roleName` ya disponible en `UsersService`. |
 | 5 | **Persistir `register.data.mergeRepeated`** | Hoy solo en memoria Zustand (default ON). Falta `PUT /v1/register?resource=merge-repeated`. |
-| 6 | ~~**Endpoints reales de Control de Caja**~~ ✓ | Implementado: `DrawerService` + `api/v1/drawer.php`. Migs 33/34 (expenses nullable + índice único parcial anti-race-condition). BFF `panel-next/app/api/pos/drawer/route.ts`. |
-| 7 | **Endpoints reales de Transacciones / Agenda / Órdenes** | Transacciones implementadas (duplicar/reimprimir). Agenda/Órdenes son módulos POS dedicados — pendiente planificación. |
+| 6 | ~~**Endpoints reales de Control de Caja**~~ ✓ | Implementado: `DrawerService` + `api/v1/drawer.php`. Migs 33/34. |
+| 7 | ~~**Endpoints reales de Transacciones**~~ ✓ | Detalle, edición, duplicar/reimprimir, cierre desde panel. Agenda/Órdenes pendientes como módulos dedicados. |
 | 8 | **Persistencia de impresoras** | Probable `register.data.printers` JSONB. |
+| 9 | **UI panel para gestión de cajas POS pareadas** (`/settings/devices` tab "Cajas") | Tabla `device` (mig 11) ya existe con CRUD backend; falta tab en `/settings/devices` (hoy solo lista checkout screens). |
 
 ---
 
@@ -372,25 +385,97 @@ se diseña de cero (análogo al pivote del panel tenant → panel-next del 2026-
 
 ---
 
-## Migration Runner
+## ~~Migration Runner~~ ✅
 
-**Problema**: Las migraciones se corren a mano. En deploy con Coolify no hay step automático.
+Implementado en `database/migrate.php` + `docker-entrypoint.sh`. Lee `schema_migrations`, compara con `database/migrations/postgres/`, aplica pendientes en orden numérico (no lexicográfico), fail-fast con exit 1. Corre en cada deploy de Coolify antes de exec'ear el CMD.
 
-**Propuesta**: Script bash que:
-1. Lee tabla `schema_migrations` (crear si no existe)
-2. Compara con archivos en `database/migrations/postgres/`
-3. Ejecuta los pendientes en orden
-4. Registra en `schema_migrations`
+---
 
-**Esfuerzo**: ~3 horas
+## Sprint 2026-06-19 a 2026-06-21 — entregado
 
-**Riesgos**: Bajos. Idempotencia ya requerida por convención (§3 de `08-convenciones.md`).
+Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + Sonnet ejecuta + pasada de review). Detalle en `_session-log.md`.
+
+### Catálogo M2M ✅ (plan `context/14`)
+
+- Migs 37 (dedup), 38 (UNIQUE case-insensitive en taxonomy/category/brand/tax), 39 (tabla `tag` + `item_tag` + triggers bidireccionales)
+- `Taxonomy::getIdOrInsert` con LOWER comparison + retry ON CONFLICT (race-safe)
+- Endpoint `/v1/tags` + `TagService` + branches `resource=brands|tags` en `items.php`
+- `/settings/catalog` tab Etiquetas (grid 4-col)
+- Form de item con `BrandsPicker` + `TagsPicker` multi-select
+- `ItemImporter` acepta listas separadas por `|` en CATEGORIA/MARCA/ETIQUETAS
+
+### Realtime sync panel ↔ POS ✅ (plan `context/15`)
+
+- `realtimePublish` helper PHP wire en `apiAuthTenant::realtimeAfterMutation` (mapeo cerrado endpoint→entity)
+- Cliente WS singleton en `panel-next/lib/realtime.ts` con reconnect exponential
+- `useRealtimeSync(scope)` mapea entity→queryKeys de TanStack
+- ws-server deployado en Coolify a `wss://ws.punto.la`
+- Convención mantenida: el mapa `realtimeAfterMutation` debe incluir TODO endpoint mutante (caso clásico de drift: `/v1/sales` faltaba)
+
+### Checkout Screen ✅ (plan `context/16`)
+
+- Mig 40 `customer_display` con token persistente (10y)
+- Endpoints `/v1/screens/{request,pair,publish,heartbeat,list,revoke}` con Redis fsockopen+RESP (NO phpredis)
+- POS publica cart-update/sale-confirmed/cart-cleared
+- Sección "Pantalla cliente" en AjustesPanel del POS con dialog InputOTP
+- Ruta `(screen)/checkout` standalone (pairing/live/confirmed/idle states)
+- `/settings/devices` con CRUD pantallas + revocación
+
+### Reportes rollup pre-agregado — RB-1 + RB-2 ✅ (plan `context/18`)
+
+- Mig 41: `report_rollup` (genérica con métricas fijas + extra JSONB), `rollup_dirty`, funciones `rollup_recompute_period` / `rollup_reconcile`, backfill histórico inline
+- Mig 42 extiende a `item_sales`/`item_returns`/`payments`
+- Hook `rollupMarkDirty` en `SaleService` (post-CommitTrans) + DrawerService + edición de transacciones
+- `RollupReader` con `monthlyBuckets` / `itemSalesRange` / `paymentsRange`
+- Cutover `SummaryYearService`/`Categories`/`Brands`/`PaymentMethods` — GATED por `REPORTS_ROLLUP_ENABLED` (default OFF = live; activar tras `?verify=1` con diff vacío)
+- **Procedimiento activación** documentado en `context/18` §"Procedimiento de cutover"
+
+### Agente IA AI-1..AI-3b ✅ (plan `context/17`)
+
+- Mig 43 `ai_model_config` (capability→model+creditsPerKToken, editable desde /admin — UI pendiente AI-4)
+- AI-1: route handler `/api/agent/chat` con AI SDK v6 + OpenRouter (DeepSeek default), tool `get_sales_summary`, FAB + Sheet
+- AI-2: gate 402 + débito atómico en `/v1/ai/debit` (lock FOR UPDATE) + ledger `agent_chat`
+- AI-3: 13 tools (5 lecturas + 8 escrituras con `confirmToken`) — alcance acotado por memoria [[ai-agent-scope-limits]] (NO ventas/caja/permisos/bulk/hard-delete)
+- AI-3b: refinement UI (FAB neutro, MessageCircle, input ChatGPT-style, página `/chat` con sugerencias, integración al menú POS sin overlay conflict)
+- Markdown render + acciones (copiar / leer Web Speech API)
+- Historial persistente (Zustand persist + localStorage, hook `useAgentChat` compartido FAB/página)
+- Credenciales: formato dictado por system prompt + auto-expiración real 60s + redacción ANTES de persistir (defense in depth)
+
+### Bug fixes notables del sprint
+
+- Wrapper PDO: agregados `Affected_Rows`, `BeginTrans/CommitTrans/RollbackTrans` (Services del API los llamaban pensando que era ADOdb — memoria [[project_db_wrapper_not_adodb]])
+- `Taxonomy::getIdOrInsert` usaba `$SQLcompanyId` global vacío en /api → duplicados en imports (commit `6ec65bb`)
+- `transactions.php` detalle: `CaseInsensitiveArray` no es `JsonSerializable` → frontend recibía `{}` (fix con `GetRowAssoc()`)
+- Cookies JWT mezcladas tras cambio de dominio panel-next-dev → app.punto.la: nuevo `/v1/logout` para borrar solo `_jwt_panel`
+- `screens.php` usaba `new Redis()` (extension phpredis no instalada) → fix con fsockopen+RESP igual que `wsPublish`
+- Mig 37 inicial asumía columnas que no existen en BD real (`outlet.taxId`, `outlet.categoryId`) → self-heal con `information_schema` check
+- Barra de categorías POS con ancho fijo (no se ve fea con 1 sola)
+- Teléfonos: display nacional, backend E.164 (`formatPhone` helper)
+- Logout del menú sidebar tenía `onClick={onLogout}` pero la prop nunca se pasaba → wire en `PanelAuthGuard`
 
 ---
 
 # Prioridad MEDIA (2-4 meses)
 
-## Phase AI.1 — Agente IA básico
+## Phase AI — Agente IA del producto
+
+> **Estado actual (2026-06-21):** AI-1, AI-2, AI-3 y AI-3b ✅ ENTREGADOS en el sprint reciente — chat embebido funcional en producción. Stack: OpenRouter (NO Anthropic SDK directo como originalmente planeaba este doc), AI SDK v6 + `@ai-sdk/react`, React/Next embebido en panel-next (NO microservicio FastAPI). Ver memorias [[ai-agent-openrouter-direction]] y [[ai-agent-scope-limits]] + plan `context/17-ai-agent-plan.md` para arquitectura real.
+>
+> El texto debajo refleja la VISIÓN ORIGINAL — útil como referencia conceptual (correctitud, dashboards por IA, reportes ad-hoc) pero los detalles de implementación están desactualizados (FastAPI, Python, microservicio). Lo que SÍ aplica vivo: la regla de oro (tool calling determinista, NUNCA text-to-SQL libre) y la visión de "reportes ad-hoc + dashboards custom por IA" (AI-5 pendiente).
+
+### Pendientes reales de Phase AI
+
+| Slice | Scope | Prioridad |
+|---|---|---|
+| **AI-4** | UI en `/admin` para editar `ai_model_config` (modelo + creditsPerKToken por capability). Calibración de pricing real vs costo OpenRouter para que el margen cierre. | Alta |
+| **AI-5** | Capabilities extra: OCR (foto de factura → Gemini extrae ítems), análisis libre sobre rollup (queries NL → leen `report_rollup`), dashboards custom guardados en `dashboard.config` JSONB. | Media |
+| **AI-tools++** | Expandir las 13 tools iniciales según uso: tools para reportes específicos, búsquedas avanzadas, recomendaciones (top sellers, stock bajo). | Media |
+| **AI proactivo** | Cron que detecta condiciones (stock bajo, ventas anómalas) y notifica al operador. Necesita canal — el FAB del agente puede mostrar un badge. | Baja |
+| **AI multi-canal** | Telegram / WhatsApp / SMS. Mismo agente, otros transports. Requiere vincular usuario externo → JWT del tenant (flow de pareo). | Baja |
+
+### Histórico — visión original (referencia conceptual)
+
+## Phase AI.1 — Agente IA básico (HISTÓRICO — ver sección anterior para estado real)
 
 **Problema**: El valor diferencial del producto es ser AI-first. Sin agente funcional
 no hay diferenciación.
