@@ -5,9 +5,12 @@ import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
 import { Bot, Send } from "lucide-react"
 
+import Link from "next/link"
+
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 
 interface Props {
   companyName: string
@@ -23,7 +26,7 @@ export function AgentChat({ companyName, outletName, fabVisible = true }: Props)
   const [input, setInput] = React.useState("")
   const bottomRef = React.useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/agent/chat",
       body: { companyName, outletName },
@@ -32,13 +35,30 @@ export function AgentChat({ companyName, outletName, fabVisible = true }: Props)
 
   const isStreaming = status === "streaming" || status === "submitted"
 
+  const { data: balData } = useAiBalance()
+  const balance = balData?.balance ?? null
+  const hasNoCredits = balance !== null && balance <= 0
+  const is402 = error?.message?.includes("Sin créditos") || error?.message?.includes("402")
+  const invalidateBalance = useInvalidateAiBalance()
+
   React.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
+  const prevStatusRef = React.useRef(status)
+  React.useEffect(() => {
+    if (
+      (prevStatusRef.current === "streaming" || prevStatusRef.current === "submitted") &&
+      status === "ready"
+    ) {
+      invalidateBalance()
+    }
+    prevStatusRef.current = status
+  }, [status, invalidateBalance])
+
   function handleSend() {
     const text = input.trim()
-    if (!text || isStreaming) return
+    if (!text || isStreaming || hasNoCredits) return
     setInput("")
     sendMessage({ text })
   }
@@ -71,11 +91,25 @@ export function AgentChat({ companyName, outletName, fabVisible = true }: Props)
                 <Bot className="size-4" />
               </div>
               <SheetTitle className="text-sm font-medium">Asistente</SheetTitle>
+              {balance !== null && (
+                <span className={`ml-auto text-xs tabular-nums ${hasNoCredits ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                  {balance} créditos
+                </span>
+              )}
             </div>
           </SheetHeader>
 
           {/* Messages area */}
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {(hasNoCredits || is402) && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                Sin créditos disponibles.{" "}
+                <Link href="/history-billing" className="underline font-medium" onClick={() => setOpen(false)}>
+                  Comprar créditos
+                </Link>
+              </div>
+            )}
+
             {messages.length === 0 && (
               <p className="text-center text-sm text-muted-foreground pt-8">
                 Hola, soy tu asistente de Punto. Podés preguntarme sobre ventas, ingresos u otros datos del negocio.
@@ -152,14 +186,14 @@ export function AgentChat({ companyName, outletName, fabVisible = true }: Props)
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Escribí tu consulta…"
-                disabled={isStreaming}
+                placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : "Escribí tu consulta…"}
+                disabled={isStreaming || hasNoCredits}
                 className="flex-1 text-sm"
                 autoFocus
               />
               <Button
                 onClick={handleSend}
-                disabled={isStreaming || !input.trim()}
+                disabled={isStreaming || !input.trim() || hasNoCredits}
                 size="icon"
                 className="shrink-0"
               >

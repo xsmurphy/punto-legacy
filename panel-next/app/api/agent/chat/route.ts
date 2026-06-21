@@ -46,6 +46,22 @@ export async function POST(req: Request) {
     // ignorar — fallback al default
   }
 
+  // Gate: verificar balance antes de llamar al modelo
+  try {
+    const balRes = await fetch(`${process.env.API_URL}/v1/ai/balance`, {
+      headers: { cookie },
+    })
+    if (balRes.ok) {
+      const balData = (await balRes.json()) as { data?: { balance: number }; balance?: number }
+      const balance = balData?.data?.balance ?? (balData as { balance?: number })?.balance ?? 0
+      if (balance <= 0) {
+        return Response.json({ error: "Sin créditos" }, { status: 402 })
+      }
+    }
+  } catch {
+    // ignorar — si no podemos verificar, dejamos pasar (fail-open)
+  }
+
   const openrouter = createOpenRouter({ apiKey })
   const model = openrouter(modelId)
 
@@ -59,6 +75,25 @@ export async function POST(req: Request) {
     system,
     messages: modelMessages,
     stopWhen: stepCountIs(5),
+    onFinish: async ({ usage }) => {
+      const tokensIn  = Number(usage.inputTokens  ?? 0)
+      const tokensOut = Number(usage.outputTokens ?? 0)
+      if (tokensIn === 0 && tokensOut === 0) return
+      try {
+        await fetch(`${process.env.API_URL}/v1/ai/debit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie },
+          body: JSON.stringify({
+            tokensIn,
+            tokensOut,
+            capability: "chat",
+            model: modelId,
+          }),
+        })
+      } catch (e) {
+        console.error("[agent] debit failed", e)
+      }
+    },
     tools: {
       get_sales_summary: tool({
         description:
