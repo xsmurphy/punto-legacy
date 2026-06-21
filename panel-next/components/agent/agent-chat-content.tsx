@@ -3,12 +3,10 @@
 import * as React from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
-import { MessageCircle, Plus, Mic, ArrowUp } from "lucide-react"
+import { MessageCircle } from "lucide-react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
+import { AgentInputBox } from "@/components/agent/agent-input-box"
 
 // El balance se sigue consultando para gatear el input cuando llega a 0,
 // pero NO se muestra en el header — esa info ya vive en /history-billing.
@@ -176,79 +174,14 @@ export function AgentChatContent({
       </div>
 
       <div className="px-4 py-3">
-        <div className="rounded-2xl border bg-card shadow-sm">
-          <Textarea
-            ref={taRef}
-            value={input}
-            onChange={(e) => handleInputChange(e.target.value)}
-            onInput={(e) => {
-              const el = e.currentTarget
-              el.style.height = "auto"
-              el.style.height = Math.min(el.scrollHeight, 160) + "px"
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            placeholder={
-              hasNoCredits ? "Sin créditos para usar el asistente" : "Preguntale al asistente…"
-            }
-            disabled={isStreaming || hasNoCredits}
-            rows={1}
-            className="min-h-0 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-4 pt-3 pb-2 text-sm"
-          />
-          <div className="flex items-center justify-between px-2 pb-2">
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                {/* span wrapper: Radix Tooltip no recibe pointer events sobre
-                    un <button disabled> (no dispara hover) → el tooltip nunca
-                    se muestra. Wrappear en un span con pointer-events:auto
-                    es el workaround estándar. */}
-                <TooltipTrigger asChild>
-                  <span tabIndex={0}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      disabled
-                      className="size-8 rounded-full text-muted-foreground pointer-events-none"
-                    >
-                      <Plus className="size-4" />
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Adjuntar (próximamente)</TooltipContent>
-              </Tooltip>
-            </div>
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span tabIndex={0}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      disabled
-                      className="size-8 rounded-full text-muted-foreground pointer-events-none"
-                    >
-                      <Mic className="size-4" />
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Voz (próximamente)</TooltipContent>
-              </Tooltip>
-              <Button
-                onClick={handleSend}
-                disabled={isStreaming || !input.trim() || hasNoCredits}
-                size="icon"
-                className="size-9 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:bg-muted disabled:text-muted-foreground"
-                aria-label="Enviar"
-              >
-                <ArrowUp className="size-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
+        <AgentInputBox
+          ref={taRef}
+          value={input}
+          onChange={handleInputChange}
+          onSend={handleSend}
+          disabled={isStreaming || hasNoCredits}
+          placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : undefined}
+        />
       </div>
     </div>
   )

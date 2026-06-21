@@ -1,53 +1,249 @@
 "use client"
 
 import * as React from "react"
-import { useBootstrap } from "@/hooks/use-bootstrap"
-import { AgentChatContent } from "@/components/agent/agent-chat-content"
-import { Button } from "@/components/ui/button"
+import { useChat } from "@ai-sdk/react"
+import { DefaultChatTransport, isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
+import Link from "next/link"
+import {
+  TrendingUp,
+  Search,
+  Plus as PlusIcon,
+  Building2,
+  Package,
+  Users,
+  BarChart3,
+  Tag as TagIcon,
+} from "lucide-react"
 
-const SUGGESTIONS = [
-  "¿Cuánto vendí este mes?",
-  "Buscame el cliente Juan",
-  "Creá el producto Café Espresso a 12.000 Gs, categoría Bebidas",
-  "¿Cuánto stock queda del producto X?",
-  "Mostrame las sucursales",
-  "Listame los usuarios del equipo",
-  "Resumen del año pasado",
-  "Creá una categoría llamada Promociones",
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
+import { AgentInputBox } from "@/components/agent/agent-input-box"
+
+/**
+ * Página dedicada del asistente IA en el sidebar.
+ *
+ * Dos layouts:
+ *   - Vacío (sin mensajes): pantalla centrada estilo ChatGPT — título grande,
+ *     input al medio, sugerencias en cards visuales DEBAJO del input. Click en
+ *     una sugerencia llena el input (no envía) para que el user pueda editar.
+ *   - Con mensajes: scroll de la conversación arriba, input al pie (sticky).
+ *
+ * NO usa AgentChatContent porque ese está pensado para el Sheet del FAB (layout
+ * más compacto, header con avatar). Acá controlamos 100% del layout para que se
+ * sienta como un destino "first class" del sidebar. Comparte la pieza clave
+ * del input — AgentInputBox — para que la UX sea idéntica.
+ */
+
+interface Suggestion {
+  icon: typeof TrendingUp
+  text: string
+}
+
+const SUGGESTIONS: Suggestion[] = [
+  { icon: TrendingUp, text: "¿Cuánto vendí este mes?" },
+  { icon: Search,     text: "Buscame el cliente Juan" },
+  { icon: PlusIcon,   text: "Creá el producto Café Espresso a 12.000 Gs, categoría Bebidas" },
+  { icon: Package,    text: "¿Cuánto stock queda del producto X?" },
+  { icon: Building2,  text: "Mostrame las sucursales" },
+  { icon: Users,      text: "Listame los usuarios del equipo" },
+  { icon: BarChart3,  text: "Resumen del año pasado" },
+  { icon: TagIcon,    text: "Creá una categoría llamada Promociones" },
 ]
 
 export default function ChatPage() {
   const { data: bootstrap } = useBootstrap()
-  const [initialInput, setInitialInput] = React.useState("")
+  const [input, setInput] = React.useState("")
+  const taRef = React.useRef<HTMLTextAreaElement>(null)
+  const bottomRef = React.useRef<HTMLDivElement>(null)
+
+  const { messages, sendMessage, status, error } = useChat({
+    transport: new DefaultChatTransport({
+      api: "/api/agent/chat",
+      body: {
+        companyName: bootstrap?.companyName ?? "",
+        outletName: bootstrap?.activeOutletName ?? "",
+      },
+    }),
+  })
+
+  const isStreaming = status === "streaming" || status === "submitted"
+  const { data: balData } = useAiBalance()
+  const balance = balData?.balance ?? null
+  const hasNoCredits = balance !== null && balance <= 0
+  const is402 = error?.message?.includes("Sin créditos") || error?.message?.includes("402")
+  const invalidateBalance = useInvalidateAiBalance()
+  const isEmpty = messages.length === 0
+
+  React.useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  const prevStatusRef = React.useRef(status)
+  React.useEffect(() => {
+    if (
+      (prevStatusRef.current === "streaming" || prevStatusRef.current === "submitted") &&
+      status === "ready"
+    ) {
+      invalidateBalance()
+    }
+    prevStatusRef.current = status
+  }, [status, invalidateBalance])
+
+  function handleSend() {
+    const text = input.trim()
+    if (!text || isStreaming || hasNoCredits) return
+    setInput("")
+    sendMessage({ text })
+    if (taRef.current) taRef.current.style.height = "auto"
+  }
+
+  function pickSuggestion(text: string) {
+    setInput(text)
+    requestAnimationFrame(() => taRef.current?.focus())
+  }
 
   if (!bootstrap) return null
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-4rem)] w-full max-w-3xl flex-col p-4">
-      <div className="mb-4">
-        <h1 className="text-2xl font-semibold">Asistente</h1>
-        <p className="text-sm text-muted-foreground">Consultá datos, creá registros básicos.</p>
-      </div>
-      <AgentChatContent
-        companyName={bootstrap.companyName}
-        outletName={bootstrap.activeOutletName}
-        initialInput={initialInput}
-        showHeader={false}
-        renderEmpty={
-          <div className="grid grid-cols-1 gap-3 pt-8 sm:grid-cols-2">
-            {SUGGESTIONS.map((s) => (
-              <Button
-                key={s}
-                variant="outline"
-                className="h-auto justify-start whitespace-normal text-left text-sm"
-                onClick={() => setInitialInput(s)}
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
+      {isEmpty ? (
+        // ── Estado vacío: layout centrado tipo ChatGPT ───────────────────────
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-6 py-8">
+          <div className="mb-10 text-center">
+            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+              ¿En qué te puedo ayudar?
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Consultá datos, creá registros básicos, analizá tu negocio.
+            </p>
+          </div>
+
+          <AgentInputBox
+            ref={taRef}
+            value={input}
+            onChange={setInput}
+            onSend={handleSend}
+            disabled={isStreaming || hasNoCredits}
+            placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : undefined}
+            maxHeight={200}
+          />
+
+          {/* Sugerencias como cards visuales debajo del input */}
+          <div className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {SUGGESTIONS.map(({ icon: Icon, text }) => (
+              <button
+                key={text}
+                type="button"
+                disabled={hasNoCredits}
+                onClick={() => pickSuggestion(text)}
+                className="group flex items-start gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-left text-sm transition-colors hover:border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {s}
-              </Button>
+                <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                <span className="text-foreground/90 group-hover:text-foreground">{text}</span>
+              </button>
             ))}
           </div>
-        }
-      />
+
+          {(hasNoCredits || is402) && (
+            <p className="mt-8 text-center text-xs text-muted-foreground">
+              Sin créditos disponibles.{" "}
+              <Link
+                href="/history-billing"
+                className="font-medium text-foreground underline underline-offset-4 hover:text-foreground/80"
+              >
+                Comprar créditos
+              </Link>
+            </p>
+          )}
+        </div>
+      ) : (
+        // ── Estado con mensajes: thread + input al pie ───────────────────────
+        <>
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+              {messages.map((message) => {
+                const isUser = message.role === "user"
+                return (
+                  <div
+                    key={message.id}
+                    className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
+                  >
+                    {message.parts.map((part, idx) => {
+                      if (isTextUIPart(part)) {
+                        return (
+                          <div
+                            key={idx}
+                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                              isUser
+                                ? "bg-foreground text-background"
+                                : "bg-muted text-foreground"
+                            }`}
+                          >
+                            {part.text}
+                          </div>
+                        )
+                      }
+                      if (isToolOrDynamicToolUIPart(part)) {
+                        const isDone =
+                          "state" in part &&
+                          (part.state === "output-available" || part.state === "output-error")
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-xs text-muted-foreground"
+                          >
+                            {!isDone && (
+                              <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                            )}
+                            <span>{isDone ? "Resultado obtenido" : "Consultando…"}</span>
+                          </div>
+                        )
+                      }
+                      return null
+                    })}
+                  </div>
+                )
+              })}
+
+              {isStreaming && messages[messages.length - 1]?.role === "user" && (
+                <div className="flex items-start">
+                  <div className="flex items-center gap-2 rounded-2xl bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+                    <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                    <span>Pensando…</span>
+                  </div>
+                </div>
+              )}
+
+              <div ref={bottomRef} />
+            </div>
+          </div>
+
+          <div className="border-t bg-background/80 backdrop-blur">
+            <div className="mx-auto w-full max-w-3xl px-6 py-4">
+              {(hasNoCredits || is402) && (
+                <p className="mb-3 text-center text-xs text-muted-foreground">
+                  Sin créditos disponibles.{" "}
+                  <Link
+                    href="/history-billing"
+                    className="font-medium text-foreground underline underline-offset-4 hover:text-foreground/80"
+                  >
+                    Comprar créditos
+                  </Link>
+                </p>
+              )}
+              <AgentInputBox
+                ref={taRef}
+                value={input}
+                onChange={setInput}
+                onSend={handleSend}
+                disabled={isStreaming || hasNoCredits}
+                placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : undefined}
+                maxHeight={200}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
