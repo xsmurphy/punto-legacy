@@ -123,7 +123,7 @@ BEGIN
              COUNT(*), COALESCE(SUM(expensesAmount),0), now()
       FROM expenses
       WHERE companyId = p_company
-        AND expensesDate >= p_day::text AND expensesDate < (p_day + 1)::text
+        AND expensesDate >= p_day AND expensesDate < p_day + 1
       GROUP BY outletId;
     INSERT INTO report_rollup (id, companyId, outletId, domain, periodType, periodStart,
                                 cnt, total, updatedAt)
@@ -212,7 +212,7 @@ BEGIN
              COUNT(*), COALESCE(SUM(expensesAmount),0), now()
       FROM expenses
       WHERE companyId = p_company
-        AND expensesDate >= v_month_start::text AND expensesDate < v_month_end::text
+        AND expensesDate >= v_month_start AND expensesDate < v_month_end
       GROUP BY outletId;
     INSERT INTO report_rollup (id, companyId, outletId, domain, periodType, periodStart,
                                 cnt, total, updatedAt)
@@ -301,7 +301,7 @@ BEGIN
              COUNT(*), COALESCE(SUM(expensesAmount),0), now()
       FROM expenses
       WHERE companyId = p_company
-        AND expensesDate >= v_year_start::text AND expensesDate < v_year_end::text
+        AND expensesDate >= v_year_start AND expensesDate < v_year_end
       GROUP BY outletId;
     INSERT INTO report_rollup (id, companyId, outletId, domain, periodType, periodStart,
                                 cnt, total, updatedAt)
