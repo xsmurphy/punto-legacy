@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
-import { Bot, Send, X } from "lucide-react"
+import { Bot, Send } from "lucide-react"
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"

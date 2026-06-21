@@ -177,7 +177,10 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         onLogout={handleLogout}
       />
       <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
-      {bootstrap?.companyId != null && (
+      {/* El asistente IA NO se monta en /pos: el FAB bottom-right chocaría con
+          la barra flotante de categorías de la caja, y el cajero no lo usa en
+          plena venta. Disponible en el resto del panel. */}
+      {!isPos && bootstrap?.companyId != null && (
         <AgentChat
           companyName={bootstrap.companyName}
           outletName={bootstrap.activeOutletName}
