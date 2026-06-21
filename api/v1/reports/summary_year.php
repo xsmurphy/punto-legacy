@@ -33,7 +33,10 @@ try {
 $outletId = defined('VIEW_OUTLET_ID') ? (string) VIEW_OUTLET_ID : (string) OUTLET_ID;
 
 if (($_GET['verify'] ?? '') === '1') {
-    $rollupData = $svc->yearly($year, $roc, (string) COMPANY_ID, $outletId);
+    // forceRollup=true: ignora el flag REPORTS_ROLLUP_ENABLED para que el diff
+    // compare el rollup REAL contra el live (sin esto, con el flag off yearly()
+    // delegaría a live y el diff daría siempre vacío).
+    $rollupData = $svc->yearly($year, $roc, (string) COMPANY_ID, $outletId, true);
     $liveData   = $svc->yearlyLive($year, $roc, (string) COMPANY_ID);
     $diff = [];
     foreach ($rollupData['months'] as $rm) {

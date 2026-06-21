@@ -160,6 +160,29 @@ pg_cron: `SELECT cron.schedule('rollup-reconcile', '*/5 * * * *', 'SELECT rollup
 - **Doble verdad**: rollup vs live pueden divergir si la lógica de agregación del rollup no matchea EXACTO la del Service viejo (ej. qué transactionType cuenta, exclusiones). Mitigación: el cutover incluye verificación numérica antes de confiar.
 - **PG COALESCE en PK**: usar surrogate id + unique index sobre expresiones, no PK compuesta con COALESCE.
 
+## Procedimiento de cutover (seguridad financiera)
+
+El rollup NO se confía por defecto. `SummaryYearService::yearly()` delega a
+`yearlyLive()` salvo que `$_ENV['REPORTS_ROLLUP_ENABLED']` esté activo. Flujo:
+
+1. Deploy de la mig 41 (crea tablas + backfill histórico) + el código.
+2. Correr `GET /v1/reports/summary_year?y=<AÑO>&verify=1` con un tenant de
+   datos reales. Devuelve `{ rollup, live, diff }`. **`diff` debe estar vacío.**
+3. Repetir para varios años / sucursales (incluida "todas").
+4. Si `diff` vacío en todos → setear `REPORTS_ROLLUP_ENABLED=1` en Coolify
+   (servicio Punto Sys) → el reporte pasa a leer del rollup (rápido).
+5. Si `diff` tiene entradas → NO activar; investigar la divergencia (el campo
+   y el delta apuntan exactamente dónde). El reporte sigue sirviendo live.
+
+Drift conocido a chequear en el diff: `yearly()` puede listar meses con solo
+gastos/devoluciones (sin ventas) que `yearlyLive()` omitía. Es comportamiento
+más correcto pero hay que confirmar que no rompe el consumidor del front.
+
 ## Cronología de commits
 
-(Se completa a medida que se ejecuta cada slice.)
+- `bcbb68f` + `26a2f6c` — RB-1: mig 41 (report_rollup, rollup_dirty,
+  rollup_recompute_period, rollup_reconcile, backfill inline), rollupMarkDirty
+  hookeado en SaleService/DrawerService/transactions PUT, RollupReader, cutover
+  de SummaryYearService con `?verify=1`.
+- _(este commit)_ — gate `REPORTS_ROLLUP_ENABLED`: `yearly()` default a live
+  hasta verificar; `?verify=1` fuerza el rollup real para comparar.

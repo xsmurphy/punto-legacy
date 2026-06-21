@@ -23,9 +23,22 @@ final class SummaryYearService
 {
     public function __construct(private readonly NonAddingSales $nonAdding = new NonAddingSales()) {}
 
-    /** @return array {year, years:[int], months:[{...}]} */
-    public function yearly($year, string $roc, string $companyId, ?string $outletId = null): array
+    /**
+     * Resumen anual. Lee del rollup pre-agregado SOLO si el flag de env
+     * REPORTS_ROLLUP_ENABLED está activo (o $forceRollup=true desde ?verify=1).
+     * Default = cómputo live (yearlyLive) — red de seguridad: el rollup se
+     * confía recién tras verificar que `?verify=1` da diff vacío en datos
+     * reales. Una vez confirmado en prod, seteá REPORTS_ROLLUP_ENABLED=1 en
+     * Coolify y el reporte pasa a O(períodos).
+     *
+     * @return array {year, years:[int], months:[{...}]}
+     */
+    public function yearly($year, string $roc, string $companyId, ?string $outletId = null, bool $forceRollup = false): array
     {
+        if (!$forceRollup && empty($_ENV['REPORTS_ROLLUP_ENABLED'])) {
+            return $this->yearlyLive($year, $roc, $companyId);
+        }
+
         $year   = (int) $year;
         $reader = new RollupReader();
 
