@@ -62,6 +62,7 @@ CREATE TABLE ai_model_config (
 | AI-1 | **Plomería** — deps (`ai`, `@openrouter/ai-sdk-provider`, `@assistant-ui/react`), route handler /api/agent/chat, config tabla + seeds, 1 tool read-only (`get_sales_summary` leyendo del rollup), chat flotante mínimo | Chat habla y puede leer 1 reporte |
 | AI-2 | **Billing loop** — débito en onFinish, `/v1/ai/debit`, hard gate por balance, indicador de créditos en el chat | El uso descuenta créditos correctamente |
 | AI-3 | **Tools de escritura acotadas** — alcance fijo, patrón confirmToken (ver §AI-3 detalle) | El agente opera datos básicos |
+| AI-3b | **Refinement UI** — FAB neutro, textarea ChatGPT-style, página /chat dedicada con sugerencias, fix z-index POS via integración al menú principal | Agente con UX de producto, no MVP demo |
 | AI-4 | **Config /admin** — UI de `ai_model_config`, selección por capability | Owner ajusta modelos sin deploy |
 | AI-5 | **Capabilities extra** — OCR (subir foto de factura → Gemini extrae items), análisis (queries libres sobre el rollup) | Casos de alto valor |
 
@@ -147,7 +148,64 @@ Esto evita duplicar boilerplate por las 8 tools.
 
 `roleName` debe matchear los roles del tenant que NO son admin. El backend (PHP) valida — si el role pasado es admin o no existe, devuelve 422. El catálogo de roles vive en `taxonomy WHERE taxonomyType='role'` (verificar). El agente puede listar roles con una tool extra `get_roles()` si hace falta, o asumir nombres comunes ("Cajero", "Vendedor") y dejar que el backend valide.
 
-## Riesgos
+## Detalle AI-3b — Refinement UI del agente (2026-06-21)
+
+Feedback del owner sobre AI-3 entregado: el FAB verde es agresivo (el brand verde es solo para acentos puntuales — ver context/11), el ícono `Bot` es genérico (debe ser burbuja de chat), el input es básico (debería ser estilo ChatGPT con auto-grow + footer de botones), el FAB queda detrás del backdrop blur del modal del menú POS, y falta una página dedicada `/chat` con sugerencias para que el agente sea un destino "first class" del sidebar (no solo overlay).
+
+**Cambios:**
+
+1. **Refactor en 3 piezas** (separar lógica del montaje):
+   - `components/agent/agent-chat-content.tsx` — el thread completo (mensajes + input + estados balance/error/sin créditos). Recibe `companyName, outletName` por props. Una sola fuente de UI para FAB y página.
+   - `components/agent/agent-chat-floating.tsx` — wrapper FAB + Sheet (lo que hoy es `AgentChat`). Usa `<AgentChatContent>` dentro del Sheet.
+   - `app/(panel)/chat/page.tsx` — página fullscreen del panel. Usa `<AgentChatContent>` directo, sin Sheet, con max-w-3xl mx-auto.
+
+2. **Restyling FAB + avatar header:**
+   - Color: `bg-foreground text-background hover:bg-foreground/90` (neutro fuerte, contraste óptimo en light/dark). NO `bg-brand`.
+   - Ícono: `MessageCircle` de lucide (NO `Bot`).
+   - Mismo tratamiento al avatar circular del header del chat.
+
+3. **Input box estilo ChatGPT:**
+   - Container: `rounded-2xl border bg-card shadow-sm` con padding interno generoso.
+   - `<Textarea>` (de `components/ui/textarea.tsx`) con auto-resize. `rows={1}` y un handler `onInput` que ajusta `el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'` con cap (ej. max-h-40 + scroll).
+   - Footer dentro del mismo container, separado del textarea: 3 botones inline:
+     - `+` (Plus icon) — placeholder "Adjuntar (próximamente)", disabled con tooltip
+     - Micrófono (Mic icon) — placeholder idem
+     - Send (Send o ArrowUp icon) — circular `size-9 bg-foreground text-background rounded-full`
+   - Enter envía. Shift+Enter agrega salto de línea.
+   - Placeholder: "Preguntale al asistente…"
+
+4. **Fix z-index POS — integración al menú principal:**
+   - Quitar el FAB completamente cuando `isPos` (no más `fabVisible = !isPos || menuOpen`). El FAB nunca aparece en /pos.
+   - Agregar item "Asistente" al array `SECTIONS` de `pos-main-menu.tsx`, con `icon: MessageCircle` y `onSelect: ({setOpen}) => { setOpen(false); useAgentChatStore.getState().open() }`. Cierra el menú del POS Y abre el Sheet del chat (que entonces se monta sobre la pantalla del POS sin conflicto de overlay).
+   - Necesita un store mínimo `lib/agent/store.ts`: `{ open: boolean, setOpen, toggle }` (Zustand, igual patrón que `lib/ui/store.ts`).
+   - `AgentChatFloating` lee `useAgentChatStore.open` para controlar el Sheet (en lugar de su propio useState).
+
+5. **Sidebar item en panel-next:**
+   - En `panel-auth-guard.tsx`, `panelNav` array: agregar entre Dashboard y Artículos: `{ title: "Asistente", to: "/chat", icon: MessageCircle }`.
+
+6. **Página `/chat`** (`app/(panel)/chat/page.tsx`):
+   - Layout: `flex flex-col h-[calc(100vh-N)]` (N = alto del header del shell), max-w-3xl mx-auto, padding.
+   - Si `messages.length === 0`:
+     - Header centrado: `<h1 className="text-2xl font-semibold">¿En qué te puedo ayudar?</h1>` con subtítulo discreto.
+     - Grid 2-col responsive de chips outline con sugerencias hardcoded (lista abajo). Click → setea el text del input, NO envía. Permite al user editar antes de enviar.
+   - Si `messages.length > 0`: la conversación normal, scroll arriba, input abajo.
+   - Sugerencias MVP:
+     - "¿Cuánto vendí este mes?"
+     - "Buscame el cliente Juan"
+     - "Creá el producto Café Espresso a 12.000 Gs, categoría Bebidas"
+     - "¿Cuánto stock queda del producto X?"
+     - "Mostrame las sucursales"
+     - "Listame los usuarios del equipo"
+     - "Resumen del año pasado"
+     - "Creá una categoría llamada Promociones"
+
+7. **FAB visibility refinado** (PanelAuthGuard):
+   - Visible: !isPos && pathname !== "/chat"
+   - Oculto: isPos (el menú POS expone el chat como item) o pathname === "/chat" (la página ES el chat)
+
+**Trade-off conversación compartida vs independiente:** MVP usa conversaciones INDEPENDIENTES (cada `useChat` en cada montaje tiene su propio state). Significa que si el user arranca en el FAB y abre la página, no continúa la misma conversación. Para v2 se puede mover el state a un store global. Documentar.
+
+
 
 - **Tool con permisos del operador**: las tools heredan `_jwt_panel` → el agente NO puede hacer nada que el operador no pueda. Bien. Pero un operador podría pedirle al agente acciones destructivas — por eso confirmación inline en mutaciones (AI-3).
 - **Costo runaway**: un loop de tools mal diseñado quema créditos. Mitigación: `maxSteps` en streamText, hard gate por balance, y el débito ocurre por uso real (no estimado).
