@@ -280,13 +280,21 @@ switch (true) {
 
     // ── GET — listar pantallas (auth panel) ──────────────────────────────────
     case $method === 'GET': {
+        // Tabla `register` se creó sin quotes en el CREATE TABLE → PG fold a
+        // lowercase. Por eso `r."registerId"` con quotes FALLA (busca exact
+        // case que no existe) y `r."name"` no existe (la columna real es
+        // `registerName` → `registername`). Mismo motivo aplica a `register.name`
+        // que en realidad es `registerName`. Sin quotes y con el nombre real
+        // funciona. Las columnas de customer_display SÍ están en lowercase fold
+        // pero como ese CREATE TABLE tampoco usó quotes, también acepta sin quotes.
         $rows = ncmExecute(
-            'SELECT cd.id, cd.name, cd."registerId", r.name AS "registerName",
-                    cd."ipLast"::text, cd."lastSeenAt", cd.status, cd."createdAt"
+            'SELECT cd.id, cd.name, cd.registerId, r.registerName AS "registerName",
+                    cd.ipLast::text AS "ipLast", cd.lastSeenAt AS "lastSeenAt",
+                    cd.status, cd.createdAt AS "createdAt"
              FROM customer_display cd
-             LEFT JOIN register r ON r."registerId" = cd."registerId"
-             WHERE cd."companyId" = ?::uuid
-             ORDER BY cd.status DESC, cd."createdAt" DESC',
+             LEFT JOIN register r ON r.registerId = cd.registerId
+             WHERE cd.companyId = ?::uuid
+             ORDER BY cd.status DESC, cd.createdAt DESC',
             [$companyId]
         );
 

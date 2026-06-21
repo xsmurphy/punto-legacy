@@ -319,7 +319,10 @@ final class DashboardService
         if (!$this->moduleOn('tables', $companyId)) {
             return [];
         }
-        $occup = (int) $this->scalar("SELECT COUNT(*) as count FROM transaction WHERE transactionType = 11 AND transactionName > 0" . $roc);
+        // transactionName es VARCHAR (no INT) → comparar con `> 0` falla en PG
+        // ("operator does not exist: character varying > integer"). El intent es
+        // "tiene nombre asignado" → checkear no-vacío y, si es numérico, > 0.
+        $occup = (int) $this->scalar("SELECT COUNT(*) as count FROM transaction WHERE transactionType = 11 AND transactionName IS NOT NULL AND transactionName <> ''" . $roc);
         $m = $this->companyMeta($companyId);
         $totalTables = (int) ($m['tablesCount'] ?? 0) ?: 90;
         return [
