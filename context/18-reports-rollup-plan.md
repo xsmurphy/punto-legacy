@@ -184,5 +184,30 @@ más correcto pero hay que confirmar que no rompe el consumidor del front.
   rollup_recompute_period, rollup_reconcile, backfill inline), rollupMarkDirty
   hookeado en SaleService/DrawerService/transactions PUT, RollupReader, cutover
   de SummaryYearService con `?verify=1`.
-- _(este commit)_ — gate `REPORTS_ROLLUP_ENABLED`: `yearly()` default a live
+- `b8...` (gate RB-1) — `REPORTS_ROLLUP_ENABLED`: `yearly()` default a live
   hasta verificar; `?verify=1` fuerza el rollup real para comparar.
+- `e61d3b0` — RB-2: mig 42 extiende `rollup_recompute_period` con dominios
+  `item_sales` (tipos 0,3 por item, métricas weighted en cols fijas + comission/
+  cogsAbsFlat/discountFlat en extra), `item_returns` (tipo 6, solo poblado),
+  `payments` (resumen por método desde `transactionPaymentType` JSONB, entityId=
+  md5(type)::uuid). Backfill inline. SaleService marca los nuevos dominios dirty.
+  `RollupReader::itemSalesRange/paymentsRange`. Cutover de Categories/Brands/
+  PaymentMethods(summary) — todos gated + `?verify=1`. **products general queda
+  live** (RB-2b: su semántica ABS-flat + tipos 0,3,6 + prev-period necesita
+  verify propio). El `detail` de payment-methods queda SIEMPRE live (es detalle
+  transaccional, no rollupeable).
+
+### Estado de cutover por reporte
+
+| Reporte | Domain rollup | Estado |
+|---|---|---|
+| summary_year | sales/expenses/returns | gated + verify (RB-1) |
+| categories | item_sales | gated + verify (RB-2) |
+| brands | item_sales | gated + verify (RB-2) |
+| payment-methods (summary) | payments | gated + verify (RB-2) |
+| products (general) | item_sales/item_returns | **pendiente RB-2b** (dominios ya poblados) |
+| stock/production/commissions/vpayments | — | **pendiente RB-3** |
+
+**Activación**: tras deploy, correr `?verify=1` en cada reporte con datos reales;
+si `diff` vacío en todos → setear `REPORTS_ROLLUP_ENABLED=1` (un solo flag activa
+todos los cutover a la vez).
