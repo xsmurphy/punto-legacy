@@ -368,6 +368,20 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
         }
     }
 
+    // Rollup: marcar el día de la transacción editada como dirty (best-effort).
+    try {
+        $txDateForDirty = $record['transactionDate'] ?? null;
+        if ($txDateForDirty === null) {
+            $txRow = ncmExecute('SELECT transactionDate FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1', [$txId, COMPANY_ID]);
+            $txDateForDirty = $txRow['transactionDate'] ?? null;
+        }
+        if ($txDateForDirty !== null) {
+            \rollupMarkDirty((string) COMPANY_ID, ['sales'], substr((string)$txDateForDirty, 0, 10));
+        }
+    } catch (\Throwable $e) {
+        error_log('[transactions.put] rollupMarkDirty: ' . $e->getMessage());
+    }
+
     apiOk(['updated' => true, 'id' => $txId]);
 }
 

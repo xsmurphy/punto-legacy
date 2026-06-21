@@ -235,6 +235,7 @@ final class DrawerService
             throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar extracción');
         }
 
+        \rollupMarkDirty($this->ctx->companyId, ['drawer_expenses'], $date);
         return true;
     }
 
@@ -270,6 +271,7 @@ final class DrawerService
             throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar ingreso');
         }
 
+        \rollupMarkDirty($this->ctx->companyId, ['drawer_expenses'], $date);
         return true;
     }
 

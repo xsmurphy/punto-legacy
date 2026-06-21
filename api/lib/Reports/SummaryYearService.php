@@ -24,7 +24,53 @@ final class SummaryYearService
     public function __construct(private readonly NonAddingSales $nonAdding = new NonAddingSales()) {}
 
     /** @return array {year, years:[int], months:[{...}]} */
-    public function yearly($year, string $roc, string $companyId): array
+    public function yearly($year, string $roc, string $companyId, ?string $outletId = null): array
+    {
+        $year   = (int) $year;
+        $reader = new RollupReader();
+
+        $salesMap    = $reader->monthlyBuckets($companyId, 'sales',    $year, $outletId);
+        $expensesMap = $reader->monthlyBuckets($companyId, 'expenses', $year, $outletId);
+        $returnsMap  = $reader->monthlyBuckets($companyId, 'returns',  $year, $outletId);
+
+        $allMonths = array_unique(array_merge(
+            array_keys($salesMap),
+            array_keys($expensesMap),
+            array_keys($returnsMap)
+        ));
+        sort($allMonths);
+
+        $months = [];
+        foreach ($allMonths as $m) {
+            $ms = sprintf('%04d-%02d-01 00:00:00', $year, $m);
+            $me = date('Y-m-t 23:59:59', strtotime($ms));
+
+            $s = $salesMap[$m]    ?? ['cnt' => 0, 'total' => 0, 'tax' => 0, 'discount' => 0, 'qty' => 0];
+            $e = $expensesMap[$m] ?? ['total' => 0];
+            $r = $returnsMap[$m]  ?? ['total' => 0];
+
+            $months[] = [
+                'month'          => $m,
+                'usold'          => (float) ($s['qty']      ?? 0),
+                'count'          => (int)   ($s['cnt']      ?? 0),
+                'discount'       => (float) ($s['discount'] ?? 0),
+                'tax'            => (float) ($s['tax']      ?? 0),
+                'salesTotal'     => (float) ($s['total']    ?? 0),
+                'expensesTotal'  => (float) ($e['total']    ?? 0),
+                'returnsTotal'   => (float) ($r['total']    ?? 0),
+                'nonAddingTotal' => $this->nonAddingTotal($ms, $me, $roc),
+                'customers'      => $this->newCustomers($ms, $me, $roc),
+            ];
+        }
+
+        return [
+            'year'   => $year,
+            'years'  => $this->yearsSince($companyId),
+            'months' => $months,
+        ];
+    }
+
+    public function yearlyLive($year, string $roc, string $companyId): array
     {
         $year      = (int) $year;
         $startYear = sprintf('%04d-01-01 00:00:00', $year);

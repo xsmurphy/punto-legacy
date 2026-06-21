@@ -185,6 +185,18 @@ final class SaleService
         // puede afectarla — todo wrapeado, los fallos se loguean y se ignoran.
         $this->dispatchNotifications($input, (string) $transId, $saleDetail);
 
+        // Rollup: marcar el día de la transacción sucio (best-effort).
+        try {
+            $rollupDomains = match ($input->type) {
+                \Punto\Api\Sales\SaleType::Return => ['returns'],
+                \Punto\Api\Sales\SaleType::CashPurchase, \Punto\Api\Sales\SaleType::CreditPurchase => ['expenses'],
+                default => ['sales'],
+            };
+            \rollupMarkDirty((string) $this->ctx->companyId, $rollupDomains, $input->date);
+        } catch (\Throwable $e) {
+            error_log('[SaleService] rollupMarkDirty: ' . $e->getMessage());
+        }
+
         return SaleResult::created(
             transactionId: (string) $transId,
             uid:           $input->uid,

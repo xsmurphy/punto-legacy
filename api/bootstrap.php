@@ -19,6 +19,7 @@ chdir(API_APP_DIR); // los includes de head.php/data.php son relativos al cwd
 require_once API_APP_DIR . '/includes/cors.php';
 require_once API_APP_DIR . '/includes/jwt_middleware.php';
 require_once API_APP_DIR . '/includes/realtime.php';
+require_once API_APP_DIR . '/includes/rollup.php';
 require_once __DIR__ . '/lib/response.php';
 
 // Autoloader mínimo PSR-4 para código nuevo en `api/lib/` con namespace `Punto\Api\…`.
