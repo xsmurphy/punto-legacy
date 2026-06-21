@@ -15,7 +15,7 @@ export function useCartPublisher() {
     if (payload === lastPayload.current) return
     lastPayload.current = payload
     const handle = setTimeout(() => {
-      void api.post("/v1/screens/publish", {
+      void api.post("/v1/screens?resource=publish", {
         type: "cart-update",
         data: {
           lines: lines.map((l) => ({

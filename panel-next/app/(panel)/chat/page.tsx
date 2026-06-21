@@ -203,15 +203,21 @@ export default function ChatPage() {
                         const isDone =
                           "state" in part &&
                           (part.state === "output-available" || part.state === "output-error")
+                        const isError = "state" in part && part.state === "output-error"
                         return (
                           <div
                             key={idx}
-                            className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-xs text-muted-foreground"
+                            className="flex items-center gap-2 px-1 py-0.5 text-[11px] text-muted-foreground/70"
                           >
-                            {!isDone && (
-                              <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-                            )}
-                            <span>{isDone ? "Resultado obtenido" : "Consultando…"}</span>
+                            <span
+                              className={
+                                isError
+                                  ? "size-1.5 rounded-full bg-destructive/70"
+                                  : isDone
+                                    ? "size-1.5 rounded-full bg-muted-foreground/40"
+                                    : "size-1.5 animate-pulse rounded-full bg-muted-foreground/70"
+                              }
+                            />
                           </div>
                         )
                       }

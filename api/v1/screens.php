@@ -265,14 +265,17 @@ switch (true) {
     // ── POST ?resource=publish — auth pos-app ────────────────────────────────
     case $method === 'POST' && $resource === 'publish': {
         $type = $_POST['type'] ?? '';
-        $data = isset($_POST['data']) ? json_decode($_POST['data'], true) : [];
+        $raw  = $_POST['data'] ?? [];
+        // El middleware JSON de bootstrap.php ya deserializa el body → $_POST['data']
+        // llega como array. Mantenemos compat con clientes legacy que mandan string JSON.
+        $data = is_string($raw) ? (json_decode($raw, true) ?? []) : (is_array($raw) ? $raw : []);
 
         $validTypes = ['cart-update', 'sale-confirmed', 'cart-cleared', 'idle'];
         if (!in_array($type, $validTypes, true)) {
             apiError('tipo inválido', 400);
         }
 
-        wsPublish($ctx['companyId'] . ':checkout:' . $ctx['registerId'], $type, $data ?? []);
+        wsPublish($ctx['companyId'] . ':checkout:' . $ctx['registerId'], $type, $data);
 
         apiOk(['ok' => true]);
         break;

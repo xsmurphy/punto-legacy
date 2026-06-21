@@ -45,15 +45,13 @@ function ModuleCard({
   onToggle,
   onConfigure,
 }: ModuleCardProps) {
-  const Icon = entry.icon
   const isSoon = entry.status === "soon"
   const moduleState = modulesMap?.[entry.key]
   const enabled = moduleState?.enabled ?? false
   const hasConfig = entry.configKind !== "none" && !isSoon
 
-  // Card compacta: con 3 cols dentro del modal (~780px content area) cada
-  // card queda ~245px; tipografías base no entraban. Mantener gap interno
-  // breve para que el switch quede a la altura del icono.
+  // Sin icono: el switch es el foco visual (acción primaria) + botón
+  // Configurar aparece solo cuando el módulo está activado.
   return (
     <Card
       className={
@@ -63,9 +61,14 @@ function ModuleCard({
       }
     >
       <CardHeader className="gap-2 pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
-            <Icon className="size-4 text-muted-foreground" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-sm font-semibold leading-tight">
+              {entry.title}
+            </CardTitle>
+            <CardDescription className="mt-1 text-xs leading-snug">
+              {entry.description}
+            </CardDescription>
           </div>
           {isSoon ? (
             <Badge variant="secondary" className="shrink-0 text-[10px]">
@@ -77,15 +80,10 @@ function ModuleCard({
               disabled={isPendingToggle || modulesMap === undefined}
               onCheckedChange={(checked) => onToggle(entry.key, checked)}
               aria-label={`${entry.title} ${enabled ? "activado" : "desactivado"}`}
+              className="shrink-0"
             />
           )}
         </div>
-        <CardTitle className="text-sm font-semibold leading-tight">
-          {entry.title}
-        </CardTitle>
-        <CardDescription className="text-xs leading-snug">
-          {entry.description}
-        </CardDescription>
       </CardHeader>
 
       {hasConfig && enabled && (
@@ -110,13 +108,14 @@ function SkeletonGrid({ count = 6 }: { count?: number }) {
       {Array.from({ length: count }).map((_, i) => (
         <Card key={i}>
           <CardHeader className="gap-2 pb-2">
-            <div className="flex items-start justify-between gap-2">
-              <Skeleton className="size-9 rounded-lg" />
-              <Skeleton className="h-5 w-9 rounded-full" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                <Skeleton className="h-3.5 w-3/4" />
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-4/5" />
+              </div>
+              <Skeleton className="h-5 w-9 shrink-0 rounded-full" />
             </div>
-            <Skeleton className="h-3.5 w-3/4" />
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-4/5" />
           </CardHeader>
         </Card>
       ))}

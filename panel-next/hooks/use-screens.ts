@@ -24,7 +24,7 @@ export function useScreens() {
 export function usePairScreen() {
   const qc = useQueryClient()
   return useMutation<{ ok: true; id: string }, Error, { pin: string; name: string }>({
-    mutationFn: (body) => api.post("/v1/screens/pair", body),
+    mutationFn: (body) => api.post("/v1/screens?resource=pair", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["screens"] }),
   })
 }

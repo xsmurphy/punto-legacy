@@ -16,6 +16,7 @@
 
 import * as React from "react"
 import { X, Printer, BicepsFlexed } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   Dialog,
   DialogContent,
@@ -120,6 +121,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const { data: drawerStatus } = useDrawerStatus()
   const drawerClosed = drawerStatus !== undefined && !drawerStatus.isOpen
 
+  const qc = useQueryClient()
+
   // ── Estado ────────────────────────────────────────────────────────────────
   const [display, setDisplay] = React.useState("")
   const [applied, setApplied] = React.useState<AppliedPayment[]>([])
@@ -189,10 +192,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setChange(changeAmount)
       setSaleResult(result)
       setPhase("success")
-      void api.post("/v1/screens/publish", {
+      void api.post("/v1/screens?resource=publish", {
         type: "sale-confirmed",
         data: { total, change: changeAmount },
       }).catch(() => {})
+      // Invalidar caches afectadas por la venta: dashboard (KPIs/widgets),
+      // listado de transacciones, status de caja (montos efectivo).
+      void qc.invalidateQueries({ queryKey: ["dashboard-widget"] })
+      void qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
+      void qc.invalidateQueries({ queryKey: ["bff", "income-chart"] })
+      void qc.invalidateQueries({ queryKey: ["drawer", "status"] })
+      void qc.invalidateQueries({ queryKey: ["drawer", "summary"] })
     } catch (err) {
       setErrorMsg(
         err instanceof Error ? err.message : "Error al confirmar la venta",
@@ -388,7 +398,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   function handleClose() {
     if (phase === "success") {
       clear()
-      void api.post("/v1/screens/publish", {
+      void api.post("/v1/screens?resource=publish", {
         type: "cart-cleared",
         data: {},
       }).catch(() => {})
