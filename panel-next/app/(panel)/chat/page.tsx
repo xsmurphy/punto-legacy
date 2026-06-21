@@ -18,6 +18,8 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
+import { MessageMarkdown } from "@/components/agent/message-markdown"
+import { MessageActions } from "@/components/agent/message-actions"
 
 /**
  * Página dedicada del asistente IA en el sidebar.
@@ -105,17 +107,22 @@ export default function ChatPage() {
   if (!bootstrap) return null
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
+    <div className="flex h-[calc(100vh-4rem)] flex-col gap-6">
+      {/* Header de página — patrón estándar (items/contacts/etc.) */}
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold">Asistente</h1>
+        <p className="text-sm text-muted-foreground">
+          Consultá datos, creá registros básicos y analizá tu negocio en lenguaje natural.
+        </p>
+      </header>
+
       {isEmpty ? (
         // ── Estado vacío: layout centrado tipo ChatGPT ───────────────────────
-        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-6 py-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-6 pb-8">
           <div className="mb-10 text-center">
-            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+            <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
               ¿En qué te puedo ayudar?
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Consultá datos, creá registros básicos, analizá tu negocio.
-            </p>
+            </h2>
           </div>
 
           <AgentInputBox
@@ -170,16 +177,24 @@ export default function ChatPage() {
                   >
                     {message.parts.map((part, idx) => {
                       if (isTextUIPart(part)) {
+                        // User: texto plano (lo que escribió). Assistant:
+                        // markdown formateado + acciones (copiar/leer).
+                        if (isUser) {
+                          return (
+                            <div
+                              key={idx}
+                              className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-sm leading-relaxed text-background"
+                            >
+                              {part.text}
+                            </div>
+                          )
+                        }
                         return (
-                          <div
-                            key={idx}
-                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                              isUser
-                                ? "bg-foreground text-background"
-                                : "bg-muted text-foreground"
-                            }`}
-                          >
-                            {part.text}
+                          <div key={idx} className="w-full max-w-[90%] space-y-1">
+                            <div className="rounded-2xl bg-muted px-4 py-3 text-foreground">
+                              <MessageMarkdown content={part.text} />
+                            </div>
+                            <MessageActions text={part.text} />
                           </div>
                         )
                       }
@@ -218,7 +233,8 @@ export default function ChatPage() {
             </div>
           </div>
 
-          <div className="border-t bg-background/80 backdrop-blur">
+          {/* Sin border-t: el shadow del input box ya separa visualmente del thread */}
+          <div className="bg-background/80 backdrop-blur">
             <div className="mx-auto w-full max-w-3xl px-6 py-4">
               {(hasNoCredits || is402) && (
                 <p className="mb-3 text-center text-xs text-muted-foreground">

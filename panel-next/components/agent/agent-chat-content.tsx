@@ -7,6 +7,8 @@ import { MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
+import { MessageMarkdown } from "@/components/agent/message-markdown"
+import { MessageActions } from "@/components/agent/message-actions"
 
 // El balance se sigue consultando para gatear el input cuando llega a 0,
 // pero NO se muestra en el header — esa info ya vive en /history-billing.
@@ -124,16 +126,26 @@ export function AgentChatContent({
             >
               {message.parts.map((part, idx) => {
                 if (isTextUIPart(part)) {
+                  // User: plano (lo que escribió). Assistant: markdown +
+                  // acciones (copiar/leer). Mismo tratamiento que la página
+                  // /chat — la pieza visual es idéntica para que la UX no
+                  // varíe entre FAB y página dedicada.
+                  if (isUser) {
+                    return (
+                      <div
+                        key={idx}
+                        className="max-w-[85%] rounded-2xl bg-foreground px-3 py-2 text-sm text-background"
+                      >
+                        {part.text}
+                      </div>
+                    )
+                  }
                   return (
-                    <div
-                      key={idx}
-                      className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                        isUser
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-foreground"
-                      }`}
-                    >
-                      {part.text}
+                    <div key={idx} className="w-full max-w-[95%] space-y-1">
+                      <div className="rounded-2xl bg-muted px-3 py-2 text-foreground">
+                        <MessageMarkdown content={part.text} />
+                      </div>
+                      <MessageActions text={part.text} />
                     </div>
                   )
                 }
