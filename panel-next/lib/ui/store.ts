@@ -2,9 +2,9 @@
  * Store global de UI del POS — abre/cierra dialogs disparados desde fuera
  * del CartPanel (ej. iconos del PosSidebar).
  *
- * Mantenido mínimo a propósito: solo el estado de apertura. La lógica
- * (qué producto seleccionar, qué cliente, etc.) sigue en los stores de
- * dominio (cart, catalog) o en el state local del dialog.
+ * Incluye los queries de búsqueda de productos y clientes para que persistan
+ * entre aperturas/cierres del dialog dentro de la misma sesión POS. No se
+ * usa localStorage — los queries se limpian al resetear la sesión (logout).
  */
 
 import { create } from "zustand"
@@ -15,11 +15,19 @@ interface PosUIState {
   payOpen: boolean
   menuOpen: boolean
   optionsOpen: boolean
+  /** Query activo del buscador de productos. Persiste al cerrar el modal. */
+  itemSearchQuery: string
+  /** Query activo del buscador de clientes. Persiste al cerrar el modal. */
+  customerSearchQuery: string
   setSearchOpen: (v: boolean) => void
   setCustomerOpen: (v: boolean) => void
   setPayOpen: (v: boolean) => void
   setMenuOpen: (v: boolean) => void
   setOptionsOpen: (v: boolean) => void
+  setItemSearchQuery: (q: string) => void
+  setCustomerSearchQuery: (q: string) => void
+  clearItemSearchQuery: () => void
+  clearCustomerSearchQuery: () => void
 }
 
 export const usePosUIStore = create<PosUIState>()((set) => ({
@@ -28,9 +36,15 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   payOpen: false,
   menuOpen: false,
   optionsOpen: false,
+  itemSearchQuery: "",
+  customerSearchQuery: "",
   setSearchOpen: (v) => set({ searchOpen: v }),
   setCustomerOpen: (v) => set({ customerOpen: v }),
   setPayOpen: (v) => set({ payOpen: v }),
   setMenuOpen: (v) => set({ menuOpen: v }),
   setOptionsOpen: (v) => set({ optionsOpen: v }),
+  setItemSearchQuery: (q) => set({ itemSearchQuery: q }),
+  setCustomerSearchQuery: (q) => set({ customerSearchQuery: q }),
+  clearItemSearchQuery: () => set({ itemSearchQuery: "" }),
+  clearCustomerSearchQuery: () => set({ customerSearchQuery: "" }),
 }))

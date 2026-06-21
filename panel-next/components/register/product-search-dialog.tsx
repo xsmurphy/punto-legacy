@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
+import { usePosUIStore } from "@/lib/ui/store"
 import { searchItems } from "@/lib/catalog/search"
 import { formatMoney } from "@/lib/format-money"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
@@ -44,18 +45,19 @@ export function ProductSearchDialog({
   open,
   onOpenChange,
 }: ProductSearchDialogProps) {
-  const [query, setQuery] = React.useState("")
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const items = useCatalogStore((s) => s.items)
   const config = useCatalogStore((s) => s.config)
   const addItem = useCartStore((s) => s.addItem)
+  // Query en el store para que persista al cerrar y reabrir el modal.
+  const query = usePosUIStore((s) => s.itemSearchQuery)
+  const setQuery = usePosUIStore((s) => s.setItemSearchQuery)
+  const clearQuery = usePosUIStore((s) => s.clearItemSearchQuery)
 
-  // Reset query when dialog closes/opens; autofocus on open.
+  // Solo autofocus al abrir — no limpiamos el query para preservar la búsqueda.
   React.useEffect(() => {
     if (open) {
-      setQuery("")
-      // Small delay so the dialog animation completes before focusing.
       const id = setTimeout(() => inputRef.current?.focus(), 50)
       return () => clearTimeout(id)
     }
@@ -72,7 +74,7 @@ export function ProductSearchDialog({
     addItem({ id: item.id, name: item.name, price: item.price })
     // No cerramos el modal — el cajero puede seguir agregando productos.
     // Limpiamos la búsqueda y devolvemos el foco al input para el siguiente artículo.
-    setQuery("")
+    clearQuery()
     setTimeout(() => inputRef.current?.focus(), 0)
   }
 
