@@ -61,7 +61,7 @@ CREATE TABLE ai_model_config (
 |---|---|---|
 | AI-1 | **Plomería** — deps (`ai`, `@openrouter/ai-sdk-provider`, `@assistant-ui/react`), route handler /api/agent/chat, config tabla + seeds, 1 tool read-only (`get_sales_summary` leyendo del rollup), chat flotante mínimo | Chat habla y puede leer 1 reporte |
 | AI-2 | **Billing loop** — débito en onFinish, `/v1/ai/debit`, hard gate por balance, indicador de créditos en el chat | El uso descuenta créditos correctamente |
-| AI-3 | **Tools de escritura** — `create_item`, `find_contact`, `create_contact`, con confirmación inline | El agente opera datos |
+| AI-3 | **Tools de escritura acotadas** — alcance fijo, patrón confirmToken (ver §AI-3 detalle) | El agente opera datos básicos |
 | AI-4 | **Config /admin** — UI de `ai_model_config`, selección por capability | Owner ajusta modelos sin deploy |
 | AI-5 | **Capabilities extra** — OCR (subir foto de factura → Gemini extrae items), análisis (queries libres sobre el rollup) | Casos de alto valor |
 
@@ -83,6 +83,69 @@ Stack confirmado: Next 16.2.6, React 19.2.4, npm. AI SDK **v5**.
 - **`components/agent/agent-chat.tsx`** (client): FAB fijo bottom-right + `<Sheet side="right">` con la conversación (mensajes + input), `useChat({ api: "/api/agent/chat", body: { companyName, outletName } })`. Render simple de tool calls (estado "consultando ventas…" + resultado). Wire en `PanelAuthGuard` (junto a RealtimeWire), visible solo con `companyId` presente.
 - **Riesgo principal**: API de AI SDK v5 (UIMessage parts, `toUIMessageStreamResponse`, `tool({inputSchema})`). El ejecutor debe lograr streaming mínimo SIN tools primero, confirmar, y recién ahí agregar la tool. Verificar la versión instalada (`node_modules/ai/package.json`) y seguir ESA API.
 - **Design system**: tokens del tema; brand verde solo en el FAB y el avatar del agente.
+
+## Detalle AI-3 — alcance acotado + confirmToken
+
+Decisión cerrada (2026-06-21): el agente NO hace todo lo que un humano hace. Alcance MVP fijo (ver memoria [[ai-agent-scope-limits]] con la justificación de cada inclusión/exclusión).
+
+### Tools (13 total)
+
+**Lecturas (5)** — sin gate, ejecución directa:
+
+| Tool | Endpoint backing |
+|---|---|
+| `find_contact({query, type?})` | `GET /v1/contacts?q=...&type=1\|2` |
+| `find_item({query})` | `GET /v1/items?q=...` |
+| `get_outlets()` | `GET /v1/outlets` |
+| `get_team_members()` | `GET /v1/users` |
+| `get_stock({itemQuery})` | `GET /v1/reports/stock?itemQuery=...` (o equivalente — el ejecutor verifica) |
+
+**Escrituras (8)** — patrón confirmToken:
+
+| Tool | Backing | Notas |
+|---|---|---|
+| `create_contact({type:1\|2, name, phone?, email?, ruc?, ci?})` | `POST /v1/contacts` | type 1=cliente, 2=proveedor |
+| `update_contact({id, ...changes})` | `PUT /v1/contacts?id=` | solo campos básicos en `changes` (whitelist) |
+| `create_item({kind, name, price, cost?, sku?, categoryName?, brandName?, taxName?})` | `POST /v1/items` | kind ∈ {producto, servicio} ÚNICAMENTE; cat/brand/tax resueltos por nombre vía `getTaxonomyIdOrInsert` (case-insensitive) |
+| `update_item_price({id, newPrice})` | `PUT /v1/items?id=` | solo `itemPrice` |
+| `create_user({name, phone, roleName})` | `POST /v1/users` | roleName ∈ roles operativos (admin EXCLUIDO) |
+| `create_category({name})` | `POST /v1/categories` | UNIQUE protege dups |
+| `create_brand({name})` | `POST /v1/brands` | idem |
+| `create_tag({name})` | `POST /v1/tags` | idem |
+
+### Patrón confirmToken (server-side)
+
+Endpoint nuevo `api/v1/ai/confirm.php` (POST, auth panel):
+- Body: `{action, payload}`. `action` ∈ las 8 acciones de escritura. `payload` es el objeto que la tool armó.
+- Genera `confirmToken` UUID, guarda en Redis `agent:confirm:<token>` valor `JSON.stringify({action, payload, companyId, userId})` con TTL 300s.
+- Devuelve `{confirmToken, summary}` donde `summary` es un string breve generado server-side ("Crear cliente 'Juan Pérez' con teléfono +595 981 123456").
+
+Endpoint `api/v1/ai/execute.php` (POST, auth panel):
+- Body: `{confirmToken}`.
+- Lee Redis `agent:confirm:<token>`, valida `companyId === ctx['companyId']` (anti-replay cross-tenant), borra el token (uso único), invoca el action correspondiente (mismo path interno que el endpoint real — reusá los Services existentes vía require).
+- Devuelve el resultado del action.
+
+**Comportamiento del agente** (en el route handler chat):
+1. Tool de escritura → llama `/v1/ai/confirm` con el payload, devuelve `{requiresConfirmation:true, summary, confirmToken}` al modelo.
+2. El modelo muestra `summary` al user.
+3. User dice "sí" / "ok" / "dale" → el modelo re-llama la MISMA tool con `{confirmToken}` en lugar del payload.
+4. La tool detecta que viene `{confirmToken}` (no payload) y llama `/v1/ai/execute`.
+5. Resultado: `{success, id, ...}` que el modelo verbaliza.
+
+Si user dice "no" → el modelo descarta. El token expira solo a los 5 min.
+
+### Helper `lib/ai-tools-utils.ts` en panel-next
+
+Funciones reusables para las 8 tools de escritura:
+- `requestConfirm(action, payload, cookie)` → fetch a `/v1/ai/confirm`
+- `executeConfirmed(confirmToken, cookie)` → fetch a `/v1/ai/execute`
+- `buildWriteTool(action, schemaCreate, schemaExecute)` → devuelve un `tool({...})` que en el `execute` decide qué endpoint llamar según presencia de `confirmToken`.
+
+Esto evita duplicar boilerplate por las 8 tools.
+
+### Roles operativos (para create_user)
+
+`roleName` debe matchear los roles del tenant que NO son admin. El backend (PHP) valida — si el role pasado es admin o no existe, devuelve 422. El catálogo de roles vive en `taxonomy WHERE taxonomyType='role'` (verificar). El agente puede listar roles con una tool extra `get_roles()` si hace falta, o asumir nombres comunes ("Cajero", "Vendedor") y dejar que el backend valide.
 
 ## Riesgos
 
