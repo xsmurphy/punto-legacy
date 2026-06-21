@@ -15,11 +15,15 @@ interface PosUIState {
   payOpen: boolean
   menuOpen: boolean
   optionsOpen: boolean
+  qtyPadMode: "int" | "decimal"
+  discountPadMode: "money" | "percent"
   setSearchOpen: (v: boolean) => void
   setCustomerOpen: (v: boolean) => void
   setPayOpen: (v: boolean) => void
   setMenuOpen: (v: boolean) => void
   setOptionsOpen: (v: boolean) => void
+  setQtyPadMode: (v: "int" | "decimal") => void
+  setDiscountPadMode: (v: "money" | "percent") => void
 }
 
 export const usePosUIStore = create<PosUIState>()((set) => ({
@@ -28,9 +32,13 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   payOpen: false,
   menuOpen: false,
   optionsOpen: false,
+  qtyPadMode: "int",
+  discountPadMode: "money",
   setSearchOpen: (v) => set({ searchOpen: v }),
   setCustomerOpen: (v) => set({ customerOpen: v }),
   setPayOpen: (v) => set({ payOpen: v }),
   setMenuOpen: (v) => set({ menuOpen: v }),
   setOptionsOpen: (v) => set({ optionsOpen: v }),
+  setQtyPadMode: (v) => set({ qtyPadMode: v }),
+  setDiscountPadMode: (v) => set({ discountPadMode: v }),
 }))

@@ -3,18 +3,16 @@
 /**
  * Diálogo para aplicar descuento por línea del carrito.
  *
- * Dos modos: porcentaje (%) y monto fijo. Toggle entre modos con un chip.
- * Enter confirma, ESC cierra.
+ * Usa NumericPad con dos modos: porcentaje (%) y monto fijo (money).
+ * Shift alterna entre modos (persiste en usePosUIStore). Al alternar se
+ * resetea el draft para evitar conversiones confusas en el display.
  *
  * Modelo de descuento:
  *   - CartLine.discount = número entre 0 y 100 (porcentaje aplicado).
- *   - El lineSubtotal respeta el descuento: qty * unitPrice * (1 - discount/100).
- *   - "Monto fijo" se convierte a porcentaje: (monto / total_linea) * 100,
- *     donde total_linea = qty * unitPrice (consistente con el legacy:
- *     insertIndividualDiscount L22281–22316 — store percent siempre).
+ *   - "Monto fijo" → (monto / total_linea) * 100, clampeado a 100.
+ *     Ref. legacy: insertIndividualDiscount L22281-22316 — store percent siempre.
  *
- * Ref. legacy: app/scripts/app.js L3666–3684 (type == 'discount' en ncmItems.manage)
- * y L22281–22316 (insertIndividualDiscount).
+ * Ref. legacy: app/scripts/app.js L3666-3684 (type == 'discount' en ncmItems.manage)
  */
 
 import * as React from "react"
@@ -26,12 +24,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { MoneyInput } from "@/components/ui/money-input"
-import { cn } from "@/lib/utils"
+import { NumericPad } from "@/components/pos/numeric-pad"
+import { usePosUIStore } from "@/lib/ui/store"
 import type { CartLine } from "@/lib/cart/store"
-
-type DiscountMode = "percent" | "amount"
 
 interface LineDiscountDialogProps {
   open: boolean
@@ -46,61 +41,63 @@ export function LineDiscountDialog({
   onConfirm,
   onClose,
 }: LineDiscountDialogProps) {
-  const [mode, setMode] = React.useState<DiscountMode>("percent")
-  const [percentDraft, setPercentDraft] = React.useState("")
-  const [amountDraft, setAmountDraft] = React.useState<number | null>(null)
+  const storedMode = usePosUIStore((s) => s.discountPadMode)
+  const setDiscountPadMode = usePosUIStore((s) => s.setDiscountPadMode)
+
+  const [localMode, setLocalMode] = React.useState<"money" | "percent">(storedMode)
+  const [draft, setDraft] = React.useState<string>("0")
 
   React.useEffect(() => {
     if (open && line) {
-      setMode("percent")
-      // Pre-cargar el descuento existente si lo hay
-      const existingDiscount = line.discount ?? 0
-      setPercentDraft(existingDiscount > 0 ? String(existingDiscount) : "")
-      setAmountDraft(null)
+      setLocalMode(storedMode)
+      // Pre-cargar solo si el modo inicial es percent y hay descuento
+      const existing = line.discount ?? 0
+      if (storedMode === "percent" && existing > 0) {
+        setDraft(String(existing))
+      } else {
+        setDraft("0")
+      }
     }
-  }, [open, line])
+  }, [open, line, storedMode])
+
+  function handleShiftToggle() {
+    const next = localMode === "money" ? "percent" : "money"
+    setLocalMode(next)
+    setDiscountPadMode(next)
+    // Resetear draft al cambiar modo — la conversión inversa introduce error
+    setDraft("0")
+  }
 
   function confirm() {
     if (!line) return
 
+    const value = parseFloat(draft)
+    // Draft vacío o cero → limpiar descuento
+    if (!draft || draft === "0" || isNaN(value)) {
+      onConfirm(line.lineId, 0)
+      return
+    }
+
     const lineTotal = line.qty * line.unitPrice
     let discountPercent = 0
 
-    if (mode === "percent") {
-      const pct = parseFloat(percentDraft)
-      if (isNaN(pct) || pct < 0 || pct > 100) return
-      discountPercent = pct
+    if (localMode === "percent") {
+      // Clampear 0-100 para no pasar un porcentaje inválido al store
+      discountPercent = Math.min(100, Math.max(0, value))
     } else {
       // Monto fijo → convertir a porcentaje (mismo que legacy insertIndividualDiscount)
-      if (amountDraft === null || amountDraft < 0) return
       if (lineTotal <= 0) return
-      discountPercent = Math.min(100, (amountDraft / lineTotal) * 100)
+      discountPercent = Math.min(100, (value / lineTotal) * 100)
     }
 
     onConfirm(line.lineId, discountPercent)
   }
 
-  const isValid = React.useMemo(() => {
-    if (!line) return false
-    if (mode === "percent") {
-      const pct = parseFloat(percentDraft)
-      return !isNaN(pct) && pct >= 0 && pct <= 100
-    } else {
-      return amountDraft !== null && amountDraft >= 0
-    }
-  }, [line, mode, percentDraft, amountDraft])
+  const padMode = localMode === "percent" ? "percent" : "money"
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="sm:max-w-sm"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            if (isValid) confirm()
-          }
-        }}
-      >
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Aplicar descuento</DialogTitle>
           <DialogDescription className="truncate">
@@ -108,73 +105,22 @@ export function LineDiscountDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Toggle % / monto */}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setMode("percent")}
-            className={cn(
-              "flex-1 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
-              mode === "percent"
-                ? "border-brand bg-brand/20 text-brand"
-                : "border-border text-muted-foreground hover:border-muted-foreground",
-            )}
-          >
-            Porcentaje (%)
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("amount")}
-            className={cn(
-              "flex-1 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
-              mode === "amount"
-                ? "border-brand bg-brand/20 text-brand"
-                : "border-border text-muted-foreground hover:border-muted-foreground",
-            )}
-          >
-            Monto fijo
-          </button>
-        </div>
-
         <div className="my-2">
-          {mode === "percent" ? (
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={percentDraft}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^\d.]/g, "")
-                  setPercentDraft(v)
-                }}
-                placeholder="0"
-                autoFocus
-                className={cn(
-                  "h-20 w-full border-none bg-transparent pr-10",
-                  "text-center text-5xl font-bold tabular-nums",
-                  "outline-none focus:outline-none focus:ring-0",
-                )}
-                aria-label="Porcentaje de descuento"
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-3xl font-bold text-muted-foreground">
-                %
-              </span>
-            </div>
-          ) : (
-            <MoneyInput
-              value={amountDraft}
-              onChange={setAmountDraft}
-              autoFocus
-              className="h-20 text-center text-5xl font-bold"
-            />
-          )}
+          <NumericPad
+            mode={padMode}
+            value={draft}
+            onChange={setDraft}
+            onShiftToggle={handleShiftToggle}
+            onConfirm={confirm}
+            onCancel={onClose}
+          />
         </div>
 
         <div className="mt-2 flex gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>
             Cancelar
           </Button>
-          <Button className="flex-1" onClick={confirm} disabled={!isValid}>
+          <Button className="flex-1" onClick={confirm}>
             Aceptar
           </Button>
         </div>
