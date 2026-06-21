@@ -19,6 +19,7 @@ import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { RealtimeWire } from "@/components/realtime-wire"
 import { AgentChat } from "@/components/agent/agent-chat"
+import { usePosUIStore } from "@/lib/ui/store"
 import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { api, ApiError } from "@/lib/api-client"
@@ -74,6 +75,11 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const setActiveOutlet = useSetActiveOutlet()
   const { scope: viewScope, setScope: setViewScope } = useViewScope()
   const qc = useQueryClient()
+  // En /pos el FAB del asistente IA aparece SOLO con el menú principal abierto
+  // — sino chocaría con la barra de categorías flotante de la caja. Fuera de
+  // /pos siempre visible. El Sheet ya abierto del chat se mantiene aunque el
+  // menú se cierre (gateamos el FAB, no el componente entero).
+  const posMenuOpen = usePosUIStore((s) => s.menuOpen)
 
   React.useEffect(() => {
     if (error instanceof ApiError && error.status === 401) {
@@ -177,13 +183,13 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         onLogout={handleLogout}
       />
       <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
-      {/* El asistente IA NO se monta en /pos: el FAB bottom-right chocaría con
-          la barra flotante de categorías de la caja, y el cajero no lo usa en
-          plena venta. Disponible en el resto del panel. */}
-      {!isPos && bootstrap?.companyId != null && (
+      {/* Asistente IA. En /pos el FAB aparece solo con el menú principal abierto
+          (sino choca con la barra de categorías); fuera de /pos siempre visible. */}
+      {bootstrap?.companyId != null && (
         <AgentChat
           companyName={bootstrap.companyName}
           outletName={bootstrap.activeOutletName}
+          fabVisible={!isPos || posMenuOpen}
         />
       )}
     </>

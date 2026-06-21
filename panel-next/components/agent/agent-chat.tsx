@@ -12,9 +12,13 @@ import { Input } from "@/components/ui/input"
 interface Props {
   companyName: string
   outletName: string
+  /** Mostrar el FAB. Default true. En /pos se setea a `menuOpen` del POS para
+   *  que el botón no estorbe la barra de categorías. El Sheet ya abierto se
+   *  mantiene aunque fabVisible pase a false. */
+  fabVisible?: boolean
 }
 
-export function AgentChat({ companyName, outletName }: Props) {
+export function AgentChat({ companyName, outletName, fabVisible = true }: Props) {
   const [open, setOpen] = React.useState(false)
   const [input, setInput] = React.useState("")
   const bottomRef = React.useRef<HTMLDivElement>(null)
@@ -48,14 +52,16 @@ export function AgentChat({ companyName, outletName }: Props) {
 
   return (
     <>
-      {/* FAB */}
-      <Button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 size-14 rounded-full bg-brand text-brand-foreground shadow-lg hover:bg-brand/90"
-        aria-label="Abrir asistente IA"
-      >
-        <Bot className="size-6" />
-      </Button>
+      {/* FAB — gateado por fabVisible (en /pos lo ata al menú principal abierto) */}
+      {fabVisible && (
+        <Button
+          onClick={() => setOpen(true)}
+          className="fixed bottom-6 right-6 z-50 size-14 rounded-full bg-brand text-brand-foreground shadow-lg hover:bg-brand/90"
+          aria-label="Abrir asistente IA"
+        >
+          <Bot className="size-6" />
+        </Button>
+      )}
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="flex w-full max-w-sm flex-col p-0 sm:max-w-sm">
