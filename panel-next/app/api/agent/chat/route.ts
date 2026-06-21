@@ -169,20 +169,34 @@ export async function POST(req: Request) {
 
       get_stock: tool({
         description:
-          "Stock actual del inventario. Devuelve todos los ítems con su cantidad en stock. " +
-          "El LLM filtra por ítem relevante en base a itemQuery.",
+          "Stock actual de un artículo por sucursal. Buscá por nombre o SKU.",
         inputSchema: z.object({
-          // TODO: el endpoint /v1/reports/stock no acepta filtros por ítem.
-          // Se devuelve el listado completo y el LLM filtra. Cuando el endpoint
-          // soporte filtros, pasar itemQuery como parámetro.
-          itemQuery: z.string().optional().describe("Nombre o SKU del ítem (filtrado client-side por el LLM)"),
+          itemQuery: z.string().min(1).describe("Nombre o SKU del ítem a buscar"),
         }),
-        execute: async () => {
+        execute: async ({ itemQuery }) => {
           try {
+            // El endpoint /v1/reports/stock no filtra server-side todavía.
+            // Filtramos en este handler ANTES de devolver al LLM para no
+            // mandarle el listado entero (puede ser miles de filas → muchos
+            // tokens). El filtro es case-insensitive sobre name y sku.
             const res = await fetch(`${apiUrl}/v1/reports/stock`, { headers: { cookie } })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
-            return json?.data ?? json
+            const raw = (json?.data ?? json) as unknown
+            const rows = Array.isArray(raw)
+              ? raw
+              : Array.isArray((raw as { rows?: unknown[] })?.rows)
+                ? (raw as { rows: unknown[] }).rows
+                : []
+            const q = itemQuery.toLowerCase()
+            const filtered = rows.filter((r) => {
+              const o = r as { name?: string; sku?: string; itemName?: string; itemSKU?: string }
+              return (
+                (o.name ?? o.itemName ?? "").toLowerCase().includes(q) ||
+                (o.sku ?? o.itemSKU ?? "").toLowerCase().includes(q)
+              )
+            })
+            return { matches: filtered.slice(0, 20), totalMatches: filtered.length }
           } catch (err) {
             return { error: String(err) }
           }

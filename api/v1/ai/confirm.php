@@ -24,14 +24,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     apiError('Method not allowed', 405);
 }
 
-$_raw = file_get_contents('php://input');
-if (is_string($_raw) && $_raw !== '') {
-    $_json = json_decode($_raw, true);
-    if (is_array($_json)) {
-        $_POST = array_merge($_POST, $_json);
-    }
-}
-
+// $_POST viene ya hidratado del JSON body por bootstrap.php (todos los verbos
+// no-form-encoded). No re-parseamos acá.
 $action  = trim((string) ($_POST['action']  ?? ''));
 $payload = $_POST['payload'] ?? null;
 $summary = trim((string) ($_POST['summary'] ?? ''));

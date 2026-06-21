@@ -21,14 +21,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     apiError('Method not allowed', 405);
 }
 
-$_raw = file_get_contents('php://input');
-if (is_string($_raw) && $_raw !== '') {
-    $_json = json_decode($_raw, true);
-    if (is_array($_json)) {
-        $_POST = array_merge($_POST, $_json);
-    }
-}
-
+// $_POST viene ya hidratado del JSON body por bootstrap.php (todos los verbos
+// no-form-encoded). No re-parseamos acá.
 $confirmToken = trim((string) ($_POST['confirmToken'] ?? ''));
 if (strlen($confirmToken) !== 32) {
     apiError('confirmToken inválido', 400);
@@ -77,8 +71,11 @@ try {
         }
 
         case 'create_item': {
-            $kind     = $payload['kind'] ?? 'producto';
-            $kindFlag = $kind === 'servicio' ? '2' : '1';
+            $kind = $payload['kind'] ?? 'producto';
+            // Tanto producto como servicio son itemType='product' en el legacy
+            // (ver map en ItemImporter::legacyFlagsForKind). El kind discrimina
+            // visualmente y para reglas de stock; el itemType legacy no.
+            $itemTypeLegacy = 'product';
 
             // Resolver categoryName → categoryId
             $categoryId = null;
@@ -107,7 +104,7 @@ try {
             $svc   = new \Punto\Api\Items\ItemService(
                 new \Punto\Api\Items\ItemRepository($db)
             );
-            $newId = $svc->createBlank($companyId, $kindFlag, $kind);
+            $newId = $svc->createBlank($companyId, $itemTypeLegacy, $kind);
             if ($newId === false) {
                 apiError('No se pudo crear el ítem', 500);
             }
@@ -136,25 +133,37 @@ try {
         }
 
         case 'create_user': {
-            $roleName = strtolower(trim((string) ($payload['roleName'] ?? '')));
-            if ($roleName === 'super admin') {
+            $roleName = trim((string) ($payload['roleName'] ?? ''));
+            if ($roleName === '') {
+                apiError('roleName requerido', 422);
+            }
+            $roleNameLower = strtolower($roleName);
+            // Bloqueo de roles admin desde el agente (defense in depth — el
+            // alcance del agente es operativo, ver [[ai-agent-scope-limits]]).
+            if (in_array($roleNameLower, ['super admin', 'admin', 'administrador'], true)) {
                 apiError('Role admin no permitido desde el agente', 403);
             }
 
             $svc    = new \Punto\Api\Users\UsersService();
             $roleId = null;
-            if ($roleName !== '') {
-                foreach ($svc->roles($companyId) as $r) {
-                    if (strtolower($r['name']) === $roleName) {
-                        $roleId = $r['id'];
-                        break;
-                    }
+            foreach ($svc->roles($companyId) as $r) {
+                if (strtolower((string) $r['name']) === $roleNameLower) {
+                    $roleId = $r['id'];
+                    break;
                 }
-                // Si no matchea ningún rol conocido, roleId = null (sin rol)
+            }
+            if ($roleId === null) {
+                // No crear usuarios huérfanos sin rol — error explícito para
+                // que el agente pueda informar y reintentar con un role válido.
+                apiError("Role '$roleName' no existe en el tenant", 422);
             }
 
-            // Generar contraseña temporal server-side; no se expone al LLM
-            $tempPass = bin2hex(random_bytes(4)); // 8 chars hex
+            // Contraseña temporal server-side: 16 chars hex = 64 bits de entropy.
+            // Se devuelve al operador (sesión autenticada del propio admin) en la
+            // response para que pueda dictarla al nuevo usuario. NO se loguea ni
+            // se persiste en el chat history server-side. El operador la copia y
+            // se la entrega offline.
+            $tempPass = bin2hex(random_bytes(8));
 
             $newId = $svc->create($companyId, [
                 'name'     => $payload['name'],
@@ -162,8 +171,14 @@ try {
                 'password' => $tempPass,
                 'roleId'   => $roleId,
             ]);
-            // TODO: notificar la contraseña temporal al admin por otro canal
-            apiOk(['action' => $action, 'result' => ['id' => $newId, 'tempPasswordSet' => true]]);
+            apiOk([
+                'action' => $action,
+                'result' => [
+                    'id'           => $newId,
+                    'tempPassword' => $tempPass,
+                    'message'      => 'Usuario creado. Pasale esta contraseña: ' . $tempPass . ' (no se mostrará otra vez).',
+                ],
+            ]);
             break;
         }
 
