@@ -103,13 +103,11 @@ export interface PosCustomer {
   isCreditable: boolean
 }
 
-// ── Empleado del outlet (para lockscreen y asignación por línea) ──────────────
+// ── Empleado del outlet (para asignación por línea) ──────────────────────────
 
 export interface PosUser {
   id: string
   name: string
-  /** PIN de 4 dígitos para el lockscreen. Null si el usuario no tiene PIN configurado. */
-  lockPass: string | null
 }
 
 // ── Bootstrap completo ────────────────────────────────────────────────────────

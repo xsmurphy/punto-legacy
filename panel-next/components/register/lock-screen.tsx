@@ -31,7 +31,6 @@ export function LockScreen() {
   const unlock = useLockStore((s) => s.unlock)
   const setActiveUser = useLockStore((s) => s.setActiveUser)
   const outletName = useCatalogStore((s) => s.outlet?.name)
-  const users = useCatalogStore((s) => s.users)
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -83,18 +82,32 @@ export function LockScreen() {
     return () => window.removeEventListener("keydown", onKey, true)
   }, [locked])
 
-  // Validar al llegar a 4 dígitos.
+  // Validar al llegar a 4 dígitos — POST al BFF /api/pos/unlock (PIN nunca en el front).
   React.useEffect(() => {
     if (pin.length !== PIN_LENGTH) return
-    // Mini-pausa para que el último pop sea visible antes de evaluar.
-    const id = setTimeout(() => {
-      const matchedUser = users.find((u) => u.lockPass === pin)
-      if (matchedUser) {
-        setActiveUser({ id: matchedUser.id, name: matchedUser.name })
-        toast.success(`Bienvenido, ${matchedUser.name}`)
-        unlock()
-      } else {
-        // Shake + limpiar + mostrar error sutil.
+    const id = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/pos/unlock", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pin }),
+        })
+        const data = await res.json() as { ok: boolean; user?: { id: string; name: string }; error?: { message: string } }
+        if (res.ok && data.ok && data.user) {
+          setActiveUser({ id: data.user.id, name: data.user.name })
+          toast.success(`Bienvenido, ${data.user.name}`)
+          unlock()
+        } else {
+          setShake(true)
+          setError(true)
+          setTimeout(() => {
+            setShake(false)
+            setPin("")
+            setPoppedIndex(-1)
+          }, 420)
+        }
+      } catch {
+        // Error de red — tratar como PIN incorrecto.
         setShake(true)
         setError(true)
         setTimeout(() => {
@@ -105,7 +118,7 @@ export function LockScreen() {
       }
     }, 160)
     return () => clearTimeout(id)
-  }, [pin, unlock, users, setActiveUser])
+  }, [pin, unlock])
 
   if (!locked) return null
 
