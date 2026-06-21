@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
-import { useChatHistoryStore } from "./chat-history-store"
+import { useChatHistoryStore, useChatHistoryHydrated } from "./chat-history-store"
 import { messageHasCredential, redactMessage } from "./redact-credentials"
 
 /** Tiempo de vida de un mensaje con credencial en el thread vivo. */
@@ -26,9 +26,9 @@ export function useAgentChat({
   companyName: string
   outletName: string
 }) {
-  const stored = useChatHistoryStore((s) => s.messages)
   const setStored = useChatHistoryStore((s) => s.setMessages)
   const clearStored = useChatHistoryStore((s) => s.clear)
+  const storeHydrated = useChatHistoryHydrated()
 
   const chat = useChat({
     transport: new DefaultChatTransport({
@@ -37,30 +37,31 @@ export function useAgentChat({
     }),
   })
 
-  // Hidratar UNA SOLA VEZ al mount si el chat arrancó vacío y hay historial.
-  // No depende de `stored` porque la persistencia es sync en el render inicial.
+  // Hidratar el chat con el historial guardado APENAS persist termine de
+  // leer localStorage. El primer render puede pasar antes de la hidratación
+  // (SSR/Next), por eso no podemos asumir que `stored` ya tiene los mensajes
+  // al mount — esperamos al flag. UNA sola vez por instancia del hook.
   const hydratedRef = React.useRef(false)
   React.useEffect(() => {
-    if (hydratedRef.current) return
+    if (hydratedRef.current || !storeHydrated) return
+    // Leemos del store DIRECTO (no del selector) para no depender de re-renders
+    // — al ejecutarse este effect el snapshot ya está hidratado.
+    const stored = useChatHistoryStore.getState().messages
     hydratedRef.current = true
     if (stored.length > 0 && chat.messages.length === 0) {
       chat.setMessages(stored)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [storeHydrated])
 
-  // Persistir cuando una respuesta termina (status: streaming/submitted → ready).
-  // No persistir durante el streaming — escritura por cada chunk = ruido.
-  const prevStatusRef = React.useRef(chat.status)
+  // Persistir CADA cambio en messages después de hidratado (no solo en
+  // status→ready). El user puede salir de la sección a mitad de streaming
+  // o navegar entre páginas — queremos no perder nada. El store ya redacta
+  // credenciales antes de escribir. Cap de 100 mensajes evita inflar localStorage.
   React.useEffect(() => {
-    if (
-      (prevStatusRef.current === "streaming" || prevStatusRef.current === "submitted") &&
-      chat.status === "ready"
-    ) {
-      setStored(chat.messages)
-    }
-    prevStatusRef.current = chat.status
-  }, [chat.status, chat.messages, setStored])
+    if (!hydratedRef.current) return
+    setStored(chat.messages)
+  }, [chat.messages, setStored])
 
   // Auto-expiración de mensajes con credenciales: cuando aparece un nuevo
   // mensaje del assistant que contiene una contraseña visible, programar un

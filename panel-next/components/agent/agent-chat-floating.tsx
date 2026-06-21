@@ -29,7 +29,9 @@ export function AgentChatFloating({ companyName, outletName, showFab = true }: P
         </Button>
       )}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="flex w-full max-w-sm flex-col p-0 sm:max-w-sm">
+        {/* Mobile: fullscreen sin max-width (drawer angosto + teclado virtual
+            no se lee bien). Desktop ≥sm: max-w-sm como side panel clásico. */}
+        <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-sm">
           <SheetTitle className="sr-only">Asistente</SheetTitle>
           <AgentChatContent companyName={companyName} outletName={outletName} showHeader />
         </SheetContent>

@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 import type { UIMessage } from "ai"
@@ -49,3 +50,24 @@ export const useChatHistoryStore = create<ChatHistoryState>()(
     },
   ),
 )
+
+/**
+ * Hook que devuelve `true` cuando `persist` terminó de leer localStorage.
+ * En SSR/Next el primer render del cliente puede pasar antes de la hidratación
+ * — si hidratamos el chat con el store en ese punto, copiamos `[]` y nunca
+ * más rehidratamos. Esperamos a este flag antes de tocar `chat.setMessages`.
+ */
+export function useChatHistoryHydrated(): boolean {
+  const [hydrated, setHydrated] = React.useState<boolean>(() =>
+    typeof window === "undefined" ? false : useChatHistoryStore.persist.hasHydrated(),
+  )
+  React.useEffect(() => {
+    if (useChatHistoryStore.persist.hasHydrated()) {
+      setHydrated(true)
+      return
+    }
+    const unsub = useChatHistoryStore.persist.onFinishHydration(() => setHydrated(true))
+    return () => unsub()
+  }, [])
+  return hydrated
+}

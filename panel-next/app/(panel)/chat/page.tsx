@@ -7,11 +7,8 @@ import {
   TrendingUp,
   Search,
   Plus as PlusIcon,
-  Building2,
   Package,
-  Users,
   BarChart3,
-  Tag as TagIcon,
   RotateCcw,
 } from "lucide-react"
 
@@ -43,15 +40,14 @@ interface Suggestion {
   text: string
 }
 
+// 5 sugerencias seleccionadas: las más representativas del alcance — consulta
+// rápida (sales/stock), búsqueda, creación con confirmación, análisis.
 const SUGGESTIONS: Suggestion[] = [
   { icon: TrendingUp, text: "¿Cuánto vendí este mes?" },
   { icon: Search,     text: "Buscame el cliente Juan" },
-  { icon: PlusIcon,   text: "Creá el producto Café Espresso a 12.000 Gs, categoría Bebidas" },
   { icon: Package,    text: "¿Cuánto stock queda del producto X?" },
-  { icon: Building2,  text: "Mostrame las sucursales" },
-  { icon: Users,      text: "Listame los usuarios del equipo" },
+  { icon: PlusIcon,   text: "Creá el producto Café Espresso a 12.000 Gs, categoría Bebidas" },
   { icon: BarChart3,  text: "Resumen del año pasado" },
-  { icon: TagIcon,    text: "Creá una categoría llamada Promociones" },
 ]
 
 export default function ChatPage() {
@@ -123,7 +119,7 @@ export default function ChatPage() {
 
       {isEmpty ? (
         // ── Estado vacío: layout centrado tipo ChatGPT ───────────────────────
-        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-6 pb-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-2 pb-8 sm:px-6">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
               ¿En qué te puedo ayudar?
@@ -172,7 +168,7 @@ export default function ChatPage() {
         // ── Estado con mensajes: thread + input al pie ───────────────────────
         <>
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
+            <div className="mx-auto w-full max-w-3xl space-y-4 px-2 py-6 sm:px-6">
               {messages.map((message) => {
                 const isUser = message.role === "user"
                 return (
@@ -240,7 +236,7 @@ export default function ChatPage() {
 
           {/* Sin border-t: el shadow del input box ya separa visualmente del thread */}
           <div className="bg-background/80 backdrop-blur">
-            <div className="mx-auto w-full max-w-3xl px-6 py-4">
+            <div className="mx-auto w-full max-w-3xl px-2 py-4 sm:px-6">
               {(hasNoCredits || is402) && (
                 <p className="mb-3 text-center text-xs text-muted-foreground">
                   Sin créditos disponibles.{" "}
