@@ -35,6 +35,7 @@ import {
   SquaresIntersect,
   Plus,
   Monitor,
+  MessageCircle,
   type LucideIcon,
 } from "lucide-react"
 
@@ -61,6 +62,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
+import { useAgentChatStore } from "@/lib/agent/store"
 import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
 import { MoneyInput } from "@/components/ui/money-input"
@@ -195,6 +197,15 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
       // activar el modo edición para que el panel izquierdo lo muestre.
       router.push("/pos")
       useHotkeysStore.getState().setEditing(true)
+    },
+  },
+  {
+    key: "asistente",
+    label: "Asistente",
+    icon: MessageCircle,
+    onSelect: ({ setOpen }) => {
+      setOpen(false)
+      useAgentChatStore.getState().setOpen(true)
     },
   },
 ]

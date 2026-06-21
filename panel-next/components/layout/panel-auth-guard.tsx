@@ -8,6 +8,7 @@ import {
   ChartPie,
   ScanBarcode,
   LayoutDashboard,
+  MessageCircle,
   Flame,
   SquaresIntersect,
   CalendarDays,
@@ -18,8 +19,7 @@ import { toast } from "sonner"
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { RealtimeWire } from "@/components/realtime-wire"
-import { AgentChat } from "@/components/agent/agent-chat"
-import { usePosUIStore } from "@/lib/ui/store"
+import { AgentChatFloating } from "@/components/agent/agent-chat-floating"
 import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { api, ApiError } from "@/lib/api-client"
@@ -32,6 +32,7 @@ import { useQueryClient } from "@tanstack/react-query"
 // que el set genérico anterior (Package/Users/BarChart3).
 const panelNav: NavEntry[] = [
   { title: "Dashboard", to: "/", icon: LayoutDashboard },
+  { title: "Asistente", to: "/chat", icon: MessageCircle },
   { title: "Artículos", to: "/items", icon: ShoppingBasket },
   { title: "Contactos", to: "/contacts", icon: Contact },
   { title: "Reportes", to: "/reports", icon: ChartPie },
@@ -75,12 +76,6 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const setActiveOutlet = useSetActiveOutlet()
   const { scope: viewScope, setScope: setViewScope } = useViewScope()
   const qc = useQueryClient()
-  // En /pos el FAB del asistente IA aparece SOLO con el menú principal abierto
-  // — sino chocaría con la barra de categorías flotante de la caja. Fuera de
-  // /pos siempre visible. El Sheet ya abierto del chat se mantiene aunque el
-  // menú se cierre (gateamos el FAB, no el componente entero).
-  const posMenuOpen = usePosUIStore((s) => s.menuOpen)
-
   React.useEffect(() => {
     if (error instanceof ApiError && error.status === 401) {
       router.replace("/login")
@@ -183,13 +178,13 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         onLogout={handleLogout}
       />
       <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
-      {/* Asistente IA. En /pos el FAB aparece solo con el menú principal abierto
-          (sino choca con la barra de categorías); fuera de /pos siempre visible. */}
+      {/* Asistente IA. FAB visible solo fuera de /pos y fuera de /chat.
+          El Sheet se monta siempre para que el menú POS pueda abrirlo via store. */}
       {bootstrap?.companyId != null && (
-        <AgentChat
+        <AgentChatFloating
           companyName={bootstrap.companyName}
           outletName={bootstrap.activeOutletName}
-          fabVisible={!isPos || posMenuOpen}
+          showFab={!isPos && pathname !== "/chat"}
         />
       )}
     </>
