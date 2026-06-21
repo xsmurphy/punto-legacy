@@ -65,14 +65,24 @@ CREATE TABLE ai_model_config (
 | AI-4 | **Config /admin** — UI de `ai_model_config`, selección por capability | Owner ajusta modelos sin deploy |
 | AI-5 | **Capabilities extra** — OCR (subir foto de factura → Gemini extrae items), análisis (queries libres sobre el rollup) | Casos de alto valor |
 
-### Detalle AI-1 (primer slice)
+### Detalle AI-1 (primer slice) — refinado 2026-06-21
 
-- Deps en panel-next: `ai`, `@openrouter/ai-sdk-provider`, `@assistant-ui/react`, `@assistant-ui/react-ai-sdk`.
-- Env: `OPENROUTER_API_KEY` (Coolify, server-side).
-- Mig: `ai_model_config` + seeds (chat→`deepseek/deepseek-chat`, vision→`google/gemini-flash-1.5`).
-- `app/api/agent/chat/route.ts`: `streamText`, lee modelo de `ai_model_config` capability=chat, system prompt con contexto de Punto (nombre empresa, sucursal activa del bootstrap), 1 tool `get_sales_summary({ year })` que llama a `/v1/reports/summary-year` (que para entonces ya lee del rollup → rápido).
-- `components/agent/agent-chat.tsx`: botón flotante (bottom-right, FAB) + `<Sheet>` lateral con `<Thread>` de assistant-ui. Wire en `PanelAuthGuard` (mismo lugar que RealtimeWire).
-- Design system: tokens del tema, brand verde solo en el FAB y el avatar del agente.
+Stack confirmado: Next 16.2.6, React 19.2.4, npm. AI SDK **v5**.
+
+- **Deps** (npm): `ai`, `@ai-sdk/react`, `@openrouter/ai-sdk-provider`. **NO assistant-ui en AI-1** — el chat se arma hand-rolled con `useChat` de `@ai-sdk/react` + shadcn `Sheet`, para evitar el churn de API de assistant-ui en el slice fundacional. assistant-ui queda como mejora futura si se quiere UI más rica.
+- **Env**: `OPENROUTER_API_KEY` (Coolify, servicio panel-next, server-side — nunca al browser).
+- **Mig `43_ai_model_config.sql`**: tabla `ai_model_config(capability PK, model, enabled, creditsPerKToken, updatedAt)` + seeds (chat→`deepseek/deepseek-chat`, vision→`google/gemini-flash-1.5` — placeholders que el owner confirma). `creditsPerKToken` ya incluido para que AI-2 (billing) solo lea.
+- **Endpoint PHP `/v1/ai/config`** (GET, `apiAuthTenant(['panel'])`): devuelve `{ chat: {model, creditsPerKToken}, vision: {...} }` desde `ai_model_config WHERE enabled`. El route handler lo consulta para elegir modelo. La UI de edición en /admin es AI-4.
+- **Route handler `app/api/agent/chat/route.ts`** (Node runtime):
+  - Lee `OPENROUTER_API_KEY`, instancia `createOpenRouter`.
+  - Fetch a `${API_URL}/v1/ai/config` forwardeando la cookie del request → modelo de capability=chat.
+  - `streamText({ model, system, messages, tools, maxSteps: 5 })` → `.toUIMessageStreamResponse()`.
+  - System prompt: asistente de Punto, responde en español, conciso; contexto (companyName, activeOutletName, fecha de hoy) que el client manda en el body (no es security-sensitive — las tools son JWT-scoped server-side).
+  - 1 tool `get_sales_summary({ year })`: corre server-side, pega a `${API_URL}/v1/reports/summary_year?y=<year>` forwardeando el `_jwt_panel` del request → hereda permisos del operador. Devuelve los months.
+  - SIN débito de créditos (eso es AI-2). Tampoco gate por balance todavía.
+- **`components/agent/agent-chat.tsx`** (client): FAB fijo bottom-right + `<Sheet side="right">` con la conversación (mensajes + input), `useChat({ api: "/api/agent/chat", body: { companyName, outletName } })`. Render simple de tool calls (estado "consultando ventas…" + resultado). Wire en `PanelAuthGuard` (junto a RealtimeWire), visible solo con `companyId` presente.
+- **Riesgo principal**: API de AI SDK v5 (UIMessage parts, `toUIMessageStreamResponse`, `tool({inputSchema})`). El ejecutor debe lograr streaming mínimo SIN tools primero, confirmar, y recién ahí agregar la tool. Verificar la versión instalada (`node_modules/ai/package.json`) y seguir ESA API.
+- **Design system**: tokens del tema; brand verde solo en el FAB y el avatar del agente.
 
 ## Riesgos
 
