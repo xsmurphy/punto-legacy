@@ -20,7 +20,7 @@ import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { RealtimeWire } from "@/components/realtime-wire"
 import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
-import { ApiError } from "@/lib/api-client"
+import { api, ApiError } from "@/lib/api-client"
 import { useQueryClient } from "@tanstack/react-query"
 
 // Menú lateral. Definido acá (client) porque los iconos son componentes
@@ -79,6 +79,22 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       router.replace("/login")
     }
   }, [error, router])
+
+  // Logout del panel — borra SOLO `_jwt_panel` (la cookie del POS `_jwt`
+  // queda intacta porque modela device pairing, no sesión humana — ver
+  // [[project_pos_dual_session_model]]). Si el endpoint falla, igualmente
+  // limpiamos el cache de TanStack y redirigimos: el peor caso es que la
+  // cookie quede vigente hasta su TTL natural (24h) pero el usuario sí ve
+  // que "se cerró" porque cae al login.
+  const handleLogout = React.useCallback(async () => {
+    try {
+      await api.post("/v1/logout", {})
+    } catch {
+      // ignore: el redirect al login pasa igual
+    }
+    qc.clear()
+    router.replace("/login")
+  }, [qc, router])
 
   // Subtitle del sidebar = nombre de la sucursal activa SIEMPRE que exista
   // (mismo comportamiento que el panel legacy: debajo del nombre de la empresa
@@ -157,6 +173,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         isSwitchingOutlet={setActiveOutlet.isPending}
         viewScope={viewScope}
         onSelectAllOutlets={handleSelectAllOutlets}
+        onLogout={handleLogout}
       />
       <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
     </>
