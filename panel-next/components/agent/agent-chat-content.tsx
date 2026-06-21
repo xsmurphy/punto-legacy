@@ -206,15 +206,21 @@ export function AgentChatContent({
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex items-center gap-1">
               <Tooltip>
+                {/* span wrapper: Radix Tooltip no recibe pointer events sobre
+                    un <button disabled> (no dispara hover) → el tooltip nunca
+                    se muestra. Wrappear en un span con pointer-events:auto
+                    es el workaround estándar. */}
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    disabled
-                    className="size-8 rounded-full text-muted-foreground"
-                  >
-                    <Plus className="size-4" />
-                  </Button>
+                  <span tabIndex={0}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled
+                      className="size-8 rounded-full text-muted-foreground pointer-events-none"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>Adjuntar (próximamente)</TooltipContent>
               </Tooltip>
@@ -222,14 +228,16 @@ export function AgentChatContent({
             <div className="flex items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    disabled
-                    className="size-8 rounded-full text-muted-foreground"
-                  >
-                    <Mic className="size-4" />
-                  </Button>
+                  <span tabIndex={0}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled
+                      className="size-8 rounded-full text-muted-foreground pointer-events-none"
+                    >
+                      <Mic className="size-4" />
+                    </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>Voz (próximamente)</TooltipContent>
               </Tooltip>
