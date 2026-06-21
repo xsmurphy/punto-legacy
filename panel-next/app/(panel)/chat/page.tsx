@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport, isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
+import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
 import Link from "next/link"
 import {
   TrendingUp,
@@ -13,6 +12,7 @@ import {
   Users,
   BarChart3,
   Tag as TagIcon,
+  RotateCcw,
 } from "lucide-react"
 
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -20,6 +20,8 @@ import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
+import { useAgentChat } from "@/lib/agent/use-agent-chat"
+import { Button } from "@/components/ui/button"
 
 /**
  * Página dedicada del asistente IA en el sidebar.
@@ -58,14 +60,9 @@ export default function ChatPage() {
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({
-      api: "/api/agent/chat",
-      body: {
-        companyName: bootstrap?.companyName ?? "",
-        outletName: bootstrap?.activeOutletName ?? "",
-      },
-    }),
+  const { messages, sendMessage, status, error, clear } = useAgentChat({
+    companyName: bootstrap?.companyName ?? "",
+    outletName: bootstrap?.activeOutletName ?? "",
   })
 
   const isStreaming = status === "streaming" || status === "submitted"
@@ -109,11 +106,19 @@ export default function ChatPage() {
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-6">
       {/* Header de página — patrón estándar (items/contacts/etc.) */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">Asistente</h1>
-        <p className="text-sm text-muted-foreground">
-          Consultá datos, creá registros básicos y analizá tu negocio en lenguaje natural.
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Asistente</h1>
+          <p className="text-sm text-muted-foreground">
+            Consultá datos, creá registros básicos y analizá tu negocio en lenguaje natural.
+          </p>
+        </div>
+        {messages.length > 0 && (
+          <Button variant="outline" size="sm" onClick={clear}>
+            <RotateCcw className="size-4" />
+            Nueva conversación
+          </Button>
+        )}
       </header>
 
       {isEmpty ? (
