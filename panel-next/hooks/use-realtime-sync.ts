@@ -19,9 +19,9 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   brand:       [["brands"], ["taxonomies", "brand"]],
   tag:         [["tags"], ["taxonomies", "tag"]],
   tax:         [["taxes"], ["taxonomies", "tax"]],
-  transaction: [["reports"], ["transactions"], ["dashboard"]],
-  drawer:      [["reports", "drawers"], ["dashboard"]],
-  expense:     [["reports", "expenses"], ["dashboard"]],
+  transaction: [["reports"], ["transactions"], ["dashboard"], ["dashboard-widget"]],
+  drawer:      [["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
+  expense:     [["reports", "expenses"], ["dashboard"], ["dashboard-widget"]],
   setting:     [["settings"], ["modules"], ["bootstrap"]],
 }
 

@@ -216,6 +216,7 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         '/v1/brands'                => ['entity' => 'brand',       'scope' => 'all'],
         '/v1/tags'                  => ['entity' => 'tag',         'scope' => 'all'],
         '/v1/taxes'                 => ['entity' => 'tax',         'scope' => 'all'],
+        '/v1/sales'                 => ['entity' => 'transaction', 'scope' => 'dashboard'],
         '/v1/transactions'          => ['entity' => 'transaction', 'scope' => 'dashboard'],
         '/v1/orders'                => ['entity' => 'transaction', 'scope' => 'dashboard'],
         '/v1/drawer'                => ['entity' => 'drawer',      'scope' => 'dashboard'],
