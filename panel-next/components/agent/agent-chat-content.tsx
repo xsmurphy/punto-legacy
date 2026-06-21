@@ -10,6 +10,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 
+// El balance se sigue consultando para gatear el input cuando llega a 0,
+// pero NO se muestra en el header — esa info ya vive en /history-billing.
+// El banner "Sin créditos disponibles" sí queda porque es el CTA que el
+// user necesita en ese momento (compra inmediata).
+
 interface Props {
   companyName: string
   outletName: string
@@ -90,15 +95,6 @@ export function AgentChatContent({
               <MessageCircle className="size-4" />
             </div>
             <span className="text-sm font-medium">Asistente</span>
-            {balance !== null && (
-              <span
-                className={`ml-auto text-xs tabular-nums ${
-                  hasNoCredits ? "text-destructive font-medium" : "text-muted-foreground"
-                }`}
-              >
-                {balance} créditos
-              </span>
-            )}
           </div>
         </div>
       )}
