@@ -253,6 +253,14 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 | 30 | `30_billing_dlocal.sql` | Crea tablas `credit_pack` (catálogo + seed 3 packs) y `billing_invoice`. Agrega columna `ai_credit_ledger.relatedInvoiceId` + índice único parcial `uq_ai_credit_ledger_invoice_grant` (idempotencia anti doble-acreditación). | Aplicada 2026-06-14 |
 | 31 | `31_pack_services.sql` | Crea tablas `pack_component`, `sold_pack`, `sold_pack_usage` para el módulo de Packs de Servicios. | Aplicada 2026-06-15 |
 | 32 | `32_price_lists.sql` | Crea tablas `price_list` y `price_list_item` para el módulo de Listas de Precios. | Aplicada 2026-06-15 |
+| 33–36 | `33_tenant_audit.sql`..`36_tenant_audit_pgcron.sql` | Tabla `tenant_audit` + pg_cron retención 2 meses (fail-tolerant). | Aplicada 2026-06-19 |
+| 37 | `37_taxonomy_dedup.sql` | Dedup duplicados en `taxonomy` + UNIQUE case-insensitive (self-heal con information_schema check para columnas opcionales que no existen en BD real). | Aplicada 2026-06-19 |
+| 38 | `38_tag.sql` | Crea tabla `tag` + tabla de join `item_tag` + triggers bidireccionales que sincronizan tags ↔ taxonomy. | Aplicada 2026-06-19 |
+| 39 | `39_item_tag_unique.sql` | Índice UNIQUE sobre `item_tag(itemId, tagId)`. | Aplicada 2026-06-19 |
+| 40 | `40_customer_display.sql` | Crea tabla `customer_display` para el módulo Checkout Screen (pantalla secundaria del POS). Ver §customer_display abajo. | Aplicada 2026-06-20 |
+| 41 | `41_report_rollup.sql` | Crea tablas `report_rollup` y `rollup_dirty`; funciones `reconcile_rollup` + `backfill_rollup`; pg_cron incremental cada 5 min. Gateado por `REPORTS_ROLLUP_ENABLED`. | Aplicada 2026-06-20 |
+| 42 | `42_rollup_item_payments.sql` | Extiende `report_rollup` con tablas `item_sales`, `item_returns`, `payments` para rollup de categorías/marcas/métodos de pago. | Aplicada 2026-06-20 |
+| 43 | `43_ai_model_config.sql` | Crea tabla `ai_model_config` — configuración por tenant del modelo de IA (provider, model, creditsPerKToken). | Aplicada 2026-06-21 |
 
 ### Tabla `ai_credit_ledger` — ledger de créditos de IA (migración 28)
 
@@ -492,3 +500,36 @@ Módulo de listas con ajuste porcentual (o precio fijo) sobre el precio base de 
 5. Sin lista asignada → precio base del ítem (`itemPrice`).
 
 **Resolución en el POS**: el POS carga la lista completa de la lista activa al seleccionar cliente/sucursal y resuelve el precio localmente (sin round-trip por ítem).
+
+---
+
+### Tablas del sprint 2026-06-19..21
+
+#### Catálogo M2M — tablas `tag` e `item_tag` (migraciones 38–39)
+
+- **`tag`**: `tagId UUID PK`, `tagName TEXT NOT NULL`, `tagSlug TEXT`, `companyId UUID NOT NULL`. Triggers bidireccionales sincronizan con `taxonomy` (legacy). `tagName` UNIQUE case-insensitive por tenant.
+- **`item_tag`**: `itemTagId UUID PK`, `itemId UUID NOT NULL FK`, `tagId UUID NOT NULL FK`, `companyId UUID NOT NULL`. UNIQUE `(itemId, tagId)`. Es el lado M2M del catálogo; el lado de marcas sigue en `taxonomy` (1→N por ítem).
+
+#### Checkout Screen — tabla `customer_display` (migración 40)
+
+Representa un dispositivo de pantalla secundaria (customer-facing display) que el POS publica en tiempo real.
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| `id` | UUID PK | `DEFAULT gen_random_uuid()` |
+| `companyId` | UUID NOT NULL | Multi-tenant scope |
+| `outletId` | UUID NULL | FK → `outlet` |
+| `token` | TEXT NOT NULL | Token de pairing (generado en `/v1/screens/request`) |
+| `status` | TEXT NOT NULL | `'pending'` / `'paired'` / `'revoked'` |
+| `lastHeartbeatAt` | TIMESTAMPTZ NULL | Último heartbeat del display |
+| `createdAt` | TIMESTAMPTZ | — |
+
+Endpoints: `/v1/screens/{request,pair,publish,heartbeat,list,revoke}`. El POS publica eventos `cart-update` vía Redis; el display los consume por polling SSE. Ruta Next.js: `(screen)/checkout` con estados pairing/live/confirmed/idle. CRUD en `/settings/devices`.
+
+#### Reports Rollup — tablas `report_rollup`, `rollup_dirty`, `item_sales`, `item_returns`, `payments` (migraciones 41–42)
+
+Pre-agregado incremental de reportes de ventas/pagos. Estrategia: pg_cron corre `reconcile_rollup()` cada 5 min sobre la tabla `rollup_dirty`; backfill histórico vía `backfill_rollup()`. **Gateado por env var `REPORTS_ROLLUP_ENABLED`** (default OFF en prod hasta verificación numérica con `?verify=1`). Cutover de 5 reportes: `SummaryYearService`, `CategoriesService`, `BrandsService`, `PaymentMethodsService`, + `item_sales`/`item_returns`. Pendiente: RB-3 (stock/production/commissions/vpayments).
+
+#### Agente IA — tabla `ai_model_config` (migración 43)
+
+Config por tenant del agente IA. Columnas clave: `companyId`, `provider` (default `'openrouter'`), `model` (default `'deepseek/deepseek-chat-v3-0324'`), `creditsPerKToken INT`. El agente usa **OpenRouter** (no SDK Anthropic). 13 tools (5 lecturas + 8 escrituras con `confirmToken` de expiración real 60s). Créditos debitados atómicamente en `/v1/ai/debit` con `SELECT FOR UPDATE` sobre `company.aiCreditsBalance`. Gate 402 si saldo insuficiente. Ver context/17 para el plan completo.

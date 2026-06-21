@@ -552,6 +552,67 @@ Registro de mutaciones realizadas por usuarios del tenant. Retención automátic
 
 ---
 
+## Módulo Catálogo M2M — etiquetas `tag`/`item_tag` (sprint 2026-06-19, context/14)
+
+Tags multi-valor por ítem (a diferencia de `taxonomy` que es 1→N). Plan completo en `context/14-catalogo-m2m-plan.md`.
+
+- **Backend**: `TagService` en `api/lib/Tags/TagService.php` + endpoint `/v1/tags` + ramas `resource=brands|tags` en `items.php`.
+- **UI panel-next**: tab "Etiquetas" en `/settings/catalog` + `BrandsPicker`/`TagsPicker` multi-select en el form de ítem.
+- **Import**: `ItemImporter` acepta listas separadas por `|` en columnas CATEGORIA/MARCA/ETIQUETAS.
+- **Schema**: migs 37–39 (`tag`, `item_tag`, triggers bidireccionales taxonomy↔tag). Ver `context/04-modelo-de-dominio.md § Catálogo M2M`.
+
+---
+
+## Módulo Realtime Sync panel↔POS (sprint 2026-06-20, context/15)
+
+Sincronización en tiempo real entre el panel y el POS sin polling.
+
+- **Backend PHP**: `realtimePublish()` wired en `apiAuthTenant::realtimeAfterMutation` — publica automáticamente un evento Redis por cada mutación exitosa.
+- **Cliente WS**: singleton `ncm-ws.ts` en `panel-next/lib/realtime/`. Hook `useRealtimeSync` mapea `entity → queryKeys` de TanStack Query y llama `invalidateQueries` al recibir el evento.
+- **Entidades cubiertas**: items, contacts, transactions, sales (el dashboard se actualiza con ventas POS en tiempo real).
+- **Redis pub/sub**: el ws-server (`ws-server/index.js`) hace de bridge Redis → WebSocket al browser.
+
+---
+
+## Módulo Checkout Screen (sprint 2026-06-20, context/16)
+
+Pantalla secundaria orientada al cliente (customer-facing display), controlada por el POS.
+
+- **Schema**: tabla `customer_display` (migración 40). Ver `context/04-modelo-de-dominio.md § customer_display`.
+- **Endpoints**: `/v1/screens/{request,pair,publish,heartbeat,list,revoke}` (realm mixto panel+pos-app).
+- **POS**: publica eventos `cart-update` al confirmarse una venta. `AjustesPanel` incluye sección de pantallas. Ruta Next.js: `(screen)/checkout` con estados pairing/live/confirmed/idle.
+- **Panel-next**: `/settings/devices` CRUD de pantallas (hoy solo checkout screens; UI de cajas POS pendiente).
+- **Gotcha Redis**: `phpredis` no está disponible en el servidor de prod — la publish PHP usa `fsockopen` + protocolo RESP directo.
+
+---
+
+## Módulo Reports Rollup (sprint 2026-06-20, context/18)
+
+Pre-agregado incremental de reportes de ventas para rendimiento en volumen alto.
+
+- **Schema**: migs 41–42 (`report_rollup`, `rollup_dirty`, `item_sales`, `item_returns`, `payments`). Funciones PG: `reconcile_rollup`, `backfill_rollup`.
+- **Gate**: `REPORTS_ROLLUP_ENABLED` (env var, default OFF en prod hasta verificación numérica `?verify=1`).
+- **Cutover actual (RB-1+RB-2)**: `SummaryYearService`, `CategoriesService`, `BrandsService`, `PaymentMethodsService`.
+- **Estrategia**: pg_cron cada 5 min sobre `rollup_dirty`; backfill histórico en el primer deploy. Reconciliación full disponible como fallback.
+- **Pendiente**: RB-3 (stock/production/commissions/vpayments).
+
+---
+
+## Módulo Agente IA (sprint 2026-06-21, context/17)
+
+Asistente de IA integrado en el panel y el POS. Plan completo en `context/17-ai-agent-plan.md`.
+
+- **Provider**: OpenRouter (NO SDK Anthropic). Modelo default `deepseek/deepseek-chat-v3-0324`, configurable por tenant desde /admin (tabla `ai_model_config`, migración 43).
+- **Route handler**: `panel-next/app/api/agent/chat/route.ts` — AI SDK v6 en modo OpenAI-compatible, tool `get_sales_summary` (AI-1) + 12 tools adicionales (AI-3).
+- **13 tools**: 5 de lectura (sin confirmación) + 8 de escritura con `confirmToken` UUID expiración real 60s, 3 capas de defense-in-depth.
+- **Créditos**: gate 402 + débito atómico en `/v1/ai/debit` (`SELECT FOR UPDATE` sobre `company.aiCreditsBalance`). Ledger `agent_chat` en `ai_credit_ledger`. Calibración pricing (creditsPerKToken vs costo real OpenRouter) pendiente.
+- **UI (AI-3b)**: 3 componentes (`AgentChatContent`, `AgentChatFloating`, page `/chat`); historial Zustand persist con patrón `useChatHistoryHydrated` (`onFinishHydration`); markdown formateado (react-markdown + remark-gfm); copiar/voz; input ChatGPT-style; 5 sugerencias; mobile Sheet fullscreen.
+- **FAB**: aparece en todas las rutas del panel; en `/pos` solo con el menú principal abierto.
+- **Integración POS**: ítem en el menú principal del POS navega a `/chat`.
+- **Pendiente**: AI-4 (UI /admin para `ai_model_config`), AI-5 (OCR + análisis libre).
+
+---
+
 ## /panel/standalone — Pantallas independientes
 
 **Propósito**: Vistas que corren en dispositivos dedicados (cocina, mostrador).

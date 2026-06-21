@@ -283,6 +283,30 @@ Este bug afectó `ContactAnalyticsService::fetchAll` (fix en commit `85a28fd`).
 
 ---
 
+## §42 — Dos tokens JWT en el browser del operador (sprint 2026-06-20)
+
+El browser de un operador logueado lleva **dos** cookies JWT simultáneas con propósitos distintos:
+
+| Cookie | Emite | TTL | Realm / claim `iss` | Propósito |
+|--------|-------|-----|---------------------|-----------|
+| `_jwt_panel` | `panel/includes/functions.php` | 24h | `'panel'` | Sesión del operador en el panel React |
+| `_jwt` | `app/API/auth.php` | 10 años | `'pos-app'` | Device pairing de la caja POS |
+
+El catch-all BFF (`panel-next/app/api/v1/[...path]/route.ts`) forwardea **solo** `_jwt_panel`. Los endpoints `apiAuthTenant(['pos-app'])` leen `_jwt`. Un `POST /v1/logout` del panel borra solo `_jwt_panel` (cookie `HttpOnly`, borrado server-side); la sesión POS no se toca. Ver §28 y context/16.
+
+---
+
+## §43 — Agente IA: alcance acotado, confirmToken y débito atómico (sprint 2026-06-21)
+
+El agente IA usa **OpenRouter** como gateway (no SDK Anthropic). Modelo default: `deepseek/deepseek-chat-v3-0324`.
+
+- **13 tools**: 5 de lectura (sin confirmación) + 8 de escritura con `confirmToken` UUID de 60s de vida real (3 capas de defense-in-depth: generación server-side → persistencia Zustand → revalidación antes del execute).
+- **Débito de créditos**: `/v1/ai/debit` atómico con `SELECT FOR UPDATE` sobre `company.aiCreditsBalance`. Gate 402 si saldo insuficiente antes de llamar al modelo.
+- **Historial de chat**: Zustand persist en localStorage. El hidratador usa patrón `useChatHistoryHydrated` con `onFinishHydration` porque la hidratación de Zustand persist es async y no puede bloquearse con el render síncrono del componente.
+- **Prohibido** invocar la AI SDK de Anthropic para este agente — toda la lógica del agente pasa por OpenRouter (`api/agent/chat` route handler con AI SDK v6 OpenAI-compatible).
+
+---
+
 ## §41 — `ncmExecute` con `forceObj: true` devuelve RECORDSET, no array
 
 Cuando `ncmExecute($db, $sql, $params, forceObj: true)` se usa para evitar el aplanado JSONB de `§18`, el valor de retorno es un **objeto RECORDSET** (DB wrapper interno), NO un array PHP.

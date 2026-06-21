@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-21 — Mega sprint: catálogo m2m + realtime + checkout screen + reports rollup + agente IA
+
+Commits `793613c..645f9cb` (44). 5 ejes mayores en 3 días (context/14–18): migs 37–43 (tags/item_tag, customer_display, report_rollup+rollup_dirty, item_sales/payments rollup, ai_model_config); realtime sync panel↔POS vía WS singleton + `useRealtimeSync`; checkout screen completo (pairing → live → confirmed → idle, Redis vía fsockopen+RESP); rollup pre-agregado gateado por `REPORTS_ROLLUP_ENABLED` (RB-1+RB-2, cutover 5 reportes); agente IA AI-1..AI-3b (OpenRouter+DeepSeek, 13 tools con confirmToken, historial Zustand persist con `onFinishHydration`, UI ChatGPT-style + mobile Sheet). Hitos infra: dominio migrado a `app.punto.la`; 4 memorias nuevas (jwt_two_tokens, ai_agent_openrouter, ai_agent_scope, reports_rollup). Pendientes: smoke tests prod, calibración pricing agente, RB-3, AI-4/AI-5, UI cajas en /settings/devices.
+
 ## 2026-06-19 — Auditoría tenant, edición de venta completa, cierre de caja panel y mejoras UX
 
 Commits `50eca3d..793613c` (7). Highlights: bug nombre empresa en /settings (3 capas); Team movido a tab en /contacts + redirect /settings/team; import items acepta .xlsx (SheetJS) + columna ETIQUETAS autocrea tags; archivar-antes-de-eliminar en items (hard-delete solo archivados sin ventas); modal detalle de caja + cerrar desde panel; detalle de venta con edición paridad completa (header+ítems+métodos de pago, gate editabilidad, docs asociados, tabs Pagos/Cotizaciones); módulo de auditoría tenant (tabla `tenant_audit`, instrumentación en `apiAuthTenant`, endpoint + UI, retención 2 meses vía pg_cron); mig 36 pg_cron fail-tolerant.
