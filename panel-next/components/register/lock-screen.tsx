@@ -5,8 +5,7 @@
  * (4 dígitos) para reanudar. No hay input visible: captura las teclas a
  * nivel window y muestra 4 círculos que se llenan a medida que se tipea.
  *
- * Backend: por ahora stub (STUB_PIN = "1234"). F2 lo cambia por POST al
- * backend que valida el PIN del usuario y re-emite el JWT.
+ * PIN: validado contra users[].lockPass del catalog store (precacheados en bootstrap).
  *
  * UX:
  *   - Logo Punto centrado.
@@ -22,17 +21,17 @@ import { Lock } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
-import { STUB_PIN, useLockStore } from "@/lib/pos/lock-store"
+import { useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { useBootstrap } from "@/hooks/use-bootstrap"
 
 const PIN_LENGTH = 4
 
 export function LockScreen() {
   const locked = useLockStore((s) => s.locked)
   const unlock = useLockStore((s) => s.unlock)
+  const setActiveUser = useLockStore((s) => s.setActiveUser)
   const outletName = useCatalogStore((s) => s.outlet?.name)
-  const { data: bootstrap } = useBootstrap()
+  const users = useCatalogStore((s) => s.users)
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -89,11 +88,10 @@ export function LockScreen() {
     if (pin.length !== PIN_LENGTH) return
     // Mini-pausa para que el último pop sea visible antes de evaluar.
     const id = setTimeout(() => {
-      if (pin === STUB_PIN) {
-        // Saludo personalizado. Cuando el backend exponga user.name lo usamos;
-        // mientras tanto, fallback genérico para no mostrar "Hola, undefined".
-        const userName = bootstrap?.user?.name?.trim()
-        toast.success(userName ? `Hola, ${userName}` : "¡Bienvenido!")
+      const matchedUser = users.find((u) => u.lockPass === pin)
+      if (matchedUser) {
+        setActiveUser({ id: matchedUser.id, name: matchedUser.name })
+        toast.success(`Bienvenido, ${matchedUser.name}`)
         unlock()
       } else {
         // Shake + limpiar + mostrar error sutil.
@@ -107,7 +105,7 @@ export function LockScreen() {
       }
     }, 160)
     return () => clearTimeout(id)
-  }, [pin, unlock, bootstrap])
+  }, [pin, unlock, users, setActiveUser])
 
   if (!locked) return null
 

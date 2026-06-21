@@ -51,6 +51,7 @@ import {
 import { QtyEditDialog } from "@/components/register/qty-edit-dialog"
 import { LinePriceDialog } from "@/components/register/line-price-dialog"
 import { LineDiscountDialog } from "@/components/register/line-discount-dialog"
+import { LineSellerDialog } from "@/components/register/line-seller-dialog"
 import { cn } from "@/lib/utils"
 import {
   useCartStore,
@@ -474,6 +475,8 @@ function CartRowCollapsed({
   const hasTags = (line.tags?.length ?? 0) > 0
   const hasNote = Boolean(line.note && line.note.trim().length > 0)
   const showSubtitle = hasSeller || hasTags || hasNote
+  const users = useCatalogStore((s) => s.users)
+  const sellerName = hasSeller ? (users.find((u) => u.id === line.sellerId)?.name ?? null) : null
 
   return (
     <button
@@ -501,6 +504,7 @@ function CartRowCollapsed({
             {hasSeller && (
               <span className="inline-flex items-center gap-1" title="Vendedor asignado">
                 <User className="size-3" aria-hidden />
+                {sellerName && <span>{sellerName}</span>}
               </span>
             )}
             {hasTags && (
@@ -557,6 +561,7 @@ function CartRowExpanded({
 }) {
   const [qtyOpen, setQtyOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
+  const [sellerOpen, setSellerOpen] = React.useState(false)
 
   return (
     <div className="bg-accent/40 px-3 py-3">
@@ -593,9 +598,7 @@ function CartRowExpanded({
 
         <div className="flex items-center gap-1.5">
           <LineToolButton
-            onClick={() => {
-              // TODO (C2): abrir selector de vendedor.
-            }}
+            onClick={() => setSellerOpen(true)}
             aria-label="Asignar vendedor"
           >
             <User className="size-4" />
@@ -626,6 +629,13 @@ function CartRowExpanded({
           setQtyOpen(false)
         }}
         onClose={() => setQtyOpen(false)}
+      />
+
+      <LineSellerDialog
+        open={sellerOpen}
+        currentSellerId={line.sellerId}
+        onSelect={(uid) => useCartStore.getState().setLineSeller(line.lineId, uid)}
+        onClose={() => setSellerOpen(false)}
       />
 
       {/* Más opciones — drawer inferior (no dropdown). Título = nombre del ítem. */}

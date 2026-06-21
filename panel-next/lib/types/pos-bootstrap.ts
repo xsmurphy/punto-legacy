@@ -103,6 +103,15 @@ export interface PosCustomer {
   isCreditable: boolean
 }
 
+// ── Empleado del outlet (para lockscreen y asignación por línea) ──────────────
+
+export interface PosUser {
+  id: string
+  name: string
+  /** PIN de 4 dígitos para el lockscreen. Null si el usuario no tiene PIN configurado. */
+  lockPass: string | null
+}
+
 // ── Bootstrap completo ────────────────────────────────────────────────────────
 
 export interface PosBootstrap {
@@ -121,6 +130,7 @@ export interface PosBootstrap {
   items: PosItem[]
   customers: PosCustomer[]
   paymentMethods: PaymentMethodConfig[]
+  users: PosUser[]
   /** UUID de la caja activa en el claim del JWT. '' = sin caja seleccionada. */
   activeRegisterId: string
 }

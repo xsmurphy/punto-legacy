@@ -185,6 +185,9 @@ interface CartState {
    * 0 elimina el descuento. El subtotal se recalcula via lineSubtotal.
    */
   setLineDiscount: (lineId: string, discountPercent: number) => void
+
+  /** Asigna o quita un vendedor de una línea. null = quitar asignación. */
+  setLineSeller: (lineId: string, sellerId: string | null) => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -340,6 +343,14 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         l.lineId === lineId
           ? { ...l, discount: clamped === 0 ? undefined : clamped }
           : l,
+      ),
+    }))
+  },
+
+  setLineSeller: (lineId, sellerId) => {
+    set((state) => ({
+      lines: state.lines.map((l) =>
+        l.lineId === lineId ? { ...l, sellerId: sellerId ?? undefined } : l,
       ),
     }))
   },
