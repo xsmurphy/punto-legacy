@@ -35,4 +35,22 @@ try {
     apiError($e->getMessage(), 500);
 }
 
-apiOk($svc->report($from, $to, $roc, COMPANY_ID));
+if (($_GET['verify'] ?? '') === '1') {
+    $rollupData = $svc->report($from, $to, $roc, (string) COMPANY_ID, true);
+    $liveData   = $svc->report($from, $to, $roc, (string) COMPANY_ID, false);
+    $diff = [];
+    $rollupMap = array_column($rollupData['summary'], null, 'type');
+    $liveMap   = array_column($liveData['summary'],   null, 'type');
+    $allTypes  = array_unique(array_merge(array_keys($rollupMap), array_keys($liveMap)));
+    foreach ($allTypes as $type) {
+        $r = $rollupMap[$type] ?? ['price'=>0];
+        $l = $liveMap[$type]   ?? ['price'=>0];
+        $delta = round((float)($r['price'] ?? 0) - (float)($l['price'] ?? 0), 4);
+        if ($delta !== 0.0) {
+            $diff[] = ['type'=>$type,'field'=>'price','rollup'=>$r['price'],'live'=>$l['price'],'delta'=>$delta];
+        }
+    }
+    apiOk(['rollup' => $rollupData['summary'], 'live' => $liveData['summary'], 'diff' => $diff]);
+}
+
+apiOk($svc->report($from, $to, $roc, (string) COMPANY_ID));

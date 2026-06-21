@@ -6,16 +6,86 @@ namespace Punto\Api\Reports;
 /**
  * Dominio de Reportes — Ventas por Categorías (API compartida, motor ERP).
  *
- * Port FIEL de panel/lib/reports/ReportCategoriesService.php (Fase 2 batch 1). Único cambio
- * vs el original: namespace + `final` + `Taxonomy::categories($companyId)` en vez del
- * getter global del panel. SQL idéntico.
+ * salesByCategory: gated por REPORTS_ROLLUP_ENABLED. Con rollup, lee item_sales
+ * del RollupReader y re-agrega por categoryId actual del item.
+ * salesByCategoryLive: cómputo original intacto (SQL directo sobre itemSold/transaction/item).
  *
  * Tenant: $roc (b-prefijado, transaction = alias b) derivado de COMPANY_ID del JWT.
  */
 final class CategoriesService
 {
-    /** @return array filas [{categoryId, name, usold, total, tax, cogs, comission, discount}] ordenadas por usold desc */
-    public function salesByCategory($from, $to, $roc, string $companyId)
+    public function salesByCategory($from, $to, $roc, string $companyId, bool $forceRollup = false, ?string $outletId = null): array
+    {
+        if (!$forceRollup && empty($_ENV['REPORTS_ROLLUP_ENABLED'])) {
+            return $this->salesByCategoryLive($from, $to, $roc, $companyId);
+        }
+
+        $reader    = new RollupReader();
+        $itemSales = $reader->itemSalesRange($companyId, $from, $to, $outletId);
+
+        if (empty($itemSales)) {
+            return [];
+        }
+
+        $itemIds      = array_keys($itemSales);
+        $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+        $params       = array_merge([$companyId], $itemIds);
+        $rs = ncmExecute(
+            "SELECT itemid::text AS itemid, categoryid::text AS categoryid
+             FROM item
+             WHERE companyid = ?
+               AND itemid IN ({$placeholders})",
+            $params,
+            false,
+            true
+        );
+
+        $itemToCategory = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $itemToCategory[(string)$f['itemid']] = $f['categoryid'] ? (string)$f['categoryid'] : '';
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        $grouped = [];
+        foreach ($itemSales as $itemId => $m) {
+            $catId = $itemToCategory[$itemId] ?? '';
+            if (!isset($grouped[$catId])) {
+                $grouped[$catId] = ['usold'=>0,'total'=>0,'tax'=>0,'cogs'=>0,'comission'=>0,'discount'=>0];
+            }
+            $grouped[$catId]['usold']     += $m['qty'];
+            $grouped[$catId]['total']     += $m['total'];
+            $grouped[$catId]['tax']       += $m['tax'];
+            $grouped[$catId]['cogs']      += $m['cogs'];
+            $grouped[$catId]['comission'] += $m['comission'];
+            $grouped[$catId]['discount']  += $m['discount'];
+        }
+
+        $categories = Taxonomy::categories($companyId);
+
+        $rows = [];
+        foreach ($grouped as $catId => $g) {
+            $rows[] = [
+                'categoryId' => $catId,
+                'name'       => ($catId !== '' && isset($categories[$catId])) ? $categories[$catId]['name'] : 'Sin Categoría',
+                'usold'      => (float) $g['usold'],
+                'total'      => (float) $g['total'],
+                'tax'        => (float) $g['tax'],
+                'cogs'       => (float) $g['cogs'],
+                'comission'  => (float) $g['comission'],
+                'discount'   => (float) $g['discount'],
+            ];
+        }
+
+        usort($rows, fn($a, $b) => $b['usold'] <=> $a['usold']);
+
+        return $rows;
+    }
+
+    public function salesByCategoryLive($from, $to, $roc, string $companyId): array
     {
         $sql = 'SELECT SUM(a.itemSoldUnits)                   AS usold,
                        SUM(a.itemSoldTotal)                   AS total,

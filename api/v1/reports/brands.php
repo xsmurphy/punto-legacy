@@ -36,4 +36,26 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 // del dropdown del logo en panel-next, 2026-06-13).
 $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'c');
 
-apiOk($svc->salesByBrand($from, $to, $roc, COMPANY_ID));
+$outletId = defined('VIEW_OUTLET_ID') ? (string) VIEW_OUTLET_ID : (string) OUTLET_ID;
+
+if (($_GET['verify'] ?? '') === '1') {
+    $rollupData = $svc->salesByBrand($from, $to, $roc, (string) COMPANY_ID, true, $outletId);
+    $liveData   = $svc->salesByBrandLive($from, $to, $roc, (string) COMPANY_ID);
+    $diff = [];
+    $rollupMap = array_column($rollupData, null, 'brandId');
+    $liveMap   = array_column($liveData,   null, 'brandId');
+    $allBrands = array_unique(array_merge(array_keys($rollupMap), array_keys($liveMap)));
+    foreach ($allBrands as $brandId) {
+        $r = $rollupMap[$brandId] ?? ['usold'=>0,'total'=>0,'tax'=>0,'cogs'=>0,'discount'=>0];
+        $l = $liveMap[$brandId]   ?? ['usold'=>0,'total'=>0,'tax'=>0,'cogs'=>0,'discount'=>0];
+        foreach (['usold','total','tax','cogs','discount'] as $fld) {
+            $delta = round((float)($r[$fld] ?? 0) - (float)($l[$fld] ?? 0), 4);
+            if ($delta !== 0.0) {
+                $diff[] = ['brandId'=>$brandId,'field'=>$fld,'rollup'=>$r[$fld],'live'=>$l[$fld],'delta'=>$delta];
+            }
+        }
+    }
+    apiOk(['rollup' => $rollupData, 'live' => $liveData, 'diff' => $diff]);
+}
+
+apiOk($svc->salesByBrand($from, $to, $roc, (string) COMPANY_ID, false, $outletId));

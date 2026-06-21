@@ -24,7 +24,7 @@ final class PaymentMethodsService
      * Dataset del reporte de medios de pago en un período.
      * @return array{detail: array, summary: array}
      */
-    public function report($from, $to, $roc, $companyId)
+    public function report($from, $to, $roc, $companyId, bool $forceRollup = false): array
     {
         $sql = "SELECT transactionId, transactionPaymentType, transactionTotal,
                        invoiceNo, outletId, customerId, registerId
@@ -89,13 +89,26 @@ final class PaymentMethodsService
 
         usort($group, fn($a, $b) => ($b['price'] ?? 0) <=> ($a['price'] ?? 0));
 
-        $summary = [];
-        foreach ($group as $g) {
-            $summary[] = [
-                'type'  => $g['type'] ?? '',
-                'name'  => iftn(getPaymentMethodName($g['type'] ?? '', true), getPaymentMethodName($g['type'] ?? '')),
-                'price' => (float) ($g['price'] ?? 0),
-            ];
+        if (!$forceRollup && empty($_ENV['REPORTS_ROLLUP_ENABLED'])) {
+            $summary = [];
+            foreach ($group as $g) {
+                $summary[] = [
+                    'type'  => $g['type'] ?? '',
+                    'name'  => iftn(getPaymentMethodName($g['type'] ?? '', true), getPaymentMethodName($g['type'] ?? '')),
+                    'price' => (float) ($g['price'] ?? 0),
+                ];
+            }
+        } else {
+            $reader  = new RollupReader();
+            $payRows = $reader->paymentsRange($companyId, $from, $to, null);
+            $summary = [];
+            foreach ($payRows as $pr) {
+                $summary[] = [
+                    'type'  => $pr['type'],
+                    'name'  => iftn(getPaymentMethodName($pr['type'], true), getPaymentMethodName($pr['type'])),
+                    'price' => $pr['price'],
+                ];
+            }
         }
 
         return ['detail' => $detail, 'summary' => $summary];

@@ -188,9 +188,10 @@ final class SaleService
         // Rollup: marcar el día de la transacción sucio (best-effort).
         try {
             $rollupDomains = match ($input->type) {
-                \Punto\Api\Sales\SaleType::Return => ['returns'],
+                \Punto\Api\Sales\SaleType::Return => ['returns', 'item_returns'],
                 \Punto\Api\Sales\SaleType::CashPurchase, \Punto\Api\Sales\SaleType::CreditPurchase => ['expenses'],
-                default => ['sales'],
+                \Punto\Api\Sales\SaleType::CreditPayment => ['payments'],
+                default => ['sales', 'item_sales', 'payments'],
             };
             \rollupMarkDirty((string) $this->ctx->companyId, $rollupDomains, $input->date);
         } catch (\Throwable $e) {

@@ -6,16 +6,84 @@ namespace Punto\Api\Reports;
 /**
  * Dominio de Reportes — Ventas por Marca (API compartida, motor ERP).
  *
- * Port FIEL de panel/lib/reports/ReportBrandsService.php (Fase 2 batch 1). Único cambio
- * vs el original: namespace + `final` + `Taxonomy::brands($companyId)` en vez del helper
- * global del panel (que no existe en /app — ver `Taxonomy`). SQL idéntico.
+ * salesByBrand: gated por REPORTS_ROLLUP_ENABLED. Con rollup, lee item_sales
+ * del RollupReader y re-agrega por brandId actual del item.
+ * salesByBrandLive: cómputo original intacto (SQL directo sobre itemSold/item/transaction).
  *
  * Tenant: $roc (c-prefijado, transaction = alias c) derivado de COMPANY_ID del JWT.
  */
 final class BrandsService
 {
-    /** @return array filas [{brandId, name, usold, total, tax, cogs, discount}] ordenadas por usold desc */
-    public function salesByBrand($from, $to, $roc, string $companyId)
+    public function salesByBrand($from, $to, $roc, string $companyId, bool $forceRollup = false, ?string $outletId = null): array
+    {
+        if (!$forceRollup && empty($_ENV['REPORTS_ROLLUP_ENABLED'])) {
+            return $this->salesByBrandLive($from, $to, $roc, $companyId);
+        }
+
+        $reader    = new RollupReader();
+        $itemSales = $reader->itemSalesRange($companyId, $from, $to, $outletId);
+
+        if (empty($itemSales)) {
+            return [];
+        }
+
+        $itemIds      = array_keys($itemSales);
+        $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+        $params       = array_merge([$companyId], $itemIds);
+        $rs = ncmExecute(
+            "SELECT itemid::text AS itemid, brandid::text AS brandid
+             FROM item
+             WHERE companyid = ?
+               AND itemid IN ({$placeholders})",
+            $params,
+            false,
+            true
+        );
+
+        $itemToBrand = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $itemToBrand[(string)$f['itemid']] = $f['brandid'] ? (string)$f['brandid'] : '';
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        $grouped = [];
+        foreach ($itemSales as $itemId => $m) {
+            $brandId = $itemToBrand[$itemId] ?? '';
+            if (!isset($grouped[$brandId])) {
+                $grouped[$brandId] = ['usold'=>0,'total'=>0,'tax'=>0,'cogs'=>0,'discount'=>0];
+            }
+            $grouped[$brandId]['usold']    += $m['qty'];
+            $grouped[$brandId]['total']    += $m['total'];
+            $grouped[$brandId]['tax']      += $m['tax'];
+            $grouped[$brandId]['cogs']     += $m['cogs'];
+            $grouped[$brandId]['discount'] += $m['discountFlat'];
+        }
+
+        $brands = Taxonomy::brands($companyId);
+
+        $rows = [];
+        foreach ($grouped as $brandId => $g) {
+            $rows[] = [
+                'brandId'  => $brandId,
+                'name'     => ($brandId !== '' && isset($brands[$brandId])) ? $brands[$brandId]['name'] : 'Sin Marca',
+                'usold'    => (float) $g['usold'],
+                'total'    => (float) $g['total'],
+                'tax'      => (float) $g['tax'],
+                'cogs'     => (float) $g['cogs'],
+                'discount' => (float) $g['discount'],
+            ];
+        }
+
+        usort($rows, fn($a, $b) => $b['usold'] <=> $a['usold']);
+
+        return $rows;
+    }
+
+    public function salesByBrandLive($from, $to, $roc, string $companyId): array
     {
         $sql = 'SELECT SUM(a.itemSoldUnits)                   AS usold,
                        SUM(a.itemSoldTotal)                   AS total,
