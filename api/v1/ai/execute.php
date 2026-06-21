@@ -171,12 +171,19 @@ try {
                 'password' => $tempPass,
                 'roleId'   => $roleId,
             ]);
+            // Datos estructurados (sin frases instructivas): el formato de
+            // presentación lo dicta el system prompt del route handler para que
+            // sea consistente y el agente pueda construir el bloque exacto.
+            // El client implementa autoexpiración real a los 60s editando el
+            // mensaje + redactando el password antes de persistir en localStorage.
             apiOk([
                 'action' => $action,
                 'result' => [
-                    'id'           => $newId,
-                    'tempPassword' => $tempPass,
-                    'message'      => 'Usuario creado. Pasale esta contraseña: ' . $tempPass . ' (no se mostrará otra vez).',
+                    'id'              => $newId,
+                    'tempPassword'    => $tempPass,
+                    'userDisplayName' => $payload['name'],
+                    'login'           => $payload['phone'] ?? $payload['name'],
+                    'roleName'        => $roleName,
                 ],
             ]);
             break;

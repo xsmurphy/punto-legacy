@@ -74,7 +74,13 @@ export async function POST(req: Request) {
     `1) Llamá la tool "confirm_action" con action+payload+summary para generar un token de confirmación. ` +
     `2) Mostrá el resumen al usuario y pedí confirmación explícita. ` +
     `3) Solo cuando el usuario confirme, llamá "confirm_action" de nuevo con el confirmToken para ejecutar. ` +
-    `Nunca ejecutes una acción mutante sin confirmación explícita del usuario.`
+    `Nunca ejecutes una acción mutante sin confirmación explícita del usuario.\n\n` +
+    `CUANDO la acción "create_user" devuelva tempPassword, presentá la respuesta EXACTAMENTE con este formato (sin texto adicional antes ni después, sin "te muestro", sin disculpas):\n\n` +
+    `🔐 **{userDisplayName}**\n\n` +
+    `**Usuario:** {login}\n` +
+    `**Contraseña:** {tempPassword}\n\n` +
+    `⏳ Esta contraseña se ocultará en 60 segundos por seguridad. Guardala antes.\n\n` +
+    `NO repitas la contraseña en otros mensajes. NO la escribas en explicaciones largas. NO inventes que el sistema "borra" mensajes — solo esta única respuesta es sensible y el cliente la oculta automáticamente.`
 
   const modelMessages = await convertToModelMessages(messages)
 

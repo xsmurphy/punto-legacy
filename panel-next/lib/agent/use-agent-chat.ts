@@ -4,6 +4,10 @@ import * as React from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import { useChatHistoryStore } from "./chat-history-store"
+import { messageHasCredential, redactMessage } from "./redact-credentials"
+
+/** Tiempo de vida de un mensaje con credencial en el thread vivo. */
+const CREDENTIAL_TTL_MS = 60_000
 
 /**
  * Hook unificado para el agente. Envuelve `useChat` con:
@@ -58,9 +62,30 @@ export function useAgentChat({
     prevStatusRef.current = chat.status
   }, [chat.status, chat.messages, setStored])
 
+  // Auto-expiración de mensajes con credenciales: cuando aparece un nuevo
+  // mensaje del assistant que contiene una contraseña visible, programar un
+  // timeout que reemplace el texto a los 60s. Trackeamos por id para no
+  // duplicar timers en re-renders. El store ya redacta al persistir, así
+  // que al expirar el timer y llamar setMessages, el localStorage queda en
+  // sync con el state.
+  const scheduledRef = React.useRef<Set<string>>(new Set())
+  React.useEffect(() => {
+    for (const msg of chat.messages) {
+      if (!messageHasCredential(msg)) continue
+      if (scheduledRef.current.has(msg.id)) continue
+      scheduledRef.current.add(msg.id)
+      setTimeout(() => {
+        chat.setMessages((prev) =>
+          prev.map((m) => (m.id === msg.id ? redactMessage(m) : m)),
+        )
+      }, CREDENTIAL_TTL_MS)
+    }
+  }, [chat.messages, chat])
+
   const clear = React.useCallback(() => {
     chat.setMessages([])
     clearStored()
+    scheduledRef.current.clear()
   }, [chat, clearStored])
 
   return { ...chat, clear }

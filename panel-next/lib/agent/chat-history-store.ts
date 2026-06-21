@@ -3,6 +3,7 @@
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 import type { UIMessage } from "ai"
+import { redactMessages } from "./redact-credentials"
 
 /**
  * Historial persistente del agente IA — vive en localStorage del browser.
@@ -34,7 +35,12 @@ export const useChatHistoryStore = create<ChatHistoryState>()(
   persist(
     (set) => ({
       messages: [],
-      setMessages: (messages) => set({ messages: messages.slice(-100) }),
+      // SIEMPRE redactamos credenciales antes de persistir — si el user hace
+      // refresh, la contraseña ya no está. Defense in depth: el timer client
+      // de 60s también oculta en vivo, pero esto es la red de seguridad final
+      // contra "cerré la pestaña antes de que expire".
+      setMessages: (messages) =>
+        set({ messages: redactMessages(messages.slice(-100)) }),
       clear: () => set({ messages: [] }),
     }),
     {
