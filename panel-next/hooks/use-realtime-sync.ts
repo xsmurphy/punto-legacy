@@ -21,7 +21,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   tag:               [["tags"], ["taxonomies", "tag"]],
   tax:               [["taxes"], ["taxonomies", "tax"]],
   location:          [["outlet-locations"]],
-  transaction:       [["reports"], ["transactions"], ["dashboard"], ["dashboard-widget"]],
+  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["dashboard"], ["dashboard-widget"]],
   drawer:            [["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
   expense:           [["reports", "expenses"], ["dashboard"], ["dashboard-widget"]],
   // setting también invalida pos-bootstrap porque lo usa el POS para leer config del tenant.

@@ -36,6 +36,7 @@ import {
   Plus,
   Monitor,
   MessageCircle,
+  RotateCcw,
   type LucideIcon,
 } from "lucide-react"
 
@@ -93,6 +94,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
+import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -208,6 +210,13 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
       useAgentChatStore.getState().setOpen(true)
     },
   },
+  {
+    key: "devoluciones",
+    label: "Devoluciones",
+    icon: RotateCcw,
+    // onSelect abre el Sheet de devoluciones — el estado vive en PosMainMenu.
+    // La clave especial "devoluciones" es interceptada en handleSidebarClick.
+  },
 ]
 
 // ── Componente principal ─────────────────────────────────────────────────────
@@ -226,6 +235,9 @@ export function PosMainMenu() {
   // Stores de dominio para los handlers de secciones.
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const setHotkeysEditing = useHotkeysStore((s) => s.setEditing)
+
+  // Estado para el Sheet de devoluciones
+  const [returnSheetOpen, setReturnSheetOpen] = React.useState(false)
 
   // Resetear la sección al cerrar el modal para la próxima apertura.
   const handleOpenChange = (v: boolean) => {
@@ -302,6 +314,11 @@ export function PosMainMenu() {
                 // ejecutan la acción directo al click. Si están disabled
                 // (sin caja activa), el click no hace nada y se muestran atenuados.
                 const handleClick = () => {
+                  if (key === "devoluciones") {
+                    setOpen(false)
+                    setReturnSheetOpen(true)
+                    return
+                  }
                   if (onSelect) {
                     onSelect({ setOpen, activeRegisterId: activeRegisterId ?? "", router })
                   } else {
@@ -390,6 +407,8 @@ export function PosMainMenu() {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Sheet de devoluciones — fuera del Dialog del menú para no anidar modales */}
+      <PosReturnSheet open={returnSheetOpen} onOpenChange={setReturnSheetOpen} />
     </MenuContentCtx.Provider>
   )
 }
