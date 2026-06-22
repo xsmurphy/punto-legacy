@@ -68,7 +68,7 @@ const COMPONENTS: Components = {
 
 export function MessageMarkdown({ content }: { content: string }) {
   return (
-    <div className="text-sm">
+    <div className="text-base">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
         {content}
       </ReactMarkdown>
