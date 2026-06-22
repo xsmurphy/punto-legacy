@@ -14,6 +14,7 @@ import {
   CalendarDays,
   SquareKanban,
   Bookmark,
+  Boxes,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -36,6 +37,7 @@ const panelNav: NavEntry[] = [
   { title: "Dashboard", to: "/", icon: LayoutDashboard },
   { title: "Asistente", to: "/chat", icon: MessageCircle },
   { title: "Artículos", to: "/items", icon: ShoppingBasket },
+  { title: "Inventario", to: "/inventory-count", icon: Boxes },
   { title: "Contactos", to: "/contacts", icon: Contact },
   { title: "Reportes", to: "/reports", icon: ChartPie },
   // Caja = POS dentro del propio panel (route group (pos), ruta /pos).

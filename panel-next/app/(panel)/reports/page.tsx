@@ -52,7 +52,7 @@ const GROUPS: ReportGroup[] = [
     items: [
       { title: "Movimientos",           to: "/reports/inventory",   implemented: true  },
       { title: "Niveles de stock",      to: "/reports/stock",       implemented: true  },
-      { title: "Conteo",                to: "/reports/inventory-count", implemented: false },
+      { title: "Conteo",                to: "/inventory-count",         implemented: true  },
       { title: "Producción",            to: "/reports/production",  implemented: true  },
       { title: "Gift cards",            to: "/reports/giftcards",   implemented: true  },
     ],
