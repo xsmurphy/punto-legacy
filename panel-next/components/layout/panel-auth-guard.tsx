@@ -17,6 +17,7 @@ import {
   Boxes,
   ClipboardEdit,
   ArrowLeftRight,
+  RotateCcw,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -76,6 +77,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       icon: Bookmark,
       badge: parkedSales?.length ? String(parkedSales.length) : undefined,
     },
+    { title: "Devoluciones", to: "/pos/devoluciones", icon: RotateCcw },
   ]
   const nav = isPos ? posNav : panelNav
   const { data: bootstrap, isLoading, error } = useBootstrap()
