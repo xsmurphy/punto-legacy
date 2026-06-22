@@ -30,6 +30,8 @@ import {
   Move,
   Palette,
   Check,
+  StickyNote,
+  UserCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -328,6 +330,9 @@ export function CartPanel() {
           </div>
         )}
       </div>
+
+      {/* ── Extras de la venta (nota / descuento / usuario) ── */}
+      <CartExtras />
 
       {/* ── Bottom: toggles + botón cobrar ── */}
       <CartBottom
@@ -742,6 +747,108 @@ function EmptyCart() {
       <span aria-hidden className="flex justify-center opacity-[0.12]">
         <PuntoLogo variant="wordmark" className="h-[46px] w-[165px]" />
       </span>
+    </div>
+  )
+}
+
+// ── Extras de la venta ────────────────────────────────────────────────────────
+//
+// Muestra nota, descuento global y usuario cuando tienen valor.
+// Orden fijo: nota → descuento → usuario.
+// Customer ya se muestra en CustomerChip (arriba de las líneas), no se duplica.
+
+function CartExtras() {
+  const note = useCartStore((s) => s.note)
+  const lines = useCartStore((s) => s.lines)
+  const setNote = useCartStore((s) => s.setNote)
+  const users = useCatalogStore((s) => s.users)
+
+  // Descuento global: todas las líneas aplicables comparten el mismo valor.
+  // applyGlobalDiscount bake el % en cada línea sin discount previo.
+  const globalDiscount = React.useMemo(() => {
+    if (lines.length === 0) return null
+    const discounts = lines.map((l) => l.discount ?? 0).filter((d) => d > 0)
+    if (discounts.length === 0) return null
+    const first = discounts[0]
+    return discounts.every((d) => d === first) ? first : null
+  }, [lines])
+
+  const clearGlobalDiscount = React.useCallback(() => {
+    const { lines: ls } = useCartStore.getState()
+    ls.forEach((l) => useCartStore.getState().setLineDiscount(l.lineId, 0))
+  }, [])
+
+  // Usuario global: todas las líneas comparten el mismo sellerId.
+  const globalSellerId = React.useMemo(() => {
+    if (lines.length === 0) return null
+    const sellers = lines.map((l) => l.sellerId ?? null)
+    if (sellers.some((s) => s === null)) return null
+    const first = sellers[0]
+    return sellers.every((s) => s === first) ? first : null
+  }, [lines])
+
+  const clearGlobalSeller = React.useCallback(() => {
+    const { lines: ls } = useCartStore.getState()
+    ls.forEach((l) => useCartStore.getState().setLineSeller(l.lineId, null))
+  }, [])
+
+  const sellerName = globalSellerId
+    ? (users.find((u) => u.id === globalSellerId)?.name ?? null)
+    : null
+
+  const hasExtras = note || globalDiscount !== null || globalSellerId !== null
+  if (!hasExtras) return null
+
+  return (
+    <div className="shrink-0 border-t border-border/50">
+      {note && (
+        <ExtraRow
+          icon={StickyNote}
+          label={`Nota: ${note}`}
+          onClear={() => setNote(null)}
+        />
+      )}
+      {globalDiscount !== null && (
+        <ExtraRow
+          icon={Percent}
+          label={`Descuento: ${Math.round(globalDiscount)}%`}
+          onClear={clearGlobalDiscount}
+        />
+      )}
+      {globalSellerId !== null && (
+        <ExtraRow
+          icon={UserCircle2}
+          label={`Usuario: ${sellerName ?? globalSellerId}`}
+          onClear={clearGlobalSeller}
+        />
+      )}
+    </div>
+  )
+}
+
+function ExtraRow({
+  icon: Icon,
+  label,
+  onClear,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  onClear: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5">
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+        {label}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        onClick={onClear}
+        aria-label="Quitar"
+      >
+        <X className="size-3" />
+      </Button>
     </div>
   )
 }
