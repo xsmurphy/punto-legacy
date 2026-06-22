@@ -37,6 +37,8 @@ import { useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { api } from "@/lib/api-client"
+import { useSettingsCurrencies } from "@/hooks/use-settings"
+import { formatAmount } from "@/lib/format-money"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -63,6 +65,10 @@ const FALLBACK_METHODS: PaymentMethodConfig[] = [
     isDefault: true,
   },
 ]
+
+// ── Métodos secundarios — línea separada debajo de la grilla principal ────────
+// Crédito Interno se muestra en sección propia. Fase 6b agregará "giftcard".
+const SECONDARY_PAYMENT_IDS = ["interno"]
 
 // ── Tipo de pago aplicado ─────────────────────────────────────────────────────
 
@@ -116,6 +122,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   const paymentMethods =
     storedMethods.length > 0 ? storedMethods : FALLBACK_METHODS
+
+  const { data: currenciesData } = useSettingsCurrencies()
+  const currencies = currenciesData?.rows ?? []
 
   // Guard de caja
   const { data: drawerStatus } = useDrawerStatus()
@@ -433,6 +442,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               errorMsg={errorMsg}
               config={config}
               paymentMethods={paymentMethods}
+              currencies={currencies}
               onDisplayChange={handleDisplayChange}
               onKeyDown={handleKeyDown}
               onMethodClick={handleMethodClick}
@@ -496,6 +506,7 @@ interface PayPhaseProps {
   errorMsg: string | null
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   paymentMethods: PaymentMethodConfig[]
+  currencies: Array<{ ccode: string; code: string; value: number }>
   onDisplayChange: (raw: string) => void
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
   onMethodClick: (method: PaymentMethodConfig) => void
@@ -520,6 +531,7 @@ function PayPhase({
   errorMsg,
   config,
   paymentMethods,
+  currencies,
   onDisplayChange,
   onKeyDown,
   onMethodClick,
@@ -527,6 +539,9 @@ function PayPhase({
   onCreditConfirm,
   onCancel,
 }: PayPhaseProps) {
+  const primaryMethods = paymentMethods.filter((m) => !SECONDARY_PAYMENT_IDS.includes(m.id))
+  const secondaryMethods = paymentMethods.filter((m) => SECONDARY_PAYMENT_IDS.includes(m.id))
+  const activeCurrencies = currencies.filter((c) => c.value > 0)
   // El visor muestra lo tipeado si hay algo; si no, muestra el remaining.
   // Esto se logra con placeholder: el input está vacío y el placeholder
   // es el remaining formateado — visualmente se lee como el monto a cobrar.
@@ -645,10 +660,9 @@ function PayPhase({
           </div>
         )}
 
-        {/* Grilla de métodos — 3 cols. Defaults (Efectivo/T.Crédito/T.Débito) en
-            variant secondary (gris); custom del tenant en outline (blanco). */}
+        {/* Grilla de métodos principal — 3 cols. */}
         <div className="grid grid-cols-3 gap-1.5">
-          {paymentMethods.map((m) => (
+          {primaryMethods.map((m) => (
             <Button
               key={m.id}
               variant={m.isDefault ? "default" : "outline"}
@@ -672,6 +686,42 @@ function PayPhase({
             </Button>
           ))}
         </div>
+
+        {/* Métodos secundarios (Crédito Interno; Giftcard se agrega en Fase 6b). */}
+        {secondaryMethods.length > 0 && (
+          <>
+            <Separator className="my-0.5" />
+            <div className="flex flex-wrap gap-1.5">
+              {secondaryMethods.map((m) => (
+                <Button
+                  key={m.id}
+                  variant="outline"
+                  className="h-8 justify-center gap-1.5 px-3 text-xs font-medium text-muted-foreground"
+                  onClick={() => onMethodClick(m)}
+                  disabled={!credito && remaining <= 0}
+                >
+                  <span className="truncate">{m.name}</span>
+                  {m.code && (
+                    <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border border-border/60 bg-background/60 px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                      {m.code}
+                    </kbd>
+                  )}
+                </Button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Conversión multi-moneda — muestra el total en cada moneda activa. */}
+        {activeCurrencies.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
+            {activeCurrencies.map((c) => (
+              <span key={c.code} className="tabular-nums">
+                {c.code} {formatAmount(total / c.value, null)}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Error */}
         {errorMsg && (

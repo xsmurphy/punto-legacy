@@ -236,7 +236,7 @@ export function ProductArea() {
           aunque haya 1 sola categoría o ninguna. Oculta en modo edición. */}
       {!editing && categoryList.length > 0 && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex px-3">
-          <div className="pointer-events-auto flex w-full items-center gap-2 rounded-full bg-neutral-900/85 py-1.5 pl-1.5 pr-3 shadow-lg backdrop-blur-md">
+          <div className="pointer-events-auto flex w-full items-center gap-2 rounded-full bg-[#22252A] py-1.5 pl-1.5 pr-3 shadow-lg">
             {/* Botón circular back: vuelve a hotkeys cuando hay drill-in. */}
             <button
               type="button"
@@ -244,8 +244,8 @@ export function ProductArea() {
               disabled={categoryId === null}
               aria-label="Volver a hotkeys"
               className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-full bg-neutral-700/80 text-white transition-colors",
-                categoryId !== null ? "hover:bg-neutral-600" : "opacity-50",
+                "flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition-colors",
+                categoryId !== null ? "hover:bg-white/20" : "opacity-40",
               )}
             >
               <ChevronLeft className="size-5" />

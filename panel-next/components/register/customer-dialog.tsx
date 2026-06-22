@@ -51,6 +51,8 @@ import { executeCreateCustomer } from "@/lib/commands/create-customer"
 import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
+import { EmptyState } from "@/components/empty-state"
+import { SearchX } from "lucide-react"
 import {
 } from "@/components/ui/sheet"
 import { ContactDetailView } from "@/components/domain/contacts/contact-detail-view"
@@ -183,9 +185,12 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
         {isSearching ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
             {searchResults.length === 0 ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">
-                Sin resultados para "{trimmed}".
-              </p>
+              <EmptyState
+                icon={SearchX}
+                title="Sin resultados"
+                description={`Ningún cliente coincide con "${trimmed}".`}
+                showMarquee={false}
+              />
             ) : (
               <ul role="listbox" aria-label="Resultados de clientes" className="overflow-y-auto py-1">
                 {searchResults.map((c) => (
