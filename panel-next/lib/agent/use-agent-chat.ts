@@ -5,6 +5,7 @@ import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, isToolOrDynamicToolUIPart } from "ai"
 import { useQueryClient } from "@tanstack/react-query"
 import { useChatHistoryStore, useChatHistoryHydrated } from "./chat-history-store"
+import type { StoredMessage } from "./chat-history-store"
 import { messageHasCredential, redactMessage } from "./redact-credentials"
 
 /** Tiempo de vida de un mensaje con credencial en el thread vivo. */
@@ -62,7 +63,6 @@ export function useAgentChat({
   outletName: string
 }) {
   const setStored = useChatHistoryStore((s) => s.setMessages)
-  const setTimestamp = useChatHistoryStore((s) => s.setMessageTimestamp)
   const clearStored = useChatHistoryStore((s) => s.clear)
   const storeHydrated = useChatHistoryHydrated()
   const qc = useQueryClient()
@@ -145,14 +145,18 @@ export function useAgentChat({
       return
     }
     skipFirstEmptyPersistRef.current = false
-    // Registrar timestamp de primer aparición de cada mensaje nuevo.
-    // setMessageTimestamp es idempotente: ignora ids que ya tienen ts guardado.
+
+    // Estampar createdAt en mensajes nuevos (sin createdAt todavía).
+    // Los mensajes rehidratados ya traen su createdAt original desde localStorage
+    // — no se sobreescribe. Esto garantiza que el timestamp sobrevive cualquier
+    // reload sin races entre estructuras separadas del store.
     const now = Date.now()
-    for (const msg of chat.messages) {
-      setTimestamp(msg.id, now)
-    }
-    setStored(chat.messages)
-  }, [chat.messages, setStored, setTimestamp])
+    const stamped: StoredMessage[] = chat.messages.map((msg) => {
+      const stored = msg as StoredMessage
+      return stored.createdAt !== undefined ? stored : { ...stored, createdAt: now }
+    })
+    setStored(stamped)
+  }, [chat.messages, setStored])
 
   // Auto-expiración de mensajes con credenciales: cuando aparece un nuevo
   // mensaje del assistant que contiene una contraseña visible, programar un
