@@ -14,6 +14,7 @@ import { subscribeRealtime, type InvalidateEvent } from "@/lib/realtime"
 const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   item:        [["items"], ["item"]],
   contact:     [["contacts"], ["contact"], ["customers"], ["team-members"]],
+  user:        [["team"]],
   outlet:      [["outlets"]],
   category:    [["categories"], ["taxonomies", "category"]],
   brand:       [["brands"], ["taxonomies", "brand"]],
