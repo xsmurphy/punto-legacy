@@ -27,7 +27,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         {children}
         {/* richColors apagado — el theme neutro comunica intent con ícono +
             texto en lugar de verde/rojo (filosofía Linear). */}
-        <Toaster position="top-right" />
+        <Toaster position="top-center" />
       </TooltipProvider>
     </QueryClientProvider>
   )

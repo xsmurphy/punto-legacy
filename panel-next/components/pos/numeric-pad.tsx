@@ -3,6 +3,8 @@
 import * as React from "react"
 import { Delete } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useCatalogStore } from "@/lib/catalog/store"
+import { formatAmount } from "@/lib/format-money"
 
 export interface NumericPadProps {
   mode: "int" | "decimal" | "money" | "percent"
@@ -46,7 +48,15 @@ export function NumericPad({
   onConfirm,
   onCancel,
 }: NumericPadProps) {
+  const config = useCatalogStore((s) => s.config)
   const allowDot = mode !== "int"
+
+  const displayValue = React.useMemo(() => {
+    if (mode !== "money") return value
+    const num = parseFloat(value)
+    if (isNaN(num) || value === "0") return value
+    return formatAmount(num, config)
+  }, [mode, value, config])
 
   const handleDigit = React.useCallback(
     (d: string) => onChange(appendDigit(value, d)),
@@ -96,7 +106,7 @@ export function NumericPad({
     <div className="flex flex-col gap-3">
       {/* Display */}
       <div className="relative flex h-16 items-center justify-center">
-        <span className="text-4xl font-bold tabular-nums">{value}</span>
+        <span className="text-4xl font-bold tabular-nums">{displayValue}</span>
         <span className="absolute right-0 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
           {MODE_LABEL[mode]}
         </span>

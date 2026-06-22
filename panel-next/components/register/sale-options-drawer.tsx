@@ -83,6 +83,20 @@ export function SaleOptionsDrawer({
 
   const [activeDialog, setActiveDialog] = React.useState<ActiveDialog>(null)
 
+  // Selectors for icon active state.
+  const note = useCartStore((s) => s.note)
+  const cartLines = useCartStore((s) => s.lines)
+
+  const hasGlobalDiscount = React.useMemo(() => {
+    if (cartLines.length === 0) return false
+    return cartLines.some((l) => (l.discount ?? 0) > 0)
+  }, [cartLines])
+
+  const hasGlobalSeller = React.useMemo(() => {
+    if (cartLines.length === 0) return false
+    return cartLines.every((l) => Boolean(l.sellerId))
+  }, [cartLines])
+
   const openDialog = (d: ActiveDialog) => {
     setOpen(false)
     setActiveDialog(d)
@@ -103,6 +117,7 @@ export function SaleOptionsDrawer({
     icon: LucideIcon
     action?: () => void
     stub?: boolean
+    active?: boolean
   }> = [
     {
       key: "print",
@@ -115,18 +130,21 @@ export function SaleOptionsDrawer({
       label: "Descuento global",
       icon: Percent,
       action: () => openDialog("discount"),
+      active: hasGlobalDiscount,
     },
     {
       key: "note",
       label: "Nota",
       icon: MessageSquare,
       action: () => openDialog("note"),
+      active: Boolean(note),
     },
     {
       key: "user",
       label: "Usuario",
       icon: User,
       action: () => openDialog("user"),
+      active: hasGlobalSeller,
     },
     {
       key: "tags",
@@ -223,6 +241,7 @@ export function SaleOptionsDrawer({
                   label={opt.label}
                   icon={opt.icon}
                   stub={opt.stub}
+                  active={opt.active}
                   onClick={() => {
                     if (opt.stub) return
                     opt.action?.()
@@ -275,12 +294,14 @@ function OptionRow({
   icon: Icon,
   stub,
   destructive,
+  active,
   onClick,
 }: {
   label: string
   icon: LucideIcon
   stub?: boolean
   destructive?: boolean
+  active?: boolean
   onClick: () => void
 }) {
   return (
@@ -305,7 +326,9 @@ function OptionRow({
             ? "text-destructive"
             : stub
               ? "text-muted-foreground/40"
-              : "text-muted-foreground",
+              : active
+                ? "text-primary"
+                : "text-muted-foreground",
         )}
       />
       <span className="font-medium">{label}</span>
