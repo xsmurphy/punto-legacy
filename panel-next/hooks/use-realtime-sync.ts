@@ -29,6 +29,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   screen:            [["screens"]],
   "price-list":      [["price-lists"], ["price-list-items"]],
   "parked-sale":     [["parked-sales"]],
+  "inventory-count": [["inventory-counts"]],
   "document-template": [["document-templates"]],
   purchase:          [["purchases"]],
   // register: invalida pos-hotkeys (layout de teclas) y pos-bootstrap (config de caja).
