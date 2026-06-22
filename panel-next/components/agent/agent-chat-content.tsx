@@ -2,15 +2,13 @@
 
 import * as React from "react"
 import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
-import { MessageCircle, RotateCcw } from "lucide-react"
+import { MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 // El balance se sigue consultando para gatear el input cuando llega a 0,
 // pero NO se muestra en el header — esa info ya vive en /history-billing.
@@ -38,7 +36,7 @@ export function AgentChatContent({
   const bottomRef = React.useRef<HTMLDivElement>(null)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
 
-  const { messages, sendMessage, status, error, clear } = useAgentChat({
+  const { messages, sendMessage, status, error } = useAgentChat({
     companyName,
     outletName,
   })
@@ -95,22 +93,6 @@ export function AgentChatContent({
               <MessageCircle className="size-4" />
             </div>
             <span className="text-sm font-medium">Asistente</span>
-            {messages.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={clear}
-                    className="ml-auto size-7 rounded-md text-muted-foreground hover:text-foreground"
-                    aria-label="Nueva conversación"
-                  >
-                    <RotateCcw className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Nueva conversación</TooltipContent>
-              </Tooltip>
-            )}
           </div>
         </div>
       )}

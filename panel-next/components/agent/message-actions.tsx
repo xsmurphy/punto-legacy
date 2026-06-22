@@ -14,7 +14,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
  * cuando el user toca play en otro mensaje, el primero refleja "stopped"
  * automáticamente al perder el utterance activo.
  */
-export function MessageActions({ text }: { text: string }) {
+export function MessageActions({
+  text,
+  showSpeak = true,
+}: {
+  text: string
+  /** Mensajes del user solo muestran "Copiar" — leerse a sí mismo no aporta. */
+  showSpeak?: boolean
+}) {
   const [copied, setCopied] = React.useState(false)
   const [playing, setPlaying] = React.useState(false)
   const utteranceRef = React.useRef<SpeechSynthesisUtterance | null>(null)
@@ -77,20 +84,22 @@ export function MessageActions({ text }: { text: string }) {
         </TooltipTrigger>
         <TooltipContent>{copied ? "¡Copiado!" : "Copiar"}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleToggleSpeak}
-            className="size-7 rounded-md text-muted-foreground/70 hover:text-foreground"
-            aria-label={playing ? "Detener lectura" : "Leer en voz alta"}
-          >
-            {playing ? <Square className="size-3.5" /> : <Volume2 className="size-3.5" />}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{playing ? "Detener" : "Leer"}</TooltipContent>
-      </Tooltip>
+      {showSpeak && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleToggleSpeak}
+              className="size-7 rounded-md text-muted-foreground/70 hover:text-foreground"
+              aria-label={playing ? "Detener lectura" : "Leer en voz alta"}
+            >
+              {playing ? <Square className="size-3.5" /> : <Volume2 className="size-3.5" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{playing ? "Detener" : "Leer"}</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   )
 }
