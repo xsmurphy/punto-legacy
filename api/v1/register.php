@@ -11,8 +11,10 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/RegisterService.php';
+require_once __DIR__ . '/../lib/services/RegisterAdminService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\RegisterService;
+use Punto\Api\Services\RegisterAdminService;
 
 // MULTI-REALM (A7): la caja vive dentro del panel; acepta el realm panel
 // además de pos-app.
@@ -24,6 +26,54 @@ $outletId   = $ctx['outletId'];
 $svc        = new RegisterService(TenantContext::fromAuth($ctx));
 $method     = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource   = (string) ($_GET['resource'] ?? '');
+
+// GET ?resource=listAll — lista todas las cajas del tenant (admin panel)
+// Solo realm panel: el POS no necesita ver todas las cajas del tenant.
+if ($method === 'GET' && $resource === 'listAll') {
+    if (!in_array($ctx['realm'] ?? '', ['panel'], true)) {
+        apiError('No autorizado', 403);
+    }
+    $adminSvc = new RegisterAdminService($companyId);
+    apiOk(['registers' => $adminSvc->listAll()]);
+}
+
+// POST — operaciones admin de cajas (realm panel)
+if ($method === 'POST') {
+    $body   = $_POST;
+    $action = (string)($body['action'] ?? '');
+
+    if (!in_array($action, ['create', 'update', 'delete'], true)) {
+        apiError('Acción inválida', 422);
+    }
+
+    // Solo realm panel para operaciones admin de cajas
+    if (!in_array($ctx['realm'] ?? '', ['panel'], true)) {
+        apiError('No autorizado', 403);
+    }
+
+    $adminSvc = new RegisterAdminService($companyId);
+
+    if ($action === 'create') {
+        $reqOutletId = trim((string)($body['outletId'] ?? ''));
+        $name        = trim((string)($body['name'] ?? ''));
+        apiOk($adminSvc->create($reqOutletId, $name));
+    }
+
+    if ($action === 'update') {
+        $id     = trim((string)($body['id'] ?? ''));
+        $fields = [];
+        if (isset($body['name']))   { $fields['name']   = $body['name']; }
+        if (isset($body['status'])) { $fields['status'] = filter_var($body['status'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool)$body['status']; }
+        if ($id === '') { apiError('id requerido', 422); }
+        apiOk($adminSvc->update($id, $fields));
+    }
+
+    if ($action === 'delete') {
+        $id = trim((string)($body['id'] ?? ''));
+        if ($id === '') { apiError('id requerido', 422); }
+        apiOk($adminSvc->delete($id));
+    }
+}
 
 // GET ?resource=list = cajas activas de la sucursal activa (selector de caja
 // del POS, A7). companyId + outletId SIEMPRE del JWT (no del request).

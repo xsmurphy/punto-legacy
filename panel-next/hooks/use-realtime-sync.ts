@@ -36,7 +36,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // register: invalida pos-hotkeys (layout de teclas) y pos-bootstrap (config de caja).
   // El PUT ?resource=hotkeys dispara este evento → refetch de pos-hotkeys es benigno
   // (el servidor ya escribió antes del emit, no hay race).
-  register:          [["pos-hotkeys"], ["pos-bootstrap"]],
+  register:          [["pos-hotkeys"], ["pos-bootstrap"], ["registers"]],
   // pack, payment-method, giftcard, table, schedule: no hay hooks con queryKeys
   // propios en panel-next aún — se agregan cuando existan sus hooks.
 }
