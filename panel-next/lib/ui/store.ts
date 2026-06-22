@@ -19,6 +19,8 @@ interface PosUIState {
   itemSearchQuery: string
   /** Query activo del buscador de clientes. Persiste al cerrar el modal. */
   customerSearchQuery: string
+  qtyPadMode: "int" | "decimal"
+  discountPadMode: "money" | "percent"
   setSearchOpen: (v: boolean) => void
   setCustomerOpen: (v: boolean) => void
   setPayOpen: (v: boolean) => void
@@ -28,6 +30,8 @@ interface PosUIState {
   setCustomerSearchQuery: (q: string) => void
   clearItemSearchQuery: () => void
   clearCustomerSearchQuery: () => void
+  setQtyPadMode: (v: "int" | "decimal") => void
+  setDiscountPadMode: (v: "money" | "percent") => void
 }
 
 export const usePosUIStore = create<PosUIState>()((set) => ({
@@ -38,6 +42,8 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   optionsOpen: false,
   itemSearchQuery: "",
   customerSearchQuery: "",
+  qtyPadMode: "int",
+  discountPadMode: "money",
   setSearchOpen: (v) => set({ searchOpen: v }),
   setCustomerOpen: (v) => set({ customerOpen: v }),
   setPayOpen: (v) => set({ payOpen: v }),
@@ -47,4 +53,6 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   setCustomerSearchQuery: (q) => set({ customerSearchQuery: q }),
   clearItemSearchQuery: () => set({ itemSearchQuery: "" }),
   clearCustomerSearchQuery: () => set({ customerSearchQuery: "" }),
+  setQtyPadMode: (v) => set({ qtyPadMode: v }),
+  setDiscountPadMode: (v) => set({ discountPadMode: v }),
 }))

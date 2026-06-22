@@ -3,10 +3,10 @@
 /**
  * Diálogo para editar la cantidad de una línea del carrito.
  *
- * UX POS (touch + teclado): input grande autofocused — el cajero puede
- * tipear desde el teclado real, o usar el numpad on-screen para touch.
- * Enter confirma, ESC cierra. Aceptar con 0 elimina la línea (consistente
- * con decQty del store).
+ * Usa NumericPad para soporte touch + teclado físico.
+ * Shift alterna entre modo entero y decimal (persiste en usePosUIStore).
+ * Si la cantidad inicial tiene decimales, fuerza modo decimal al abrir.
+ * Enter confirma, ESC cierra. Confirmar con 0 elimina la línea.
  */
 
 import * as React from "react"
@@ -18,7 +18,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { NumericPad } from "@/components/pos/numeric-pad"
+import { usePosUIStore } from "@/lib/ui/store"
 
 interface QtyEditDialogProps {
   open: boolean
@@ -35,63 +36,57 @@ export function QtyEditDialog({
   onConfirm,
   onClose,
 }: QtyEditDialogProps) {
-  // Trabajamos con string para permitir borrar todos los dígitos sin commitear
-  // 0 al modelo. Al confirmar parseamos a número.
-  const [draft, setDraft] = React.useState<string>(String(initialQty))
-  const inputRef = React.useRef<HTMLInputElement>(null)
+  const storedMode = usePosUIStore((s) => s.qtyPadMode)
+  const setQtyPadMode = usePosUIStore((s) => s.setQtyPadMode)
+
+  const [draft, setDraft] = React.useState<string>("0")
+  // El modo local puede diferir del store si initialQty tiene decimales
+  const [localMode, setLocalMode] = React.useState<"int" | "decimal">(storedMode)
 
   React.useEffect(() => {
     if (open) {
+      // Si el ítem ya tiene decimales, forzar decimal para no perder precisión
+      const hasDecimals = initialQty % 1 !== 0
+      const mode = hasDecimals ? "decimal" : storedMode
+      setLocalMode(mode)
       setDraft(String(initialQty))
-      const id = setTimeout(() => {
-        inputRef.current?.focus()
-        inputRef.current?.select()
-      }, 50)
-      return () => clearTimeout(id)
     }
-  }, [open, initialQty])
+  }, [open, initialQty, storedMode])
+
+  function handleShiftToggle() {
+    const next = localMode === "int" ? "decimal" : "int"
+    setLocalMode(next)
+    setQtyPadMode(next)
+    // Truncar el draft si pasamos a int y tenía parte decimal
+    if (next === "int" && draft.includes(".")) {
+      setDraft(String(Math.round(Number(draft))))
+    }
+  }
 
   function confirm() {
-    const n = Math.max(0, Math.floor(Number(draft) || 0))
+    const n = Math.max(
+      0,
+      localMode === "decimal" ? Number(draft) : Math.round(Number(draft)),
+    )
     onConfirm(n)
   }
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="sm:max-w-sm"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            confirm()
-          }
-        }}
-      >
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Cantidad</DialogTitle>
           <DialogDescription className="truncate">{itemName}</DialogDescription>
         </DialogHeader>
 
-        {/* Visor: sin bordes, look nativo (no parece input).
-            El softkeyboard on-screen para touch llegará como feature global
-            opt-in que aplica a todos los campos numéricos del POS. */}
         <div className="my-2">
-          <input
-            ref={inputRef}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
+          <NumericPad
+            mode={localMode}
             value={draft}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^\d]/g, "")
-              setDraft(v)
-            }}
-            className={cn(
-              "h-20 w-full border-none bg-transparent",
-              "text-center text-5xl font-bold tabular-nums",
-              "outline-none focus:outline-none focus:ring-0",
-            )}
-            aria-label="Cantidad"
+            onChange={setDraft}
+            onShiftToggle={handleShiftToggle}
+            onConfirm={confirm}
+            onCancel={onClose}
           />
         </div>
 
