@@ -213,6 +213,40 @@ Feedback del owner sobre AI-3 entregado: el FAB verde es agresivo (el brand verd
 - **Pricing drift**: `creditsPerKToken` en `ai_model_config` debe mantenerse alineado con el costo real de OpenRouter o el margen se rompe. Owner lo ajusta desde /admin.
 - **Prompt injection vía datos**: si el agente lee datos del tenant que contienen instrucciones, podría confundirse. Mitigación: las tools devuelven datos estructurados, no se inyecta texto libre del tenant en el system prompt.
 
+## Próximos slices
+
+### AI-6 — Invalidar caches react-query post-tool del agente
+
+**Problema:** hoy si el agente crea un contacto/item/usuario/etc, el listado abierto en otra ruta o en background NO se refresca. El operador tiene que F5.
+
+**Causa:** `useChat` no le avisa a `queryClient` qué query keys quedaron stale al confirmarse una mutation.
+
+**Solución (cliente-only, sin servidor):**
+- En `lib/agent/use-agent-chat.ts`, hook `onFinish` o `onToolResult` del `useChat`.
+- Mapeo `action → queryKeys[]`. Whitelist actual de `confirm_action`:
+  - `create_contact` / `update_contact` → `[["contacts"]]`
+  - `create_item` / `update_item_price` → `[["items"]]`
+  - `create_user` → `[["users"]]`
+  - `create_category` / `create_brand` / `create_tag` → `[["taxonomies"]]`
+- Cubre el 100% de las mutaciones porque todas pasan por `confirm_action`.
+- ~40 LOC. Cero impacto servidor (es solo refetch local).
+
+**Trigger:** detectar tool-result del part `confirm_action` con success+action, leer el mapeo, llamar `qc.invalidateQueries({queryKey: k})` para cada key.
+
+### AI-7 — Realtime invalidation tenant-wide (decisión separada)
+
+**Casuística:** si dos usuarios del mismo tenant editan en paralelo (cajero + admin desde panel; o dos cajeros en mesas distintas) y querés que cualquier mutation se vea en vivo en todas las pestañas/usuarios sin F5.
+
+**Aprovecha infra existente:** el sprint 2026-06-21 dejó `useRealtimeSync` + WS singleton + Redis Pub/Sub (canal `<companyId>:checkout:<registerId>` para POS↔checkout-screen). Se generaliza a canal `tenant:<companyId>:invalidate`:
+
+- **Servidor**: cada endpoint de mutation (Items/Contacts/Users/...) publica `wsPublish('tenant:' . COMPANY_ID . ':invalidate', $entityType)` post-success. ~1 línea por endpoint.
+- **Cliente**: `useTenantInvalidator()` hook montado en el layout, escucha el canal, mapea entityType → queryKeys, invalida.
+- **Costo**: 1 WS conexión por tab + 1 `PUBLISH` Redis por mutation. Manejable (Linear/Notion/Figma operan así con densidad mucho mayor).
+
+**Diferencia con CopilotKit-style**: ellos además streamean el state del agente mid-action (UI parcial mientras la tool corre). Es otra capa de UX, no requiere infra distinta. Slice futuro AI-8 si se quiere ese efecto.
+
+**Decisión pendiente**: hacer AI-7 solo si hay demanda real de multi-usuario concurrente en el mismo tenant. Sin demanda, AI-6 alcanza para el 90% de los casos.
+
 ## Cronología de commits
 
 (Se completa a medida que se ejecuta cada slice.)
