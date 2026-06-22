@@ -132,9 +132,9 @@ export default function ChatPage() {
   if (!bootstrap) return null
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col gap-6">
+    <div className="flex h-[calc(100vh-4rem)] flex-col gap-0">
       {/* Header de página — patrón estándar (items/contacts/etc.) */}
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Asistente</h1>
           <p className="text-sm text-muted-foreground">
@@ -200,7 +200,7 @@ export default function ChatPage() {
         // ── Estado con mensajes: thread + input al pie ───────────────────────
         <>
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full space-y-4 px-2 py-6 sm:px-6 lg:px-12">
+            <div className="mx-auto w-full space-y-4 px-2 pt-6 pb-[10px] sm:px-6 lg:px-12">
               {messages.map((message) => {
                 const isUser = message.role === "user"
                 const ts = msgTimestampsRef.current.get(message.id)
@@ -262,7 +262,7 @@ export default function ChatPage() {
 
           {/* Sin border-t: el shadow del input box ya separa visualmente del thread */}
           <div className="bg-background/80 backdrop-blur">
-            <div className="mx-auto w-full px-2 py-4 sm:px-6 lg:px-12">
+            <div className="mx-auto w-full px-2 pt-0 pb-[10px] sm:px-6 lg:px-12">
               {(hasNoCredits || is402) && (
                 <p className="mb-3 text-center text-xs text-muted-foreground">
                   Sin créditos disponibles.{" "}
