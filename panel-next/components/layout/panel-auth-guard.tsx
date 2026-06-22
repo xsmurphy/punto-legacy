@@ -30,6 +30,8 @@ import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { api, ApiError } from "@/lib/api-client"
 import { useQueryClient } from "@tanstack/react-query"
+import { useModules } from "@/hooks/use-modules"
+import type { ModulesMap } from "@/lib/types/module"
 
 // Menú lateral. Definido acá (client) porque los iconos son componentes
 // función y no pueden cruzar la frontera server → client como props.
@@ -64,13 +66,25 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
   // Siempre llamado — el hook maneja su propio ciclo de vida.
   const { data: parkedSales } = useParkedSales()
-  // Nav del POS — construido dentro del componente porque el badge es dinámico.
+  // Módulos: solo se muestran items condicionales cuando enabled===true confirmado.
+  // Mientras isLoading o error, los items condicionales no aparecen (default conservador).
+  const { data: modules, isLoading: modulesLoading } = useModules()
+  function moduleEnabled(m: ModulesMap | undefined, key: string): boolean {
+    return !modulesLoading && m?.[key]?.enabled === true
+  }
+  // Nav del POS — construido dentro del componente porque el badge y los módulos son dinámicos.
   // La vuelta al panel es por el logo (linkea al dashboard).
   const posNav: NavEntry[] = [
     { title: "Hotkeys", to: "/pos", icon: Flame },
-    { title: "Espacios", to: "/pos/mesas", icon: SquaresIntersect },
-    { title: "Calendario", to: "/pos/calendario", icon: CalendarDays },
-    { title: "Órdenes", to: "/pos/ordenes", icon: SquareKanban },
+    ...(moduleEnabled(modules, "tables")
+      ? [{ title: "Espacios", to: "/pos/mesas", icon: SquaresIntersect }]
+      : []),
+    ...(moduleEnabled(modules, "calendar")
+      ? [{ title: "Calendario", to: "/pos/calendario", icon: CalendarDays }]
+      : []),
+    ...(moduleEnabled(modules, "ordersPanel")
+      ? [{ title: "Órdenes", to: "/pos/ordenes", icon: SquareKanban }]
+      : []),
     {
       title: "Guardadas",
       to: "/pos/guardadas",
