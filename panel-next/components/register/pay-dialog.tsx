@@ -36,6 +36,7 @@ import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
+import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
 import { api } from "@/lib/api-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
 import { formatAmount } from "@/lib/format-money"
@@ -64,11 +65,20 @@ const FALLBACK_METHODS: PaymentMethodConfig[] = [
     identifierPlaceholder: "Ej. 123456",
     isDefault: true,
   },
+  {
+    id: "giftcard",
+    name: "Giftcard",
+    code: "G",
+    hasChange: false,
+    requiresIdentifier: true,
+    identifierLabel: "Código de giftcard",
+    identifierPlaceholder: "Ej. GC-1234-5678",
+    isDefault: true,
+  },
 ]
 
 // ── Métodos secundarios — línea separada debajo de la grilla principal ────────
-// Crédito Interno se muestra en sección propia. Fase 6b agregará "giftcard".
-const SECONDARY_PAYMENT_IDS = ["interno"]
+const SECONDARY_PAYMENT_IDS = ["interno", "giftcard"]
 
 // ── Tipo de pago aplicado ─────────────────────────────────────────────────────
 
@@ -141,6 +151,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     amount: number
     changeOverride?: number
   } | null>(null)
+  const [pendingGiftcard, setPendingGiftcard] = React.useState(false)
   const [phase, setPhase] = React.useState<DialogPhase>("pay")
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
@@ -200,6 +211,18 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
       setChange(changeAmount)
       setSaleResult(result)
+
+      // Si hubo pago con giftcard, consumirla (fire-and-forget: la venta ya está confirmada)
+      const gcPayment = appliedPayments.find((r) => r.method.id === "giftcard")
+      if (gcPayment?.identifier && result?.transactionId) {
+        void api.post("/v1/giftcards?resource=consume", {
+          code: gcPayment.identifier,
+          transactionId: result.transactionId,
+        }).catch(() => {
+          toast.error("Venta confirmada — giftcard pendiente de sincronización. Avisá al soporte.")
+        })
+      }
+
       setPhase("success")
       void api.post("/v1/screens?resource=publish", {
         type: "sale-confirmed",
@@ -269,6 +292,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   }
 
   function handleMethodClick(method: PaymentMethodConfig) {
+    if (method.id === "giftcard") {
+      setPendingGiftcard(true)
+      return
+    }
+
     if (credito) {
       // En crédito: si hay monto tipeado, se aplica como pago parcial.
       // Si no hay monto, un click en método con crédito no aplica nada
@@ -484,6 +512,20 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         }}
         onCancel={() => setPendingIdentifier(null)}
       />
+
+      <GiftcardValidationDialog
+        open={pendingGiftcard}
+        total={total}
+        config={config}
+        onApply={(code, amount) => {
+          const gcMethod = paymentMethods.find((m) => m.id === "giftcard")
+          if (gcMethod) {
+            void applyPayment(gcMethod, amount, code)
+          }
+          setPendingGiftcard(false)
+        }}
+        onCancel={() => setPendingGiftcard(false)}
+      />
     </>
   )
 }
@@ -687,7 +729,7 @@ function PayPhase({
           ))}
         </div>
 
-        {/* Métodos secundarios (Crédito Interno; Giftcard se agrega en Fase 6b). */}
+        {/* Métodos secundarios (Crédito Interno, Giftcard). */}
         {secondaryMethods.length > 0 && (
           <>
             <Separator className="my-0.5" />
