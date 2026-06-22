@@ -103,6 +103,13 @@ export interface PosCustomer {
   isCreditable: boolean
 }
 
+// ── Empleado del outlet (para asignación por línea) ──────────────────────────
+
+export interface PosUser {
+  id: string
+  name: string
+}
+
 // ── Bootstrap completo ────────────────────────────────────────────────────────
 
 export interface PosBootstrap {
@@ -121,6 +128,7 @@ export interface PosBootstrap {
   items: PosItem[]
   customers: PosCustomer[]
   paymentMethods: PaymentMethodConfig[]
+  users: PosUser[]
   /** UUID de la caja activa en el claim del JWT. '' = sin caja seleccionada. */
   activeRegisterId: string
 }

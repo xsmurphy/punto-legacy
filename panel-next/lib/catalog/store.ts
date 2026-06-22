@@ -22,7 +22,7 @@
  */
 
 import { create } from "zustand"
-import type { PosItem, PosCustomer, PosConfig, PosRegister, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosRegister, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "error"
 
@@ -40,6 +40,7 @@ interface CatalogState {
   outlets: Array<{ id: string; name: string }>
   registers: PosRegister[]
   paymentMethods: PaymentMethodConfig[]
+  users: PosUser[]
   /** UUID de la caja activa. '' = sin caja seleccionada (guard la pide). */
   activeRegisterId: string
 
@@ -57,6 +58,7 @@ interface CatalogState {
     outlets: Array<{ id: string; name: string }>
     registers: PosRegister[]
     paymentMethods: PaymentMethodConfig[]
+    users: PosUser[]
     activeRegisterId: string
   }) => void
 
@@ -86,6 +88,7 @@ const initialState = {
   outlets: [] as Array<{ id: string; name: string }>,
   registers: [],
   paymentMethods: [] as PaymentMethodConfig[],
+  users: [] as PosUser[],
   activeRegisterId: "",
 }
 
@@ -103,6 +106,7 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       outlets: data.outlets,
       registers: data.registers,
       paymentMethods: data.paymentMethods,
+      users: data.users,
       activeRegisterId: data.activeRegisterId,
     })
   },

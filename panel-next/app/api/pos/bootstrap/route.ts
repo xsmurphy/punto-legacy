@@ -29,6 +29,7 @@ import type {
   PosCustomer,
   PosItem,
   PosRegister,
+  PosUser,
   PaymentMethodConfig,
 } from "@/lib/types/pos-bootstrap"
 
@@ -155,6 +156,17 @@ interface UpstreamContactsList {
   total: number
 }
 
+interface UpstreamUserRow {
+  id: string
+  name: string
+  lockPass?: string | null
+  status: number
+}
+
+interface UpstreamUsersList {
+  users: UpstreamUserRow[]
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildUpstreamHeaders(req: NextRequest): Headers {
@@ -247,6 +259,17 @@ function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
   }
 }
 
+function reshapeUsers(
+  data: UpstreamUsersList | null,
+  httpStatus: number,
+): PosUser[] {
+  // 5xx o null → lista vacía (degradación controlada, ya logueado).
+  if (httpStatus >= 500 || data === null) return []
+  return data.users
+    .filter((u) => u.status === 1)
+    .map((u) => ({ id: u.id, name: u.name }))
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -268,14 +291,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const base = getTargetBase()
   const headers = buildUpstreamHeaders(req)
 
-  // Fan-out paralelo. Los 4 endpoints son independientes en el backend
+  // Fan-out paralelo. Los 5 endpoints son independientes en el backend
   // (cada uno hace su propia auth y SELECTs distintos).
   let bsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamBootstrap>>>
   let itemsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamItemsList>>>
   let customersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamContactsList>>>
   let registersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamRegisterList>>>
+  let usersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamUsersList>>>
   try {
-    ;[bsRes, itemsRes, customersRes, registersRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes, usersRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -290,6 +314,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       fetchUpstream<UpstreamRegisterList>(
         base,
         "/v1/register?resource=list",
+        headers,
+      ),
+      fetchUpstream<UpstreamUsersList>(
+        base,
+        "/v1/users?status=1&limit=200",
         headers,
       ),
     ])
@@ -314,7 +343,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     bsRes.status === 401 ||
     itemsRes.status === 401 ||
     customersRes.status === 401 ||
-    registersRes.status === 401
+    registersRes.status === 401 ||
+    usersRes.status === 401
   ) {
     return NextResponse.json(
       {
@@ -343,6 +373,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         body: snippet,
       })
     }
+  }
+
+  // users: si falla con 5xx, degradar a lista vacía (no bloquea el bootstrap).
+  if (usersRes.status >= 500) {
+    const snippet =
+      usersRes.rawText.length > 500
+        ? usersRes.rawText.slice(0, 500) + "…"
+        : usersRes.rawText
+    console.warn("[bff /api/pos/bootstrap] upstream 5xx users (degradando a [])", {
+      status: usersRes.status,
+      body: snippet,
+    })
   }
 
   if (
@@ -420,6 +462,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     items,
     customers,
     paymentMethods: FALLBACK_PAYMENT_METHODS,
+    users: reshapeUsers(usersRes.data, usersRes.status),
     activeRegisterId: bs.activeRegisterId ?? "",
   }
 
