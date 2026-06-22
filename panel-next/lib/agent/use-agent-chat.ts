@@ -2,12 +2,47 @@
 
 import * as React from "react"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
+import { DefaultChatTransport, isToolOrDynamicToolUIPart } from "ai"
+import { useQueryClient } from "@tanstack/react-query"
 import { useChatHistoryStore, useChatHistoryHydrated } from "./chat-history-store"
 import { messageHasCredential, redactMessage } from "./redact-credentials"
 
 /** Tiempo de vida de un mensaje con credencial en el thread vivo. */
 const CREDENTIAL_TTL_MS = 60_000
+
+/**
+ * Mapeo de la acción ejecutada por `confirm_action` → queryKeys de react-query
+ * que el listado afectado consume. Cuando el agente confirma una mutación, el
+ * onFinish dispara invalidateQueries para que el listado abierto se refresque
+ * sin F5. Whitelist alineada con `lib/agent/confirm-tool.ts`.
+ *
+ * Notas de naming: el módulo de usuarios usa queryKey `["team"]` (no `users`).
+ * Categorías/marcas/tags tienen su propio cache específico + uno combinado
+ * `["taxonomies"]` consumido por la pantalla de items, ambos se invalidan.
+ */
+const ACTION_TO_QUERY_KEYS: Record<string, readonly string[][]> = {
+  create_contact: [["contacts"]],
+  update_contact: [["contacts"]],
+  create_item: [["items"]],
+  update_item_price: [["items"]],
+  create_user: [["team"]],
+  create_category: [["categories"], ["taxonomies"]],
+  create_brand: [["brands"], ["taxonomies"]],
+  create_tag: [["tags"], ["taxonomies"]],
+}
+
+/** Fallback cuando no podemos resolver la acción desde el thread (ej. register
+ * en una sesión anterior ya purgada del historial). Invalida todo lo que el
+ * agente puede tocar. */
+const ALL_AGENT_KEYS: readonly string[][] = [
+  ["items"],
+  ["contacts"],
+  ["team"],
+  ["categories"],
+  ["brands"],
+  ["tags"],
+  ["taxonomies"],
+]
 
 /**
  * Hook unificado para el agente. Envuelve `useChat` con:
@@ -29,12 +64,55 @@ export function useAgentChat({
   const setStored = useChatHistoryStore((s) => s.setMessages)
   const clearStored = useChatHistoryStore((s) => s.clear)
   const storeHydrated = useChatHistoryHydrated()
+  const qc = useQueryClient()
 
   const chat = useChat({
     transport: new DefaultChatTransport({
       api: "/api/agent/chat",
       body: { companyName, outletName },
     }),
+    onFinish: ({ message, messages }) => {
+      // Recolectar (confirmToken → action) de TODOS los registers previos del
+      // thread. El register devuelve `confirmToken` en su output; el execute
+      // posterior pasa solo ese token (sin la action). Sin este lookup no
+      // sabríamos qué entidad invalidar.
+      const tokenToAction = new Map<string, string>()
+      for (const msg of messages) {
+        for (const part of msg.parts ?? []) {
+          if (!isToolOrDynamicToolUIPart(part)) continue
+          if (part.type !== "tool-confirm_action") continue
+          if (part.state !== "output-available") continue
+          const input = part.input as { action?: string } | undefined
+          const output = part.output as { confirmToken?: string } | undefined
+          if (input?.action && output?.confirmToken) {
+            tokenToAction.set(output.confirmToken, input.action)
+          }
+        }
+      }
+
+      const invalidated = new Set<string>()
+      const invalidate = (keys: readonly string[][]) => {
+        for (const k of keys) {
+          const sig = k.join("|")
+          if (invalidated.has(sig)) continue
+          invalidated.add(sig)
+          void qc.invalidateQueries({ queryKey: [...k] })
+        }
+      }
+
+      for (const part of message.parts ?? []) {
+        if (!isToolOrDynamicToolUIPart(part)) continue
+        if (part.type !== "tool-confirm_action") continue
+        if (part.state !== "output-available") continue
+        const input = part.input as { confirmToken?: string } | undefined
+        const output = part.output as { error?: string } | undefined
+        if (!input?.confirmToken) continue // register path, no mutó nada
+        if (output?.error) continue // execute falló
+        const action = tokenToAction.get(input.confirmToken)
+        const keys = action ? ACTION_TO_QUERY_KEYS[action] : undefined
+        invalidate(keys ?? ALL_AGENT_KEYS)
+      }
+    },
   })
 
   // Hidratar el chat con el historial guardado APENAS persist termine de
