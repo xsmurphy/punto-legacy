@@ -88,6 +88,21 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
 
   const createReturn = useCreateReturn()
 
+  // Sincronizar estado cuando cambia el parentTransactionId con el sheet ya montado.
+  // Cubre el caso: cerrar devolución de txA → abrir devolución de txB sin desmontar.
+  React.useEffect(() => {
+    if (open) {
+      setStep(parentTransactionId ? "items" : "search")
+      setSelectedTransactionId(parentTransactionId ?? null)
+      setSelectedItems([])
+      setSearch("")
+      setRefundMode("cash")
+      setNote("")
+      setConfirmOpen(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, parentTransactionId])
+
   // Reset al cerrar
   function handleOpenChange(val: boolean) {
     onOpenChange(val)
