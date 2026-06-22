@@ -139,8 +139,16 @@ export default function StockAdjustmentPage() {
       toast.error("Seleccioná un motivo")
       return
     }
+    if (reasonOption === "Otro" && !customReason.trim()) {
+      toast.error("Ingresá el motivo personalizado")
+      return
+    }
     if (lineItems.length === 0) {
       toast.error("Agregá al menos un item")
+      return
+    }
+    if (lineItems.some((l) => l.qty <= 0)) {
+      toast.error("Todos los items deben tener cantidad mayor a 0")
       return
     }
     setConfirmOpen(true)

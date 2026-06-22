@@ -26,6 +26,10 @@ final class StockAdjustmentService
         // Pre-query: qué items son stockeables para este companyId
         $itemIds = array_map(fn($i) => $i['itemId'], $items);
 
+        if (empty($itemIds)) {
+            return ['adjustmentsCount' => 0, 'skippedItems' => [], 'totalCostDelta' => 0.0];
+        }
+
         // Construir query con placeholders para el IN
         $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
         $params = array_merge([$companyId], $itemIds);
@@ -90,8 +94,10 @@ final class StockAdjustmentService
             $db->CompleteTrans();
         }
 
-        // best-effort
-        realtimePublish('item', 'update', null);
+        // best-effort — solo si hubo cambios efectivos
+        if ($adjustmentsCount > 0) {
+            realtimePublish('item', 'update', null);
+        }
 
         return [
             'adjustmentsCount' => $adjustmentsCount,
