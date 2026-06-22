@@ -28,10 +28,10 @@ export function AgentChatFloating({ companyName, outletName, showFab = true }: P
           <MessageCircle className="size-6" />
         </Button>
       )}
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet open={open} onOpenChange={setOpen} modal={false}>
         {/* Mobile: fullscreen sin max-width (drawer angosto + teclado virtual
             no se lee bien). Desktop ≥sm: max-w-sm como side panel clásico. */}
-        <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-sm">
+        <SheetContent side="right" overlay={false} className="flex w-full flex-col p-0 sm:max-w-sm">
           <SheetTitle className="sr-only">Asistente</SheetTitle>
           <AgentChatContent companyName={companyName} outletName={outletName} showHeader />
         </SheetContent>
