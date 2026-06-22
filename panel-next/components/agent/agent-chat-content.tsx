@@ -120,7 +120,7 @@ export function AgentChatContent({
           return (
             <div
               key={message.id}
-              className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
+              className={`group flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
             >
               {message.parts.map((part, idx) => {
                 if (isTextUIPart(part)) {
@@ -130,12 +130,14 @@ export function AgentChatContent({
                   // varíe entre FAB y página dedicada.
                   if (isUser) {
                     return (
-                      <div
-                        key={idx}
-                        className="max-w-[85%] rounded-2xl bg-foreground px-3 py-2 text-sm text-background"
-                      >
-                        {part.text}
-                      </div>
+                      <React.Fragment key={idx}>
+                        <div className="max-w-[85%] rounded-2xl bg-foreground px-3 py-2 text-sm text-background">
+                          {part.text}
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <MessageActions text={part.text} showSpeak={false} />
+                        </div>
+                      </React.Fragment>
                     )
                   }
                   return (
@@ -143,7 +145,9 @@ export function AgentChatContent({
                       <div className="rounded-2xl bg-muted px-3 py-2 text-foreground">
                         <MessageMarkdown content={part.text} />
                       </div>
-                      <MessageActions text={part.text} />
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <MessageActions text={part.text} />
+                      </div>
                     </div>
                   )
                 }
@@ -152,15 +156,21 @@ export function AgentChatContent({
                   const isDone =
                     "state" in part &&
                     (part.state === "output-available" || part.state === "output-error")
+                  const isError = "state" in part && part.state === "output-error"
                   return (
                     <div
                       key={idx}
-                      className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground"
+                      className="flex items-center gap-2 px-1 py-0.5 text-[11px] text-muted-foreground/70"
                     >
-                      {!isDone && (
-                        <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-                      )}
-                      <span>{isDone ? "Reporte de ventas obtenido" : "Consultando ventas…"}</span>
+                      <span
+                        className={
+                          isError
+                            ? "size-1.5 rounded-full bg-destructive/70"
+                            : isDone
+                              ? "size-1.5 rounded-full bg-muted-foreground/40"
+                              : "size-1.5 animate-pulse rounded-full bg-muted-foreground/70"
+                        }
+                      />
                     </div>
                   )
                 }
