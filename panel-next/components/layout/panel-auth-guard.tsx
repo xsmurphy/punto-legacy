@@ -16,6 +16,7 @@ import {
   Bookmark,
   Boxes,
   ClipboardEdit,
+  ArrowLeftRight,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -42,6 +43,7 @@ const panelNav: NavEntry[] = [
   { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit },
   { title: "Contactos", to: "/contacts", icon: Contact },
   { title: "Reportes", to: "/reports", icon: ChartPie },
+  { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight },
   // Caja = POS dentro del propio panel (route group (pos), ruta /pos).
   { title: "Caja", to: "/pos", icon: ScanBarcode },
 ]
