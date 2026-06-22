@@ -59,7 +59,7 @@ final class StockTransferService
         // 3. Verificar locationIds pertenecen a sus outlets
         if ($fromLocationId !== null) {
             $loc = ncmExecute(
-                'SELECT "taxonomyId" FROM taxonomy WHERE "taxonomyId" = ? AND "parentId" = ? LIMIT 1',
+                "SELECT \"taxonomyId\" FROM taxonomy WHERE \"taxonomyId\" = ? AND \"outletId\" = ? AND \"taxonomyType\" = 'location' LIMIT 1",
                 [$fromLocationId, $from['outletId']]
             );
             if (!$loc) {
@@ -69,7 +69,7 @@ final class StockTransferService
 
         if ($toLocationId !== null) {
             $loc = ncmExecute(
-                'SELECT "taxonomyId" FROM taxonomy WHERE "taxonomyId" = ? AND "parentId" = ? LIMIT 1',
+                "SELECT \"taxonomyId\" FROM taxonomy WHERE \"taxonomyId\" = ? AND \"outletId\" = ? AND \"taxonomyType\" = 'location' LIMIT 1",
                 [$toLocationId, $to['outletId']]
             );
             if (!$loc) {
@@ -336,9 +336,10 @@ final class StockTransferService
                     i."itemName" as name, i."itemSku" as sku
              FROM stock_transfer_item sti
              JOIN item i ON i."itemId" = sti."itemId"
+             JOIN stock_transfer st ON st."stockTransferId" = sti."stockTransferId" AND st."companyId" = ?
              WHERE sti."stockTransferId" = ?
              ORDER BY i."itemName" ASC',
-            [$id],
+            [$companyId, $id],
             false,
             true
         );
@@ -419,7 +420,7 @@ final class StockTransferService
                 $unitCost = (float) $row['unitCost'];
 
                 // Reversa: egreso en destino (puede quedar negativo si el stock ya fue vendido — permitido)
-                \Punto\App\Domain\Inventory::manageStock([
+                $result = \Punto\App\Domain\Inventory::manageStock([
                     'itemId'     => $itemId,
                     'source'     => 'transfer-cancel',
                     'count'      => $qty,
@@ -432,9 +433,14 @@ final class StockTransferService
                     'date'       => date('Y-m-d H:i:s'),
                     'companyId'  => $companyId,
                 ]);
+                if ($result === false) {
+                    $db->FailTrans();
+                    $db->CompleteTrans();
+                    throw new \RuntimeException("Error al revertir egreso en destino para item {$itemId}");
+                }
 
                 // Reversa: ingreso en origen
-                \Punto\App\Domain\Inventory::manageStock([
+                $result = \Punto\App\Domain\Inventory::manageStock([
                     'itemId'     => $itemId,
                     'source'     => 'transfer-cancel',
                     'count'      => $qty,
@@ -447,6 +453,11 @@ final class StockTransferService
                     'date'       => date('Y-m-d H:i:s'),
                     'companyId'  => $companyId,
                 ]);
+                if ($result === false) {
+                    $db->FailTrans();
+                    $db->CompleteTrans();
+                    throw new \RuntimeException("Error al revertir ingreso en origen para item {$itemId}");
+                }
 
                 $itemsRs->MoveNext();
             }
