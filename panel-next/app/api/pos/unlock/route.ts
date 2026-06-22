@@ -1,9 +1,13 @@
 /**
  * BFF — Validación de PIN del lockscreen.
  *
- * Recibe el PIN del cajero y lo valida contra el directorio de usuarios del
- * tenant (campo lockPass en /v1/users). El PIN nunca viaja al browser como
- * dato precargado — solo se evalúa aquí.
+ * Forwarda al endpoint PHP `/v1/unlock-pin`, que hace el match server-side y
+ * nunca expone `lockPass`. Acepta cualquiera de las dos cookies del operador:
+ *   - `_jwt_panel` (panel, 24h)
+ *   - `_jwt`       (pos-app, device pairing, larga duración)
+ *
+ * Sin este dual-cookie support, un device paired que llegó a /pos sin pasar
+ * por una sesión fresca de panel falla con 401 aunque el PIN sea correcto.
  */
 import { NextRequest, NextResponse } from "next/server"
 
@@ -21,22 +25,21 @@ function getTargetBase(): string {
 
 const HOST_OVERRIDE = process.env.PUNTO_SHARED_API_HOST
 
-interface UpstreamEnvelope<T> {
+interface UpstreamEnvelope {
   ok?: boolean
-  data?: T
-}
-
-interface UpstreamUser {
-  id: string
-  name: string
-  lockPass?: string | null
-  status: number
+  data?: { user?: { id: string; name: string } }
+  error?: { message?: string }
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const cookie = req.headers.get("cookie")
-  if (!cookie || !cookie.includes("_jwt_panel=")) {
-    return NextResponse.json({ ok: false, error: { message: "No autenticado", code: 401 } }, { status: 401 })
+  const cookie = req.headers.get("cookie") ?? ""
+  const hasPanel = cookie.includes("_jwt_panel=")
+  const hasPosApp = cookie.includes("_jwt=")
+  if (!hasPanel && !hasPosApp) {
+    return NextResponse.json(
+      { ok: false, error: { message: "No autenticado", code: 401 } },
+      { status: 401 },
+    )
   }
 
   let body: { pin?: unknown }
@@ -47,7 +50,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const pin = typeof body.pin === "string" ? body.pin : ""
-  if (pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+  if (!/^\d{4}$/.test(pin)) {
     return NextResponse.json({ ok: false, error: { message: "PIN inválido" } }, { status: 422 })
   }
 
@@ -55,35 +58,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const headers = new Headers()
   headers.set("cookie", cookie)
   headers.set("accept", "application/json")
+  headers.set("content-type", "application/json")
   if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)
 
-  let usersData: { users: UpstreamUser[] } | null = null
   try {
-    const res = await fetch(`${base}/v1/users?status=1`, { method: "GET", headers, cache: "no-store" })
-    if (res.status === 401) {
-      return NextResponse.json({ ok: false, error: { message: "No autenticado", code: 401 } }, { status: 401 })
-    }
-    if (res.status >= 500) {
-      return NextResponse.json({ ok: false, error: { message: "Error del servidor" } }, { status: 502 })
-    }
+    const res = await fetch(`${base}/v1/unlock-pin`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ pin }),
+      cache: "no-store",
+    })
     const raw = await res.text()
-    const envelope = raw ? (JSON.parse(raw) as UpstreamEnvelope<{ users: UpstreamUser[] }>) : null
-    usersData = envelope?.ok === true && envelope.data ? envelope.data : null
+    const envelope = raw ? (JSON.parse(raw) as UpstreamEnvelope) : null
+    if (res.status === 401 || envelope?.ok === false) {
+      return NextResponse.json(
+        { ok: false, error: { message: envelope?.error?.message ?? "PIN incorrecto", code: res.status } },
+        { status: res.status === 401 ? 401 : res.status },
+      )
+    }
+    if (!res.ok || !envelope?.ok || !envelope.data?.user) {
+      return NextResponse.json(
+        { ok: false, error: { message: "Error validando PIN" } },
+        { status: 502 },
+      )
+    }
+    return NextResponse.json({ ok: true, user: envelope.data.user })
   } catch {
-    return NextResponse.json({ ok: false, error: { message: "No se pudo contactar la API" } }, { status: 502 })
+    return NextResponse.json(
+      { ok: false, error: { message: "No se pudo contactar la API" } },
+      { status: 502 },
+    )
   }
-
-  if (!usersData) {
-    return NextResponse.json({ ok: false, error: { message: "No se pudo obtener el directorio" } }, { status: 502 })
-  }
-
-  const match = usersData.users.find(
-    (u) => u.status === 1 && typeof u.lockPass === "string" && u.lockPass === pin,
-  )
-
-  if (!match) {
-    return NextResponse.json({ ok: false, error: { message: "PIN incorrecto" } }, { status: 401 })
-  }
-
-  return NextResponse.json({ ok: true, user: { id: match.id, name: match.name } })
 }
