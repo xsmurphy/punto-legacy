@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
+import { isTextUIPart } from "ai"
 import { MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
@@ -9,6 +9,8 @@ import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
+import type { StoredMessage } from "@/lib/agent/chat-history-store"
+import { formatRelativeTime } from "@/lib/agent/format-relative-time"
 
 // El balance se sigue consultando para gatear el input cuando llega a 0,
 // pero NO se muestra en el header — esa info ya vive en /history-billing.
@@ -35,6 +37,7 @@ export function AgentChatContent({
   const [input, setInput] = React.useState("")
   const bottomRef = React.useRef<HTMLDivElement>(null)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
+  const [tick, setTick] = React.useState(0)
 
   const { messages, sendMessage, status, error } = useAgentChat({
     companyName,
@@ -63,6 +66,15 @@ export function AgentChatContent({
     }
     prevStatusRef.current = status
   }, [status, invalidateBalance])
+
+  // Auto-refresh cada 30s para actualizar los tiempos relativos
+  React.useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Suprimir warning de tick no usado en render
+  void tick
 
   React.useEffect(() => {
     if (initialInput !== undefined && initialInput !== "") {
@@ -116,6 +128,7 @@ export function AgentChatContent({
 
         {messages.map((message) => {
           const isUser = message.role === "user"
+          const ts = (message as StoredMessage).createdAt
 
           return (
             <div
@@ -131,10 +144,15 @@ export function AgentChatContent({
                   if (isUser) {
                     return (
                       <React.Fragment key={idx}>
-                        <div className="max-w-[85%] rounded-2xl bg-foreground px-3 py-2 text-sm text-background">
+                        <div className="max-w-[85%] rounded-2xl bg-foreground px-3 py-2 text-base text-background leading-relaxed">
                           {part.text}
                         </div>
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {ts !== undefined && (
+                            <time className="text-xs text-muted-foreground">
+                              {formatRelativeTime(ts)}
+                            </time>
+                          )}
                           <MessageActions text={part.text} showSpeak={false} />
                         </div>
                       </React.Fragment>
@@ -142,35 +160,17 @@ export function AgentChatContent({
                   }
                   return (
                     <div key={idx} className="w-full max-w-[95%] space-y-1">
-                      <div className="px-1 py-1 text-foreground">
+                      <div className="px-1 py-1 text-foreground text-base">
                         <MessageMarkdown content={part.text} />
                       </div>
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <MessageActions text={part.text} />
+                        {ts !== undefined && (
+                          <time className="text-xs text-muted-foreground">
+                            {formatRelativeTime(ts)}
+                          </time>
+                        )}
                       </div>
-                    </div>
-                  )
-                }
-
-                if (isToolOrDynamicToolUIPart(part)) {
-                  const isDone =
-                    "state" in part &&
-                    (part.state === "output-available" || part.state === "output-error")
-                  const isError = "state" in part && part.state === "output-error"
-                  return (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-2 px-1 py-0.5 text-[11px] text-muted-foreground/70"
-                    >
-                      <span
-                        className={
-                          isError
-                            ? "size-1.5 rounded-full bg-destructive/70"
-                            : isDone
-                              ? "size-1.5 rounded-full bg-muted-foreground/40"
-                              : "size-1.5 animate-pulse rounded-full bg-muted-foreground/70"
-                        }
-                      />
                     </div>
                   )
                 }
