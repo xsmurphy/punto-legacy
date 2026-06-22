@@ -54,9 +54,9 @@ if ($method === 'POST') {
     $adminSvc = new RegisterAdminService($companyId);
 
     if ($action === 'create') {
-        $outletId = trim((string)($body['outletId'] ?? ''));
-        $name     = trim((string)($body['name'] ?? ''));
-        apiOk($adminSvc->create($outletId, $name));
+        $reqOutletId = trim((string)($body['outletId'] ?? ''));
+        $name        = trim((string)($body['name'] ?? ''));
+        apiOk($adminSvc->create($reqOutletId, $name));
     }
 
     if ($action === 'update') {
