@@ -226,6 +226,13 @@ interface CartState {
    * llamar esta action NO se afectan.
    */
   applyGlobalDiscount: (value: number, mode: "percent" | "money") => void
+
+  /**
+   * Pushea líneas al carrito sin clear. Si la última línea del array tiene
+   * el mismo itemId que la nueva, incrementa qty en vez de duplicar.
+   * Útil para "agregar desde historial de transacciones".
+   */
+  addLines: (lines: Omit<CartLine, "lineId">[]) => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -442,6 +449,23 @@ export const useCartStore = create<CartState>()((set, _get) => ({
             : l,
         ),
       }
+    })
+  },
+
+  addLines: (lines) => {
+    set((state) => {
+      let current = [...state.lines]
+      for (const line of lines) {
+        const last = current.at(-1)
+        if (last && last.itemId === line.itemId) {
+          current = current.map((l) =>
+            l === last ? { ...l, qty: l.qty + line.qty } : l,
+          )
+        } else {
+          current = [...current, { ...line, lineId: crypto.randomUUID() }]
+        }
+      }
+      return { lines: current }
     })
   },
 }))

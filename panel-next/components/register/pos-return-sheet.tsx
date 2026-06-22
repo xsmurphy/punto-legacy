@@ -69,16 +69,18 @@ type Step = "search" | "items" | "confirm"
 interface PosReturnSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Si viene definido, salta el paso de búsqueda y va directo a "items" con esta tx. */
+  parentTransactionId?: string
 }
 
 // ── Componente principal ───────────────────────────────────────────────────────
 
-export function PosReturnSheet({ open, onOpenChange }: PosReturnSheetProps) {
+export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosReturnSheetProps) {
   const config = useCatalogStore((s) => s.config)
 
-  const [step, setStep] = React.useState<Step>("search")
+  const [step, setStep] = React.useState<Step>(parentTransactionId ? "items" : "search")
   const [search, setSearch] = React.useState("")
-  const [selectedTransactionId, setSelectedTransactionId] = React.useState<string | null>(null)
+  const [selectedTransactionId, setSelectedTransactionId] = React.useState<string | null>(parentTransactionId ?? null)
   const [selectedItems, setSelectedItems] = React.useState<SelectedItem[]>([])
   const [refundMode, setRefundMode] = React.useState<"cash" | "credit">("cash")
   const [note, setNote] = React.useState("")
@@ -93,9 +95,9 @@ export function PosReturnSheet({ open, onOpenChange }: PosReturnSheetProps) {
   }
 
   function resetAll() {
-    setStep("search")
+    setStep(parentTransactionId ? "items" : "search")
     setSearch("")
-    setSelectedTransactionId(null)
+    setSelectedTransactionId(parentTransactionId ?? null)
     setSelectedItems([])
     setRefundMode("cash")
     setNote("")
@@ -213,7 +215,16 @@ export function PosReturnSheet({ open, onOpenChange }: PosReturnSheetProps) {
                   variant="ghost"
                   size="icon"
                   className="size-8 shrink-0"
-                  onClick={() => setStep(step === "confirm" ? "items" : "search")}
+                  onClick={() => {
+                    if (step === "confirm") {
+                      setStep("items")
+                    } else if (parentTransactionId) {
+                      // Vinimos de un detalle — cerrar el sheet en vez de volver a search
+                      handleOpenChange(false)
+                    } else {
+                      setStep("search")
+                    }
+                  }}
                 >
                   <ChevronLeft className="size-4" />
                 </Button>
