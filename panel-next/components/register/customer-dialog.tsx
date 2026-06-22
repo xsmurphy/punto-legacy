@@ -45,6 +45,7 @@ import { PhoneInput } from "@/components/forms/phone-input"
 import { DatePicker } from "@/components/date-picker"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
+import { usePosUIStore } from "@/lib/ui/store"
 import { searchCustomers } from "@/lib/catalog/search"
 import { executeCreateCustomer } from "@/lib/commands/create-customer"
 import { ApiError } from "@/lib/api-client"
@@ -86,13 +87,16 @@ interface CustomerDialogProps {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
-  const [searchQuery, setSearchQuery] = React.useState("")
   const searchInputRef = React.useRef<HTMLInputElement>(null)
   const [detailCustomerId, setDetailCustomerId] = React.useState<string | null>(null)
 
   const customers = useCatalogStore((s) => s.customers)
   const patchCustomer = useCatalogStore((s) => s.patchCustomer)
   const setCustomer = useCartStore((s) => s.setCustomer)
+  // Query en el store para que persista al cerrar y reabrir el modal.
+  const searchQuery = usePosUIStore((s) => s.customerSearchQuery)
+  const setSearchQuery = usePosUIStore((s) => s.setCustomerSearchQuery)
+  const clearSearchQuery = usePosUIStore((s) => s.clearCustomerSearchQuery)
 
   // Vacío = mostrar el form de crear cliente; con texto = listar clientes.
   const trimmed = searchQuery.trim()
@@ -102,10 +106,9 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   )
   const isSearching = trimmed.length > 0
 
-  // Reset on open / close.
+  // Solo autofocus al abrir — no limpiamos el query para preservar la búsqueda.
   React.useEffect(() => {
     if (open) {
-      setSearchQuery("")
       setDetailCustomerId(null)
       const id = setTimeout(() => searchInputRef.current?.focus(), 50)
       return () => clearTimeout(id)
@@ -114,6 +117,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
 
   function handleSelectCustomer(c: PosCustomer) {
     setCustomer(c)
+    clearSearchQuery()
     onOpenChange(false)
   }
 
@@ -121,6 +125,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
     // Parchar el catálogo local y seleccionar el cliente recién creado.
     patchCustomer(c)
     setCustomer(c)
+    clearSearchQuery()
     onOpenChange(false)
   }
 

@@ -98,7 +98,7 @@ export interface CreateSalePayload {
   discount: number
   /** Métodos de pago aplicados. */
   payment: SalePaymentMethod[]
-  /** Fecha ISO local (ej. '2026-06-15'). */
+  /** Fecha+hora local (ej. '2026-06-15 14:32:07'). Hora del browser, no UTC. */
   date: string
   /** Unix timestamp en segundos. */
   timestamp: number
@@ -176,7 +176,16 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
   const subtotal = saleItems.reduce((s, i) => s + i.total, 0)
 
   const now = new Date()
-  const dateStr = now.toISOString().slice(0, 10) // 'YYYY-MM-DD'
+  // Construir fecha+hora local con offset de timezone explícito para que PG
+  // interprete el instante correctamente (TIMESTAMPTZ). Usar solo 'YYYY-MM-DD'
+  // o una cadena sin offset hace que PG asuma el TZ del servidor (típicamente
+  // UTC), lo que insertar HH:00:00 o desfasa el instante respecto al epoch.
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const tzMinutes = -now.getTimezoneOffset() // getTimezoneOffset devuelve negativo para UTC+
+  const tzSign = tzMinutes >= 0 ? "+" : "-"
+  const tzHH = pad(Math.floor(Math.abs(tzMinutes) / 60))
+  const tzMM = pad(Math.abs(tzMinutes) % 60)
+  const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${tzSign}${tzHH}:${tzMM}`
   const timestamp = Math.floor(now.getTime() / 1000)
 
   return {

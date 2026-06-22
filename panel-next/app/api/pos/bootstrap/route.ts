@@ -379,15 +379,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const itemsList = itemsRes.data
   const contactsList = customersRes.data
 
-  // Items vendibles: itemStatus=1 (activo), itemCanSale=true, NO parent
-  // (los parents son agrupadores, no se venden directo).
+  // Items vendibles: itemStatus=1 (activo) + itemCanSale=true.
+  // itemIsParent=true tiene dos significados: agrupadores de catálogo (canSale=false,
+  // no pasan) y combos/packs (canSale=true, sí deben aparecer en el POS). La condición
+  // canSale ya descarta agrupadores — no se necesita el chequeo de isParent.
   const items: PosItem[] = itemsList.items
     .filter((i) => {
       const status = i.itemStatus
       const active = status === 1 || status === true || status === "1"
       const canSale = i.itemCanSale === true
-      const isParent = i.itemIsParent === true
-      return active && canSale && !isParent
+      return active && canSale
     })
     .map(reshapeItem)
 
