@@ -25,37 +25,33 @@ import { redactMessages } from "./redact-credentials"
  * loguearse a otro tenant; el storage se mantiene asociado al browser. Si
  * querés aislamiento real por tenant agregalo a `name` al pasar useBootstrap.
  * MVP: una sola conversación por browser.
+ *
+ * Timestamps: `createdAt` se embebe en cada StoredMessage al persistir por
+ * primera vez. Esto elimina el mapa separado (messageTimestamps) y su
+ * race de hidratación: el timestamp viaja con el mensaje y sobrevive cualquier
+ * reload sin depender de sincronía entre dos estructuras del store.
  */
+
+/** UIMessage con timestamp de primer aparición, para persistencia. */
+export type StoredMessage = UIMessage & { createdAt?: number }
+
 interface ChatHistoryState {
-  messages: UIMessage[]
-  /** Timestamps persistidos por id de mensaje. Clave: message.id → epoch ms. */
-  messageTimestamps: Record<string, number>
-  setMessages: (messages: UIMessage[]) => void
-  /**
-   * Registra el timestamp de aparición de un mensaje NUEVO.
-   * Si ya existe un ts para ese id, lo ignora — así los históricos
-   * conservan su ts original tras recargar.
-   */
-  setMessageTimestamp: (id: string, ts: number) => void
+  messages: StoredMessage[]
+  setMessages: (messages: StoredMessage[]) => void
   clear: () => void
 }
 
 export const useChatHistoryStore = create<ChatHistoryState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       messages: [],
-      messageTimestamps: {},
       // SIEMPRE redactamos credenciales antes de persistir — si el user hace
       // refresh, la contraseña ya no está. Defense in depth: el timer client
       // de 60s también oculta en vivo, pero esto es la red de seguridad final
       // contra "cerré la pestaña antes de que expire".
       setMessages: (messages) =>
-        set({ messages: redactMessages(messages.slice(-100)) }),
-      setMessageTimestamp: (id, ts) => {
-        if (get().messageTimestamps[id] !== undefined) return
-        set((s) => ({ messageTimestamps: { ...s.messageTimestamps, [id]: ts } }))
-      },
-      clear: () => set({ messages: [], messageTimestamps: {} }),
+        set({ messages: redactMessages(messages.slice(-100)) as StoredMessage[] }),
+      clear: () => set({ messages: [] }),
     }),
     {
       name: "punto-agent-chat-history",

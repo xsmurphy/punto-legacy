@@ -18,7 +18,7 @@ import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
-import { useChatHistoryStore } from "@/lib/agent/chat-history-store"
+import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -73,7 +73,6 @@ export default function ChatPage() {
   const [tick, setTick] = React.useState(0)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
-  const messageTimestamps = useChatHistoryStore((s) => s.messageTimestamps)
 
   const { messages, sendMessage, status, error, clear } = useAgentChat({
     companyName: bootstrap?.companyName ?? "",
@@ -200,7 +199,9 @@ export default function ChatPage() {
             <div className="mx-auto w-full space-y-4 px-2 pt-6 pb-[10px] sm:px-6 lg:px-12">
               {messages.map((message) => {
                 const isUser = message.role === "user"
-                const ts = messageTimestamps[message.id]
+                // createdAt viaja embebido en el mensaje desde la primera vez
+                // que se persistió; sobrevive reloads sin races de hidratación.
+                const ts = (message as StoredMessage).createdAt
                 return (
                   <div
                     key={message.id}
