@@ -226,11 +226,30 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         '/v1/modules'               => ['entity' => 'setting',     'scope' => 'all'],
         '/v1/price_list'            => ['entity' => 'item',        'scope' => 'all'],
         '/v1/price_list_item'       => ['entity' => 'item',        'scope' => 'all'],
-        '/v1/screens'               => ['entity' => 'screen',      'scope' => 'all'],
+        '/v1/screens'               => ['entity' => 'screen',           'scope' => 'all'],
+        '/v1/vpayments'             => ['entity' => 'payment-method',   'scope' => 'all'],
+        // validate es POST de consulta pura — no muta; solo consume dispara evento.
+        '/v1/giftcards'             => ['entity' => 'giftcard',         'scope' => 'all', 'skipResources' => ['validate']],
+        '/v1/users'                 => ['entity' => 'user',             'scope' => 'all'],
+        '/v1/packs'                 => ['entity' => 'pack',             'scope' => 'all'],
+        '/v1/pack_component'        => ['entity' => 'pack',             'scope' => 'all'],
+        '/v1/parked-sales'          => ['entity' => 'parked-sale',      'scope' => 'all'],
+        '/v1/tables'                => ['entity' => 'table',            'scope' => 'all'],
+        '/v1/schedule'              => ['entity' => 'schedule',         'scope' => 'all'],
+        '/v1/document-templates'    => ['entity' => 'document-template','scope' => 'all'],
+        '/v1/purchases'             => ['entity' => 'purchase',         'scope' => 'dashboard'],
+        '/v1/register'              => ['entity' => 'register',         'scope' => 'all'],
     ];
 
     foreach ($map as $prefix => $cfg) {
         if (str_starts_with($endpoint, $prefix)) {
+            // Si el entry declara skipResources, omitir el emit para esos ?resource=.
+            if (!empty($cfg['skipResources'])) {
+                $res = (string) ($_GET['resource'] ?? '');
+                if (in_array($res, $cfg['skipResources'], true)) {
+                    return;
+                }
+            }
             $op = match ($method) {
                 'POST'         => 'create',
                 'PUT', 'PATCH' => 'update',
