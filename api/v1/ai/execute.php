@@ -52,6 +52,7 @@ try {
                 'email' => $payload['email'] ?? null,
                 'note'  => $payload['note']  ?? null,
             ]);
+            realtimePublish('contact', 'create', (string) $newId);
             apiOk(['action' => $action, 'result' => ['id' => $newId]]);
             break;
         }
@@ -66,6 +67,7 @@ try {
             if (isset($payload['email'])) $patch['email'] = $payload['email'];
             if (isset($payload['note']))  $patch['note']  = $payload['note'];
             $svc->update((string) $payload['id'], $companyId, $patch);
+            realtimePublish('contact', 'update', (string) $payload['id']);
             apiOk(['action' => $action, 'result' => ['id' => $payload['id']]]);
             break;
         }
@@ -117,6 +119,7 @@ try {
             if ($brandId !== null)           $patch['brandId']      = $brandId;
 
             $svc->update((string) $newId, $companyId, $patch);
+            realtimePublish('item', 'create', (string) $newId);
             apiOk(['action' => $action, 'result' => ['id' => (string) $newId]]);
             break;
         }
@@ -128,6 +131,7 @@ try {
             $svc->update((string) $payload['id'], $companyId, [
                 'itemPrice' => (float) $payload['newPrice'],
             ]);
+            realtimePublish('item', 'update', (string) $payload['id']);
             apiOk(['action' => $action, 'result' => ['id' => $payload['id']]]);
             break;
         }
@@ -176,6 +180,7 @@ try {
             // sea consistente y el agente pueda construir el bloque exacto.
             // El client implementa autoexpiración real a los 60s editando el
             // mensaje + redactando el password antes de persistir en localStorage.
+            realtimePublish('user', 'create', (string) $newId);
             apiOk([
                 'action' => $action,
                 'result' => [
@@ -192,6 +197,7 @@ try {
         case 'create_category': {
             $svc   = new \Punto\Api\Categories\CategoryService($db);
             $newId = $svc->create($companyId, ['name' => $payload['name']]);
+            realtimePublish('category', 'create', (string) $newId);
             apiOk(['action' => $action, 'result' => ['id' => $newId]]);
             break;
         }
@@ -199,6 +205,7 @@ try {
         case 'create_brand': {
             $svc   = new \Punto\Api\Brands\BrandService($db);
             $newId = $svc->create($companyId, ['name' => $payload['name']]);
+            realtimePublish('brand', 'create', (string) $newId);
             apiOk(['action' => $action, 'result' => ['id' => $newId]]);
             break;
         }
@@ -206,6 +213,7 @@ try {
         case 'create_tag': {
             $svc   = new \Punto\Api\Tags\TagService($db);
             $newId = $svc->create($companyId, ['name' => $payload['name']]);
+            realtimePublish('tag', 'create', (string) $newId);
             apiOk(['action' => $action, 'result' => ['id' => $newId]]);
             break;
         }
