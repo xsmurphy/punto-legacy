@@ -122,6 +122,9 @@ interface CartState {
    */
   priceListId: string | null
 
+  /** Etiquetas de texto libre asociadas a la venta. */
+  tags: string[]
+
   /**
    * Controla cómo se agrupan los ítems repetidos al agregar al carrito.
    *
@@ -204,6 +207,12 @@ interface CartState {
   /** Setea el ID de la lista de precios activa. null = sin lista. */
   setPriceListId: (id: string | null) => void
 
+  /** Setea las etiquetas de la venta. */
+  setTags: (tags: string[]) => void
+
+  /** Limpia las etiquetas de la venta. */
+  clearTags: () => void
+
   /**
    * Aplica un descuento global al carrito distribuyéndolo al precio unitario
    * de las líneas ACTUALES sin descuento individual previo. NO se almacena
@@ -231,6 +240,7 @@ const initialState = {
   note: null as string | null,
   priceListId: null as string | null,
   mergeRepeated: true,
+  tags: [] as string[],
 }
 
 export const useCartStore = create<CartState>()((set, _get) => ({
@@ -392,6 +402,14 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   setPriceListId: (id) => {
     set({ priceListId: id })
+  },
+
+  setTags: (tags) => {
+    set({ tags })
+  },
+
+  clearTags: () => {
+    set({ tags: [] })
   },
 
   applyGlobalDiscount: (value, mode) => {

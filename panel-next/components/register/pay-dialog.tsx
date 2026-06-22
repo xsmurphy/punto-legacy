@@ -125,6 +125,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const customer = useCartStore((s) => s.customer)
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
+  const tags = useCartStore((s) => s.tags)
   const clear = useCartStore((s) => s.clear)
   const total = useCartStore(selectCartTotal)
   const config = useCatalogStore((s) => s.config)
@@ -207,6 +208,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         interno,
         customer,
         userId: null,
+        tags,
       })
 
       setChange(changeAmount)
