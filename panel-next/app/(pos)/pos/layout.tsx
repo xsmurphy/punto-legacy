@@ -37,6 +37,7 @@ import { useSetActiveRegister } from "@/hooks/use-active-register"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { getDeviceDefault, clearDeviceDefault } from "@/lib/pos/device"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { useCartStore } from "@/lib/cart/store"
 
 function RegisterGuard({ children }: { children: React.ReactNode }) {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
@@ -115,6 +116,22 @@ function RegisterGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function BeforeUnloadGuard() {
+  const lineCount = useCartStore((s) => s.lines.length)
+
+  React.useEffect(() => {
+    if (lineCount === 0) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ""
+    }
+    window.addEventListener("beforeunload", handler)
+    return () => window.removeEventListener("beforeunload", handler)
+  }, [lineCount])
+
+  return null
+}
+
 export default function PosWorkspaceLayout({
   children,
 }: {
@@ -155,6 +172,7 @@ export default function PosWorkspaceLayout({
 
   return (
     <div className="relative flex h-full w-full overflow-hidden">
+      <BeforeUnloadGuard />
       {/* Bloque izquierdo (intercambiable por ruta) — oculto en mobile. */}
       <div className="hidden flex-[7] overflow-hidden md:block">
         <RegisterGuard>{children}</RegisterGuard>
