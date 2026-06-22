@@ -22,22 +22,37 @@
  */
 function wsPublish(string $channel, string $event, array $data = []): void
 {
-    // Soporte para REDIS_URL (Coolify style): redis://host:6379
+    // Soporte para REDIS_URL (Coolify style): redis://default:<pass>@host:6379/0
+    // parse_url no decodifica el componente pass; urldecode es necesario para passwords URL-encoded.
+    $user = null;
+    $pass = null;
+    $host = $_ENV['REDIS_HOST'] ?? '127.0.0.1';
+    $port = (int)($_ENV['REDIS_PORT'] ?? 6379);
     if (!empty($_ENV['REDIS_URL'])) {
-        $ru = parse_url($_ENV['REDIS_URL']);
-        $_ENV['REDIS_HOST'] = $ru['host'] ?? '127.0.0.1';
-        $_ENV['REDIS_PORT'] = $ru['port'] ?? 6379;
+        $ru   = parse_url($_ENV['REDIS_URL']);
+        $host = $ru['host'] ?? '127.0.0.1';
+        $port = (int)($ru['port'] ?? 6379);
+        $user = isset($ru['user']) ? $ru['user'] : null;
+        $pass = isset($ru['pass']) ? urldecode($ru['pass']) : null;
     }
-    $host    = $_ENV['REDIS_HOST'] ?? '127.0.0.1';
-    $port    = (int)($_ENV['REDIS_PORT'] ?? 6379);
     $prefix  = 'punto:channel:';
     $timeout = 1; // segundo — no bloqueamos el request si Redis no responde
 
     $payload = json_encode(['event' => $event, 'data' => $data]);
     $redisChannel = $prefix . $channel;
 
-    // Protocolo RESP: PUBLISH <channel> <message>
-    $cmd = _redisRespCommand('PUBLISH', $redisChannel, $payload);
+    // Construir pipeline: AUTH (si aplica) + PUBLISH en un solo fwrite
+    $cmds = '';
+    if ($pass !== null) {
+        if ($user !== null && $user !== '' && $user !== 'default') {
+            // Redis 6+ ACL: AUTH <user> <pass>
+            $cmds .= _redisRespCommand('AUTH', $user, $pass);
+        } else {
+            // Legacy / usuario default: AUTH <pass>
+            $cmds .= _redisRespCommand('AUTH', $pass);
+        }
+    }
+    $cmds .= _redisRespCommand('PUBLISH', $redisChannel, $payload);
 
     $errno  = 0;
     $errstr = '';
@@ -49,8 +64,17 @@ function wsPublish(string $channel, string $event, array $data = []): void
     }
 
     stream_set_timeout($sock, $timeout);
-    fwrite($sock, $cmd);
-    fgets($sock); // leer respuesta (descartada)
+    fwrite($sock, $cmds);
+
+    if ($pass !== null) {
+        $authResp = fgets($sock);
+        if ($authResp === false || strpos($authResp, '+OK') !== 0) {
+            error_log('[wsPublish] AUTH falló: ' . trim((string)$authResp));
+            fclose($sock);
+            return;
+        }
+    }
+    fgets($sock); // leer respuesta del PUBLISH (descartada)
     fclose($sock);
 }
 
