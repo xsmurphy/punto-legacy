@@ -174,7 +174,7 @@ export default function ChatPage() {
                 return (
                   <div
                     key={message.id}
-                    className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
+                    className={`group flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
                   >
                     {message.parts.map((part, idx) => {
                       if (isTextUIPart(part)) {
@@ -182,12 +182,14 @@ export default function ChatPage() {
                         // markdown formateado + acciones (copiar/leer).
                         if (isUser) {
                           return (
-                            <div
-                              key={idx}
-                              className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-sm leading-relaxed text-background"
-                            >
-                              {part.text}
-                            </div>
+                            <React.Fragment key={idx}>
+                              <div className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-sm leading-relaxed text-background">
+                                {part.text}
+                              </div>
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                <MessageActions text={part.text} showSpeak={false} />
+                              </div>
+                            </React.Fragment>
                           )
                         }
                         return (
@@ -195,7 +197,9 @@ export default function ChatPage() {
                             <div className="rounded-2xl bg-muted px-4 py-3 text-foreground">
                               <MessageMarkdown content={part.text} />
                             </div>
-                            <MessageActions text={part.text} />
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                              <MessageActions text={part.text} />
+                            </div>
                           </div>
                         )
                       }

@@ -120,24 +120,30 @@ export function useAgentChat({
   // (SSR/Next), por eso no podemos asumir que `stored` ya tiene los mensajes
   // al mount — esperamos al flag. UNA sola vez por instancia del hook.
   const hydratedRef = React.useRef(false)
+  const skipFirstEmptyPersistRef = React.useRef(true)
+
   React.useEffect(() => {
     if (hydratedRef.current || !storeHydrated) return
-    // Leemos del store DIRECTO (no del selector) para no depender de re-renders
-    // — al ejecutarse este effect el snapshot ya está hidratado.
-    const stored = useChatHistoryStore.getState().messages
     hydratedRef.current = true
+    const stored = useChatHistoryStore.getState().messages
     if (stored.length > 0 && chat.messages.length === 0) {
       chat.setMessages(stored)
+    } else {
+      // No había nada que restaurar — el primer persist es legítimo.
+      skipFirstEmptyPersistRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeHydrated])
 
-  // Persistir CADA cambio en messages después de hidratado (no solo en
-  // status→ready). El user puede salir de la sección a mitad de streaming
-  // o navegar entre páginas — queremos no perder nada. El store ya redacta
-  // credenciales antes de escribir. Cap de 100 mensajes evita inflar localStorage.
+  // Race condition: el effect de persist puede ver chat.messages=[] antes de que
+  // el setMessages del effect de hidratación termine de impactar. El flag
+  // skipFirstEmptyPersistRef evita que ese [] vacío pise el historial restaurado.
   React.useEffect(() => {
     if (!hydratedRef.current) return
+    if (skipFirstEmptyPersistRef.current && chat.messages.length === 0) {
+      return
+    }
+    skipFirstEmptyPersistRef.current = false
     setStored(chat.messages)
   }, [chat.messages, setStored])
 
