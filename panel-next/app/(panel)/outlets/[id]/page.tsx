@@ -6,11 +6,11 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react"
+import { ArrowLeft, Loader2, Pencil, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -35,6 +35,22 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   Form,
   FormControl,
   FormDescription,
@@ -50,6 +66,13 @@ import {
   useUpdateOutlet,
 } from "@/hooks/use-outlets"
 import { usePriceLists } from "@/hooks/use-price-lists"
+import {
+  useOutletLocations,
+  useCreateLocation,
+  useUpdateLocation,
+  useDeleteLocation,
+  type OutletLocation,
+} from "@/hooks/use-outlet-locations"
 import type { OutletFormValues } from "@/lib/types/outlet"
 
 const outletSchema = z.object({
@@ -532,6 +555,8 @@ export default function OutletEditPage() {
             />
           </Section>
         </div>
+
+        {!isNew && <LocationsSection outletId={id} />}
       </form>
     </Form>
   )
@@ -623,6 +648,143 @@ function GoogleMapsLinkParser({
         </Button>
       </div>
     </div>
+  )
+}
+
+function LocationsSection({ outletId }: { outletId: string }) {
+  const { data: locations = [], isLoading } = useOutletLocations(outletId)
+  const create = useCreateLocation(outletId)
+  const update = useUpdateLocation(outletId)
+  const remove = useDeleteLocation(outletId)
+
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [editing, setEditing] = React.useState<OutletLocation | null>(null)
+  const [nameInput, setNameInput] = React.useState("")
+  const [nameError, setNameError] = React.useState("")
+  const [deleteTarget, setDeleteTarget] = React.useState<OutletLocation | null>(null)
+
+  function openCreate() {
+    setEditing(null)
+    setNameInput("")
+    setNameError("")
+    setDialogOpen(true)
+  }
+
+  function openEdit(loc: OutletLocation) {
+    setEditing(loc)
+    setNameInput(loc.name)
+    setNameError("")
+    setDialogOpen(true)
+  }
+
+  async function handleSave() {
+    const trimmed = nameInput.trim()
+    if (!trimmed) { setNameError("El nombre es requerido"); return }
+    try {
+      if (editing) {
+        await update.mutateAsync({ id: editing.id, name: trimmed })
+      } else {
+        await create.mutateAsync(trimmed)
+      }
+      setDialogOpen(false)
+    } catch {
+      setNameError("Error al guardar")
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    try {
+      await remove.mutateAsync(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch (err: unknown) {
+      const msg = (err instanceof Error) ? err.message : "No se pudo eliminar"
+      toast.error(msg)
+      setDeleteTarget(null)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Depósitos</CardTitle>
+          <CardDescription>Subdivisión del stock dentro de esta sucursal</CardDescription>
+        </div>
+        <Button type="button" onClick={openCreate} size="sm">Agregar depósito</Button>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-20 w-full" />
+        ) : locations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Sin depósitos aún.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nombre</TableHead>
+                <TableHead className="w-24 text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {locations.map((loc) => (
+                <TableRow key={loc.id}>
+                  <TableCell>{loc.name}</TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" variant="ghost" size="icon" onClick={() => openEdit(loc)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => setDeleteTarget(loc)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar depósito" : "Agregar depósito"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="loc-name">Nombre</Label>
+            <Input
+              id="loc-name"
+              value={nameInput}
+              onChange={(e) => { setNameInput(e.target.value); setNameError("") }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleSave() } }}
+              autoFocus
+            />
+            {nameError && <p className="text-sm text-destructive">{nameError}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+            <Button type="button" onClick={() => void handleSave()} disabled={create.isPending || update.isPending}>Guardar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar depósito</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Eliminar &quot;{deleteTarget?.name}&quot;? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleDelete()} disabled={remove.isPending}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   )
 }
 
