@@ -12,18 +12,30 @@ import { subscribeRealtime, type InvalidateEvent } from "@/lib/realtime"
  * Si agregás un dominio nuevo a panel-next, sumá su(s) queryKey(s) acá.
  */
 const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
-  item:        [["items"], ["item"]],
-  contact:     [["contacts"], ["contact"], ["customers"], ["team-members"]],
-  user:        [["team"]],
-  outlet:      [["outlets"]],
-  category:    [["categories"], ["taxonomies", "category"]],
-  brand:       [["brands"], ["taxonomies", "brand"]],
-  tag:         [["tags"], ["taxonomies", "tag"]],
-  tax:         [["taxes"], ["taxonomies", "tax"]],
-  transaction: [["reports"], ["transactions"], ["dashboard"], ["dashboard-widget"]],
-  drawer:      [["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
-  expense:     [["reports", "expenses"], ["dashboard"], ["dashboard-widget"]],
-  setting:     [["settings"], ["modules"], ["bootstrap"]],
+  item:              [["items"], ["item"]],
+  contact:           [["contacts"], ["contact"], ["customers"], ["team-members"]],
+  user:              [["team"]],
+  outlet:            [["outlets"]],
+  category:          [["categories"], ["taxonomies", "category"]],
+  brand:             [["brands"], ["taxonomies", "brand"]],
+  tag:               [["tags"], ["taxonomies", "tag"]],
+  tax:               [["taxes"], ["taxonomies", "tax"]],
+  transaction:       [["reports"], ["transactions"], ["dashboard"], ["dashboard-widget"]],
+  drawer:            [["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
+  expense:           [["reports", "expenses"], ["dashboard"], ["dashboard-widget"]],
+  // setting también invalida pos-bootstrap porque lo usa el POS para leer config del tenant.
+  setting:           [["settings"], ["modules"], ["bootstrap"], ["pos-bootstrap"]],
+  screen:            [["screens"]],
+  "price-list":      [["price-lists"], ["price-list-items"]],
+  "parked-sale":     [["parked-sales"]],
+  "document-template": [["document-templates"]],
+  purchase:          [["purchases"]],
+  // register: invalida pos-hotkeys (layout de teclas) y pos-bootstrap (config de caja).
+  // El PUT ?resource=hotkeys dispara este evento → refetch de pos-hotkeys es benigno
+  // (el servidor ya escribió antes del emit, no hay race).
+  register:          [["pos-hotkeys"], ["pos-bootstrap"]],
+  // pack, payment-method, giftcard, table, schedule: no hay hooks con queryKeys
+  // propios en panel-next aún — se agregan cuando existan sus hooks.
 }
 
 /**

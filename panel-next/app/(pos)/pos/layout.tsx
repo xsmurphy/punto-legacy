@@ -38,6 +38,7 @@ import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { getDeviceDefault, clearDeviceDefault } from "@/lib/pos/device"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useCartStore } from "@/lib/cart/store"
+import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 
 function RegisterGuard({ children }: { children: React.ReactNode }) {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
@@ -137,6 +138,8 @@ export default function PosWorkspaceLayout({
 }: {
   children: React.ReactNode
 }) {
+  // Suscribe al bus realtime del POS — ignora eventos scope="dashboard".
+  useRealtimeSync("pos")
   // Hidrata el catálogo una vez; persiste mientras se navega entre vistas.
   useCatalogSeed()
   // Carga los hotkeys de la caja activa desde el backend y los hidrata en el store.
