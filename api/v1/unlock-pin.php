@@ -26,7 +26,8 @@ if (!preg_match('/^\d{4}$/', $pin)) {
     apiError('PIN inválido', 422);
 }
 
-$rows = ncmExecute(
+// ncmExecute devuelve la fila directa (no [fila]) cuando el resultado es 1 row.
+$row = ncmExecute(
     "SELECT contactId, contactName
        FROM contact
       WHERE companyId = ?
@@ -37,11 +38,9 @@ $rows = ncmExecute(
     [COMPANY_ID, $pin]
 );
 
-if (!$rows || empty($rows[0])) {
+if (!$row) {
     apiError('PIN incorrecto', 401);
 }
-
-$row = $rows[0];
 
 apiOk([
     'user' => [
