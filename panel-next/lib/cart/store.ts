@@ -188,6 +188,20 @@ interface CartState {
 
   /** Asigna o quita un vendedor de una línea. null = quitar asignación. */
   setLineSeller: (lineId: string, sellerId: string | null) => void
+
+  /**
+   * Aplica un descuento global al carrito distribuyéndolo al precio unitario
+   * de las líneas ACTUALES sin descuento individual previo. NO se almacena
+   * como state global — se "bakea" en cada line.discount.
+   *
+   * - mode "percent": aplica `value` (0-100) directo a cada línea aplicable.
+   * - mode "money": calcula el % equivalente que reduce el monto total
+   *   solicitado, lo aplica uniforme a todas las líneas aplicables.
+   *
+   * Líneas con discount > 0 quedan exentas. Líneas agregadas después de
+   * llamar esta action NO se afectan.
+   */
+  applyGlobalDiscount: (value: number, mode: "percent" | "money") => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -353,6 +367,39 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         l.lineId === lineId ? { ...l, sellerId: sellerId ?? undefined } : l,
       ),
     }))
+  },
+
+  applyGlobalDiscount: (value, mode) => {
+    set((state) => {
+      const applicable = state.lines.filter((l) => !l.discount)
+      if (applicable.length === 0) return state
+
+      let effectivePercent: number
+
+      if (mode === "percent") {
+        effectivePercent = Math.min(100, Math.max(0, value))
+        if (effectivePercent === 0) return state
+      } else {
+        // mode "money": derivar el % sobre el subtotal raw de las líneas aplicables
+        // (qty * unitPrice sin descuento, sin ivaRemoved adjustment).
+        const applicableBase = applicable.reduce(
+          (sum, l) => sum + l.qty * l.unitPrice,
+          0,
+        )
+        if (applicableBase === 0) return state
+        effectivePercent = Math.min(100, (value / applicableBase) * 100)
+        if (effectivePercent === 0) return state
+      }
+
+      const applicableIds = new Set(applicable.map((l) => l.lineId))
+      return {
+        lines: state.lines.map((l) =>
+          applicableIds.has(l.lineId)
+            ? { ...l, discount: effectivePercent }
+            : l,
+        ),
+      }
+    })
   },
 }))
 
