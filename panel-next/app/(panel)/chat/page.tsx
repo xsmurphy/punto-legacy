@@ -18,6 +18,7 @@ import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
+import { useChatHistoryStore } from "@/lib/agent/chat-history-store"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -72,7 +73,7 @@ export default function ChatPage() {
   const [tick, setTick] = React.useState(0)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
-  const msgTimestampsRef = React.useRef<Map<string, number>>(new Map())
+  const messageTimestamps = useChatHistoryStore((s) => s.messageTimestamps)
 
   const { messages, sendMessage, status, error, clear } = useAgentChat({
     companyName: bootstrap?.companyName ?? "",
@@ -101,16 +102,6 @@ export default function ChatPage() {
     }
     prevStatusRef.current = status
   }, [status, invalidateBalance])
-
-  // Registrar timestamp de primer aparición de cada mensaje
-  React.useEffect(() => {
-    const now = Date.now()
-    for (const msg of messages) {
-      if (!msgTimestampsRef.current.has(msg.id)) {
-        msgTimestampsRef.current.set(msg.id, now)
-      }
-    }
-  }, [messages.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-refresh cada 30s para actualizar los tiempos relativos
   React.useEffect(() => {
@@ -209,7 +200,7 @@ export default function ChatPage() {
             <div className="mx-auto w-full space-y-4 px-2 pt-6 pb-[10px] sm:px-6 lg:px-12">
               {messages.map((message) => {
                 const isUser = message.role === "user"
-                const ts = msgTimestampsRef.current.get(message.id)
+                const ts = messageTimestamps[message.id]
                 return (
                   <div
                     key={message.id}
@@ -225,7 +216,12 @@ export default function ChatPage() {
                               <div className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-base leading-relaxed text-background">
                                 {part.text}
                               </div>
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {ts !== undefined && (
+                                  <time className="text-xs text-muted-foreground">
+                                    {formatRelativeTime(ts)}
+                                  </time>
+                                )}
                                 <MessageActions text={part.text} showSpeak={false} />
                               </div>
                             </React.Fragment>
@@ -236,19 +232,19 @@ export default function ChatPage() {
                             <div className="px-1 py-1 text-foreground">
                               <MessageMarkdown content={part.text} />
                             </div>
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                               <MessageActions text={part.text} />
+                              {ts !== undefined && (
+                                <time className="text-xs text-muted-foreground">
+                                  {formatRelativeTime(ts)}
+                                </time>
+                              )}
                             </div>
                           </div>
                         )
                       }
                       return null
                     })}
-                    {ts !== undefined && (
-                      <time className={`text-xs text-muted-foreground ${isUser ? "text-right" : "text-left"}`}>
-                        {formatRelativeTime(ts)}
-                      </time>
-                    )}
                   </div>
                 )
               })}
@@ -268,7 +264,7 @@ export default function ChatPage() {
 
           {/* Sin border-t: el shadow del input box ya separa visualmente del thread */}
           <div className="bg-background/80 backdrop-blur">
-            <div className="mx-auto w-full px-2 pt-0 pb-[10px] sm:px-6 lg:px-12">
+            <div className="mx-auto w-full max-w-3xl px-2 pt-0 pb-[10px] sm:px-6">
 
               {(hasNoCredits || is402) && (
                 <p className="mb-3 text-center text-xs text-muted-foreground">
