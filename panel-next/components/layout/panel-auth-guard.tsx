@@ -13,11 +13,13 @@ import {
   SquaresIntersect,
   CalendarDays,
   SquareKanban,
+  Bookmark,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
+import { useParkedSales } from "@/hooks/use-parked-sales"
 import { RealtimeWire } from "@/components/realtime-wire"
 import { AgentChatFloating } from "@/components/agent/agent-chat-floating"
 import { useSettings } from "@/hooks/use-settings"
@@ -40,20 +42,6 @@ const panelNav: NavEntry[] = [
   { title: "Caja", to: "/pos", icon: ScanBarcode },
 ]
 
-// Nav del POS — el sidebar es CONTEXTUAL: en /pos muestra los módulos de la
-// caja en vez de las secciones del panel (decisión del owner 2026-06-16:
-// "el menú de items del sidebar cambia en el /pos"). El contenido que antes
-// vivía en el FAB flotante de la pantalla de caja vive ahora acá.
-// La vuelta al panel es por el logo (linkea al dashboard).
-const posNav: NavEntry[] = [
-  // Hotkeys = grilla de la caja (ruta índice /pos). El botón para "volver
-  // al listado de hotkeys". Los demás items intercambian el bloque izquierdo.
-  { title: "Hotkeys", to: "/pos", icon: Flame },
-  { title: "Espacios", to: "/pos/mesas", icon: SquaresIntersect },
-  { title: "Calendario", to: "/pos/calendario", icon: CalendarDays },
-  { title: "Órdenes", to: "/pos/ordenes", icon: SquareKanban },
-]
-
 /**
  * Wrapper client-side del panel. Gate de auth (bootstrap → 401 → /login) y
  * monta el AppSidebar con el `user` resuelto + items de navegación.
@@ -67,6 +55,22 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   // Sidebar contextual: dentro de /pos se muestran los módulos de la caja.
   const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
+  // Siempre llamado — el hook maneja su propio ciclo de vida.
+  const { data: parkedSales } = useParkedSales()
+  // Nav del POS — construido dentro del componente porque el badge es dinámico.
+  // La vuelta al panel es por el logo (linkea al dashboard).
+  const posNav: NavEntry[] = [
+    { title: "Hotkeys", to: "/pos", icon: Flame },
+    { title: "Espacios", to: "/pos/mesas", icon: SquaresIntersect },
+    { title: "Calendario", to: "/pos/calendario", icon: CalendarDays },
+    { title: "Órdenes", to: "/pos/ordenes", icon: SquareKanban },
+    {
+      title: "Guardadas",
+      to: "/pos/guardadas",
+      icon: Bookmark,
+      badge: parkedSales?.length ? String(parkedSales.length) : undefined,
+    },
+  ]
   const nav = isPos ? posNav : panelNav
   const { data: bootstrap, isLoading, error } = useBootstrap()
   // El logo de la empresa lo trae /v1/settings (no /v1/bootstrap). Se
