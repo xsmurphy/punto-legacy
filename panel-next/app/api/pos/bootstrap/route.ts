@@ -273,16 +273,19 @@ function reshapeUsers(
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  // Sin cookie _jwt_panel → 401 sin pegarle al backend (ahorra el round-trip).
-  // El POS vive dentro del shell del panel: usa el JWT realm panel (_jwt_panel),
-  // no el _jwt del realm pos-app. Los endpoints /v1/bootstrap|items|contacts
-  // aceptan el realm panel, así que la cookie se reenvía tal cual.
-  const cookie = req.headers.get("cookie")
-  if (!cookie || !cookie.includes("_jwt_panel=")) {
+  // El POS puede operar con cualquiera de las dos cookies:
+  //   _jwt_panel — realm `panel` (operador logueado en el panel)
+  //   _jwt        — realm `pos-app` (device pairing; sobrevive logout del panel)
+  // Si ninguna está presente → 401 sin pegarle al backend.
+  // Cuando ambas están, también funciona — los endpoints upstream aceptan ambos realms.
+  const cookie = req.headers.get("cookie") ?? ""
+  const hasPanel = /(?:^|;)\s*_jwt_panel=/.test(cookie)
+  const hasPosApp = /(?:^|;)\s*_jwt=/.test(cookie)
+  if (!hasPanel && !hasPosApp) {
     return NextResponse.json(
       {
         ok: false,
-        error: { message: "No autenticado — falta cookie _jwt_panel", code: 401 },
+        error: { message: "No autenticado", code: 401 },
       },
       { status: 401 },
     )
