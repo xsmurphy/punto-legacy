@@ -20,7 +20,7 @@ $ctx        = apiAuthTenant(['panel', 'pos-app']);
 $companyId  = $ctx['companyId'];
 $userId     = $ctx['userId'];
 $outletId   = $ctx['outletId']   ?? '';
-$registerId = $ctx['registerId'] ?? '';
+$registerId = $ctx['registerId'] ?: null;  // null cuando se llama desde panel sin caja abierta
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 

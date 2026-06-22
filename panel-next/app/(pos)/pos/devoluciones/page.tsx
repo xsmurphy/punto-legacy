@@ -11,6 +11,7 @@
 
 import * as React from "react"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
+import { Button } from "@/components/ui/button"
 import { RotateCcw } from "lucide-react"
 
 export default function DevolucionesPage() {
@@ -27,13 +28,9 @@ export default function DevolucionesPage() {
 
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
         {!open && (
-          <button
-            type="button"
-            className="underline underline-offset-4 hover:text-foreground"
-            onClick={() => setOpen(true)}
-          >
+          <Button variant="outline" onClick={() => setOpen(true)}>
             Nueva devolución
-          </button>
+          </Button>
         )}
       </div>
 

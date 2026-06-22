@@ -261,11 +261,11 @@ export function PosReturnSheet({ open, onOpenChange }: PosReturnSheetProps) {
                 )}
                 <div className="divide-y">
                   {filtered.map((tx) => (
-                    <button
+                    <Button
                       key={tx.transactionId}
-                      type="button"
+                      variant="ghost"
                       onClick={() => selectTransaction(tx.transactionId)}
-                      className="flex w-full items-center gap-3 px-6 py-3 text-left text-sm transition-colors hover:bg-accent/50"
+                      className="flex h-auto w-full items-center gap-3 rounded-none px-6 py-3 text-left text-sm"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-medium">
@@ -285,7 +285,7 @@ export function PosReturnSheet({ open, onOpenChange }: PosReturnSheetProps) {
                           {tx.type === "3" ? "Crédito" : "Contado"}
                         </Badge>
                       </div>
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -406,35 +406,27 @@ export function PosReturnSheet({ open, onOpenChange }: PosReturnSheetProps) {
                     Forma de devolución
                   </p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
+                    <Button
+                      variant="outline"
                       onClick={() => setRefundMode("cash")}
                       className={cn(
-                        "rounded-lg border px-3 py-3 text-sm font-medium transition-colors",
-                        refundMode === "cash"
-                          ? "border-primary bg-primary/5 text-primary"
-                          : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                        "h-auto py-3 text-sm font-medium",
+                        refundMode === "cash" && "border-primary bg-primary/5 text-primary",
                       )}
                     >
                       Efectivo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!hasCustomer) return
-                        setRefundMode("credit")
-                      }}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setRefundMode("credit")}
                       disabled={!hasCustomer}
                       className={cn(
-                        "rounded-lg border px-3 py-3 text-sm font-medium transition-colors",
-                        refundMode === "credit"
-                          ? "border-primary bg-primary/5 text-primary"
-                          : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-                        !hasCustomer && "cursor-not-allowed opacity-40",
+                        "h-auto py-3 text-sm font-medium",
+                        refundMode === "credit" && "border-primary bg-primary/5 text-primary",
                       )}
                     >
                       Crédito al cliente
-                    </button>
+                    </Button>
                   </div>
                   {!hasCustomer && (
                     <p className="mt-1.5 text-xs text-muted-foreground">

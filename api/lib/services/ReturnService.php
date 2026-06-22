@@ -9,7 +9,8 @@ use Punto\App\Domain\Inventory;
  * Servicio de devoluciones (transactionType = 6).
  *
  * Vincula la devolución a la venta original via transactionParentId.
- * Valida qty disponible (vendida − ya devuelta) por ítem.
+ * La validación de qty disponible se ejecuta DENTRO de la TX con FOR UPDATE
+ * en la fila padre para evitar race conditions entre requests concurrentes.
  * Maneja stock (reposición) y crédito al cliente según refundMode.
  */
 final class ReturnService
@@ -20,7 +21,7 @@ final class ReturnService
      * @param string      $companyId
      * @param string      $userId
      * @param string      $outletId
-     * @param string      $registerId
+     * @param string|null $registerId  Puede ser null cuando se llama desde panel sin caja.
      * @param string      $parentTransactionId
      * @param array       $items    [{itemId: string, qty: float}]
      * @param string      $refundMode  'cash' | 'credit'
@@ -31,7 +32,7 @@ final class ReturnService
         string  $companyId,
         string  $userId,
         string  $outletId,
-        string  $registerId,
+        ?string $registerId,
         string  $parentTransactionId,
         array   $items,
         string  $refundMode,
@@ -39,105 +40,119 @@ final class ReturnService
     ): array {
         global $db;
 
-        // 1. Cargar la transacción parent — solo ventas (type 0 o 3)
-        $parent = ncmExecute(
-            'SELECT "transactionId", "transactionType", "customerId", "outletId", "companyId"
-             FROM transaction
-             WHERE "transactionId" = ? AND "companyId" = ? AND "transactionType" IN (0, 3)',
-            [$parentTransactionId, $companyId]
-        );
-        if (!$parent) {
-            throw new \InvalidArgumentException('Transacción no encontrada o no válida para devolución.');
-        }
-
-        // 2. Crédito requiere cliente
-        if ($refundMode === 'credit' && empty($parent['customerId'])) {
-            throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
-        }
-
-        // 3. Procesar items — calcular totales y validar qty
-        $processedItems = [];
-        $returnTotal    = 0.0;
-
-        foreach ($items as $item) {
-            $itemId = (string) ($item['itemId'] ?? '');
-            $reqQty = (float)  ($item['qty']    ?? 0);
-
-            if ($reqQty <= 0) {
-                throw new \InvalidArgumentException("Qty inválida para item $itemId.");
-            }
-
-            // Datos del itemSold original
-            $origItem = ncmExecute(
-                'SELECT is1."itemSoldId", is1."itemSoldUnits", is1."itemSoldTotal", is1."itemSoldCOGS",
-                        i."itemHasStock", i."itemLocationId"
-                 FROM "itemSold" is1
-                 JOIN item i ON i."itemId" = is1."itemId"
-                 WHERE is1."transactionId" = ? AND is1."itemId" = ? AND is1."transactionId" IN (
-                     SELECT "transactionId" FROM transaction WHERE "transactionId" = ? AND "companyId" = ?
-                 )',
-                [$parentTransactionId, $itemId, $parentTransactionId, $companyId]
-            );
-            if (!$origItem) {
-                throw new \InvalidArgumentException("Item $itemId no encontrado en la transacción original.");
-            }
-
-            $soldQty   = abs((float) $origItem['itemSoldUnits']);
-            $lineTotal = abs((float) $origItem['itemSoldTotal']);
-            $unitPrice = $soldQty > 0 ? $lineTotal / $soldQty : 0.0;
-            $cogs      = (float) $origItem['itemSoldCOGS'];
-            $unitCogs  = $soldQty > 0 ? $cogs / $soldQty : 0.0;
-
-            // Qty ya devuelta previamente para este item en esta transacción
-            $alreadyReturnedRow = ncmExecute(
-                'SELECT COALESCE(SUM(ABS(is2."itemSoldUnits")), 0) AS already_returned
-                 FROM "itemSold" is2
-                 JOIN transaction t ON t."transactionId" = is2."transactionId"
-                 WHERE t."transactionParentId" = ? AND t."transactionType" = 6
-                   AND t."companyId" = ? AND is2."itemId" = ?',
-                [$parentTransactionId, $companyId, $itemId]
-            );
-            $alreadyReturned = (float) ($alreadyReturnedRow['already_returned'] ?? 0);
-
-            $available = $soldQty - $alreadyReturned;
-            if ($reqQty > $available + 0.001) {  // 0.001 de tolerancia flotante
-                throw new \InvalidArgumentException(
-                    "Item $itemId: qty solicitada ($reqQty) supera disponible para devolver ($available)."
-                );
-            }
-
-            $lineReturnTotal = round($unitPrice * $reqQty, 2);
-            $lineCogs        = round(abs($unitCogs) * $reqQty, 2);
-            $returnTotal    += $lineReturnTotal;
-
-            $processedItems[] = [
-                'itemId'     => $itemId,
-                'qty'        => $reqQty,
-                'lineTotal'  => $lineReturnTotal,
-                'cogs'       => $lineCogs,
-                'hasStock'   => !empty($origItem['itemHasStock']),
-                'locationId' => $origItem['itemLocationId'] ?? null,
-            ];
-        }
-
-        if (empty($processedItems)) {
+        if (empty($items)) {
             throw new \InvalidArgumentException('No hay items para devolver.');
         }
 
-        // 4. Transacción de base de datos
+        // Validación rápida pre-TX (solo lookups de solo lectura, sin locks)
+        if ($refundMode === 'credit') {
+            $parentCheck = ncmExecute(
+                'SELECT "customerId" FROM transaction
+                 WHERE "transactionId" = ? AND "companyId" = ? AND "transactionType" IN (0, 3)',
+                [$parentTransactionId, $companyId]
+            );
+            if (!$parentCheck) {
+                throw new \InvalidArgumentException('Transacción no encontrada o no válida para devolución.');
+            }
+            if (empty($parentCheck['customerId'])) {
+                throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
+            }
+        }
+
+        // TX: todo el read-with-lock + writes en un bloque atómico
         $db->StartTrans();
 
-        try {
-            $newTransactionId = ncmExecute('SELECT gen_random_uuid() AS id', []);
-            $newTransactionId = $newTransactionId['id'];
+        $newTransactionId = null;
+        $stockMovements   = 0;
+        $returnTotal      = 0.0;
+        $processedItems   = [];
 
-            // Pagos: monto negativo = egreso de caja (devolución)
+        try {
+            // Lock de la fila padre — evita que dos requests concurrentes lean
+            // `alreadyReturned` antes de que el primero escriba.
+            $parent = $db->GetRow(
+                'SELECT "transactionId", "transactionType", "customerId"
+                 FROM transaction
+                 WHERE "transactionId" = ? AND "companyId" = ? AND "transactionType" IN (0, 3)
+                 FOR UPDATE',
+                [$parentTransactionId, $companyId]
+            );
+            if (!$parent) {
+                throw new \InvalidArgumentException('Transacción no encontrada o no válida para devolución.');
+            }
+            if ($refundMode === 'credit' && empty($parent['customerId'])) {
+                throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
+            }
+
+            // Procesar cada ítem: leer original + validar qty disponible (dentro de la TX)
+            foreach ($items as $item) {
+                $itemId = (string) ($item['itemId'] ?? '');
+                $reqQty = (float)  ($item['qty']    ?? 0);
+
+                if ($reqQty <= 0) {
+                    throw new \InvalidArgumentException("Qty inválida para item $itemId.");
+                }
+
+                // Datos del itemSold original — scopeado por companyId via la TX padre
+                $origItem = $db->GetRow(
+                    'SELECT is1."itemSoldUnits", is1."itemSoldTotal", is1."itemSoldCOGS",
+                            i."itemHasStock", i."itemLocationId"
+                     FROM "itemSold" is1
+                     JOIN item i ON i."itemId" = is1."itemId"
+                     WHERE is1."transactionId" = ? AND is1."itemId" = ?',
+                    [$parentTransactionId, $itemId]
+                );
+                if (!$origItem) {
+                    throw new \InvalidArgumentException("Item $itemId no encontrado en la transacción original.");
+                }
+
+                $soldQty   = abs((float) $origItem['itemSoldUnits']);
+                $lineTotal = abs((float) $origItem['itemSoldTotal']);
+                $unitPrice = $soldQty > 0 ? $lineTotal / $soldQty : 0.0;
+                $cogs      = abs((float) $origItem['itemSoldCOGS']);
+                $unitCogs  = $soldQty > 0 ? $cogs / $soldQty : 0.0;
+
+                // Qty ya devuelta (dentro de TX — ve las filas del lock anterior)
+                $alreadyReturned = (float) $db->GetOne(
+                    'SELECT COALESCE(SUM(ABS(is2."itemSoldUnits")), 0)
+                     FROM "itemSold" is2
+                     JOIN transaction t ON t."transactionId" = is2."transactionId"
+                     WHERE t."transactionParentId" = ? AND t."transactionType" = 6
+                       AND t."companyId" = ? AND is2."itemId" = ?',
+                    [$parentTransactionId, $companyId, $itemId]
+                );
+
+                $available = $soldQty - $alreadyReturned;
+                if ($reqQty > $available + 0.001) {
+                    throw new \InvalidArgumentException(
+                        "Item $itemId: qty solicitada ($reqQty) supera disponible ($available)."
+                    );
+                }
+
+                $lineReturnTotal = round($unitPrice * $reqQty, 2);
+                $lineCogs        = round($unitCogs  * $reqQty, 2);
+                $returnTotal    += $lineReturnTotal;
+
+                $processedItems[] = [
+                    'itemId'     => $itemId,
+                    'qty'        => $reqQty,
+                    'lineTotal'  => $lineReturnTotal,
+                    'cogs'       => $lineCogs,
+                    'hasStock'   => !empty($origItem['itemHasStock']),
+                    'locationId' => $origItem['itemLocationId'] ?? null,
+                ];
+            }
+
+            $newTransactionId = $db->GetOne('SELECT gen_random_uuid()');
+
+            // Pagos: monto negativo = egreso de caja
             $paymentsJson = json_encode([[
                 'type'   => $refundMode === 'cash' ? 'cash' : 'storeCredit',
                 'amount' => -abs($returnTotal),
             ]]);
 
-            $totalUnits = -count($processedItems);
+            // totalUnits = suma real de unidades devueltas (no cuenta de líneas)
+            $totalUnits = -array_sum(array_column($processedItems, 'qty'));
 
             $db->Execute(
                 'INSERT INTO transaction (
@@ -154,18 +169,15 @@ final class ReturnService
                     $paymentsJson,
                     $note,
                     $parent['customerId'] ?? null,
-                    $registerId,
+                    $registerId ?: null,
                     $userId,
                     $outletId,
                     $companyId,
                 ]
             );
 
-            $stockMovements = 0;
-
             foreach ($processedItems as $pi) {
-                $itemSoldId = ncmExecute('SELECT gen_random_uuid() AS id', []);
-                $itemSoldId = $itemSoldId['id'];
+                $itemSoldId = $db->GetOne('SELECT gen_random_uuid()');
 
                 $db->Execute(
                     'INSERT INTO "itemSold" (
@@ -177,8 +189,8 @@ final class ReturnService
                         $itemSoldId,
                         $pi['itemId'],
                         $newTransactionId,
-                        -abs($pi['qty']),       // negativo: unidades que vuelven
-                        -abs($pi['lineTotal']), // negativo: ingreso de devolución
+                        -abs($pi['qty']),
+                        -abs($pi['lineTotal']),
                         -abs($pi['cogs']),
                     ]
                 );
@@ -203,17 +215,12 @@ final class ReturnService
                 }
             }
 
-            // Crédito al cliente
             if ($refundMode === 'credit' && !empty($parent['customerId'])) {
                 $db->Execute(
-                    'UPDATE contact SET "contactStoreCredit" = "contactStoreCredit" + ? WHERE "contactId" = ? AND "companyId" = ?',
+                    'UPDATE contact SET "contactStoreCredit" = "contactStoreCredit" + ?
+                     WHERE "contactId" = ? AND "companyId" = ?',
                     [abs($returnTotal), $parent['customerId'], $companyId]
                 );
-            }
-
-            if ($db->HasFailedTrans()) {
-                $db->CompleteTrans();
-                throw new \RuntimeException('Error en la transacción de base de datos.');
             }
 
             $db->CompleteTrans();
