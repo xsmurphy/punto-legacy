@@ -142,7 +142,7 @@ export function AgentChatContent({
                   }
                   return (
                     <div key={idx} className="w-full max-w-[95%] space-y-1">
-                      <div className="rounded-2xl bg-muted px-3 py-2 text-foreground">
+                      <div className="px-1 py-1 text-foreground">
                         <MessageMarkdown content={part.text} />
                       </div>
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity">

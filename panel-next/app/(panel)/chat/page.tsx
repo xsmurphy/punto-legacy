@@ -19,6 +19,11 @@ import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 /**
  * Página dedicada del asistente IA en el sidebar.
@@ -105,15 +110,16 @@ export default function ChatPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Asistente</h1>
-          <p className="text-sm text-muted-foreground">
-            Consultá datos, creá registros básicos y analizá tu negocio en lenguaje natural.
-          </p>
         </div>
         {messages.length > 0 && (
-          <Button variant="outline" size="sm" onClick={clear}>
-            <RotateCcw className="size-4" />
-            Nueva conversación
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={clear} aria-label="Nueva conversación">
+                <RotateCcw className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Nueva conversación</TooltipContent>
+          </Tooltip>
         )}
       </header>
 
@@ -194,7 +200,7 @@ export default function ChatPage() {
                         }
                         return (
                           <div key={idx} className="w-full max-w-[90%] space-y-1">
-                            <div className="rounded-2xl bg-muted px-4 py-3 text-foreground">
+                            <div className="px-1 py-1 text-foreground">
                               <MessageMarkdown content={part.text} />
                             </div>
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -246,7 +252,7 @@ export default function ChatPage() {
 
           {/* Sin border-t: el shadow del input box ya separa visualmente del thread */}
           <div className="bg-background/80 backdrop-blur">
-            <div className="mx-auto w-full max-w-3xl px-2 py-4 sm:px-6">
+            <div className="mx-auto w-full max-w-3xl px-2 pt-1 pb-2 sm:px-6">
               {(hasNoCredits || is402) && (
                 <p className="mb-3 text-center text-xs text-muted-foreground">
                   Sin créditos disponibles.{" "}

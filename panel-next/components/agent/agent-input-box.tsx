@@ -57,9 +57,9 @@ export const AgentInputBox = React.forwardRef<
         placeholder={placeholder}
         disabled={disabled}
         rows={1}
-        className="min-h-0 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-5 pt-4 pb-2 text-base placeholder:text-muted-foreground/70"
+        className="min-h-0 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-4 pt-3 pb-1 text-base placeholder:text-muted-foreground/70"
       />
-      <div className="flex items-center justify-between px-3 pb-3">
+      <div className="flex items-center justify-between px-3 pb-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <span tabIndex={0}>
