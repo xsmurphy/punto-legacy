@@ -463,7 +463,7 @@ final class StockTransferService
             }
         }
 
-        $db->Execute(
+        ncmExecute(
             'UPDATE stock_transfer SET "status" = 0 WHERE "stockTransferId" = ? AND "companyId" = ?',
             [$id, $companyId]
         );
