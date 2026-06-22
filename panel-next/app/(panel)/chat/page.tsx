@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
+import { isTextUIPart } from "ai"
 import Link from "next/link"
 import {
   TrendingUp,
@@ -50,11 +50,24 @@ const SUGGESTIONS: Suggestion[] = [
   { icon: BarChart3,  text: "Resumen del año pasado" },
 ]
 
+function formatRelativeTime(ms: number): string {
+  const diff = Date.now() - ms
+  const seconds = Math.floor(diff / 1_000)
+  if (seconds < 60) return "ahora"
+  const minutes = Math.floor(diff / 60_000)
+  if (minutes < 60) return `Hace ${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `Hace ${hours} h`
+  return `Hace ${Math.floor(hours / 24)} d`
+}
+
 export default function ChatPage() {
   const { data: bootstrap } = useBootstrap()
   const [input, setInput] = React.useState("")
+  const [tick, setTick] = React.useState(0)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
+  const msgTimestampsRef = React.useRef<Map<string, number>>(new Map())
 
   const { messages, sendMessage, status, error, clear } = useAgentChat({
     companyName: bootstrap?.companyName ?? "",
@@ -83,6 +96,25 @@ export default function ChatPage() {
     }
     prevStatusRef.current = status
   }, [status, invalidateBalance])
+
+  // Registrar timestamp de primer aparición de cada mensaje
+  React.useEffect(() => {
+    const now = Date.now()
+    for (const msg of messages) {
+      if (!msgTimestampsRef.current.has(msg.id)) {
+        msgTimestampsRef.current.set(msg.id, now)
+      }
+    }
+  }, [messages.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-refresh cada 30s para actualizar los tiempos relativos
+  React.useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Suprimir warning de tick no usado en render — se usa vía closure en formatRelativeTime
+  void tick
 
   function handleSend() {
     const text = input.trim()
@@ -168,9 +200,10 @@ export default function ChatPage() {
         // ── Estado con mensajes: thread + input al pie ───────────────────────
         <>
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-3xl space-y-4 px-2 py-6 sm:px-6">
+            <div className="mx-auto w-full space-y-4 px-2 py-6 sm:px-6 lg:px-12">
               {messages.map((message) => {
                 const isUser = message.role === "user"
+                const ts = msgTimestampsRef.current.get(message.id)
                 return (
                   <div
                     key={message.id}
@@ -183,7 +216,7 @@ export default function ChatPage() {
                         if (isUser) {
                           return (
                             <React.Fragment key={idx}>
-                              <div className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-sm leading-relaxed text-background">
+                              <div className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-base leading-relaxed text-background">
                                 {part.text}
                               </div>
                               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -203,30 +236,13 @@ export default function ChatPage() {
                           </div>
                         )
                       }
-                      if (isToolOrDynamicToolUIPart(part)) {
-                        const isDone =
-                          "state" in part &&
-                          (part.state === "output-available" || part.state === "output-error")
-                        const isError = "state" in part && part.state === "output-error"
-                        return (
-                          <div
-                            key={idx}
-                            className="flex items-center gap-2 px-1 py-0.5 text-[11px] text-muted-foreground/70"
-                          >
-                            <span
-                              className={
-                                isError
-                                  ? "size-1.5 rounded-full bg-destructive/70"
-                                  : isDone
-                                    ? "size-1.5 rounded-full bg-muted-foreground/40"
-                                    : "size-1.5 animate-pulse rounded-full bg-muted-foreground/70"
-                              }
-                            />
-                          </div>
-                        )
-                      }
                       return null
                     })}
+                    {ts !== undefined && (
+                      <time className={`text-xs text-muted-foreground ${isUser ? "text-right" : "text-left"}`}>
+                        {formatRelativeTime(ts)}
+                      </time>
+                    )}
                   </div>
                 )
               })}
@@ -246,7 +262,7 @@ export default function ChatPage() {
 
           {/* Sin border-t: el shadow del input box ya separa visualmente del thread */}
           <div className="bg-background/80 backdrop-blur">
-            <div className="mx-auto w-full max-w-3xl px-2 py-4 sm:px-6">
+            <div className="mx-auto w-full px-2 py-4 sm:px-6 lg:px-12">
               {(hasNoCredits || is402) && (
                 <p className="mb-3 text-center text-xs text-muted-foreground">
                   Sin créditos disponibles.{" "}
