@@ -114,6 +114,8 @@ export interface CreateSalePayload {
   note: string | null
   /** Flag venta interna (consumo propio). */
   interno: boolean
+  /** Etiquetas de texto libre asociadas a la venta. */
+  tags: string[]
 }
 
 export interface CreateSaleResult {
@@ -152,6 +154,8 @@ export interface BuildSaleInput {
   customer: PosCustomer | null
   /** UUID del usuario autenticado (del JWT / sesión de caja). */
   userId: string | null
+  /** Etiquetas de texto libre asociadas a la venta. */
+  tags: string[]
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -161,7 +165,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId } = input
+  const { lines, payments, credito, interno, customer, userId, tags } = input
 
   const saleItems: SaleItem[] = lines.map((line) => ({
     itemId: line.itemId,
@@ -202,6 +206,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     user: userId,
     note: null,
     interno,
+    tags,
   }
 }
 

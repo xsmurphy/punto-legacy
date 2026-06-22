@@ -760,7 +760,9 @@ function EmptyCart() {
 function CartExtras() {
   const note = useCartStore((s) => s.note)
   const lines = useCartStore((s) => s.lines)
+  const tags = useCartStore((s) => s.tags)
   const setNote = useCartStore((s) => s.setNote)
+  const clearTags = useCartStore((s) => s.clearTags)
   const users = useCatalogStore((s) => s.users)
 
   // Descuento global: todas las líneas aplicables comparten el mismo valor.
@@ -796,7 +798,7 @@ function CartExtras() {
     ? (users.find((u) => u.id === globalSellerId)?.name ?? null)
     : null
 
-  const hasExtras = note || globalDiscount !== null || globalSellerId !== null
+  const hasExtras = note || globalDiscount !== null || globalSellerId !== null || tags.length > 0
   if (!hasExtras) return null
 
   return (
@@ -820,6 +822,13 @@ function CartExtras() {
           icon={UserCircle2}
           label={`Usuario: ${sellerName ?? globalSellerId}`}
           onClear={clearGlobalSeller}
+        />
+      )}
+      {tags.length > 0 && (
+        <ExtraRow
+          icon={Tag}
+          label={`Etiquetas: ${tags.join(", ")}`}
+          onClear={clearTags}
         />
       )}
     </div>
