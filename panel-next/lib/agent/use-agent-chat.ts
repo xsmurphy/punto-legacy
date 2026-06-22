@@ -62,6 +62,7 @@ export function useAgentChat({
   outletName: string
 }) {
   const setStored = useChatHistoryStore((s) => s.setMessages)
+  const setTimestamp = useChatHistoryStore((s) => s.setMessageTimestamp)
   const clearStored = useChatHistoryStore((s) => s.clear)
   const storeHydrated = useChatHistoryHydrated()
   const qc = useQueryClient()
@@ -144,8 +145,14 @@ export function useAgentChat({
       return
     }
     skipFirstEmptyPersistRef.current = false
+    // Registrar timestamp de primer aparición de cada mensaje nuevo.
+    // setMessageTimestamp es idempotente: ignora ids que ya tienen ts guardado.
+    const now = Date.now()
+    for (const msg of chat.messages) {
+      setTimestamp(msg.id, now)
+    }
     setStored(chat.messages)
-  }, [chat.messages, setStored])
+  }, [chat.messages, setStored, setTimestamp])
 
   // Auto-expiración de mensajes con credenciales: cuando aparece un nuevo
   // mensaje del assistant que contiene una contraseña visible, programar un
