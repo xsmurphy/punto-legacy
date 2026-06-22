@@ -15,15 +15,17 @@
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/Users/UsersService.php';
 
-$ctx      = apiAuthTenant(['panel']);
-$svc      = new \Punto\Api\Users\UsersService();
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$allowedRealms = $method === 'GET' ? ['panel', 'pos-app'] : ['panel'];
+$ctx      = apiAuthTenant($allowedRealms);
+$svc      = new \Punto\Api\Users\UsersService();
 $id       = $_GET['id']       ?? null;
 $resource = $_GET['resource'] ?? null;
 
 // ── Sub-recurso: roles ─────────────────────────────────────────────────────
 if ($resource === 'roles') {
     if ($method !== 'GET') apiError('Method not allowed', 405);
+    if (($ctx['realm'] ?? '') !== 'panel') apiError('Forbidden', 403);
     apiOk(['roles' => $svc->roles(COMPANY_ID)]);
 }
 
@@ -41,14 +43,22 @@ switch ($method) {
         if ($id !== null) {
             $user = $svc->get($id, COMPANY_ID);
             if ($user === null) apiError('Usuario no encontrado', 404);
+            if (($ctx['realm'] ?? '') === 'pos-app') {
+                unset($user['lockPass']);
+            }
             apiOk($user);
         }
-        apiOk([
-            'users' => $svc->list(COMPANY_ID, [
-                'q'      => $_GET['q']      ?? null,
-                'status' => $_GET['status'] ?? null,
-            ]),
+        $users = $svc->list(COMPANY_ID, [
+            'q'      => $_GET['q']      ?? null,
+            'status' => $_GET['status'] ?? null,
         ]);
+        if (($ctx['realm'] ?? '') === 'pos-app') {
+            foreach ($users as &$u) {
+                unset($u['lockPass']);
+            }
+            unset($u);
+        }
+        apiOk(['users' => $users]);
         break;
 
     case 'POST':
