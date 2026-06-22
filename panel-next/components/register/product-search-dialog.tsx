@@ -31,6 +31,8 @@ import { searchItems } from "@/lib/catalog/search"
 import { formatMoney } from "@/lib/format-money"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
+import { EmptyState } from "@/components/empty-state"
+import { SearchX } from "lucide-react"
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -108,9 +110,12 @@ export function ProductSearchDialog({
         {trimmed.length > 0 && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
             {results.length === 0 ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">
-                Sin resultados para “{trimmed}”.
-              </p>
+              <EmptyState
+                icon={SearchX}
+                title="Sin resultados"
+                description={`Ningún producto coincide con "${trimmed}".`}
+                showMarquee={false}
+              />
             ) : (
               <ul role="listbox" aria-label="Resultados de búsqueda" className="overflow-y-auto py-1">
                 {results.map((item) => (
