@@ -113,6 +113,15 @@ interface CartState {
    */
   ivaRemoved: boolean
 
+  /** Nota libre a nivel carrito (ej. "pedido especial"). */
+  note: string | null
+
+  /**
+   * ID de la lista de precios activa. Solo persiste el ID —
+   * la lógica de resolución de precios es responsabilidad de fases posteriores.
+   */
+  priceListId: string | null
+
   /**
    * Controla cómo se agrupan los ítems repetidos al agregar al carrito.
    *
@@ -189,6 +198,12 @@ interface CartState {
   /** Asigna o quita un vendedor de una línea. null = quitar asignación. */
   setLineSeller: (lineId: string, sellerId: string | null) => void
 
+  /** Setea la nota a nivel carrito. null = limpiar. */
+  setNote: (note: string | null) => void
+
+  /** Setea el ID de la lista de precios activa. null = sin lista. */
+  setPriceListId: (id: string | null) => void
+
   /**
    * Aplica un descuento global al carrito distribuyéndolo al precio unitario
    * de las líneas ACTUALES sin descuento individual previo. NO se almacena
@@ -213,6 +228,8 @@ const initialState = {
   credito: false,
   interno: false,
   ivaRemoved: false,
+  note: null as string | null,
+  priceListId: null as string | null,
   mergeRepeated: true,
 }
 
@@ -367,6 +384,14 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         l.lineId === lineId ? { ...l, sellerId: sellerId ?? undefined } : l,
       ),
     }))
+  },
+
+  setNote: (note) => {
+    set({ note })
+  },
+
+  setPriceListId: (id) => {
+    set({ priceListId: id })
   },
 
   applyGlobalDiscount: (value, mode) => {

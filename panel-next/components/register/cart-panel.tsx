@@ -74,6 +74,8 @@ import { PosMainMenu } from "@/components/register/pos-main-menu"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { toast } from "sonner"
 import { useCartPublisher } from "@/hooks/use-cart-publisher"
+import { useDrawerStatus } from "@/hooks/use-drawer"
+import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -100,6 +102,10 @@ export function CartPanel() {
 
   const config = useCatalogStore((s) => s.config)
   const catalogItems = useCatalogStore((s) => s.items)
+
+  // Gate de apertura de caja — se abre si la caja está cerrada al intentar cobrar.
+  const { data: drawerStatus } = useDrawerStatus()
+  const [drawerOpenDialogOpen, setDrawerOpenDialogOpen] = React.useState(false)
 
   // Modo edición de hotkeys: el panel de venta muestra una guía en su lugar.
   const editingHotkeys = useHotkeysStore((s) => s.editing)
@@ -176,6 +182,17 @@ export function CartPanel() {
     setConfirmIvaOpen(false)
   }, [toggleIva])
 
+  // Gate de apertura de caja: si la caja está cerrada, mostrar el modal antes
+  // de abrir el flujo de pago. Si drawerStatus es undefined (cargando o error),
+  // dejamos pasar — el modal de pago tiene su propio guard interno.
+  const handlePayClick = React.useCallback(() => {
+    if (drawerStatus !== undefined && !drawerStatus.isOpen) {
+      setDrawerOpenDialogOpen(true)
+    } else {
+      setPayOpen(true)
+    }
+  }, [drawerStatus, setPayOpen])
+
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
@@ -195,6 +212,11 @@ export function CartPanel() {
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
+      <DrawerOpenDialog
+        open={drawerOpenDialogOpen}
+        onOpenChange={setDrawerOpenDialogOpen}
+        onSuccess={() => setPayOpen(true)}
+      />
 
       {/* Edición de precio por línea */}
       <LinePriceDialog
@@ -320,7 +342,7 @@ export function CartPanel() {
         total={totalValue}
         lineCount={lines.length}
         config={config}
-        onPayClick={() => setPayOpen(true)}
+        onPayClick={handlePayClick}
       />
         </>
       )}
