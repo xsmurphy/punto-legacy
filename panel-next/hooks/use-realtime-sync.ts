@@ -12,13 +12,13 @@ import { subscribeRealtime, type InvalidateEvent } from "@/lib/realtime"
  * Si agregás un dominio nuevo a panel-next, sumá su(s) queryKey(s) acá.
  */
 const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
-  item:              [["items"], ["item"]],
+  item:              [["items"], ["item"], ["pos-bootstrap"]],
   contact:           [["contacts"], ["contact"], ["customers"], ["team-members"]],
   user:              [["team"]],
   outlet:            [["outlets"]],
-  category:          [["categories"], ["taxonomies", "category"]],
-  brand:             [["brands"], ["taxonomies", "brand"]],
-  tag:               [["tags"], ["taxonomies", "tag"]],
+  category:          [["categories"], ["taxonomies", "category"], ["pos-bootstrap"]],
+  brand:             [["brands"], ["taxonomies", "brand"], ["pos-bootstrap"]],
+  tag:               [["tags"], ["taxonomies", "tag"], ["pos-bootstrap"]],
   tax:               [["taxes"], ["taxonomies", "tax"]],
   location:          [["outlet-locations"]],
   transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["dashboard"], ["dashboard-widget"]],
