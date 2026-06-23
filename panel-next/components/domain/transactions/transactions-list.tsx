@@ -1513,7 +1513,7 @@ export function TransactionDetailContent({
           {txType === "6" && <Badge variant="outline">DEVOLUCIÓN</Badge>}
           {txType === "7" && <Badge variant="secondary" className="opacity-60">ANULADA</Badge>}
           {txType === "9" && (
-            <Badge variant="outline" className="border-green-600 text-green-700 dark:text-green-400">
+            <Badge variant="outline" className="border-[var(--chart-1)] text-[var(--chart-1)]">
               COTIZACIÓN
             </Badge>
           )}
