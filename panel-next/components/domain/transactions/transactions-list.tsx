@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Copy, Printer, Receipt, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, Copy, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket, X } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -51,6 +51,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Table,
   TableBody,
   TableCell,
@@ -91,6 +98,7 @@ import { formatMoney } from "@/lib/format"
 import { formatAmount } from "@/lib/format-money"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { cn } from "@/lib/utils"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -223,11 +231,13 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [confirmDuplicateOpen, setConfirmDuplicateOpen] = React.useState(false)
   const [pendingDuplicate, setPendingDuplicate] = React.useState<TransactionDetail | null>(null)
+  const [returnSheetForTx, setReturnSheetForTx] = React.useState<string | null>(null)
 
   const config = useCatalogStore((s) => s.config)
   const cartLines = useCartStore((s) => s.lines)
   const clearCart = useCartStore((s) => s.clear)
   const addItem = useCartStore((s) => s.addItem)
+  const addLines = useCartStore((s) => s.addLines)
   const router = useRouter()
 
   const { data: detail, isLoading: detailLoading } = useTransaction(
@@ -284,6 +294,23 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
       })
     }
     router.push("/pos")
+  }
+
+  function handleAddToCart(tx: TransactionDetail) {
+    const items = (tx.transactionDatas ?? []).filter((i) => i.status !== 0)
+    if (items.length === 0) return
+    addLines(
+      items.map((i) => ({
+        itemId: i.itemId,
+        name: i.name,
+        qty: i.count,
+        unitPrice: i.price,
+        discount: i.discount > 0 ? i.discount : undefined,
+        note: i.note || undefined,
+      })),
+    )
+    toast.success(`${items.length} ítem${items.length !== 1 ? "s" : ""} agregado${items.length !== 1 ? "s" : ""} al carrito`)
+    setSheetOpen(false)
   }
 
   function openEdit() {
@@ -772,10 +799,24 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
                   config={config}
                   onDuplicate={() => requestDuplicate(detail)}
                   onReprint={() => window.print()}
+                  onReturn={() => setReturnSheetForTx(detail.transactionId)}
+                  onAddToCart={() => handleAddToCart(detail)}
                 />
               )}
             </SheetContent>
           </Sheet>
+
+          <PosReturnSheet
+            open={returnSheetForTx !== null}
+            onOpenChange={(v) => {
+              if (!v) {
+                setReturnSheetForTx(null)
+                queryClient.invalidateQueries({ queryKey: ["pos-transaction", selectedId] })
+                queryClient.invalidateQueries({ queryKey: ["pos-transactions"] })
+              }
+            }}
+            parentTransactionId={returnSheetForTx ?? undefined}
+          />
         </>
       )}
 
@@ -1380,15 +1421,22 @@ export function TransactionDetailContent({
   config,
   onDuplicate,
   onReprint,
+  onReturn,
+  onAddToCart,
 }: {
   tx: TransactionDetail
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   onDuplicate: () => void
   onReprint: () => void
+  onReturn?: () => void
+  onAddToCart?: () => void
 }) {
   const docLabel = tx.invoicePrefix
     ? `${tx.invoicePrefix}-${tx.documentNo}`
     : tx.documentNo
+
+  const canReturn = (tx.type === "0" || tx.type === "3") && tx.status !== "0"
+  const canAddToCart = (tx.transactionDatas ?? []).filter((i) => i.status !== 0).length > 0
 
   return (
     <div className="flex flex-col gap-4 p-6 pt-4">
@@ -1402,16 +1450,37 @@ export function TransactionDetailContent({
           )}
           <p className="text-xs text-muted-foreground">{fmtDate(tx.date)}</p>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <Button variant="outline" size="sm" onClick={onDuplicate} className="gap-1.5">
-            <Copy className="size-4" />
-            Duplicar
-          </Button>
-          <Button variant="outline" size="sm" onClick={onReprint} className="gap-1.5">
-            <Printer className="size-4" />
-            Reimprimir
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <MoreVertical className="size-4" />
+              Opciones
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {canReturn && onReturn && (
+              <DropdownMenuItem onClick={onReturn}>
+                <RotateCcw className="size-4 mr-2" />
+                Devolución
+              </DropdownMenuItem>
+            )}
+            {canAddToCart && onAddToCart && (
+              <DropdownMenuItem onClick={onAddToCart}>
+                <ShoppingBasket className="size-4 mr-2" />
+                Agregar al carrito
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onDuplicate}>
+              <Copy className="size-4 mr-2" />
+              Duplicar
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onReprint}>
+              <Printer className="size-4 mr-2" />
+              Reimprimir
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Items */}
