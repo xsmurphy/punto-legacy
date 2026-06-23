@@ -29,7 +29,7 @@ final class VariantService
     public function listVariants(string $companyId, string $parentId): array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM item WHERE "companyId" = ? AND "variantParentId" = ? AND "itemStatus" = 1 ORDER BY "itemDate" ASC, "itemName" ASC',
+            'SELECT * FROM item WHERE companyid = ? AND variantparentid = ? AND itemstatus = 1 ORDER BY itemdate ASC, itemname ASC',
             [$companyId, $parentId]
         );
         if ($rs === false) return [];
@@ -52,7 +52,7 @@ final class VariantService
     public function countVariants(string $companyId, string $parentId): int
     {
         $row = ncmExecute(
-            'SELECT COUNT(*) AS n FROM item WHERE "companyId" = ? AND "variantParentId" = ? AND "itemStatus" = 1',
+            'SELECT COUNT(*) AS n FROM item WHERE companyid = ? AND variantparentid = ? AND itemstatus = 1',
             [$companyId, $parentId]
         );
         return (int) ($row['n'] ?? 0);
@@ -67,23 +67,23 @@ final class VariantService
     public function validateParent(string $companyId, string $parentId): array
     {
         $rs = $this->db->Execute(
-            'SELECT "itemId", "companyId", "hasVariants", "variantParentId" FROM item WHERE "itemId" = ? LIMIT 1',
+            'SELECT itemid, companyid, hasvariants, variantparentid FROM item WHERE itemid = ? LIMIT 1',
             [$parentId]
         );
         if ($rs === false || $rs->EOF) {
             throw new \RuntimeException('Item padre no encontrado', 404);
         }
         $row = $rs->fields;
-        $rowCompany = $row['companyid'] ?? $row['companyId'] ?? '';
+        $rowCompany = $row['companyid'] ?? '';
         if ($rowCompany !== $companyId) {
             throw new \RuntimeException('Acceso denegado al item padre', 403);
         }
-        $hv = $row['hasvariants'] ?? $row['hasVariants'] ?? false;
+        $hv = $row['hasvariants'] ?? false;
         $hasVariants = ($hv === true || $hv === 't' || $hv === '1' || $hv === 1);
         if (!$hasVariants) {
             throw new \RuntimeException('El item padre no tiene hasVariants=true. Activalo primero.', 422);
         }
-        $vp = $row['variantparentid'] ?? $row['variantParentId'] ?? null;
+        $vp = $row['variantparentid'] ?? null;
         if (!empty($vp)) {
             throw new \RuntimeException('No se pueden crear variantes de variantes.', 422);
         }
@@ -106,7 +106,7 @@ final class VariantService
     {
         // Obtener datos del padre para heredar campos.
         $parentRs = $this->db->Execute(
-            'SELECT * FROM item WHERE "itemId" = ? AND "companyId" = ? AND "itemStatus" = 1 LIMIT 1',
+            'SELECT * FROM item WHERE itemid = ? AND companyid = ? AND itemstatus = 1 LIMIT 1',
             [$parentId, $companyId]
         );
         if ($parentRs === false || $parentRs->EOF) {
@@ -138,7 +138,7 @@ final class VariantService
                 if ($itemId !== null) {
                     // UPDATE — verificar que la variante pertenece al padre y al tenant.
                     $checkRs = $this->db->Execute(
-                        'SELECT "itemId" FROM item WHERE "itemId" = ? AND "companyId" = ? AND "variantParentId" = ?',
+                        'SELECT itemid FROM item WHERE itemid = ? AND companyid = ? AND variantparentid = ?',
                         [$itemId, $companyId, $parentId]
                     );
                     if ($checkRs === false || $checkRs->EOF) {
@@ -155,7 +155,7 @@ final class VariantService
                     ncmUpdate([
                         'table'       => 'item',
                         'records'     => $patch,
-                        'where'       => '"itemId" = ? AND "companyId" = ?',
+                        'where'       => 'itemid = ? AND companyid = ?',
                         'whereParams' => [$itemId, $companyId],
                     ]);
                 } else {

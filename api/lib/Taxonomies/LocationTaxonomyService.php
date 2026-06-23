@@ -11,7 +11,7 @@ final class LocationTaxonomyService
     {
         // Validar outletId pertenece a companyId
         $rs = $this->db->Execute(
-            'SELECT 1 FROM outlet WHERE "outletId" = ? AND "companyId" = ?',
+            'SELECT 1 FROM outlet WHERE outletid = ? AND companyid = ?',
             [$outletId, $companyId]
         );
         if ($rs === false || count($rs->GetRows()) === 0) {
@@ -20,9 +20,9 @@ final class LocationTaxonomyService
 
         // INSERT con RETURNING
         $rs = $this->db->Execute(
-            'INSERT INTO taxonomy ("taxonomyId", "companyId", "taxonomyType", "outletId", "taxonomyName")
+            'INSERT INTO taxonomy (taxonomyid, companyid, taxonomytype, outletid, taxonomyname)
              VALUES (gen_random_uuid(), ?, \'location\', ?, ?)
-             RETURNING "taxonomyId"',
+             RETURNING taxonomyid',
             [$companyId, $outletId, $name]
         );
         if ($rs === false) {
@@ -37,8 +37,8 @@ final class LocationTaxonomyService
     public function update(string $companyId, string $id, string $name): bool
     {
         $rs = $this->db->Execute(
-            'UPDATE taxonomy SET "taxonomyName" = ?
-             WHERE "taxonomyId" = ? AND "companyId" = ? AND "taxonomyType" = \'location\'',
+            'UPDATE taxonomy SET taxonomyname = ?
+             WHERE taxonomyid = ? AND companyid = ? AND taxonomytype = \'location\'',
             [$name, $id, $companyId]
         );
         if ($rs === false) {
@@ -56,7 +56,7 @@ final class LocationTaxonomyService
     {
         // Guard FK: verificar que no haya items asignados a este depósito
         $rs = $this->db->Execute(
-            'SELECT COUNT(*) AS cnt FROM "itemLocation" WHERE "locationId" = ? AND "companyId" = ?',
+            'SELECT COUNT(*) AS cnt FROM "itemLocation" WHERE locationid = ? AND companyid = ?',
             [$id, $companyId]
         );
         if ($rs !== false) {
@@ -68,7 +68,7 @@ final class LocationTaxonomyService
         }
 
         $this->db->Execute(
-            'DELETE FROM taxonomy WHERE "taxonomyId" = ? AND "companyId" = ? AND "taxonomyType" = \'location\'',
+            'DELETE FROM taxonomy WHERE taxonomyid = ? AND companyid = ? AND taxonomytype = \'location\'',
             [$id, $companyId]
         );
 

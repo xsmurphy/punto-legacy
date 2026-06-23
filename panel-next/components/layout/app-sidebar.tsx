@@ -535,7 +535,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
     if (isMobile) setOpenMobile(false)
   }
 
-  if (isCollapsedSidebar) {
+  if (isCollapsedSidebar && !isMobile) {
     return (
       <SidebarMenuItem>
         <DropdownMenu>

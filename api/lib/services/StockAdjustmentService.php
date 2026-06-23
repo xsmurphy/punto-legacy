@@ -16,7 +16,7 @@ final class StockAdjustmentService
 
         // Validar outlet pertenece al tenant
         $outlet = ncmExecute(
-            'SELECT "outletId" FROM outlet WHERE "outletId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1',
             [$outletId, $companyId]
         );
         if (!$outlet) {
@@ -34,7 +34,7 @@ final class StockAdjustmentService
         $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
         $params = array_merge([$companyId], $itemIds);
         $stockableRs = ncmExecute(
-            "SELECT \"itemId\" FROM item WHERE \"companyId\" = ? AND \"itemStatus\" = 1 AND \"itemTrackInventory\" >= 1 AND \"itemId\" IN ({$placeholders})",
+            "SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory >= 1 AND itemid IN ({$placeholders})",
             $params,
             false,
             true
@@ -43,7 +43,7 @@ final class StockAdjustmentService
         $stockableIds = [];
         if ($stockableRs) {
             while (!$stockableRs->EOF) {
-                $stockableIds[] = $stockableRs->fields['itemId'];
+                $stockableIds[] = $stockableRs->fields['itemid'];
                 $stockableRs->MoveNext();
             }
         }
