@@ -18,6 +18,9 @@ import {
   ClipboardEdit,
   ArrowLeftRight,
   RotateCcw,
+  Users,
+  Truck,
+  UserCog,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -52,7 +55,15 @@ const panelNav: NavEntry[] = [
       { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight },
     ],
   },
-  { title: "Contactos", to: "/contacts", icon: Contact },
+  {
+    title: "Contactos",
+    icon: Contact,
+    items: [
+      { title: "Clientes", to: "/contacts?type=1", icon: Users },
+      { title: "Proveedores", to: "/contacts?type=2", icon: Truck },
+      { title: "Usuarios", to: "/contacts?type=0", icon: UserCog },
+    ],
+  },
   { title: "Reportes", to: "/reports", icon: ChartPie },
   { title: "Caja", to: "/pos", icon: ScanBarcode }, // Caja = POS dentro del propio panel...
 ]

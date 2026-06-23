@@ -35,8 +35,14 @@ type ActiveTab = "1" | "2" | "team"
 function ContactsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const typeParam = searchParams.get("type")
+  const tabParam = searchParams.get("tab")
   const initialTab: ActiveTab =
-    searchParams.get("tab") === "team" ? "team" : "1"
+    tabParam === "team" || typeParam === "0"
+      ? "team"
+      : typeParam === "2"
+        ? "2"
+        : "1"
 
   const [activeTab, setActiveTab] = React.useState<ActiveTab>(initialTab)
 

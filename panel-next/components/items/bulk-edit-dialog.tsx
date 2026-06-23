@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,11 @@ interface Props {
  * tocó (los que quedaron `null`/`""` se omiten del patch). Esto evita pisar
  * datos sin querer cuando solo se quiere cambiar un campo.
  *
+ * Campos nullable (categoryId, brandId, taxId): tienen un checkbox "Quitar valor
+ * actual". Cuando se marca, el campo se envía como `null` al backend aunque el
+ * select esté en blanco. Cuando no está marcado y el select está vacío, el campo
+ * se omite del patch (comportamiento anterior).
+ *
  * El form vive en `BulkEditForm`, montado únicamente cuando `open=true`. Así
  * cada apertura empieza con estado fresco sin necesidad de useEffect de reset.
  */
@@ -74,8 +80,11 @@ function BulkEditForm({
   const [price, setPrice] = React.useState<number | null>(null)
   const [adjustPercent, setAdjustPercent] = React.useState<string>("")
   const [taxId, setTaxId] = React.useState<string>("")
+  const [clearTaxId, setClearTaxId] = React.useState(false)
   const [categoryId, setCategoryId] = React.useState<string>("")
+  const [clearCategoryId, setClearCategoryId] = React.useState(false)
   const [brandId, setBrandId] = React.useState<string>("")
+  const [clearBrandId, setClearBrandId] = React.useState(false)
   const [outletId, setOutletId] = React.useState<string>("")
   const [discount, setDiscount] = React.useState<string>("")
   const [uom, setUom] = React.useState<string>("")
@@ -97,9 +106,24 @@ function BulkEditForm({
       }
       priceAdjustPercent = p
     }
-    if (taxId) patch.taxId = taxId
-    if (categoryId) patch.categoryId = categoryId
-    if (brandId) patch.brandId = brandId
+    // taxId: null si clearTaxId marcado, valor si seleccionado, omitir si vacío sin clear
+    if (clearTaxId) {
+      patch.taxId = null
+    } else if (taxId) {
+      patch.taxId = taxId
+    }
+    // categoryId
+    if (clearCategoryId) {
+      patch.categoryId = null
+    } else if (categoryId) {
+      patch.categoryId = categoryId
+    }
+    // brandId
+    if (clearBrandId) {
+      patch.brandId = null
+    } else if (brandId) {
+      patch.brandId = brandId
+    }
     if (outletId) patch.outletId = outletId === "__all__" ? null : outletId
     if (discount.trim() !== "") patch.itemDiscount = Number(discount) || null
     if (uom.trim() !== "") patch.itemUOM = uom.trim()
@@ -174,8 +198,20 @@ function BulkEditForm({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Impuesto</Label>
-            <Select value={taxId} onValueChange={setTaxId}>
+            <div className="flex items-center justify-between">
+              <Label>Impuesto</Label>
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                <Checkbox
+                  checked={clearTaxId}
+                  onCheckedChange={(v) => {
+                    setClearTaxId(!!v)
+                    if (v) setTaxId("")
+                  }}
+                />
+                Quitar valor actual
+              </label>
+            </div>
+            <Select value={taxId} onValueChange={setTaxId} disabled={clearTaxId}>
               <SelectTrigger>
                 <SelectValue placeholder="No cambiar" />
               </SelectTrigger>
@@ -190,8 +226,20 @@ function BulkEditForm({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Categoría</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
+            <div className="flex items-center justify-between">
+              <Label>Categoría</Label>
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                <Checkbox
+                  checked={clearCategoryId}
+                  onCheckedChange={(v) => {
+                    setClearCategoryId(!!v)
+                    if (v) setCategoryId("")
+                  }}
+                />
+                Quitar valor actual
+              </label>
+            </div>
+            <Select value={categoryId} onValueChange={setCategoryId} disabled={clearCategoryId}>
               <SelectTrigger>
                 <SelectValue placeholder="No cambiar" />
               </SelectTrigger>
@@ -206,8 +254,20 @@ function BulkEditForm({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Marca</Label>
-            <Select value={brandId} onValueChange={setBrandId}>
+            <div className="flex items-center justify-between">
+              <Label>Marca</Label>
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                <Checkbox
+                  checked={clearBrandId}
+                  onCheckedChange={(v) => {
+                    setClearBrandId(!!v)
+                    if (v) setBrandId("")
+                  }}
+                />
+                Quitar valor actual
+              </label>
+            </div>
+            <Select value={brandId} onValueChange={setBrandId} disabled={clearBrandId}>
               <SelectTrigger>
                 <SelectValue placeholder="No cambiar" />
               </SelectTrigger>

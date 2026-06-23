@@ -76,7 +76,7 @@ interface AdjustItem {
 
 export default function StockAdjustmentPage() {
   const [outletId, setOutletId] = React.useState("")
-  const [locationId, setLocationId] = React.useState("")
+  const [locationId, setLocationId] = React.useState<string>("__none__")
   const [reasonOption, setReasonOption] = React.useState("")
   const [customReason, setCustomReason] = React.useState("")
   const [detail, setDetail] = React.useState("")
@@ -159,7 +159,7 @@ export default function StockAdjustmentPage() {
     try {
       const result = await adjust.mutateAsync({
         outletId,
-        locationId: locationId || null,
+        locationId: (locationId && locationId !== "__none__") ? locationId : null,
         reason: reasonWithDetail,
         items: lineItems.map((l) => ({
           itemId: l.itemId,
@@ -173,7 +173,7 @@ export default function StockAdjustmentPage() {
       const skipped = result.skippedItems.length
       toast.success(msg + (skipped > 0 ? ` — ${skipped} item(s) sin trazabilidad omitido(s)` : ""))
       setOutletId("")
-      setLocationId("")
+      setLocationId("__none__")
       setReasonOption("")
       setCustomReason("")
       setDetail("")
@@ -199,7 +199,7 @@ export default function StockAdjustmentPage() {
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Sucursal</Label>
-            <Select value={outletId} onValueChange={(v) => { setOutletId(v); setLocationId("") }}>
+            <Select value={outletId} onValueChange={(v) => { setOutletId(v); setLocationId("__none__") }}>
               <SelectTrigger><SelectValue placeholder="Seleccionar sucursal" /></SelectTrigger>
               <SelectContent>
                 {outlets.map((o) => (

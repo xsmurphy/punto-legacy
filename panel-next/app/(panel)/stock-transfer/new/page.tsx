@@ -55,6 +55,8 @@ import { useOutletLocations } from "@/hooks/use-outlet-locations"
 import { useItems } from "@/hooks/use-items"
 import { useCreateStockTransfer } from "@/hooks/use-stock-transfers"
 
+const NONE = "__none__"
+
 interface TransferItem {
   itemId: string
   name: string
@@ -66,9 +68,9 @@ export default function NewStockTransferPage() {
   const router = useRouter()
 
   const [fromOutletId,   setFromOutletId]   = React.useState("")
-  const [fromLocationId, setFromLocationId] = React.useState("")
+  const [fromLocationId, setFromLocationId] = React.useState<string>(NONE)
   const [toOutletId,     setToOutletId]     = React.useState("")
-  const [toLocationId,   setToLocationId]   = React.useState("")
+  const [toLocationId,   setToLocationId]   = React.useState<string>(NONE)
   const [note,           setNote]           = React.useState("")
   const [lineItems,      setLineItems]      = React.useState<TransferItem[]>([])
   const [searchQuery,    setSearchQuery]    = React.useState("")
@@ -83,12 +85,15 @@ export default function NewStockTransferPage() {
   const searchResults           = itemsData?.items ?? []
   const create                  = useCreateStockTransfer()
 
+  const fromLocId = fromLocationId === NONE ? null : fromLocationId
+  const toLocId   = toLocationId   === NONE ? null : toLocationId
+
   // Detección de origen == destino
   const sameDestination =
     fromOutletId !== "" &&
     toOutletId   !== "" &&
     fromOutletId === toOutletId &&
-    (fromLocationId || null) === (toLocationId || null)
+    fromLocId === toLocId
 
   function addItem(item: { itemId: string; itemName: string; itemSKU?: string | null }) {
     setLineItems((prev) => {
@@ -118,8 +123,8 @@ export default function NewStockTransferPage() {
     setConfirmOpen(false)
     try {
       const result = await create.mutateAsync({
-        from: { outletId: fromOutletId, locationId: fromLocationId || null },
-        to:   { outletId: toOutletId,   locationId: toLocationId   || null },
+        from: { outletId: fromOutletId, locationId: fromLocId },
+        to:   { outletId: toOutletId,   locationId: toLocId },
         note: note.trim() || undefined,
         items: lineItems.map((l) => ({ itemId: l.itemId, qty: l.qty })),
       })
@@ -147,7 +152,7 @@ export default function NewStockTransferPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Sucursal</Label>
-              <Select value={fromOutletId} onValueChange={(v) => { setFromOutletId(v); setFromLocationId("") }}>
+              <Select value={fromOutletId} onValueChange={(v) => { setFromOutletId(v); setFromLocationId(NONE) }}>
                 <SelectTrigger><SelectValue placeholder="Seleccionar sucursal" /></SelectTrigger>
                 <SelectContent>
                   {outlets.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
@@ -159,7 +164,7 @@ export default function NewStockTransferPage() {
               <Select value={fromLocationId} onValueChange={setFromLocationId} disabled={!fromOutletId}>
                 <SelectTrigger><SelectValue placeholder="Sin depósito específico" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin depósito específico</SelectItem>
+                  <SelectItem value={NONE}>Sin depósito específico</SelectItem>
                   {(fromLocations ?? []).map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -172,7 +177,7 @@ export default function NewStockTransferPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Sucursal</Label>
-              <Select value={toOutletId} onValueChange={(v) => { setToOutletId(v); setToLocationId("") }}>
+              <Select value={toOutletId} onValueChange={(v) => { setToOutletId(v); setToLocationId(NONE) }}>
                 <SelectTrigger><SelectValue placeholder="Seleccionar sucursal" /></SelectTrigger>
                 <SelectContent>
                   {outlets.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
@@ -184,7 +189,7 @@ export default function NewStockTransferPage() {
               <Select value={toLocationId} onValueChange={setToLocationId} disabled={!toOutletId}>
                 <SelectTrigger><SelectValue placeholder="Sin depósito específico" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin depósito específico</SelectItem>
+                  <SelectItem value={NONE}>Sin depósito específico</SelectItem>
                   {(toLocations ?? []).map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
                 </SelectContent>
               </Select>
