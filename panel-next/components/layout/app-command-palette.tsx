@@ -277,7 +277,7 @@ export function AppCommandPalette({ open, onOpenChange, nav }: Props) {
         entry.items.forEach((c) =>
           result.push({ title: `${entry.title} · ${c.title}`, to: c.to, icon: c.icon }),
         )
-      } else if ("to" in entry) {
+      } else if ("to" in entry && typeof entry.to === "string") {
         result.push({ title: entry.title, to: entry.to, icon: entry.icon })
       }
     })
