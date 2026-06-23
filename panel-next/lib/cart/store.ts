@@ -126,6 +126,14 @@ interface CartState {
   tags: string[]
 
   /**
+   * ID de cotización padre. Cuando el cajero elige "Facturar" desde una
+   * cotización (type=9), se setea acá para que el payload de la venta
+   * incluya parentTransactionId y el backend pueda vincularlas.
+   * Se resetea en clear().
+   */
+  quoteParentId: string | null
+
+  /**
    * Controla cómo se agrupan los ítems repetidos al agregar al carrito.
    *
    * - true (default): suma cantidad solo si el ítem nuevo coincide con el
@@ -213,6 +221,9 @@ interface CartState {
   /** Limpia las etiquetas de la venta. */
   clearTags: () => void
 
+  /** Setea el ID de cotización padre. null = limpiar. */
+  setQuoteParent: (id: string | null) => void
+
   /**
    * Aplica un descuento global al carrito distribuyéndolo al precio unitario
    * de las líneas ACTUALES sin descuento individual previo. NO se almacena
@@ -248,6 +259,7 @@ const initialState = {
   priceListId: null as string | null,
   mergeRepeated: true,
   tags: [] as string[],
+  quoteParentId: null as string | null,
 }
 
 export const useCartStore = create<CartState>()((set, _get) => ({
@@ -417,6 +429,10 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   clearTags: () => {
     set({ tags: [] })
+  },
+
+  setQuoteParent: (id) => {
+    set({ quoteParentId: id })
   },
 
   applyGlobalDiscount: (value, mode) => {

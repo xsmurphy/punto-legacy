@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Copy, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, Ban, Copy, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket, X } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -98,6 +98,7 @@ import { formatMoney } from "@/lib/format"
 import { formatAmount } from "@/lib/format-money"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useVoidTransaction } from "@/hooks/use-void-transaction"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { cn } from "@/lib/utils"
 
@@ -106,6 +107,8 @@ import { cn } from "@/lib/utils"
 const TX_TYPE_LABELS: Record<string, string> = {
   "0": "Contado",
   "3": "Crédito",
+  "6": "Devolución",
+  "7": "Anulada",
   "9": "Cotización",
   "2": "Guardado",
   "12": "Mesa",
@@ -801,6 +804,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
                   onReprint={() => window.print()}
                   onReturn={() => setReturnSheetForTx(detail.transactionId)}
                   onAddToCart={() => handleAddToCart(detail)}
+                  onClose={() => setSheetOpen(false)}
                 />
               )}
             </SheetContent>
@@ -1423,6 +1427,7 @@ export function TransactionDetailContent({
   onReprint,
   onReturn,
   onAddToCart,
+  onClose,
 }: {
   tx: TransactionDetail
   config: ReturnType<typeof useCatalogStore.getState>["config"]
@@ -1430,57 +1435,163 @@ export function TransactionDetailContent({
   onReprint: () => void
   onReturn?: () => void
   onAddToCart?: () => void
+  onClose?: () => void
 }) {
+  const router = useRouter()
+  const voidTx = useVoidTransaction()
+  const setQuoteParent = useCartStore((s) => s.setQuoteParent)
+  const setCustomer = useCartStore((s) => s.setCustomer)
+  const clearCart = useCartStore((s) => s.clear)
+  const addLines = useCartStore((s) => s.addLines)
+  const cartLines = useCartStore((s) => s.lines)
+
+  const [voidDialogOpen, setVoidDialogOpen] = React.useState(false)
+  const [voidMotive, setVoidMotive] = React.useState("")
+  const [invoiceConfirmOpen, setInvoiceConfirmOpen] = React.useState(false)
+
+  const txType = tx.type
+  const isVoid = txType === "7"
+  const isReturn = txType === "6"
+  const isReadOnly = isVoid || isReturn
+  const isQuote = txType === "9"
+
+  const canVoid = (txType === "0" || txType === "3" || txType === "9") && !isVoid
+  const canReturn = (txType === "0" || txType === "3") && !isVoid && !isReturn
+  const canDuplicate = !isReadOnly
+  const canAddToCart = (tx.transactionDatas?.filter((i) => i.status !== 0).length ?? 0) > 0 && !isVoid
+  const canInvoice = isQuote && !isVoid
+
   const docLabel = tx.invoicePrefix
     ? `${tx.invoicePrefix}-${tx.documentNo}`
     : tx.documentNo
 
-  const canReturn = (tx.type === "0" || tx.type === "3") && tx.status !== "0"
-  const canAddToCart = (tx.transactionDatas ?? []).filter((i) => i.status !== 0).length > 0
+  function handleInvoiceQuote() {
+    if (cartLines.length > 0) {
+      setInvoiceConfirmOpen(true)
+    } else {
+      doInvoiceQuote()
+    }
+  }
+
+  function doInvoiceQuote() {
+    const items = (tx.transactionDatas ?? []).filter((i) => i.status !== 0)
+    clearCart()
+    addLines(
+      items.map((i) => ({
+        itemId: i.itemId,
+        name: i.name,
+        qty: i.count,
+        unitPrice: i.price,
+        discount: i.discount > 0 ? i.discount : undefined,
+        note: i.note || undefined,
+      })),
+    )
+    setQuoteParent(tx.transactionId)
+    if (tx.customerId) {
+      setCustomer({
+        id: tx.customerId,
+        name: tx.name || "",
+        phone: null,
+        tin: null,
+        storeCredit: 0,
+        isCreditable: false,
+      })
+    }
+    onClose?.()
+    toast.success("Cotización cargada — completá el pago para facturar")
+    router.push("/pos")
+  }
 
   return (
     <div className="flex flex-col gap-4 p-6 pt-4">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          {/* Badge tipo */}
+          {txType === "0" && <Badge variant="default">CONTADO</Badge>}
+          {txType === "3" && <Badge variant="secondary">CRÉDITO</Badge>}
+          {txType === "6" && <Badge variant="outline">DEVOLUCIÓN</Badge>}
+          {txType === "7" && <Badge variant="secondary" className="opacity-60">ANULADA</Badge>}
+          {txType === "9" && (
+            <Badge variant="outline" className="border-green-600 text-green-700 dark:text-green-400">
+              COTIZACIÓN
+            </Badge>
+          )}
+          {!["0", "3", "6", "7", "9"].includes(txType) && (
+            <Badge variant="outline">{TX_TYPE_LABELS[txType] ?? txType}</Badge>
+          )}
+
+          {/* Botón principal + Opciones */}
+          <div className="flex items-center gap-2">
+            {canInvoice && (
+              <Button size="sm" onClick={handleInvoiceQuote} className="gap-1.5">
+                <FileText className="size-4" />
+                Facturar
+              </Button>
+            )}
+            {!canInvoice && canDuplicate && (
+              <Button size="sm" variant="outline" onClick={onDuplicate} className="gap-1.5">
+                <Copy className="size-4" />
+                Duplicar
+              </Button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="size-8 p-0">
+                  <MoreVertical className="size-4" />
+                  <span className="sr-only">Opciones</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canInvoice && canDuplicate && (
+                  <DropdownMenuItem onClick={onDuplicate}>
+                    <Copy className="size-4 mr-2" />
+                    Duplicar
+                  </DropdownMenuItem>
+                )}
+                {canAddToCart && onAddToCart && (
+                  <DropdownMenuItem onClick={onAddToCart}>
+                    <ShoppingBasket className="size-4 mr-2" />
+                    Agregar al carrito
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={onReprint}>
+                  <Printer className="size-4 mr-2" />
+                  Reimprimir
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onReprint}>
+                  <FileText className="size-4 mr-2" />
+                  Ver PDF
+                </DropdownMenuItem>
+                {(canReturn || canVoid) && <DropdownMenuSeparator />}
+                {canReturn && onReturn && (
+                  <DropdownMenuItem onClick={onReturn}>
+                    <RotateCcw className="size-4 mr-2" />
+                    Devolución
+                  </DropdownMenuItem>
+                )}
+                {canVoid && (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setVoidDialogOpen(true)}
+                  >
+                    <Ban className="size-4 mr-2" />
+                    Anular
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Datos del cliente y documento */}
         <div>
           <p className="text-lg font-bold text-foreground">{tx.name || "Sin nombre"}</p>
-          <p className="text-sm text-muted-foreground">{txTypeLabel(tx.type)}</p>
           {docLabel && (
-            <p className="mt-1 text-xs text-muted-foreground">Comprobante #{docLabel}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Comprobante #{docLabel}</p>
           )}
           <p className="text-xs text-muted-foreground">{fmtDate(tx.date)}</p>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <MoreVertical className="size-4" />
-              Opciones
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {canReturn && onReturn && (
-              <DropdownMenuItem onClick={onReturn}>
-                <RotateCcw className="size-4 mr-2" />
-                Devolución
-              </DropdownMenuItem>
-            )}
-            {canAddToCart && onAddToCart && (
-              <DropdownMenuItem onClick={onAddToCart}>
-                <ShoppingBasket className="size-4 mr-2" />
-                Agregar al carrito
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onDuplicate}>
-              <Copy className="size-4 mr-2" />
-              Duplicar
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onReprint}>
-              <Printer className="size-4 mr-2" />
-              Reimprimir
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       {/* Items */}
@@ -1551,6 +1662,74 @@ export function TransactionDetailContent({
           <p className="text-sm text-foreground">{tx.note}</p>
         </section>
       )}
+
+      {/* Dialog: Confirmar Anular */}
+      <AlertDialog open={voidDialogOpen} onOpenChange={setVoidDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Anular transacción</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción es irreversible. La venta y sus movimientos de stock serán revertidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Textarea
+              placeholder="Motivo (opcional)"
+              value={voidMotive}
+              onChange={(e) => setVoidMotive(e.target.value)}
+              rows={2}
+              className="resize-none"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={voidTx.isPending}
+              onClick={() => {
+                voidTx.mutate(
+                  { id: tx.transactionId, motive: voidMotive },
+                  {
+                    onSuccess: () => {
+                      toast.success("Transacción anulada")
+                      setVoidDialogOpen(false)
+                      onClose?.()
+                    },
+                    onError: () => {
+                      toast.error("No se pudo anular la transacción")
+                    },
+                  },
+                )
+              }}
+            >
+              {voidTx.isPending ? "Anulando..." : "Anular"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog: Confirmar reemplazo de carrito al facturar cotización */}
+      <AlertDialog open={invoiceConfirmOpen} onOpenChange={setInvoiceConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reemplazar carrito</AlertDialogTitle>
+            <AlertDialogDescription>
+              El carrito tiene ítems. Al facturar esta cotización se reemplazarán.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setInvoiceConfirmOpen(false)
+                doInvoiceQuote()
+              }}
+            >
+              Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
