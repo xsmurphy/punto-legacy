@@ -1438,6 +1438,7 @@ export function TransactionDetailContent({
   onClose?: () => void
 }) {
   const router = useRouter()
+  const qc = useQueryClient()
   const voidTx = useVoidTransaction()
   const setQuoteParent = useCartStore((s) => s.setQuoteParent)
   const setCustomer = useCartStore((s) => s.setCustomer)
@@ -1488,14 +1489,13 @@ export function TransactionDetailContent({
     )
     setQuoteParent(tx.transactionId)
     if (tx.customerId) {
-      setCustomer({
-        id: tx.customerId,
-        name: tx.name || "",
-        phone: null,
-        tin: null,
-        storeCredit: 0,
-        isCreditable: false,
-      })
+      // Buscar en el cache de pos-bootstrap sin trigger de fetch extra.
+      // En modo panel (sin pos-bootstrap cargado) getQueryData devuelve undefined → skip.
+      const posBootstrap = qc.getQueryData<import("@/lib/types/pos-bootstrap").PosBootstrap>(["pos-bootstrap"])
+      const fullCustomer = posBootstrap?.customers?.find((c) => c.id === tx.customerId)
+      if (fullCustomer) {
+        setCustomer(fullCustomer)
+      }
     }
     onClose?.()
     toast.success("Cotización cargada — completá el pago para facturar")
@@ -1682,9 +1682,10 @@ export function TransactionDetailContent({
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            <AlertDialogCancel disabled={voidTx.isPending}>Cancelar</AlertDialogCancel>
+            {/* Button plano — AlertDialogAction cierra el dialog antes de que isPending bloquee el doble-click */}
+            <Button
+              variant="destructive"
               disabled={voidTx.isPending}
               onClick={() => {
                 voidTx.mutate(
@@ -1703,7 +1704,7 @@ export function TransactionDetailContent({
               }}
             >
               {voidTx.isPending ? "Anulando..." : "Anular"}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
