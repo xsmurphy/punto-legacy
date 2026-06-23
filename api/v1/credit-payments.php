@@ -2,16 +2,16 @@
 /**
  * Pagos de facturas a crédito (type=5 hijo de type=3).
  *
- *   POST { action: "create", parentTransactionId, amount, paymentMethodKey, paymentMethodName, note? }
+ *   POST { action: "create", parentTransactionId, amount, paymentMethodKey, note? }
  *
- * Auth: realm panel + pos-app. registerId y userId del JWT, nunca del body.
+ * Auth: realm panel + pos-app. userId del JWT, nunca del body.
+ * registerId y paymentMethodName se resuelven server-side (desde el parent y el catálogo).
  */
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx        = apiAuthTenant(['panel', 'pos-app']);
-$companyId  = (string) COMPANY_ID;
-$userId     = (string) ($ctx['userId'] ?? '');
-$registerId = (string) ($ctx['registerId'] ?? '');
+$ctx       = apiAuthTenant(['panel', 'pos-app']);
+$companyId = (string) COMPANY_ID;
+$userId    = (string) ($ctx['userId'] ?? '');
 
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -37,8 +37,7 @@ if ($amount <= 0) {
     apiError('Monto inválido', 422);
 }
 
-$pmKey  = trim((string) ($body['paymentMethodKey']  ?? ''));
-$pmName = trim((string) ($body['paymentMethodName'] ?? ''));
+$pmKey = trim((string) ($body['paymentMethodKey'] ?? ''));
 if ($pmKey === '') {
     apiError('paymentMethodKey requerido', 422);
 }
@@ -47,6 +46,6 @@ $note = isset($body['note']) ? trim((string) $body['note']) : null;
 
 require_once __DIR__ . '/../lib/services/CreditPaymentService.php';
 $svc    = new \Punto\Api\Services\CreditPaymentService();
-$result = $svc->create($companyId, $userId, $parentId, $amount, $pmKey, $pmName, $registerId, $note ?: null);
+$result = $svc->create($companyId, $userId, $parentId, $amount, $pmKey, $note ?: null);
 
 apiOk($result);

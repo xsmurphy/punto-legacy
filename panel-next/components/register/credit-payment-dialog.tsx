@@ -70,7 +70,6 @@ export function CreditPaymentDialog({
         parentTransactionId,
         amount: amount!,
         paymentMethodKey: selectedMethod.id,
-        paymentMethodName: selectedMethod.name,
         note: note.trim() || undefined,
       },
       {

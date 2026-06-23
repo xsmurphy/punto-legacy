@@ -7,7 +7,7 @@ interface CreateCreditPaymentVars {
   parentTransactionId: string
   amount: number
   paymentMethodKey: string
-  paymentMethodName: string
+  // paymentMethodName resuelto server-side — no enviar al backend
   note?: string
 }
 
