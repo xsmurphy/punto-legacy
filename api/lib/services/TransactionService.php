@@ -51,7 +51,7 @@ final class TransactionService
 
         // tags en meta → _flattenJsonb expone como JSON string
         $rawTags = $fields['tags'] ?? null;
-        $tags    = $rawTags ? (implodes(',', json_decode($rawTags, true)) ?: '') : '';
+        $tags    = $rawTags ? (implode(',', json_decode($rawTags, true)) ?: '') : '';
 
         $paymentType  = json_decode($fields['transactionPaymentType'] ?? '', true);
         $paymentTypes = [];

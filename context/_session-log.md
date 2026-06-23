@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-22 — POS Fases 1-6 + hotfixes prod + chat IA
+
+Commits `e5c56c7..12b4603` (32). Fases 1-6 del roadmap POS completadas: precarga/lockscreen server-side (Fase 1), 3 bug fixes catálogo/search/transactionDate (Fase 2), NumericPad reusable (Fase 3), applyGlobalDiscount distribuye a precio unitario (Fase 4), UI polish + category bar + multi-moneda + SECONDARY_PAYMENT_IDS (Fase 6a), giftcard como medio de pago con migración 44 + tabla `giftcard` + GiftcardValidationDialog + lock optimista (Fase 6b), checkout/parked-sales con migración 45 + tabla `parked_sale` + DrawerOpenDialog + useParkedSales (Fase 5). AI-6 done (invalidate react-query caches post-tool en onFinish). Chat UI: tool chip discreto, hover-only MessageActions, copy button, race condition historial, input ChatGPT-style. Hotfixes prod: lockscreen 401 (ncmExecute fila directa), BFF /api/pos/bootstrap acepta `_jwt` (pos-app) ademas de `_jwt_panel`; lockPass stripped en realm pos-app. Pendiente: mount ParkedSalesPanel en /pos (1 linea JSX), AI-7, outlets/{UUID} error, depositos UI.
+
 ## 2026-06-21 — Mega sprint: catálogo m2m + realtime + checkout screen + reports rollup + agente IA
 
 Commits `793613c..645f9cb` (44). 5 ejes mayores en 3 días (context/14–18): migs 37–43 (tags/item_tag, customer_display, report_rollup+rollup_dirty, item_sales/payments rollup, ai_model_config); realtime sync panel↔POS vía WS singleton + `useRealtimeSync`; checkout screen completo (pairing → live → confirmed → idle, Redis vía fsockopen+RESP); rollup pre-agregado gateado por `REPORTS_ROLLUP_ENABLED` (RB-1+RB-2, cutover 5 reportes); agente IA AI-1..AI-3b (OpenRouter+DeepSeek, 13 tools con confirmToken, historial Zustand persist con `onFinishHydration`, UI ChatGPT-style + mobile Sheet). Hitos infra: dominio migrado a `app.punto.la`; 4 memorias nuevas (jwt_two_tokens, ai_agent_openrouter, ai_agent_scope, reports_rollup). Pendientes: smoke tests prod, calibración pricing agente, RB-3, AI-4/AI-5, UI cajas en /settings/devices.

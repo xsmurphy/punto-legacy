@@ -9,7 +9,13 @@ Lista de pendientes POS organizados por dependencia + riesgo. Origen: pedido del
 owner 2026-06-21. La ejecución se hace siempre con Sonnet (regla CLAUDE.md);
 este doc es el brief base para cada delegación.
 
-> **Estado:** plan acordado, sin ejecución. Próximo paso: arrancar Fase 1.
+> **Estado (2026-06-22): Fases 1-6 COMPLETADAS.** Ver detalle en `context/10-roadmap.md § Sprint 2026-06-22`.
+>
+> Pendientes abiertos:
+> - Mount `ParkedSalesPanel` en layout del /pos (1 linea JSX, ubicacion a decidir en el layout principal)
+> - AI-7 (WS tenant invalidations — bloqueado por decision de demanda real)
+> - outlets/{UUID} error (404 en detalle de sucursal)
+> - Depositos UI (tabla existe, falta UI en panel-next)
 
 ---
 
@@ -141,14 +147,11 @@ método de pago con validación de código + consumo total + auditoría."
 
 ## Resumen de delegaciones
 
-| Fase | Brief | Archivos esperados |
+| Fase | Brief | Estado |
 |---|---|---|
-| 1 | Precarga + lockscreen local | `lib/pos-bootstrap-store.ts`, lockscreen, modal users |
-| 2 | 3 bugs paralelos | catálogo query, sale insert, search store |
-| 3 | NumericPad reusable | `components/pos/numeric-pad.tsx` + 2 wrappers |
-| 4 | Refactor descuentos | `lib/cart/store.ts` |
-| 5 | Caja + guardar + Opciones | ~6 archivos del flujo /pos |
-| 6 | UI final + Giftcard | varios + nuevo módulo giftcard |
-
-**Total estimado:** 6-7 sesiones de Sonnet, secuenciales (Fase 4 depende de 3;
-Fase 6 depende de 5 si compartiera modales).
+| 1 | Precarga + lockscreen local | ✅ done (2026-06-22) |
+| 2 | 3 bugs paralelos | ✅ done (2026-06-22) |
+| 3 | NumericPad reusable | ✅ done (2026-06-22) |
+| 4 | Refactor descuentos | ✅ done (2026-06-22) |
+| 5 | Caja + guardar + Opciones | ✅ done (2026-06-22) — PENDIENTE mount ParkedSalesPanel (1 linea JSX) |
+| 6 | UI final + Giftcard | ✅ done (2026-06-22) |

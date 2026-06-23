@@ -533,3 +533,17 @@ Pre-agregado incremental de reportes de ventas/pagos. Estrategia: pg_cron corre 
 #### Agente IA — tabla `ai_model_config` (migración 43)
 
 Config por tenant del agente IA. Columnas clave: `companyId`, `provider` (default `'openrouter'`), `model` (default `'deepseek/deepseek-chat-v3-0324'`), `creditsPerKToken INT`. El agente usa **OpenRouter** (no SDK Anthropic). 13 tools (5 lecturas + 8 escrituras con `confirmToken` de expiración real 60s). Créditos debitados atómicamente en `/v1/ai/debit` con `SELECT FOR UPDATE` sobre `company.aiCreditsBalance`. Gate 402 si saldo insuficiente. Ver context/17 para el plan completo.
+
+### Tablas del sprint 2026-06-22 (POS Fases 1-6)
+
+#### Giftcard como medio de pago — tabla `giftcard` (migración 44)
+
+Tarjetas/vales de regalo que pueden usarse como medio de pago en el POS. Distinta de `giftCardSold` (gift cards emitidas en venta): esta tabla representa el saldo disponible para consumo en caja.
+
+Columnas clave: `balance` NUMERIC (saldo actual, decrementado con lock optimista), `expiresAt` TIMESTAMPTZ NULL, `code` TEXT (codigo de canje). Consumo atomico con `SELECT ... FOR UPDATE` para evitar doble uso bajo concurrencia. Endpoints: `/v1/giftcards?resource=validate|consume`, dual-realm (panel + pos-app).
+
+#### Ventas estacionadas — tabla `parked_sale` (migración 45)
+
+Carritos pausados que el operador puede retomar desde el POS. Permite guardar el estado completo de una venta en curso y volver a ella despues sin perder items/precios/descuentos.
+
+Usada por `useParkedSales` hook y `ParkedSalesPanel` (creado, pendiente montaje en layout del POS — 1 linea JSX). Endpoint: `/v1/parked-sales` (GET lista + POST crear + DELETE retomar/descartar).

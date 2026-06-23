@@ -441,6 +441,21 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 - Historial persistente (Zustand persist + localStorage, hook `useAgentChat` compartido FAB/página)
 - Credenciales: formato dictado por system prompt + auto-expiración real 60s + redacción ANTES de persistir (defense in depth)
 
+### Sprint 2026-06-22 — POS Fases 1-6 + hotfixes prod + AI-6 ✅
+
+- **Fase 1 POS** ✅ — precarga bootstrap/users/customers/items en Zustand persist; lockscreen con validacion PIN server-side (`/api/pos/unlock`, dual-realm); LineSellerDialog.
+- **Fase 2 POS** ✅ — 3 bug fixes: combos/packs en catalogo (filtro isParent), search input persiste al cerrar dialog, transactionDate con fecha+hora real.
+- **Fase 3 POS** ✅ — `NumericPad` reusable con SHIFT toggle; refactor qty-edit-dialog y line-discount-dialog.
+- **Fase 4 POS** ✅ — `applyGlobalDiscount` distribuye al precio unitario de lineas sin descuento previo, modos money/percent.
+- **Fase 6a POS** ✅ — category bar `#22252A`, EmptyState en search dialogs, conversion multi-moneda en pay-dialog, SECONDARY_PAYMENT_IDS.
+- **Fase 6b POS (Giftcard)** ✅ — mig 44, tabla `giftcard`, endpoints `/v1/giftcards`, `GiftcardValidationDialog`, intercept en pay-dialog. Lock optimista.
+- **Fase 5 POS (checkout/parked-sales)** ✅ — mig 45, tabla `parked_sale`, endpoints `/v1/parked-sales`, gate apertura caja, `DrawerOpenDialog`, `useParkedSales`, refactor `sale-options-drawer`. PENDIENTE: montar `ParkedSalesPanel` (1 linea JSX).
+- **AI-6** ✅ — invalidar caches react-query post-tool en `onFinish` del agente IA.
+- **Chat UI** — tool chip discreto, hover-only MessageActions, copy button, race condition historial, input ChatGPT-style.
+- **Hotfixes prod** — lockscreen 401 (ncmExecute fila directa); BFF `/api/pos/bootstrap` acepta `_jwt` pos-app ademas de `_jwt_panel`; `lockPass` stripped en realm pos-app (convension §44 documentada).
+
+**Pendientes abiertos**: mount `ParkedSalesPanel` en layout /pos, AI-7, outlets/{UUID} error, depositos UI.
+
 ### Bug fixes notables del sprint
 
 - Wrapper PDO: agregados `Affected_Rows`, `BeginTrans/CommitTrans/RollbackTrans` (Services del API los llamaban pensando que era ADOdb — memoria [[project_db_wrapper_not_adodb]])

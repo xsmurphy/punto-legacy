@@ -215,9 +215,11 @@ Feedback del owner sobre AI-3 entregado: el FAB verde es agresivo (el brand verd
 
 ## Próximos slices
 
-### AI-6 — Invalidar caches react-query post-tool del agente
+### AI-6 — Invalidar caches react-query post-tool del agente ✅ (2026-06-22)
 
-**Problema:** hoy si el agente crea un contacto/item/usuario/etc, el listado abierto en otra ruta o en background NO se refresca. El operador tiene que F5.
+**Entregado:** hook `onFinish` en `lib/agent/use-agent-chat.ts` detecta tool-result de `confirm_action` con success+action, mapea al queryKey correspondiente, llama `qc.invalidateQueries`. ~40 LOC, sin impacto servidor.
+
+**Problema original:** hoy si el agente crea un contacto/item/usuario/etc, el listado abierto en otra ruta o en background NO se refresca. El operador tiene que F5.
 
 **Causa:** `useChat` no le avisa a `queryClient` qué query keys quedaron stale al confirmarse una mutation.
 

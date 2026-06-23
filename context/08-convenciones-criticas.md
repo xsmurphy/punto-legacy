@@ -318,3 +318,21 @@ Cuando `ncmExecute($db, $sql, $params, forceObj: true)` se usa para evitar el ap
 Patrón correcto de referencia: `api/lib/Reports/UsersService.php:39`.
 
 Infringir esta convención produce output vacío silencioso (ítems/asociaciones que no aparecen). Causó regresiones en dos sub-agentes durante el detalle de venta (fix 8cc54e7).
+
+## §44 — Datos sensibles nunca al browser; stripping por realm (sprint 2026-06-22)
+
+### §44.1 — Campos sensibles: validacion server-side, no enviar al front
+
+Datos como PINs, passwords o tokens de acceso **nunca se envian al browser**. La validacion ocurre siempre en el servidor y el endpoint devuelve solo el resultado (success/fail/error), nunca el dato en si.
+
+Ejemplo: `/api/pos/unlock` recibe el PIN del operador, lo valida contra el hash en DB, y responde `{ok: true/false}`. El valor del PIN nunca aparece en la respuesta ni en el JWT.
+
+### §44.2 — Stripping por realm en endpoints dual-realm
+
+Endpoints que aceptan multiples realms (ej: `apiAuthTenant(['panel', 'pos-app'])`) deben omitir campos sensibles segun el realm del token entrante.
+
+- Identificar el realm del JWT: `$jwt->payload->rid` (valor canonico: `'panel'`, `'pos-app'`, `'admin'`).
+- En realm `pos-app`, stripear campos que solo el panel necesita: `lockPass`, hashes de password, config interna del tenant.
+- En realm `panel`, se puede incluir config operativa que el POS no necesita (pero no el PIN del dispositivo).
+
+Ejemplo de referencia: `api/v1/users.php` (GET dual-realm) omite `lockPass` cuando `$jwt->payload->rid === 'pos-app'`. El POS nunca recibe el PIN en la respuesta.

@@ -518,6 +518,23 @@ Estado inicial sin selección muestra un empty state en el content area.
 
 Ambos pendientes de agregar al SELECT del bootstrap PHP. Ver `context/10-roadmap.md § F2 — Backend pendiente del POS`.
 
+### Giftcard como medio de pago (sprint 2026-06-22, Fase 6b)
+
+Permite usar saldo de una `giftcard` para pagar total o parcialmente en el POS.
+
+- **`GiftcardValidationDialog`** — dialog que acepta el codigo de la tarjeta, valida contra `/v1/giftcards?resource=validate`, muestra saldo y vencimiento, y hace commit al confirmar (`?resource=consume`). Interceptado desde `pay-dialog`.
+- **Endpoints** `/v1/giftcards?resource=validate|consume` — dual-realm (panel + pos-app). Consume atomico con lock optimista (`SELECT ... FOR UPDATE`). Verifica `expiresAt` antes de debitar.
+- **Tabla** `giftcard` (migración 44) — ver `context/04` para schema.
+
+### Parked Sales — ventas estacionadas (sprint 2026-06-22, Fase 5)
+
+Permite pausar una venta en curso y retomarla luego desde el POS.
+
+- **`useParkedSales`** hook — CRUD sobre `/v1/parked-sales` (lista, crear, retomar, descartar). Integrado en `sale-options-drawer`.
+- **`ParkedSalesPanel`** — componente creado. **PENDIENTE**: montarlo en el layout del POS (1 linea JSX, ubicacion a decidir).
+- **`DrawerOpenDialog`** — gate de apertura de caja antes de permitir iniciar una venta; integrado en el flujo de arranque del POS.
+- **Tabla** `parked_sale` (migración 45) — ver `context/04` para schema.
+
 ### Hotkeys del POS — endpoints `GET/PUT /v1/register?resource=hotkeys` (commit 92bf8c5)
 
 Endpoints para persistir el layout de acceso rápido del POS por caja.
