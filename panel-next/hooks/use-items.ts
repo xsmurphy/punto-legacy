@@ -106,7 +106,7 @@ export function useBulkEditItems() {
         patch,
         ...(priceAdjustPercent != null ? { priceAdjustPercent } : {}),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["items"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["items"], refetchType: "active" }),
   })
 }
 
