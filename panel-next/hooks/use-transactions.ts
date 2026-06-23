@@ -47,6 +47,14 @@ export interface TransactionDetail {
   transactionDatas: TransactionDataItem[] | null
   /** Métodos de pago aplicados. */
   pMethods: PaymentMethod[]
+  /** Solo type=3 (crédito): resumen de deuda. */
+  creditPayments?: { total: number; paid: number; debt: number }
+  /** Notas de crédito (type=6) hijas de esta transacción. */
+  creditNotes?: Array<{ transactionId: string; transactionDate: string; transactionTotal: number; invoiceNo?: string | null }>
+  /** Agendamientos (type=13) hijos de esta transacción. */
+  appointments?: Array<{ transactionId: string; transactionDate: string; transactionTotal: number }>
+  /** Recibos de pago (type=5) hijos — solo type=3. */
+  paymentsReceived?: Array<{ transactionId: string; date: string; amount: number; invoiceNo?: string; paymentMethod?: string }>
 }
 
 export interface TransactionDataItem {

@@ -632,6 +632,7 @@ export interface TxDetailFull {
   appointments: Array<{ transactionId: string; transactionDate: string; transactionTotal: number }>
   toTransactions: unknown[]
   creditPayments: { total: number; paid: number; debt: number } | null
+  paymentsReceived: Array<{ transactionId: string; date: string; amount: number; invoiceNo: string; paymentMethod: string }>
 }
 
 export function useTransactionDetail(id: string | null) {

@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Ban, Copy, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, Banknote, Ban, Copy, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket, X } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -100,6 +100,8 @@ import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useVoidTransaction } from "@/hooks/use-void-transaction"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
+import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
+import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import { cn } from "@/lib/utils"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1449,6 +1451,8 @@ export function TransactionDetailContent({
   const [voidDialogOpen, setVoidDialogOpen] = React.useState(false)
   const [voidMotive, setVoidMotive] = React.useState("")
   const [invoiceConfirmOpen, setInvoiceConfirmOpen] = React.useState(false)
+  const [creditPayDialogOpen, setCreditPayDialogOpen] = React.useState(false)
+  const [showQuotePdf, setShowQuotePdf] = React.useState(false)
 
   const txType = tx.type
   const isVoid = txType === "7"
@@ -1461,6 +1465,7 @@ export function TransactionDetailContent({
   const canDuplicate = !isReadOnly
   const canAddToCart = (tx.transactionDatas?.filter((i) => i.status !== 0).length ?? 0) > 0 && !isVoid
   const canInvoice = isQuote && !isVoid
+  const canPay = txType === "3" && (tx.creditPayments?.debt ?? 0) > 0
 
   const docLabel = tx.invoicePrefix
     ? `${tx.invoicePrefix}-${tx.documentNo}`
@@ -1529,7 +1534,13 @@ export function TransactionDetailContent({
                 Facturar
               </Button>
             )}
-            {!canInvoice && canDuplicate && (
+            {!canInvoice && canPay && (
+              <Button size="sm" onClick={() => setCreditPayDialogOpen(true)} className="gap-1.5">
+                <Banknote className="size-4" />
+                Pagar
+              </Button>
+            )}
+            {!canInvoice && !canPay && canDuplicate && (
               <Button size="sm" variant="outline" onClick={onDuplicate} className="gap-1.5">
                 <Copy className="size-4" />
                 Duplicar
@@ -1543,6 +1554,13 @@ export function TransactionDetailContent({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {canPay && (
+                  <DropdownMenuItem onClick={() => setCreditPayDialogOpen(true)}>
+                    <Banknote className="size-4 mr-2" />
+                    Pagar
+                  </DropdownMenuItem>
+                )}
+                {canPay && (canInvoice || canDuplicate || canAddToCart) && <DropdownMenuSeparator />}
                 {canInvoice && canDuplicate && (
                   <DropdownMenuItem onClick={onDuplicate}>
                     <Copy className="size-4 mr-2" />
@@ -1559,10 +1577,12 @@ export function TransactionDetailContent({
                   <Printer className="size-4 mr-2" />
                   Reimprimir
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={onReprint}>
-                  <FileText className="size-4 mr-2" />
-                  Ver PDF
-                </DropdownMenuItem>
+                {isQuote && (
+                  <DropdownMenuItem onClick={() => setShowQuotePdf(true)}>
+                    <FileText className="size-4 mr-2" />
+                    Ver PDF
+                  </DropdownMenuItem>
+                )}
                 {(canReturn || canVoid) && <DropdownMenuSeparator />}
                 {canReturn && onReturn && (
                   <DropdownMenuItem onClick={onReturn}>
@@ -1663,6 +1683,88 @@ export function TransactionDetailContent({
         </section>
       )}
 
+      {/* Documentos asociados */}
+      {(() => {
+        const hasNC  = (tx.creditNotes?.length ?? 0) > 0
+        const hasPay = (tx.paymentsReceived?.length ?? 0) > 0
+        const hasApt = (tx.appointments?.length ?? 0) > 0
+        if (!hasNC && !hasPay && !hasApt) return null
+        const defaultTab = hasNC ? "nc" : hasPay ? "payments" : "appointments"
+        return (
+          <section>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Documentos asociados
+            </p>
+            <Tabs defaultValue={defaultTab}>
+              <TabsList className="w-full">
+                {hasNC && (
+                  <TabsTrigger value="nc" className="flex-1">
+                    NC ({tx.creditNotes!.length})
+                  </TabsTrigger>
+                )}
+                {hasPay && (
+                  <TabsTrigger value="payments" className="flex-1">
+                    Pagos ({tx.paymentsReceived!.length})
+                  </TabsTrigger>
+                )}
+                {hasApt && (
+                  <TabsTrigger value="appointments" className="flex-1">
+                    Agendas ({tx.appointments!.length})
+                  </TabsTrigger>
+                )}
+              </TabsList>
+              {hasNC && (
+                <TabsContent value="nc" className="mt-2">
+                  <div className="divide-y divide-border rounded-lg border border-border">
+                    {tx.creditNotes!.map((cn) => (
+                      <div key={cn.transactionId} className="flex items-center justify-between px-3 py-2.5 text-sm">
+                        <div className="flex flex-col">
+                          <span className="tabular-nums text-muted-foreground">{fmtDate(cn.transactionDate)}</span>
+                          {cn.invoiceNo && <span className="text-xs text-muted-foreground">#{cn.invoiceNo}</span>}
+                        </div>
+                        <span className="tabular-nums font-medium text-destructive">
+                          -{formatAmount(cn.transactionTotal, config)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+              )}
+              {hasPay && (
+                <TabsContent value="payments" className="mt-2">
+                  <div className="divide-y divide-border rounded-lg border border-border">
+                    {tx.paymentsReceived!.map((pr) => (
+                      <div key={pr.transactionId} className="flex items-center justify-between px-3 py-2.5 text-sm">
+                        <div className="flex flex-col">
+                          <span className="tabular-nums text-muted-foreground">{fmtDate(pr.date)}</span>
+                          {pr.invoiceNo && <span className="text-xs text-muted-foreground">#{pr.invoiceNo}</span>}
+                          {pr.paymentMethod && <span className="text-xs text-muted-foreground">{pr.paymentMethod}</span>}
+                        </div>
+                        <span className="tabular-nums font-medium" style={{ color: 'var(--chart-1)' }}>
+                          +{formatAmount(pr.amount, config)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+              )}
+              {hasApt && (
+                <TabsContent value="appointments" className="mt-2">
+                  <div className="divide-y divide-border rounded-lg border border-border">
+                    {tx.appointments!.map((a, i) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-2.5 text-sm">
+                        <span className="tabular-nums text-muted-foreground">{fmtDate(a.transactionDate)}</span>
+                        <span className="tabular-nums font-medium">{formatAmount(a.transactionTotal, config)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+              )}
+            </Tabs>
+          </section>
+        )
+      })()}
+
       {/* Dialog: Confirmar Anular */}
       <AlertDialog open={voidDialogOpen} onOpenChange={setVoidDialogOpen}>
         <AlertDialogContent>
@@ -1731,6 +1833,30 @@ export function TransactionDetailContent({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {canPay && (
+        <CreditPaymentDialog
+          open={creditPayDialogOpen}
+          onOpenChange={setCreditPayDialogOpen}
+          parentTransactionId={tx.transactionId}
+          debt={tx.creditPayments!.debt}
+          customerName={tx.name || "Cliente"}
+          onSuccess={(result) => {
+            if (result.parentComplete) {
+              onClose?.()
+            }
+          }}
+        />
+      )}
+
+      {isQuote && showQuotePdf && (
+        <QuotePrintViewDialog
+          tx={tx}
+          config={config}
+          open={showQuotePdf}
+          onOpenChange={setShowQuotePdf}
+        />
+      )}
     </div>
   )
 }

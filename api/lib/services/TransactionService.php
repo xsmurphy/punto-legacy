@@ -67,8 +67,12 @@ final class TransactionService
             }
         }
 
-        $payedData = [];
-        $payed     = 0;
+        $payedData        = [];
+        $payed            = 0;
+        $creditPayments   = null;
+        $creditNotes      = [];
+        $appointments     = [];
+        $paymentsReceived = [];
         if ((string) $fields['transactionType'] === '3') {
             $payedData = $this->getTypePayments($transactionId, $companyId);
             $payedRow  = ncmExecute(
@@ -76,6 +80,80 @@ final class TransactionService
                 [$transactionId, $companyId]
             );
             $payed = (float) ($payedRow['payed'] ?? 0);
+
+            $cpTotal   = (float)($fields['transactionTotal'] ?? 0) - (float)($fields['transactionDiscount'] ?? 0);
+            $cpPaidRow = ncmExecute(
+                "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?",
+                [$transactionId, $companyId]
+            );
+            $cpPaid = (float)($cpPaidRow['paid'] ?? 0);
+            $creditPayments = [
+                'total' => $cpTotal,
+                'paid'  => $cpPaid,
+                'debt'  => max(0.0, $cpTotal - $cpPaid),
+            ];
+
+            $prResult = $this->db->Execute(
+                'SELECT transactionId, transactionDate, transactionTotal, invoiceNo, transactionPaymentType
+                 FROM transaction
+                 WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?
+                 ORDER BY transactionDate DESC',
+                [$transactionId, $companyId]
+            );
+            if ($prResult && !$prResult->EOF) {
+                while (!$prResult->EOF) {
+                    $r   = $prResult->fields;
+                    $pm  = json_decode($r['transactionPaymentType'] ?? '[]', true) ?? [];
+                    $paymentsReceived[] = [
+                        'transactionId' => (string)($r['transactionId'] ?? ''),
+                        'date'          => (string)($r['transactionDate'] ?? ''),
+                        'amount'        => (float)($r['transactionTotal'] ?? 0),
+                        'invoiceNo'     => (string)($r['invoiceNo'] ?? ''),
+                        'paymentMethod' => (string)($pm[0]['name'] ?? ''),
+                    ];
+                    $prResult->MoveNext();
+                }
+                $prResult->Close();
+            }
+        }
+
+        $cnResult = $this->db->Execute(
+            'SELECT transactionId, transactionDate, transactionTotal, invoiceNo
+             FROM transaction
+             WHERE transactionParentId = ? AND transactionType = 6 AND companyId = ?',
+            [$transactionId, $companyId]
+        );
+        if ($cnResult && !$cnResult->EOF) {
+            while (!$cnResult->EOF) {
+                $r = $cnResult->fields;
+                $creditNotes[] = [
+                    'transactionId'    => (string)($r['transactionId'] ?? ''),
+                    'transactionDate'  => (string)($r['transactionDate'] ?? ''),
+                    'transactionTotal' => (float)($r['transactionTotal'] ?? 0),
+                    'invoiceNo'        => isset($r['invoiceNo']) ? (string)$r['invoiceNo'] : null,
+                ];
+                $cnResult->MoveNext();
+            }
+            $cnResult->Close();
+        }
+
+        $aptResult = $this->db->Execute(
+            'SELECT transactionId, transactionDate, transactionTotal
+             FROM transaction
+             WHERE transactionParentId = ? AND transactionType = 13 AND companyId = ?',
+            [$transactionId, $companyId]
+        );
+        if ($aptResult && !$aptResult->EOF) {
+            while (!$aptResult->EOF) {
+                $r = $aptResult->fields;
+                $appointments[] = [
+                    'transactionId'    => (string)($r['transactionId'] ?? ''),
+                    'transactionDate'  => (string)($r['transactionDate'] ?? ''),
+                    'transactionTotal' => (float)($r['transactionTotal'] ?? 0),
+                ];
+                $aptResult->MoveNext();
+            }
+            $aptResult->Close();
         }
 
         $address = null;
@@ -125,9 +203,13 @@ final class TransactionService
             'total'           => number_format($total, 2, '.', ''),
             'discount'        => number_format($discount, 2, '.', ''),
             'payedData'       => $payedData,
-            'transactionData' => $rawDetails,
-            'transactionDatas'=> $transactionDatas,
-            'address'         => $address,
+            'transactionData'  => $rawDetails,
+            'transactionDatas' => $transactionDatas,
+            'address'          => $address,
+            'creditPayments'   => $creditPayments,
+            'creditNotes'      => $creditNotes,
+            'appointments'     => $appointments,
+            'paymentsReceived' => $paymentsReceived,
         ];
     }
 

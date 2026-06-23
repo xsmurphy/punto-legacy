@@ -151,8 +151,9 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         false, true
     );
 
-    // 6. Para crédito (type=3): calcular total/pagado/deuda
-    $creditPayments = null;
+    // 6. Para crédito (type=3): calcular total/pagado/deuda + detalle recibos
+    $creditPayments   = null;
+    $paymentsReceived = [];
     if ($type === 3) {
         $total   = (float) $tx['transactionTotal'] - (float) $tx['transactionDiscount'];
         $paidRow = ncmExecute(
@@ -167,6 +168,24 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
             'paid'  => $paid,
             'debt'  => max(0, $total - $paid),
         ];
+        $prRs = ncmExecute(
+            "SELECT transactionId, transactionDate, transactionTotal, invoiceNo, transactionPaymentType
+             FROM transaction
+             WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?
+             ORDER BY transactionDate DESC",
+            [$txId, COMPANY_ID],
+            false, true
+        );
+        foreach ($fetchAll($prRs) as $r) {
+            $pmArr = json_decode($r['transactionPaymentType'] ?? '[]', true) ?? [];
+            $paymentsReceived[] = [
+                'transactionId' => (string) $r['transactionId'],
+                'date'          => (string) $r['transactionDate'],
+                'amount'        => (float)  $r['transactionTotal'],
+                'invoiceNo'     => (string) ($r['invoiceNo'] ?? ''),
+                'paymentMethod' => (string) ($pmArr[0]['name'] ?? ''),
+            ];
+        }
     }
 
     // Construir respuesta: convertir a array plano para json_encode (CaseInsensitiveArray
@@ -187,12 +206,13 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
     unset($txData['transactionDetails']);
 
     apiOk([
-        'transaction'    => $txData,
-        'items'          => $items,
-        'creditNotes'    => $fetchAll($creditNotes),
-        'appointments'   => $fetchAll($appointments),
-        'toTransactions' => $fetchAll($toTx),
-        'creditPayments' => $creditPayments,
+        'transaction'      => $txData,
+        'items'            => $items,
+        'creditNotes'      => $fetchAll($creditNotes),
+        'appointments'     => $fetchAll($appointments),
+        'toTransactions'   => $fetchAll($toTx),
+        'creditPayments'   => $creditPayments,
+        'paymentsReceived' => $paymentsReceived,
     ]);
 }
 
