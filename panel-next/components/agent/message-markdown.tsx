@@ -27,6 +27,9 @@ const COMPONENTS: Components = {
   h1:     ({ children }) => <h1 className="mb-2 mt-3 text-base font-semibold first:mt-0">{children}</h1>,
   h2:     ({ children }) => <h2 className="mb-2 mt-3 text-sm font-semibold first:mt-0">{children}</h2>,
   h3:     ({ children }) => <h3 className="mb-1 mt-2 text-sm font-medium first:mt-0">{children}</h3>,
+  img: ({ node, ...props }) => (
+    <img {...props} className="max-w-[300px] h-auto rounded-lg" alt={props.alt ?? ""} />
+  ),
   hr:     () => <hr className="my-3 border-border" />,
   blockquote: ({ children }) => (
     <blockquote className="mb-2 border-l-2 border-border pl-3 italic text-muted-foreground last:mb-0">
