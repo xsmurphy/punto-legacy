@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 
 interface CreditPaymentDialogProps {
   open: boolean
@@ -102,7 +103,7 @@ export function CreditPaymentDialog({
 
         <div className="flex flex-col gap-4 py-2">
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">Monto a cobrar</label>
+            <Label>Monto a cobrar</Label>
             <MoneyInput
               value={amount}
               onChange={setAmount}
@@ -117,7 +118,7 @@ export function CreditPaymentDialog({
 
           {paymentMethods.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Método de pago</label>
+              <Label>Método de pago</Label>
               <Select value={pmKey} onValueChange={setPmKey}>
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar método..." />
@@ -134,7 +135,7 @@ export function CreditPaymentDialog({
           )}
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">Nota (opcional)</label>
+            <Label>Nota (opcional)</Label>
             <Textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}

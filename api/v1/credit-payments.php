@@ -45,6 +45,7 @@ if ($pmKey === '') {
 
 $note = isset($body['note']) ? trim((string) $body['note']) : null;
 
+require_once __DIR__ . '/../lib/services/CreditPaymentService.php';
 $svc    = new \Punto\Api\Services\CreditPaymentService();
 $result = $svc->create($companyId, $userId, $parentId, $amount, $pmKey, $pmName, $registerId, $note ?: null);
 
