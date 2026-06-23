@@ -204,7 +204,7 @@ export default function ChatPage() {
                         if (isUser) {
                           return (
                             <React.Fragment key={idx}>
-                              <div className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-base leading-relaxed text-background">
+                              <div className="max-w-[85%] rounded-2xl bg-foreground px-4 py-2.5 text-base leading-relaxed text-background whitespace-pre-wrap">
                                 {part.text}
                               </div>
                               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
