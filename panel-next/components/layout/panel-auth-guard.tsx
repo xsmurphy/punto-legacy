@@ -28,11 +28,10 @@ import { RealtimeWire } from "@/components/realtime-wire"
 import { AgentChatFloating } from "@/components/agent/agent-chat-floating"
 import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
-import { api } from "@/lib/api-client"
+import { api, ApiError } from "@/lib/api-client"
 import { useQueryClient } from "@tanstack/react-query"
 import { useModules } from "@/hooks/use-modules"
 import type { ModulesMap } from "@/lib/types/module"
-import { AuthSentinel } from "@/components/auth/auth-sentinel"
 
 // Menú lateral. Definido acá (client) porque los iconos son componentes
 // función y no pueden cruzar la frontera server → client como props.
@@ -99,7 +98,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     },
   ]
   const nav = isPos ? posNav : panelNav
-  const { data: bootstrap, isLoading } = useBootstrap()
+  const { data: bootstrap, isLoading, error } = useBootstrap()
   // El logo de la empresa lo trae /v1/settings (no /v1/bootstrap). Se
   // muestra en el avatar del menu user del footer. staleTime 60s del hook
   // evita el refetch en cada navegación. null si la empresa aún no subió.
@@ -107,8 +106,11 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const setActiveOutlet = useSetActiveOutlet()
   const { scope: viewScope, setScope: setViewScope } = useViewScope()
   const qc = useQueryClient()
-  // 401 de bootstrap ahora lo captura AuthSentinel via evento api:unauthorized.
-  // El useEffect anterior fue eliminado para evitar doble navegación.
+  React.useEffect(() => {
+    if (error instanceof ApiError && error.status === 401) {
+      router.replace("/login")
+    }
+  }, [error, router])
 
   // Logout del panel — borra SOLO `_jwt_panel` (la cookie del POS `_jwt`
   // queda intacta porque modela device pairing, no sesión humana — ver
@@ -192,7 +194,6 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <AuthSentinel />
       <AppSidebar
         scope="Panel"
         items={nav}
