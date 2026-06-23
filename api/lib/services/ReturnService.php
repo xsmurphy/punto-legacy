@@ -47,14 +47,14 @@ final class ReturnService
         // Validación rápida pre-TX (solo lookups de solo lectura, sin locks)
         if ($refundMode === 'credit') {
             $parentCheck = ncmExecute(
-                'SELECT "customerId" FROM transaction
-                 WHERE "transactionId" = ? AND "companyId" = ? AND "transactionType" IN (0, 3)',
+                'SELECT customerid FROM transaction
+                 WHERE transactionid = ? AND companyid = ? AND transactiontype IN (0, 3)',
                 [$parentTransactionId, $companyId]
             );
             if (!$parentCheck) {
                 throw new \InvalidArgumentException('Transacción no encontrada o no válida para devolución.');
             }
-            if (empty($parentCheck['customerId'])) {
+            if (empty($parentCheck['customerid'])) {
                 throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
             }
         }
@@ -71,16 +71,16 @@ final class ReturnService
             // Lock de la fila padre — evita que dos requests concurrentes lean
             // `alreadyReturned` antes de que el primero escriba.
             $parent = $db->GetRow(
-                'SELECT "transactionId", "transactionType", "customerId"
+                'SELECT transactionid, transactiontype, customerid
                  FROM transaction
-                 WHERE "transactionId" = ? AND "companyId" = ? AND "transactionType" IN (0, 3)
+                 WHERE transactionid = ? AND companyid = ? AND transactiontype IN (0, 3)
                  FOR UPDATE',
                 [$parentTransactionId, $companyId]
             );
             if (!$parent) {
                 throw new \InvalidArgumentException('Transacción no encontrada o no válida para devolución.');
             }
-            if ($refundMode === 'credit' && empty($parent['customerId'])) {
+            if ($refundMode === 'credit' && empty($parent['customerid'])) {
                 throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
             }
 
@@ -95,30 +95,30 @@ final class ReturnService
 
                 // Datos del itemSold original — scopeado por companyId via la TX padre
                 $origItem = $db->GetRow(
-                    'SELECT is1."itemSoldUnits", is1."itemSoldTotal", is1."itemSoldCOGS",
-                            i."itemHasStock", i."itemLocationId"
+                    'SELECT is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs,
+                            i.itemhasstock, i.itemlocationid
                      FROM "itemSold" is1
-                     JOIN item i ON i."itemId" = is1."itemId"
-                     WHERE is1."transactionId" = ? AND is1."itemId" = ?',
+                     JOIN item i ON i.itemid = is1.itemid
+                     WHERE is1.transactionid = ? AND is1.itemid = ?',
                     [$parentTransactionId, $itemId]
                 );
                 if (!$origItem) {
                     throw new \InvalidArgumentException("Item $itemId no encontrado en la transacción original.");
                 }
 
-                $soldQty   = abs((float) $origItem['itemSoldUnits']);
-                $lineTotal = abs((float) $origItem['itemSoldTotal']);
+                $soldQty   = abs((float) $origItem['itemsoldunits']);
+                $lineTotal = abs((float) $origItem['itemsoldtotal']);
                 $unitPrice = $soldQty > 0 ? $lineTotal / $soldQty : 0.0;
-                $cogs      = abs((float) $origItem['itemSoldCOGS']);
+                $cogs      = abs((float) $origItem['itemsoldcogs']);
                 $unitCogs  = $soldQty > 0 ? $cogs / $soldQty : 0.0;
 
                 // Qty ya devuelta (dentro de TX — ve las filas del lock anterior)
                 $alreadyReturned = (float) $db->GetOne(
-                    'SELECT COALESCE(SUM(ABS(is2."itemSoldUnits")), 0)
+                    'SELECT COALESCE(SUM(ABS(is2.itemsoldunits)), 0)
                      FROM "itemSold" is2
-                     JOIN transaction t ON t."transactionId" = is2."transactionId"
-                     WHERE t."transactionParentId" = ? AND t."transactionType" = 6
-                       AND t."companyId" = ? AND is2."itemId" = ?',
+                     JOIN transaction t ON t.transactionid = is2.transactionid
+                     WHERE t.transactionparentid = ? AND t.transactiontype = 6
+                       AND t.companyid = ? AND is2.itemid = ?',
                     [$parentTransactionId, $companyId, $itemId]
                 );
 
@@ -138,8 +138,8 @@ final class ReturnService
                     'qty'        => $reqQty,
                     'lineTotal'  => $lineReturnTotal,
                     'cogs'       => $lineCogs,
-                    'hasStock'   => !empty($origItem['itemHasStock']),
-                    'locationId' => $origItem['itemLocationId'] ?? null,
+                    'hasStock'   => !empty($origItem['itemhasstock']),
+                    'locationId' => $origItem['itemlocationid'] ?? null,
                 ];
             }
 
@@ -156,10 +156,10 @@ final class ReturnService
 
             $db->Execute(
                 'INSERT INTO transaction (
-                    "transactionId", "transactionType", "transactionParentId",
-                    "transactionTotal", "transactionUnitsSold", "transactionPaymentType",
-                    "transactionDate", "transactionNote", "transactionStatus", "transactionComplete",
-                    "customerId", "registerId", "userId", "outletId", "companyId", meta
+                    transactionid, transactiontype, transactionparentid,
+                    transactiontotal, transactionunitssold, transactionpaymenttype,
+                    transactiondate, transactionnote, transactionstatus, transactioncomplete,
+                    customerid, registerid, userid, outletid, companyid, meta
                 ) VALUES (?, 6, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
                 [
                     $newTransactionId,
@@ -168,7 +168,7 @@ final class ReturnService
                     $totalUnits,
                     $paymentsJson,
                     $note,
-                    $parent['customerId'] ?? null,
+                    $parent['customerid'] ?? null,
                     $registerId ?: null,
                     $userId,
                     $outletId,
@@ -181,9 +181,9 @@ final class ReturnService
 
                 $db->Execute(
                     'INSERT INTO "itemSold" (
-                        "itemSoldId", "itemId", "transactionId",
-                        "itemSoldUnits", "itemSoldTotal", "itemSoldCOGS",
-                        "itemSoldDate"
+                        itemsoldid, itemid, transactionid,
+                        itemsoldunits, itemsoldtotal, itemsoldcogs,
+                        itemsolddate
                     ) VALUES (?, ?, ?, ?, ?, ?, NOW())',
                     [
                         $itemSoldId,
@@ -215,11 +215,11 @@ final class ReturnService
                 }
             }
 
-            if ($refundMode === 'credit' && !empty($parent['customerId'])) {
+            if ($refundMode === 'credit' && !empty($parent['customerid'])) {
                 $db->Execute(
-                    'UPDATE contact SET "contactStoreCredit" = "contactStoreCredit" + ?
-                     WHERE "contactId" = ? AND "companyId" = ?',
-                    [abs($returnTotal), $parent['customerId'], $companyId]
+                    'UPDATE contact SET contactstorecredit = contactstorecredit + ?
+                     WHERE contactid = ? AND companyid = ?',
+                    [abs($returnTotal), $parent['customerid'], $companyId]
                 );
             }
 
@@ -246,11 +246,11 @@ final class ReturnService
     public function listForParent(string $parentTransactionId, string $companyId): array
     {
         $rs = ncmExecute(
-            'SELECT t."transactionId", t."transactionTotal", t."transactionDate",
-                    t."transactionNote", t."transactionPaymentType"
+            'SELECT t.transactionid, t.transactiontotal, t.transactiondate,
+                    t.transactionnote, t.transactionpaymenttype
              FROM transaction t
-             WHERE t."transactionParentId" = ? AND t."companyId" = ? AND t."transactionType" = 6
-             ORDER BY t."transactionDate" DESC',
+             WHERE t.transactionparentid = ? AND t.companyid = ? AND t.transactiontype = 6
+             ORDER BY t.transactiondate DESC',
             [$parentTransactionId, $companyId],
             false,
             true
