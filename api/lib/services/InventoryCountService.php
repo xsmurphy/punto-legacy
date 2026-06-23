@@ -20,7 +20,7 @@ final class InventoryCountService
         global $db;
 
         $outlet = ncmExecute(
-            'SELECT "outletId" FROM outlet WHERE "outletId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1',
             [$outletId, $companyId]
         );
         if (!$outlet) {
@@ -44,7 +44,7 @@ final class InventoryCountService
         $countId = $sessionRow['inventoryCountId'];
 
         $items = ncmExecute(
-            'SELECT "itemId" FROM item WHERE "companyId" = ? AND "itemStatus" = 1 AND "itemTrackInventory" >= 1',
+            'SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory >= 1',
             [$companyId],
             false,
             true
@@ -53,22 +53,22 @@ final class InventoryCountService
         $itemCount = 0;
         if ($items) {
             while (!$items->EOF) {
-                $itemId = $items->fields['itemId'];
+                $itemId = $items->fields['itemid'];
 
                 if ($locationId) {
                     $stockRow = ncmExecute(
-                        'SELECT "toLocationCount" as onHand FROM "toLocation" WHERE "locationId" = ? AND "itemId" = ? LIMIT 1',
+                        'SELECT tolocationcount as onHand FROM tolocation WHERE locationid = ? AND itemid = ? LIMIT 1',
                         [$locationId, $itemId]
                     );
                     $onHand = $stockRow ? (float) $stockRow['onHand'] : 0.0;
                     $cogs   = 0.0;
                 } else {
                     $stockRow = ncmExecute(
-                        'SELECT "stockOnHand", "stockOnHandCOGS" FROM stock WHERE "itemId" = ? AND "outletId" = ? ORDER BY "stockDate" DESC, "stockId" DESC LIMIT 1',
+                        'SELECT stockonhand, stockonhandcogs FROM stock WHERE itemid = ? AND outletid = ? ORDER BY stockdate DESC, stockid DESC LIMIT 1',
                         [$itemId, $outletId]
                     );
-                    $onHand = $stockRow ? (float) $stockRow['stockOnHand'] : 0.0;
-                    $cogs   = $stockRow ? (float) $stockRow['stockOnHandCOGS'] : 0.0;
+                    $onHand = $stockRow ? (float) $stockRow['stockonhand'] : 0.0;
+                    $cogs   = $stockRow ? (float) $stockRow['stockonhandcogs'] : 0.0;
                 }
 
                 ncmExecute(
@@ -90,10 +90,10 @@ final class InventoryCountService
     public function get(string $id, string $companyId): ?array
     {
         $session = ncmExecute(
-            'SELECT ic.*, u1."userName" as "startedByName", u2."userName" as "finishedByName"
+            'SELECT ic.*, u1.username as "startedByName", u2.username as "finishedByName"
              FROM inventory_count ic
-             LEFT JOIN "user" u1 ON u1."userId" = ic."startedBy"
-             LEFT JOIN "user" u2 ON u2."userId" = ic."finishedBy"
+             LEFT JOIN "user" u1 ON u1.userid = ic."startedBy"
+             LEFT JOIN "user" u2 ON u2.userid = ic."finishedBy"
              WHERE ic."inventoryCountId" = ? AND ic."companyId" = ?
              LIMIT 1',
             [$id, $companyId]
@@ -104,13 +104,13 @@ final class InventoryCountService
         }
 
         $itemsRs = ncmExecute(
-            'SELECT ici."inventoryCountItemId", ici."itemId", i."itemName" as name, i."itemSku" as sku,
+            'SELECT ici."inventoryCountItemId", ici."itemId", i.itemname as name, i.itemsku as sku,
                     ici."expectedQty", ici."countedQty", ici."difference", ici."unitCost",
                     ici."countedAt", ici."countedBy"
              FROM inventory_count_item ici
-             JOIN item i ON i."itemId" = ici."itemId"
+             JOIN item i ON i.itemid = ici."itemId"
              WHERE ici."inventoryCountId" = ?
-             ORDER BY i."itemName" ASC',
+             ORDER BY i.itemname ASC',
             [$id],
             false,
             true
@@ -332,14 +332,14 @@ final class InventoryCountService
         $rowsRs = ncmExecute(
             "SELECT ic.\"inventoryCountId\", ic.\"outletId\", ic.\"locationId\", ic.\"status\",
                     ic.\"startedAt\", ic.\"finishedAt\", ic.\"note\",
-                    o.\"outletName\",
-                    t.\"taxonomyName\" as \"locationName\",
+                    o.outletname,
+                    t.taxonomyname as \"locationName\",
                     (SELECT COUNT(*) FROM inventory_count_item ici WHERE ici.\"inventoryCountId\" = ic.\"inventoryCountId\") as \"totalItems\",
                     (SELECT COUNT(*) FROM inventory_count_item ici WHERE ici.\"inventoryCountId\" = ic.\"inventoryCountId\" AND ici.\"countedQty\" IS NOT NULL) as \"countedItems\",
                     (SELECT COALESCE(SUM(ici.\"difference\" * ici.\"unitCost\"), 0) FROM inventory_count_item ici WHERE ici.\"inventoryCountId\" = ic.\"inventoryCountId\" AND ici.\"countedQty\" IS NOT NULL AND ici.\"difference\" IS NOT NULL) as \"totalCostDelta\"
              FROM inventory_count ic
-             JOIN outlet o ON o.\"outletId\" = ic.\"outletId\"
-             LEFT JOIN taxonomy t ON t.\"taxonomyId\" = ic.\"locationId\"
+             JOIN outlet o ON o.outletid = ic.\"outletId\"
+             LEFT JOIN taxonomy t ON t.taxonomyid = ic.\"locationId\"
              WHERE {$whereStr}
              ORDER BY ic.\"startedAt\" DESC
              LIMIT ? OFFSET ?",
@@ -355,7 +355,7 @@ final class InventoryCountService
                 $rows[] = [
                     'inventoryCountId' => $r['inventoryCountId'],
                     'outletId'         => $r['outletId'],
-                    'outletName'       => $r['outletName'],
+                    'outletName'       => $r['outletname'],
                     'locationId'       => $r['locationId'],
                     'locationName'     => $r['locationName'],
                     'status'           => (int) $r['status'],

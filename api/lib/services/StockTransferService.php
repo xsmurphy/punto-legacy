@@ -30,7 +30,7 @@ final class StockTransferService
 
         // 1. Verificar outlets pertenecen al tenant
         $fromOutlet = ncmExecute(
-            'SELECT "outletId" FROM outlet WHERE "outletId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1',
             [$from['outletId'], $companyId]
         );
         if (!$fromOutlet) {
@@ -38,7 +38,7 @@ final class StockTransferService
         }
 
         $toOutlet = ncmExecute(
-            'SELECT "outletId" FROM outlet WHERE "outletId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1',
             [$to['outletId'], $companyId]
         );
         if (!$toOutlet) {
@@ -59,7 +59,7 @@ final class StockTransferService
         // 3. Verificar locationIds pertenecen a sus outlets
         if ($fromLocationId !== null) {
             $loc = ncmExecute(
-                "SELECT \"taxonomyId\" FROM taxonomy WHERE \"taxonomyId\" = ? AND \"outletId\" = ? AND \"taxonomyType\" = 'location' LIMIT 1",
+                "SELECT taxonomyid FROM taxonomy WHERE taxonomyid = ? AND outletid = ? AND taxonomytype = 'location' LIMIT 1",
                 [$fromLocationId, $from['outletId']]
             );
             if (!$loc) {
@@ -69,7 +69,7 @@ final class StockTransferService
 
         if ($toLocationId !== null) {
             $loc = ncmExecute(
-                "SELECT \"taxonomyId\" FROM taxonomy WHERE \"taxonomyId\" = ? AND \"outletId\" = ? AND \"taxonomyType\" = 'location' LIMIT 1",
+                "SELECT taxonomyid FROM taxonomy WHERE taxonomyid = ? AND outletid = ? AND taxonomytype = 'location' LIMIT 1",
                 [$toLocationId, $to['outletId']]
             );
             if (!$loc) {
@@ -94,7 +94,7 @@ final class StockTransferService
         $params       = array_merge([$companyId], $itemIds);
 
         $stockableRs = ncmExecute(
-            'SELECT "itemId" FROM item WHERE "companyId" = ? AND "itemStatus" = 1 AND "itemTrackInventory" >= 1 AND "itemId" IN (' . $placeholders . ')',
+            'SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory >= 1 AND itemid IN (' . $placeholders . ')',
             $params,
             false,
             true
@@ -103,7 +103,7 @@ final class StockTransferService
         $stockableIds = [];
         if ($stockableRs) {
             while (!$stockableRs->EOF) {
-                $stockableIds[] = $stockableRs->fields['itemId'];
+                $stockableIds[] = $stockableRs->fields['itemid'];
                 $stockableRs->MoveNext();
             }
         }
@@ -124,10 +124,10 @@ final class StockTransferService
         $cogsMap = [];
         foreach ($stockableItems as $item) {
             $stockRow = ncmExecute(
-                'SELECT "stockOnHandCOGS" FROM stock WHERE "itemId" = ? AND "outletId" = ? ORDER BY "stockDate" DESC, "stockId" DESC LIMIT 1',
+                'SELECT stockonhandcogs FROM stock WHERE itemid = ? AND outletid = ? ORDER BY stockdate DESC, stockid DESC LIMIT 1',
                 [$item['itemId'], $from['outletId']]
             );
-            $cogsMap[$item['itemId']] = $stockRow ? (float) $stockRow['stockOnHandCOGS'] : 0.0;
+            $cogsMap[$item['itemId']] = $stockRow ? (float) $stockRow['stockonhandcogs'] : 0.0;
         }
 
         // --- TX ---
@@ -263,16 +263,16 @@ final class StockTransferService
             'SELECT st."stockTransferId", st."status", st."createdAt", st."note",
                     st."fromOutletId", st."fromLocationId",
                     st."toOutletId",   st."toLocationId",
-                    fo."outletName" as "fromOutletName",
-                    to_."outletName" as "toOutletName",
-                    tfl."taxonomyName" as "fromLocationName",
-                    ttl."taxonomyName" as "toLocationName",
+                    fo.outletname as "fromOutletName",
+                    to_.outletname as "toOutletName",
+                    tfl.taxonomyname as "fromLocationName",
+                    ttl.taxonomyname as "toLocationName",
                     (SELECT COUNT(*) FROM stock_transfer_item sti WHERE sti."stockTransferId" = st."stockTransferId") as "itemsCount"
              FROM stock_transfer st
-             JOIN outlet fo  ON fo."outletId"  = st."fromOutletId"
-             JOIN outlet to_ ON to_."outletId" = st."toOutletId"
-             LEFT JOIN taxonomy tfl ON tfl."taxonomyId" = st."fromLocationId"
-             LEFT JOIN taxonomy ttl ON ttl."taxonomyId" = st."toLocationId"
+             JOIN outlet fo  ON fo.outletid  = st."fromOutletId"
+             JOIN outlet to_ ON to_.outletid = st."toOutletId"
+             LEFT JOIN taxonomy tfl ON tfl.taxonomyid = st."fromLocationId"
+             LEFT JOIN taxonomy ttl ON ttl.taxonomyid = st."toLocationId"
              WHERE ' . $whereStr . '
              ORDER BY st."createdAt" DESC
              LIMIT ? OFFSET ?',
@@ -311,17 +311,17 @@ final class StockTransferService
     {
         $header = ncmExecute(
             'SELECT st.*,
-                    fo."outletName" as "fromOutletName",
-                    to_."outletName" as "toOutletName",
-                    tfl."taxonomyName" as "fromLocationName",
-                    ttl."taxonomyName" as "toLocationName",
-                    u."userName" as "createdByName"
+                    fo.outletname as "fromOutletName",
+                    to_.outletname as "toOutletName",
+                    tfl.taxonomyname as "fromLocationName",
+                    ttl.taxonomyname as "toLocationName",
+                    u.username as "createdByName"
              FROM stock_transfer st
-             JOIN outlet fo  ON fo."outletId"  = st."fromOutletId"
-             JOIN outlet to_ ON to_."outletId" = st."toOutletId"
-             LEFT JOIN taxonomy tfl ON tfl."taxonomyId" = st."fromLocationId"
-             LEFT JOIN taxonomy ttl ON ttl."taxonomyId" = st."toLocationId"
-             LEFT JOIN "user" u ON u."userId" = st."createdBy"
+             JOIN outlet fo  ON fo.outletid  = st."fromOutletId"
+             JOIN outlet to_ ON to_.outletid = st."toOutletId"
+             LEFT JOIN taxonomy tfl ON tfl.taxonomyid = st."fromLocationId"
+             LEFT JOIN taxonomy ttl ON ttl.taxonomyid = st."toLocationId"
+             LEFT JOIN "user" u ON u.userid = st."createdBy"
              WHERE st."stockTransferId" = ? AND st."companyId" = ?
              LIMIT 1',
             [$id, $companyId]
@@ -333,12 +333,12 @@ final class StockTransferService
 
         $itemsRs = ncmExecute(
             'SELECT sti."stockTransferItemId", sti."itemId", sti."qty", sti."unitCost",
-                    i."itemName" as name, i."itemSku" as sku
+                    i.itemname as name, i.itemsku as sku
              FROM stock_transfer_item sti
-             JOIN item i ON i."itemId" = sti."itemId"
+             JOIN item i ON i.itemid = sti."itemId"
              JOIN stock_transfer st ON st."stockTransferId" = sti."stockTransferId" AND st."companyId" = ?
              WHERE sti."stockTransferId" = ?
-             ORDER BY i."itemName" ASC',
+             ORDER BY i.itemname ASC',
             [$companyId, $id],
             false,
             true

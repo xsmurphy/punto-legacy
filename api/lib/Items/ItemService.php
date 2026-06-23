@@ -144,26 +144,26 @@ final class ItemService
 
             // Verificar que el padre pertenece al mismo tenant.
             $parentRow = ncmExecute(
-                'SELECT "companyId", "hasVariants", "variantParentId" FROM item WHERE "itemId" = ? LIMIT 1',
+                'SELECT companyid, hasvariants, variantparentid FROM item WHERE itemid = ? LIMIT 1',
                 [$parentId]
             );
             if (!$parentRow) {
                 throw new \RuntimeException('Item padre no encontrado', 404);
             }
-            $parentCompany = (string) ($parentRow['companyid'] ?? $parentRow['companyId'] ?? '');
+            $parentCompany = (string) ($parentRow['companyid'] ?? '');
             if ($parentCompany !== $companyId) {
                 throw new \RuntimeException('El item padre pertenece a otro tenant', 403);
             }
 
             // Padre debe tener hasVariants=true.
-            $pHv = $parentRow['hasvariants'] ?? $parentRow['hasVariants'] ?? false;
+            $pHv = $parentRow['hasvariants'] ?? false;
             $parentHV = ($pHv === true || $pHv === 't' || $pHv === '1' || $pHv === 1);
             if (!$parentHV) {
                 throw new \RuntimeException('El item padre no tiene hasVariants=true', 422);
             }
 
             // Padre no puede ser variante (anti-anidamiento).
-            $pVP = $parentRow['variantparentid'] ?? $parentRow['variantParentId'] ?? null;
+            $pVP = $parentRow['variantparentid'] ?? null;
             if (!empty($pVP)) {
                 throw new \RuntimeException('No se pueden anidar variantes', 422);
             }
