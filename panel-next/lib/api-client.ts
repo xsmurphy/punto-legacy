@@ -100,6 +100,15 @@ async function request<T>(
       | { ok?: boolean; error?: { message?: string; code?: number } }
       | null
     const backendMsg = envelope?.error?.message
+    // Emitir evento global para que AuthSentinel lo capture — cubre todos los
+    // 401 del api-client, no solo el de useBootstrap.
+    if (res.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("api:unauthorized", {
+          detail: { path, message: backendMsg ?? "" },
+        }),
+      )
+    }
     throw new ApiError(
       res.status,
       payload,
