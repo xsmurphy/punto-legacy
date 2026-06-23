@@ -181,7 +181,7 @@ export function AppSidebar({
                 <button
                   type="button"
                   aria-label="Cambiar sucursal"
-                  className="inline-flex items-center gap-2 rounded-md transition-opacity hover:opacity-90 cursor-pointer group-data-[collapsible=icon]:hidden"
+                  className="flex w-full items-center gap-2 rounded-md transition-opacity hover:opacity-90 cursor-pointer group-data-[collapsible=icon]:hidden"
                 >
                   <PuntoLogo variant="wordmark" />
                   {scope === "Admin" && (
@@ -189,7 +189,7 @@ export function AppSidebar({
                       ADMIN
                     </Badge>
                   )}
-                  <ChevronsUpDown className="size-4 text-muted-foreground" />
+                  <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
