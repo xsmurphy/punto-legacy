@@ -128,6 +128,79 @@ final class ItemService
     }
 
     /**
+     * Valida invariantes de variantes en el patch antes de persistir.
+     * Lanza \RuntimeException con código HTTP si falla.
+     * Retorna el patch mutado (con campos forzados según las reglas).
+     *
+     * @throws \RuntimeException
+     */
+    public function applyVariantRules(string $companyId, array $patch, ?string $existingItemId = null): array
+    {
+        $hasVariantParentId = array_key_exists('variantParentId', $patch);
+        $hasVariants        = array_key_exists('hasVariants', $patch) ? (bool) $patch['hasVariants'] : null;
+
+        if ($hasVariantParentId && !empty($patch['variantParentId'])) {
+            $parentId = (string) $patch['variantParentId'];
+
+            // Verificar que el padre pertenece al mismo tenant.
+            $parentRow = ncmExecute(
+                'SELECT "companyId", "hasVariants", "variantParentId" FROM item WHERE "itemId" = ? LIMIT 1',
+                [$parentId]
+            );
+            if (!$parentRow) {
+                throw new \RuntimeException('Item padre no encontrado', 404);
+            }
+            $parentCompany = (string) ($parentRow['companyid'] ?? $parentRow['companyId'] ?? '');
+            if ($parentCompany !== $companyId) {
+                throw new \RuntimeException('El item padre pertenece a otro tenant', 403);
+            }
+
+            // Padre debe tener hasVariants=true.
+            $pHv = $parentRow['hasvariants'] ?? $parentRow['hasVariants'] ?? false;
+            $parentHV = ($pHv === true || $pHv === 't' || $pHv === '1' || $pHv === 1);
+            if (!$parentHV) {
+                throw new \RuntimeException('El item padre no tiene hasVariants=true', 422);
+            }
+
+            // Padre no puede ser variante (anti-anidamiento).
+            $pVP = $parentRow['variantparentid'] ?? $parentRow['variantParentId'] ?? null;
+            if (!empty($pVP)) {
+                throw new \RuntimeException('No se pueden anidar variantes', 422);
+            }
+
+            // Una variante no puede ser padre de otras variantes.
+            $patch['hasVariants'] = false;
+        }
+
+        if ($hasVariants === true) {
+            // El padre de variantes no trackea stock ni tiene precio/costo propios.
+            $patch['variantParentId']    = null;
+            $patch['itemTrackInventory'] = 0;
+            $patch['itemCost']           = 0;
+            $patch['itemPrice']          = 0;
+        }
+
+        // variantAttributes: validar que sea object plano {string: string} si llega.
+        if (array_key_exists('variantAttributes', $patch) && $patch['variantAttributes'] !== null) {
+            $attrs = $patch['variantAttributes'];
+            if (is_string($attrs)) {
+                $decoded = json_decode($attrs, true);
+                if (!is_array($decoded)) {
+                    throw new \RuntimeException('variantAttributes debe ser un objeto JSON {string: string}', 422);
+                }
+                $attrs = $decoded;
+            }
+            if (!is_array($attrs)) {
+                throw new \RuntimeException('variantAttributes debe ser un objeto {string: string}', 422);
+            }
+            // Re-encode para persistir como JSONB.
+            $patch['variantAttributes'] = json_encode($attrs);
+        }
+
+        return $patch;
+    }
+
+    /**
      * Whitelist canónica de columnas que pueden venir en el patch de bulk-edit.
      * Cambios en este set son superficie pública del API — agregar con cuidado.
      */

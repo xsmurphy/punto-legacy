@@ -20,6 +20,7 @@ import {
   Coins,
   Images,
   Package2,
+  Layers,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -109,6 +110,15 @@ import { CategoriesPicker, type SelectedCategory } from "@/components/items/cate
 import { BrandsPicker, type SelectedBrand } from "@/components/items/brands-picker"
 import { TagsPicker } from "@/components/items/tags-picker"
 import { useTags } from "@/hooks/use-tags"
+import { VariantsTab } from "@/components/items/variants-tab"
+import { useItemVariants } from "@/hooks/use-item-variants"
+import { api } from "@/lib/api-client"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -186,6 +196,11 @@ export default function ItemEditPage() {
   const create = useCreateItem()
   const update = useUpdateItem()
   const archive = useArchiveItem()
+
+  const [hasVariants, setHasVariants] = React.useState(false)
+
+  const { data: variantsData } = useItemVariants(isNew ? undefined : id)
+  const savedVariantCount = variantsData?.variants?.length ?? 0
 
   // En modo creación, el dialog que abre el listado pasa ?kind=X para que el
   // form arranque con el tipo elegido. Si el param es inválido, default 'producto'.
@@ -265,6 +280,9 @@ export default function ItemEditPage() {
       packDurationDays:
         typeof data.packDurationDays === "number" ? data.packDurationDays : null,
     })
+    // Hidratar hasVariants.
+    const hv = data.hasVariants
+    setHasVariants(hv === true || (hv as unknown) === 't' || (hv as unknown) === '1' || (hv as unknown) === 1)
     // Hidratar el multi-select de categorías desde el m2m. Si no hay nada y
     // el legacy `categoryId` apunta a una, la incluimos como única primary.
     if (data.categories && data.categories.length > 0) {
@@ -297,7 +315,10 @@ export default function ItemEditPage() {
   }, [data, form, isNew])
 
   const kind: ItemKind = form.watch("kind") ?? "producto"
-  const visibility = (KIND_META[kind] ?? KIND_META["producto"]).fields
+  const baseVisibility = (KIND_META[kind] ?? KIND_META["producto"]).fields
+  const visibility: KindFieldVisibility = hasVariants
+    ? { ...baseVisibility, showPrice: false, showCost: false, showInventoryInfo: false }
+    : baseVisibility
 
   // Mantener el legacy form.categoryId apuntando a la primary del m2m. Sin
   // esto, el PUT del item escribiría null sobre item.categoryId y los
@@ -327,9 +348,18 @@ export default function ItemEditPage() {
       let targetId: string
       if (isNew) {
         const created = await create.mutateAsync(values)
+        if (hasVariants) {
+          await api.put(`/v1/items?id=${created.itemId}`, { hasVariants: true })
+        }
         targetId = created.itemId
       } else {
         await update.mutateAsync({ id, values })
+        // Solo emitir el segundo PUT si el toggle hasVariants cambió respecto al valor guardado.
+        // Evita el double-write innecesario y la carrera de precio/costo que applyVariantRules fuerza.
+        const dbHasVariants = !!(data?.hasVariants)
+        if (hasVariants !== dbHasVariants) {
+          await api.put(`/v1/items?id=${id}`, { hasVariants })
+        }
         targetId = id
       }
       // Persistir el m2m de categorías. El backend reemplaza por completo
@@ -473,6 +503,12 @@ export default function ItemEditPage() {
                 <Boxes className="size-3.5" />
                 Stock
               </TabsTrigger>
+              {hasVariants && !isNew && (
+                <TabsTrigger value="variantes" className="gap-1.5">
+                  <Layers className="size-3.5" />
+                  Variantes
+                </TabsTrigger>
+              )}
               <TabsTrigger value="produccion" className="gap-1.5" disabled={isNew}>
                 {kind === "combo_fijo" || kind === "combo_dinamico" || kind === "pack" ? (
                   <>
@@ -497,6 +533,9 @@ export default function ItemEditPage() {
               itemId={isNew ? "" : id}
               images={(data?.images as ItemImage[] | undefined) ?? []}
               isNew={isNew}
+              hasVariants={hasVariants}
+              onHasVariantsChange={setHasVariants}
+              savedVariantCount={savedVariantCount}
             />
           </TabsContent>
           <TabsContent value="imagenes" className="mt-6">
@@ -528,6 +567,11 @@ export default function ItemEditPage() {
           <TabsContent value="stock" className="mt-6">
             <StockTab id={id} isNew={isNew} />
           </TabsContent>
+          {hasVariants && !isNew && (
+            <TabsContent value="variantes" className="mt-6">
+              <VariantsTab parentId={id} />
+            </TabsContent>
+          )}
           <TabsContent value="produccion" className="mt-6">
             <ProduccionTab form={form} id={id} isNew={isNew} visibility={visibility} kind={kind} />
           </TabsContent>
@@ -546,6 +590,9 @@ function PerfilTab({
   itemId,
   images,
   isNew,
+  hasVariants,
+  onHasVariantsChange,
+  savedVariantCount,
 }: {
   form: UseFormReturn<ItemFormValues>
   visibility: KindFieldVisibility
@@ -553,6 +600,9 @@ function PerfilTab({
   itemId: string
   images: ItemImage[]
   isNew: boolean
+  hasVariants: boolean
+  onHasVariantsChange: (v: boolean) => void
+  savedVariantCount: number
 }) {
   const { data: bootstrap } = useBootstrap()
   const price = form.watch("price") ?? 0
@@ -789,6 +839,50 @@ function PerfilTab({
               </FormItem>
             )}
           />
+
+          {kind === "producto" && (
+            <>
+              <Separator />
+              <div className="flex flex-row items-start justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-sm font-medium cursor-default">
+                          Este item tiene variantes
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-60">
+                        El item padre no se vende directamente. Las variantes son los
+                        productos vendibles (ej. Talle M/L/XL, Color Rojo/Azul).
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <p className="text-xs text-muted-foreground">
+                    Cuando esta activo, precio y costo se definen por variante.
+                  </p>
+                </div>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Switch
+                          checked={hasVariants}
+                          onCheckedChange={onHasVariantsChange}
+                          disabled={savedVariantCount > 0 && hasVariants}
+                        />
+                      </span>
+                    </TooltipTrigger>
+                    {savedVariantCount > 0 && hasVariants && (
+                      <TooltipContent>
+                        Archiva las {savedVariantCount} variantes primero para desactivar.
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
