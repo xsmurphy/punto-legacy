@@ -227,14 +227,16 @@ export default function InventoryCountPage() {
   const rows = data?.rows ?? []
 
   return (
-    <div className="space-y-4 p-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Boxes className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-xl font-semibold">Conteo de inventario</h1>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Conteo de inventario</h1>
+          <p className="text-sm text-muted-foreground">Toma física de inventario por sesión.</p>
         </div>
-        <NewSessionDialog />
-      </div>
+        <div className="flex items-center gap-2">
+          <NewSessionDialog />
+        </div>
+      </header>
 
       {!isLoading && rows.length === 0 ? (
         <EmptyState
