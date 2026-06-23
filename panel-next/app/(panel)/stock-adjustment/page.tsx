@@ -184,13 +184,13 @@ export default function StockAdjustmentPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Ajustes de stock</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Correcciones manuales de inventario por mermas, ingresos sin remito u otras razones.
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Ajustes de stock</h1>
+          <p className="text-sm text-muted-foreground">Registrar ingresos/egresos manuales de inventario.</p>
+        </div>
+      </header>
 
       <Card>
         <CardHeader>

@@ -133,11 +133,13 @@ export default function NewStockTransferPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center gap-2">
-        <ArrowLeftRight className="h-5 w-5 text-muted-foreground" />
-        <h1 className="text-2xl font-semibold">Nueva transferencia de stock</h1>
-      </div>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Nueva transferencia</h1>
+          <p className="text-sm text-muted-foreground">Mové stock entre sucursales o depósitos.</p>
+        </div>
+      </header>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

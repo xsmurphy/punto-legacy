@@ -403,13 +403,13 @@ function RegistersTab() {
 
 export default function DevicesPage() {
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Dispositivos</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Pantallas cliente y cajas registradoras del POS.
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Dispositivos</h1>
+          <p className="text-sm text-muted-foreground">Pantallas cliente y cajas registradoras del POS.</p>
+        </div>
+      </header>
 
       <Tabs defaultValue="screens">
         <TabsList>
