@@ -42,14 +42,19 @@ import { AuthSentinel } from "@/components/auth/auth-sentinel"
 const panelNav: NavEntry[] = [
   { title: "Dashboard", to: "/", icon: LayoutDashboard },
   { title: "Asistente", to: "/chat", icon: MessageCircle },
-  { title: "Artículos", to: "/items", icon: ShoppingBasket },
-  { title: "Inventario", to: "/inventory-count", icon: Boxes },
-  { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit },
+  {
+    title: "Artículos",
+    icon: ShoppingBasket,
+    items: [
+      { title: "Catálogo", to: "/items", icon: ShoppingBasket },
+      { title: "Inventario", to: "/inventory-count", icon: Boxes },
+      { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit },
+      { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight },
+    ],
+  },
   { title: "Contactos", to: "/contacts", icon: Contact },
   { title: "Reportes", to: "/reports", icon: ChartPie },
-  { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight },
-  // Caja = POS dentro del propio panel (route group (pos), ruta /pos).
-  { title: "Caja", to: "/pos", icon: ScanBarcode },
+  { title: "Caja", to: "/pos", icon: ScanBarcode }, // Caja = POS dentro del propio panel...
 ]
 
 /**
