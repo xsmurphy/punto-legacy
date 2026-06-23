@@ -574,31 +574,32 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
           />
         </SidebarMenuButton>
       </SidebarMenuItem>
-      {wantOpen &&
-        group.items.map((sub) => {
-          const SubIcon = sub.icon
-          const isActive = isItemActive(sub.to, pathname)
-          return (
-            <SidebarMenuItem key={sub.to}>
-              <SidebarMenuButton
-                asChild
-                isActive={isActive}
-                tooltip={sub.title}
-                className="h-9 pl-7 text-sm [&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
-              >
-                <Link href={sub.to} onClick={onSubNavClick}>
-                  <SubIcon />
-                  <span>{sub.title}</span>
-                  {sub.badge ? (
-                    <Badge variant="secondary" className="ml-auto">
-                      {sub.badge}
-                    </Badge>
-                  ) : null}
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )
-        })}
+      {wantOpen && (
+        <div className="ml-[1.375rem] border-l border-border">
+          {group.items.map((sub) => {
+            const isActive = isItemActive(sub.to, pathname)
+            return (
+              <SidebarMenuItem key={sub.to}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isActive}
+                  tooltip={sub.title}
+                  className="h-9 pl-4 text-sm data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                >
+                  <Link href={sub.to} onClick={onSubNavClick}>
+                    <span>{sub.title}</span>
+                    {sub.badge ? (
+                      <Badge variant="secondary" className="ml-auto">
+                        {sub.badge}
+                      </Badge>
+                    ) : null}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })}
+        </div>
+      )}
     </>
   )
 }
