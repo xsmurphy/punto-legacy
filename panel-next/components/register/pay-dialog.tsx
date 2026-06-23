@@ -126,6 +126,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
   const tags = useCartStore((s) => s.tags)
+  const quoteParentId = useCartStore((s) => s.quoteParentId)
+  const setQuoteParent = useCartStore((s) => s.setQuoteParent)
   const clear = useCartStore((s) => s.clear)
   const total = useCartStore(selectCartTotal)
   const config = useCatalogStore((s) => s.config)
@@ -209,6 +211,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         customer,
         userId: null,
         tags,
+        quoteParentId,
       })
 
       setChange(changeAmount)
@@ -431,16 +434,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   }
 
   function handlePrint() {
-    console.log("[PayDialog] Imprimir ticket — stub, se implementa en Slice A5")
+    // TODO: imprimir ticket — Slice A5
   }
 
   function handleClose() {
     if (phase === "success") {
-      clear()
+      clear() // clear() ya resetea quoteParentId via initialState
       void api.post("/v1/screens?resource=publish", {
         type: "cart-cleared",
         data: {},
       }).catch(() => {})
+    } else {
+      // Venta abandonada — limpiar quoteParentId para que la próxima venta no herede el parent
+      setQuoteParent(null)
     }
     onOpenChange(false)
   }

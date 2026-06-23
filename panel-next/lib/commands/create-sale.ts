@@ -116,6 +116,11 @@ export interface CreateSalePayload {
   interno: boolean
   /** Etiquetas de texto libre asociadas a la venta. */
   tags: string[]
+  /**
+   * ID de la cotización que originó esta venta (si aplica).
+   * Permite al backend vincular la transacción hija con la cotización padre.
+   */
+  parentTransactionId?: string | null
 }
 
 export interface CreateSaleResult {
@@ -156,6 +161,11 @@ export interface BuildSaleInput {
   userId: string | null
   /** Etiquetas de texto libre asociadas a la venta. */
   tags: string[]
+  /**
+   * ID de cotización padre (cuando la venta es una conversión de cotización).
+   * Se envía como parentTransactionId al backend para vincular ambas transacciones.
+   */
+  quoteParentId?: string | null
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -165,7 +175,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId } = input
 
   const saleItems: SaleItem[] = lines.map((line) => ({
     itemId: line.itemId,
@@ -207,6 +217,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     note: null,
     interno,
     tags,
+    parentTransactionId: quoteParentId ?? null,
   }
 }
 
