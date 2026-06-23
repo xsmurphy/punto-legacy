@@ -17,6 +17,7 @@ import {
   Pencil,
   Barcode,
   Trash2,
+  Layers,
 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { EmptyState } from "@/components/empty-state"
@@ -82,9 +83,11 @@ function ItemsPageInner() {
   const parentId = searchParams.get("parent")
   const [kindFilter, setKindFilter] = React.useState<"all" | ItemKind>("all")
   const [showArchived, setShowArchived] = React.useState(false)
+  const [showVariants, setShowVariants] = React.useState(false)
   const { data, isLoading, error } = useItems({
     archived: showArchived,
     parentId: parentId ?? undefined,
+    includeVariants: showVariants,
   })
   const { data: bootstrap } = useBootstrap()
   const archive = useArchiveItem()
@@ -150,10 +153,20 @@ function ItemsPageInner() {
               ) : (
                 <Link
                   href={`/items/${row.original.itemId}`}
-                  className="font-medium hover:underline"
+                  className="font-medium hover:underline flex items-center gap-1.5"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {row.original.itemName || "(sin nombre)"}
+                  {row.original.hasVariants && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      Variantes ({row.original.variantCount ?? 0})
+                    </Badge>
+                  )}
+                  {row.original.variantParentId && (
+                    <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                      variante
+                    </Badge>
+                  )}
                 </Link>
               )}
             </div>
@@ -632,6 +645,15 @@ function ItemsPageInner() {
                     <SelectItem value="archived">Archivados</SelectItem>
                   </SelectContent>
                 </Select>
+                <Button
+                  variant={showVariants ? "default" : "outline"}
+                  size="sm"
+                  className="h-9 gap-1.5"
+                  onClick={() => setShowVariants((v) => !v)}
+                >
+                  <Layers className="size-3.5" />
+                  {showVariants ? "Ocultar variantes" : "Ver variantes"}
+                </Button>
               </>
             }
           />

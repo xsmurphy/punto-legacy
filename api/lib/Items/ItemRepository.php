@@ -103,6 +103,16 @@ final class ItemRepository
             return 'sold';
         }
 
+        // Guard: variantes activas impiden borrar el padre.
+        $vcRow = ncmExecute(
+            'SELECT COUNT(*) AS n FROM item WHERE "variantParentId" = ? AND "companyId" = ? AND "itemStatus" = 1',
+            [$id, $companyId]
+        );
+        $vcCount = (int) ($vcRow['n'] ?? 0);
+        if ($vcCount > 0) {
+            return 'referenced';
+        }
+
         // Solo borrar si está archivado (itemStatus=0) y pertenece a la company.
         $sql = "DELETE FROM item WHERE itemId = ? AND companyId = ? AND itemStatus = 0";
         $rs  = $this->db->Execute($sql, [$id, $companyId]);

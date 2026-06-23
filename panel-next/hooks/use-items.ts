@@ -17,20 +17,21 @@ import {
   type Taxonomy,
 } from "@/lib/types/item"
 
-export function useItems(opts?: { q?: string; archived?: boolean; parentId?: string }) {
+export function useItems(opts?: { q?: string; archived?: boolean; parentId?: string; includeVariants?: boolean }) {
   return useQuery<{
     items: ItemListItem[]
     total: number
     limit: number
     offset: number
   }>({
-    queryKey: ["items", opts?.q ?? "", opts?.archived ?? false, opts?.parentId ?? ""],
+    queryKey: ["items", opts?.q ?? "", opts?.archived ?? false, opts?.parentId ?? "", opts?.includeVariants ?? false],
     queryFn: () => {
       const params = new URLSearchParams({ limit: "200" })
       if (opts?.q) params.set("q", opts.q)
       if (opts?.archived) params.set("archived", "1")
       // parentId vacío → top-level (default). Con id explícito → hijos del grupo.
       if (opts?.parentId) params.set("parentId", opts.parentId)
+      if (opts?.includeVariants) params.set("includeVariants", "true")
       return api.get(`/v1/items?${params.toString()}`)
     },
     staleTime: 30 * 1000,

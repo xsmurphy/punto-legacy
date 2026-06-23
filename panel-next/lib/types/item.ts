@@ -117,6 +117,12 @@ export interface ItemListItem {
   itemParentId?: string | null
   /** Cuántos hijos activos tiene este grupo. 0 si no es grupo. */
   childCount?: number
+  /** Para el nuevo sistema de variantes (distinto de itemIsParent/itemParentId que son grupos). */
+  variantParentId?: string | null
+  hasVariants?: boolean
+  variantAttributes?: Record<string, string> | null
+  /** Count de variantes activas si hasVariants=true. */
+  variantCount?: number
   /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.
    * Incluyen itemUOM, itemDiscount, itemWaste, itemComissionPercent, itemEcom, etc. */
   itemUOM?: string | null

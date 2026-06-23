@@ -73,6 +73,10 @@ function presentItem(array $row): array
         'outletname'          => 'outletName',
         'coverimageurl'       => 'coverImageUrl',
         'childcount'          => 'childCount',
+        'variantparentid'     => 'variantParentId',
+        'hasvariants'         => 'hasVariants',
+        'variantattributes'   => 'variantAttributes',
+        'variantcount'        => 'variantCount',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -83,7 +87,7 @@ function presentItem(array $row): array
     // Normalizar booleanos: PG con PDO puede devolver 't'/'f' string en vez de
     // bool dependiendo del driver/version. Forzamos bool real para que el
     // frontend no tenga que adivinar.
-    foreach (['itemIsParent', 'itemTrackInventory', 'itemCanSale', 'itemProduction', 'itemTaxIncluded', 'itemEcom', 'itemFeatured', 'itemImage'] as $boolKey) {
+    foreach (['itemIsParent', 'itemTrackInventory', 'itemCanSale', 'itemProduction', 'itemTaxIncluded', 'itemEcom', 'itemFeatured', 'itemImage', 'hasVariants'] as $boolKey) {
         if (array_key_exists($boolKey, $out)) {
             $v = $out[$boolKey];
             if (is_string($v)) {
@@ -565,6 +569,38 @@ if ($resource === 'bulk-edit') {
     apiOk($report);
 }
 
+// ── Sub-recurso: variantes de producto ────────────────────────────────────────────────────
+// GET  /v1/items?resource=variants&parentId=<uuid>  → lista variantes activas del padre
+// POST /v1/items { action:"bulkUpsertVariants", parentId, variants:[...] } → bulk insert/update
+if ($resource === 'variants') {
+    if ($method !== 'GET') apiError('Method not allowed para /items?resource=variants', 405);
+    $parentId = trim((string) ($_GET['parentId'] ?? ''));
+    if ($parentId === '') apiError('parentId requerido', 422);
+    $variantSvc = new \Punto\Api\Items\VariantService($db);
+    $variants   = $variantSvc->listVariants($companyId, $parentId);
+    apiOk(['variants' => array_map(fn($v) => presentItem($v), $variants)]);
+}
+
+if ($method === 'POST' && !empty($_POST['action']) && $_POST['action'] === 'bulkUpsertVariants') {
+    $parentId = trim((string) ($_POST['parentId'] ?? ''));
+    $variants  = $_POST['variants'] ?? [];
+    if ($parentId === '') apiError('parentId requerido', 422);
+    if (!is_array($variants)) apiError('variants debe ser array', 422);
+
+    $variantSvc = new \Punto\Api\Items\VariantService($db);
+    try {
+        $variantSvc->validateParent($companyId, $parentId);
+        $result = $variantSvc->bulkUpsertVariants($companyId, $parentId, $variants);
+        if (function_exists('emitTenantEvent')) {
+            emitTenantEvent('item', ['action' => 'bulk_variant_upsert', 'parentId' => $parentId]);
+        }
+        apiOk(['variants' => array_map(fn($v) => presentItem($v), $result)]);
+    } catch (\RuntimeException $e) {
+        $code = $e->getCode() >= 400 ? $e->getCode() : 422;
+        apiError($e->getMessage(), $code);
+    }
+}
+
 // Defense-in-depth: cada case termina por apiOk/apiError (que llaman exit), así que el
 // fall-through no ocurre HOY — pero un break; en cada case previene un fall-through silente
 // si un futuro edit agrega una branch no-terminante.
@@ -602,6 +638,14 @@ switch ($method) {
             $where[] = 'itemParentId IS NULL';
         }
 
+        // Filtro de variantes (variantParentId).
+        // Por default, ocultar variantes del listado principal.
+        // ?includeVariants=true las incluye (toggle "Mostrar variantes").
+        $includeVariants = !empty($_GET['includeVariants']) && $_GET['includeVariants'] === 'true';
+        if (!$includeVariants) {
+            $where[] = 'variantParentId IS NULL';
+        }
+
         if (!empty($_GET['q'])) {
             $pattern  = '%' . $_GET['q'] . '%';
             $where[]  = '(itemName ILIKE ? OR itemSKU ILIKE ?)';
@@ -621,7 +665,7 @@ switch ($method) {
 
         // Prefijar el WHERE con el alias `i.` para que pegue en el JOIN.
         $whereSql = preg_replace(
-            '/\b(companyId|itemStatus|itemName|itemSKU|itemKind|itemType|itemParentId)\b/',
+            '/\b(companyId|itemStatus|itemName|itemSKU|itemKind|itemType|itemParentId|variantParentId)\b/',
             'i.$1',
             implode(' AND ', $where)
         );
@@ -634,12 +678,14 @@ switch ($method) {
                        i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
                        i.itemCanSale, i.itemTrackInventory, i.taxId,
                        i.itemIsParent, i.itemParentId,
+                       i.variantParentId, i.hasVariants, i.variantAttributes,
                        i.categoryId, i.brandId, i.outletId, i.data,
                        cat.taxonomyName AS categoryName,
                        brand.taxonomyName AS brandName,
                        o.outletName AS outletName,
                        cov.url AS coverImageUrl,
-                       COALESCE(ch.cnt, 0) AS childCount
+                       COALESCE(ch.cnt, 0) AS childCount,
+                       COALESCE(vc.vcnt, 0) AS variantCount
                   FROM item i
              LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
              LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
@@ -653,6 +699,10 @@ switch ($method) {
                   SELECT COUNT(*) AS cnt FROM item c
                    WHERE c.itemParentId = i.itemId AND c.itemStatus = 1
              ) ch ON true
+             LEFT JOIN LATERAL (
+                  SELECT COUNT(*) AS vcnt FROM item v
+                   WHERE v.variantParentId = i.itemId AND v.itemStatus = 1
+             ) vc ON true
                  WHERE $whereSql
                  ORDER BY i.itemDate DESC
                  LIMIT $limit OFFSET $offset";
@@ -821,6 +871,13 @@ switch ($method) {
             unset($patch['kind']);
         }
 
+        try {
+            $patch = $itemService->applyVariantRules($companyId, $patch, $id);
+        } catch (\RuntimeException $e) {
+            $code = $e->getCode() >= 400 ? $e->getCode() : 422;
+            apiError($e->getMessage(), $code);
+        }
+
         $ok = $itemService->update($id, $companyId, $patch);
         if (!$ok) apiError('Update falló', 500);
 
@@ -836,6 +893,16 @@ switch ($method) {
 
     case 'DELETE':
         if ($id === null) apiError('id es requerido para DELETE', 422);
+
+        // Validar que no tiene variantes activas antes de archivar.
+        $variantCountRow = ncmExecute(
+            'SELECT COUNT(*) AS n FROM item WHERE "variantParentId" = ? AND "companyId" = ? AND "itemStatus" = 1',
+            [$id, $companyId]
+        );
+        $variantCount = (int) ($variantCountRow['n'] ?? 0);
+        if ($variantCount > 0) {
+            apiError("Archivá las $variantCount variantes primero antes de archivar el padre.", 409);
+        }
 
         // hard=1 → hard-delete (solo para items archivados, sin ventas).
         // Default (sin hard) → soft-delete / archive.
