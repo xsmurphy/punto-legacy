@@ -117,11 +117,11 @@ export default function ChatPage() {
   if (!bootstrap) return null
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col gap-0">
+    <div className="flex h-[calc(100dvh-4rem)] flex-col gap-0">
       {/* Header de página — patrón estándar (items/contacts/etc.) */}
-      <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Asistente</h1>
+      <header className="mb-4 flex flex-row items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="truncate text-2xl font-semibold">Asistente</h1>
         </div>
         {messages.length > 0 && (
           <Tooltip>

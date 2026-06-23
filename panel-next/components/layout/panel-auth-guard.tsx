@@ -44,6 +44,7 @@ const panelNav: NavEntry[] = [
   { title: "Asistente", to: "/chat", icon: MessageCircle },
   {
     title: "Artículos",
+    to: "/items",
     icon: ShoppingBasket,
     items: [
       { title: "Catálogo", to: "/items", icon: ShoppingBasket },

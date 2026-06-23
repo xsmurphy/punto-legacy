@@ -58,6 +58,10 @@ export interface NavGroup {
   title: string
   icon: ComponentType<{ className?: string }>
   items: NavItem[]
+  /** Si se provee, el header del grupo actúa como link directo Y el chevron
+   *  es un botón separado (split-click). Sin `to`, se mantiene el modo legacy
+   *  donde click en cualquier parte del header sólo hace toggle. */
+  to?: string
 }
 
 export type NavEntry = NavItem | NavGroup
@@ -559,20 +563,50 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
 
   return (
     <>
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          isActive={childActive && !wantOpen}
-          tooltip={group.title}
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={wantOpen}
-          className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
-        >
-          <Icon />
-          <span className="flex-1 text-left">{group.title}</span>
-          <ChevronRight
-            className={cn("ml-auto transition-transform duration-200", wantOpen && "rotate-90")}
-          />
-        </SidebarMenuButton>
+      {/* Split-click: si `group.to` existe, el label navega y el chevron
+          hace toggle de forma independiente (dos zonas de tap distintas).
+          Si no hay `to`, el header completo hace toggle (modo legacy). */}
+      <SidebarMenuItem className={group.to ? "relative" : undefined}>
+        {group.to ? (
+          <>
+            <SidebarMenuButton
+              asChild
+              isActive={childActive}
+              tooltip={group.title}
+              className="h-10 pr-9 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+            >
+              <Link href={group.to} onClick={onSubNavClick}>
+                <Icon />
+                <span className="flex-1 text-left">{group.title}</span>
+              </Link>
+            </SidebarMenuButton>
+            <button
+              type="button"
+              aria-label="Expandir"
+              aria-expanded={wantOpen}
+              onClick={() => setOpen((o) => !o)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 z-10 rounded p-0.5 hover:bg-sidebar-accent/40"
+            >
+              <ChevronRight
+                className={cn("size-4 transition-transform duration-200", wantOpen && "rotate-90")}
+              />
+            </button>
+          </>
+        ) : (
+          <SidebarMenuButton
+            isActive={childActive && !wantOpen}
+            tooltip={group.title}
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={wantOpen}
+            className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+          >
+            <Icon />
+            <span className="flex-1 text-left">{group.title}</span>
+            <ChevronRight
+              className={cn("ml-auto transition-transform duration-200", wantOpen && "rotate-90")}
+            />
+          </SidebarMenuButton>
+        )}
       </SidebarMenuItem>
       {wantOpen && (
         <div className="ml-[1.375rem] border-l border-border">
