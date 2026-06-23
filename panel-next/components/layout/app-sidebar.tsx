@@ -174,56 +174,31 @@ export function AppSidebar({
             </button>
           )}
 
-          {/* WORDMARK — siempre Link al dashboard (comportamiento histórico
-              del logo). El selector de sucursal vive en su propio chevron
-              a la derecha, junto al SidebarTrigger. El badge ADMIN si
-              existe se renderea inline al lado del logo. */}
-          <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-            <Link
-              href="/"
-              aria-label="Ir al dashboard"
-              className="inline-flex items-center rounded-md transition-opacity hover:opacity-90"
-            >
-              <PuntoLogo variant="wordmark" />
-            </Link>
-            {scope === "Admin" && (
-              <Badge variant="outline" className="text-[10px] font-medium">
-                ADMIN
-              </Badge>
-            )}
-          </div>
-
-          {/* Spacer — empuja el chevron + trigger al borde derecho del
-              header. Se esconde collapsed (todo el bloque se centra). */}
-          <div className="flex-1 group-data-[collapsible=icon]:hidden" />
-
-          {/* CHEVRON selector de sucursal — solo si hay >1 outlets. Vive
-              pegado al SidebarTrigger a la derecha. Abre el DropdownMenu
-              alineado al borde derecho (align="end") para no salir del
-              sidebar. */}
-          {outlets.length > 1 && (
+          {/* WORDMARK + outlet selector — unified trigger when >1 outlets */}
+          {outlets.length > 1 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
                   aria-label="Cambiar sucursal"
-                  className="inline-flex size-7 items-center justify-center rounded-md transition-colors hover:bg-accent/50 cursor-pointer group-data-[collapsible=icon]:hidden"
+                  className="inline-flex items-center gap-2 rounded-md transition-opacity hover:opacity-90 cursor-pointer group-data-[collapsible=icon]:hidden"
                 >
+                  <PuntoLogo variant="wordmark" />
+                  {scope === "Admin" && (
+                    <Badge variant="outline" className="text-[10px] font-medium">
+                      ADMIN
+                    </Badge>
+                  )}
                   <ChevronsUpDown className="size-4 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
-                align="end"
-                // Width adaptable al nombre más largo. Cap superior para que
-                // un nombre absurdamente largo no desborde el viewport.
+                align="start"
                 className="w-auto max-w-sm"
               >
                 <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   Sucursales
                 </DropdownMenuLabel>
-                {/* "Todas las sucursales" — primero. El check sigue el
-                    `viewScope`: si es 'all' va acá; si es UUID o null
-                    cae en el item correspondiente más abajo. */}
                 {onSelectAllOutlets && (
                   <>
                     <DropdownMenuItem
@@ -268,6 +243,21 @@ export function AppSidebar({
                 })}
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : (
+            <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
+              <Link
+                href="/"
+                aria-label="Ir al dashboard"
+                className="inline-flex items-center rounded-md transition-opacity hover:opacity-90"
+              >
+                <PuntoLogo variant="wordmark" />
+              </Link>
+              {scope === "Admin" && (
+                <Badge variant="outline" className="text-[10px] font-medium">
+                  ADMIN
+                </Badge>
+              )}
+            </div>
           )}
 
           <SidebarTrigger className="size-7 cursor-pointer hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] group-data-[collapsible=icon]:hidden" />
