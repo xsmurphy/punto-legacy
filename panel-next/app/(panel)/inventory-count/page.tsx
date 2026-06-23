@@ -67,7 +67,7 @@ function NewSessionDialog() {
   const router  = useRouter()
   const [open, setOpen]             = React.useState(false)
   const [outletId, setOutletId]     = React.useState<string>("")
-  const [locationId, setLocationId] = React.useState<string>("")
+  const [locationId, setLocationId] = React.useState<string>("__none__")
   const [note, setNote]             = React.useState<string>("")
 
   const { data: outletsData } = useOutlets()
@@ -86,7 +86,7 @@ function NewSessionDialog() {
     try {
       const result = await create.mutateAsync({
         outletId,
-        locationId: locationId || undefined,
+        locationId: (locationId && locationId !== "__none__") ? locationId : undefined,
         note: note.trim() || undefined,
       })
       toast.success(`Sesión creada con ${result.itemCount} artículos`)
@@ -101,7 +101,7 @@ function NewSessionDialog() {
     setOpen(v)
     if (!v) {
       setOutletId("")
-      setLocationId("")
+      setLocationId("__none__")
       setNote("")
     }
   }
@@ -122,7 +122,7 @@ function NewSessionDialog() {
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="outlet">Sucursal</Label>
-            <Select value={outletId} onValueChange={(v) => { setOutletId(v); setLocationId("") }}>
+            <Select value={outletId} onValueChange={(v) => { setOutletId(v); setLocationId("__none__") }}>
               <SelectTrigger id="outlet">
                 <SelectValue placeholder="Seleccioná una sucursal" />
               </SelectTrigger>
@@ -144,7 +144,7 @@ function NewSessionDialog() {
                   <SelectValue placeholder="Todos los depósitos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos los depósitos</SelectItem>
+                  <SelectItem value="__none__">Todos los depósitos</SelectItem>
                   {(locations ?? []).map((l) => (
                     <SelectItem key={l.id} value={l.id}>
                       {l.name}
