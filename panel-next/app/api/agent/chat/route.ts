@@ -306,10 +306,38 @@ export async function POST(req: Request) {
             const params = new URLSearchParams({ limit: String(limit ?? 50) })
             if (from) params.set("from", from)
             if (to) params.set("to", to)
-            const res = await fetch(`${apiUrl}/v1/transactions?${params}`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/reports/transactions?${params}`, { headers: { cookie } })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
+          } catch (err) {
+            return { error: String(err) }
+          }
+        },
+      }),
+
+      get_top_products: tool({
+        description: "Lista los productos más vendidos del período. Útil para responder 'top N productos vendidos'.",
+        inputSchema: z.object({
+          from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
+          to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
+          limit: z.number().int().optional().default(10),
+        }),
+        execute: async ({ from, to, limit }) => {
+          try {
+            const params = new URLSearchParams({ view: "general" })
+            if (from) params.set("from", from)
+            if (to) params.set("to", to)
+            const res = await fetch(`${apiUrl}/v1/reports/products?${params}`, { headers: { cookie } })
+            if (!res.ok) return { error: `Error ${res.status}` }
+            const json = (await res.json()) as { data?: unknown }
+            const raw = (json?.data ?? json) as unknown
+            const rows = Array.isArray(raw)
+              ? raw
+              : Array.isArray((raw as { rows?: unknown[] })?.rows)
+                ? (raw as { rows: unknown[] }).rows
+                : []
+            return rows.slice(0, limit ?? 10)
           } catch (err) {
             return { error: String(err) }
           }

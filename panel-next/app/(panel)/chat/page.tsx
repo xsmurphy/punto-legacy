@@ -106,7 +106,10 @@ export default function ChatPage() {
     if (!text || isStreaming || hasNoCredits) return
     setInput("")
     sendMessage({ text })
-    if (taRef.current) taRef.current.style.height = "auto"
+    if (taRef.current) {
+      taRef.current.style.height = "auto"
+      taRef.current.focus()
+    }
   }
 
   function pickSuggestion(text: string) {
