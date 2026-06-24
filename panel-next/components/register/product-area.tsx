@@ -23,6 +23,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { useHotkeysStore, hotkeyColorBg, HOTKEY_COLORS, type Hotkey } from "@/lib/hotkeys/store"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { HotkeyAssignDialog } from "@/components/register/hotkey-assign-dialog"
+import { GroupItemsDialog } from "@/components/register/group-items-dialog"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
 // Grilla 6 columnas × 50 filas (300 slots), scroll vertical.
@@ -59,6 +60,9 @@ export function ProductArea() {
   // Slot cuyo diálogo de asignación está abierto (null = cerrado).
   const [assigningSlot, setAssigningSlot] = React.useState<number | null>(null)
 
+  // Grupo de catálogo seleccionado (abre GroupItemsDialog con sus hijos).
+  const [groupPicker, setGroupPicker] = React.useState<PosItem | null>(null)
+
   // Drag & drop nativo: posición de origen.
   const dragFrom = React.useRef<number | null>(null)
 
@@ -93,8 +97,16 @@ export function ProductArea() {
   }, [hotkeys])
 
   const categoryItems = React.useMemo(
-    () => (categoryId ? items.filter((i) => i.categoryId === categoryId) : []),
+    () =>
+      categoryId
+        ? items.filter((i) => i.categoryId === categoryId && i.parentId === null)
+        : [],
     [categoryId, items],
+  )
+
+  const groupChildren = React.useMemo(
+    () => (groupPicker ? items.filter((i) => i.parentId === groupPicker.id) : []),
+    [groupPicker, items],
   )
 
   // Al salir del modo edición, salir también del drill-in si hubiera.
@@ -111,10 +123,20 @@ export function ProductArea() {
       return
     }
     const item = itemById.get(h.itemId)
-    if (item) addItem({ id: item.id, name: item.name, price: item.price })
+    if (item) {
+      if (item.isGroup) {
+        setGroupPicker(item)
+        return
+      }
+      addItem({ id: item.id, name: item.name, price: item.price })
+    }
   }
 
   const handleProductClick = (item: PosItem) => {
+    if (item.isGroup) {
+      setGroupPicker(item)
+      return
+    }
     addItem({ id: item.id, name: item.name, price: item.price })
   }
 
@@ -283,6 +305,14 @@ export function ProductArea() {
         position={assigningSlot}
         onClose={() => setAssigningSlot(null)}
       />
+
+      {/* Diálogo de selección de hijo para grupos de catálogo. */}
+      <GroupItemsDialog
+        group={groupPicker}
+        items={groupChildren}
+        onClose={() => setGroupPicker(null)}
+        onPick={(it) => addItem({ id: it.id, name: it.name, price: it.price })}
+      />
     </div>
   )
 }
@@ -419,6 +449,11 @@ function ProductTile({ item, onClick }: { item: PosItem; onClick: () => void }) 
           {item.name}
         </span>
       </div>
+      {item.isGroup && (
+        <span className="absolute top-1 right-1 bg-black/60 text-white text-[10px] uppercase px-1.5 py-0.5 rounded font-medium leading-none">
+          Grupo
+        </span>
+      )}
       <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
     </button>
   )

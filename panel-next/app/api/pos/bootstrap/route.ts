@@ -126,6 +126,7 @@ interface UpstreamItemRow {
   itemCanSale?: boolean
   itemTrackInventory?: boolean
   itemIsParent?: boolean
+  itemParentId?: string | null
   itemTaxIncluded?: boolean
   itemUOM?: string | null
   taxId?: string | null
@@ -240,6 +241,8 @@ function reshapeItem(row: UpstreamItemRow): PosItem {
     // /v1/items no incluye stock — habría que componer con /v1/items?resource=inventory
     // por item o agregar un endpoint /v1/stock?outletId=X. Por ahora null = sin info.
     stock: null,
+    isGroup: row.itemIsParent === true,
+    parentId: row.itemParentId ?? null,
   }
 }
 
@@ -427,7 +430,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Items vendibles: itemStatus=1 (activo) + itemCanSale=true.
   // itemIsParent=true tiene dos significados: agrupadores de catálogo (canSale=false,
   // no pasan) y combos/packs (canSale=true, sí deben aparecer en el POS). La condición
-  // canSale ya descarta agrupadores — no se necesita el chequeo de isParent.
+  // canSale ya descarta agrupadores no-vendibles.
+  //
+  // Hijos de grupos (itemParentId != null, canSale=true) también pasan este filtro —
+  // el grid del POS los oculta del top-level y los muestra en GroupItemsDialog.
   const items: PosItem[] = itemsList.items
     .filter((i) => {
       const status = i.itemStatus

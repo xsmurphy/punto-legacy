@@ -85,6 +85,10 @@ export interface PosItem {
    * Rellenado por el BFF bootstrap desde el depósito del outlet.
    */
   stock: number | null
+  /** true si es un grupo de catálogo (itemIsParent=true). Click en POS abre dialog con hijos. No se vende. */
+  isGroup: boolean
+  /** UUID del padre si este item es hijo de un grupo (itemParentId). null si es top-level. */
+  parentId: string | null
 }
 
 // ── Cliente (para búsqueda en el POS) ────────────────────────────────────────
