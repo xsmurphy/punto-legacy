@@ -36,4 +36,9 @@ enum SaleType: int
     {
         return in_array($this, self::simplePathTypes(), true);
     }
+
+    public function isPosCreatable(): bool
+    {
+        return in_array($this, [self::Cashsale, self::Creditsale, self::Quote], true);
+    }
 }

@@ -61,6 +61,9 @@ import { useTeamMembers } from "@/hooks/use-team"
 import { useTags } from "@/hooks/use-tags"
 import { useSaveParkedSale } from "@/hooks/use-parked-sales"
 import { toast } from "sonner"
+import { createQuote } from "@/lib/commands/create-quote"
+import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
+import { useTransaction } from "@/hooks/use-transactions"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -86,6 +89,10 @@ export function SaleOptionsDrawer({
   const setDiscountPadMode = usePosUIStore((s) => s.setDiscountPadMode)
 
   const [activeDialog, setActiveDialog] = React.useState<ActiveDialog>(null)
+  const [quotePrintTxId, setQuotePrintTxId] = React.useState<string | null>(null)
+  const [isSavingQuote, setIsSavingQuote] = React.useState(false)
+
+  const { data: quoteTx } = useTransaction(quotePrintTxId)
 
   // Selectors for icon active state.
   const note = useCartStore((s) => s.note)
@@ -112,6 +119,28 @@ export function SaleOptionsDrawer({
   const handleCancel = () => {
     setOpen(false)
     onCancelSale()
+  }
+
+  const handleSaveAsQuote = async () => {
+    const { lines, customer, note: cartNote, tags } = useCartStore.getState()
+    if (lines.length === 0) {
+      toast.error("No hay ítems para guardar")
+      return
+    }
+    setOpen(false)
+    setIsSavingQuote(true)
+    try {
+      const result = await createQuote({ lines, customer, userId: null, note: cartNote, tags })
+      useCartStore.getState().clear()
+      toast.success(`Cotización #${result.transactionNo} guardada`)
+      setQuotePrintTxId(result.transactionId)
+    } catch (e) {
+      toast.error("No se pudo guardar la cotización", {
+        description: e instanceof Error ? e.message : String(e),
+      })
+    } finally {
+      setIsSavingQuote(false)
+    }
   }
 
   // ── Opciones de la venta ───────────────────────────────────────────────────
@@ -171,7 +200,9 @@ export function SaleOptionsDrawer({
       key: "quote",
       label: "Cotización",
       icon: FileText,
-      stub: true,
+      action: () => {
+        void handleSaveAsQuote()
+      },
     },
     {
       key: "remission",
@@ -248,6 +279,7 @@ export function SaleOptionsDrawer({
                   icon={opt.icon}
                   stub={opt.stub}
                   active={opt.active}
+                  disabled={opt.key === "quote" && isSavingQuote}
                   onClick={() => {
                     if (opt.stub) return
                     opt.action?.()
@@ -291,6 +323,15 @@ export function SaleOptionsDrawer({
       />
 
       <TagsDialog open={activeDialog === "tags"} onClose={closeDialog} />
+
+      {quoteTx && (
+        <QuotePrintViewDialog
+          tx={quoteTx}
+          config={null}
+          open={Boolean(quotePrintTxId)}
+          onOpenChange={(v) => { if (!v) setQuotePrintTxId(null) }}
+        />
+      )}
     </>
   )
 }
@@ -303,6 +344,7 @@ function OptionRow({
   stub,
   destructive,
   active,
+  disabled,
   onClick,
 }: {
   label: string
@@ -310,19 +352,21 @@ function OptionRow({
   stub?: boolean
   destructive?: boolean
   active?: boolean
+  disabled?: boolean
   onClick: () => void
 }) {
+  const isDisabled = stub || disabled
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={stub}
+      disabled={isDisabled}
       title={stub ? "Próximamente" : undefined}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[15px] transition-colors",
         destructive
           ? "text-destructive hover:bg-destructive/10"
-          : stub
+          : isDisabled
             ? "cursor-not-allowed text-muted-foreground/50"
             : "text-foreground hover:bg-muted",
       )}
@@ -332,7 +376,7 @@ function OptionRow({
           "size-5 shrink-0",
           destructive
             ? "text-destructive"
-            : stub
+            : isDisabled
               ? "text-muted-foreground/40"
               : active
                 ? "text-primary"

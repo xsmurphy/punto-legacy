@@ -148,6 +148,62 @@ final class SaleInput
     }
 
     /**
+     * Construye SaleInput para una cotización (type=9).
+     * No requiere payment. No llama assertSimplePathEligible.
+     */
+    public static function fromQuotePayload(array $raw): self
+    {
+        $payload = $raw['transaction'] ?? $raw;
+        if (isset($raw['uid']) && !isset($payload['uid'])) {
+            $payload['uid'] = $raw['uid'];
+        }
+
+        $uid = (string) ($payload['uid'] ?? '');
+        if ($uid === '') {
+            throw new InvalidSaleInputException('Falta uid en el payload');
+        }
+
+        if (!isset($payload['type']) || !is_numeric($payload['type'])) {
+            throw new InvalidSaleInputException('Falta type numérico en el payload');
+        }
+        $type = SaleType::tryFrom((int) $payload['type']);
+        if ($type !== SaleType::Quote) {
+            throw new InvalidSaleInputException('fromQuotePayload requiere type=9');
+        }
+
+        $sale = $payload['sale'] ?? [];
+        if (!is_array($sale) || empty($sale)) {
+            throw new InvalidSaleInputException('sale debe ser array no vacío');
+        }
+
+        $date = (string) ($payload['date'] ?? '');
+        if ($date === '') {
+            throw new InvalidSaleInputException('Falta date en el payload');
+        }
+
+        return new self(
+            uid:        $uid,
+            type:       $type,
+            sale:       $sale,
+            subtotal:   (float) ($payload['subtotal'] ?? 0),
+            tax:        (float) ($payload['tax']      ?? 0),
+            discount:   (float) ($payload['discount'] ?? 0),
+            payment:    [],
+            date:       $date,
+            timestamp:  (int) ($payload['timestamp'] ?? 0),
+            clientId:   !empty($payload['client'])    ? (string) $payload['client']    : null,
+            userId:     !empty($payload['user'])       ? (string) $payload['user']      : null,
+            note:       !empty($payload['note'])       ? (string) $payload['note']      : null,
+            ident:      !empty($payload['ident'])      ? (string) $payload['ident']     : null,
+            dueDate:    !empty($payload['dueDate'])    ? (string) $payload['dueDate']   : null,
+            currency:   !empty($payload['currency'])   ? (string) $payload['currency']  : null,
+            status:     self::normalizeStatus($payload['status'] ?? null),
+            tags:       self::normalizeTags($payload['tags'] ?? null),
+            taxObj:     isset($payload['taxObj']) && is_array($payload['taxObj']) ? $payload['taxObj'] : null,
+        );
+    }
+
+    /**
      * Rechaza payloads que NO son venta simple (cashsale/creditsale puro).
      *
      * Paths diferidos a sub-slices futuros — si alguno aparece, lanzamos
