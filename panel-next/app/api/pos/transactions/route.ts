@@ -59,11 +59,15 @@ async function proxyToApi(
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const { searchParams } = req.nextUrl
   const date = searchParams.get("date")
-  const limit = searchParams.get("limit") ?? "50"
+  const limit = searchParams.get("limit") ?? "30"
+  const offset = searchParams.get("offset") ?? "0"
+  const q = searchParams.get("q") ?? ""
 
   const qs = new URLSearchParams({ resource: "mainList" })
   if (date) qs.set("date", date)
   qs.set("limit", limit)
+  qs.set("offset", offset)
+  if (q) qs.set("q", q)
 
   return proxyToApi("GET", `/v1/transactions.php?${qs.toString()}`, req)
 }

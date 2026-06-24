@@ -557,9 +557,14 @@ final class TransactionService
         string  $roleId,
         ?string $encCustomerId,
         ?string $date,
-        int     $limit
+        int     $limit,
+        int     $offset = 0,
+        string  $q = ''
     ): array {
         global $dec, $ts;
+
+        $limit  = min(100, max(1, $limit));
+        $offset = max(0, $offset);
 
         $where  = ['companyId = ?'];
         $params = [$companyId];
@@ -585,10 +590,19 @@ final class TransactionService
             $params[] = $date . ' 00:00:00';
             $params[] = $date . ' 23:59:59';
             $limit    = 2000;
+            $offset   = 0;
+        }
+
+        if ($q !== '') {
+            $where[]  = '(invoiceNo::text ILIKE ? OR transactionId::text ILIKE ?)';
+            $like     = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
+            $params[] = $like;
+            $params[] = $like;
         }
 
         $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
-             . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
+             . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit
+             . ' OFFSET ' . (int) $offset;
         $rs  = $this->db->Execute($sql, $params);
 
         // First pass: collect IDs and row references for batch subquery
@@ -699,16 +713,23 @@ final class TransactionService
             $dateStr = niceDate($f['transactionDate'] ?? '', true);
 
             $out['transactionsList'][] = [
-                'id'          => enc($trsId),
-                'title'       => $name . ' ' . $customerD,
-                'date'        => $dateStr,
-                'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
-                'amount'      => $inTotal,
-                'label'       => $typeOfSale,
-                'type'        => $f['transactionType'],
-                'borderColor' => $stat,
+                'id'              => enc($trsId),
+                'title'           => $name . ' ' . $customerD,
+                'customerName'    => $customerD,
+                'date'            => $dateStr,
+                'rawDate'         => (string) ($f['transactionDate'] ?? ''),
+                'docNumber'       => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                'invoiceNo'       => (string) ($f['invoiceNo'] ?? ''),
+                'invoicePrefix'   => (string) ($f['invoicePrefix'] ?? ''),
+                'amount'          => $inTotal,
+                'rawTotal'        => $tTotal,
+                'label'           => $typeOfSale,
+                'type'            => $f['transactionType'],
+                'borderColor'     => $stat,
             ];
         }
+
+        $out['hasMore'] = !$date && count($rows) === $limit;
 
         $ecuid = $encCustomerId ?? '';
         if (!empty($out['transactionsList'])) {

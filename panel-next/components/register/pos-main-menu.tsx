@@ -95,6 +95,7 @@ import {
 import { toast } from "sonner"
 import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
+import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -239,6 +240,9 @@ export function PosMainMenu() {
   // Estado para el Sheet de devoluciones
   const [returnSheetOpen, setReturnSheetOpen] = React.useState(false)
 
+  // Estado para el Dialog de transacciones
+  const [transactionsOpen, setTransactionsOpen] = React.useState(false)
+
   // Resetear la sección al cerrar el modal para la próxima apertura.
   const handleOpenChange = (v: boolean) => {
     setOpen(v)
@@ -317,6 +321,11 @@ export function PosMainMenu() {
                   if (key === "devoluciones") {
                     setOpen(false)
                     setReturnSheetOpen(true)
+                    return
+                  }
+                  if (key === "transactions") {
+                    setOpen(false)
+                    setTransactionsOpen(true)
                     return
                   }
                   if (onSelect) {
@@ -409,6 +418,8 @@ export function PosMainMenu() {
       </Dialog>
       {/* Sheet de devoluciones — fuera del Dialog del menú para no anidar modales */}
       <PosReturnSheet open={returnSheetOpen} onOpenChange={setReturnSheetOpen} />
+      {/* Dialog de transacciones — fuera del Dialog del menú para no anidar modales */}
+      <PosTransactionsDialog open={transactionsOpen} onOpenChange={setTransactionsOpen} />
     </MenuContentCtx.Provider>
   )
 }
