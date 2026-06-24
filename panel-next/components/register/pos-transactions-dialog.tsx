@@ -45,6 +45,16 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
 import { cn } from "@/lib/utils"
 import type { PosTransactionListItem } from "@/lib/types/pos-transactions"
+import { toast } from "sonner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { useCartStore } from "@/lib/cart/store"
+import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -164,7 +174,7 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
             }}
             onDateClear={() => setSelectedDate(undefined)}
           />
-          <TransactionDetail encId={selectedId} />
+          <TransactionDetail encId={selectedId} onClose={handleClose} />
         </div>
       </DialogContent>
     </Dialog>
@@ -213,7 +223,7 @@ function TransactionList({
         <h2 className="text-base font-semibold">Transacciones</h2>
         <div className="flex gap-2">
           <Input
-            placeholder="Buscar..."
+            placeholder="Buscar por cliente, comprobante o ID..."
             value={searchInput}
             onChange={(e) => onSearchChange(e.target.value)}
             className="flex-1 h-8 text-sm"
@@ -344,9 +354,17 @@ function TransactionRow({
 
 // ── Detalle ───────────────────────────────────────────────────────────────────
 
-function TransactionDetail({ encId }: { encId: string | null }) {
+function getActionConfig(typeNum: number, debt: number): { label: string; disabled: boolean } {
+  if (typeNum === 9) return { label: "Facturar", disabled: true }
+  if (typeNum === 3 && debt > 0) return { label: "Pagar", disabled: true }
+  return { label: "Duplicar", disabled: false }
+}
+
+function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: () => void }) {
   const { data: detail, isLoading } = usePosTransactionDetail(encId)
   const config = useCatalogStore((s) => s.config)
+  const addLines = useCartStore((s) => s.addLines)
+  const [quotePdfOpen, setQuotePdfOpen] = React.useState(false)
 
   if (!encId) {
     return (
@@ -378,6 +396,33 @@ function TransactionDetail({ encId }: { encId: string | null }) {
   const discount = Number(detail.discount ?? 0)
   const total = Number(detail.total ?? 0)
 
+  const debt = detail.creditPayments?.debt ?? 0
+  const actionConfig = getActionConfig(typeNum, debt)
+
+  function handleDuplicate() {
+    const validItems = items.filter((i) => i.status !== 0)
+    if (validItems.length === 0) {
+      toast.error("La transaccion no tiene items para duplicar")
+      return
+    }
+    addLines(
+      validItems.map((i) => ({
+        itemId: i.itemId,
+        name: i.name,
+        qty: i.count,
+        unitPrice: i.price,
+        discount: i.discount > 0 ? i.discount : undefined,
+      }))
+    )
+    onClose()
+    toast.success("Items duplicados al carrito")
+  }
+
+  function handleReprint() {
+    toast.info(`Reimprimir #${docLabel || (detail?.transactionId ?? "")} — abriendo vista de impresion...`)
+    window.print()
+  }
+
   return (
     <TooltipProvider>
       <div className="flex flex-col h-full min-h-0 border-l">
@@ -398,28 +443,51 @@ function TransactionDetail({ encId }: { encId: string | null }) {
                   {detail.name || "Sin nombre"}
                 </p>
               </div>
-              {/* Acciones (T1: todas disabled) */}
+              {/* Acciones */}
               <div className="flex gap-2 shrink-0">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button variant="outline" size="sm" disabled>
-                        Anular
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Proximamente</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button variant="ghost" size="icon" disabled className="size-8">
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Proximamente</TooltipContent>
-                </Tooltip>
+                {actionConfig.disabled ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button variant="outline" size="sm" disabled>
+                          {actionConfig.label}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Proximamente</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={handleDuplicate}>
+                    {actionConfig.label}
+                  </Button>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="size-8">
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={handleReprint}>
+                      Reimprimir
+                    </DropdownMenuItem>
+                    {typeNum === 9 && (
+                      <DropdownMenuItem onSelect={() => setQuotePdfOpen(true)}>
+                        Ver PDF
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled>
+                      Anular
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      Devolucion
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      Agregar
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             {detail.date && (
@@ -523,6 +591,14 @@ function TransactionDetail({ encId }: { encId: string | null }) {
           )}
         </div>
       </div>
+      {typeNum === 9 && quotePdfOpen && (
+        <QuotePrintViewDialog
+          tx={detail}
+          config={config}
+          open={quotePdfOpen}
+          onOpenChange={setQuotePdfOpen}
+        />
+      )}
     </TooltipProvider>
   )
 }
