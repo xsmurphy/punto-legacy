@@ -23,11 +23,11 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 // --- GET → lista de ventas guardadas del usuario/outlet --------------------
 if ($method === 'GET') {
     $rows = ncmExecute(
-        $db,
         'SELECT id, data, "createdAt" FROM parked_sale'
         . ' WHERE "companyId"=? AND "outletId"=? AND "userId"=?'
         . ' ORDER BY "createdAt" DESC',
         [$companyId, $outletId, $userId],
+        false,
         true
     );
     $result = [];
@@ -50,10 +50,10 @@ if ($method === 'POST') {
     }
     $dataJson = json_encode($body['data']);
     $id = ncmExecute(
-        $db,
         'INSERT INTO parked_sale ("companyId", "outletId", "userId", data)'
         . ' VALUES (?, ?, ?, ?::jsonb) RETURNING id, "createdAt"',
         [$companyId, $outletId, $userId, $dataJson],
+        false,
         true
     );
     if (!$id || $id->EOF) {
@@ -73,7 +73,6 @@ if ($method === 'DELETE') {
         apiError('Falta id', 422);
     }
     ncmExecute(
-        $db,
         'DELETE FROM parked_sale WHERE id=? AND "companyId"=?',
         [$saleId, $companyId]
     );
