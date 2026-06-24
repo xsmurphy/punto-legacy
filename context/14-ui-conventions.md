@@ -43,9 +43,32 @@ información mostrar. La forma visual sale de los patrones de panel-next.
 | `<Input>` | `h-9` (size default de shadcn) | `h-8 text-sm` (apretado, no-shadcn) |
 | `<Button>` | `size="default"` (h-9) / `size="sm"` (h-8) / `size="lg"` / `size="icon"` | `className="h-8 w-8 p-0"` custom |
 | `<Badge>` | `variant="default|secondary|destructive|outline"` | colores hardcoded |
-| `<DialogContent>` | shadcn lo size con `sm:max-w-lg` por default; usar `sm:max-w-2xl`/`3xl`/`4xl` si necesita más | `max-w-[95vw] w-[95vw] h-[90vh]` hardcoded |
+| `<DialogContent>` | usar la escala de Regla #2.1 abajo | `max-w-[Xvw]` hardcoded |
 
 **Cuándo sí sobreescribir**: cuando lo justifica una restricción real (mobile dense, POS touch-first con dedo de cajero, tabla con muchas columnas). En ese caso **documentar en comentario inline** (`// h-12 porque botón se opera con dedo en tablet`).
+
+### Regla #2.1 — Escala de tamaños de modales/sheets
+
+shadcn `<DialogContent>` viene con `sm:max-w-lg` por default (32rem / 512px). **Ese tamaño es chico para casi todos los casos del proyecto.** Pensar en estos buckets:
+
+| Bucket | Clase Tailwind | Cuándo usarlo |
+|---|---|---|
+| `xs` | `sm:max-w-md` (28rem / 448px) | Confirmación / alert con 1-2 líneas y 2 botones (ej. `<AlertDialog>` de eliminar) |
+| `sm` | `sm:max-w-lg` (32rem / 512px) | shadcn default. Form de **un solo campo** (ej. renombrar). Casi nunca. |
+| **`m`** | **`sm:max-w-2xl` (42rem / 672px)** | **DEFAULT del proyecto.** Form típico, dialog con varios campos, edición simple. **Siempre arrancá acá.** |
+| `l` | `sm:max-w-4xl` (56rem / 896px) | Listados, tablas, contenido tabular, formularios complejos en 2 columnas |
+| `xl` | `sm:max-w-6xl` (72rem / 1152px) | Modal split 2-col (lista + detalle), dashboards, vistas amplias |
+
+**Regla operativa**:
+- **Por default arrancá en `m` (`sm:max-w-2xl`)**. NO en el `sm:max-w-lg` que viene de shadcn por default.
+- Subí el tamaño solo si el contenido lo pide (más columnas, split, listado largo).
+- Bajá a `xs` solo para alerts/confirmaciones.
+- Para alto: dejar al contenido. Solo poner `max-h-[Xvh]` con `overflow-y-auto` si el contenido puede exceder el viewport.
+- Para `Sheet` (lateral): por default `side="right"` con `sm:max-w-2xl` también (no el `sm:max-w-sm` default).
+
+**Anti-patrón detectado (2026-06-24)**: modal del listado de transacciones POS con `max-w-[95vw] w-[95vw] h-[90vh]` hardcoded. **Mal**. Eso replica el legacy. Lo correcto: `sm:max-w-6xl` para split 2-col, alto del contenido.
+
+**Si el `<Dialog>` no acepta override de tamaño** (componente shadcn que envuelve y fuerza): editá el componente base en `panel-next/components/ui/dialog.tsx` para aceptar `size="xs|sm|m|l|xl"` como prop, default `m`. Esa edición vale el cost porque elimina la fricción.
 
 ---
 
