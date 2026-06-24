@@ -25,6 +25,7 @@ proporcional al riesgo de la tarea:
 | Infra, deploy, env vars | `06-infraestructura.md` |
 | Glosario | `07-glosario.md` |
 | **Convenciones críticas** | `08-convenciones-criticas.md` (241 L — invariantes nada más) |
+| **Convenciones UI / Design system** | `14-ui-conventions.md` (lectura OBLIGATORIA antes de tocar JSX/TSX) |
 | Costos / créditos IA | `09-costos-y-creditos.md` |
 | **Roadmap (vivo)** | `10-roadmap.md` (699 L) |
 | Manual de marca | `11-design-system.md` |
@@ -69,6 +70,15 @@ directo al código — no los invoques por protocolo.
 3. **No hardcodear dominios/URLs.** Deben venir de `simple.config.php` →
    `$_ENV[...]` (`APP_URL`, `API_URL`, etc.). CORS es security-sensitive:
    cualquier cambio debe preservar la allowlist actual como fallback.
+
+4. **Design system — shadcn default, NO copiar legacy visual.** Cualquier JSX/TSX
+   nuevo en `panel-next/` respeta `context/14-ui-conventions.md`: tipografía
+   canónica (`h1=text-2xl font-semibold`, etc.), componentes shadcn sin
+   sobreescribir tamaños sin razón documentada, `<DataTable>` para listados
+   largos, `<EmptyState>` para vacíos, sin hex colors (excepto pedidos
+   explícitos), formatos vía helpers, sin emojis. **Screenshots del legacy son
+   referencia funcional, NO visual.** El brief de un sub-agente debe leer §14
+   antes de tocar JSX y FLAGEAR en el reporte si el brief contradice la regla.
 
 ---
 
