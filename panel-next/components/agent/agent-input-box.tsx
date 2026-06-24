@@ -69,15 +69,15 @@ export const AgentInputBox = React.forwardRef<
               key={att.id}
               className="flex items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-xs"
             >
-              {att.kind === "tabular" ? (
-                <FileSpreadsheet className="size-4 text-muted-foreground" />
-              ) : att.thumbnailDataUrl ? (
+              {att.kind === "image" && att.thumbnailDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={att.thumbnailDataUrl}
                   alt=""
                   className="size-8 rounded object-cover"
                 />
+              ) : att.kind === "tabular" ? (
+                <FileSpreadsheet className="size-4 text-muted-foreground" />
               ) : (
                 <FileText className="size-4 text-muted-foreground" />
               )}
