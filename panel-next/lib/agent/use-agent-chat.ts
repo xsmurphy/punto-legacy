@@ -7,6 +7,10 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useChatHistoryStore, useChatHistoryHydrated } from "./chat-history-store"
 import type { StoredMessage } from "./chat-history-store"
 import { messageHasCredential, redactMessage } from "./redact-credentials"
+import type { AttachmentDraft } from "./attachment-types"
+import { detectKind } from "./attachment-types"
+import { parseTabularToCsv } from "./parse-tabular"
+import { uploadTabular, generateImageThumbnail } from "./upload-attachment"
 
 /** Tiempo de vida de un mensaje con credencial en el thread vivo. */
 const CREDENTIAL_TTL_MS = 60_000
@@ -30,6 +34,7 @@ const ACTION_TO_QUERY_KEYS: Record<string, readonly string[][]> = {
   create_category: [["categories"], ["taxonomies"]],
   create_brand: [["brands"], ["taxonomies"]],
   create_tag: [["tags"], ["taxonomies"]],
+  tabular_import: [["contacts"], ["items"]],
 }
 
 /** Fallback cuando no podemos resolver la acción desde el thread (ej. register
@@ -184,5 +189,49 @@ export function useAgentChat({
     scheduledRef.current.clear()
   }, [chat, clearStored])
 
-  return { ...chat, clear }
+  const [attachments, setAttachments] = React.useState<AttachmentDraft[]>([])
+
+  const processAttachment = React.useCallback(async (draft: AttachmentDraft): Promise<void> => {
+    const update = (patch: Partial<AttachmentDraft>) =>
+      setAttachments((prev) => prev.map((a) => (a.id === draft.id ? { ...a, ...patch } : a)))
+
+    update({ status: "uploading" })
+
+    try {
+      if (draft.kind === "tabular") {
+        const csvFile = await parseTabularToCsv(draft.file)
+        const result  = await uploadTabular(csvFile)
+        update({ status: "ready", ...result })
+      } else if (draft.kind === "image") {
+        const thumbnailDataUrl = await generateImageThumbnail(draft.file)
+        update({ status: "ready", thumbnailDataUrl })
+      } else {
+        update({ status: "error", error: "Solo Excel/CSV e imágenes por ahora" })
+      }
+    } catch (e) {
+      update({ status: "error", error: e instanceof Error ? e.message : "Error al procesar archivo" })
+    }
+  }, [])
+
+  const addAttachment = React.useCallback((file: File): void => {
+    const draft: AttachmentDraft = {
+      id:       crypto.randomUUID(),
+      file,
+      kind:     detectKind(file),
+      status:   "pending",
+      filename: file.name,
+    }
+    setAttachments((prev) => [...prev, draft])
+    void processAttachment(draft)
+  }, [processAttachment])
+
+  const removeAttachment = React.useCallback((id: string): void => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id))
+  }, [])
+
+  const clearAttachments = React.useCallback((): void => {
+    setAttachments([])
+  }, [])
+
+  return { ...chat, clear, attachments, addAttachment, removeAttachment, clearAttachments }
 }

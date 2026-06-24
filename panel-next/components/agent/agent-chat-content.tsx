@@ -39,7 +39,7 @@ export function AgentChatContent({
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const [tick, setTick] = React.useState(0)
 
-  const { messages, sendMessage, status, error } = useAgentChat({
+  const { messages, sendMessage, status, error, attachments, addAttachment, removeAttachment, clearAttachments } = useAgentChat({
     companyName,
     outletName,
   })
@@ -85,9 +85,43 @@ export function AgentChatContent({
 
   function handleSend() {
     const text = input.trim()
-    if (!text || isStreaming || hasNoCredits) return
+    if (!text && (!attachments || attachments.length === 0)) return
+    if (isStreaming || hasNoCredits) return
+
+    const readyTabular = (attachments ?? []).filter(
+      (a) => a.kind === "tabular" && a.status === "ready" && a.sessionId
+    )
+
+    let fullText = text
+    if (readyTabular.length > 0) {
+      const attachInfo = readyTabular.map((att) => {
+        const colLine     = att.columns ? `columnas: ${att.columns.join(", ")}` : ""
+        const sampleLines = (att.sample ?? [])
+          .map((row) => row.join(" | "))
+          .join("\n     ")
+        return (
+          `- ${att.filename ?? att.file.name} (tabular, ${Math.round(att.file.size / 1024)}KB)\n` +
+          `  sessionId: ${att.sessionId}, ${att.rowCount ?? "?"} filas, ${colLine}\n` +
+          (sampleLines ? `  Muestra (primeras filas):\n     ${sampleLines}` : "")
+        )
+      }).join("\n")
+
+      const itemHeaders = "KIND,NOMBRE,SKU,MARCA,CATEGORIA,ETIQUETAS,DESCRIPCION,COSTO,PRECIO,IMPUESTO,SUCURSAL,DESCUENTO_PCT,UOM,MERMA_PCT,COMISION_PCT,STOCK_MINIMO"
+      const contactHeaders = "TIPO,NOMBRE,TELEFONO,EMAIL,RUC_CI,DIRECCION,NOTAS"
+
+      fullText =
+        `[Adjuntos]\n${attachInfo}\n\n` +
+        `Si el usuario pide importar, llamá la tool confirm_action con action="tabular_import" y payload={sessionId, kind:"items"|"contacts", mapping, mode:"insert"|"update"}. ` +
+        `El mapping mapea cada campo canónico a la columna de origen del archivo. ` +
+        `Headers canónicos items: ${itemHeaders}. ` +
+        `Headers canónicos contactos: ${contactHeaders}. ` +
+        `Si las columnas ya coinciden, mapping=null.\n\n` +
+        (text ? text : "")
+    }
+
     setInput("")
-    sendMessage({ text })
+    clearAttachments()
+    sendMessage({ text: fullText })
     if (taRef.current) taRef.current.style.height = "auto"
   }
 
@@ -201,6 +235,9 @@ export function AgentChatContent({
           onSend={handleSend}
           disabled={isStreaming || hasNoCredits}
           placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : undefined}
+          attachments={attachments}
+          onAddFiles={(files) => files.forEach(addAttachment)}
+          onRemoveAttachment={removeAttachment}
         />
       </div>
     </div>

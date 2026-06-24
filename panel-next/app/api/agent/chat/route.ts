@@ -80,7 +80,20 @@ export async function POST(req: Request) {
     `**Usuario:** {login}\n` +
     `**Contraseña:** {tempPassword}\n\n` +
     `⏳ Esta contraseña se ocultará en 60 segundos por seguridad. Guardala antes.\n\n` +
-    `NO repitas la contraseña en otros mensajes. NO la escribas en explicaciones largas. NO inventes que el sistema "borra" mensajes — solo esta única respuesta es sensible y el cliente la oculta automáticamente.`
+    `NO repitas la contraseña en otros mensajes. NO la escribas en explicaciones largas. NO inventes que el sistema "borra" mensajes — solo esta única respuesta es sensible y el cliente la oculta automáticamente.\n\n` +
+    `## Importación de archivos tabulares\n\n` +
+    `Cuando el message del usuario incluya "[Adjuntos]" con un sessionId tabular:\n\n` +
+    `1. Identificá si el usuario quiere importar los datos (frases como "importá esto", "carga estos clientes", "agregá estos productos", "subí este archivo", "importar", etc.)\n` +
+    `2. Si sí: determiná el kind correcto:\n` +
+    `   - Si mencionan "clientes", "proveedores", "contactos" → kind="contacts"\n` +
+    `   - Si mencionan "productos", "artículos", "items", "inventario" → kind="items"\n` +
+    `   - Si no está claro, preguntá: "¿Son artículos/productos o contactos (clientes/proveedores)?"\n` +
+    `3. Determiná el mapping: si los headers del archivo ya coinciden con los canónicos del importer, mapping=null. Si no, construí el mapping {campoCanónico: columnaDelArchivo}.\n` +
+    `4. Determiná el mode: default "insert". Si el usuario dice "actualizar", "modificar precios", "sincronizar" → mode="update".\n` +
+    `5. Llamá confirm_action con action="tabular_import", payload={sessionId, kind, mapping, mode}, summary="Importar N filas a [artículos/contactos] (modo [insert/update])".\n` +
+    `6. Esperá la confirmación explícita del usuario antes de proceder.\n` +
+    `7. Cuando el usuario confirme, llamá confirm_action con {confirmToken} para ejecutar.\n` +
+    `8. Reportá el resultado: "Se importaron X artículos/contactos. Y actualizados. Z errores." Si hay errores, listalos.`
 
   const modelMessages = await convertToModelMessages(messages)
 
