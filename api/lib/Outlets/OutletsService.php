@@ -357,6 +357,7 @@ final class OutletsService
             'address'     => (string) ($r['outletAddress'] ?? ''),
             'status'      => (int) ($r['outletStatus'] ?? 0),
             'ecom'        => !empty($r['outletEcom']),
+            'outletDate'  => $r['outletCreationDate'] ?? null,
         ];
         if ($full) {
             $row['email']           = (string) ($r['outletEmail'] ?? '');

@@ -110,7 +110,22 @@ export default function OutletsPage() {
         },
         meta: { className: "w-24" },
       },
+      {
+        accessorKey: "outletDate",
+        header: "Fecha",
+        enableSorting: true,
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null | undefined
+          return v ? new Intl.DateTimeFormat("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
+        },
+        meta: { label: "Fecha", className: "tabular-nums whitespace-nowrap" },
+      },
     ],
+    [],
+  )
+
+  const initialColumnVisibility = React.useMemo(
+    () => ({ outletDate: false }),
     [],
   )
 
@@ -145,6 +160,7 @@ export default function OutletsPage() {
         tableId="outlets"
         data={filteredRows}
         columns={columns}
+        initialColumnVisibility={initialColumnVisibility}
         getRowId={(r) => r.id}
         onRowClick={(r) => router.push(`/outlets/${r.id}`)}
         isLoading={isLoading}

@@ -19,6 +19,7 @@ export interface OutletListItem {
   address: string
   status: number
   ecom: boolean
+  outletDate?: string | null
 }
 
 export interface OutletFull extends OutletListItem {
