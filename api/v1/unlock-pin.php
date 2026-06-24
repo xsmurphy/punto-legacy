@@ -26,25 +26,45 @@ if (!preg_match('/^\d{4}$/', $pin)) {
     apiError('PIN inválido', 422);
 }
 
-// ncmExecute devuelve la fila directa (no [fila]) cuando el resultado es 1 row.
-$row = ncmExecute(
-    "SELECT contactId, contactName
+// Buscar candidatos con lockPassHash (bcrypt) o lockPass (plano, compat).
+// No se puede filtrar por PIN en SQL porque bcrypt no es reversible.
+$rs = ncmExecute(
+    'SELECT "contactId", "contactName", "lockPassHash", "lockPass"
        FROM contact
-      WHERE companyId = ?
+      WHERE "companyId" = ?
         AND type = 0
-        AND contactStatus = 1
-        AND lockPass = ?
-      LIMIT 1",
-    [COMPANY_ID, $pin]
+        AND "contactStatus" = 1
+        AND ("lockPassHash" IS NOT NULL OR "lockPass" IS NOT NULL)
+      LIMIT 100',
+    [COMPANY_ID],
+    false,
+    true
 );
 
-if (!$row) {
+$found = null;
+if ($rs) {
+    while (!$rs->EOF) {
+        $row  = (array) $rs->fields;
+        $hash  = $row['lockpasshash'] ?? $row['lockPassHash'] ?? null;
+        $plain = $row['lockpass']     ?? $row['lockPass']     ?? null;
+        if ($hash !== null && password_verify($pin, (string) $hash)) {
+            $found = $row;
+            break;
+        } elseif ($hash === null && $plain !== null && $plain === $pin) {
+            $found = $row;
+            break;
+        }
+        $rs->MoveNext();
+    }
+}
+
+if (!$found) {
     apiError('PIN incorrecto', 401);
 }
 
 apiOk([
     'user' => [
-        'id'   => (string) ($row['contactid'] ?? $row['contactId'] ?? ''),
-        'name' => (string) ($row['contactname'] ?? $row['contactName'] ?? ''),
+        'id'   => (string) ($found['contactid']   ?? $found['contactId']   ?? ''),
+        'name' => (string) ($found['contactname'] ?? $found['contactName'] ?? ''),
     ],
 ]);
