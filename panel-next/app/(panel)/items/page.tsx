@@ -66,6 +66,7 @@ import {
   type ItemKind,
   type ItemListItem,
 } from "@/lib/types/item"
+import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 
 export default function ItemsPage() {
   // useSearchParams() requiere Suspense boundary durante prerender (Next 15+
@@ -110,6 +111,20 @@ function ItemsPageInner() {
     if (kindFilter === "all") return rows
     return rows.filter((r) => r.kind === kindFilter)
   }, [data, kindFilter])
+
+  useAgentPageSnapshot(
+    {
+      route: "/items",
+      routeLabel: "Listado de artículos",
+      summary: {
+        carpeta: parentId ?? null,
+        tipoFiltro: kindFilter !== "all" ? kindFilter : null,
+        archivedVisible: showArchived,
+        filasVisibles: filteredRows.length,
+      },
+    },
+    [parentId, kindFilter, showArchived, filteredRows.length],
+  )
 
   const columns = React.useMemo<ColumnDef<ItemListItem>[]>(
     () => [

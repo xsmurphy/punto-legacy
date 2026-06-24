@@ -100,6 +100,7 @@ import {
   type ItemKind,
   type KindFieldVisibility,
 } from "@/lib/types/item"
+import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
@@ -235,6 +236,30 @@ export default function ItemEditPage() {
   const updateItemBrands = useUpdateItemBrands()
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const updateItemTags = useUpdateItemTags()
+
+  useAgentPageSnapshot(
+    isNew
+      ? {
+          route: "/items/new",
+          routeLabel: "Creando artículo nuevo",
+          summary: {},
+        }
+      : data
+      ? {
+          route: `/items/${id}`,
+          routeLabel: `Editando artículo: ${data.itemName}`,
+          summary: {
+            itemId: id,
+            nombre: data.itemName,
+            tipo: data.kind,
+            sku: data.itemSKU,
+            precio: data.itemPrice,
+            activo: data.itemStatus === 1,
+          },
+        }
+      : null,
+    [id, isNew, data?.itemName, data?.kind, data?.itemSKU, data?.itemPrice, data?.itemStatus],
+  )
 
   React.useEffect(() => {
     if (isNew || !data) return

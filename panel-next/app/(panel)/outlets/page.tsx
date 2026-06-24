@@ -20,6 +20,7 @@ import {
 import { useOutlets } from "@/hooks/use-outlets"
 import type { OutletListItem } from "@/lib/types/outlet"
 import { EmptyState } from "@/components/empty-state"
+import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 
 export default function OutletsPage() {
   const router = useRouter()
@@ -34,6 +35,18 @@ export default function OutletsPage() {
     if (statusFilter === "inactive") return rows.filter((r) => r.status !== 1)
     return rows
   }, [data, statusFilter])
+
+  useAgentPageSnapshot(
+    {
+      route: "/outlets",
+      routeLabel: "Listado de sucursales",
+      summary: {
+        filtroEstado: statusFilter,
+        filasVisibles: filteredRows.length,
+      },
+    },
+    [statusFilter, filteredRows.length],
+  )
 
   const columns = React.useMemo<ColumnDef<OutletListItem>[]>(
     () => [

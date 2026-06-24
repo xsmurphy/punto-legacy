@@ -16,10 +16,18 @@ export async function POST(req: Request) {
   const cookie = req.headers.get("cookie") ?? ""
   const apiUrl = process.env.API_URL ?? ""
 
+  type PageSnapshot = {
+    route: string
+    routeLabel: string
+    summary: Record<string, unknown>
+  }
+
   let body: {
     messages?: UIMessage[]
     companyName?: string
     outletName?: string
+    pathname?: string
+    snapshot?: PageSnapshot
   }
   try {
     body = await req.json()
@@ -27,7 +35,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Body inválido" }, { status: 400 })
   }
 
-  const { messages = [], companyName = "", outletName = "" } = body
+  const { messages = [], companyName = "", outletName = "", pathname, snapshot } = body
 
   // Elegir modelo desde la config del tenant (fail-safe: deepseek por defecto)
   let modelId = "deepseek/deepseek-chat"
@@ -70,6 +78,15 @@ export async function POST(req: Request) {
   const today = new Date().toISOString().slice(0, 10)
   const system =
     `Sos el asistente de ${companyName}${outletName ? ` (sucursal ${outletName})` : ""} dentro de Punto, un sistema de punto de venta. Hoy es ${today}. Ayudás a consultar y analizar datos del negocio, y también podés crear o modificar registros cuando el usuario lo pide. Respondé siempre en español. Sé conciso y claro. Cuando necesites datos usá las tools disponibles.\n\n` +
+    (pathname ? `Ruta actual del operador en el panel: ${pathname}.\n` : "") +
+    (snapshot
+      ? (() => {
+          const raw = JSON.stringify(snapshot.summary)
+          const capped = raw.length > 800 ? raw.slice(0, 800) + "..." : raw
+          return `Contenido visible en pantalla — ${snapshot.routeLabel}:\n${capped}\n`
+        })()
+      : "") +
+    (pathname || snapshot ? "\n" : "") +
     `Para acciones que modifican datos (crear contacto, ítem, usuario, categoría, marca, etiqueta, o cambiar precio): ` +
     `1) Llamá la tool "confirm_action" con action+payload+summary para generar un token de confirmación. ` +
     `2) Mostrá el resumen al usuario y pedí confirmación explícita. ` +
