@@ -292,7 +292,8 @@ final class DrawerService
              ORDER BY drawerOpenDate DESC LIMIT 1",
             [$registerId, $outletId, $companyId]
         );
-        return $row ?: null;
+        if (!$row) return null;
+        return $row instanceof \CaseInsensitiveArray ? $row->toArray() : (array) $row;
     }
 
     /**
