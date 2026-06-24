@@ -64,6 +64,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-002",
@@ -79,6 +81,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-003",
@@ -94,6 +98,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
 
   // Minutas
@@ -111,6 +117,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-005",
@@ -126,6 +134,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-006",
@@ -141,6 +151,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
 
   // Bebidas con alcohol
@@ -158,6 +170,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: true,
     stock: 24,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-008",
@@ -173,6 +187,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: true,
     stock: -3,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-009",
@@ -188,6 +204,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: true,
     stock: 0,
+    isGroup: false,
+    parentId: null,
   },
 
   // Promos
@@ -205,6 +223,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-011",
@@ -220,6 +240,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
 
   // Pizzas Gourmet
@@ -237,6 +259,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-013",
@@ -252,6 +276,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-014",
@@ -267,6 +293,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
   {
     id: "item-015",
@@ -282,6 +310,8 @@ export const fixtureItems: PosItem[] = [
     kind: "product",
     trackInventory: false,
     stock: null,
+    isGroup: false,
+    parentId: null,
   },
 ]
 

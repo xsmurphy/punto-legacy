@@ -57,6 +57,9 @@ export function ProductSearchDialog({
   const setQuery = usePosUIStore((s) => s.setItemSearchQuery)
   const clearQuery = usePosUIStore((s) => s.clearItemSearchQuery)
 
+  // Estado de vista de hijos de un grupo (null = vista de resultados normal).
+  const [viewingGroup, setViewingGroup] = React.useState<PosItem | null>(null)
+
   // Solo autofocus al abrir — no limpiamos el query para preservar la búsqueda.
   React.useEffect(() => {
     if (open) {
@@ -66,13 +69,23 @@ export function ProductSearchDialog({
   }, [open])
 
   // Vacío = sin lista (solo el input). Solo busca cuando hay texto.
+  // Excluye hijos de grupos del top-level de resultados.
   const trimmed = query.trim()
   const results = React.useMemo(
-    () => (trimmed ? searchItems(items, trimmed, 50) : []),
+    () => (trimmed ? searchItems(items.filter((i) => i.parentId === null), trimmed, 50) : []),
     [items, trimmed],
   )
 
+  const groupChildItems = React.useMemo(
+    () => (viewingGroup ? items.filter((i) => i.parentId === viewingGroup.id) : []),
+    [viewingGroup, items],
+  )
+
   function handleSelect(item: PosItem) {
+    if (item.isGroup) {
+      setViewingGroup(item)
+      return
+    }
     addItem({ id: item.id, name: item.name, price: item.price })
     // No cerramos el modal — el cajero puede seguir agregando productos.
     // Limpiamos la búsqueda y devolvemos el foco al input para el siguiente artículo.
@@ -81,7 +94,7 @@ export function ProductSearchDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setViewingGroup(null); onOpenChange(v) }}>
       <DialogContent
         className="top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg"
         showCloseButton={false}
@@ -107,9 +120,41 @@ export function ProductSearchDialog({
         </div>
 
         {/* ── Resultados: panel separado (gap del padre) ── */}
-        {trimmed.length > 0 && (
+        {(trimmed.length > 0 || viewingGroup) && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
-            {results.length === 0 ? (
+            {viewingGroup ? (
+              <>
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setViewingGroup(null)}
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    ← Volver
+                  </button>
+                  <span className="text-sm font-medium">{viewingGroup.name}</span>
+                </div>
+                {groupChildItems.length === 0 ? (
+                  <EmptyState
+                    icon={SearchX}
+                    title="Sin artículos"
+                    description="Este grupo no tiene artículos asociados."
+                    showMarquee={false}
+                  />
+                ) : (
+                  <ul role="listbox" aria-label={`Artículos de ${viewingGroup.name}`} className="overflow-y-auto py-1">
+                    {groupChildItems.map((item) => (
+                      <ProductResultRow
+                        key={item.id}
+                        item={item}
+                        config={config}
+                        onSelect={() => handleSelect(item)}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : results.length === 0 ? (
               <EmptyState
                 icon={SearchX}
                 title="Sin resultados"
@@ -188,8 +233,13 @@ function ProductResultRow({
 
         {/* Nombre + categoría */}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">
-            {item.name}
+          <p className="truncate text-sm font-medium text-foreground flex items-center gap-1.5">
+            <span className="truncate">{item.name}</span>
+            {item.isGroup && (
+              <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-medium uppercase text-muted-foreground leading-none">
+                Grupo
+              </span>
+            )}
           </p>
           {item.categoryName && (
             <p className="truncate text-xs text-muted-foreground">
