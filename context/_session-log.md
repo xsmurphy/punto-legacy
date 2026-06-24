@@ -3,6 +3,14 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-23 (tarde) — AI-8 + AI-9: Chat Attachments + Tabular Import
+
+Implementadas dos features del agente IA: attachments infra (AI-8) y tabular import vía chat (AI-9). Se crearon ImportSession.php (Redis-backed, TTL 3600), ContactImporter.php (nuevo importer CSV para contactos), dos endpoints PHP (/v1/imports/upload y run), y se extendió el flujo confirm/execute con la acción `tabular_import`. En el front: attachment-types.ts, parse-tabular.ts (XLSX→CSV via SheetJS), upload-attachment.ts (usa api.postForm BFF same-origin), chips UI en AgentInputBox, state management en useAgentChat, message enrichment en AgentChatContent, y sección de instrucciones en el system prompt del route.ts. Pendiente para AI-10: imágenes (análisis visual), AI-11: PDFs/docs.
+
+## 2026-06-23 — Sprint retail completo: módulos inventario/devoluciones + variantes + realtime fix + AuthSentinel + POS UX
+
+Commits `f8d782e..902de84` (~110). 10 fases en una jornada: módulos retail nuevos (Conteo Inventario mig46, Ajustes Stock, Transferencias mig47, Devoluciones POS, CRUD Cajas, Depósitos en outlet); Variantes Phase 1 (mig48: `variantParentId`/`hasVariants`/`variantAttributes`, matriz cartesiana en UI); Phase B transacciones POS (CreditPaymentService, QuotePrintView, tabs docs asociados); AuthSentinel global 401 vía `api:unauthorized` CustomEvent; fix crítico Redis AUTH en `wsPublish` (prod tenía realtime mudo); fix PG column casing en 7 services legacy (camelCase quoted → lowercase sin quotes); realtime `refetchType:"active"` + 11 entities nuevas en `realtimeAfterMutation`; sidebar consolidado (Artículos colapsable, Contactos NavGroup, dropdown lateral en modo colapsado, logo+chevron unified trigger); polish POS (NumericPad as-you-type, cart extras con X, íconos Opciones pintados, toast top-center); agente IA: AI-7 WS invalidations + fix `get_transactions` endpoint.
+
 ## 2026-06-21 — Mega sprint: catálogo m2m + realtime + checkout screen + reports rollup + agente IA
 
 Commits `793613c..645f9cb` (44). 5 ejes mayores en 3 días (context/14–18): migs 37–43 (tags/item_tag, customer_display, report_rollup+rollup_dirty, item_sales/payments rollup, ai_model_config); realtime sync panel↔POS vía WS singleton + `useRealtimeSync`; checkout screen completo (pairing → live → confirmed → idle, Redis vía fsockopen+RESP); rollup pre-agregado gateado por `REPORTS_ROLLUP_ENABLED` (RB-1+RB-2, cutover 5 reportes); agente IA AI-1..AI-3b (OpenRouter+DeepSeek, 13 tools con confirmToken, historial Zustand persist con `onFinishHydration`, UI ChatGPT-style + mobile Sheet). Hitos infra: dominio migrado a `app.punto.la`; 4 memorias nuevas (jwt_two_tokens, ai_agent_openrouter, ai_agent_scope, reports_rollup). Pendientes: smoke tests prod, calibración pricing agente, RB-3, AI-4/AI-5, UI cajas en /settings/devices.

@@ -249,4 +249,4 @@ Feedback del owner sobre AI-3 entregado: el FAB verde es agresivo (el brand verd
 
 ## Cronología de commits
 
-(Se completa a medida que se ejecuta cada slice.)
+- 2026-06-23 AI-8+AI-9: 200363a — chat attachments infra + tabular import items/contacts
