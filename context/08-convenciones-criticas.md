@@ -325,6 +325,28 @@ WHERE "outletId" = :outletId AND "companyId" = :companyId
 
 Causó bug en prod con 7 services nuevos (fix en commit `7a59ac2`): `StockAdjustmentService`, `StockTransferService`, `InventoryCountService`, `ReturnService`, `LocationTaxonomyService`, `VariantService`, `ItemService::applyVariantRules`. Las validaciones de tenant fallaban silenciosamente devolviendo "outletId inválido".
 
+## §46 — PG BOOLEAN vs int/string — cluster de bugs 2026-06-24
+
+Las columnas BOOLEAN de tablas legacy (`transactioncomplete`, `itemcansale`, `itemtrackinventory`, etc.) **no aceptan `0/1` ni `"0"/"1"` en ningún contexto**. El error es silencioso en WHERE (devuelve 0 filas) o explícito en SET/INSERT (type mismatch). Reglas:
+
+- **SQL inline**: usar `TRUE` / `FALSE` o `IS TRUE` / `IS NOT TRUE`.
+  ```sql
+  WHERE itemtrackinventory IS TRUE   -- correcto
+  WHERE itemtrackinventory >= 1      -- incorrecto — SQL error silente
+  WHERE transactioncomplete = TRUE   -- correcto
+  WHERE transactioncomplete = 1      -- incorrecto — pg error
+  ```
+- **PHP AutoExecute / ncmInsert arrays**: usar `true` / `false` PHP (el wrapper los serializa a `TRUE`/`FALSE`).
+  ```php
+  'itemCanSale' => true   // correcto
+  'itemCanSale' => 1      // incorrecto — falla en INSERT
+  ```
+- **`UPDATE … SET col = ?`**: el bind de PDO con `1` sobre columna BOOLEAN puede fallar según driver. Usar `TRUE`/`FALSE` inline en el string SQL.
+
+Causó 7 bugs en sprint retail 2026-06-23/24 (CreditPayment, VPayment, reports, PurchasesService, TransactionsService, Customer.php, functions.php). Fix en commits `5044ecf`, `df66e37`.
+
+---
+
 ## §45 — Redis AUTH en `wsPublish` (infra crítica)
 
 `app/includes/ws_publish.php` parsea el `REDIS_URL` para extraer `user` y `pass`, y pipelinea `AUTH <pass>` antes de `PUBLISH`. Sin esto, prod tiene realtime completamente mudo porque el Redis de Coolify requiere autenticación.

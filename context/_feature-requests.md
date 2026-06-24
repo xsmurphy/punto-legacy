@@ -5,6 +5,143 @@
 
 # Feature requests — clientes
 
+## 2026-06-24 — pendientes Panel (owner → desarrollo, lista vieja)
+
+Lista de bugs/feature requests del panel-next que el owner mandó en sesiones
+anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
+— auditoría inicial pendiente.
+
+### Bulk edit items
+- **Opción "Quitar"** en el form de edición masiva — hoy solo permite cambiar categoría/marca/tax pero no eliminar el valor existente.
+- **Lista no refresca al instante** al hacer bulk edit — requiere F5.
+
+### Realtime
+- **Barra de categorías no se actualiza en tiempo real** — necesita hard reload.
+- **Nuevas funciones de Items no funcionan** (descripción vaga del owner — necesita aclaración).
+
+### Bugs visibles
+- `/stock-transfer/new` — error `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string`.
+- `/inventory-count` — error `outletId invalido para este tenant` aunque la sucursal seleccionada estaba correcta.
+- `/stock-adjustment` — 422 al agregar items (`POST /v1/stock_adjustment`).
+
+### Sidebar
+- **Contactos como NavGroup** con sub-secciones: Clientes, Proveedores, Usuarios.
+
+---
+
+## 2026-06-24 — pendientes POS (segundo batch, owner)
+
+### Bugs P0
+- **Guardar venta falla** — toast "No se pudo guardar la venta" al confirmar. Posible nuevo bug del sprint retail (similar a los boolean-vs-int de hoy). Investigar logs prod.
+
+### Numpad / cantidades
+- **Primer keystroke = reemplazo**, no append. Hoy: abre con `5`, presiono `3` → muestra `53`. Esperado: `3`.
+- **Numpad virtual cierra modal** al presionar — bug.
+- **Softkeyboards visibles solo si el operador los activa en Ajustes** — útiles solo en pantallas touch; default OFF.
+- **SHIFT togglea entero ↔ decimales (3 decimales)** para cantidades — gramos, comida por peso, etc. (Ya estaba pedido en el primer batch; reconfirmar que funcione en runtime, la auditoría dijo ✓ pero el owner dice que algo está mal.)
+
+### Inconsistencia de diseño POS
+- **Modal "Agregar usuario" tiene dos UI distintas** según desde dónde se abra:
+  - Desde un ítem en el listado de venta (`<LineSellerDialog>`)
+  - Desde el menú "Opciones de venta" → Usuario (`<UserDialog>` de `sale-options-drawer`)
+- Ninguno tiene **buscador**. Con 50+ usuarios se vuelve inusable.
+- Unificar a un solo componente reusable con buscador.
+
+---
+
+## 2026-06-24 — pendientes POS (primer batch, owner → desarrollo)
+
+Lista de cambios pedidos para el módulo POS (`app/(pos)/pos` en panel-next).
+Una de varias listas que el owner mandó en sesiones anteriores. Sin priorización
+todavía. Auditoría inicial pendiente para marcar qué está implementado.
+
+### Bootstrap / cache local
+- **Cargar todo al inicio del POS en localStorage** (clientes, usuarios, bootstrap, config, items). El lockscreen valida PIN contra el array local de usuarios, no contra la API.
+- **Bug PIN del master no acepta** — solo el PIN de un usuario funciona, el del master no.
+
+### Visual
+- **Color del category bar #22252A** (el neutro de botones).
+
+### Catálogo
+- **Faltan artículos en la caja** — no aparecen los agrupados. Verificar que carguen todos los vendibles.
+
+### UX listados
+- **Empty state** en búsqueda de items y de clientes cuando no hay resultados.
+- **No limpiar el input de búsqueda** al cerrar el modal de items/clientes.
+- **Toast "Bienvenido {nombre}"** después de PIN, no solo "Bienvenido".
+
+### Cart / venta
+- Click en ítem de venta → opciones → **botón "agregar usuario" debe abrir modal con lista de usuarios**.
+- Botón modificar cantidad: **número más pequeño** + **SHIFT togglea decimales** (gramos/medidas).
+- Descuento por ítem y por venta: **modal numérico**, default moneda (ej. 2.500), **SHIFT togglea %** (ej. 10%).
+- **Descuento de venta solo aplica a items presentes al momento de añadirlo** — items agregados después no se afectan. Items con descuento individual tampoco son afectados por el descuento de venta.
+- **Confirm nativo del navegador** al cerrar/refrescar si hay items en la lista de venta.
+- **Tab de ventas en curso visible en caja** — para retomarlas sin ir al listado de transacciones (en legacy había que ir hasta ahí).
+
+### Modal de pago
+- Mostrar **monto total convertido a las otras monedas configuradas** (según cotizaciones del panel) debajo de los botones.
+- **Línea secundaria con Giftcard + Crédito interno**. Giftcard pide código del cliente, valida no vencida + no usada, **consumo total en una sola transacción** (es crédito a favor).
+
+### Apertura de caja
+- Si el cajero quiere vender con caja cerrada, **primero pedir monto de apertura**, después mostrar modal de pago. Hoy va directo al pago.
+
+### Datos / auditoría
+- **Transacciones con timestamp completo** (hora+minuto+segundo). Hoy aparecen en 0.
+
+### Listado de Transacciones en /pos
+
+Modal full-width split 2 col, ver screenshots del owner (2026-06-24).
+Diseño con design system de Punto, NO copiar visual del legacy.
+
+**Izquierda — lista:**
+- Header "Transacciones" + date picker single-day (limpiable, default sin fecha → últimas N)
+- Input search único — matchea cliente Y `transactionNo`
+- Filas: nombre cliente (o "Sin Nombre") + monto + subtexto `fecha hora #comprobante` + badge tipo
+- Badges: Contado (neutro), Crédito (destructive), Cotización (warning)
+- Botón "Cargar más" al final — paginación tradicional offset/limit
+
+**Derecha — detalle:**
+- Header: etiqueta tipo + fecha venc si aplica + cliente + RUC + `#comprobante` + fecha completa
+- Botón principal **dinámico por tipo**:
+  - Contado/Crédito sin deuda → **DUPLICAR** (merge items al cart actual)
+  - Cotización → **FACTURAR** (carga items al cart para convertir)
+  - Crédito con deuda > 0 → **PAGAR** (reutiliza `CreditPaymentService`)
+- Menú "…": Anular · Agregar · Devolución · Reimprimir · Ver PDF
+- Cards `Pagado` / `Deuda` arriba si es crédito
+- Card items: cantidad, nombre, vendedor, precio. Combos con sub-líneas indentadas `↳`
+- Descuento + **TOTAL** grande
+- Tabla pagos abajo: Método / Identificador / Monto
+
+**"Agregar"**: merge items de la transacción con el cart en curso (suma al carrito actual, no reemplaza).
+**"Duplicar"**: mismo merge pero implicitamente espera nueva venta; el cajero decide si la convierte en venta, cotización, orden, etc.
+
+**Plan de slices:**
+- T1 — modal + lista paginada + buscador + datepicker + detalle (read-only)
+- T2 — Duplicar + Reimprimir + Ver PDF
+- T3 — Facturar (cotización) + Pagar (crédito)
+- T4 — Anular + Devolución
+- T5 — Agregar (merge to cart)
+
+---
+
+### Opciones de venta (sección "Opciones")
+Catálogo definitivo:
+- **Imprimir** — imprime la venta en curso (depende del módulo de impresión).
+- **Descuento Global** — aplica al precio de cada item, NO al total. Ej: 2 items de 10.000 con 10% global → cada uno pasa a 9.000. El total siempre es la sumatoria.
+- **Nota** — modal con textarea.
+- **Usuario** — asigna usuario a todos los items de la venta (caso de uso: cajero asigna el ejecutor del servicio para cálculo de comisiones).
+- **Etiquetas** — añade etiquetas a la venta.
+- **Guardar** — guarda el estado actual para retomarla más adelante (parked sale).
+- **Moneda** — QUITAR, no se usa.
+- **Devolución (nota de crédito)** — QUITAR, va dentro de una transacción específica.
+- **Cotización** — guarda la transacción como cotización (luego se puede convertir a factura).
+- **Remisión** — genera una nota de remisión.
+- **Cita** — entra en modo agendamiento; aparece en el calendario.
+- **Orden** — entra en modo orden; aparece en el módulo de órdenes; luego se convierte a factura.
+- **Lista de precios** — selecciona la lista de precio activa para la venta actual.
+
+---
+
 ## 2026-06-16 — batch comercial (soporte → owner)
 
 Lista compilada por soporte tras múltiples contactos con clientes que pidieron paridad con el panel legacy y features nuevas. Sin priorización todavía — pendiente decisión del owner sobre cuáles entran al sprint del rewrite y cuáles esperan.
