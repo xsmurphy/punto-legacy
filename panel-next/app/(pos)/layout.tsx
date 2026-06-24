@@ -1,6 +1,7 @@
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { PanelAuthGuard } from "@/components/layout/panel-auth-guard"
 import { PosSidebarProvider } from "@/components/layout/pos-sidebar-provider"
+import { PosUnauthorizedSentinel } from "@/components/pos/pos-unauthorized-sentinel"
 
 /**
  * Layout del POS — vive dentro del shell del panel (mismo AppSidebar + auth)
@@ -25,6 +26,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
            * right-[...] + bottom-[...] alinea con el margen del carrito.
            */}
           <SidebarTrigger className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
+          <PosUnauthorizedSentinel />
           {children}
         </SidebarInset>
       </PanelAuthGuard>

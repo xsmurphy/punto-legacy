@@ -103,9 +103,14 @@ async function request<T>(
     // Emitir evento global para que AuthSentinel lo capture — cubre todos los
     // 401 del api-client, no solo el de useBootstrap.
     if (res.status === 401 && typeof window !== "undefined") {
+      const backendCode = envelope?.error?.code
+      const isPosRoute =
+        path.startsWith("/api/pos/") ||
+        path.startsWith("/v1/pos/") ||
+        path.startsWith("/pos/")
       window.dispatchEvent(
-        new CustomEvent("api:unauthorized", {
-          detail: { path, message: backendMsg ?? "" },
+        new CustomEvent(isPosRoute ? "pos:unauthorized" : "api:unauthorized", {
+          detail: { path, message: backendMsg ?? "", code: backendCode },
         }),
       )
     }
