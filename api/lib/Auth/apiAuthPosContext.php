@@ -24,6 +24,10 @@ function apiAuthPosContext(): array
     if ($deviceCookie !== '') {
         $ctx = DeviceAuth::validateJwt($deviceCookie);
         if ($ctx !== null) {
+            // Verificar que la empresa no esta bloqueada (igual que apiAuthTenant hace via bootstrap.php:89)
+            if (!checkCompanyStatus($ctx['companyId'])) {
+                apiError('Company Blocked', 403);
+            }
             // Definir las constantes que los endpoints esperan
             if (!defined('COMPANY_ID'))  define('COMPANY_ID',  $ctx['companyId']);
             if (!defined('OUTLET_ID'))   define('OUTLET_ID',   $ctx['outletId']);

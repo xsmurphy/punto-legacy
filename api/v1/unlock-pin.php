@@ -26,35 +26,52 @@ if (!preg_match('/^\d{4}$/', $pin)) {
     apiError('PIN inválido', 422);
 }
 
-// Buscar candidatos con lockPassHash (bcrypt) o lockPass (plano, compat).
-// No se puede filtrar por PIN en SQL porque bcrypt no es reversible.
+// Estrategia dual durante backfill:
+// (a) bcrypt: iterar todos los usuarios con lockPassHash y verificar en PHP.
+// (b) plain fallback: buscar directamente por lockPass (solo pre-backfill, LIMIT 1).
+// Separar en 2 queries evita traer lockPass plano a memoria innecesariamente
+// y elimina el timing oracle (el branch plano no compite con el bcrypt).
+$found = null;
+
+// (a) bcrypt: no filtrable en SQL, verificar en PHP
 $rs = ncmExecute(
-    'SELECT "contactId", "contactName", "lockPassHash", "lockPass"
+    'SELECT "contactId", "contactName", "lockPassHash"
        FROM contact
       WHERE "companyId" = ?
         AND type = 0
         AND "contactStatus" = 1
-        AND ("lockPassHash" IS NOT NULL OR "lockPass" IS NOT NULL)
-      LIMIT 100',
+        AND "lockPassHash" IS NOT NULL',
     [COMPANY_ID],
     false,
     true
 );
-
-$found = null;
 if ($rs) {
     while (!$rs->EOF) {
         $row  = (array) $rs->fields;
-        $hash  = $row['lockpasshash'] ?? $row['lockPassHash'] ?? null;
-        $plain = $row['lockpass']     ?? $row['lockPass']     ?? null;
+        $hash = $row['lockpasshash'] ?? $row['lockPassHash'] ?? null;
         if ($hash !== null && password_verify($pin, (string) $hash)) {
-            $found = $row;
-            break;
-        } elseif ($hash === null && $plain !== null && $plain === $pin) {
             $found = $row;
             break;
         }
         $rs->MoveNext();
+    }
+}
+
+// (b) plain fallback: solo para usuarios sin lockPassHash (pre-backfill)
+if ($found === null) {
+    $row = ncmExecute(
+        'SELECT "contactId", "contactName"
+           FROM contact
+          WHERE "companyId" = ?
+            AND type = 0
+            AND "contactStatus" = 1
+            AND "lockPassHash" IS NULL
+            AND "lockPass" = ?
+          LIMIT 1',
+        [COMPANY_ID, $pin]
+    );
+    if ($row) {
+        $found = $row;
     }
 }
 

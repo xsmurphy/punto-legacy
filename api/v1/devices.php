@@ -30,7 +30,7 @@ if ($method === 'DELETE') {
     if ($devCompanyId !== COMPANY_ID) {
         apiError('No autorizado', 403);
     }
-    DeviceAuth::revoke($deviceId);
+    DeviceAuth::revoke($deviceId, COMPANY_ID);
     apiOk(['ok' => true]);
     exit;
 }

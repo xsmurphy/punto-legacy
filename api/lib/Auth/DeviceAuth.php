@@ -63,17 +63,27 @@ final class DeviceAuth
             throw new \RuntimeException('No se pudo crear el registro de device');
         }
 
-        $now   = time();
-        $token = jwtEncode([
-            'iss'  => 'pos-app',
-            'cid'  => $companyId,
-            'oid'  => $outletId,
-            'rid'  => $registerId,
-            'did'  => $deviceId,
-            'pby'  => $pairedByContactId,
-            'iat'  => $now,
-            'exp'  => $now + self::TTL,
-        ], $secret);
+        $now = time();
+
+        // Si jwtEncode lanza, el device queda activo sin cookie -- lo revocamos.
+        try {
+            $token = jwtEncode([
+                'iss'  => 'pos-app',
+                'cid'  => $companyId,
+                'oid'  => $outletId,
+                'rid'  => $registerId,
+                'did'  => $deviceId,
+                'pby'  => $pairedByContactId,
+                'iat'  => $now,
+                'exp'  => $now + self::TTL,
+            ], $secret);
+        } catch (\Throwable $e) {
+            ncmExecute(
+                'UPDATE device SET status = 0, "revokedAt" = now() WHERE "deviceId" = ?::uuid AND "companyId" = ?::uuid',
+                [$deviceId, $companyId]
+            );
+            throw $e;
+        }
 
         $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
@@ -118,10 +128,10 @@ final class DeviceAuth
             return null;
         }
 
-        // Verificar que el device no esta revocado
+        // Verificar que el device no esta revocado y que cid del JWT coincide con BD
         $device = ncmExecute(
-            'SELECT "deviceId", "companyId", "outletId", "registerId", "userId" FROM device WHERE "deviceId" = ?::uuid AND status = 1',
-            [$deviceId]
+            'SELECT "deviceId", "companyId", "outletId", "registerId", "userId" FROM device WHERE "deviceId" = ?::uuid AND "companyId" = ?::uuid AND status = 1',
+            [$deviceId, (string) ($payload['cid'] ?? '')]
         );
         if (!$device) {
             return null;
@@ -151,11 +161,15 @@ final class DeviceAuth
     /**
      * Revoca un device (soft delete: status=0).
      */
-    public static function revoke(string $deviceId): void
+    /**
+     * Revoca un device (soft delete: status=0).
+     * companyId es obligatorio para evitar TOCTOU cross-tenant.
+     */
+    public static function revoke(string $deviceId, string $companyId): void
     {
         ncmExecute(
-            'UPDATE device SET status = 0, "revokedAt" = now() WHERE "deviceId" = ?::uuid',
-            [$deviceId]
+            'UPDATE device SET status = 0, "revokedAt" = now() WHERE "deviceId" = ?::uuid AND "companyId" = ?::uuid',
+            [$deviceId, $companyId]
         );
     }
 }

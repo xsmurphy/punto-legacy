@@ -55,6 +55,6 @@ if (($ctx['isDevice'] ?? false) === true && ($ctx['deviceId'] ?? '') === $device
     setcookie('_jwt', '', $cookieOpts);
 }
 
-DeviceAuth::revoke($deviceId);
+DeviceAuth::revoke($deviceId, COMPANY_ID);
 
 apiOk(['ok' => true]);
