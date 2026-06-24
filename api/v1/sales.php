@@ -29,7 +29,8 @@ use Punto\Api\Sales\SaleType;
 // `registerId` (caja activa) viene del claim `rid` del JWT — lo setea
 // /v1/active-register tras validar la caja. TODO (F2): gatear "puede vender"
 // por permiso RBAC cuando exista el modelo de cajero.
-$authCtx = apiAuthTenant(['panel', 'pos-app']);
+require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
+$authCtx = apiAuthPosContext();
 
 // A7 (P0 code-review): sin caja activa (rid=''), NO se puede vender — una
 // venta sin registerId quedaría huérfana de numeración fiscal. El front

@@ -11,7 +11,8 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 
-$ctx        = apiAuthTenant(['panel', 'pos-app']);
+require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
+$ctx        = apiAuthPosContext();
 $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 $userId     = $ctx['userId'];
