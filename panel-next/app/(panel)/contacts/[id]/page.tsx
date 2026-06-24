@@ -192,6 +192,16 @@ export default function ContactEditPage() {
     }
   }
 
+  const kind = form.watch("kind")
+  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data" | "addresses" | "packs">(
+    isNew ? "data" : "summary",
+  )
+  const analytics = useContactAnalytics(
+    !isNew && tab !== "data" ? id : undefined,
+    isSupplier ? 2 : 1,
+  )
+  const { data: bootstrap } = useBootstrap()
+
   if (error) {
     return (
       <div className="flex flex-col gap-4">
@@ -204,16 +214,6 @@ export default function ContactEditPage() {
       </div>
     )
   }
-
-  const kind = form.watch("kind")
-  const [tab, setTab] = React.useState<"summary" | "behavior" | "financial" | "data" | "addresses" | "packs">(
-    isNew ? "data" : "summary",
-  )
-  const analytics = useContactAnalytics(
-    !isNew && tab !== "data" ? id : undefined,
-    isSupplier ? 2 : 1,
-  )
-  const { data: bootstrap } = useBootstrap()
 
   // Contacto existente → delegar a ContactDetailView
   if (!isNew) {
