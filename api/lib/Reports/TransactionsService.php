@@ -317,7 +317,7 @@ final class TransactionsService
         }
         if ($parentId) {
             $db->Execute(
-                'UPDATE transaction SET transactionComplete = 0
+                'UPDATE transaction SET transactionComplete = FALSE
                  WHERE transactionId = ? AND companyId = ? AND transactionType IN (0,3)',
                 [$parentId, $companyId]
             );

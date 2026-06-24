@@ -425,7 +425,7 @@ final class Customer
              FROM transaction
              WHERE customerId = ?
              AND transactionType = 3
-             AND transactionComplete = 0',
+             AND transactionComplete = FALSE',
             [$uid],
             60
         );

@@ -260,7 +260,7 @@ final class VPaymentService
         $insert = $db->AutoExecute('transaction', $tPay, 'INSERT');
         if ($insert !== false) {
             $db->Execute(
-                'UPDATE transaction SET transactionComplete = 1 WHERE transactionId = ? AND companyId = ?',
+                'UPDATE transaction SET transactionComplete = TRUE WHERE transactionId = ? AND companyId = ?',
                 [$invoice['transactionId'], $companyId]
             );
         }

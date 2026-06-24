@@ -301,7 +301,7 @@ function getDebtListByTransaction($id,$expireds=false){
 								FROM transaction 
 								WHERE customerId = ? 
 								AND transactionType = 3 
-								AND transactionComplete = 0
+								AND transactionComplete = FALSE
 								' . $expired . '
 								ORDER BY transactionDate ASC', [$id], false, true);
 

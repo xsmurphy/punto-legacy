@@ -134,7 +134,7 @@ final class CreditPaymentService
 
         if (round($debtRemaining, 4) <= 0) {
             $db->Execute(
-                'UPDATE transaction SET transactionComplete = 1 WHERE transactionId = ? AND companyId = ?',
+                'UPDATE transaction SET transactionComplete = TRUE WHERE transactionId = ? AND companyId = ?',
                 [$parentTransactionId, $companyId]
             );
             $parentComplete = true;

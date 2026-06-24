@@ -381,7 +381,7 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
             // round() para evitar falsos completos por error de punto flotante IEEE 754.
             if ($netTotal > 0 && round($paid, 4) >= round($netTotal, 4)) {
                 $db->Execute(
-                    "UPDATE transaction SET transactionComplete = 1 WHERE transactionId = ? AND companyId = ?",
+                    "UPDATE transaction SET transactionComplete = TRUE WHERE transactionId = ? AND companyId = ?",
                     [$txId, COMPANY_ID]
                 );
             }
