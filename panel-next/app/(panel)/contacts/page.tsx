@@ -32,19 +32,25 @@ import { TeamSection } from "@/components/domain/contacts/team-section"
 
 type ActiveTab = "1" | "2" | "team"
 
+function getActiveTab(searchParams: ReturnType<typeof useSearchParams>): ActiveTab {
+  const typeParam = searchParams.get("type")
+  const tabParam = searchParams.get("tab")
+  if (tabParam === "team" || typeParam === "0") return "team"
+  if (typeParam === "2") return "2"
+  return "1"
+}
+
 function ContactsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const typeParam = searchParams.get("type")
-  const tabParam = searchParams.get("tab")
-  const initialTab: ActiveTab =
-    tabParam === "team" || typeParam === "0"
-      ? "team"
-      : typeParam === "2"
-        ? "2"
-        : "1"
+  const activeTab = getActiveTab(searchParams)
 
-  const [activeTab, setActiveTab] = React.useState<ActiveTab>(initialTab)
+  const setActiveTab = (next: ActiveTab) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("type", next === "team" ? "0" : next)
+    params.delete("tab")
+    router.replace(`/contacts?${params.toString()}`)
+  }
 
   // contactType solo se usa cuando activeTab !== "team"
   const contactType: ContactType = activeTab === "2" ? 2 : 1
