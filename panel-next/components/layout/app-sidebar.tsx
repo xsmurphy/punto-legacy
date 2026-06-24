@@ -181,7 +181,7 @@ export function AppSidebar({
                 <button
                   type="button"
                   aria-label="Cambiar sucursal"
-                  className="flex w-full items-center gap-2 rounded-md transition-opacity hover:opacity-90 cursor-pointer group-data-[collapsible=icon]:hidden"
+                  className="flex w-full items-center gap-2 rounded-md p-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground cursor-pointer group-data-[collapsible=icon]:hidden"
                 >
                   <PuntoLogo variant="wordmark" />
                   {scope === "Admin" && (
@@ -248,7 +248,7 @@ export function AppSidebar({
               <Link
                 href="/"
                 aria-label="Ir al dashboard"
-                className="inline-flex items-center rounded-md transition-opacity hover:opacity-90"
+                className="inline-flex items-center rounded-md p-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               >
                 <PuntoLogo variant="wordmark" />
               </Link>
