@@ -196,6 +196,16 @@ function ContactsPage() {
         },
         meta: { className: "w-24" },
       },
+      {
+        accessorKey: "date",
+        header: "Fecha",
+        enableSorting: true,
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? new Intl.DateTimeFormat("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
+        },
+        meta: { label: "Fecha", className: "tabular-nums whitespace-nowrap" },
+      },
     ],
     [],
   )
@@ -204,7 +214,7 @@ function ContactsPage() {
   // No las mostramos por default para no saturar la grilla. El user las
   // prende cuando le interesan; la elección se persiste por tableId.
   const initialColumnVisibility = React.useMemo(
-    () => ({ ci: false, bday: false, loyaltyAmount: false, city: false }),
+    () => ({ ci: false, bday: false, loyaltyAmount: false, city: false, date: false }),
     [],
   )
 
