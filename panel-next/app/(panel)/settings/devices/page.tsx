@@ -48,6 +48,7 @@ import {
   useDeleteRegister,
   type RegisterListItem,
 } from "@/hooks/use-registers-admin"
+import { usePosDevices, useRevokePosDevice, type PosDevice } from "@/hooks/use-pos-devices"
 
 // ---------------------------------------------------------------------------
 // ScreensTab — lógica idéntica al componente original (sin cambios funcionales)
@@ -398,6 +399,126 @@ function RegistersTab() {
 }
 
 // ---------------------------------------------------------------------------
+// PosDevicesTab — listado de dispositivos POS pareados
+// ---------------------------------------------------------------------------
+
+function PosDevicesTab() {
+  const { data, isLoading } = usePosDevices()
+  const revoke = useRevokePosDevice()
+  const [revokeId, setRevokeId] = React.useState<string | null>(null)
+
+  function niceDate(iso: string | null) {
+    if (!iso) return "—"
+    return new Intl.DateTimeFormat("es", {
+      day: "numeric", month: "short",
+      hour: "2-digit", minute: "2-digit",
+    }).format(new Date(iso))
+  }
+
+  const columns = React.useMemo<ColumnDef<PosDevice>[]>(() => [
+    {
+      accessorKey: "deviceName",
+      header: "Dispositivo",
+      cell: ({ row }) => (
+        <span className="font-medium">{row.original.deviceName || "Sin nombre"}</span>
+      ),
+    },
+    {
+      accessorKey: "outletName",
+      header: "Sucursal",
+      cell: ({ row }) => row.original.outletName ?? "—",
+    },
+    {
+      accessorKey: "registerName",
+      header: "Caja",
+      cell: ({ row }) => row.original.registerName ?? "—",
+    },
+    {
+      accessorKey: "pairedByName",
+      header: "Pareado por",
+      cell: ({ row }) => row.original.pairedByName ?? "—",
+    },
+    {
+      accessorKey: "pairedAt",
+      header: "Pareado",
+      cell: ({ row }) => niceDate(row.original.pairedAt),
+    },
+    {
+      accessorKey: "lastSeenAt",
+      header: "Última actividad",
+      cell: ({ row }) => niceDate(row.original.lastSeenAt),
+    },
+    {
+      accessorKey: "status",
+      header: "Estado",
+      cell: ({ row }) =>
+        row.original.status === 1 ? (
+          <Badge variant="default">Activo</Badge>
+        ) : (
+          <Badge variant="secondary">Revocado</Badge>
+        ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) =>
+        row.original.status === 1 ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setRevokeId(row.original.deviceId)}
+          >
+            <Trash2 className="size-4 mr-1.5" />
+            Revocar
+          </Button>
+        ) : null,
+    },
+  ], [])
+
+  const devices = data ?? []
+
+  return (
+    <>
+      <DataTable
+        tableId="pos-devices"
+        columns={columns}
+        data={devices}
+        isLoading={isLoading}
+        searchPlaceholder="Buscar dispositivo..."
+        exportFileName={null}
+      />
+
+      <AlertDialog open={revokeId !== null} onOpenChange={(o) => { if (!o) setRevokeId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revocar dispositivo POS</AlertDialogTitle>
+            <AlertDialogDescription>
+              El dispositivo dejará de poder operar la caja inmediatamente. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!revokeId) return
+                revoke.mutate(revokeId, {
+                  onSuccess: () => { toast.success("Dispositivo revocado"); setRevokeId(null) },
+                  onError: (err) => { toast.error(err.message) },
+                })
+              }}
+            >
+              Revocar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // DevicesPage — Tabs: Pantallas cliente + Cajas
 // ---------------------------------------------------------------------------
 
@@ -415,12 +536,16 @@ export default function DevicesPage() {
         <TabsList>
           <TabsTrigger value="screens">Pantallas cliente</TabsTrigger>
           <TabsTrigger value="registers">Cajas</TabsTrigger>
+          <TabsTrigger value="pos-devices">Cajas POS</TabsTrigger>
         </TabsList>
         <TabsContent value="screens" className="mt-4">
           <ScreensTab />
         </TabsContent>
         <TabsContent value="registers" className="mt-4">
           <RegistersTab />
+        </TabsContent>
+        <TabsContent value="pos-devices" className="mt-4">
+          <PosDevicesTab />
         </TabsContent>
       </Tabs>
     </div>
