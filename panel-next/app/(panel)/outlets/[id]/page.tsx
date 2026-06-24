@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft, Loader2, Pencil, Trash2 } from "lucide-react"
+import { ArrowLeft, Boxes, Loader2, MapPin, Pencil, Phone, Receipt, Store, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectContent,
@@ -238,329 +239,396 @@ export default function OutletEditPage() {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* General */}
-          <Section title="General">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Nombre</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ej: Sucursal Centro" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Descripción</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={2}
-                      placeholder="Opcional — referencia interna"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="status"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                  <div>
-                    <FormLabel className="text-sm">Sucursal activa</FormLabel>
-                    <FormDescription className="text-xs">
-                      Si está apagada no aparece en la caja ni en reportes.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="ecom"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                  <div>
-                    <FormLabel className="text-sm">E-commerce</FormLabel>
-                    <FormDescription className="text-xs">
-                      Marca para sucursales sin punto físico (solo online).
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+        <Tabs defaultValue="general" className="w-full">
+          {/* -mx-2 px-2 permite scroll horizontal en mobile sin cortar el foco */}
+          <div className="-mx-2 overflow-x-auto px-2">
+            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
+              <TabsTrigger value="general" className="gap-1.5">
+                <Store className="size-3.5" />
+                General
+              </TabsTrigger>
+              <TabsTrigger value="fiscal" className="gap-1.5">
+                <Receipt className="size-3.5" />
+                Datos fiscales
+              </TabsTrigger>
+              <TabsTrigger value="contacto" className="gap-1.5">
+                <Phone className="size-3.5" />
+                Contacto
+              </TabsTrigger>
+              <TabsTrigger value="ubicacion" className="gap-1.5">
+                <MapPin className="size-3.5" />
+                Ubicación
+              </TabsTrigger>
+              <TabsTrigger value="depositos" className="gap-1.5" disabled={isNew}>
+                <Boxes className="size-3.5" />
+                Depósitos
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-            <FormField
-              control={form.control}
-              name="priceListId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Lista de precios por defecto</FormLabel>
-                  <Select
-                    value={field.value ?? "__none__"}
-                    onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
-                  >
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Precio base (sin lista)" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="__none__">Precio base (sin lista)</SelectItem>
-                      {(priceLists ?? [])
-                        .filter((pl) => pl.status)
-                        .map((pl) => (
-                          <SelectItem key={pl.priceListId} value={pl.priceListId}>
-                            {pl.priceListName}
-                            {pl.defaultAdjustment !== 0 && (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                ({pl.defaultAdjustment > 0 ? "+" : "−"}{Math.abs(pl.defaultAdjustment)}%)
-                              </span>
-                            )}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </Section>
+          <TabsContent value="general" className="mt-6">
+            <GeneralTab form={form} priceLists={priceLists ?? []} />
+          </TabsContent>
 
-          {/* Datos fiscales */}
-          <Section title="Datos fiscales">
-            <FormField
-              control={form.control}
-              name="billingName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Razón social</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Nombre fiscal de la empresa" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="ruc"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>RUC</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ej: 80012345-6" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="taxId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Impuesto por defecto</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sin impuesto" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {(data?.availableTaxes ?? []).map((tax) => (
-                        <SelectItem key={tax.id} value={tax.id}>
-                          {tax.name} ({tax.rate}%)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="taxIncluded"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                  <div>
-                    <FormLabel className="text-sm">Precio incluye impuesto</FormLabel>
-                    <FormDescription className="text-xs">
-                      Si está prendido, el precio de venta ya incluye el IVA.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="purchaseOrderNo"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Próximo Nº orden de compra</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      placeholder="0"
-                      value={field.value ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        field.onChange(v === "" ? null : Number(v))
-                      }}
-                      className="tabular-nums"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </Section>
+          <TabsContent value="fiscal" className="mt-6">
+            <FiscalTab form={form} availableTaxes={data?.availableTaxes ?? []} />
+          </TabsContent>
 
-          {/* Contacto */}
-          <Section title="Contacto">
-            <FormField
-              control={form.control}
-              name="address"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Dirección</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Calle y número" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Teléfono</FormLabel>
-                  <FormControl>
-                    <Input type="tel" placeholder="021 600 600" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="whatsApp"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>WhatsApp</FormLabel>
-                  <FormControl>
-                    <Input type="tel" placeholder="0981 123 456" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" placeholder="sucursal@empresa.com" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </Section>
+          <TabsContent value="contacto" className="mt-6">
+            <ContactoTab form={form} />
+          </TabsContent>
 
-          {/* Ubicación */}
-          <Section title="Ubicación">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="lat"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Latitud</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.0000001"
-                        placeholder="-25.2867"
-                        value={field.value ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          field.onChange(v === "" ? null : Number(v))
-                        }}
-                        className="tabular-nums"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="lng"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Longitud</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.0000001"
-                        placeholder="-57.6478"
-                        value={field.value ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          field.onChange(v === "" ? null : Number(v))
-                        }}
-                        className="tabular-nums"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+          <TabsContent value="ubicacion" className="mt-6">
+            <UbicacionTab form={form} />
+          </TabsContent>
 
-            <GoogleMapsLinkParser
-              onParsed={(lat, lng) => {
-                form.setValue("lat", lat, { shouldDirty: true })
-                form.setValue("lng", lng, { shouldDirty: true })
-                toast.success(`Coordenadas extraídas: ${lat}, ${lng}`)
-              }}
-            />
-          </Section>
-        </div>
-
-        {!isNew && <LocationsSection outletId={id} />}
+          <TabsContent value="depositos" className="mt-6">
+            {!isNew && <LocationsSection outletId={id} />}
+          </TabsContent>
+        </Tabs>
       </form>
     </Form>
   )
 }
+
+// ─── Tab helpers ─────────────────────────────────────────────────────────────
+
+type FormProp = { form: ReturnType<typeof useForm<OutletFormValues>> }
+
+function GeneralTab({
+  form,
+  priceLists,
+}: FormProp & { priceLists: Array<{ priceListId: string; priceListName: string; status: boolean; defaultAdjustment: number }> }) {
+  return (
+    <Section title="General">
+      <FormField
+        control={form.control}
+        name="name"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Nombre</FormLabel>
+            <FormControl>
+              <Input placeholder="Ej: Sucursal Centro" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="description"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Descripción</FormLabel>
+            <FormControl>
+              <Textarea
+                rows={2}
+                placeholder="Opcional — referencia interna"
+                {...field}
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="status"
+        render={({ field }) => (
+          <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+            <div>
+              <FormLabel className="text-sm">Sucursal activa</FormLabel>
+              <FormDescription className="text-xs">
+                Si está apagada no aparece en la caja ni en reportes.
+              </FormDescription>
+            </div>
+            <FormControl>
+              <Switch checked={field.value} onCheckedChange={field.onChange} />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="ecom"
+        render={({ field }) => (
+          <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+            <div>
+              <FormLabel className="text-sm">E-commerce</FormLabel>
+              <FormDescription className="text-xs">
+                Marca para sucursales sin punto físico (solo online).
+              </FormDescription>
+            </div>
+            <FormControl>
+              <Switch checked={field.value} onCheckedChange={field.onChange} />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="priceListId"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Lista de precios por defecto</FormLabel>
+            <Select
+              value={field.value ?? "__none__"}
+              onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+            >
+              <FormControl>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Precio base (sin lista)" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                <SelectItem value="__none__">Precio base (sin lista)</SelectItem>
+                {priceLists
+                  .filter((pl) => pl.status)
+                  .map((pl) => (
+                    <SelectItem key={pl.priceListId} value={pl.priceListId}>
+                      {pl.priceListName}
+                      {pl.defaultAdjustment !== 0 && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          ({pl.defaultAdjustment > 0 ? "+" : "−"}{Math.abs(pl.defaultAdjustment)}%)
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </Section>
+  )
+}
+
+function FiscalTab({
+  form,
+  availableTaxes,
+}: FormProp & { availableTaxes: Array<{ id: string; name: string; rate: number }> }) {
+  return (
+    <Section title="Datos fiscales">
+      <FormField
+        control={form.control}
+        name="billingName"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Razón social</FormLabel>
+            <FormControl>
+              <Input placeholder="Nombre fiscal de la empresa" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="ruc"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>RUC</FormLabel>
+            <FormControl>
+              <Input placeholder="Ej: 80012345-6" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="taxId"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Impuesto por defecto</FormLabel>
+            <Select onValueChange={field.onChange} value={field.value || ""}>
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sin impuesto" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {availableTaxes.map((tax) => (
+                  <SelectItem key={tax.id} value={tax.id}>
+                    {tax.name} ({tax.rate}%)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="taxIncluded"
+        render={({ field }) => (
+          <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+            <div>
+              <FormLabel className="text-sm">Precio incluye impuesto</FormLabel>
+              <FormDescription className="text-xs">
+                Si está prendido, el precio de venta ya incluye el IVA.
+              </FormDescription>
+            </div>
+            <FormControl>
+              <Switch checked={field.value} onCheckedChange={field.onChange} />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="purchaseOrderNo"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Próximo Nº orden de compra</FormLabel>
+            <FormControl>
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="0"
+                value={field.value ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value
+                  field.onChange(v === "" ? null : Number(v))
+                }}
+                className="tabular-nums"
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </Section>
+  )
+}
+
+function ContactoTab({ form }: FormProp) {
+  return (
+    <Section title="Contacto">
+      <FormField
+        control={form.control}
+        name="address"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Dirección</FormLabel>
+            <FormControl>
+              <Input placeholder="Calle y número" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="phone"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Teléfono</FormLabel>
+            <FormControl>
+              <Input type="tel" placeholder="021 600 600" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="whatsApp"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>WhatsApp</FormLabel>
+            <FormControl>
+              <Input type="tel" placeholder="0981 123 456" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="email"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Email</FormLabel>
+            <FormControl>
+              <Input type="email" placeholder="sucursal@empresa.com" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </Section>
+  )
+}
+
+function UbicacionTab({ form }: FormProp) {
+  return (
+    <Section title="Ubicación">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormField
+          control={form.control}
+          name="lat"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Latitud</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.0000001"
+                  placeholder="-25.2867"
+                  value={field.value ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    field.onChange(v === "" ? null : Number(v))
+                  }}
+                  className="tabular-nums"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="lng"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Longitud</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.0000001"
+                  placeholder="-57.6478"
+                  value={field.value ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    field.onChange(v === "" ? null : Number(v))
+                  }}
+                  className="tabular-nums"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+
+      <GoogleMapsLinkParser
+        onParsed={(lat, lng) => {
+          form.setValue("lat", lat, { shouldDirty: true })
+          form.setValue("lng", lng, { shouldDirty: true })
+          toast.success(`Coordenadas extraídas: ${lat}, ${lng}`)
+        }}
+      />
+    </Section>
+  )
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function emptyValues(): OutletFormValues {
   return {
