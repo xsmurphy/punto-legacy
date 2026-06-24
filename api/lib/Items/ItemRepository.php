@@ -105,7 +105,7 @@ final class ItemRepository
 
         // Guard: variantes activas impiden borrar el padre.
         $vcRow = ncmExecute(
-            'SELECT COUNT(*) AS n FROM item WHERE "variantParentId" = ? AND "companyId" = ? AND "itemStatus" = 1',
+            'SELECT COUNT(*) AS n FROM item WHERE variantParentId = ? AND companyId = ? AND itemStatus = 1',
             [$id, $companyId]
         );
         $vcCount = (int) ($vcRow['n'] ?? 0);

@@ -896,7 +896,7 @@ switch ($method) {
 
         // Validar que no tiene variantes activas antes de archivar.
         $variantCountRow = ncmExecute(
-            'SELECT COUNT(*) AS n FROM item WHERE "variantParentId" = ? AND "companyId" = ? AND "itemStatus" = 1',
+            'SELECT COUNT(*) AS n FROM item WHERE variantParentId = ? AND companyId = ? AND itemStatus = 1',
             [$id, $companyId]
         );
         $variantCount = (int) ($variantCountRow['n'] ?? 0);
