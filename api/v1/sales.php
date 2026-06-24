@@ -22,6 +22,7 @@ use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
 use Punto\Api\Sales\SaleInput;
 use Punto\Api\Sales\SaleService;
+use Punto\Api\Sales\SaleType;
 
 // MULTI-REALM (A7, 2026-06-16): la caja vive dentro de panel-next y vende con
 // la sesión del panel (`_jwt_panel`), no con un realm pos-app aparte. El
@@ -55,6 +56,33 @@ if (!is_string($rawData) || $rawData === '') {
 $decoded = json_decode($rawData, true);
 if (!is_array($decoded)) {
     apiError('Payload data[] no es JSON válido', 422);
+}
+
+// Cotización (type=9): path separado sin payment/stock/caja
+$rawType = isset($decoded['type']) ? (int) $decoded['type']
+    : (isset($decoded['transaction']['type']) ? (int) $decoded['transaction']['type'] : -1);
+
+if ($rawType === SaleType::Quote->value) {
+    try {
+        $input = SaleInput::fromQuotePayload($decoded);
+    } catch (InvalidSaleInputException $e) {
+        apiError($e->getMessage(), 422);
+    }
+
+    $service = new SaleService(
+        ctx: TenantContext::fromAuth($authCtx),
+        db:  $db,
+    );
+
+    try {
+        $quoteResult = $service->saveQuote($input);
+    } catch (InvalidSaleInputException $e) {
+        apiError($e->getMessage(), 422);
+    } catch (SaleAbortedException $e) {
+        apiError($e->dbError ?? 'Quote transaction aborted', 500);
+    }
+
+    apiOk($quoteResult);
 }
 
 try {

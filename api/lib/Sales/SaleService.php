@@ -1254,6 +1254,204 @@ final class SaleService
     }
 
     /**
+     * Guarda el carrito como cotización (type=9).
+     *
+     * Diferencias vs save():
+     *   - NO requiere payment ni caja abierta
+     *   - NO mueve stock
+     *   - NO genera movimiento de caja
+     *   - NO factura electrónica
+     *   - SÍ guarda transaction + itemSold con type=9
+     *   - SÍ genera quoteNo desde register.registerQuoteNumber
+     *
+     * // TODO: quote-to-sale conversion — context/12 sprint futuro
+     */
+    public function saveQuote(SaleInput $input): array
+    {
+        if ($input->type !== SaleType::Quote) {
+            throw new InvalidSaleInputException('saveQuote requiere type=9');
+        }
+
+        $dupRow = $this->db->Execute(
+            'SELECT transactionId FROM transaction WHERE transactionUID = ? LIMIT 1',
+            [$input->uid]
+        );
+        if ($dupRow && !$dupRow->EOF) {
+            return [
+                'transactionId'  => (string) $dupRow->fields['transactionid'],
+                'transactionNo'  => 0,
+                'transactionDoc' => '',
+                'duplicated'     => true,
+            ];
+        }
+
+        if ($input->clientId !== null) {
+            $client = $this->db->Execute(
+                'SELECT contactId FROM contact WHERE contactId = ? AND companyId = ? AND type = 1 LIMIT 1',
+                [$input->clientId, $this->ctx->companyId]
+            );
+            if (!$client || $client->EOF) {
+                throw new InvalidSaleInputException(
+                    "client {$input->clientId} no existe o no pertenece al tenant"
+                );
+            }
+        }
+
+        $saleDetail    = saleArraySanitizer($input->sale);
+        $totalUnits    = countUnitSold($saleDetail);
+        $userId        = $input->userId ?? $this->ctx->userId;
+        $responsibleId = ($userId !== $this->ctx->userId) ? $this->ctx->userId : null;
+
+        $quoteNo = $this->getNextQuoteNumber();
+
+        $this->db->StartTrans();
+
+        $record = $this->buildTransactionRecord(
+            input:         $input,
+            saleDetail:    $saleDetail,
+            totalUnits:    $totalUnits,
+            userId:        $userId,
+            responsibleId: $responsibleId,
+        );
+        $record['invoiceNo']           = $quoteNo;
+        $record['transactionComplete'] = 1;
+
+        $insertOk = $this->db->AutoExecute('transaction', $record, 'INSERT');
+        $transId  = $this->db->Insert_ID();
+
+        if ($insertOk !== false && !empty($transId)) {
+            $this->persistRelations($input, (string) $transId);
+            $this->persistQuoteItems($input, (string) $transId, $saleDetail);
+        }
+
+        $dbError = $this->db->ErrorMsg();
+        $failed  = $this->db->HasFailedTrans();
+        $this->db->CompleteTrans();
+
+        $persisted = false;
+        if ($insertOk !== false && !empty($transId)) {
+            $check = $this->db->Execute(
+                'SELECT transactionId FROM transaction WHERE transactionId = ? LIMIT 1',
+                [(string) $transId]
+            );
+            $persisted = $check && !$check->EOF;
+        }
+
+        if ($failed || $insertOk === false || empty($transId) || !$persisted) {
+            throw new SaleAbortedException(
+                dbError: $dbError !== '' ? $dbError : null,
+                message: 'Quote transaction aborted',
+            );
+        }
+
+        $this->db->Execute(
+            'UPDATE register SET registerQuoteNumber = ? WHERE registerId = ? AND companyId = ?',
+            [$quoteNo, $this->ctx->registerId, $this->ctx->companyId]
+        );
+
+        return [
+            'transactionId'  => (string) $transId,
+            'transactionNo'  => $quoteNo,
+            'transactionDoc' => '',
+            'duplicated'     => false,
+        ];
+    }
+
+    /**
+     * Loop de items para cotización: solo itemSold, sin manageStock.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     */
+    private function persistQuoteItems(SaleInput $input, string $transId, array $saleDetail): void
+    {
+        $companyId = $this->ctx->companyId;
+
+        foreach ($saleDetail as $sD) {
+            if (($sD['type'] ?? '') === 'discount') {
+                continue;
+            }
+            if (empty($sD['itemId'])) {
+                continue;
+            }
+
+            $itemId  = (string) $sD['itemId'];
+            $itmData = $this->db->Execute(
+                'SELECT itemType, itemPrice FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [$itemId, $companyId]
+            );
+            $itemPrice = ($itmData && !$itmData->EOF) ? (float) ($itmData->fields['itemprice'] ?? 0) : 0.0;
+
+            $userComission = false;
+            if (!empty($sD['user'])) {
+                $contactRow = ncmExecute(
+                    'SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                    [(string) $sD['user'], $companyId]
+                );
+                if (is_array($contactRow) || $contactRow instanceof \ArrayAccess) {
+                    $fixed = (float) ($contactRow['contactFixedComission'] ?? 0);
+                    if ($fixed > 0) {
+                        $userComission = $fixed;
+                    }
+                }
+            }
+
+            $comissionTotal = ($sD['type'] ?? '') === 'inCombo'
+                ? $itemPrice * (float) $sD['count']
+                : (float) $sD['total'];
+
+            $comission = $userComission !== false
+                ? getUserComissionTotal($comissionTotal, $userComission)
+                : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
+
+            $itemSoldCOGS = getItemStock($itemId);
+            $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
+                ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
+                : null;
+
+            $records = [
+                'itemSoldTotal'     => (float) $sD['total'],
+                'itemSoldTax'       => addTax($sD['tax'], $sD['total']),
+                'itemSoldDiscount'  => (float) $sD['totalDiscount'],
+                'itemSoldUnits'     => (float) $sD['count'],
+                'itemSoldComission' => $comission,
+                'itemSoldCOGS'      => $cogsVal,
+                'itemSoldParent'    => !empty($sD['parent']) ? $sD['parent'] : null,
+                'itemId'            => $itemId,
+                'itemSoldDate'      => $input->date,
+                'transactionId'     => $transId,
+                'userId'            => !empty($sD['user']) ? (string) $sD['user'] : null,
+            ];
+            if (($sD['type'] ?? '') === 'dynamic') {
+                $records['itemSoldDescription'] = markupt2HTML(['text' => $sD['note'] ?? '', 'type' => 'HtM']);
+            }
+            $this->db->AutoExecute('itemSold', $records, 'INSERT');
+        }
+    }
+
+    private function getNextQuoteNumber(): int
+    {
+        $register = ncmExecute(
+            'SELECT * FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
+            [$this->ctx->registerId, $this->ctx->companyId],
+            false
+        );
+        $stored  = $register ? (int) ($register['registerQuoteNumber'] ?? 0) : 0;
+        $current = $stored + 1;
+
+        $row = $this->db->Execute(
+            'SELECT invoiceNo FROM transaction
+              WHERE companyId = ? AND registerId = ?
+                AND invoiceNo IS NOT NULL AND invoiceNo > 0
+                AND transactionType = 9
+              ORDER BY transactionDate DESC LIMIT 1',
+            [$this->ctx->companyId, $this->ctx->registerId]
+        );
+        $lastUsed = ($row && !$row->EOF) ? (int) $row->fields['invoiceno'] : 0;
+
+        return $lastUsed >= $current ? $lastUsed + 1 : $current;
+    }
+
+    /**
      * B9 (35g) — packs de servicios: crea sold_pack por cada línea de tipo 'pack' vendida.
      *
      * Corre DENTRO de la transacción principal: si falla (PG error), la tx entera
