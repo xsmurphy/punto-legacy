@@ -4,6 +4,7 @@ import * as React from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, isToolOrDynamicToolUIPart } from "ai"
 import { useQueryClient } from "@tanstack/react-query"
+import { usePathname } from "next/navigation"
 import { useChatHistoryStore, useChatHistoryHydrated } from "./chat-history-store"
 import type { StoredMessage } from "./chat-history-store"
 import { messageHasCredential, redactMessage } from "./redact-credentials"
@@ -11,6 +12,7 @@ import type { AttachmentDraft } from "./attachment-types"
 import { detectKind } from "./attachment-types"
 import { parseTabularToCsv } from "./parse-tabular"
 import { uploadTabular, generateImageThumbnail } from "./upload-attachment"
+import { useAgentPageSnapshotStore } from "./page-snapshot-store"
 
 /** Tiempo de vida de un mensaje con credencial en el thread vivo. */
 const CREDENTIAL_TTL_MS = 60_000
@@ -71,11 +73,13 @@ export function useAgentChat({
   const clearStored = useChatHistoryStore((s) => s.clear)
   const storeHydrated = useChatHistoryHydrated()
   const qc = useQueryClient()
+  const pathname = usePathname()
+  const snapshot = useAgentPageSnapshotStore((s) => s.snapshot)
 
   const chat = useChat({
     transport: new DefaultChatTransport({
       api: "/api/agent/chat",
-      body: { companyName, outletName },
+      body: { companyName, outletName, pathname, snapshot: snapshot ?? undefined },
     }),
     onFinish: ({ message, messages }) => {
       // Recolectar (confirmToken → action) de TODOS los registers previos del

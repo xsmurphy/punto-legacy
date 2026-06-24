@@ -29,6 +29,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import type { ContactListItem } from "@/lib/types/contact"
 import { EmptyState } from "@/components/empty-state"
 import { TeamSection } from "@/components/domain/contacts/team-section"
+import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 
 type ActiveTab = "1" | "2" | "team"
 
@@ -66,6 +67,23 @@ function ContactsPage() {
     if (statusFilter === "archived") return rows.filter((r) => r.status !== 1)
     return rows
   }, [data, statusFilter])
+
+  useAgentPageSnapshot(
+    {
+      route: "/contacts",
+      routeLabel:
+        activeTab === "2"
+          ? "Listado de proveedores"
+          : activeTab === "team"
+          ? "Equipo / usuarios"
+          : "Listado de clientes",
+      summary: {
+        tabActiva: activeTab,
+        filasVisibles: activeTab !== "team" ? filteredRows.length : null,
+      },
+    },
+    [activeTab, filteredRows.length],
+  )
 
   const columns = React.useMemo<ColumnDef<ContactListItem>[]>(
     () => [

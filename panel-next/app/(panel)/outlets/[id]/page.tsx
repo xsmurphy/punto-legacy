@@ -66,6 +66,7 @@ import {
   useOutlet,
   useUpdateOutlet,
 } from "@/hooks/use-outlets"
+import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import {
   useOutletLocations,
@@ -110,6 +111,28 @@ export default function OutletEditPage() {
   const update = useUpdateOutlet()
   const remove = useDeleteOutlet()
   const { data: priceLists } = usePriceLists()
+
+  useAgentPageSnapshot(
+    isNew
+      ? {
+          route: "/outlets/new",
+          routeLabel: "Creando sucursal nueva",
+          summary: {},
+        }
+      : data
+      ? {
+          route: `/outlets/${id}`,
+          routeLabel: `Editando sucursal: ${data.name}`,
+          summary: {
+            outletId: id,
+            nombre: data.name,
+            activa: data.status === 1,
+            direccion: data.address ?? null,
+          },
+        }
+      : null,
+    [id, isNew, data?.name, data?.status, data?.address],
+  )
 
   const form = useForm<OutletFormValues>({
     resolver: zodResolver(outletSchema),

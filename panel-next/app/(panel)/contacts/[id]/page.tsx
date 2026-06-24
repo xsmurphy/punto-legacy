@@ -79,6 +79,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ContactDetailView } from "@/components/domain/contacts/contact-detail-view"
+import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 
 const contactSchema = z
   .object({
@@ -115,6 +116,29 @@ export default function ContactEditPage() {
   const update = useUpdateContact()
   const archive = useArchiveContact()
   const [country, setCountry] = React.useState<CountryCode>(DEFAULT_COUNTRY)
+
+  useAgentPageSnapshot(
+    isNew
+      ? {
+          route: "/contacts/new",
+          routeLabel: contactType === 2 ? "Creando proveedor nuevo" : "Creando cliente nuevo",
+          summary: { tipo: contactType === 2 ? "proveedor" : "cliente" },
+        }
+      : data
+      ? {
+          route: `/contacts/${id}`,
+          routeLabel: `Editando ${contactType === 2 ? "proveedor" : "cliente"}: ${data.fullname ?? data.name}`,
+          summary: {
+            contactId: id,
+            nombre: data.fullname ?? data.name,
+            tipo: contactType === 2 ? "proveedor" : "cliente",
+            telefono: data.phone ?? null,
+            email: data.email ?? null,
+          },
+        }
+      : null,
+    [id, isNew, contactType, data?.name, data?.fullname, data?.phone, data?.email],
+  )
 
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
