@@ -3,13 +3,13 @@
 /**
  * Modal de listado de transacciones del POS — T1.
  *
- * Layout: Dialog fullscreen con dos columnas: lista (izquierda) + detalle (derecha).
- * Listado con búsqueda debounced, filtro por fecha, paginación manual.
+ * Layout: Dialog split 2-col (bucket xl = sm:max-w-6xl).
+ * Lista con búsqueda debounced, filtro por fecha, paginación manual.
  * Detalle reutiliza useTransaction (BFF /api/pos/transactions/[id]).
  */
 
 import * as React from "react"
-import { CalendarIcon, MoreHorizontal, X } from "lucide-react"
+import { CalendarIcon, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -19,6 +19,7 @@ import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -40,6 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Card, CardContent } from "@/components/ui/card"
+import { EmptyState } from "@/components/empty-state"
 import { usePosTransactionsList, usePosTransactionDetail } from "@/hooks/use-pos-transactions"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
@@ -61,11 +63,11 @@ import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-pri
 const TX_LABELS: Record<number, string> = {
   0: "Contado",
   2: "Guardado",
-  3: "Credito",
-  6: "Devolucion",
+  3: "Crédito",
+  6: "Devolución",
   7: "Anulada",
-  9: "Cotizacion",
-  10: "Envio",
+  9: "Cotización",
+  10: "Envío",
   11: "Orden",
   12: "Mesa",
   13: "Agenda",
@@ -85,28 +87,29 @@ function txBadgeVariant(type: number): BadgeVariant {
   return "outline"
 }
 
+/**
+ * Formato compacto para filas de lista: "22 jun 12:59"
+ */
 function niceDateTime(iso: string): string {
   if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString("es", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  try {
+    const d = new Date(iso.replace(" ", "T"))
+    if (Number.isNaN(d.getTime())) return iso
+    return format(d, "d MMM HH:mm", { locale: es })
+  } catch {
+    return iso
+  }
 }
 
+/**
+ * Formato completo para el panel de detalle: "lunes 22 de junio de 2026, 12:59"
+ */
 function niceDateTimeFull(iso: string): string {
   if (!iso) return "—"
   try {
-    return new Intl.DateTimeFormat("es", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(iso.replace(" ", "T")))
+    const d = new Date(iso.replace(" ", "T"))
+    if (Number.isNaN(d.getTime())) return iso
+    return format(d, "EEEE d 'de' MMMM 'de' yyyy, HH:mm", { locale: es })
   } catch {
     return iso
   }
@@ -150,11 +153,16 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] p-0 overflow-hidden">
-        <DialogHeader className="sr-only">
-          <DialogTitle>Transacciones</DialogTitle>
+      {/* Bucket xl — modal split 2-col (lista + detalle) */}
+      <DialogContent className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-6 pt-6 pb-3 border-b">
+          <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            Últimas ventas del comercio. Filtrá por cliente, comprobante o fecha.
+          </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-[1fr_1.2fr] h-full min-h-0">
+        {/* Contenido scrollable con alto máximo para no superar el viewport */}
+        <div className="grid grid-cols-[1fr_1.2fr] max-h-[80vh] min-h-0">
           <TransactionList
             items={flat}
             isFetching={isFetching}
@@ -217,22 +225,21 @@ function TransactionList({
   onDateClear,
 }: ListProps) {
   return (
-    <div className="flex flex-col h-full min-h-0 border-r">
-      {/* Header sticky */}
-      <div className="sticky top-0 z-10 bg-background border-b px-4 pt-4 pb-3 flex flex-col gap-2">
-        <h2 className="text-base font-semibold">Transacciones</h2>
+    <div className="flex flex-col h-full min-h-0 border-r overflow-hidden">
+      {/* Filtros sticky — el título principal está en DialogHeader */}
+      <div className="shrink-0 bg-background border-b px-4 pt-3 pb-3 flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
-            placeholder="Buscar por cliente, comprobante o ID..."
+            placeholder="Buscar por cliente, comprobante o ID"
             value={searchInput}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="flex-1 h-8 text-sm"
+            className="flex-1"
           />
           <Popover open={calendarOpen} onOpenChange={onCalendarOpenChange}>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 gap-1.5 shrink-0">
-                <CalendarIcon className="size-3.5" />
-                <span className="text-xs">
+              <Button variant="outline" className="gap-1.5 shrink-0">
+                <CalendarIcon className="size-4" />
+                <span>
                   {selectedDate ? format(selectedDate, "dd MMM", { locale: es }) : "Fecha"}
                 </span>
               </Button>
@@ -248,17 +255,16 @@ function TransactionList({
           {selectedDate && (
             <Button
               variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 shrink-0"
+              size="icon"
               onClick={onDateClear}
             >
-              <X className="size-3.5" />
+              <X className="size-4" />
             </Button>
           )}
         </div>
       </div>
 
-      {/* Lista */}
+      {/* Lista scrollable */}
       <div className="flex-1 overflow-y-auto">
         {error && (
           <p className="text-destructive text-sm text-center py-8 px-4">{error.message}</p>
@@ -275,10 +281,22 @@ function TransactionList({
           </div>
         )}
 
-        {!isFetching && items.length === 0 && !error && (
-          <p className="text-muted-foreground text-center py-8 text-sm">
-            No hay transacciones
-          </p>
+        {/* Empty state: lista vacía sin filtros activos */}
+        {!isFetching && items.length === 0 && !error && !searchInput && !selectedDate && (
+          <EmptyState
+            icon={Receipt}
+            title="Sin transacciones"
+            description="Cuando hagas ventas aparecerán acá."
+          />
+        )}
+
+        {/* Empty state: sin resultados para los filtros actuales */}
+        {!isFetching && items.length === 0 && !error && (searchInput || selectedDate) && (
+          <EmptyState
+            icon={Receipt}
+            title="Sin resultados"
+            description="Probá con otro nombre, comprobante o cambiá la fecha."
+          />
         )}
 
         {items.map((item) => (
@@ -293,12 +311,19 @@ function TransactionList({
         {hasMore && (
           <div className="px-4 py-3 border-t">
             <Button
-              variant="ghost"
-              className="w-full text-sm"
+              variant="outline"
+              className="w-full"
               onClick={onFetchNext}
               disabled={isFetching}
             >
-              {isFetching ? "Cargando..." : "Cargar mas"}
+              {isFetching ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Cargando…
+                </>
+              ) : (
+                "Cargar más"
+              )}
             </Button>
           </div>
         )}
@@ -322,25 +347,25 @@ function TransactionRow({
     <button
       type="button"
       className={cn(
-        "w-full text-left px-4 py-2.5 border-b transition-colors hover:bg-accent",
+        "w-full text-left px-4 py-3 border-b transition-colors hover:bg-accent",
         selected && "bg-accent",
       )}
       onClick={() => onSelect(item.id)}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className={cn("font-semibold text-sm truncate", !item.customerName && "text-muted-foreground")}>
+        <span className={cn("font-medium truncate", !item.customerName && "text-muted-foreground")}>
           {item.customerName || "Sin nombre"}
         </span>
-        <span className="tabular-nums text-sm shrink-0">
+        <span className="tabular-nums font-medium shrink-0">
           {formatMoney(item.rawTotal, config)}
         </span>
       </div>
       <div className="flex items-center gap-1.5 mt-0.5">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-sm text-muted-foreground">
           {niceDateTime(item.rawDate || item.date)}
         </span>
         {item.invoiceNo && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             #{item.invoicePrefix}{item.invoiceNo}
           </span>
         )}
@@ -369,7 +394,11 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   if (!encId) {
     return (
       <div className="flex items-center justify-center h-full border-l">
-        <p className="text-muted-foreground text-sm">Selecciona una transaccion</p>
+        <EmptyState
+          icon={Receipt}
+          title="Seleccioná una transacción"
+          description="Elegí una transacción de la izquierda para ver el detalle."
+        />
       </div>
     )
   }
@@ -402,7 +431,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   function handleDuplicate() {
     const validItems = items.filter((i) => i.status !== 0)
     if (validItems.length === 0) {
-      toast.error("La transaccion no tiene items para duplicar")
+      toast.error("La transacción no tiene items para duplicar")
       return
     }
     addLines(
@@ -419,15 +448,15 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   }
 
   function handleReprint() {
-    toast.info(`Reimprimir #${docLabel || (detail?.transactionId ?? "")} — abriendo vista de impresion...`)
+    toast.info(`Reimprimir #${docLabel || (detail?.transactionId ?? "")} — abriendo vista de impresión...`)
     window.print()
   }
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-full min-h-0 border-l">
+      <div className="flex flex-col h-full min-h-0 border-l overflow-hidden">
         <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
-          {/* Header */}
+          {/* Header del detalle */}
           <div className="flex flex-col gap-2">
             <div className="flex items-start justify-between gap-2">
               <div className="flex flex-col gap-1">
@@ -436,10 +465,11 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                     {txLabel(typeNum).toUpperCase()}
                   </Badge>
                   {docLabel && (
-                    <span className="text-xs text-muted-foreground">#{docLabel}</span>
+                    <span className="text-sm text-muted-foreground tabular-nums">#{docLabel}</span>
                   )}
                 </div>
-                <p className="text-2xl font-bold leading-tight">
+                {/* text-xl font-semibold — evita la saturación del text-3xl anterior */}
+                <p className="text-xl font-semibold leading-tight">
                   {detail.name || "Sin nombre"}
                 </p>
               </div>
@@ -454,7 +484,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                         </Button>
                       </span>
                     </TooltipTrigger>
-                    <TooltipContent>Proximamente</TooltipContent>
+                    <TooltipContent>Próximamente</TooltipContent>
                   </Tooltip>
                 ) : (
                   <Button variant="outline" size="sm" onClick={handleDuplicate}>
@@ -481,7 +511,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                       Anular
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled>
-                      Devolucion
+                      Devolución
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled>
                       Agregar
@@ -491,7 +521,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
               </div>
             </div>
             {detail.date && (
-              <p className="text-xs text-muted-foreground">{niceDateTimeFull(detail.date)}</p>
+              <p className="text-sm text-muted-foreground">{niceDateTimeFull(detail.date)}</p>
             )}
           </div>
 
@@ -500,7 +530,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
             <div className="grid grid-cols-2 gap-3">
               <Card>
                 <CardContent className="pt-4 pb-4">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Pagado</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Pagado</p>
                   <p className="text-xl font-bold tabular-nums">
                     {formatMoney(detail.creditPayments.paid, config)}
                   </p>
@@ -508,7 +538,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
               </Card>
               <Card>
                 <CardContent className="pt-4 pb-4">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Deuda</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Deuda</p>
                   <p className="text-xl font-bold tabular-nums text-destructive">
                     {formatMoney(detail.creditPayments.debt, config)}
                   </p>
@@ -523,6 +553,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                 Items
               </p>
+              {/* TODO: render combo children cuando el response del detalle exponga parentItemSoldId */}
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -555,9 +586,12 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
           )}
 
           {/* Total */}
-          <p className="text-3xl font-bold text-right tabular-nums">
-            {formatMoney(total, config)}
-          </p>
+          <div className="text-right">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Total</p>
+            <p className="text-2xl font-bold tabular-nums">
+              {formatMoney(total, config)}
+            </p>
+          </div>
 
           {/* Pagos */}
           {payments.length > 0 && (
@@ -568,7 +602,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Metodo</TableHead>
+                    <TableHead>Método</TableHead>
                     <TableHead>Identificador</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
                   </TableRow>
@@ -577,7 +611,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                   {payments.map((p, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{p.name || p.type}</TableCell>
-                      <TableCell className="text-muted-foreground text-xs">
+                      <TableCell className="text-sm text-muted-foreground">
                         {p.extra && p.extra !== p.type ? p.extra : (p.UID || "—")}
                       </TableCell>
                       <TableCell className="tabular-nums text-right">
