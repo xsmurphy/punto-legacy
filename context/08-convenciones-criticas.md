@@ -307,6 +307,32 @@ El agente IA usa **OpenRouter** como gateway (no SDK Anthropic). Modelo default:
 
 ---
 
+## §44 — PG column casing: tablas legacy lowercase vs tablas nuevas camelCase quoted
+
+Las tablas del schema legacy (`outlet`, `item`, `stock`, `transaction`, `taxonomy`, `contact`, `device`, `register`, `company`, `cpayments`, `itemSold`, `itemLocation`, `toLocation`, etc.) tienen sus columnas almacenadas en **lowercase sin quotes** en el catálogo PG (`outletid`, `companyid`, `itemid`, etc.).
+
+**Regla para services nuevos que tocan tablas legacy**: usar las columnas **sin quotes y en lowercase** en las queries.
+
+```php
+// Correcto — tabla legacy, columna sin quotes
+WHERE outletid = :outletId AND companyid = :companyId
+
+// Incorrecto — PG falla con "column outletId does not exist"
+WHERE "outletId" = :outletId AND "companyId" = :companyId
+```
+
+**Tablas nuevas** (creadas desde 2026-06-23: `inventory_count`, `inventory_count_item`, `stock_transfer`, `stock_transfer_item`) usan **camelCase con quotes** porque el DDL las define así explícitamente.
+
+Causó bug en prod con 7 services nuevos (fix en commit `7a59ac2`): `StockAdjustmentService`, `StockTransferService`, `InventoryCountService`, `ReturnService`, `LocationTaxonomyService`, `VariantService`, `ItemService::applyVariantRules`. Las validaciones de tenant fallaban silenciosamente devolviendo "outletId inválido".
+
+## §45 — Redis AUTH en `wsPublish` (infra crítica)
+
+`app/includes/ws_publish.php` parsea el `REDIS_URL` para extraer `user` y `pass`, y pipelinea `AUTH <pass>` antes de `PUBLISH`. Sin esto, prod tiene realtime completamente mudo porque el Redis de Coolify requiere autenticación.
+
+Si el realtime deja de funcionar en prod, verificar primero: (a) que `REDIS_URL` incluya el password (`redis://:pass@host:port`), (b) que `ws_publish.php` esté parseando correctamente con `parse_url`. Fix aplicado en sprint 2026-06-23.
+
+---
+
 ## §41 — `ncmExecute` con `forceObj: true` devuelve RECORDSET, no array
 
 Cuando `ncmExecute($db, $sql, $params, forceObj: true)` se usa para evitar el aplanado JSONB de `§18`, el valor de retorno es un **objeto RECORDSET** (DB wrapper interno), NO un array PHP.

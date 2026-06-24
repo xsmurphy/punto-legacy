@@ -261,6 +261,11 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 | 41 | `41_report_rollup.sql` | Crea tablas `report_rollup` y `rollup_dirty`; funciones `reconcile_rollup` + `backfill_rollup`; pg_cron incremental cada 5 min. Gateado por `REPORTS_ROLLUP_ENABLED`. | Aplicada 2026-06-20 |
 | 42 | `42_rollup_item_payments.sql` | Extiende `report_rollup` con tablas `item_sales`, `item_returns`, `payments` para rollup de categorías/marcas/métodos de pago. | Aplicada 2026-06-20 |
 | 43 | `43_ai_model_config.sql` | Crea tabla `ai_model_config` — configuración por tenant del modelo de IA (provider, model, creditsPerKToken). | Aplicada 2026-06-21 |
+| 44 | `44_parked_sales.sql` | Crea tabla `parked_sale` + `parked_sale_item` para ventas guardadas del POS. | Aplicada 2026-06-23 |
+| 45 | `45_tenant_audit_pgcron.sql` | Scheduling pg_cron para purge de `tenant_audit` (retry de mig 36 fail-tolerant). | Aplicada 2026-06-23 |
+| 46 | `46_inventory_count.sql` | Crea tabla `inventory_count` (sesiones de conteo: `status open/finished/cancelled`, `outletId`, `companyId`) + `inventory_count_item` (por ítem: `expected`, `counted`, `difference`). Columnas en **camelCase quoted** (tabla nueva). | Aplicada 2026-06-23 |
+| 47 | `47_stock_transfer.sql` | Crea tabla `stock_transfer` (cabecera: `fromOutletId`, `toOutletId`, `status pending/completed/cancelled`) + `stock_transfer_item` (por ítem: `quantity`). Columnas en **camelCase quoted** (tabla nueva). | Aplicada 2026-06-23 |
+| 48 | `48_item_variants.sql` | Agrega a tabla legacy `item`: `"variantParentId"` UUID FK nullable (ítem padre que tiene variantes), `"hasVariants"` BOOLEAN DEFAULT false, `"variantAttributes"` JSONB (array de objetos `{name, value}`). Las 3 columnas usan **quotes** porque `item` es tabla legacy (PG la tiene en lowercase). | Aplicada 2026-06-23 |
 
 ### Tabla `ai_credit_ledger` — ledger de créditos de IA (migración 28)
 
@@ -533,3 +538,26 @@ Pre-agregado incremental de reportes de ventas/pagos. Estrategia: pg_cron corre 
 #### Agente IA — tabla `ai_model_config` (migración 43)
 
 Config por tenant del agente IA. Columnas clave: `companyId`, `provider` (default `'openrouter'`), `model` (default `'deepseek/deepseek-chat-v3-0324'`), `creditsPerKToken INT`. El agente usa **OpenRouter** (no SDK Anthropic). 13 tools (5 lecturas + 8 escrituras con `confirmToken` de expiración real 60s). Créditos debitados atómicamente en `/v1/ai/debit` con `SELECT FOR UPDATE` sobre `company.aiCreditsBalance`. Gate 402 si saldo insuficiente. Ver context/17 para el plan completo.
+
+### Tablas del sprint 2026-06-23
+
+#### Módulos retail — `inventory_count`, `stock_transfer` (migraciones 46/47)
+
+- **`inventory_count`**: sesiones de conteo físico de inventario. `status` enum `open/finished/cancelled`. Al hacer `finish()`, `InventoryCountService` llama `Inventory::manageStock` por cada ítem con `difference ≠ 0`, generando movimiento `source='inventory_count'` en el ledger.
+- **`inventory_count_item`**: un row por ítem en la sesión. Campos `expected` (stock actual al abrir), `counted` (conteo ingresado por el usuario), `difference` calculado.
+- **`stock_transfer`**: cabecera de transferencia entre depósitos (`fromOutletId`, `toOutletId`, `status pending/completed/cancelled`). Al completar, `StockTransferService::create` abre TX atómica y hace doble `manageStock`: egreso en origen + ingreso en destino con `source='transfer'`. Cancel reversa con `source='transfer-cancel'`.
+- **`stock_transfer_item`**: ítem + quantity por transferencia.
+
+Todas estas tablas tienen columnas en **camelCase quoted** (tablas nuevas, no legacy).
+
+#### Variantes de producto — columnas en `item` (migración 48)
+
+Tres columnas nuevas en la tabla legacy `item` (con quotes porque la tabla es legacy/lowercase):
+
+| Columna | Tipo | Propósito |
+|---------|------|-----------|
+| `"variantParentId"` | UUID FK nullable → `item.id` | FK al ítem padre cuando este es una variante |
+| `"hasVariants"` | BOOLEAN DEFAULT false | true en el ítem padre que tiene variantes |
+| `"variantAttributes"` | JSONB | Array de `{name: string, value: string}` — combinación de atributos de esta variante |
+
+**Invariantes**: un ítem padre fuerza `price=0, cost=0, stock=0`; no se puede anidar variantes (variante de una variante es 409). Bulk upsert de variantes en TX única vía `VariantService::bulkUpsertVariants`. Stock inicial de cada variante vía `Inventory::manageStock`. Hard-delete del padre devuelve 409 si tiene variantes activas.

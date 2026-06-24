@@ -598,6 +598,46 @@ Pre-agregado incremental de reportes de ventas para rendimiento en volumen alto.
 
 ---
 
+## Módulos retail (sprint 2026-06-23)
+
+### `Punto\Api\Services\InventoryCountService` — `/v1/inventory_count.php`
+
+Conteo físico de inventario. `create()` abre sesión con `status=open`; `finish()` lee todos los `inventory_count_item` con `difference ≠ 0` y llama `Inventory::manageStock` por cada uno con `source='inventory_count'`. `cancel()` marca `status=cancelled` sin tocar el ledger. Guard: solo una sesión `open` por outlet a la vez (409 si ya existe).
+
+### `Punto\Api\Services\StockAdjustmentService` — `/v1/stock_adjustment.php`
+
+Ajuste puntual de stock con motivo. Pre-query de stockeables, skip de no-stockeables, loop `manageStock` con `source='adjustment'`. Form con motivos predefinidos + textarea libre + búsqueda de ítems.
+
+### `Punto\Api\Services\StockTransferService` — `/v1/stock_transfer.php`
+
+Transferencia de stock entre depósitos (outlets). `create()` abre TX atómica, itera ítems, doble `manageStock` (egreso `source='transfer'` en origen + ingreso en destino). `cancel()` reversa con `source='transfer-cancel'`. Guard 409 si el ítem no tiene stock suficiente en origen.
+
+### `Punto\Api\Services\ReturnService` — `/v1/returns.php`
+
+Devoluciones POS. Genera movimiento `type=6` con `parentTransactionId` heredado de la venta original. `FOR UPDATE` anti-race sobre la transacción padre. Devuelve efectivo (entry en `transactionPaymentType` JSON con `type:'cash'`, amount negativo) o acredita en `contactStoreCredit`. Sheet de devolución accesible desde el detalle de transacción con `parentTransactionId` precargado.
+
+### `Punto\Api\Services\RegisterAdminService` — extends `/v1/register.php`
+
+CRUD de cajas (registers) desde el panel `/settings/devices`. Soft-delete si la caja tiene transacciones históricas; hard-delete si no. 409 si hay devices activos usando la caja al momento del delete.
+
+### `Punto\Api\Services\CreditPaymentService` — `/v1/credit-payments.php`
+
+Pago de deuda en transacciones tipo crédito. Genera recibo `transaction type=5` con `parentTransactionId` y `getNextDocNumber(0, 5, ...)`. Si `amount === debt`, marca `transactionComplete=1` en la transacción padre (UPDATE en TX). Endpoint `POST /v1/credit-payments`.
+
+### `Punto\Api\Taxonomies\LocationTaxonomyService` — extends `/v1/taxonomies.php`
+
+CRUD de depósitos (locations/outlets) desde el detalle de sucursal en `/outlets/[id]`. Namespace `Punto\Api\Taxonomies`. POST/PUT/DELETE para `type=location`. UI con DataTable + dialog crear/editar + AlertDialog eliminar.
+
+### `Punto\Api\Items\VariantService` — extends `/v1/items.php`
+
+Variantes de producto Phase 1. `bulkUpsertVariants()` en TX única: genera combinaciones cartesianas de atributos, upsert por `(variantParentId, variantAttributes)`, stock inicial vía `Inventory::manageStock`. Invariantes: padre fuerza price/cost/stock=0, anti-anidamiento 409. UI: tab Variantes en el form de ítem con matriz editable + regeneración preservando filas existentes; badge "Variantes (N)" en listado + toggle "Mostrar variantes".
+
+### AuthSentinel — handler global 401 en panel-next
+
+`panel-next/components/auth/auth-sentinel.tsx`. Escucha el `CustomEvent("api:unauthorized")` emitido por `api-client.ts` antes de throwear un 401. Al dispararse: `queryClient.clear()` + toast "Tu sesión expiró" + `router.replace("/login")`. Debounce con `firedRef` + guard `pathname.startsWith("/login")`. **No montado en el layout del POS** — el POS usa `_jwt` device pairing (no sesión humana con expiración).
+
+---
+
 ## Módulo Agente IA (sprint 2026-06-21, context/17)
 
 Asistente de IA integrado en el panel y el POS. Plan completo en `context/17-ai-agent-plan.md`.
