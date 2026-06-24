@@ -218,6 +218,32 @@ try {
             break;
         }
 
+        case 'tabular_import': {
+            $kind      = (string) ($payload['kind']      ?? '');
+            $sessionId = (string) ($payload['sessionId'] ?? '');
+            $mode      = (string) ($payload['mode']      ?? 'insert');
+            $mapping   = isset($payload['mapping']) && is_array($payload['mapping'])
+                ? $payload['mapping']
+                : null;
+
+            $result = \Punto\Api\Imports\ImportSession::run(
+                $sessionId, $kind, $mapping, $mode, $companyId, $userId
+            );
+
+            if (!($result['ok'] ?? false)) {
+                apiError($result['error'] ?? 'Error en importación', 422);
+            }
+
+            if ($kind === 'contacts') {
+                realtimePublish('contact', 'import', 'batch');
+            } else {
+                realtimePublish('item', 'import', 'batch');
+            }
+
+            apiOk(['action' => $action, 'result' => $result['report'] ?? []]);
+            break;
+        }
+
         default:
             apiError('Acción no reconocida: ' . $action, 400);
     }

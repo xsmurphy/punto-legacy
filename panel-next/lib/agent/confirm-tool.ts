@@ -11,7 +11,7 @@ const confirmInputSchema = z.object({
 
   // Campos para registrar una nueva confirmación (cuando NO hay confirmToken)
   action: z.string().optional().describe(
-    "Acción a ejecutar: create_contact | update_contact | create_item | update_item_price | create_user | create_category | create_brand | create_tag"
+    "Acción a ejecutar: create_contact | update_contact | create_item | update_item_price | create_user | create_category | create_brand | create_tag | tabular_import"
   ),
   payload: z.record(z.string(), z.unknown()).optional().describe("Datos de la acción"),
   summary: z.string().optional().describe("Descripción legible para el usuario"),

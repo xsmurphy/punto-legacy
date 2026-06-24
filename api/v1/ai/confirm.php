@@ -39,6 +39,7 @@ $allowed = [
     'create_category',
     'create_brand',
     'create_tag',
+    'tabular_import',
 ];
 
 if (!in_array($action, $allowed, true)) {
@@ -101,6 +102,18 @@ switch ($action) {
     case 'create_tag':
         if (empty(trim((string) ($payload['name'] ?? '')))) {
             apiError('name es obligatorio', 400);
+        }
+        break;
+
+    case 'tabular_import':
+        if (empty(trim((string) ($payload['sessionId'] ?? '')))) {
+            apiError('sessionId es obligatorio', 400);
+        }
+        if (!in_array($payload['kind'] ?? '', ['items', 'contacts'], true)) {
+            apiError('kind debe ser "items" o "contacts"', 400);
+        }
+        if (!in_array($payload['mode'] ?? '', ['insert', 'update'], true)) {
+            apiError('mode debe ser "insert" o "update"', 400);
         }
         break;
 }
