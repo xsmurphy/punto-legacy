@@ -52,7 +52,7 @@ export function useRealtimeSync(clientScope: "panel" | "pos" = "panel") {
       if (clientScope === "pos" && ev.scope === "dashboard") return
       const keys = ENTITY_TO_QUERY_KEYS[ev.entity]
       if (!keys) return
-      keys.forEach((k) => qc.invalidateQueries({ queryKey: [...k] }))
+      keys.forEach((k) => qc.invalidateQueries({ queryKey: [...k], refetchType: "active" }))
     })
   }, [qc, clientScope])
 }
