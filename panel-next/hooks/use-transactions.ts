@@ -33,6 +33,7 @@ export interface TransactionListItem {
 export interface TransactionDetail {
   transactionId: string
   customerId: string
+  customerName?: string
   name: string
   type: string
   status: string

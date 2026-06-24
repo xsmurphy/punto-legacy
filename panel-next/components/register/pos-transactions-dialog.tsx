@@ -469,8 +469,8 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                   )}
                 </div>
                 {/* text-xl font-semibold — evita la saturación del text-3xl anterior */}
-                <p className="text-xl font-semibold leading-tight">
-                  {detail.name || "Sin nombre"}
+                <p className={cn("text-xl font-semibold leading-tight", !detail.customerName && "text-muted-foreground")}>
+                  {detail.customerName || "Sin nombre"}
                 </p>
               </div>
               {/* Acciones */}
@@ -529,17 +529,17 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
           {isCredit && detail.creditPayments && (
             <div className="grid grid-cols-2 gap-3">
               <Card>
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Pagado</p>
-                  <p className="text-xl font-bold tabular-nums">
+                <CardContent className="p-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-0.5">Pagado</p>
+                  <p className="text-lg font-semibold tabular-nums">
                     {formatMoney(detail.creditPayments.paid, config)}
                   </p>
                 </CardContent>
               </Card>
               <Card>
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Deuda</p>
-                  <p className="text-xl font-bold tabular-nums text-destructive">
+                <CardContent className="p-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-0.5">Deuda</p>
+                  <p className="text-lg font-semibold tabular-nums text-destructive">
                     {formatMoney(detail.creditPayments.debt, config)}
                   </p>
                 </CardContent>

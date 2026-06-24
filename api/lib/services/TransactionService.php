@@ -176,10 +176,25 @@ final class TransactionService
         $rawDetails       = $fields['transactionDetails'] ?? null;
         $transactionDatas = $rawDetails ? json_decode($rawDetails, true) : null;
 
+        $customerName = '';
+        $customerUuid = (string) ($fields['customerId'] ?? '');
+        if ($customerUuid !== '') {
+            $cusRow = ncmExecute(
+                'SELECT contactName, contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                [$customerUuid, $companyId]
+            );
+            if ($cusRow) {
+                $customerName = $cusRow['contactName']
+                    ? toUTF8($cusRow['contactName'])
+                    : toUTF8($cusRow['contactSecondName'] ?? '');
+            }
+        }
+
         return [
             'transactionId'   => enc($fields['transactionId']),
             'customerId'      => enc($fields['customerId']),
             'customerUnd'     => $fields['customerId'],
+            'customerName'    => $customerName,
             'userId'          => enc($fields['userId']),
             'note'            => $fields['transactionNote'],
             'tags'            => $tags,
@@ -702,13 +717,19 @@ final class TransactionService
                 : '';
 
             // --- customer name (per-row lookup; N+1 preserved for fidelity) ---
-            $cusRow    = ncmExecute(
-                'SELECT contactName, contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
-                [(string) ($f['customerId'] ?? ''), $companyId]
-            );
-            $customerD = $cusRow
-                ? ($cusRow['contactName'] ? toUTF8($cusRow['contactName']) : toUTF8($cusRow['contactSecondName'] ?? ''))
-                : 'Sin Nombre';
+            $customerId = (string) ($f['customerId'] ?? '');
+            $customerD  = '';
+            if ($customerId !== '') {
+                $cusRow = ncmExecute(
+                    'SELECT contactName, contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                    [$customerId, $companyId]
+                );
+                if ($cusRow) {
+                    $customerD = $cusRow['contactName']
+                        ? toUTF8($cusRow['contactName'])
+                        : toUTF8($cusRow['contactSecondName'] ?? '');
+                }
+            }
 
             $inTotal = formatCurrentNumber($tTotal, $dec, $ts);
             $dateStr = niceDate($f['transactionDate'] ?? '', true);
