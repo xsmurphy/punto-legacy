@@ -566,27 +566,27 @@ final class TransactionService
         $limit  = min(100, max(1, $limit));
         $offset = max(0, $offset);
 
-        $where  = ['companyId = ?'];
+        $where  = ['t.companyId = ?'];
         $params = [$companyId];
 
         if (in_array((string) $roleId, ['4', '5'])) {
-            $where[]  = 'transactionType IN (2, 10)';
-            $where[]  = 'userId = ?';
+            $where[]  = 't.transactionType IN (2, 10)';
+            $where[]  = 't.userId = ?';
             $params[] = $userId;
         } else {
-            $where[] = 'transactionType IN (0, 3, 6, 7, 9, 10)';
+            $where[] = 't.transactionType IN (0, 3, 6, 7, 9, 10)';
         }
 
         if ($encCustomerId) {
-            $where[]  = 'customerId = ?';
+            $where[]  = 't.customerId = ?';
             $params[] = dec($encCustomerId);
         } else {
-            $where[]  = 'outletId = ?';
+            $where[]  = 't.outletId = ?';
             $params[] = $outletId;
         }
 
         if ($date) {
-            $where[]  = 'transactionDate BETWEEN ? AND ?';
+            $where[]  = 't.transactionDate BETWEEN ? AND ?';
             $params[] = $date . ' 00:00:00';
             $params[] = $date . ' 23:59:59';
             $limit    = 2000;
@@ -594,14 +594,15 @@ final class TransactionService
         }
 
         if ($q !== '') {
-            $where[]  = '(invoiceNo::text ILIKE ? OR transactionId::text ILIKE ?)';
+            $where[]  = '(t.invoiceNo::text ILIKE ? OR t.transactionId::text ILIKE ? OR c.contactName ILIKE ?)';
             $like     = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
         }
 
-        $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
-             . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit
+        $sql = 'SELECT t.* FROM transaction t LEFT JOIN contact c ON t.customerId = c.contactId WHERE ' . implode(' AND ', $where)
+             . ' ORDER BY t.transactionDate DESC LIMIT ' . (int) $limit
              . ' OFFSET ' . (int) $offset;
         $rs  = $this->db->Execute($sql, $params);
 
