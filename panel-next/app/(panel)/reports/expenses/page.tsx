@@ -361,12 +361,15 @@ export default function ExpensesReportPage() {
 
             <div className="flex flex-col gap-1.5">
               <Label>Usuario</Label>
-              <Select value={editUser} onValueChange={setEditUser}>
+              <Select
+                value={editUser || "__none__"}
+                onValueChange={(v) => setEditUser(v === "__none__" ? "" : v)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Sin asignar" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Sin asignar</SelectItem>
+                  <SelectItem value="__none__">Sin asignar</SelectItem>
                   {users.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}

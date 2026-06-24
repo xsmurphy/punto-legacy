@@ -159,7 +159,10 @@ export default function AdminRequestsPage() {
         emptyMessage="Sin solicitudes"
         exportFileName="solicitudes-admin"
         toolbarSlot={
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select
+            value={statusFilter || "__none__"}
+            onValueChange={(v) => setStatusFilter(v === "__none__" ? "" : v)}
+          >
             <SelectTrigger className="w-44">
               <SelectValue />
             </SelectTrigger>
@@ -167,7 +170,7 @@ export default function AdminRequestsPage() {
               <SelectItem value="pending">Pendientes</SelectItem>
               <SelectItem value="approved">Aprobadas</SelectItem>
               <SelectItem value="rejected">Rechazadas</SelectItem>
-              <SelectItem value="">Todas</SelectItem>
+              <SelectItem value="__none__">Todas</SelectItem>
             </SelectContent>
           </Select>
         }

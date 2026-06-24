@@ -589,12 +589,15 @@ function PriceListDialog({
         <DialogHeader>
           <DialogTitle>Lista de precios</DialogTitle>
         </DialogHeader>
-        <Select value={selected} onValueChange={setSelected}>
+        <Select
+          value={selected || "__none__"}
+          onValueChange={(v) => setSelected(v === "__none__" ? "" : v)}
+        >
           <SelectTrigger>
             <SelectValue placeholder="Precios estándar" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Precios estándar</SelectItem>
+            <SelectItem value="__none__">Precios estándar</SelectItem>
             {(lists ?? []).map((pl) => (
               <SelectItem key={pl.priceListId} value={pl.priceListId}>
                 {pl.priceListName}

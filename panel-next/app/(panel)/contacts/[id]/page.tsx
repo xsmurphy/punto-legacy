@@ -411,8 +411,8 @@ function ContactFormBody({
                 <FormItem>
                   <FormLabel>Lista de precios</FormLabel>
                   <Select
-                    value={field.value ?? ""}
-                    onValueChange={(v) => field.onChange(v === "" ? null : v)}
+                    value={field.value ?? "__none__"}
+                    onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
                   >
                     <FormControl>
                       <SelectTrigger className="w-full">
@@ -420,7 +420,7 @@ function ContactFormBody({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="">Precio base (sin lista)</SelectItem>
+                      <SelectItem value="__none__">Precio base (sin lista)</SelectItem>
                       {(priceLists ?? [])
                         .filter((pl) => pl.status)
                         .map((pl) => (
