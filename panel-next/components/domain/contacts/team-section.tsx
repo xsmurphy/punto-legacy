@@ -491,7 +491,7 @@ function TeamForm({
 
 // ── sección ─────────────────────────────────────────────────────────────────
 
-export function TeamSection() {
+export function TeamSection({ openCreateRef }: { openCreateRef?: React.RefObject<(() => void) | null> }) {
   const { data, isLoading } = useTeamMembers()
   const { data: rolesData } = useTeamRoles()
   const { data: outletsData } = useOutlets()
@@ -508,11 +508,15 @@ export function TeamSection() {
   const roles   = rolesData?.roles   ?? []
   const outlets = outletsData?.rows ?? []
 
-  function openCreate() {
+  const openCreate = React.useCallback(() => {
     setEditing(null)
     form.reset(emptyValues())
     setSheetOpen(true)
-  }
+  }, [form])
+
+  React.useEffect(() => {
+    if (openCreateRef) openCreateRef.current = openCreate
+  }, [openCreateRef, openCreate])
 
   function openEdit(m: TeamMember) {
     setEditing(m)
@@ -552,20 +556,6 @@ export function TeamSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Equipo</h1>
-          <p className="text-sm text-muted-foreground">
-            Usuarios con acceso al panel y la caja.
-          </p>
-        </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="mr-1.5 size-4" />
-          Nuevo usuario
-        </Button>
-      </div>
-
       {/* Tabla */}
       {isLoading ? (
         <div className="flex h-48 items-center justify-center">

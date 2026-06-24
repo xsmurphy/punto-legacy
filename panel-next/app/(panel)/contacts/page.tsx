@@ -32,19 +32,25 @@ import { TeamSection } from "@/components/domain/contacts/team-section"
 
 type ActiveTab = "1" | "2" | "team"
 
+function getActiveTab(searchParams: ReturnType<typeof useSearchParams>): ActiveTab {
+  const typeParam = searchParams.get("type")
+  const tabParam = searchParams.get("tab")
+  if (tabParam === "team" || typeParam === "0") return "team"
+  if (typeParam === "2") return "2"
+  return "1"
+}
+
 function ContactsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const typeParam = searchParams.get("type")
-  const tabParam = searchParams.get("tab")
-  const initialTab: ActiveTab =
-    tabParam === "team" || typeParam === "0"
-      ? "team"
-      : typeParam === "2"
-        ? "2"
-        : "1"
+  const activeTab = getActiveTab(searchParams)
 
-  const [activeTab, setActiveTab] = React.useState<ActiveTab>(initialTab)
+  const setActiveTab = (next: ActiveTab) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("type", next === "team" ? "0" : next)
+    params.delete("tab")
+    router.replace(`/contacts?${params.toString()}`)
+  }
 
   // contactType solo se usa cuando activeTab !== "team"
   const contactType: ContactType = activeTab === "2" ? 2 : 1
@@ -52,6 +58,7 @@ function ContactsPage() {
   const { data, isLoading, error } = useContacts({ type: contactType })
   const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "archived">("all")
   const isSupplier = activeTab === "2"
+  const teamOpenCreateRef = React.useRef<(() => void) | null>(null)
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.contacts ?? []
@@ -229,12 +236,17 @@ function ContactsPage() {
               : "Clientes y proveedores del negocio."}
           </p>
         </div>
-        {activeTab !== "team" && (
+        {activeTab !== "team" ? (
           <Button asChild>
             <Link href={isSupplier ? "/contacts/new?type=2" : "/contacts/new"}>
               <Plus className="size-4" />
               {isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}
             </Link>
+          </Button>
+        ) : (
+          <Button onClick={() => teamOpenCreateRef.current?.()}>
+            <Plus className="size-4" />
+            Nuevo usuario
           </Button>
         )}
       </header>
@@ -250,7 +262,7 @@ function ContactsPage() {
         </TabsList>
 
         <TabsContent value="team" className="mt-6">
-          <TeamSection />
+          <TeamSection openCreateRef={teamOpenCreateRef} />
         </TabsContent>
       </Tabs>
 
