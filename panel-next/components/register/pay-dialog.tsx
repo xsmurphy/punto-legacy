@@ -30,7 +30,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useCartStore, selectCartTotal } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { formatMoney } from "@/lib/format-money"
+import { formatMoney, formatCurrencyAmount } from "@/lib/format-money"
 import { executeSale } from "@/lib/commands/create-sale"
 import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-sale"
 import { useDrawerStatus } from "@/hooks/use-drawer"
@@ -39,7 +39,6 @@ import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
 import { api } from "@/lib/api-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
-import { formatAmount } from "@/lib/format-money"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -654,6 +653,17 @@ function PayPhase({
         />
       </div>
 
+      {/* Conversión multi-moneda — read-only, debajo del total */}
+      {activeCurrencies.length > 0 && (
+        <div className="mt-1 flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 pb-3 text-xs text-muted-foreground">
+          {activeCurrencies.map((c) => (
+            <span key={c.code} className="tabular-nums">
+              {c.code} {formatCurrencyAmount(total / c.value, c.code)}
+            </span>
+          ))}
+        </div>
+      )}
+
       <Separator />
 
       {/* Cuerpo scrolleable */}
@@ -762,16 +772,6 @@ function PayPhase({
           </>
         )}
 
-        {/* Conversión multi-moneda — muestra el total en cada moneda activa. */}
-        {activeCurrencies.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
-            {activeCurrencies.map((c) => (
-              <span key={c.code} className="tabular-nums">
-                {c.code} {formatAmount(total / c.value, null)}
-              </span>
-            ))}
-          </div>
-        )}
 
         {/* Error */}
         {errorMsg && (

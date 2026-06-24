@@ -36,3 +36,22 @@ export function formatMoney(
   const currency = config?.currency ?? "Gs"
   return `${currency} ${formatAmount(value, config)}`
 }
+
+/** ISO 4217 codes with no decimal places. */
+const NO_DECIMAL_CURRENCIES = new Set([
+  "PYG", "CLP", "JPY", "KRW", "VND", "IDR",
+])
+
+/**
+ * Formats a foreign-currency amount using Intl.NumberFormat.
+ * No-decimal currencies (PYG, CLP, JPY, KRW, VND, IDR) → integer.
+ * All others → 2 decimal places.
+ */
+export function formatCurrencyAmount(amount: number, code: string): string {
+  const noDecimal = NO_DECIMAL_CURRENCIES.has(code.toUpperCase())
+  return new Intl.NumberFormat(undefined, {
+    style: "decimal",
+    minimumFractionDigits: noDecimal ? 0 : 2,
+    maximumFractionDigits: noDecimal ? 0 : 2,
+  }).format(amount)
+}
