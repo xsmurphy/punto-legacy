@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { isTextUIPart } from "ai"
-import { MessageCircle } from "lucide-react"
+import { MessageCircle, Upload } from "lucide-react"
 import Link from "next/link"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
@@ -130,8 +130,60 @@ export function AgentChatContent({
     onInputChange?.(v)
   }
 
+  // Drag-and-drop sobre TODO el área del chat. Usamos un counter para evitar
+  // el flicker que produce dragenter/dragleave al pasar sobre hijos anidados.
+  const [isDragging, setIsDragging] = React.useState(false)
+  const dragCounter = React.useRef(0)
+
+  function hasFiles(e: React.DragEvent) {
+    return Array.from(e.dataTransfer?.types ?? []).includes("Files")
+  }
+
+  function handleDragEnter(e: React.DragEvent) {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    dragCounter.current += 1
+    setIsDragging(true)
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "copy"
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    if (!hasFiles(e)) return
+    dragCounter.current = Math.max(0, dragCounter.current - 1)
+    if (dragCounter.current === 0) setIsDragging(false)
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    dragCounter.current = 0
+    setIsDragging(false)
+    const files = Array.from(e.dataTransfer.files ?? [])
+    for (const f of files) addAttachment(f)
+  }
+
   return (
-    <div className="flex flex-col h-full">
+    <div
+      className="flex flex-col h-full relative"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-foreground/5 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-foreground/40 bg-card px-8 py-6 shadow-lg">
+            <Upload className="size-8 text-foreground/70" />
+            <p className="text-sm font-medium text-foreground">Soltá para adjuntar</p>
+            <p className="text-xs text-muted-foreground">Excel, CSV o imagen</p>
+          </div>
+        </div>
+      )}
       {showHeader && (
         <div className="border-b px-4 py-3">
           <div className="flex items-center gap-2">
