@@ -44,7 +44,7 @@ final class InventoryCountService
         $countId = $sessionRow['inventoryCountId'];
 
         $items = ncmExecute(
-            'SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory >= 1',
+            'SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory = true',
             [$companyId],
             false,
             true
@@ -90,10 +90,10 @@ final class InventoryCountService
     public function get(string $id, string $companyId): ?array
     {
         $session = ncmExecute(
-            'SELECT ic.*, u1.username as "startedByName", u2.username as "finishedByName"
+            'SELECT ic.*, u1.contactname as "startedByName", u2.contactname as "finishedByName"
              FROM inventory_count ic
-             LEFT JOIN "user" u1 ON u1.userid = ic."startedBy"
-             LEFT JOIN "user" u2 ON u2.userid = ic."finishedBy"
+             LEFT JOIN contact u1 ON u1.contactid = ic."startedBy"
+             LEFT JOIN contact u2 ON u2.contactid = ic."finishedBy"
              WHERE ic."inventoryCountId" = ? AND ic."companyId" = ?
              LIMIT 1',
             [$id, $companyId]

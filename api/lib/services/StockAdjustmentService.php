@@ -34,7 +34,7 @@ final class StockAdjustmentService
         $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
         $params = array_merge([$companyId], $itemIds);
         $stockableRs = ncmExecute(
-            "SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory >= 1 AND itemid IN ({$placeholders})",
+            "SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory = true AND itemid IN ({$placeholders})",
             $params,
             false,
             true

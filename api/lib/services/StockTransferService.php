@@ -94,7 +94,7 @@ final class StockTransferService
         $params       = array_merge([$companyId], $itemIds);
 
         $stockableRs = ncmExecute(
-            'SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory >= 1 AND itemid IN (' . $placeholders . ')',
+            'SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory = true AND itemid IN (' . $placeholders . ')',
             $params,
             false,
             true
@@ -315,13 +315,13 @@ final class StockTransferService
                     to_.outletname as "toOutletName",
                     tfl.taxonomyname as "fromLocationName",
                     ttl.taxonomyname as "toLocationName",
-                    u.username as "createdByName"
+                    u.contactname as "createdByName"
              FROM stock_transfer st
              JOIN outlet fo  ON fo.outletid  = st."fromOutletId"
              JOIN outlet to_ ON to_.outletid = st."toOutletId"
              LEFT JOIN taxonomy tfl ON tfl.taxonomyid = st."fromLocationId"
              LEFT JOIN taxonomy ttl ON ttl.taxonomyid = st."toLocationId"
-             LEFT JOIN "user" u ON u.userid = st."createdBy"
+             LEFT JOIN contact u ON u.contactid = st."createdBy"
              WHERE st."stockTransferId" = ? AND st."companyId" = ?
              LIMIT 1',
             [$id, $companyId]
