@@ -106,6 +106,16 @@ final class RoleService
 
     public static function getPermissions(string $roleId, string $companyId): array
     {
+        if (ctype_digit($roleId)) {
+            $resolvedId = self::_resolveSlugId((int)$roleId, $companyId);
+            if ($resolvedId === '') {
+                self::seedCompanyRoles($companyId);
+                self::clearSlugCache($companyId);
+                $resolvedId = self::_resolveSlugId((int)$roleId, $companyId);
+                if ($resolvedId === '') return [];
+            }
+            $roleId = $resolvedId;
+        }
         return self::_loadPermissions($roleId, $companyId);
     }
 
