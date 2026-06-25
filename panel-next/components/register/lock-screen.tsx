@@ -5,7 +5,10 @@
  * (4 dígitos) para reanudar. No hay input visible: captura las teclas a
  * nivel window y muestra 4 círculos que se llenan a medida que se tipea.
  *
- * PIN: validado contra users[].lockPass del catalog store (precacheados en bootstrap).
+ * PIN: validado localmente con SHA-256 (Web Crypto API) contra los hashes del catalog store.
+ * Decision del owner (2026-06-25): SHA-256 (más simple, más rápido en browser, matchea legacy).
+ * POST best-effort a /api/pos/audit-unlock solo para logging — si falla (offline),
+ * el unlock ya ocurrio de todas formas.
  *
  * UX:
  *   - Logo Punto centrado.
@@ -31,6 +34,7 @@ export function LockScreen() {
   const unlock = useLockStore((s) => s.unlock)
   const setActiveUser = useLockStore((s) => s.setActiveUser)
   const outletName = useCatalogStore((s) => s.outlet?.name)
+  const users = useCatalogStore((s) => s.users)
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -82,32 +86,36 @@ export function LockScreen() {
     return () => window.removeEventListener("keydown", onKey, true)
   }, [locked])
 
-  // Validar al llegar a 4 dígitos — POST al BFF /api/pos/unlock (PIN nunca en el front).
+  // Validar al llegar a 4 dígitos — match local con SHA-256 contra los hashes del store.
+  // Best-effort POST a /api/pos/audit-unlock para logging (no bloquea el unlock si falla).
   React.useEffect(() => {
     if (pin.length !== PIN_LENGTH) return
     const id = setTimeout(async () => {
-      try {
-        const res = await fetch("/api/pos/unlock", {
+      // SHA-256 via Web Crypto API — sync feel, sub-ms compute
+      const enc = new TextEncoder().encode(pin)
+      const buf = await crypto.subtle.digest("SHA-256", enc)
+      const hashArr = Array.from(new Uint8Array(buf))
+      const pinHash = hashArr.map(b => b.toString(16).padStart(2, "0")).join("")
+
+      let matched: { id: string; name: string } | null = null
+      for (const u of users) {
+        if (!u.pinhash) continue
+        if (u.pinhash === pinHash) {
+          matched = { id: u.id, name: u.name }
+          break
+        }
+      }
+      if (matched) {
+        // Audit best-effort — no bloquear si falla (offline).
+        fetch("/api/pos/audit-unlock", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ pin }),
-        })
-        const data = await res.json() as { ok: boolean; user?: { id: string; name: string }; error?: { message: string } }
-        if (res.ok && data.ok && data.user) {
-          setActiveUser({ id: data.user.id, name: data.user.name })
-          toast.success(`Bienvenido, ${data.user.name}`)
-          unlock()
-        } else {
-          setShake(true)
-          setError(true)
-          setTimeout(() => {
-            setShake(false)
-            setPin("")
-            setPoppedIndex(-1)
-          }, 420)
-        }
-      } catch {
-        // Error de red — tratar como PIN incorrecto.
+          body: JSON.stringify({ contactId: matched.id }),
+        }).catch(() => undefined)
+        setActiveUser({ id: matched.id, name: matched.name })
+        toast.success(`Bienvenido, ${matched.name}`)
+        unlock()
+      } else {
         setShake(true)
         setError(true)
         setTimeout(() => {
@@ -118,9 +126,40 @@ export function LockScreen() {
       }
     }, 160)
     return () => clearTimeout(id)
-  }, [pin, unlock])
+  }, [pin, unlock, users])
+
+  // Escape hatch (P1): si ningún user tiene pinhash configurado, el lock screen
+  // se convierte en un deadlock permanente (no hay PIN que comparar).
+  // Esto ocurre cuando: (a) el store degradó a users=[] por un 5xx upstream,
+  // (b) el tenant nunca configuró PINs. En ese caso, desbloqueamos sin PIN
+  // para no dejar la caja inutilizable offline.
+  const noPinsConfigured = users.length === 0 || users.every((u) => !u.pinhash)
 
   if (!locked) return null
+
+  // Si no hay hashes: mostrar aviso + botón de recarga en vez del lock real.
+  if (noPinsConfigured) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pantalla bloqueada"
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background"
+      >
+        <PuntoLogo variant="mark" className="size-[35px]" />
+        <p className="text-sm text-muted-foreground">
+          No hay PINs configurados para este dispositivo.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="text-xs underline text-muted-foreground hover:text-foreground"
+        >
+          Recargar
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div

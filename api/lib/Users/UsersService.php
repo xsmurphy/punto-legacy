@@ -58,6 +58,8 @@ final class UsersService
                 c.contactStatus   AS status,
                 c.data->>'contactColor' AS color,
                 c.lockPass,
+                c.lockpasshash,
+                c.pinhash,
                 (c.data->>'contactInCalendar' = 'true') AS inCalendar,
                 COALESCE(NULLIF(c.data->>'contactCalendarPosition','')::int, 0) AS calendarPosition,
                 c.role            AS roleId,
@@ -95,6 +97,8 @@ final class UsersService
                 c.contactStatus   AS status,
                 c.data->>'contactColor' AS color,
                 c.lockPass,
+                c.lockpasshash,
+                c.pinhash,
                 (c.data->>'contactInCalendar' = 'true') AS inCalendar,
                 COALESCE(NULLIF(c.data->>'contactCalendarPosition','')::int, 0) AS calendarPosition,
                 c.role            AS roleId,
@@ -165,6 +169,7 @@ final class UsersService
             'outletId'                 => $in['outletId']         ?? null,
             'lockPass'                 => $lockPass !== '' ? $lockPass : null,
             'lockPassHash'             => $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null,
+            'pinhash'                  => $lockPass !== '' ? hash('sha256', $lockPass) : null,
             'contactInCalendar'        => !empty($in['inCalendar']) ? 1 : 0,
             'contactCalendarPosition'  => isset($in['calendarPosition']) ? (int) $in['calendarPosition'] : 0,
             'contactColor'             => $in['color']            ?? null,
@@ -225,6 +230,7 @@ final class UsersService
             }
             $rec['lockPass']     = $lockPass !== '' ? $lockPass : null;
             $rec['lockPassHash'] = $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null;
+            $rec['pinhash']      = $lockPass !== '' ? hash('sha256', $lockPass) : null;
         }
         if (array_key_exists('inCalendar', $in)) {
             $rec['contactInCalendar'] = !empty($in['inCalendar']) ? 1 : 0;
@@ -347,6 +353,8 @@ final class UsersService
             'status'           => (int) ($row['status']    ?? $row['contactstatus']            ?? 1),
             'color'            => $row['color']             ?? $row['contactcolor']             ?? null,
             'lockPass'         => $row['lockpass']          ?? $row['lockPass']                 ?? null,
+            'lockPassHash'     => $row['lockpasshash']      ?? null,
+            'pinhash'          => $row['pinhash']           ?? null,
             'inCalendar'       => (bool) ($row['incalendar'] ?? $row['contactincalendar']      ?? false),
             'calendarPosition' => (int) ($row['calendarposition'] ?? $row['contactcalendarposition'] ?? 0),
             'roleId'           => $roleKey,

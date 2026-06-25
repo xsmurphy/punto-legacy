@@ -32,28 +32,29 @@ if (!preg_match('/^\d{4}$/', $pin)) {
 }
 
 // Estrategia dual durante backfill:
-// (a) bcrypt: iterar todos los usuarios con lockPassHash y verificar en PHP.
+// (a) SHA-256: iterar todos los usuarios con pinhash y verificar en PHP.
 // (b) plain fallback: buscar directamente por lockPass (solo pre-backfill, LIMIT 1).
 // Separar en 2 queries evita traer lockPass plano a memoria innecesariamente
-// y elimina el timing oracle (el branch plano no compite con el bcrypt).
+// y elimina el timing oracle (el branch plano no compite con el SHA-256).
 $found = null;
 
-// (a) bcrypt: no filtrable en SQL, verificar en PHP
+// (a) SHA-256: no filtrable en SQL, verificar en PHP
+$pinHash = hash('sha256', $pin);
 $rs = ncmExecute(
-    'SELECT contactid, contactname, lockpasshash
+    'SELECT contactid, contactname, pinhash
        FROM contact
       WHERE companyid = ?
         AND type = 0
         AND contactstatus = 1
-        AND lockpasshash IS NOT NULL',
+        AND pinhash IS NOT NULL',
     [COMPANY_ID],
     false,
     true
 );
 if ($rs) {
     while (!$rs->EOF) {
-        $hash = $rs->fields['lockpasshash'] ?? null;
-        if ($hash !== null && password_verify($pin, (string) $hash)) {
+        $hash = $rs->fields['pinhash'] ?? null;
+        if ($hash !== null && $hash === $pinHash) {
             $found = [
                 'contactid'   => (string) ($rs->fields['contactid']   ?? ''),
                 'contactname' => (string) ($rs->fields['contactname'] ?? ''),
@@ -64,7 +65,7 @@ if ($rs) {
     }
 }
 
-// (b) plain fallback: solo para usuarios sin lockPassHash (pre-backfill)
+// (b) plain fallback: solo para usuarios sin pinhash (pre-backfill)
 if ($found === null) {
     $row = ncmExecute(
         'SELECT contactid, contactname
@@ -72,7 +73,7 @@ if ($found === null) {
           WHERE companyid = ?
             AND type = 0
             AND contactstatus = 1
-            AND lockpasshash IS NULL
+            AND pinhash IS NULL
             AND lockpass = ?
           LIMIT 1',
         [COMPANY_ID, $pin]

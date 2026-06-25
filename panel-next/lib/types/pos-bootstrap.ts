@@ -112,6 +112,17 @@ export interface PosCustomer {
 export interface PosUser {
   id: string
   name: string
+  /**
+   * Hash SHA-256 (hex 64 chars) del PIN del operador. Almacenado en localStorage via catalog store.
+   * Decision del owner (2026-06-25): SHA-256 es más simple, rápido en browser, matchea legacy.
+   * Hash visible en localStorage es suficiente para identificacion — el PIN no es una
+   * contrasena critica, protege contra peeking casual, no contra atacantes con acceso al device.
+   */
+  pinhash?: string | null
+  /**
+   * @deprecated Hash bcrypt anterior. Mantener por compatibilidad hasta que el front lo deje de usar.
+   */
+  lockpasshash?: string | null
 }
 
 // ── Bootstrap completo ────────────────────────────────────────────────────────

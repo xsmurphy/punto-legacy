@@ -21,6 +21,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Punto",
   description: "Punto POS — panel de administración",
+  themeColor: "#0a0a0a",
 }
 
 export default function RootLayout({
@@ -34,6 +35,11 @@ export default function RootLayout({
       suppressHydrationWarning
       className={cn("antialiased", inter.variable, jetbrainsMono.variable)}
     >
+      <head>
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+      </head>
       <body className="font-sans">
         <ThemeProvider defaultTheme="dark">
           <Providers>{children}</Providers>
