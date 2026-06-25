@@ -1,19 +1,27 @@
+/**
+ * Store global de estado de sincronización offline.
+ *
+ * S1 del feature offline-writes (2026-06-25).
+ * Centraliza: cantidad de ventas pendientes, si hay sync en curso, y
+ * cuándo fue la última sync exitosa.
+ */
+
 import { create } from 'zustand'
 
 interface OfflineSyncState {
   pendingCount: number
   isSyncing: boolean
   lastSyncAt: string | null
-  setPendingCount: (n: number) => void
-  setIsSyncing: (b: boolean) => void
-  setLastSyncAt: (s: string) => void
+  setPendingCount: (count: number) => void
+  setIsSyncing: (syncing: boolean) => void
+  setLastSyncAt: (at: string | null) => void
 }
 
-export const useOfflineSyncStore = create<OfflineSyncState>((set) => ({
+export const useOfflineSyncStore = create<OfflineSyncState>()((set) => ({
   pendingCount: 0,
   isSyncing: false,
   lastSyncAt: null,
-  setPendingCount: (n) => set({ pendingCount: n }),
-  setIsSyncing: (b) => set({ isSyncing: b }),
-  setLastSyncAt: (s) => set({ lastSyncAt: s }),
+  setPendingCount: (count) => set({ pendingCount: count }),
+  setIsSyncing: (syncing) => set({ isSyncing: syncing }),
+  setLastSyncAt: (at) => set({ lastSyncAt: at }),
 }))

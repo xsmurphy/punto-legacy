@@ -78,6 +78,9 @@ import { toast } from "sonner"
 import { useCartPublisher } from "@/hooks/use-cart-publisher"
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
+import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
+import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
+import { OfflineBanner } from "@/components/pos/offline-banner"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -122,6 +125,9 @@ export function CartPanel() {
   const setCustomerOpen = usePosUIStore((s) => s.setCustomerOpen)
   const payOpen = usePosUIStore((s) => s.payOpen)
   const setPayOpen = usePosUIStore((s) => s.setPayOpen)
+
+  const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
+  const [syncQueueOpen, setSyncQueueOpen] = React.useState(false)
 
   // Barcode scanner keyboard-wedge. Pausado cuando: lock activo, PayDialog
   // abierto, SearchDialog abierto (el cajero está tipeando ahí).
@@ -210,10 +216,12 @@ export function CartPanel() {
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
+      <OfflineBanner />
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
+      <SyncQueueDialog open={syncQueueOpen} onOpenChange={setSyncQueueOpen} />
       <DrawerOpenDialog
         open={drawerOpenDialogOpen}
         onOpenChange={setDrawerOpenDialogOpen}
@@ -282,6 +290,18 @@ export function CartPanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {pendingCount > 0 && (
+        <button
+          onClick={() => setSyncQueueOpen(true)}
+          className="flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          <span className="flex size-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white tabular-nums">
+            {pendingCount > 9 ? '9+' : pendingCount}
+          </span>
+          <span>{pendingCount} venta{pendingCount !== 1 ? 's' : ''} pendiente{pendingCount !== 1 ? 's' : ''}</span>
+        </button>
+      )}
 
       {editingHotkeys ? (
         <HotkeyEditGuide />

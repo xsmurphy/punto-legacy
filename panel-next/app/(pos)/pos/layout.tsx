@@ -40,6 +40,7 @@ import { useLockStore } from "@/lib/pos/lock-store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
+import { OfflineBanner } from "@/components/pos/offline-banner"
 
 function OfflineSyncRunner() {
   useOfflineSync()
@@ -181,6 +182,7 @@ export default function PosWorkspaceLayout({
 
   return (
     <div className="relative flex h-full w-full overflow-hidden">
+      <OfflineBanner />
       <BeforeUnloadGuard />
       <OfflineSyncRunner />
       {/* Bloque izquierdo (intercambiable por ruta) — oculto en mobile. */}
