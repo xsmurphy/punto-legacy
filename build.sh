@@ -189,7 +189,7 @@ build_panel() {
     "$V/js/sweetalert2-7.33.1.min.js" \
     "$V/js/offline-0.7.19.min.js" \
     "$V/js/push-1.0.8.min.js" \
-    "$ROOT/panel/screens/scripts/ncm-ws.js" \
+    "$ROOT/screens/scripts/ncm-ws.js" \
     "$ROOT/panel/scripts/written-number.min.js" \
     "$V/js/leaflet-1.7.1.js" \
     "$V/js/leaflet-routing-machine-3.2.12.js"
