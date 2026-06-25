@@ -230,6 +230,10 @@ final class SignupService
         }
         $db->CompleteTrans();
 
+        // Seed de roles del sistema para la company recién creada.
+        require_once __DIR__ . '/RoleService.php';
+        RoleService::seedCompanyRoles((string) $companyInsert);
+
         // Login automático: recuperar el contact con todos los campos para
         // que PanelAuth::issueJwt lo use para emitir el JWT.
         $contact = findPhoneLogin($email);
