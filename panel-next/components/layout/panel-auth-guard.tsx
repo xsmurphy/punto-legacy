@@ -24,7 +24,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { AppSidebar, type NavEntry } from "@/components/layout/app-sidebar"
+import { AppSidebar, type NavEntry, type NavItem, type NavGroup } from "@/components/layout/app-sidebar"
+import { usePermissions } from "@/hooks/use-permissions"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { useParkedSales } from "@/hooks/use-parked-sales"
 import { RealtimeWire } from "@/components/realtime-wire"
@@ -49,24 +50,44 @@ const panelNav: NavEntry[] = [
     title: "Artículos",
     icon: ShoppingBasket,
     items: [
-      { title: "Catálogo", to: "/items", icon: ShoppingBasket },
-      { title: "Inventario", to: "/inventory-count", icon: Boxes },
-      { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit },
-      { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight },
+      { title: "Catálogo", to: "/items", icon: ShoppingBasket, requires: "inventory.item.view" },
+      { title: "Inventario", to: "/inventory-count", icon: Boxes, requires: "inventory.stock.adjust" },
+      { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit, requires: "inventory.stock.adjust" },
+      { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight, requires: "inventory.transfer" },
     ],
   },
   {
     title: "Contactos",
     icon: Contact,
     items: [
-      { title: "Clientes", to: "/contacts?type=1", icon: Users },
-      { title: "Proveedores", to: "/contacts?type=2", icon: Truck },
-      { title: "Usuarios", to: "/contacts?type=0", icon: UserCog },
+      { title: "Clientes", to: "/contacts?type=1", icon: Users, requires: "contacts.customer.view" },
+      { title: "Proveedores", to: "/contacts?type=2", icon: Truck, requires: "contacts.supplier.view" },
+      { title: "Usuarios", to: "/contacts?type=0", icon: UserCog, requires: "contacts.user.view" },
     ],
   },
-  { title: "Reportes", to: "/reports", icon: ChartPie },
+  { title: "Reportes", to: "/reports", icon: ChartPie, requires: "reports.sales.view" },
   { title: "Caja", to: "/pos", icon: ScanBarcode }, // Caja = POS dentro del propio panel...
 ]
+
+function filterByPermissions(entries: NavEntry[], perms: string[]): NavEntry[] {
+  return entries.reduce<NavEntry[]>((acc, entry) => {
+    const asGroup = entry as NavGroup
+    if (asGroup.items !== undefined) {
+      const filteredItems = asGroup.items.filter(
+        (item: NavItem) => !item.requires || perms.includes(item.requires),
+      )
+      if (filteredItems.length > 0) {
+        acc.push({ ...asGroup, items: filteredItems })
+      }
+    } else {
+      const item = entry as NavItem
+      if (!item.requires || perms.includes(item.requires)) {
+        acc.push(entry)
+      }
+    }
+    return acc
+  }, [])
+}
 
 /**
  * Wrapper client-side del panel. Gate de auth (bootstrap → 401 → /login) y
@@ -79,6 +100,7 @@ const panelNav: NavEntry[] = [
 export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
+  const permissions = usePermissions()
   // Sidebar contextual: dentro de /pos se muestran los módulos de la caja.
   const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
   // Siempre llamado — el hook maneja su propio ciclo de vida.
@@ -109,7 +131,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       badge: parkedSales?.length ? String(parkedSales.length) : undefined,
     },
   ]
-  const nav = isPos ? posNav : panelNav
+  const nav = isPos ? posNav : filterByPermissions(panelNav, permissions)
   const { data: bootstrap, isLoading } = useBootstrap()
   // El logo de la empresa lo trae /v1/settings (no /v1/bootstrap). Se
   // muestra en el avatar del menu user del footer. staleTime 60s del hook
