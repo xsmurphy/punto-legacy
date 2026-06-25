@@ -83,41 +83,47 @@ $seedRoles = [
 $companies = $pdo->query('SELECT companyid FROM company')->fetchAll(PDO::FETCH_COLUMN);
 $created = 0;
 
-foreach ($companies as $companyId) {
-    foreach ($seedRoles as $slug => $def) {
-        // Idempotencia: verificar si ya existe
-        $check = $pdo->prepare(
-            "SELECT taxonomyid FROM taxonomy WHERE taxonomytype='role' AND companyid=? AND taxonomyextra::json->>'slug'=?"
-        );
-        $check->execute([$companyId, $slug]);
-        if ($check->fetch()) {
-            continue;
+$pdo->beginTransaction();
+try {
+    foreach ($companies as $companyId) {
+        foreach ($seedRoles as $slug => $def) {
+            // Idempotencia: verificar si ya existe
+            $check = $pdo->prepare(
+                "SELECT taxonomyid FROM taxonomy WHERE taxonomytype='role' AND companyid=? AND taxonomyextra::json->>'slug'=?"
+            );
+            $check->execute([$companyId, $slug]);
+            if ($check->fetch()) {
+                continue;
+            }
+
+            // Insert role — taxonomyid tiene default gen_random_uuid(), se omite del INSERT
+            $ins = $pdo->prepare(
+                "INSERT INTO taxonomy (taxonomyname, taxonomytype, taxonomyextra, companyid)
+                 VALUES (?, 'role', ?, ?) RETURNING taxonomyid"
+            );
+            $ins->execute([
+                $def['name'],
+                json_encode(['isSeed' => true, 'slug' => $slug]),
+                $companyId,
+            ]);
+            $roleId = $ins->fetchColumn();
+
+            // Insertar permisos como roleData
+            $dataIns = $pdo->prepare(
+                "INSERT INTO taxonomy (taxonomytype, sourceid, taxonomyextra, companyid)
+                 VALUES ('roleData', ?::uuid, ?, ?)"
+            );
+            $dataIns->execute([
+                $roleId,
+                json_encode(['permissions' => $def['perms']]),
+                $companyId,
+            ]);
+            $created++;
         }
-
-        // Insert role — taxonomyid tiene default gen_random_uuid(), se omite del INSERT
-        $ins = $pdo->prepare(
-            "INSERT INTO taxonomy (taxonomyname, taxonomytype, taxonomyextra, companyid)
-             VALUES (?, 'role', ?, ?) RETURNING taxonomyid"
-        );
-        $ins->execute([
-            $def['name'],
-            json_encode(['isSeed' => true, 'slug' => $slug]),
-            $companyId,
-        ]);
-        $roleId = $ins->fetchColumn();
-
-        // Insertar permisos como roleData
-        $dataIns = $pdo->prepare(
-            "INSERT INTO taxonomy (taxonomytype, sourceid, taxonomyextra, companyid)
-             VALUES ('roleData', ?::uuid, ?, ?)"
-        );
-        $dataIns->execute([
-            $roleId,
-            json_encode(['permissions' => $def['perms']]),
-            $companyId,
-        ]);
-        $created++;
     }
+    $pdo->commit();
+    echo "[migrate] 52_seed_roles: $created roles creados (" . count($companies) . " companies)\n";
+} catch (\Throwable $e) {
+    $pdo->rollBack();
+    fwrite(STDERR, "[migrate] ERROR en 52_seed_roles: " . $e->getMessage() . "\n");
 }
-
-echo "[migrate] 52_seed_roles: $created roles creados (" . count($companies) . " companies)\n";

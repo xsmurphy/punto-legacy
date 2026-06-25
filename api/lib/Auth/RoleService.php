@@ -19,6 +19,9 @@ final class RoleService
     /** Cache por request: [companyId][roleId] => permissions[] */
     private static array $cache = [];
 
+    /** Cache slug → UUID: ["companyId:slug"] => uuid|'' */
+    private static array $slugCache = [];
+
     // ─── Seed slugs ────────────────────────────────────────────────────────
     // Mapeo de int legacy → slug del seed role.
     private const LEGACY_MAP = [
@@ -113,6 +116,11 @@ final class RoleService
             }
             $rs->Close();
         }
+        if (empty($roles)) {
+            self::seedCompanyRoles($companyId);
+            self::clearSlugCache($companyId);
+            // No reintentar recursivamente — el llamante puede volver a llamar
+        }
         return $roles;
     }
 
@@ -125,8 +133,14 @@ final class RoleService
     {
         // roleId puede ser int-string legacy
         if (ctype_digit($roleId)) {
-            $roleId = self::_resolveSlugId((int)$roleId, $companyId);
-            if ($roleId === '') return false;
+            $resolvedId = self::_resolveSlugId((int)$roleId, $companyId);
+            if ($resolvedId === '') {
+                self::seedCompanyRoles($companyId);
+                self::clearSlugCache($companyId);
+                $resolvedId = self::_resolveSlugId((int)$roleId, $companyId);
+                if ($resolvedId === '') return false;
+            }
+            $roleId = $resolvedId;
         }
         $perms = self::_loadPermissions($roleId, $companyId);
         return in_array($perm, $perms, true);
@@ -195,11 +209,11 @@ final class RoleService
         }
 
         if ($name !== null) {
-            ncmUpdate([
-                'records' => ['taxonomyname' => $name],
-                'table'   => 'taxonomy',
-                'where'   => "taxonomyid = '$roleId'::uuid AND companyid = '$companyId'",
-            ]);
+            ncmExecute(
+                "UPDATE taxonomy SET taxonomyname=? WHERE taxonomyid=?::uuid AND taxonomytype='role' AND companyid=?",
+                [$name, $roleId, $companyId],
+                true
+            );
         }
 
         if ($permissions !== null) {
@@ -337,16 +351,28 @@ final class RoleService
 
     private static function _resolveSlugId_bySlug(string $slug, string $companyId): string
     {
-        static $slugCache = [];
         $key = "$companyId:$slug";
-        if (isset($slugCache[$key])) return $slugCache[$key];
+        if (isset(self::$slugCache[$key])) return self::$slugCache[$key];
 
         $row = ncmExecute(
             "SELECT taxonomyid FROM taxonomy WHERE taxonomytype='role' AND companyid=? AND taxonomyextra::json->>'slug'=?",
             [$companyId, $slug]
         );
         $id = (string)($row['taxonomyid'] ?? '');
-        $slugCache[$key] = $id;
+        self::$slugCache[$key] = $id;
         return $id;
+    }
+
+    private static function clearSlugCache(string $companyId = ''): void
+    {
+        if ($companyId === '') {
+            self::$slugCache = [];
+        } else {
+            foreach (array_keys(self::$slugCache) as $key) {
+                if (str_starts_with($key, "$companyId:")) {
+                    unset(self::$slugCache[$key]);
+                }
+            }
+        }
     }
 }
