@@ -27,7 +27,7 @@ const OPTIONS: Option[] = [
  * light/dark para indicar que sigue la preferencia del OS.
  *
  * Persistido por next-themes en localStorage (preferencia per-device,
- * no per-tenant). El atajo 'D' sigue funcionando vía ThemeHotkey.
+ * no per-tenant). Se cambia solo desde este picker (sin atajo global).
  */
 /** Detección de mounted sin setState-in-effect — useSyncExternalStore retorna
  *  el server snapshot (false) durante SSR y el client snapshot (true) en cliente,
