@@ -20,13 +20,13 @@ if ($method === 'DELETE') {
         apiError('id requerido', 422);
     }
     $device = ncmExecute(
-        'SELECT "deviceId", "companyId" FROM device WHERE "deviceId" = ?::uuid',
+        'SELECT deviceid, companyid FROM device WHERE deviceid = ?::uuid',
         [$deviceId]
     );
     if (!$device) {
         apiError('Device no encontrado', 404);
     }
-    $devCompanyId = (string) ($device['companyid'] ?? $device['companyId'] ?? '');
+    $devCompanyId = (string) ($device['companyid'] ?? '');
     if ($devCompanyId !== COMPANY_ID) {
         apiError('No autorizado', 403);
     }
@@ -37,17 +37,17 @@ if ($method === 'DELETE') {
 
 // GET -- listar devices del tenant
 $rs = ncmExecute(
-    'SELECT d."deviceId", d."deviceName", d."outletId", o."outletName",
-            d."registerId", r."registerName", d."userId" AS "pairedByContactId",
-            c."contactName" AS "pairedByName",
-            d."createdAt" AS "pairedAt", d."lastSeenAt",
-            d.status, d."revokedAt"
+    'SELECT d.deviceid, d.devicename, d.outletid, o.outletname,
+            d.registerid, r.registername, d.userid AS pairedbycontactid,
+            c.contactname AS pairedbyname,
+            d.createdat AS pairedat, d.lastseenat,
+            d.status, d.revokedat
      FROM device d
-     LEFT JOIN outlet   o ON o."outletId"   = d."outletId"   AND o."companyId" = d."companyId"
-     LEFT JOIN register r ON r."registerId" = d."registerId" AND r."companyId" = d."companyId"
-     LEFT JOIN contact  c ON c."contactId"  = d."userId"     AND c."companyId" = d."companyId"
-     WHERE d."companyId" = ?::uuid
-     ORDER BY d."lastSeenAt" DESC NULLS LAST',
+     LEFT JOIN outlet   o ON o.outletid   = d.outletid   AND o.companyid = d.companyid
+     LEFT JOIN register r ON r.registerid = d.registerid AND r.companyid = d.companyid
+     LEFT JOIN contact  c ON c.contactid  = d.userid     AND c.companyid = d.companyid
+     WHERE d.companyid = ?::uuid
+     ORDER BY d.lastseenat DESC NULLS LAST',
     [COMPANY_ID],
     false,
     true
@@ -67,7 +67,7 @@ if ($rs && !$rs->EOF) {
             'pairedByContactId' => $row['pairedbycontactid'] ?? null,
             'pairedByName'      => $row['pairedbyname']      ?? null,
             'pairedAt'          => $row['pairedat']          ?? null,
-            'lastSeenAt'        => $row['lastseenAt']        ?? $row['lastseent'] ?? $row['lastseenat'] ?? null,
+            'lastSeenAt'        => $row['lastseenat']        ?? null,
             'status'            => (int) ($row['status']     ?? 1),
             'revokedAt'         => $row['revokedat']         ?? null,
         ];

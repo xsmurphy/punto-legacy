@@ -43,9 +43,9 @@ final class DeviceAuth
 
         // INSERT con RETURNING para obtener el UUID generado por PG
         $row = ncmExecute(
-            'INSERT INTO device ("companyId","outletId","registerId","userId","deviceName","userAgent","ipFirst","status")
+            'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,status)
              VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,1)
-             RETURNING "deviceId"',
+             RETURNING deviceid',
             [
                 $companyId,
                 $outletId   !== '' ? $outletId   : null,
@@ -58,7 +58,7 @@ final class DeviceAuth
         );
 
         // ncmExecute sin forceObj retorna la primera fila. PG lowercase -> deviceid.
-        $deviceId = (string) ($row['deviceid'] ?? $row['deviceId'] ?? '');
+        $deviceId = (string) ($row['deviceid'] ?? '');
         if ($deviceId === '') {
             throw new \RuntimeException('No se pudo crear el registro de device');
         }
@@ -79,7 +79,7 @@ final class DeviceAuth
             ], $secret);
         } catch (\Throwable $e) {
             ncmExecute(
-                'UPDATE device SET status = 0, "revokedAt" = now() WHERE "deviceId" = ?::uuid AND "companyId" = ?::uuid',
+                'UPDATE device SET status = 0, revokedat = now() WHERE deviceid = ?::uuid AND companyid = ?::uuid',
                 [$deviceId, $companyId]
             );
             throw $e;
@@ -130,29 +130,29 @@ final class DeviceAuth
 
         // Verificar que el device no esta revocado y que cid del JWT coincide con BD
         $device = ncmExecute(
-            'SELECT "deviceId", "companyId", "outletId", "registerId", "userId" FROM device WHERE "deviceId" = ?::uuid AND "companyId" = ?::uuid AND status = 1',
+            'SELECT deviceid, companyid, outletid, registerid, userid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
             [$deviceId, (string) ($payload['cid'] ?? '')]
         );
         if (!$device) {
             return null;
         }
 
-        // Actualizar lastSeenAt best-effort
+        // Actualizar lastSeenAt + iplast best-effort
         try {
             ncmExecute(
-                'UPDATE device SET "lastSeenAt" = now() WHERE "deviceId" = ?::uuid',
-                [$deviceId]
+                'UPDATE device SET lastseenat = now(), iplast = ?::inet WHERE deviceid = ?::uuid',
+                [$_SERVER['REMOTE_ADDR'] ?? null, $deviceId]
             );
         } catch (\Throwable) {
             // best-effort
         }
 
         return [
-            'companyId'  => (string) ($device['companyid']  ?? $device['companyId']  ?? $payload['cid'] ?? ''),
-            'outletId'   => (string) ($device['outletid']   ?? $device['outletId']   ?? $payload['oid'] ?? ''),
-            'registerId' => (string) ($device['registerid'] ?? $device['registerId'] ?? $payload['rid'] ?? ''),
+            'companyId'  => (string) ($device['companyid']  ?? $payload['cid'] ?? ''),
+            'outletId'   => (string) ($device['outletid']   ?? $payload['oid'] ?? ''),
+            'registerId' => (string) ($device['registerid'] ?? $payload['rid'] ?? ''),
             'deviceId'   => $deviceId,
-            'userId'     => (string) ($device['userid']     ?? $device['userId']     ?? $payload['pby'] ?? ''),
+            'userId'     => (string) ($device['userid']     ?? $payload['pby'] ?? ''),
             'roleId'     => '1',
             'isDevice'   => true,
         ];
@@ -168,7 +168,7 @@ final class DeviceAuth
     public static function revoke(string $deviceId, string $companyId): void
     {
         ncmExecute(
-            'UPDATE device SET status = 0, "revokedAt" = now() WHERE "deviceId" = ?::uuid AND "companyId" = ?::uuid',
+            'UPDATE device SET status = 0, revokedat = now() WHERE deviceid = ?::uuid AND companyid = ?::uuid',
             [$deviceId, $companyId]
         );
     }

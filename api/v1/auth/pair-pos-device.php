@@ -36,7 +36,7 @@ if ($password === '' || $outletId === '' || $registerId === '') {
 
 // Obtener el admin -- necesitamos salt y contactPassword para verificar
 $admin = ncmExecute(
-    'SELECT "contactId", "contactPassword", salt FROM contact WHERE "contactId" = ?::uuid AND "companyId" = ?::uuid AND "contactStatus" = 1 AND type = 0',
+    'SELECT contactid, contactpassword, salt FROM contact WHERE contactid = ?::uuid AND companyid = ?::uuid AND contactstatus = 1 AND type = 0',
     [USER_ID, COMPANY_ID]
 );
 if (!$admin) {
@@ -45,14 +45,14 @@ if (!$admin) {
 
 // Verificar contrasena con el mismo hash que el login del panel
 $computedHash = PanelAuth::checkPassword($password, (string) ($admin['salt'] ?? ''));
-$storedHash   = rtrim((string) ($admin['contactpassword'] ?? $admin['contactPassword'] ?? ''));
+$storedHash   = rtrim((string) ($admin['contactpassword'] ?? ''));
 if (!hash_equals($storedHash, $computedHash)) {
     apiError('Contrasena incorrecta', 401);
 }
 
 // Validar outlet pertenece al tenant
 $outlet = ncmExecute(
-    'SELECT "outletId" FROM outlet WHERE "outletId" = ?::uuid AND "companyId" = ?::uuid AND "outletStatus" = 1',
+    'SELECT outletid FROM outlet WHERE outletid = ?::uuid AND companyid = ?::uuid AND outletstatus = 1',
     [$outletId, COMPANY_ID]
 );
 if (!$outlet) {
@@ -61,7 +61,7 @@ if (!$outlet) {
 
 // Validar register pertenece a outlet y tenant
 $register = ncmExecute(
-    'SELECT "registerId" FROM register WHERE "registerId" = ?::uuid AND "outletId" = ?::uuid AND "companyId" = ?::uuid',
+    'SELECT registerid FROM register WHERE registerid = ?::uuid AND outletid = ?::uuid AND companyid = ?::uuid',
     [$registerId, $outletId, COMPANY_ID]
 );
 if (!$register) {

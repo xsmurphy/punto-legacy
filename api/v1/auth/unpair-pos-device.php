@@ -26,13 +26,13 @@ if ($deviceId === '') {
 
 // Validar que el device pertenece al companyId del caller
 $device = ncmExecute(
-    'SELECT "deviceId", "companyId" FROM device WHERE "deviceId" = ?::uuid',
+    'SELECT deviceid, companyid FROM device WHERE deviceid = ?::uuid',
     [$deviceId]
 );
 if (!$device) {
     apiError('Device no encontrado', 404);
 }
-$devCompanyId = (string) ($device['companyid'] ?? $device['companyId'] ?? '');
+$devCompanyId = (string) ($device['companyid'] ?? '');
 if ($devCompanyId !== COMPANY_ID) {
     apiError('No autorizado', 403);
 }
