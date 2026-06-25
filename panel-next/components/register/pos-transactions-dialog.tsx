@@ -9,7 +9,7 @@
  */
 
 import * as React from "react"
-import { CalendarIcon, ChevronDown, Filter, Loader2, Receipt, X } from "lucide-react"
+import { CalendarIcon, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -549,7 +549,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm" className="rounded-l-none px-2" aria-label="Más acciones">
-                      <ChevronDown className="size-3.5" />
+                      <MoreHorizontal className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -608,12 +608,11 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
           )}
 
           {/* ── Items ─────────────────────────────────────────────────────── */}
-          <Separator className="my-5" />
-          <div>
+          <div className="mt-5 rounded-lg bg-muted/40 p-4">
             <h3 className="text-sm font-medium text-muted-foreground mb-2">
               Items ({items.filter((i) => i.status !== 0).length})
             </h3>
-            <div className="divide-y">
+            <div className="divide-y divide-border/60">
               {items.filter((i) => i.status !== 0).length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">Sin items</p>
               ) : (
@@ -627,7 +626,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
               )}
             </div>
             {discount > 0 && (
-              <div className="flex justify-between text-sm mt-3 pt-3 border-t text-muted-foreground">
+              <div className="flex justify-between text-sm mt-3 pt-3 border-t border-border/60 text-muted-foreground">
                 <span>Descuento</span>
                 <span className="tabular-nums text-destructive">-{formatMoney(discount, config)}</span>
               </div>
@@ -635,13 +634,12 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
           </div>
 
           {/* ── Pagos ─────────────────────────────────────────────────────── */}
-          <Separator className="my-5" />
-          <div>
+          <div className="mt-4 rounded-lg bg-muted/40 p-4">
             <h3 className="text-sm font-medium text-muted-foreground mb-2">Pagos</h3>
             {payments.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">Sin pagos registrados</p>
             ) : (
-              <div className="divide-y">
+              <div className="divide-y divide-border/60">
                 {payments.map((p, i) => (
                   <div key={i} className="flex justify-between py-2 text-sm">
                     <span>{p.name || p.type || "—"}</span>
