@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -33,14 +34,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { EmptyState } from "@/components/empty-state"
 import { usePosTransactionsList, usePosTransactionDetail } from "@/hooks/use-pos-transactions"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -423,9 +416,9 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   const payments = detail.pMethods ?? []
   const discount = Number(detail.discount ?? 0)
   const total = Number(detail.total ?? 0)
-  const subtotal = discount > 0 ? total + discount : total
 
   const debt = detail.creditPayments?.debt ?? 0
+  const paid = total - debt
   const primary = getPrimaryAction(typeNum, debt)
 
   // Show secondary "Duplicar" button only when primary is Pagar or Facturar
@@ -475,11 +468,18 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
       <div className="flex flex-col h-full min-h-0 border-l overflow-hidden">
         <div className="flex-1 overflow-y-auto p-5">
 
-          {/* ── Title row ─────────────────────────────────────────────────── */}
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold truncate">
-              Comprobante #{docLabel || (detail.transactionId ?? "")}
-            </h2>
+          {/* ── Header: cliente HERO ──────────────────────────────────────── */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xl font-semibold truncate">
+                {detail.customerName || <span className="text-muted-foreground">Sin cliente</span>}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {txLabel(typeNum)}
+                {docLabel && <> &middot; <span className="tabular-nums">#{docLabel}</span></>}
+                {formattedDate !== "—" && <> &middot; <span className="tabular-nums">{formattedDate}</span></>}
+              </p>
+            </div>
             <div className="flex items-center gap-2 shrink-0">
               {/* Botón primario */}
               {primary.disabled ? (
@@ -540,132 +540,92 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
             </div>
           </div>
 
-          {/* ── Cabecera 2-col: Cliente + Detalles ────────────────────────── */}
-          <div className="grid grid-cols-2 gap-6 mt-4">
-            {/* Columna cliente */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-1">Cliente</p>
-              <p className="text-sm">
-                {detail.customerName || (
-                  <span className="text-muted-foreground">Sin asignar</span>
-                )}
-              </p>
-            </div>
-
-            {/* Columna detalles */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-1">Detalles</p>
-              <dl className="text-sm space-y-1">
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Fecha</dt>
-                  <dd className="tabular-nums">{formattedDate}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Tipo</dt>
-                  <dd>{txLabel(typeNum)}</dd>
-                </div>
-                {docLabel && (
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">Documento</dt>
-                    <dd className="tabular-nums">{docLabel}</dd>
-                  </div>
-                )}
-              </dl>
-            </div>
-          </div>
-
-          {/* ── Items table ───────────────────────────────────────────────── */}
-          <Separator className="my-4" />
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Concepto</TableHead>
-                <TableHead className="w-16 text-right">Cant.</TableHead>
-                <TableHead className="text-right">Importe</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.filter((i) => i.status !== 0).length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-sm text-muted-foreground py-4">
-                    Sin items
-                  </TableCell>
-                </TableRow>
-              ) : (
-                items.filter((i) => i.status !== 0).map((item, idx) => (
-                  <TableRow key={`${item.itemId}-${idx}`}>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell className="text-right tabular-nums">{item.count}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      Gs {formatMoney(item.total, config)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-
-          {/* ── Totals block ──────────────────────────────────────────────── */}
-          <Separator className="my-4" />
-          <div className="ml-auto max-w-xs">
-            <dl className="space-y-1 text-sm">
-              {discount > 0 && (
+          {/* ── Hero financiero ────────────────────────────────────────────── */}
+          <div className="mt-6">
+            {isCredit ? (
+              debt > 0 ? (
                 <>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">Subtotal</dt>
-                    <dd className="tabular-nums">Gs {formatMoney(subtotal, config)}</dd>
+                  {/* 2-col stat block — excepcion §4.10: credito con deuda activa */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="border rounded-lg p-4">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Deuda</p>
+                      <p className="text-2xl font-bold tabular-nums text-destructive mt-1">
+                        {formatMoney(debt, config)}
+                      </p>
+                    </div>
+                    <div className="border rounded-lg p-4">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Pagado</p>
+                      <p className="text-2xl font-bold tabular-nums text-muted-foreground mt-1">
+                        {formatMoney(paid, config)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">Descuento</dt>
-                    <dd className="tabular-nums text-destructive">-Gs {formatMoney(discount, config)}</dd>
+                  <div className="mt-3 flex items-center gap-3">
+                    <Progress value={total > 0 ? (paid / total) * 100 : 0} className="flex-1 h-2" />
+                    <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                      {total > 0 ? Math.round((paid / total) * 100) : 0}% &middot; Total {formatMoney(total, config)}
+                    </span>
                   </div>
                 </>
+              ) : (
+                /* Credito totalmente pagado */
+                <div className="flex items-center justify-between">
+                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400">
+                    Pagado
+                  </Badge>
+                  <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
+                </div>
+              )
+            ) : (
+              /* Contado / cotizacion: total HERO centrado */
+              <p className="text-3xl font-bold tabular-nums text-center">{formatMoney(total, config)}</p>
+            )}
+          </div>
+
+          {/* ── Items ─────────────────────────────────────────────────────── */}
+          <Separator className="my-5" />
+          <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">
+              Items ({items.filter((i) => i.status !== 0).length})
+            </h3>
+            <div className="divide-y">
+              {items.filter((i) => i.status !== 0).length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">Sin items</p>
+              ) : (
+                items.filter((i) => i.status !== 0).map((item, idx) => (
+                  <div key={`${item.itemId}-${idx}`} className="flex items-center justify-between py-2 text-sm gap-3">
+                    <span className="truncate flex-1">{item.name}</span>
+                    <span className="tabular-nums text-muted-foreground w-12 text-right">{item.count}</span>
+                    <span className="tabular-nums w-24 text-right">{formatMoney(item.total, config)}</span>
+                  </div>
+                ))
               )}
-            </dl>
-            <Separator className="my-2" />
-            <div className="flex justify-between gap-4 text-sm font-semibold">
-              <span>Total</span>
-              <span className="tabular-nums">Gs {formatMoney(total, config)}</span>
             </div>
+            {discount > 0 && (
+              <div className="flex justify-between text-sm mt-3 pt-3 border-t text-muted-foreground">
+                <span>Descuento</span>
+                <span className="tabular-nums text-destructive">-{formatMoney(discount, config)}</span>
+              </div>
+            )}
           </div>
 
           {/* ── Pagos ─────────────────────────────────────────────────────── */}
-          <Separator className="my-4" />
-          <h3 className="text-sm font-semibold mb-2">Pagos</h3>
-          {payments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin pagos registrados</p>
-          ) : (
-            <div className="space-y-1 text-sm">
-              {payments.map((p, i) => (
-                <div key={i} className="flex justify-between">
-                  <span>{p.name || p.type || "—"}</span>
-                  <span className="tabular-nums">Gs {formatMoney(p.amount, config)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ── Status final (crédito) ────────────────────────────────────── */}
-          {isCredit && debt > 0 && (
-            <>
-              <Separator className="mt-4" />
-              <div className="flex justify-between items-center mt-4 mb-2">
-                <span className="text-sm font-medium">Pendiente</span>
-                <span className="text-base font-semibold tabular-nums text-destructive">
-                  Gs {formatMoney(debt, config)}
-                </span>
+          <Separator className="my-5" />
+          <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">Pagos</h3>
+            {payments.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">Sin pagos registrados</p>
+            ) : (
+              <div className="divide-y">
+                {payments.map((p, i) => (
+                  <div key={i} className="flex justify-between py-2 text-sm">
+                    <span>{p.name || p.type || "—"}</span>
+                    <span className="tabular-nums">{formatMoney(p.amount, config)}</span>
+                  </div>
+                ))}
               </div>
-            </>
-          )}
-          {isCredit && debt === 0 && (
-            <>
-              <Separator className="mt-4" />
-              <div className="flex justify-between items-center mt-4 mb-2">
-                <span className="text-sm font-medium">Estado</span>
-                <span className="text-base font-semibold tabular-nums text-emerald-600">Pagado</span>
-              </div>
-            </>
-          )}
+            )}
+          </div>
 
         </div>
       </div>
