@@ -54,15 +54,19 @@ final class TransactionService
         $rawTags = $fields['tags'] ?? null;
         $tags    = $rawTags ? (implodes(',', json_decode($rawTags, true)) ?: '') : '';
 
+        // Shape dual: legacy {type, price, extra, UID} y nuevo POS {name, total}.
+        // El "name" del nuevo shape contiene la KEY (ej "efectivo"), no el display.
+        // Resolvemos siempre via getPaymentMethodName para devolver display friendly.
         $paymentType  = json_decode($fields['transactionPaymentType'] ?? '', true);
         $paymentTypes = [];
         if ($paymentType) {
             foreach ($paymentType as $v) {
+                $key = (string) ($v['type'] ?? $v['name'] ?? '');
                 $paymentTypes[] = [
-                    'amount' => $v['price'],
-                    'name'   => getPaymentMethodName($v['type']),
-                    'type'   => $v['type'],
-                    'extra'  => $v['extra'],
+                    'amount' => (float) ($v['price'] ?? $v['total'] ?? 0),
+                    'name'   => getPaymentMethodName($key),
+                    'type'   => $key,
+                    'extra'  => $v['extra'] ?? null,
                     'UID'    => $v['UID'] ?? '',
                 ];
             }
