@@ -181,7 +181,7 @@ final class TransactionService
         $customerUuid = (string) ($fields['customerId'] ?? '');
         if ($customerUuid !== '') {
             $cusRow = ncmExecute(
-                'SELECT contactName, contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                "SELECT contactName, data->>'contactSecondName' AS contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1",
                 [$customerUuid, $companyId]
             );
             if ($cusRow) {
@@ -722,7 +722,7 @@ final class TransactionService
             $customerD  = '';
             if ($customerId !== '') {
                 $cusRow = ncmExecute(
-                    'SELECT contactName, contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                    "SELECT contactName, data->>'contactSecondName' AS contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1",
                     [$customerId, $companyId]
                 );
                 if ($cusRow) {

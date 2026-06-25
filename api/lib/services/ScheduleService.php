@@ -527,7 +527,7 @@ final class ScheduleService
 
         $rs = ncmExecute(
             "SELECT t.transactionId, t.transactionStatus, t.fromDate,
-                    COALESCE(NULLIF(c.contactSecondName,''), c.contactName) AS customerName
+                    COALESCE(NULLIF(c.data->>'contactSecondName',''), c.contactName) AS customerName
                FROM transaction t
           LEFT JOIN contact c ON c.contactId = t.customerId AND c.companyId = t.companyId
               WHERE t.transactionType   = 13

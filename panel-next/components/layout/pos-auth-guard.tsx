@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query"
 import { PosUnauthorizedSentinel } from "@/components/pos/pos-unauthorized-sentinel"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { WifiOff } from "lucide-react"
 import type { PosBootstrap } from "@/lib/types/pos-bootstrap"
 
 /**
@@ -64,13 +65,21 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
     if (err?.status === 401) return null
     // Error transitorio (500, red) → UI de retry para no bloquear la caja.
     return (
-      <div className="flex h-svh items-center justify-center p-6">
-        <Card className="max-w-md">
-          <CardContent className="space-y-4 p-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              No se pudo conectar al servidor. Verificá tu conexión.
-            </p>
-            <Button onClick={() => refetch()}>Reintentar</Button>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background p-6">
+        <Card className="w-full max-w-md">
+          <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
+              <WifiOff className="size-6 text-destructive" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-base font-semibold">Sin conexión con el servidor</p>
+              <p className="text-sm text-muted-foreground">
+                Verificá tu conexión a internet y reintentá.
+              </p>
+            </div>
+            <Button onClick={() => refetch()} size="lg" className="w-full">
+              Reintentar
+            </Button>
           </CardContent>
         </Card>
       </div>
