@@ -34,9 +34,12 @@ $allPerms = [
     'ai.agent.use','ai.agent.elevated',
 ];
 
+// Decisión owner 2026-06-25: 3 seeds para pymes (no 5). admin/viewer eliminados
+// porque casi nadie los configura distinto a manager/cashier. Si un tenant los
+// necesita, los crea custom desde /settings/roles.
 $seedRoles = [
-    'owner'   => ['name' => 'Owner',   'perms' => $allPerms],
-    'admin'   => ['name' => 'Admin',   'perms' => [
+    'owner'   => ['name' => 'Dueño',     'perms' => $allPerms],
+    'manager' => ['name' => 'Encargado', 'perms' => [
         'pos.sale.create','pos.sale.void','pos.sale.refund',
         'pos.drawer.open','pos.drawer.close','pos.discount.apply',
         'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
@@ -52,30 +55,10 @@ $seedRoles = [
         'settings.company.edit',
         'ai.agent.use','ai.agent.elevated',
     ]],
-    'manager' => ['name' => 'Manager', 'perms' => [
-        'pos.sale.create','pos.sale.void','pos.sale.refund',
-        'pos.drawer.open','pos.drawer.close','pos.discount.apply',
-        'inventory.item.view','inventory.item.create','inventory.item.edit',
-        'inventory.stock.adjust','inventory.transfer',
-        'contacts.customer.view','contacts.customer.create','contacts.customer.edit',
-        'contacts.supplier.view',
-        'contacts.user.view',
-        'reports.sales.view','reports.drawers.view','reports.expenses.view',
-        'reports.satisfaction.view','reports.giftcards.view','reports.purchases.view',
-        'reports.schedule.view','reports.recurring.view',
-        'ai.agent.use',
-    ]],
-    'cashier' => ['name' => 'Cashier', 'perms' => [
+    'cashier' => ['name' => 'Cajero', 'perms' => [
         'pos.sale.create','pos.drawer.open','pos.drawer.close',
         'inventory.item.view',
         'contacts.customer.view','contacts.customer.create',
-    ]],
-    'viewer'  => ['name' => 'Viewer',  'perms' => [
-        'inventory.item.view',
-        'contacts.customer.view',
-        'reports.sales.view','reports.drawers.view','reports.expenses.view',
-        'reports.satisfaction.view','reports.giftcards.view','reports.purchases.view',
-        'reports.schedule.view','reports.recurring.view',
     ]],
 ];
 
@@ -127,4 +110,5 @@ try {
 } catch (\Throwable $e) {
     $pdo->rollBack();
     fwrite(STDERR, "[migrate] ERROR en 52_seed_roles: " . $e->getMessage() . "\n");
+    throw $e; // re-throw para que el runner exit 1 (sin swallow silencioso)
 }

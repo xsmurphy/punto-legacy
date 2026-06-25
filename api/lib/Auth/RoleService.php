@@ -24,19 +24,21 @@ final class RoleService
 
     // ─── Seed slugs ────────────────────────────────────────────────────────
     // Mapeo de int legacy → slug del seed role.
+    // Decisión 2026-06-25: reducir a 3 seeds (owner/manager/cashier). Los obsoletos
+    // (admin, viewer) se mapean al equivalente más cercano para no romper users.
     private const LEGACY_MAP = [
         1 => 'owner',
-        2 => 'admin',
+        2 => 'manager',  // admin viejo → manager
         3 => 'manager',
         4 => 'cashier',
         5 => 'cashier',
-        7 => 'viewer',
+        7 => 'cashier',  // viewer viejo → cashier (read-only puro casi nunca se usa)
     ];
 
     // Permisos default por seed slug.
     private const SEED_PERMISSIONS = [
         'owner' => null, // null = TODOS (computed en seedCompanyRoles)
-        'admin' => [
+        'manager' => [
             'pos.sale.create','pos.sale.void','pos.sale.refund',
             'pos.drawer.open','pos.drawer.close','pos.discount.apply',
             'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
@@ -52,39 +54,17 @@ final class RoleService
             'settings.company.edit',
             'ai.agent.use','ai.agent.elevated',
         ],
-        'manager' => [
-            'pos.sale.create','pos.sale.void','pos.sale.refund',
-            'pos.drawer.open','pos.drawer.close','pos.discount.apply',
-            'inventory.item.view','inventory.item.create','inventory.item.edit',
-            'inventory.stock.adjust','inventory.transfer',
-            'contacts.customer.view','contacts.customer.create','contacts.customer.edit',
-            'contacts.supplier.view',
-            'contacts.user.view',
-            'reports.sales.view','reports.drawers.view','reports.expenses.view',
-            'reports.satisfaction.view','reports.giftcards.view','reports.purchases.view',
-            'reports.schedule.view','reports.recurring.view',
-            'ai.agent.use',
-        ],
         'cashier' => [
             'pos.sale.create','pos.drawer.open','pos.drawer.close',
             'inventory.item.view',
             'contacts.customer.view','contacts.customer.create',
         ],
-        'viewer' => [
-            'inventory.item.view',
-            'contacts.customer.view',
-            'reports.sales.view','reports.drawers.view','reports.expenses.view',
-            'reports.satisfaction.view','reports.giftcards.view','reports.purchases.view',
-            'reports.schedule.view','reports.recurring.view',
-        ],
     ];
 
     private const SEED_NAMES = [
-        'owner'   => 'Owner',
-        'admin'   => 'Admin',
-        'manager' => 'Manager',
-        'cashier' => 'Cashier',
-        'viewer'  => 'Viewer',
+        'owner'   => 'Dueño',
+        'manager' => 'Encargado',
+        'cashier' => 'Cajero',
     ];
 
     // ─── Queries ────────────────────────────────────────────────────────────
