@@ -10,7 +10,7 @@
 
 import * as React from "react"
 import { CalendarIcon, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
-import { format } from "date-fns"
+import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 
 import { Badge } from "@/components/ui/badge"
@@ -27,20 +27,13 @@ import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Card, CardContent } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import { Separator } from "@/components/ui/separator"
 import { EmptyState } from "@/components/empty-state"
 import { usePosTransactionsList, usePosTransactionDetail } from "@/hooks/use-pos-transactions"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -425,6 +418,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   const discount = Number(detail.discount ?? 0)
   const total = Number(detail.total ?? 0)
 
+  const paid = detail.creditPayments?.paid ?? 0
   const debt = detail.creditPayments?.debt ?? 0
   const actionConfig = getActionConfig(typeNum, debt)
 
@@ -452,29 +446,51 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
     window.print()
   }
 
+  // Fecha relativa
+  const dateObj = detail.date ? new Date(detail.date.replace(" ", "T")) : null
+  const relativeDate = dateObj && !Number.isNaN(dateObj.getTime())
+    ? formatDistanceToNow(dateObj, { addSuffix: true, locale: es })
+    : null
+  const fullDate = dateObj && !Number.isNaN(dateObj.getTime())
+    ? niceDateTimeFull(detail.date)
+    : null
+
+  // Línea narrativa de pagos
+  function buildPaymentLine(): string | null {
+    if (payments.length === 0) return null
+    if (payments.length === 1) {
+      const p = payments[0]
+      return `Pagado en ${p.name || p.type} ${formatMoney(p.amount, config)}`
+    }
+    if (payments.length === 2) {
+      const [a, b] = payments
+      return `Pagado en ${a.name || a.type} ${formatMoney(a.amount, config)} y ${b.name || b.type} ${formatMoney(b.amount, config)}`
+    }
+    // 3+ métodos: lista sin montos inline
+    const names = payments.map((p) => p.name || p.type)
+    const last = names.pop()
+    return `Pagado en ${names.join(", ")} y ${last}`
+  }
+
+  const paymentLine = buildPaymentLine()
+
   return (
     <TooltipProvider>
       <div className="flex flex-col h-full min-h-0 border-l overflow-hidden">
         <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
-          {/* Header del detalle */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <Badge variant={txBadgeVariant(typeNum)}>
-                    {txLabel(typeNum).toUpperCase()}
-                  </Badge>
-                  {docLabel && (
-                    <span className="text-sm text-muted-foreground tabular-nums">#{docLabel}</span>
-                  )}
-                </div>
-                {/* text-xl font-semibold — evita la saturación del text-3xl anterior */}
-                <p className="text-xl font-semibold leading-tight">
-                  {detail.name || "Sin nombre"}
-                </p>
-              </div>
-              {/* Acciones */}
-              <div className="flex gap-2 shrink-0">
+
+          {/* ── Sección 1: Header ─────────────────────────────────────────── */}
+          <div className="flex flex-col gap-1.5">
+            {/* Fila 1: badge + número + botones */}
+            <div className="flex items-center gap-2">
+              <Badge variant={txBadgeVariant(typeNum)}>
+                {txLabel(typeNum)}
+              </Badge>
+              {docLabel && (
+                <span className="text-sm text-muted-foreground tabular-nums">#{docLabel}</span>
+              )}
+              {/* Botones empujados a la derecha */}
+              <div className="flex gap-2 ml-auto shrink-0">
                 {actionConfig.disabled ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -507,122 +523,87 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled>
-                      Anular
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled>
-                      Devolución
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled>
-                      Agregar
-                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>Anular</DropdownMenuItem>
+                    <DropdownMenuItem disabled>Devolución</DropdownMenuItem>
+                    <DropdownMenuItem disabled>Agregar</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </div>
-            {detail.date && (
-              <p className="text-sm text-muted-foreground">{niceDateTimeFull(detail.date)}</p>
-            )}
-          </div>
 
-          {/* Crédito: cards pagado/deuda */}
-          {isCredit && detail.creditPayments && (
-            <div className="grid grid-cols-2 gap-3">
-              <Card>
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Pagado</p>
-                  <p className="text-xl font-bold tabular-nums">
-                    {formatMoney(detail.creditPayments.paid, config)}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Deuda</p>
-                  <p className="text-xl font-bold tabular-nums text-destructive">
-                    {formatMoney(detail.creditPayments.debt, config)}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Items */}
-          {items.length > 0 && (
-            <section>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Items
-              </p>
-              {/* TODO: render combo children cuando el response del detalle exponga parentItemSoldId */}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">Cant.</TableHead>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead className="text-right">Precio</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.filter((i) => i.status !== 0).map((item, idx) => (
-                    <TableRow key={`${item.itemId}-${idx}`}>
-                      <TableCell className="tabular-nums">{item.count}</TableCell>
-                      <TableCell>{item.name}</TableCell>
-                      <TableCell className="tabular-nums text-right">
-                        {formatMoney(item.total, config)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </section>
-          )}
-
-          {/* Descuento */}
-          {discount > 0 && (
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Descuento</span>
-              <span className="tabular-nums text-yellow-600">-{formatMoney(discount, config)}</span>
-            </div>
-          )}
-
-          {/* Total */}
-          <div className="text-right">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Total</p>
-            <p className="text-2xl font-bold tabular-nums">
-              {formatMoney(total, config)}
+            {/* Fila 2: cliente · fecha relativa */}
+            <p className="text-sm text-muted-foreground">
+              {detail.customerName || "Sin cliente"}
+              {relativeDate && (
+                <>
+                  {" · "}
+                  {fullDate ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="cursor-default">{relativeDate}</span>
+                      </TooltipTrigger>
+                      <TooltipContent>{fullDate}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    relativeDate
+                  )}
+                </>
+              )}
             </p>
           </div>
 
-          {/* Pagos */}
-          {payments.length > 0 && (
-            <section>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Pagos
+          {/* ── Sección 2: Total + Progress ───────────────────────────────── */}
+          <div className="flex flex-col gap-2">
+            <p className="text-3xl font-bold tabular-nums">
+              {formatMoney(total, config)}
+            </p>
+            {discount > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Descuento {formatMoney(discount, config)} aplicado
               </p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Método</TableHead>
-                    <TableHead>Identificador</TableHead>
-                    <TableHead className="text-right">Monto</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {payments.map((p, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell>{p.name || p.type}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {p.extra && p.extra !== p.type ? p.extra : (p.UID || "—")}
-                      </TableCell>
-                      <TableCell className="tabular-nums text-right">
-                        {formatMoney(p.amount, config)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </section>
+            )}
+            {isCredit && debt > 0 && (
+              <div className="flex flex-col gap-1">
+                <Progress value={(paid / total) * 100} className="h-1.5" />
+                <p className="text-sm">
+                  {paid > 0 && (
+                    <span className="text-muted-foreground">
+                      Pagado {formatMoney(paid, config)} · {" "}
+                    </span>
+                  )}
+                  <span className="text-destructive">
+                    Adeuda {formatMoney(debt, config)}
+                  </span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* ── Separador ─────────────────────────────────────────────────── */}
+          <Separator />
+
+          {/* ── Sección 3: Items ──────────────────────────────────────────── */}
+          {items.length > 0 && (
+            <div className="divide-y">
+              {items.filter((i) => i.status !== 0).map((item, idx) => (
+                <div key={`${item.itemId}-${idx}`} className="flex items-center gap-3 py-2.5">
+                  <span className="flex-1 text-sm">{item.name}</span>
+                  <span className="w-8 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+                    {item.count}
+                  </span>
+                  <span className="shrink-0 text-sm tabular-nums">
+                    {formatMoney(item.total, config)}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
+
+          {/* ── Sección 4: Pagos (narrativa) ──────────────────────────────── */}
+          {paymentLine && (
+            <p className="text-sm text-muted-foreground">{paymentLine}</p>
+          )}
+
         </div>
       </div>
       {typeNum === 9 && quotePdfOpen && (
