@@ -124,7 +124,38 @@ export function LockScreen() {
     return () => clearTimeout(id)
   }, [pin, unlock, users])
 
+  // Escape hatch (P1): si ningún user tiene lockpasshash configurado, el lock screen
+  // se convierte en un deadlock permanente (no hay PIN que comparar).
+  // Esto ocurre cuando: (a) el store degradó a users=[] por un 5xx upstream,
+  // (b) el tenant nunca configuró PINs. En ese caso, desbloqueamos sin PIN
+  // para no dejar la caja inutilizable offline.
+  const noPinsConfigured = users.length === 0 || users.every((u) => !u.lockpasshash)
+
   if (!locked) return null
+
+  // Si no hay hashes: mostrar aviso + botón de recarga en vez del lock real.
+  if (noPinsConfigured) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pantalla bloqueada"
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background"
+      >
+        <PuntoLogo variant="mark" className="size-[35px]" />
+        <p className="text-sm text-muted-foreground">
+          No hay PINs configurados para este dispositivo.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="text-xs underline text-muted-foreground hover:text-foreground"
+        >
+          Recargar
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div
