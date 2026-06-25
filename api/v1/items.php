@@ -631,10 +631,12 @@ switch ($method) {
         //   ?parentId=null → solo top-level (parents O standalone, NUNCA hijos de un grupo)
         //   (sin parentId) → mismo comportamiento que parentId=null (default)
         $parentIdFilter = $_GET['parentId'] ?? null;
+        $includeGroupChildren = !empty($_GET['includeGroupChildren']) && $_GET['includeGroupChildren'] === 'true';
+
         if ($parentIdFilter !== null && $parentIdFilter !== '' && $parentIdFilter !== 'null') {
             $where[]  = 'itemParentId = ?';
             $params[] = $parentIdFilter;
-        } else {
+        } elseif (!$includeGroupChildren) {
             $where[] = 'itemParentId IS NULL';
         }
 

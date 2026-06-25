@@ -309,7 +309,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
-        "/v1/items?limit=500&offset=0",
+        "/v1/items?limit=500&offset=0&includeGroupChildren=true",
         headers,
       ),
       fetchUpstream<UpstreamContactsList>(
