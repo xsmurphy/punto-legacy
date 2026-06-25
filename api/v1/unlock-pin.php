@@ -35,11 +35,11 @@ $found = null;
 
 // (a) bcrypt: no filtrable en SQL, verificar en PHP
 $rs = ncmExecute(
-    'SELECT "contactId", "contactName", "lockPassHash"
+    'SELECT contactid, contactname, "lockPassHash"
        FROM contact
-      WHERE "companyId" = ?
+      WHERE companyid = ?
         AND type = 0
-        AND "contactStatus" = 1
+        AND contactstatus = 1
         AND "lockPassHash" IS NOT NULL',
     [COMPANY_ID],
     false,
@@ -48,7 +48,7 @@ $rs = ncmExecute(
 if ($rs) {
     while (!$rs->EOF) {
         $row  = (array) $rs->fields;
-        $hash = $row['lockpasshash'] ?? $row['lockPassHash'] ?? null;
+        $hash = $row['lockpasshash'] ?? null;
         if ($hash !== null && password_verify($pin, (string) $hash)) {
             $found = $row;
             break;
@@ -60,13 +60,13 @@ if ($rs) {
 // (b) plain fallback: solo para usuarios sin lockPassHash (pre-backfill)
 if ($found === null) {
     $row = ncmExecute(
-        'SELECT "contactId", "contactName"
+        'SELECT contactid, contactname
            FROM contact
-          WHERE "companyId" = ?
+          WHERE companyid = ?
             AND type = 0
-            AND "contactStatus" = 1
+            AND contactstatus = 1
             AND "lockPassHash" IS NULL
-            AND "lockPass" = ?
+            AND lockpass = ?
           LIMIT 1',
         [COMPANY_ID, $pin]
     );
@@ -81,7 +81,7 @@ if (!$found) {
 
 apiOk([
     'user' => [
-        'id'   => (string) ($found['contactid']   ?? $found['contactId']   ?? ''),
-        'name' => (string) ($found['contactname'] ?? $found['contactName'] ?? ''),
+        'id'   => (string) ($found['contactid']   ?? ''),
+        'name' => (string) ($found['contactname'] ?? ''),
     ],
 ]);
