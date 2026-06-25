@@ -39,6 +39,12 @@ import { getDeviceDefault, clearDeviceDefault } from "@/lib/pos/device"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
+import { useOfflineSync } from "@/hooks/use-offline-sync"
+
+function OfflineSyncRunner() {
+  useOfflineSync()
+  return null
+}
 
 function RegisterGuard({ children }: { children: React.ReactNode }) {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
@@ -176,6 +182,7 @@ export default function PosWorkspaceLayout({
   return (
     <div className="relative flex h-full w-full overflow-hidden">
       <BeforeUnloadGuard />
+      <OfflineSyncRunner />
       {/* Bloque izquierdo (intercambiable por ruta) — oculto en mobile. */}
       <div className="hidden flex-[7] overflow-hidden md:block">
         <RegisterGuard>{children}</RegisterGuard>

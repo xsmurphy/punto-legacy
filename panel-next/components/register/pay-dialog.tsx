@@ -31,8 +31,12 @@ import { cn } from "@/lib/utils"
 import { useCartStore, selectCartTotal } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney, formatCurrencyAmount } from "@/lib/format-money"
-import { executeSale } from "@/lib/commands/create-sale"
+import { buildSalePayload, buildApiPayload } from "@/lib/commands/create-sale"
 import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-sale"
+import { ApiError } from "@/lib/api-client"
+import { getNextInvoiceNo } from "@/lib/pos/numbering-lease"
+import { enqueue, getCount } from "@/lib/pos/offline-queue"
+import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
@@ -187,6 +191,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   ) {
     setSubmitting(true)
     setErrorMsg(null)
+
+    // Obtener número de comprobante del lease (best-effort)
+    let leasedInvoiceNo = 0
+    try { leasedInvoiceNo = getNextInvoiceNo() } catch { /* NO_LEASE — sin offline numbering */ }
+
     try {
       const payments: SalePaymentMethod[] = appliedPayments.map((r) => ({
         name: r.method.id,
@@ -202,7 +211,18 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           ? [{ name: "credito", total: 0 }]
           : payments
 
-      const result = await executeSale({
+      if (lines.length === 0) {
+        throw new Error("El carrito está vacío")
+      }
+      if (credito && !customer) {
+        throw new Error("Venta a crédito requiere un cliente seleccionado")
+      }
+      if (effectivePayments.length === 0) {
+        throw new Error("Debe agregar al menos un método de pago")
+      }
+
+      // Construir payload para tenerlo disponible tanto para el POST como para el enqueue
+      const payload = buildSalePayload({
         lines,
         payments: effectivePayments,
         credito,
@@ -212,6 +232,62 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         tags,
         quoteParentId,
       })
+
+      let result: CreateSaleResult
+
+      try {
+        const apiPayload = buildApiPayload(payload)
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('fetch timeout')), 5000)
+        )
+        const raw = await Promise.race([
+          api.postLegacy<{ success: boolean; transactionId: string; uid: string; duplicated: boolean }>(
+            '/v1/sales',
+            apiPayload,
+          ),
+          timeoutPromise,
+        ])
+        result = {
+          transactionId: raw.transactionId,
+          transactionUID: raw.uid,
+          invoiceNumber: null,
+          total: payload.subtotal,
+          duplicated: raw.duplicated === true,
+        }
+      } catch (fetchErr) {
+        // TypeError (network) o timeout → encolar offline
+        // ApiError 4xx → NO encolar (error de negocio), relanzar
+        // ApiError 5xx → encolar también
+        const isNetworkOrTimeout =
+          fetchErr instanceof TypeError ||
+          (fetchErr instanceof Error && fetchErr.message === 'fetch timeout') ||
+          (fetchErr instanceof ApiError && fetchErr.status >= 500)
+
+        if (!isNetworkOrTimeout) {
+          // 4xx o error de negocio — mostrar error normal
+          throw fetchErr
+        }
+
+        // Encolar en IndexedDB
+        await enqueue({ clientTempId: payload.uid, leasedInvoiceNo, sale: payload })
+
+        // Stock optimistic
+        const catalogItems = useCatalogStore.getState().items
+        for (const line of lines) {
+          const item = catalogItems.find((i) => i.id === line.itemId)
+          if (item && item.stock !== null) {
+            useCatalogStore.getState().patchItem({ ...item, stock: item.stock - line.qty })
+          }
+        }
+
+        // Actualizar contador de pendientes
+        const count = await getCount()
+        useOfflineSyncStore.getState().setPendingCount(count)
+
+        clear()
+        toast.success('Venta guardada — se enviará al volver online')
+        return
+      }
 
       setChange(changeAmount)
       setSaleResult(result)
