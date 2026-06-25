@@ -1,9 +1,9 @@
 <?php
 /**
- * POST /v1/auth/unpair-pos-device -- Desparea un dispositivo POS.
+ * POST /v1/auth/unpair-pos-device -- Auto-desparea: un device se desvincula a sí mismo.
  *
- * Acepta tanto admin (panel) como el propio device. Si el caller es el
- * propio device que se esta desvinculando, clearea la cookie `_jwt`.
+ * Solo acepta cookie `_jwt` (device). El device solo puede revocarse a sí mismo.
+ * Los admins del panel usan DELETE /v1/devices?id=X para revocar cualquier device.
  */
 
 require_once dirname(__DIR__, 2) . '/bootstrap.php';

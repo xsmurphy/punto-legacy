@@ -15,6 +15,11 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
+// Acepta tanto _jwt_panel (admin del panel, realm 'panel') como _jwt (device paired, realm 'pos-app').
+// Se mantiene en apiAuthTenant (no migrado a apiAuthPosContext) porque este endpoint
+// es el único que debe funcionar para AMBOS callers: el operador que acaba de parear
+// el dispositivo (solo tiene _jwt) Y el admin logueado en el panel que también puede
+// operar la caja (tiene _jwt_panel). Solo se usa COMPANY_ID del contexto, nunca USER_ID.
 apiAuthTenant(['panel', 'pos-app']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {

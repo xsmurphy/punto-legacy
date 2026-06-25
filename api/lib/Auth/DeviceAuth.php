@@ -160,9 +160,6 @@ final class DeviceAuth
 
     /**
      * Revoca un device (soft delete: status=0).
-     */
-    /**
-     * Revoca un device (soft delete: status=0).
      * companyId es obligatorio para evitar TOCTOU cross-tenant.
      */
     public static function revoke(string $deviceId, string $companyId): void
