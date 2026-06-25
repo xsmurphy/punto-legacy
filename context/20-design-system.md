@@ -398,6 +398,8 @@ Para grilla de stats en dashboard:
 - Label arriba (`text-xs text-muted-foreground`), valor grande abajo (`text-2xl font-semibold tabular-nums`), delta opcional en `text-sm`
 - NUNCA labels uppercase + `tracking-wider` en stats
 
+**Excepcion valida — detalle de transaccion a credito**: las stats "Deuda" / "Pagado" SI van en 2 cards con border porque son la PRIMARY CONTENT del view (el usuario abre el detalle de un credito especificamente para ver cuanto debe). Pattern: `grid grid-cols-2 gap-4`, label `text-xs uppercase tracking-wide text-muted-foreground`, valor `text-2xl font-bold tabular-nums` con color semantico (`text-destructive` para deuda, `text-muted-foreground` para pagado), `<Progress>` debajo con porcentaje inline. Ver `panel-next/components/register/pos-transactions-dialog.tsx` funcion `TransactionDetail`.
+
 ### 4.11 Reportes
 
 Estructura de pagina de reporte:
@@ -412,90 +414,113 @@ Caso canonico: `TransactionDetail` en `panel-next/components/register/pos-transa
 Estructura (snippets reales):
 
 ```tsx
-{/* Cabecera 2-col: Cliente + Detalles */}
-<div className="grid grid-cols-2 gap-6 mt-4">
-  <div>
-    <p className="text-xs font-medium text-muted-foreground mb-1">Cliente</p>
-    <p className="text-sm">{detail.customerName || <span className="text-muted-foreground">Sin asignar</span>}</p>
+{/* Header: cliente HERO */}
+<div className="flex items-start justify-between gap-3">
+  <div className="min-w-0 flex-1">
+    <h2 className="text-xl font-semibold truncate">
+      {detail.customerName || <span className="text-muted-foreground">Sin cliente</span>}
+    </h2>
+    <p className="text-sm text-muted-foreground mt-0.5">
+      {txLabel(typeNum)}
+      {docLabel && <> &middot; <span className="tabular-nums">#{docLabel}</span></>}
+      {formattedDate !== "—" && <> &middot; <span className="tabular-nums">{formattedDate}</span></>}
+    </p>
   </div>
-  <div>
-    <p className="text-xs font-medium text-muted-foreground mb-1">Detalles</p>
-    <dl className="text-sm space-y-1">
-      <div className="flex justify-between gap-4">
-        <dt className="text-muted-foreground">Fecha</dt>
-        <dd className="tabular-nums">{formattedDate}</dd>
-      </div>
-    </dl>
+  <div className="flex items-center gap-2 shrink-0">
+    {/* botones de accion */}
   </div>
 </div>
 
-<Separator className="my-4" />
-
-{/* Tabla de items */}
-<Table>
-  <TableHeader>
-    <TableRow>
-      <TableHead>Concepto</TableHead>
-      <TableHead className="w-16 text-right">Cant.</TableHead>
-      <TableHead className="text-right">Importe</TableHead>
-    </TableRow>
-  </TableHeader>
-  <TableBody>
-    {items.map((item, idx) => (
-      <TableRow key={`${item.itemId}-${idx}`}>
-        <TableCell>{item.name}</TableCell>
-        <TableCell className="text-right tabular-nums">{item.count}</TableCell>
-        <TableCell className="text-right tabular-nums">Gs {formatMoney(item.total, config)}</TableCell>
-      </TableRow>
-    ))}
-  </TableBody>
-</Table>
-
-<Separator className="my-4" />
-
-{/* Totals right-aligned */}
-<div className="ml-auto max-w-xs">
-  <dl className="space-y-1 text-sm">
-    {discount > 0 && (
+{/* Hero financiero */}
+<div className="mt-6">
+  {isCredit ? (
+    debt > 0 ? (
       <>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Subtotal</dt>
-          <dd className="tabular-nums">Gs {formatMoney(subtotal, config)}</dd>
+        {/* credito con deuda — excepcion §4.10 */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="border rounded-lg p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Deuda</p>
+            <p className="text-2xl font-bold tabular-nums text-destructive mt-1">
+              {formatMoney(debt, config)}
+            </p>
+          </div>
+          <div className="border rounded-lg p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Pagado</p>
+            <p className="text-2xl font-bold tabular-nums text-muted-foreground mt-1">
+              {formatMoney(paid, config)}
+            </p>
+          </div>
         </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Descuento</dt>
-          <dd className="tabular-nums text-destructive">-Gs {formatMoney(discount, config)}</dd>
+        <div className="mt-3 flex items-center gap-3">
+          <Progress value={total > 0 ? (paid / total) * 100 : 0} className="flex-1 h-2" />
+          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+            {total > 0 ? Math.round((paid / total) * 100) : 0}% &middot; Total {formatMoney(total, config)}
+          </span>
         </div>
       </>
-    )}
-  </dl>
-  <Separator className="my-2" />
-  <div className="flex justify-between gap-4 text-sm font-semibold">
-    <span>Total</span>
-    <span className="tabular-nums">Gs {formatMoney(total, config)}</span>
-  </div>
+    ) : (
+      /* credito totalmente pagado */
+      <div className="flex items-center justify-between">
+        <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400">
+          Pagado
+        </Badge>
+        <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
+      </div>
+    )
+  ) : (
+    /* contado / cotizacion: total hero centrado */
+    <p className="text-3xl font-bold tabular-nums text-center">{formatMoney(total, config)}</p>
+  )}
 </div>
 
-{/* Status final — solo si hay estado especial */}
-{isCredit && debt > 0 && (
-  <div className="flex justify-between items-center mt-4">
-    <span className="text-sm font-medium">Pendiente</span>
-    <span className="text-base font-semibold tabular-nums text-destructive">
-      Gs {formatMoney(debt, config)}
-    </span>
+{/* Items — lista compacta con divide-y */}
+<Separator className="my-5" />
+<div>
+  <h3 className="text-sm font-medium text-muted-foreground mb-2">
+    Items ({items.filter((i) => i.status !== 0).length})
+  </h3>
+  <div className="divide-y">
+    {items.filter((i) => i.status !== 0).map((item, idx) => (
+      <div key={`${item.itemId}-${idx}`} className="flex items-center justify-between py-2 text-sm gap-3">
+        <span className="truncate flex-1">{item.name}</span>
+        <span className="tabular-nums text-muted-foreground w-12 text-right">{item.count}</span>
+        <span className="tabular-nums w-24 text-right">{formatMoney(item.total, config)}</span>
+      </div>
+    ))}
   </div>
-)}
+  {discount > 0 && (
+    <div className="flex justify-between text-sm mt-3 pt-3 border-t text-muted-foreground">
+      <span>Descuento</span>
+      <span className="tabular-nums text-destructive">-{formatMoney(discount, config)}</span>
+    </div>
+  )}
+</div>
+
+{/* Pagos — lista compacta con divide-y */}
+<Separator className="my-5" />
+<div>
+  <h3 className="text-sm font-medium text-muted-foreground mb-2">Pagos</h3>
+  <div className="divide-y">
+    {payments.map((p, i) => (
+      <div key={i} className="flex justify-between py-2 text-sm">
+        <span>{p.name || p.type || "—"}</span>
+        <span className="tabular-nums">{formatMoney(p.amount, config)}</span>
+      </div>
+    ))}
+  </div>
+</div>
 ```
 
 Reglas de invoice detail:
-- Header 2-col: cliente izquierda, metadata derecha
-- `<dl>` para pares label/valor
-- `<Separator>` entre header e items, entre items y totals, antes de status final
-- Totals right-aligned (`ml-auto max-w-xs`)
-- Status final: solo si hay credito con deuda o estado especial — al pie, sin badge
-- NO badge tipo arriba
-- NO total como "hero" gigante
+- Header: cliente como `h2` HERO (`text-xl font-semibold`), sub-line con tipo/numero/fecha muted
+- Numero de comprobante: SOLO mostrar si `docLabel` existe — nunca mostrar UUID raw
+- Hero financiero: credito con deuda = 2 stat cards (excepcion §4.10) + Progress; credito pagado = Badge + total; contado = total centrado `text-3xl`
+- Items: lista `divide-y` (NO `<Table>`), 3 cols: nombre truncado / cantidad muted / importe right
+- Descuento: fila al pie de items con `border-t`, color `text-destructive`
+- Pagos: lista `divide-y` separada por `<Separator>`
+- `formatMoney()` ya incluye el prefijo de moneda — NUNCA escribir `Gs {formatMoney(...)}` (duplica el prefijo)
 - NO iconos en el detalle
+- NO totals block right-aligned separado
 
 ### 4.13 Empty states
 
