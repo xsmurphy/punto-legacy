@@ -44,7 +44,7 @@ export function SellerPickerDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">
-            Seleccioná un vendedor
+            Asignar usuario
           </DialogTitle>
         </DialogHeader>
         <div className="relative mb-1">
@@ -62,7 +62,7 @@ export function SellerPickerDialog({
             <EmptyState
               icon={Search}
               title="Sin resultados"
-              description={`No hay vendedores que coincidan con "${search}"`}
+              description={`No hay usuarios que coincidan con "${search}"`}
             />
           ) : (
             <>
