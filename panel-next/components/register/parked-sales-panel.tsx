@@ -8,6 +8,7 @@
  */
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { Clock, ShoppingCart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,6 +23,7 @@ import { formatMoney } from "@/lib/format-money"
 import { toast } from "sonner"
 
 export function ParkedSalesPanel() {
+  const router = useRouter()
   const { data: sales, isLoading } = useParkedSales()
   const deleteParked = useDeleteParkedSale()
   const config = useCatalogStore((s) => s.config)
@@ -38,6 +40,7 @@ export function ParkedSalesPanel() {
           note: sale.data.notes ?? null,
         })
         toast.success("Venta retomada")
+        router.push('/pos')
       },
       onError: () => toast.error("No se pudo retomar la venta guardada"),
     })
