@@ -1350,7 +1350,7 @@ final class SaleService
         );
 
         return [
-            'transactionId'  => (string) $transId,
+            'transactionId'  => enc((string) $transId),
             'transactionNo'  => $quoteNo,
             'transactionDoc' => '',
             'duplicated'     => false,
