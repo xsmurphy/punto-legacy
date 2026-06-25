@@ -504,7 +504,7 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>
+            <AlertDialogAction autoFocus onClick={handleConfirm}>
               Confirmar
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -776,6 +776,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction
+                  autoFocus
                   onClick={() => {
                     if (pendingDuplicate) executeDuplicate(pendingDuplicate)
                     setConfirmDuplicateOpen(false)
@@ -1823,6 +1824,7 @@ export function TransactionDetailContent({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
+              autoFocus
               onClick={() => {
                 setInvoiceConfirmOpen(false)
                 doInvoiceQuote()

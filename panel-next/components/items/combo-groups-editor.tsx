@@ -202,6 +202,7 @@ function NewGroupDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
           <AlertDialogAction
+            autoFocus
             onClick={async (e) => {
               e.preventDefault()
               if (!name.trim()) return
