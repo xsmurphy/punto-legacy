@@ -57,7 +57,7 @@ export function useUpdateRole() {
     Error,
     { id: string; name?: string; permissions?: string[] }
   >({
-    mutationFn: ({ id, ...body }) => api.put(`/v1/roles?id=${id}`, body),
+    mutationFn: ({ id, ...body }) => api.patch(`/v1/roles?id=${id}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["roles"] })
     },

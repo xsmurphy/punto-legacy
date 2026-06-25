@@ -76,12 +76,12 @@ function PermissionMatrix({
                     )
                   }}
                 />
-                <label
+                <Label
                   htmlFor={p.id}
                   className={`text-sm cursor-pointer ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   {p.label}
-                </label>
+                </Label>
               </div>
             ))}
           </div>

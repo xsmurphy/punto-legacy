@@ -181,6 +181,12 @@ export const api = {
       body: body ? JSON.stringify(body) : undefined,
       ...opts,
     }),
+  patch: <T>(path: string, body?: Json, opts?: { jwt?: string }) =>
+    request<T>(path, {
+      method: "PATCH",
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    }),
   del: <T>(path: string, opts?: { jwt?: string }) =>
     request<T>(path, { method: "DELETE", ...opts }),
   /** URL absoluta para descargas directas (CSV/PDF). */
