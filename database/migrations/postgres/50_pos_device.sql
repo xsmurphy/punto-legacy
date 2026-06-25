@@ -1,9 +1,9 @@
--- Migration 49: tabla device para POS dual-auth
+-- Migration 50: tabla device para POS dual-auth
 -- Registra cada dispositivo POS emparejado con un tenant.
 -- Sin FK constraints — la validación de ownership la hace DeviceAuth::validateJwt
 -- y apiAuthPosContext en PHP.
 
-CREATE TABLE device (
+CREATE TABLE IF NOT EXISTS device (
   "deviceId"     UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
   "companyId"    UUID         NOT NULL,
   "outletId"     UUID,
@@ -18,5 +18,5 @@ CREATE TABLE device (
   "revokedAt"    TIMESTAMPTZ
 );
 
-CREATE INDEX idx_device_company_status ON device ("companyId", "status");
-CREATE INDEX idx_device_register ON device ("registerId");
+CREATE INDEX IF NOT EXISTS idx_device_company_status ON device ("companyId", "status");
+CREATE INDEX IF NOT EXISTS idx_device_register ON device ("registerId");

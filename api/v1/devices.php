@@ -43,9 +43,9 @@ $rs = ncmExecute(
             d."createdAt" AS "pairedAt", d."lastSeenAt",
             d.status, d."revokedAt"
      FROM device d
-     LEFT JOIN outlet   o ON o."outletId"   = d."outletId"
-     LEFT JOIN register r ON r."registerId" = d."registerId"
-     LEFT JOIN contact  c ON c."contactId"  = d."userId"
+     LEFT JOIN outlet   o ON o."outletId"   = d."outletId"   AND o."companyId" = d."companyId"
+     LEFT JOIN register r ON r."registerId" = d."registerId" AND r."companyId" = d."companyId"
+     LEFT JOIN contact  c ON c."contactId"  = d."userId"     AND c."companyId" = d."companyId"
      WHERE d."companyId" = ?::uuid
      ORDER BY d."lastSeenAt" DESC NULLS LAST',
     [COMPANY_ID],

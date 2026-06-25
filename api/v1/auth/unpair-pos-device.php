@@ -37,6 +37,13 @@ if ($devCompanyId !== COMPANY_ID) {
     apiError('No autorizado', 403);
 }
 
+// Si el caller es un device (no panel admin), solo puede revocarse a sí mismo
+if (!empty($ctx['isDevice']) && $ctx['isDevice'] === true) {
+    if (($ctx['deviceId'] ?? '') !== $deviceId) {
+        apiError('Un dispositivo solo puede revocarse a sí mismo', 403);
+    }
+}
+
 // Si el caller es el propio device desvinculandose: clearear cookie
 if (($ctx['isDevice'] ?? false) === true && ($ctx['deviceId'] ?? '') === $deviceId) {
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
