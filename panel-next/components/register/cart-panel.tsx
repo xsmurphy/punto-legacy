@@ -275,7 +275,7 @@ export function CartPanel() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={doClear}
-              className="bg-destructive text-white hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Vaciar venta
             </AlertDialogAction>
