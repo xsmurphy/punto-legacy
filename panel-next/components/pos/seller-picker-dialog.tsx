@@ -76,7 +76,7 @@ export function SellerPickerDialog({
                 >
                   <span
                     className="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-                    style={{ backgroundColor: u.color ?? "#6b7280" }}
+                    style={{ backgroundColor: "#6b7280" }}
                   >
                     {u.name.charAt(0).toUpperCase()}
                   </span>
