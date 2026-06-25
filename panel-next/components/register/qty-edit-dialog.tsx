@@ -3,22 +3,14 @@
 /**
  * Diálogo para editar la cantidad de una línea del carrito.
  *
- * Usa NumericPad para soporte touch + teclado físico.
+ * Usa NumericPadDialog (wrapper único) para soporte touch + teclado físico.
  * Shift alterna entre modo entero y decimal (persiste en usePosUIStore).
  * Si la cantidad inicial tiene decimales, fuerza modo decimal al abrir.
  * Enter confirma, ESC cierra. Confirmar con 0 elimina la línea.
  */
 
 import * as React from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { NumericPad } from "@/components/pos/numeric-pad"
+import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { usePosUIStore } from "@/lib/ui/store"
 
 interface QtyEditDialogProps {
@@ -72,33 +64,16 @@ export function QtyEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Cantidad</DialogTitle>
-          <DialogDescription className="truncate">{itemName}</DialogDescription>
-        </DialogHeader>
-
-        <div className="my-2">
-          <NumericPad
-            mode={localMode}
-            value={draft}
-            onChange={setDraft}
-            onShiftToggle={handleShiftToggle}
-            onConfirm={confirm}
-            onCancel={onClose}
-          />
-        </div>
-
-        <div className="mt-2 flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button className="flex-1" onClick={confirm}>
-            Aceptar
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <NumericPadDialog
+      open={open}
+      onClose={onClose}
+      title="Cantidad"
+      subtitle={itemName}
+      mode={localMode}
+      value={draft}
+      onValueChange={setDraft}
+      onShiftToggle={handleShiftToggle}
+      onConfirm={confirm}
+    />
   )
 }

@@ -16,15 +16,7 @@
  */
 
 import * as React from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { NumericPad } from "@/components/pos/numeric-pad"
+import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { usePosUIStore } from "@/lib/ui/store"
 import type { CartLine } from "@/lib/cart/store"
 
@@ -96,35 +88,17 @@ export function LineDiscountDialog({
   const padMode = localMode === "percent" ? "percent" : "money"
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Aplicar descuento</DialogTitle>
-          <DialogDescription className="truncate">
-            {line?.name ?? ""}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="my-2">
-          <NumericPad
-            mode={padMode}
-            value={draft}
-            onChange={setDraft}
-            onShiftToggle={handleShiftToggle}
-            onConfirm={confirm}
-            onCancel={onClose}
-          />
-        </div>
-
-        <div className="mt-2 flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button className="flex-1" onClick={confirm}>
-            Aceptar
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <NumericPadDialog
+      open={open}
+      onClose={onClose}
+      title="Aplicar descuento"
+      subtitle={line?.name ?? ""}
+      mode={padMode}
+      value={draft}
+      onValueChange={setDraft}
+      onShiftToggle={handleShiftToggle}
+      onConfirm={confirm}
+      confirmLabel="Aceptar"
+    />
   )
 }

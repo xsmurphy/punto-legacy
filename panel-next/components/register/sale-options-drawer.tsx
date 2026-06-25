@@ -55,7 +55,7 @@ import {
 import { cn } from "@/lib/utils"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
-import { NumericPad } from "@/components/pos/numeric-pad"
+import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { useTags } from "@/hooks/use-tags"
 import { useSaveParkedSale } from "@/hooks/use-parked-sales"
@@ -464,29 +464,17 @@ function DiscountDialog({
   }, [open])
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-w-xs">
-        <DialogHeader>
-          <DialogTitle>Descuento global</DialogTitle>
-        </DialogHeader>
-        <NumericPad
-          mode={mode === "percent" ? "percent" : "money"}
-          value={value}
-          onChange={setValue}
-          onShiftToggle={onModeToggle}
-          onConfirm={handleConfirm}
-          onCancel={onClose}
-        />
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button size="sm" onClick={handleConfirm}>
-            Aplicar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <NumericPadDialog
+      open={open}
+      onClose={onClose}
+      title="Descuento global"
+      mode={mode === "percent" ? "percent" : "money"}
+      value={value}
+      onValueChange={setValue}
+      onShiftToggle={onModeToggle}
+      onConfirm={handleConfirm}
+      confirmLabel="Aplicar"
+    />
   )
 }
 

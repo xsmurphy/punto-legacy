@@ -16,11 +16,11 @@ export interface NumericPadProps {
   onCancel?: () => void
 }
 
-const MODE_LABEL: Record<NumericPadProps["mode"], string> = {
-  int: "n",
-  decimal: "n.n",
-  money: "Gs",
-  percent: "%",
+const MODE_HINT: Record<NumericPadProps["mode"], string> = {
+  int: "Pulsá Shift para usar decimales",
+  decimal: "Pulsá Shift para usar enteros",
+  money: "Pulsá Shift para cambiar a porcentaje",
+  percent: "Pulsá Shift para cambiar a monto",
 }
 
 function appendDigit(current: string, digit: string): string {
@@ -127,11 +127,15 @@ export function NumericPad({
   return (
     <div className="flex flex-col gap-3">
       {/* Display */}
-      <div className="relative flex h-16 items-center justify-center">
-        <span className="text-4xl font-bold tabular-nums">{displayValue}</span>
-        <span className="absolute right-0 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-          {MODE_LABEL[mode]}
-        </span>
+      <div className="flex flex-col items-center gap-2">
+        <div className="h-16 flex items-center justify-center">
+          <span className="text-4xl font-bold tabular-nums">{displayValue}</span>
+        </div>
+        {onShiftToggle && (
+          <p className="text-xs text-muted-foreground text-center">
+            {MODE_HINT[mode]}
+          </p>
+        )}
       </div>
 
       {/* Grid 3x4 */}
