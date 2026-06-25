@@ -16,7 +16,9 @@ export interface NumericPadProps {
   onCancel?: () => void
 }
 
-function appendDigit(current: string, digit: string): string {
+function appendDigit(current: string, digit: string, mode?: string): string {
+  // Porcentaje: máximo 3 dígitos para que quepa "100" pero no "1001"
+  if (mode === "percent" && current.length >= 3) return current
   if (current.length >= 10) return current
   // Reemplazar "0" solitario con el dígito (excepto si es otro 0)
   if (current === "0" && digit !== "0") return digit
@@ -71,10 +73,10 @@ export function NumericPad({
         isFirstRef.current = false
         onChange(d === "0" ? "0" : d)
       } else {
-        onChange(appendDigit(value, d))
+        onChange(appendDigit(value, d, mode))
       }
     },
-    [value, onChange],
+    [value, onChange, mode],
   )
 
   const handleDot = React.useCallback(() => {

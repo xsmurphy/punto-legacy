@@ -94,7 +94,7 @@ export function SaleOptionsDrawer({
   const [showSaveTitleDialog, setShowSaveTitleDialog] = React.useState(false)
   const [saveTitle, setSaveTitle] = React.useState("")
 
-  const { data: quoteTx } = useTransaction(quotePrintTxId)
+  const { data: quoteTx, isLoading: quoteTxLoading } = useTransaction(quotePrintTxId)
 
   // Selectors for icon active state.
   const note = useCartStore((s) => s.note)
@@ -335,12 +335,13 @@ export function SaleOptionsDrawer({
 
       <TagsDialog open={activeDialog === "tags"} onClose={closeDialog} />
 
-      {quoteTx && (
+      {quotePrintTxId && (
         <QuotePrintViewDialog
-          tx={quoteTx}
+          tx={quoteTx ?? null}
           config={null}
           open={Boolean(quotePrintTxId)}
           onOpenChange={(v) => { if (!v) setQuotePrintTxId(null) }}
+          isLoading={quoteTxLoading}
         />
       )}
 
@@ -445,14 +446,25 @@ function DiscountDialog({
 }) {
   const [value, setValue] = React.useState("0")
 
+  const handleShiftToggle = () => {
+    const next = mode === "money" ? "percent" : "money"
+    // Si al pasar a porcentaje el draft actual excede 100, resetear
+    if (next === "percent" && parseFloat(value) > 100) {
+      setValue("0")
+    }
+    onModeToggle()
+  }
+
   const handleConfirm = () => {
     const num = parseFloat(value)
-    if (!isNaN(num) && num > 0) {
-      useCartStore.getState().applyGlobalDiscount(num, mode)
+    // Clampear a 0-100 cuando es porcentaje
+    const clamped = mode === "percent" ? Math.min(100, Math.max(0, num)) : num
+    if (!isNaN(clamped) && clamped > 0) {
+      useCartStore.getState().applyGlobalDiscount(clamped, mode)
       toast.success(
         mode === "percent"
-          ? `Descuento del ${num}% aplicado`
-          : `Descuento de ${num} aplicado`,
+          ? `Descuento del ${clamped}% aplicado`
+          : `Descuento de ${clamped} aplicado`,
       )
     }
     setValue("0")
@@ -471,7 +483,7 @@ function DiscountDialog({
       mode={mode === "percent" ? "percent" : "money"}
       value={value}
       onValueChange={setValue}
-      onShiftToggle={onModeToggle}
+      onShiftToggle={handleShiftToggle}
       onConfirm={handleConfirm}
       confirmLabel="Aplicar"
     />
