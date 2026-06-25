@@ -108,12 +108,13 @@ try {
             ]);
             $roleId = $ins->fetchColumn();
 
-            // Insertar permisos como roleData
+            // Insertar permisos como roleData — taxonomyname es NOT NULL, usamos slug como descriptor
             $dataIns = $pdo->prepare(
-                "INSERT INTO taxonomy (taxonomytype, sourceid, taxonomyextra, companyid)
-                 VALUES ('roleData', ?::uuid, ?, ?)"
+                "INSERT INTO taxonomy (taxonomyname, taxonomytype, sourceid, taxonomyextra, companyid)
+                 VALUES (?, 'roleData', ?::uuid, ?, ?)"
             );
             $dataIns->execute([
+                $slug . '_permissions',
                 $roleId,
                 json_encode(['permissions' => $def['perms']]),
                 $companyId,

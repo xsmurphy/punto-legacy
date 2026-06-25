@@ -151,7 +151,7 @@ if (!$applied) {
 // 5. Aplicar pendientes. PDO::exec() para multi-statement (BEGIN/COMMIT incluidos)
 // — funciona para PG cuando emulate_prepares=false y se usa exec, no prepare.
 $pending = 0;
-$ins     = $pdo->prepare('INSERT INTO schema_migrations (filename) VALUES (?)');
+$markDone = $pdo->prepare('INSERT INTO schema_migrations (filename) VALUES (?)');
 foreach ($files as $file) {
     $name = basename($file);
     if (isset($applied[$name])) {
@@ -179,7 +179,7 @@ foreach ($files as $file) {
         exit(1);
     }
 
-    $ins->execute([$name]);
+    $markDone->execute([$name]);
     echo "[migrate] OK: $name\n";
     $pending++;
 }
