@@ -91,7 +91,7 @@ export function LineDiscountDialog({
     <NumericPadDialog
       open={open}
       onClose={onClose}
-      title="Aplicar descuento"
+      title="Descuento individual"
       subtitle={line?.name ?? ""}
       mode={padMode}
       value={draft}

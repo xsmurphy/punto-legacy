@@ -67,7 +67,7 @@ export function QtyEditDialog({
     <NumericPadDialog
       open={open}
       onClose={onClose}
-      title="Cantidad"
+      title="Ingrese la cantidad"
       subtitle={itemName}
       mode={localMode}
       value={draft}

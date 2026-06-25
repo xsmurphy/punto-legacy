@@ -16,13 +16,6 @@ export interface NumericPadProps {
   onCancel?: () => void
 }
 
-const MODE_HINT: Record<NumericPadProps["mode"], string> = {
-  int: "Pulsá Shift para usar decimales",
-  decimal: "Pulsá Shift para usar enteros",
-  money: "Pulsá Shift para cambiar a porcentaje",
-  percent: "Pulsá Shift para cambiar a monto",
-}
-
 function appendDigit(current: string, digit: string): string {
   if (current.length >= 10) return current
   // Reemplazar "0" solitario con el dígito (excepto si es otro 0)
@@ -63,11 +56,12 @@ export function NumericPad({
     ourChangeRef.current = false
   }, [value])
 
-  const displayValue = React.useMemo(() => {
-    if (mode !== "money") return value
-    const num = parseFloat(value)
-    if (isNaN(num) || value === "0") return value
-    return formatAmount(num, config)
+  const displayWithUnit = React.useMemo(() => {
+    const formatted =
+      mode === "money" ? formatAmount(parseFloat(value) || 0, config) : value
+    if (mode === "money") return `Gs${formatted}` // "Gs55.000"
+    if (mode === "percent") return `${value}%` // "20%"
+    return formatted // "1" o "1.5"
   }, [mode, value, config])
 
   const handleDigit = React.useCallback(
@@ -126,16 +120,14 @@ export function NumericPad({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Display */}
-      <div className="flex flex-col items-center gap-2">
-        <div className="h-16 flex items-center justify-center">
-          <span className="text-4xl font-bold tabular-nums">{displayValue}</span>
+      {/* Display con unidad inline */}
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-20 flex items-center justify-center">
+          <span className="text-5xl font-bold tabular-nums">{displayWithUnit}</span>
         </div>
-        {onShiftToggle && (
-          <p className="text-xs text-muted-foreground text-center">
-            {MODE_HINT[mode]}
-          </p>
-        )}
+        <p className="text-xs italic text-muted-foreground text-center">
+          *Utilice las teclas del teclado{onShiftToggle ? " · Shift cambia el modo" : ""}
+        </p>
       </div>
 
       {/* Grid 3x4 */}
