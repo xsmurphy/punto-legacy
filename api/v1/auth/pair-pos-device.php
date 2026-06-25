@@ -16,9 +16,8 @@ use Punto\Api\Auth\DeviceAuth;
 
 apiAuthTenant(['panel']);
 
-// Solo Super Admin (role=1) puede parear dispositivos POS
-if ((int) ROLE_ID !== 1) {
-    apiError('Se requiere perfil administrador para parear dispositivos', 403);
+if (!hasPermission('settings.device.pair')) {
+    apiError('No tenés permiso para esta acción (requiere: settings.device.pair)', 403);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {

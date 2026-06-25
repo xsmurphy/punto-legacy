@@ -17,8 +17,8 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 if ($method === 'POST') {
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('reports.satisfaction.view')) {
+        apiError('No tenés permiso para esta acción (requiere: reports.satisfaction.view)', 403);
     }
     if (validateHttp('action', 'post') !== 'delete') {
         apiError('Acción no soportada', 422);

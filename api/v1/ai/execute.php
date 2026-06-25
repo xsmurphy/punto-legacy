@@ -17,6 +17,10 @@ $ctx = apiAuthTenant(['panel']);
 $companyId = $ctx['companyId'];
 $userId    = $ctx['userId'];
 
+if (!hasPermission('ai.agent.use')) {
+    apiError('No tenés permiso para esta acción (requiere: ai.agent.use)', 403);
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     apiError('Method not allowed', 405);
 }

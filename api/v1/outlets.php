@@ -33,9 +33,8 @@ if (is_string($_raw) && $_raw !== '') {
 }
 
 if ($method === 'POST') {
-    // Permiso de escritura: bloquea el rol read-only (7) — misma convención que los reportes con WRITE.
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('settings.outlet.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.outlet.manage)', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
     if (!in_array($action, ['update', 'create', 'delete'], true)) {

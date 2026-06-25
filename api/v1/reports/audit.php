@@ -16,9 +16,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
-// Gate: solo admin/manager del tenant — roleId === 7 es vendedor/básico.
-if ((int) $ctx['roleId'] === 7) {
-    apiError('Sin permiso para ver la auditoría', 403);
+// Gate: solo roles con permiso de auditoría.
+if (!hasPermission('reports.audit.view')) {
+    apiError('No tenés permiso para esta acción (requiere: reports.audit.view)', 403);
 }
 
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';

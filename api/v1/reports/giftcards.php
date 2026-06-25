@@ -18,8 +18,8 @@ $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 /* ───────── write: eliminar / actualizar gift card ───────── */
 if ($method === 'POST') {
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('reports.giftcards.view')) {
+        apiError('No tenés permiso para esta acción (requiere: reports.giftcards.view)', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
     if (!in_array($action, ['delete', 'update'], true)) {
