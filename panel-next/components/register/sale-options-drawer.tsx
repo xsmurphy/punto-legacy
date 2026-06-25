@@ -63,6 +63,7 @@ import { toast } from "sonner"
 import { createQuote } from "@/lib/commands/create-quote"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import { useTransaction } from "@/hooks/use-transactions"
+import { useQueryClient } from "@tanstack/react-query"
 import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -94,6 +95,7 @@ export function SaleOptionsDrawer({
   const [showSaveTitleDialog, setShowSaveTitleDialog] = React.useState(false)
   const [saveTitle, setSaveTitle] = React.useState("")
 
+  const qc = useQueryClient()
   const { data: quoteTx, isLoading: quoteTxLoading } = useTransaction(quotePrintTxId)
 
   // Selectors for icon active state.
@@ -136,6 +138,7 @@ export function SaleOptionsDrawer({
       useCartStore.getState().clear()
       toast.success(`Cotización #${result.transactionNo} guardada`)
       setQuotePrintTxId(result.transactionId)
+      qc.invalidateQueries({ queryKey: ["pos-transaction", result.transactionId] })
     } catch (e) {
       toast.error("No se pudo guardar la cotización", {
         description: e instanceof Error ? e.message : String(e),
