@@ -10,7 +10,7 @@
 
 import * as React from "react"
 import { CalendarIcon, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
-import { format, formatDistanceToNow } from "date-fns"
+import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
 import { Badge } from "@/components/ui/badge"
@@ -32,8 +32,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { EmptyState } from "@/components/empty-state"
 import { usePosTransactionsList, usePosTransactionDetail } from "@/hooks/use-pos-transactions"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -50,6 +57,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useCartStore } from "@/lib/cart/store"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
+import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -94,19 +102,6 @@ function niceDateTime(iso: string): string {
   }
 }
 
-/**
- * Formato completo para el panel de detalle: "lunes 22 de junio de 2026, 12:59"
- */
-function niceDateTimeFull(iso: string): string {
-  if (!iso) return "—"
-  try {
-    const d = new Date(iso.replace(" ", "T"))
-    if (Number.isNaN(d.getTime())) return iso
-    return format(d, "EEEE d 'de' MMMM 'de' yyyy, HH:mm", { locale: es })
-  } catch {
-    return iso
-  }
-}
 
 function useDebounce(value: string, delay: number): string {
   const [debounced, setDebounced] = React.useState(value)
@@ -372,10 +367,20 @@ function TransactionRow({
 
 // ── Detalle ───────────────────────────────────────────────────────────────────
 
-function getActionConfig(typeNum: number, debt: number): { label: string; disabled: boolean } {
-  if (typeNum === 9) return { label: "Facturar", disabled: true }
-  if (typeNum === 3 && debt > 0) return { label: "Pagar", disabled: true }
-  return { label: "Duplicar", disabled: false }
+/**
+ * Determina el botón primario del panel de detalle.
+ * - Pagar: crédito con deuda → wireable con CreditPaymentDialog
+ * - Facturar: cotización (typeNum=9) → no hay handler aún, disabled
+ * - Duplicar: default
+ */
+function getPrimaryAction(typeNum: number, debt: number): {
+  label: string
+  action: "pay" | "invoice" | "duplicate"
+  disabled: boolean
+} {
+  if (typeNum === 3 && debt > 0) return { label: "Pagar", action: "pay", disabled: false }
+  if (typeNum === 9) return { label: "Facturar", action: "invoice", disabled: true }
+  return { label: "Duplicar", action: "duplicate", disabled: false }
 }
 
 function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: () => void }) {
@@ -383,6 +388,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   const config = useCatalogStore((s) => s.config)
   const addLines = useCartStore((s) => s.addLines)
   const [quotePdfOpen, setQuotePdfOpen] = React.useState(false)
+  const [creditPayOpen, setCreditPayOpen] = React.useState(false)
 
   if (!encId) {
     return (
@@ -411,16 +417,19 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   const isCredit = typeNum === 3
   const docLabel = detail.invoicePrefix
     ? `${detail.invoicePrefix}-${detail.documentNo}`
-    : detail.documentNo
+    : (detail.documentNo ?? "")
 
   const items = detail.transactionDatas ?? []
   const payments = detail.pMethods ?? []
   const discount = Number(detail.discount ?? 0)
   const total = Number(detail.total ?? 0)
+  const subtotal = discount > 0 ? total + discount : total
 
-  const paid = detail.creditPayments?.paid ?? 0
   const debt = detail.creditPayments?.debt ?? 0
-  const actionConfig = getActionConfig(typeNum, debt)
+  const primary = getPrimaryAction(typeNum, debt)
+
+  // Show secondary "Duplicar" button only when primary is Pagar or Facturar
+  const showSecondaryDuplicate = primary.action === "pay" || primary.action === "invoice"
 
   function handleDuplicate() {
     const validItems = items.filter((i) => i.status !== 0)
@@ -441,177 +450,245 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
     toast.success("Items duplicados al carrito")
   }
 
+  function handlePrimaryAction() {
+    if (primary.action === "pay") {
+      setCreditPayOpen(true)
+    } else if (primary.action === "duplicate") {
+      handleDuplicate()
+    }
+    // "invoice" es disabled — no llega acá
+  }
+
   function handleReprint() {
     toast.info(`Reimprimir #${docLabel || (detail?.transactionId ?? "")} — abriendo vista de impresión...`)
     window.print()
   }
 
-  // Fecha relativa
+  // Formato de fecha para la cabecera (compacto pero con día)
   const dateObj = detail.date ? new Date(detail.date.replace(" ", "T")) : null
-  const relativeDate = dateObj && !Number.isNaN(dateObj.getTime())
-    ? formatDistanceToNow(dateObj, { addSuffix: true, locale: es })
-    : null
-  const fullDate = dateObj && !Number.isNaN(dateObj.getTime())
-    ? niceDateTimeFull(detail.date)
-    : null
-
-  // Línea narrativa de pagos
-  function buildPaymentLine(): string | null {
-    if (payments.length === 0) return null
-    if (payments.length === 1) {
-      const p = payments[0]
-      return `Pagado en ${p.name || p.type} ${formatMoney(p.amount, config)}`
-    }
-    if (payments.length === 2) {
-      const [a, b] = payments
-      return `Pagado en ${a.name || a.type} ${formatMoney(a.amount, config)} y ${b.name || b.type} ${formatMoney(b.amount, config)}`
-    }
-    // 3+ métodos: lista sin montos inline
-    const names = payments.map((p) => p.name || p.type)
-    const last = names.pop()
-    return `Pagado en ${names.join(", ")} y ${last}`
-  }
-
-  const paymentLine = buildPaymentLine()
+  const formattedDate = dateObj && !Number.isNaN(dateObj.getTime())
+    ? format(dateObj, "d MMM, HH:mm", { locale: es })
+    : "—"
 
   return (
     <TooltipProvider>
       <div className="flex flex-col h-full min-h-0 border-l overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
+        <div className="flex-1 overflow-y-auto p-5">
 
-          {/* ── Sección 1: Header ─────────────────────────────────────────── */}
-          <div className="flex flex-col gap-1.5">
-            {/* Fila 1: badge + número + botones */}
-            <div className="flex items-center gap-2">
-              <Badge variant={txBadgeVariant(typeNum)}>
-                {txLabel(typeNum)}
-              </Badge>
-              {docLabel && (
-                <span className="text-sm text-muted-foreground tabular-nums">#{docLabel}</span>
+          {/* ── Title row ─────────────────────────────────────────────────── */}
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold truncate">
+              Comprobante #{docLabel || (detail.transactionId ?? "")}
+            </h2>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Botón primario */}
+              {primary.disabled ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled
+                        className="opacity-60"
+                      >
+                        {primary.label}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Próximamente</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handlePrimaryAction}
+                >
+                  {primary.label}
+                </Button>
               )}
-              {/* Botones empujados a la derecha */}
-              <div className="flex gap-2 ml-auto shrink-0">
-                {actionConfig.disabled ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <Button variant="outline" size="sm" disabled>
-                          {actionConfig.label}
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>Próximamente</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Button variant="outline" size="sm" onClick={handleDuplicate}>
-                    {actionConfig.label}
+
+              {/* Botón secundario Duplicar (solo cuando primary es Pagar o Facturar) */}
+              {showSecondaryDuplicate && (
+                <Button variant="outline" size="sm" onClick={handleDuplicate}>
+                  Duplicar
+                </Button>
+              )}
+
+              {/* Menú de acciones adicionales */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-8">
+                    <MoreHorizontal className="size-4" />
                   </Button>
-                )}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="size-8">
-                      <MoreHorizontal className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={handleReprint}>
-                      Reimprimir
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={handleReprint}>
+                    Reimprimir
+                  </DropdownMenuItem>
+                  {typeNum === 9 && (
+                    <DropdownMenuItem onSelect={() => setQuotePdfOpen(true)}>
+                      Ver PDF
                     </DropdownMenuItem>
-                    {typeNum === 9 && (
-                      <DropdownMenuItem onSelect={() => setQuotePdfOpen(true)}>
-                        Ver PDF
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled>Anular</DropdownMenuItem>
-                    <DropdownMenuItem disabled>Devolución</DropdownMenuItem>
-                    <DropdownMenuItem disabled>Agregar</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem disabled>Anular</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Devolución</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Agregar</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+
+          {/* ── Cabecera 2-col: Cliente + Detalles ────────────────────────── */}
+          <div className="grid grid-cols-2 gap-6 mt-4">
+            {/* Columna cliente */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Cliente</p>
+              <p className="text-sm">
+                {detail.customerName || (
+                  <span className="text-muted-foreground">Sin asignar</span>
+                )}
+              </p>
             </div>
 
-            {/* Fila 2: cliente · fecha relativa */}
-            <p className="text-sm text-muted-foreground">
-              {detail.customerName || "Sin cliente"}
-              {relativeDate && (
+            {/* Columna detalles */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Detalles</p>
+              <dl className="text-sm space-y-1">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Fecha</dt>
+                  <dd className="tabular-nums">{formattedDate}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Tipo</dt>
+                  <dd>{txLabel(typeNum)}</dd>
+                </div>
+                {docLabel && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Documento</dt>
+                    <dd className="tabular-nums">{docLabel}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          </div>
+
+          {/* ── Items table ───────────────────────────────────────────────── */}
+          <Separator className="my-4" />
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Concepto</TableHead>
+                <TableHead className="w-16 text-right">Cant.</TableHead>
+                <TableHead className="text-right">Importe</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.filter((i) => i.status !== 0).length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-sm text-muted-foreground py-4">
+                    Sin items
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.filter((i) => i.status !== 0).map((item, idx) => (
+                  <TableRow key={`${item.itemId}-${idx}`}>
+                    <TableCell>{item.name}</TableCell>
+                    <TableCell className="text-right tabular-nums">{item.count}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      Gs {formatMoney(item.total, config)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+
+          {/* ── Totals block ──────────────────────────────────────────────── */}
+          <Separator className="my-4" />
+          <div className="ml-auto max-w-xs">
+            <dl className="space-y-1 text-sm">
+              {discount > 0 && (
                 <>
-                  {" · "}
-                  {fullDate ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="cursor-default">{relativeDate}</span>
-                      </TooltipTrigger>
-                      <TooltipContent>{fullDate}</TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    relativeDate
-                  )}
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Subtotal</dt>
+                    <dd className="tabular-nums">Gs {formatMoney(subtotal, config)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Descuento</dt>
+                    <dd className="tabular-nums text-destructive">-Gs {formatMoney(discount, config)}</dd>
+                  </div>
                 </>
               )}
-            </p>
+            </dl>
+            <Separator className="my-2" />
+            <div className="flex justify-between gap-4 text-sm font-semibold">
+              <span>Total</span>
+              <span className="tabular-nums">Gs {formatMoney(total, config)}</span>
+            </div>
           </div>
 
-          {/* ── Sección 2: Total + Progress ───────────────────────────────── */}
-          <div className="flex flex-col gap-2">
-            <p className="text-3xl font-bold tabular-nums">
-              {formatMoney(total, config)}
-            </p>
-            {discount > 0 && (
-              <p className="text-sm text-muted-foreground">
-                Descuento {formatMoney(discount, config)} aplicado
-              </p>
-            )}
-            {isCredit && debt > 0 && (
-              <div className="flex flex-col gap-1">
-                <Progress value={(paid / total) * 100} className="h-1.5" />
-                <p className="text-sm">
-                  {paid > 0 && (
-                    <span className="text-muted-foreground">
-                      Pagado {formatMoney(paid, config)} · {" "}
-                    </span>
-                  )}
-                  <span className="text-destructive">
-                    Adeuda {formatMoney(debt, config)}
-                  </span>
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* ── Separador ─────────────────────────────────────────────────── */}
-          <Separator />
-
-          {/* ── Sección 3: Items ──────────────────────────────────────────── */}
-          {items.length > 0 && (
-            <div className="divide-y">
-              {items.filter((i) => i.status !== 0).map((item, idx) => (
-                <div key={`${item.itemId}-${idx}`} className="flex items-center gap-3 py-2.5">
-                  <span className="flex-1 text-sm">{item.name}</span>
-                  <span className="w-8 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
-                    {item.count}
-                  </span>
-                  <span className="shrink-0 text-sm tabular-nums">
-                    {formatMoney(item.total, config)}
-                  </span>
+          {/* ── Pagos ─────────────────────────────────────────────────────── */}
+          <Separator className="my-4" />
+          <h3 className="text-sm font-semibold mb-2">Pagos</h3>
+          {payments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin pagos registrados</p>
+          ) : (
+            <div className="space-y-1 text-sm">
+              {payments.map((p, i) => (
+                <div key={i} className="flex justify-between">
+                  <span>{p.name || p.type || "—"}</span>
+                  <span className="tabular-nums">Gs {formatMoney(p.amount, config)}</span>
                 </div>
               ))}
             </div>
           )}
 
-          {/* ── Sección 4: Pagos (narrativa) ──────────────────────────────── */}
-          {paymentLine && (
-            <p className="text-sm text-muted-foreground">{paymentLine}</p>
+          {/* ── Status final (crédito) ────────────────────────────────────── */}
+          {isCredit && debt > 0 && (
+            <>
+              <Separator className="mt-4" />
+              <div className="flex justify-between items-center mt-4 mb-2">
+                <span className="text-sm font-medium">Pendiente</span>
+                <span className="text-base font-semibold tabular-nums text-destructive">
+                  Gs {formatMoney(debt, config)}
+                </span>
+              </div>
+            </>
+          )}
+          {isCredit && debt === 0 && (
+            <>
+              <Separator className="mt-4" />
+              <div className="flex justify-between items-center mt-4 mb-2">
+                <span className="text-sm font-medium">Estado</span>
+                <span className="text-base font-semibold tabular-nums text-emerald-600">Pagado</span>
+              </div>
+            </>
           )}
 
         </div>
       </div>
+
+      {/* Dialogs */}
       {typeNum === 9 && quotePdfOpen && (
         <QuotePrintViewDialog
           tx={detail}
           config={config}
           open={quotePdfOpen}
           onOpenChange={setQuotePdfOpen}
+        />
+      )}
+      {isCredit && (
+        <CreditPaymentDialog
+          open={creditPayOpen}
+          onOpenChange={setCreditPayOpen}
+          parentTransactionId={encId}
+          debt={debt}
+          customerName={detail.customerName ?? ""}
+          onSuccess={() => {
+            setCreditPayOpen(false)
+          }}
         />
       )}
     </TooltipProvider>
