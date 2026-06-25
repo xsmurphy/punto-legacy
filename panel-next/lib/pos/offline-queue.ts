@@ -1,12 +1,18 @@
 /**
- * Cola offline del POS — persiste ventas pendientes de sync en localStorage.
+ * Cola offline del POS — persiste ventas pendientes de sync en IndexedDB (via idb).
  *
- * S1 del feature offline-writes (2026-06-25).
- * Implementación mínima via localStorage para fase S1-S3.
- * Fase S4+ migrará a IndexedDB (Dexie) cuando la carga lo justifique.
+ * S2 del feature offline-writes (2026-06-25).
+ *
+ * IndexedDB aguanta volúmenes de MBs, es async (no bloquea el hilo), y
+ * sobrevive reinicios del browser. A diferencia de localStorage (5 MB, sync,
+ * pierde datos en privado/incógnito), IndexedDB es la storage correcta para
+ * una cola de ventas offline.
+ *
+ * DB: 'punto-pos-offline', store: 'pendingSales', keyPath: 'clientTempId'
  */
 
-const QUEUE_KEY = 'pos:offline-queue'
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import type { CreateSalePayload } from '@/lib/commands/create-sale'
 
 export interface OfflineError {
   code: string
@@ -17,53 +23,66 @@ export type OfflineSaleStatus = 'pending' | 'syncing' | 'failed'
 
 export interface OfflineSaleRow {
   clientTempId: string
-  leasedInvoiceNo: number | string | null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  sale: any
+  leasedInvoiceNo: number
+  sale: CreateSalePayload
   status: OfflineSaleStatus
   error?: OfflineError
-  createdAt: string
+  createdAt: string      // ISO
+  lastAttemptAt?: string // ISO
   attempts: number
 }
 
-function readQueue(): OfflineSaleRow[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(QUEUE_KEY)
-    return raw ? (JSON.parse(raw) as OfflineSaleRow[]) : []
-  } catch {
-    return []
+// ── Schema de la DB ───────────────────────────────────────────────────────────
+
+interface PosOfflineDB extends DBSchema {
+  pendingSales: {
+    key: string
+    value: OfflineSaleRow
   }
 }
 
-function writeQueue(rows: OfflineSaleRow[]): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(rows))
+// ── Singleton de la DB ────────────────────────────────────────────────────────
+
+let dbPromise: Promise<IDBPDatabase<PosOfflineDB>> | null = null
+
+function getDB(): Promise<IDBPDatabase<PosOfflineDB>> {
+  if (!dbPromise) {
+    dbPromise = openDB<PosOfflineDB>('punto-pos-offline', 1, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains('pendingSales')) {
+          db.createObjectStore('pendingSales', { keyPath: 'clientTempId' })
+        }
+      },
+    })
+  }
+  return dbPromise
 }
 
-/** Devuelve todas las ventas pendientes de sync. */
-export async function peekAll(): Promise<OfflineSaleRow[]> {
-  return readQueue()
-}
+// ── API pública ───────────────────────────────────────────────────────────────
 
 /** Agrega una venta a la cola con status 'pending'. */
 export async function enqueue(
   row: Omit<OfflineSaleRow, 'status' | 'attempts' | 'createdAt'>,
 ): Promise<void> {
-  const rows = readQueue()
-  rows.push({
+  const db = await getDB()
+  await db.put('pendingSales', {
     ...row,
     status: 'pending',
     attempts: 0,
     createdAt: new Date().toISOString(),
   })
-  writeQueue(rows)
+}
+
+/** Devuelve todas las ventas pendientes de sync. */
+export async function peekAll(): Promise<OfflineSaleRow[]> {
+  const db = await getDB()
+  return db.getAll('pendingSales')
 }
 
 /** Marca una venta como sincronizada y la elimina de la cola. */
 export async function markSynced(clientTempId: string): Promise<void> {
-  const rows = readQueue().filter((r) => r.clientTempId !== clientTempId)
-  writeQueue(rows)
+  const db = await getDB()
+  await db.delete('pendingSales', clientTempId)
 }
 
 /** Marca una venta como fallida con el error. */
@@ -71,29 +90,34 @@ export async function markFailed(
   clientTempId: string,
   error: OfflineError,
 ): Promise<void> {
-  const rows = readQueue().map((r) =>
-    r.clientTempId === clientTempId
-      ? { ...r, status: 'failed' as OfflineSaleStatus, error, attempts: r.attempts + 1 }
-      : r,
-  )
-  writeQueue(rows)
+  const db = await getDB()
+  const row = await db.get('pendingSales', clientTempId)
+  if (!row) return
+  await db.put('pendingSales', {
+    ...row,
+    status: 'failed',
+    error,
+    attempts: row.attempts + 1,
+    lastAttemptAt: new Date().toISOString(),
+  })
 }
 
 /** Marca una venta como en proceso de sincronización. */
 export async function markSyncing(clientTempId: string): Promise<void> {
-  const rows = readQueue().map((r) =>
-    r.clientTempId === clientTempId ? { ...r, status: 'syncing' as OfflineSaleStatus } : r,
-  )
-  writeQueue(rows)
+  const db = await getDB()
+  const row = await db.get('pendingSales', clientTempId)
+  if (!row) return
+  await db.put('pendingSales', { ...row, status: 'syncing' })
 }
 
 /** Descarta una venta de la cola (acción manual del operador). */
 export async function discard(clientTempId: string): Promise<void> {
-  const rows = readQueue().filter((r) => r.clientTempId !== clientTempId)
-  writeQueue(rows)
+  const db = await getDB()
+  await db.delete('pendingSales', clientTempId)
 }
 
 /** Devuelve el número de ventas en la cola. */
 export async function getCount(): Promise<number> {
-  return readQueue().length
+  const db = await getDB()
+  return db.count('pendingSales')
 }
