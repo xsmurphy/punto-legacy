@@ -9,7 +9,7 @@
  */
 
 import * as React from "react"
-import { CalendarIcon, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
+import { CalendarIcon, ChevronDown, Filter, Loader2, Receipt, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -19,7 +19,6 @@ import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -154,9 +153,6 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
       <DialogContent className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-3 border-b">
           <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground">
-            Últimas operaciones del comercio: ventas, cotizaciones, devoluciones y más. Filtrá por cliente, comprobante o fecha.
-          </DialogDescription>
         </DialogHeader>
         {/* Contenido scrollable con alto máximo para no superar el viewport */}
         <div className="grid grid-cols-[1fr_1.2fr] max-h-[80vh] min-h-0">
@@ -381,7 +377,7 @@ function TransactionRow({
         <span className={cn("font-semibold truncate", !item.customerName && "text-muted-foreground")}>
           {item.customerName || "Sin nombre"}
         </span>
-        <span className="tabular-nums font-semibold shrink-0">
+        <span className="tabular-nums shrink-0 text-muted-foreground">
           {formatMoney(item.rawTotal, config)}
         </span>
       </div>
@@ -514,7 +510,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
       <div className="flex flex-col h-full min-h-0 border-l overflow-hidden">
         <div className="flex-1 overflow-y-auto p-5">
 
-          {/* ── Header: cliente HERO ──────────────────────────────────────── */}
+          {/* ── Header: cliente + monto top-right + split button ─────────── */}
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <h2 className="text-xl font-semibold truncate">
@@ -526,70 +522,57 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                 {formattedDate !== "—" && <> &middot; <span className="tabular-nums">{formattedDate}</span></>}
               </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Botón primario */}
-              {primary.disabled ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        disabled
-                        className="opacity-60"
-                      >
-                        {primary.label}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Próximamente</TooltipContent>
-                </Tooltip>
-              ) : (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handlePrimaryAction}
-                >
-                  {primary.label}
-                </Button>
-              )}
-
-              {/* Botón secundario Duplicar (solo cuando primary es Pagar o Facturar) */}
-              {showSecondaryDuplicate && (
-                <Button variant="outline" size="sm" onClick={handleDuplicate}>
-                  Duplicar
-                </Button>
-              )}
-
-              {/* Menú de acciones adicionales */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="size-8">
-                    <MoreHorizontal className="size-4" />
+            <div className="shrink-0 flex flex-col items-end gap-2">
+              <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
+              {/* Split button */}
+              <div className="inline-flex">
+                {primary.disabled ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button size="sm" className="rounded-r-none border-r-0 opacity-60" disabled>
+                          {primary.label}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Próximamente</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="rounded-r-none border-r-0"
+                    onClick={handlePrimaryAction}
+                  >
+                    {primary.label}
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={handleReprint}>
-                    Reimprimir
-                  </DropdownMenuItem>
-                  {typeNum === 9 && (
-                    <DropdownMenuItem onSelect={() => setQuotePdfOpen(true)}>
-                      Ver PDF
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem disabled>Anular</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Devolución</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Agregar</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" className="rounded-l-none px-2" aria-label="Más acciones">
+                      <ChevronDown className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {showSecondaryDuplicate && (
+                      <DropdownMenuItem onSelect={handleDuplicate}>Duplicar</DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onSelect={handleReprint}>Reimprimir</DropdownMenuItem>
+                    {typeNum === 9 && (
+                      <DropdownMenuItem onSelect={() => setQuotePdfOpen(true)}>Ver PDF</DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled>Anular</DropdownMenuItem>
+                    <DropdownMenuItem disabled>Devolución</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </div>
 
-          {/* ── Hero financiero ────────────────────────────────────────────── */}
-          <div className="mt-6">
-            {isCredit ? (
-              debt > 0 ? (
+          {/* ── Hero financiero (solo crédito) ────────────────────────────── */}
+          {isCredit && (
+            <div className="mt-6">
+              {debt > 0 ? (
                 <>
                   {/* 2-col stat block — excepcion §4.10: credito con deuda activa */}
                   <div className="grid grid-cols-2 gap-4">
@@ -615,18 +598,14 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                 </>
               ) : (
                 /* Credito totalmente pagado */
-                <div className="flex items-center justify-between">
+                <div className="flex items-center">
                   <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400">
                     Pagado
                   </Badge>
-                  <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
                 </div>
-              )
-            ) : (
-              /* Contado / cotizacion: total HERO centrado */
-              <p className="text-3xl font-bold tabular-nums text-center">{formatMoney(total, config)}</p>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* ── Items ─────────────────────────────────────────────────────── */}
           <Separator className="my-5" />
