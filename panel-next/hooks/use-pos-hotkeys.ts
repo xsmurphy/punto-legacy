@@ -64,8 +64,16 @@ export function usePosHotkeys(): void {
 
       // Sin caja activa o en modo edición de hotkeys → sin atajos de venta.
       if (!activeRegisterId || editing) return
-      // Con un overlay abierto, el teclado lo maneja el propio overlay.
+      // Con un overlay abierto (tracked en el store), el teclado lo maneja el overlay.
       if (anyOverlayOpen) return
+      // Escape-hatch general: si HAY cualquier shadcn Dialog/Sheet/AlertDialog
+      // abierto (descuento, qty, precio, título guardar, etc. — no todos están
+      // en el ui store), el atajo global NO debe disparar. Detecta vía role/state
+      // de Radix (data-state="open").
+      if (typeof document !== "undefined" &&
+          document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) {
+        return
+      }
 
       switch (e.key.toLowerCase()) {
         case "q":
