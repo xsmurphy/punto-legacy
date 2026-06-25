@@ -57,13 +57,13 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
 import { NumericPad } from "@/components/pos/numeric-pad"
 import { usePriceLists } from "@/hooks/use-price-lists"
-import { useTeamMembers } from "@/hooks/use-team"
 import { useTags } from "@/hooks/use-tags"
 import { useSaveParkedSale } from "@/hooks/use-parked-sales"
 import { toast } from "sonner"
 import { createQuote } from "@/lib/commands/create-quote"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import { useTransaction } from "@/hooks/use-transactions"
+import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -91,6 +91,8 @@ export function SaleOptionsDrawer({
   const [activeDialog, setActiveDialog] = React.useState<ActiveDialog>(null)
   const [quotePrintTxId, setQuotePrintTxId] = React.useState<string | null>(null)
   const [isSavingQuote, setIsSavingQuote] = React.useState(false)
+  const [showSaveTitleDialog, setShowSaveTitleDialog] = React.useState(false)
+  const [saveTitle, setSaveTitle] = React.useState("")
 
   const { data: quoteTx } = useTransaction(quotePrintTxId)
 
@@ -193,7 +195,7 @@ export function SaleOptionsDrawer({
       icon: Save,
       action: () => {
         setOpen(false)
-        handleSave()
+        setShowSaveTitleDialog(true)
       },
     },
     {
@@ -234,14 +236,14 @@ export function SaleOptionsDrawer({
 
   const saveParked = useSaveParkedSale()
 
-  const handleSave = () => {
+  const handleSave = (title?: string | null) => {
     const { lines, customer, note } = useCartStore.getState()
     if (lines.length === 0) {
       toast.error("No hay ítems para guardar")
       return
     }
     saveParked.mutate(
-      { data: { cart: lines, customer, notes: note } },
+      { data: { cart: lines, customer, notes: note, title: title ?? null } },
       {
         onSuccess: () => {
           useCartStore.getState().clear()
@@ -315,7 +317,16 @@ export function SaleOptionsDrawer({
 
       <NoteDialog open={activeDialog === "note"} onClose={closeDialog} />
 
-      <UserDialog open={activeDialog === "user"} onClose={closeDialog} />
+      <SellerPickerDialog
+        open={activeDialog === "user"}
+        onOpenChange={(v) => { if (!v) closeDialog() }}
+        onSelect={(userId) => {
+          if (!userId) return
+          const lines = useCartStore.getState().lines
+          lines.forEach((l) => useCartStore.getState().setLineSeller(l.lineId, userId))
+          closeDialog()
+        }}
+      />
 
       <PriceListDialog
         open={activeDialog === "priceList"}
@@ -332,6 +343,32 @@ export function SaleOptionsDrawer({
           onOpenChange={(v) => { if (!v) setQuotePrintTxId(null) }}
         />
       )}
+
+      <Dialog open={showSaveTitleDialog} onOpenChange={(v) => { if (!v) { setShowSaveTitleDialog(false); setSaveTitle("") } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-semibold">Guardar venta</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); setShowSaveTitleDialog(false); handleSave(saveTitle.trim() || null); setSaveTitle("") }}>
+            <div className="py-2">
+              <Input
+                placeholder="Ej. Mesa 5, Pedido Juan..."
+                value={saveTitle}
+                onChange={(e) => setSaveTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => { setShowSaveTitleDialog(false); setSaveTitle("") }}>
+                Cancelar
+              </Button>
+              <Button type="submit">
+                Guardar
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
@@ -496,65 +533,6 @@ function NoteDialog({
             Cancelar
           </Button>
           <Button onClick={handleConfirm}>Guardar</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ── Dialog de usuario ─────────────────────────────────────────────────────────
-
-function UserDialog({
-  open,
-  onClose,
-}: {
-  open: boolean
-  onClose: () => void
-}) {
-  const { data } = useTeamMembers({ status: "1" })
-  const users = data?.users ?? []
-
-  const handleSelect = (userId: string) => {
-    // Capturar líneas al momento del click — la snapshot es consistente
-    // porque no hay await entre getState() y los setLineSeller.
-    const lines = useCartStore.getState().lines
-    lines.forEach((l) => useCartStore.getState().setLineSeller(l.lineId, userId))
-    onClose()
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Asignar usuario</DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col gap-1 py-1">
-          {users.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No hay usuarios disponibles
-            </p>
-          )}
-          {users.map((u) => (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() => handleSelect(u.id)}
-              className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
-            >
-              <span
-                className="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-                style={{ backgroundColor: u.color ?? "#6b7280" }}
-              >
-                {u.name.charAt(0).toUpperCase()}
-              </span>
-              <span className="font-medium">{u.name}</span>
-            </button>
-          ))}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancelar
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
