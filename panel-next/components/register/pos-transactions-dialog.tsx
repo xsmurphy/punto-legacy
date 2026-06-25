@@ -633,22 +633,67 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
             )}
           </div>
 
-          {/* ── Pagos ─────────────────────────────────────────────────────── */}
-          <div className="mt-4 rounded-lg bg-muted/40 p-4">
-            <h3 className="text-sm font-medium text-muted-foreground mb-2">Pagos</h3>
-            {payments.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">Sin pagos registrados</p>
-            ) : (
-              <div className="divide-y divide-border/60">
-                {payments.map((p, i) => (
-                  <div key={i} className="flex justify-between py-2 text-sm">
-                    <span>{p.name || p.type || "—"}</span>
-                    <span className="tabular-nums">{formatMoney(p.amount, config)}</span>
+          {/* ── Pagos / Recibos ─────────────────────────────────────────────
+              Cotización (typeNum 9): sin pagos.
+              Crédito (typeNum 3): lista de recibos de pago (cada uno es una
+                transacción type=5 con parentId = esta).
+              Resto (contado, etc.): medios de pago directos. */}
+          {typeNum !== 9 && (
+            isCredit ? (
+              <div className="mt-4 rounded-lg bg-muted/40 p-4">
+                <h3 className="text-sm font-medium text-muted-foreground mb-2">
+                  Recibos de pago ({detail.paymentsReceived?.length ?? 0})
+                </h3>
+                {!detail.paymentsReceived || detail.paymentsReceived.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">Sin recibos registrados</p>
+                ) : (
+                  <div className="divide-y divide-border/60">
+                    {detail.paymentsReceived.map((r) => {
+                      const rDate = r.date ? new Date(r.date.replace(" ", "T")) : null
+                      const rDateStr = rDate && !Number.isNaN(rDate.getTime())
+                        ? format(rDate, "d MMM, HH:mm", { locale: es })
+                        : "—"
+                      return (
+                        <button
+                          key={r.transactionId}
+                          type="button"
+                          onClick={() => toast.info(`Recibo #${r.invoiceNo || r.transactionId.slice(0, 8)} — ${r.paymentMethod || "—"}`)}
+                          className="w-full flex items-center justify-between py-2 text-sm gap-3 hover:bg-accent/40 rounded transition-colors px-1 -mx-1"
+                        >
+                          <div className="min-w-0 flex-1 text-left">
+                            <span className="block truncate">
+                              {r.invoiceNo ? `Recibo #${r.invoiceNo}` : "Recibo"}
+                              {r.paymentMethod && (
+                                <span className="text-muted-foreground"> · {r.paymentMethod}</span>
+                              )}
+                            </span>
+                            <span className="text-xs text-muted-foreground tabular-nums">{rDateStr}</span>
+                          </div>
+                          <span className="tabular-nums shrink-0">{formatMoney(r.amount, config)}</span>
+                        </button>
+                      )
+                    })}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
+            ) : (
+              <div className="mt-4 rounded-lg bg-muted/40 p-4">
+                <h3 className="text-sm font-medium text-muted-foreground mb-2">Pagos</h3>
+                {payments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">Sin pagos registrados</p>
+                ) : (
+                  <div className="divide-y divide-border/60">
+                    {payments.map((p, i) => (
+                      <div key={i} className="flex justify-between py-2 text-sm">
+                        <span>{p.name || p.type || "—"}</span>
+                        <span className="tabular-nums">{formatMoney(p.amount, config)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          )}
 
         </div>
       </div>
