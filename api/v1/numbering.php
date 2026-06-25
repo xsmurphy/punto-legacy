@@ -112,8 +112,12 @@ if ($rsRecheck !== false && $rsRecheck !== 0) {
     }
 }
 
+// Tabla legacy `transaction`: columnas creadas sin quotes en el DDL → PG las
+// almacena en lowercase. NO usar quoted identifiers acá (causaría error
+// "column invoiceNo does not exist"). Tablas nuevas (camelCase quoted §44)
+// como numbering_lease sí usan quotes.
 $maxRow  = ncmExecute(
-    'SELECT MAX("invoiceNo") AS maxno FROM transaction WHERE "registerId" = ? AND "companyId" = ?',
+    'SELECT MAX(invoiceno) AS maxno FROM transaction WHERE registerid = ? AND companyid = ?',
     [$regId, $compId]
 );
 $maxno   = ($maxRow && isset($maxRow['maxno']) && $maxRow['maxno'] !== null) ? (int) $maxRow['maxno'] : 0;
