@@ -112,6 +112,13 @@ export interface PosCustomer {
 export interface PosUser {
   id: string
   name: string
+  /**
+   * Hash bcrypt del PIN del operador. Almacenado en localStorage via catalog store.
+   * Decision del owner (2026-06-25): hash visible en localStorage es suficiente
+   * para identificacion — el PIN no es una contrasena critica, protege contra
+   * peeking casual, no contra atacantes con acceso al device.
+   */
+  lockpasshash?: string | null
 }
 
 // ── Bootstrap completo ────────────────────────────────────────────────────────

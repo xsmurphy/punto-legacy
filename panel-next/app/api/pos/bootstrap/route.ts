@@ -161,6 +161,7 @@ interface UpstreamUserRow {
   id: string
   name: string
   lockPass?: string | null
+  lockPassHash?: string | null
   status: number
 }
 
@@ -270,7 +271,7 @@ function reshapeUsers(
   if (httpStatus >= 500 || data === null) return []
   return data.users
     .filter((u) => u.status === 1)
-    .map((u) => ({ id: u.id, name: u.name }))
+    .map((u) => ({ id: u.id, name: u.name, lockpasshash: u.lockPassHash ?? null }))
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
