@@ -32,6 +32,8 @@ interface PosUIState {
   clearCustomerSearchQuery: () => void
   setQtyPadMode: (v: "int" | "decimal") => void
   setDiscountPadMode: (v: "money" | "percent") => void
+  showSoftKeyboard: boolean
+  setShowSoftKeyboard: (v: boolean) => void
 }
 
 export const usePosUIStore = create<PosUIState>()((set) => ({
@@ -55,4 +57,6 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   clearCustomerSearchQuery: () => set({ customerSearchQuery: "" }),
   setQtyPadMode: (v) => set({ qtyPadMode: v }),
   setDiscountPadMode: (v) => set({ discountPadMode: v }),
+  showSoftKeyboard: false,
+  setShowSoftKeyboard: (v) => set({ showSoftKeyboard: v }),
 }))

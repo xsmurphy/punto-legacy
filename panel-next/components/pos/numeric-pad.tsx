@@ -4,6 +4,7 @@ import * as React from "react"
 import { Delete } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { usePosUIStore } from "@/lib/ui/store"
 import { formatAmount } from "@/lib/format-money"
 
 export interface NumericPadProps {
@@ -49,7 +50,18 @@ export function NumericPad({
   onCancel,
 }: NumericPadProps) {
   const config = useCatalogStore((s) => s.config)
+  const showSoftKeyboard = usePosUIStore((s) => s.showSoftKeyboard)
   const allowDot = mode !== "int"
+
+  const isFirstRef = React.useRef(true)
+  const ourChangeRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!ourChangeRef.current) {
+      isFirstRef.current = true
+    }
+    ourChangeRef.current = false
+  }, [value])
 
   const displayValue = React.useMemo(() => {
     if (mode !== "money") return value
@@ -59,16 +71,26 @@ export function NumericPad({
   }, [mode, value, config])
 
   const handleDigit = React.useCallback(
-    (d: string) => onChange(appendDigit(value, d)),
+    (d: string) => {
+      ourChangeRef.current = true
+      if (isFirstRef.current) {
+        isFirstRef.current = false
+        onChange(d === "0" ? "0" : d)
+      } else {
+        onChange(appendDigit(value, d))
+      }
+    },
     [value, onChange],
   )
 
   const handleDot = React.useCallback(() => {
     if (!allowDot) return
+    ourChangeRef.current = true
     onChange(appendDot(value))
   }, [allowDot, value, onChange])
 
   const handleBackspace = React.useCallback(() => {
+    ourChangeRef.current = true
     onChange(backspace(value))
   }, [value, onChange])
 
@@ -113,43 +135,49 @@ export function NumericPad({
       </div>
 
       {/* Grid 3x4 */}
-      <div className="grid grid-cols-3 gap-2">
-        {(["7", "8", "9", "4", "5", "6", "1", "2", "3"] as const).map((d) => (
+      {showSoftKeyboard && (
+        <div className="grid grid-cols-3 gap-2">
+          {(["7", "8", "9", "4", "5", "6", "1", "2", "3"] as const).map((d) => (
+            <Button
+              key={d}
+              type="button"
+              variant="outline"
+              className="h-12 text-xl"
+              onClick={() => handleDigit(d)}
+            >
+              {d}
+            </Button>
+          ))}
+
+          {/* Fila 4 */}
           <Button
-            key={d}
+            type="button"
             variant="outline"
             className="h-12 text-xl"
-            onClick={() => handleDigit(d)}
+            disabled={!allowDot}
+            onClick={handleDot}
           >
-            {d}
+            .
           </Button>
-        ))}
-
-        {/* Fila 4 */}
-        <Button
-          variant="outline"
-          className="h-12 text-xl"
-          disabled={!allowDot}
-          onClick={handleDot}
-        >
-          .
-        </Button>
-        <Button
-          variant="outline"
-          className="h-12 text-xl"
-          onClick={() => handleDigit("0")}
-        >
-          0
-        </Button>
-        <Button
-          variant="outline"
-          className="h-12"
-          onClick={handleBackspace}
-          aria-label="Borrar"
-        >
-          <Delete className="h-5 w-5" />
-        </Button>
-      </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12 text-xl"
+            onClick={() => handleDigit("0")}
+          >
+            0
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12"
+            onClick={handleBackspace}
+            aria-label="Borrar"
+          >
+            <Delete className="h-5 w-5" />
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1152,6 +1152,9 @@ function AjustesPanel() {
   const mergeRepeated = useCartStore((s) => s.mergeRepeated)
   const setMergeRepeated = useCartStore((s) => s.setMergeRepeated)
 
+  const showSoftKeyboard = usePosUIStore((s) => s.showSoftKeyboard)
+  const setShowSoftKeyboard = usePosUIStore((s) => s.setShowSoftKeyboard)
+
   // Estado local de los toggles — TODO (backend): cargar y guardar desde config del tenant.
   const [opciones, setOpciones] = React.useState({
     controlCaja: true,
@@ -1282,6 +1285,19 @@ function AjustesPanel() {
                 <Switch
                   checked={mergeRepeated}
                   onCheckedChange={setMergeRepeated}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-b border-border px-1 py-3">
+                <div>
+                  <p className="text-sm">Mostrar teclado virtual en numpads</p>
+                  <p className="text-xs text-muted-foreground">
+                    Útil para pantallas táctiles sin teclado físico.
+                  </p>
+                </div>
+                <Switch
+                  checked={showSoftKeyboard}
+                  onCheckedChange={setShowSoftKeyboard}
                 />
               </div>
 
