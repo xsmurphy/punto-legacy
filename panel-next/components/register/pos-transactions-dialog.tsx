@@ -424,6 +424,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   const addLines = useCartStore((s) => s.addLines)
   const [quotePdfOpen, setQuotePdfOpen] = React.useState(false)
   const [creditPayOpen, setCreditPayOpen] = React.useState(false)
+  const [receiptDetail, setReceiptDetail] = React.useState<NonNullable<typeof detail.paymentsReceived>[number] | null>(null)
 
   if (!encId) {
     return (
@@ -657,7 +658,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
                         <button
                           key={r.transactionId}
                           type="button"
-                          onClick={() => toast.info(`Recibo #${r.invoiceNo || r.transactionId.slice(0, 8)} — ${r.paymentMethod || "—"}`)}
+                          onClick={() => setReceiptDetail(r)}
                           className="w-full flex items-center justify-between py-2 text-sm gap-3 hover:bg-accent/40 rounded transition-colors px-1 -mx-1"
                         >
                           <div className="min-w-0 flex-1 text-left">
@@ -719,6 +720,42 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
           }}
         />
       )}
+
+      {/* Detalle de recibo de pago (sub-dialog) */}
+      <Dialog open={receiptDetail !== null} onOpenChange={(v) => !v && setReceiptDetail(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {receiptDetail?.invoiceNo ? `Recibo #${receiptDetail.invoiceNo}` : "Recibo de pago"}
+            </DialogTitle>
+          </DialogHeader>
+          {receiptDetail && (() => {
+            const rDate = receiptDetail.date ? new Date(receiptDetail.date.replace(" ", "T")) : null
+            const rDateStr = rDate && !Number.isNaN(rDate.getTime())
+              ? format(rDate, "EEEE d 'de' MMMM, yyyy · HH:mm", { locale: es })
+              : "—"
+            return (
+              <div className="space-y-3">
+                <p className="text-3xl font-bold tabular-nums">{formatMoney(receiptDetail.amount, config)}</p>
+                <div className="rounded-lg bg-muted/40 p-4 space-y-2 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Fecha</span>
+                    <span className="text-right">{rDateStr}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Método</span>
+                    <span>{receiptDetail.paymentMethod || "—"}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Aplicado a</span>
+                    <span className="tabular-nums">{docLabel ? `#${docLabel}` : "—"}</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   )
 }
