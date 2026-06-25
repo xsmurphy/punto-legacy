@@ -62,10 +62,11 @@ Archivo: `.env` (no commiteado). Template: `.env.example`
 | `POSTGRES_PASSWORD` | Password BD | (secret) |
 | `REDIS_HOST` | Host Redis | `127.0.0.1` / `redis` (Docker) |
 | `REDIS_PORT` | Puerto Redis | `6379` |
-| `JWT_SECRET` | Secret para JWT HS256 (compartido entre /app y /panel) | (random 64 chars) |
+| `JWT_SECRET` | Secret para JWT HS256 (compartido entre /app, /panel y /api — `_jwt_panel`, `_jwt` device, `_jwt_screen`) | (random 64 chars) |
 | `JWT_TTL` | TTL del JWT de /app en segundos — **modelo "device pairing"**. `0` = token eterno sin claim `exp` (recomendado para POS). | `0` (eterno, recomendado) o `315360000` (10 años) |
 | `PANEL_JWT_TTL` | TTL del JWT de /panel en segundos — sesión real del tenant. Separado de `JWT_TTL` para evitar que cambiar el TTL del POS afecte el panel. | `86400` (24h) |
 | `ADMIN_JWT_TTL` | TTL del JWT de /admin en segundos — sesión real del super-admin | `28800` (8h) |
+| `COOKIE_DOMAIN` | Dominio de las cookies JWT (`_jwt_panel`, `_jwt`, `_jwt_admin`). En prod: `.punto.la` para cubrir todos los subdominios. Si vacío, se omite el atributo `domain` en `setcookie()`. | `.punto.la` |
 | `MASTER_COMPANY_ID` | UUID de la company maestra (plataforma). Post-F4 ya no es gate de identidad — su rol es scope de billing/plataforma. | `00000000-0000-0000-0000-000000000001` |
 | `CORS_ALLOWED_ORIGINS` | Lista de origins permitidos por CORS, separados por coma. Parametriza el allowlist que antes estaba hardcodeado en `cors.php`. | `https://panel.punto.la,https://app.punto.la,...` |
 | `HASHIDS_SALT` | Salt legacy (todavía referenciado) | (random) |

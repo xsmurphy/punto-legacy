@@ -9,7 +9,8 @@
  */
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel', 'pos-app']);
+require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
+$ctx       = apiAuthPosContext();
 $companyId = (string) COMPANY_ID;
 $userId    = (string) ($ctx['userId'] ?? '');
 

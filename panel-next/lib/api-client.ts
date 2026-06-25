@@ -103,9 +103,20 @@ async function request<T>(
     // Emitir evento global para que AuthSentinel lo capture — cubre todos los
     // 401 del api-client, no solo el de useBootstrap.
     if (res.status === 401 && typeof window !== "undefined") {
+      const backendCode = envelope?.error?.code
+      // TODO(arquitectura): cuando migremos los endpoints POS a /v1/pos/* prefix,
+      // esto puede simplificarse a un único startsWith check.
+      const isPosRoute =
+        path.startsWith("/api/pos/") ||
+        path.startsWith("/v1/pos/") ||
+        // Endpoints POS migrados a apiAuthPosContext (commit e008922)
+        path.startsWith("/v1/sales") ||
+        path.startsWith("/v1/parked-sales") ||
+        path.startsWith("/v1/credit-payments") ||
+        path.startsWith("/v1/transactions")
       window.dispatchEvent(
-        new CustomEvent("api:unauthorized", {
-          detail: { path, message: backendMsg ?? "" },
+        new CustomEvent(isPosRoute ? "pos:unauthorized" : "api:unauthorized", {
+          detail: { path, message: backendMsg ?? "", code: backendCode },
         }),
       )
     }

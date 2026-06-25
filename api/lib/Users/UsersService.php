@@ -164,6 +164,7 @@ final class UsersService
             'role'                     => $in['roleId']           ?? null,
             'outletId'                 => $in['outletId']         ?? null,
             'lockPass'                 => $lockPass !== '' ? $lockPass : null,
+            'lockPassHash'             => $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null,
             'contactInCalendar'        => !empty($in['inCalendar']) ? true : false,
             'contactCalendarPosition'  => isset($in['calendarPosition']) ? (int) $in['calendarPosition'] : 0,
             'contactColor'             => $in['color']            ?? null,
@@ -222,7 +223,8 @@ final class UsersService
             if ($this->pinIsTaken($lockPass, $companyId, $id)) {
                 throw new \InvalidArgumentException('El código POS ya está en uso por otro usuario');
             }
-            $rec['lockPass'] = $lockPass !== '' ? $lockPass : null;
+            $rec['lockPass']     = $lockPass !== '' ? $lockPass : null;
+            $rec['lockPassHash'] = $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null;
         }
         if (array_key_exists('inCalendar', $in)) {
             $rec['contactInCalendar'] = !empty($in['inCalendar']) ? true : false;

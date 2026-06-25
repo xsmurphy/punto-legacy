@@ -15,6 +15,11 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
+// Acepta tanto _jwt_panel (admin del panel, realm 'panel') como _jwt (device paired, realm 'pos-app').
+// Se mantiene en apiAuthTenant (no migrado a apiAuthPosContext) porque este endpoint
+// es el único que debe funcionar para AMBOS callers: el operador que acaba de parear
+// el dispositivo (solo tiene _jwt) Y el admin logueado en el panel que también puede
+// operar la caja (tiene _jwt_panel). Solo se usa COMPANY_ID del contexto, nunca USER_ID.
 apiAuthTenant(['panel', 'pos-app']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -26,25 +31,62 @@ if (!preg_match('/^\d{4}$/', $pin)) {
     apiError('PIN inválido', 422);
 }
 
-// ncmExecute devuelve la fila directa (no [fila]) cuando el resultado es 1 row.
-$row = ncmExecute(
-    "SELECT contactId, contactName
-       FROM contact
-      WHERE companyId = ?
-        AND type = 0
-        AND contactStatus = 1
-        AND lockPass = ?
-      LIMIT 1",
-    [COMPANY_ID, $pin]
-);
+// Estrategia dual durante backfill:
+// (a) bcrypt: iterar todos los usuarios con lockPassHash y verificar en PHP.
+// (b) plain fallback: buscar directamente por lockPass (solo pre-backfill, LIMIT 1).
+// Separar en 2 queries evita traer lockPass plano a memoria innecesariamente
+// y elimina el timing oracle (el branch plano no compite con el bcrypt).
+$found = null;
 
-if (!$row) {
+// (a) bcrypt: no filtrable en SQL, verificar en PHP
+$rs = ncmExecute(
+    'SELECT contactid, contactname, "lockPassHash"
+       FROM contact
+      WHERE companyid = ?
+        AND type = 0
+        AND contactstatus = 1
+        AND "lockPassHash" IS NOT NULL',
+    [COMPANY_ID],
+    false,
+    true
+);
+if ($rs) {
+    while (!$rs->EOF) {
+        $row  = (array) $rs->fields;
+        $hash = $row['lockpasshash'] ?? null;
+        if ($hash !== null && password_verify($pin, (string) $hash)) {
+            $found = $row;
+            break;
+        }
+        $rs->MoveNext();
+    }
+}
+
+// (b) plain fallback: solo para usuarios sin lockPassHash (pre-backfill)
+if ($found === null) {
+    $row = ncmExecute(
+        'SELECT contactid, contactname
+           FROM contact
+          WHERE companyid = ?
+            AND type = 0
+            AND contactstatus = 1
+            AND "lockPassHash" IS NULL
+            AND lockpass = ?
+          LIMIT 1',
+        [COMPANY_ID, $pin]
+    );
+    if ($row) {
+        $found = $row;
+    }
+}
+
+if (!$found) {
     apiError('PIN incorrecto', 401);
 }
 
 apiOk([
     'user' => [
-        'id'   => (string) ($row['contactid'] ?? $row['contactId'] ?? ''),
-        'name' => (string) ($row['contactname'] ?? $row['contactName'] ?? ''),
+        'id'   => (string) ($found['contactid']   ?? ''),
+        'name' => (string) ($found['contactname'] ?? ''),
     ],
 ]);

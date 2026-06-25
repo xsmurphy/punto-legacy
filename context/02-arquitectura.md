@@ -612,3 +612,63 @@ jQuery se queda en la capa de UI.
 ---
 
 > Sección "Estrategia de modernización del monolito (decisión 2026-05-24)" + el molde por módulo movidos a [_archive-arquitectura-legacy.md](_archive-arquitectura-legacy.md) — superseded por el rewrite panel-next.
+
+---
+
+## Auth — Modelo dual de cookies
+
+El sistema tiene dos cookies JWT que coexisten en el browser del operador:
+
+| Cookie | Realm | TTL | Origen | Fin |
+|---|---|---|---|---|
+| `_jwt_panel` | panel | 24h | `/login` del panel admin | Logout o expiración |
+| `_jwt` | pos-app | 10 años | Admin logueado → click Caja → `/pos-pair` → password re-auth → POST `/v1/auth/pair-pos-device` | Ajustes → "Dispositivos" → "Revocar" |
+
+### Flujo de pairing
+
+```
+Admin logueado (_jwt_panel) → abre /pos-pair
+  → Form: password (re-confirmación) + outlet + caja + deviceName
+  → POST /api/auth/pair-pos-device
+    → BFF → /v1/auth/pair-pos-device (PHP)
+      → valida password admin (SHA-256 salt)
+      → valida outletId + registerId pertenecen al companyId
+      → DeviceAuth::issueJwt() → INSERT en tabla device + emite _jwt
+  → Browser guarda cookie _jwt (10 años)
+  → Redirect a /pos
+```
+
+### Flujo de operación POS
+
+```
+Browser con _jwt → /pos
+  → PosAuthGuard: useBootstrap() → si 401 → /pos-pair
+  → POS carga, sidebar con sesión del panel (_jwt_panel si existe)
+  → Operador tipea PIN en LockScreen → POST /v1/unlock-pin
+    → valida PIN por bcrypt (lockPassHash) con fallback a plano (lockPass — depreciado)
+  → Operación desbloqueada — identidad del operador en Zustand lock-store
+  → En 401 durante operación: PosUnauthorizedSentinel emite pos:unauthorized
+    → DEVICE_REVOKED → /pos-pair
+    → Otro error → lock-store.lock() (LockScreen tapa la UI, carrito intacto)
+```
+
+### Revocación
+
+```
+Admin (panel) → /settings/devices → tab "Cajas POS"
+  → Botón Revocar → DELETE /v1/devices?id=<deviceId>
+  → device.status = 0 en BD
+  → El device afectado: próximo request → 401 → pos:unauthorized → /pos-pair
+```
+
+### Modelo de operador (PIN)
+
+El PIN del operador es identidad por-acción, NO genera JWT. El `lock-store` del browser
+guarda el operador actual (name, id). Se pierde con refresh → cajero re-tipea PIN en
+LockScreen. La cookie `_jwt` del device sigue intacta.
+
+### Env vars
+
+No hay env vars nuevas. Se reutilizan:
+- `JWT_SECRET` — secret compartido para todos los JWT del sistema
+- `COOKIE_DOMAIN` — dominio de las cookies (ej. `.punto.la`), opcional

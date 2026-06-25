@@ -96,9 +96,11 @@ $pdo->exec(
     )"
 );
 
-// 2. Listado de migrations files sorted numéricamente.
-$dir   = __DIR__ . '/migrations/postgres';
-$files = glob($dir . '/*.sql') ?: [];
+// 2. Listado de migrations files sorted numéricamente (SQL + PHP).
+$dir      = __DIR__ . '/migrations/postgres';
+$sqlFiles = glob($dir . '/*.sql') ?: [];
+$phpFiles = glob($dir . '/*.php') ?: [];
+$files    = array_merge($sqlFiles, $phpFiles);
 usort($files, static function (string $a, string $b): int {
     preg_match('/^(\d+)/', basename($a), $ma);
     preg_match('/^(\d+)/', basename($b), $mb);
@@ -157,14 +159,20 @@ foreach ($files as $file) {
     }
 
     echo "[migrate] aplicando: $name\n";
-    $sql = file_get_contents($file);
-    if ($sql === false) {
-        fwrite(STDERR, "[migrate] ERROR leyendo $file\n");
-        exit(1);
-    }
 
     try {
-        $pdo->exec($sql);
+        if (str_ends_with($name, '.sql')) {
+            $sql = file_get_contents($file);
+            if ($sql === false) {
+                fwrite(STDERR, "[migrate] ERROR leyendo $file\n");
+                exit(1);
+            }
+            $pdo->exec($sql);
+        } elseif (str_ends_with($name, '.php')) {
+            $GLOBALS['migrationPdo'] = $pdo;
+            require $file;
+            unset($GLOBALS['migrationPdo']);
+        }
     } catch (PDOException $e) {
         fwrite(STDERR, "[migrate] FAILED: $name\n");
         fwrite(STDERR, "[migrate] PG error: " . $e->getMessage() . "\n");
