@@ -2,18 +2,23 @@
 /**
  * Contexto de autenticacion para endpoints POS.
  *
- * Acepta cookie `_jwt` (device, 10 anyos) o fallback a `_jwt_panel`
- * del panel (24h). El fallback es temporal -- se quita en S3 cuando todo
- * el front haya completado el pairing.
+ * Acepta UNICAMENTE cookie `_jwt` (device, 10 anyos). Si no hay cookie valida,
+ * retorna 401 -- el front redirigira a /pos-pair para iniciar el pairing.
  *
- * IMPORTANTE: si el path del device JWT se toma, esta funcion define
- * las constantes COMPANY_ID/OUTLET_ID/USER_ID/REGISTER_ID/ROLE_ID
- * directamente desde el ctx del device (sin pasar por data.php completo,
- * que requeriria una company activa y sus settings). Para endpoints POS
- * que solo necesitan esas constantes basicas, esto es suficiente.
+ * IMPORTANTE: esta funcion define las constantes COMPANY_ID/OUTLET_ID/USER_ID/
+ * REGISTER_ID/ROLE_ID directamente desde el ctx del device (sin pasar por
+ * data.php completo, que requeriria una company activa y sus settings). Para
+ * endpoints POS que solo necesitan esas constantes basicas, esto es suficiente.
  *
  * Si el endpoint POS necesita $company/$setting/$_modules (settings del
  * tenant), tendra que cargar data.php manualmente tras llamar a esta fn.
+ *
+ * Nota: el fallback a _jwt_panel que existia durante la migracion fue removido
+ * en S3 (2026-06-24). Todo el front POS debe parear el dispositivo antes de operar.
+ *
+ * TODO follow-up: drop column contact.lockPass (plano) despues de validar
+ * 1 semana en prod que lockPassHash (bcrypt) funciona para todos los operadores.
+ * El script de backfill esta en database/migrations/postgres/49_lockpass_hash_backfill.php.
  */
 
 use Punto\Api\Auth\DeviceAuth;
@@ -37,6 +42,5 @@ function apiAuthPosContext(): array
             return $ctx;
         }
     }
-    // Fallback temporal durante migracion -- se quita en S3
-    return apiAuthTenant(['panel', 'pos-app']);
+    apiError('Autenticacion requerida', 401);
 }
