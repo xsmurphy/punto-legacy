@@ -36,34 +36,18 @@ try {
             AND taxonomyextra::json->>'slug' IN ('admin', 'viewer')"
     )->fetchAll(PDO::FETCH_ASSOC);
 
-    $reassigned = 0;
     $deletedRoles = 0;
     $deletedData = 0;
 
+    // Nota: contact.role hoy es SMALLINT (int legacy 1-7), no UUID. Ningún user
+    // tiene asignado el UUID del role obsoleto directamente — la resolución
+    // int→UUID se hace en runtime via RoleService::resolveLegacyRole. Como el
+    // mapping legacy ya redirige int 2 (admin) → manager e int 7 (viewer) →
+    // cashier, NO hay reassignment de contact.role necesario acá. Solo borramos
+    // las rows obsoletas de taxonomy.
+
     foreach ($obsoletes as $row) {
-        $roleId    = $row['taxonomyid'];
-        $companyId = $row['companyid'];
-
-        // Lookup Cashier de la misma company (target del reassign)
-        $cashier = $pdo->prepare(
-            "SELECT taxonomyid FROM taxonomy
-              WHERE taxonomytype = 'role'
-                AND companyid = ?
-                AND taxonomyextra::json->>'slug' = 'cashier'
-                AND taxonomyextra::json->>'isSeed' = 'true'
-              LIMIT 1"
-        );
-        $cashier->execute([$companyId]);
-        $newRoleId = $cashier->fetchColumn();
-
-        if ($newRoleId) {
-            // Reasignar users que apuntan al role obsoleto
-            $upd = $pdo->prepare(
-                "UPDATE contact SET role = ?::text WHERE role = ?::text AND companyid = ?"
-            );
-            $upd->execute([$newRoleId, $roleId, $companyId]);
-            $reassigned += $upd->rowCount();
-        }
+        $roleId = $row['taxonomyid'];
 
         // Borrar roleData asociada (permisos del role)
         $delData = $pdo->prepare(
@@ -99,8 +83,7 @@ try {
     $pdo->commit();
     echo "[migrate] 57_simplify_seed_roles: "
        . "$deletedRoles roles obsoletos eliminados, "
-       . "$deletedData roleData rows eliminadas, "
-       . "$reassigned users reasignados a Cajero, nombres en ES\n";
+       . "$deletedData roleData rows eliminadas, nombres en ES\n";
 } catch (\Throwable $e) {
     $pdo->rollBack();
     fwrite(STDERR, "[migrate] ERROR en 57_simplify_seed_roles: " . $e->getMessage() . "\n");
