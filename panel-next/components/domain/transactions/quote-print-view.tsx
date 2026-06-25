@@ -9,15 +9,28 @@ import { Printer } from "lucide-react"
 import { formatAmount } from "@/lib/format-money"
 
 interface QuotePrintViewDialogProps {
-  tx: TransactionDetail
+  tx: TransactionDetail | null
   config: PosConfig | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  isLoading?: boolean
 }
 
-export function QuotePrintViewDialog({ tx, config, open, onOpenChange }: QuotePrintViewDialogProps) {
+export function QuotePrintViewDialog({ tx, config, open, onOpenChange, isLoading }: QuotePrintViewDialogProps) {
   function handlePrint() {
     window.print()
+  }
+
+  if (isLoading || !tx) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <div className="flex items-center justify-center p-12 text-sm text-muted-foreground">
+            Cargando cotización...
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
   }
 
   return (
