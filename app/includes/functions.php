@@ -2563,7 +2563,7 @@ function findPhoneLogin($phone){
                           *
                         FROM contact
                         WHERE contactPhone = ?
-                        AND role = 1
+                        AND role::text = '1'
                         AND type = 0
                         LIMIT 1",[$phone]);
 }
