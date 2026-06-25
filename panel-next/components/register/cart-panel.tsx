@@ -262,7 +262,7 @@ export function CartPanel() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={doToggleIva}>
+            <AlertDialogAction autoFocus onClick={doToggleIva}>
               Quitar IVA
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -695,15 +695,15 @@ function CartRowExpanded({
             <LineActionTile
               icon={DollarSign}
               label="Modificar precio"
-              onClick={() => { setMoreOpen(false); onEditPrice() }}
+              onClick={() => { setMoreOpen(false); setTimeout(() => onEditPrice(), 50) }}
             />
             <LineActionTile
               icon={Percent}
               label="Aplicar descuento"
-              onClick={() => { setMoreOpen(false); onApplyDiscount() }}
+              onClick={() => { setMoreOpen(false); setTimeout(() => onApplyDiscount(), 50) }}
             />
-            <LineActionTile icon={Tag} label="Etiquetas" onClick={() => setMoreOpen(false)} />
-            <LineActionTile icon={MessageSquare} label="Comentario" onClick={() => setMoreOpen(false)} />
+            <LineActionTile icon={Tag} label="Etiquetas" onClick={() => {}} disabled />
+            <LineActionTile icon={MessageSquare} label="Comentario" onClick={() => {}} disabled />
           </div>
         </DrawerContent>
       </Drawer>
@@ -736,22 +736,32 @@ function LineActionTile({
   icon: Icon,
   label,
   onClick,
+  disabled,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
   onClick: () => void
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={disabled ? "Próximamente" : undefined}
       className={cn(
         "flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-4",
-        "text-center transition-colors hover:bg-muted active:scale-[0.98]",
+        "text-center transition-colors",
+        disabled
+          ? "cursor-not-allowed opacity-40"
+          : "hover:bg-muted active:scale-[0.98]",
       )}
     >
       <Icon className="size-5 text-foreground" />
       <span className="text-xs font-medium text-foreground">{label}</span>
+      {disabled && (
+        <span className="text-[10px] text-muted-foreground">Próximamente</span>
+      )}
     </button>
   )
 }
