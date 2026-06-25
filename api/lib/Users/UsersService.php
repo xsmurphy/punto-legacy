@@ -165,9 +165,6 @@ final class UsersService
             'outletId'                 => $in['outletId']         ?? null,
             'lockPass'                 => $lockPass !== '' ? $lockPass : null,
             'lockPassHash'             => $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null,
-            'contactInCalendar'        => !empty($in['inCalendar']) ? true : false,
-            'contactCalendarPosition'  => isset($in['calendarPosition']) ? (int) $in['calendarPosition'] : 0,
-            'contactColor'             => $in['color']            ?? null,
             'contactStatus'            => 1,
             'type'                     => self::TYPE_USER,
             'companyId'                => $companyId,
@@ -225,15 +222,6 @@ final class UsersService
             }
             $rec['lockPass']     = $lockPass !== '' ? $lockPass : null;
             $rec['lockPassHash'] = $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null;
-        }
-        if (array_key_exists('inCalendar', $in)) {
-            $rec['contactInCalendar'] = !empty($in['inCalendar']) ? true : false;
-        }
-        if (array_key_exists('calendarPosition', $in)) {
-            $rec['contactCalendarPosition'] = (int) $in['calendarPosition'];
-        }
-        if (array_key_exists('color', $in)) {
-            $rec['contactColor'] = $in['color'] ?: null;
         }
         if (array_key_exists('status', $in)) {
             $rec['contactStatus'] = (int) $in['status'];
