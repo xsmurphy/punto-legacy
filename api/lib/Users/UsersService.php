@@ -165,6 +165,9 @@ final class UsersService
             'outletId'                 => $in['outletId']         ?? null,
             'lockPass'                 => $lockPass !== '' ? $lockPass : null,
             'lockPassHash'             => $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null,
+            'contactInCalendar'        => !empty($in['inCalendar']) ? 1 : 0,
+            'contactCalendarPosition'  => isset($in['calendarPosition']) ? (int) $in['calendarPosition'] : 0,
+            'contactColor'             => $in['color']            ?? null,
             'contactStatus'            => 1,
             'type'                     => self::TYPE_USER,
             'companyId'                => $companyId,
@@ -223,6 +226,15 @@ final class UsersService
             $rec['lockPass']     = $lockPass !== '' ? $lockPass : null;
             $rec['lockPassHash'] = $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null;
         }
+        if (array_key_exists('inCalendar', $in)) {
+            $rec['contactInCalendar'] = !empty($in['inCalendar']) ? 1 : 0;
+        }
+        if (array_key_exists('calendarPosition', $in)) {
+            $rec['contactCalendarPosition'] = (int) $in['calendarPosition'];
+        }
+        if (array_key_exists('color', $in)) {
+            $rec['contactColor'] = $in['color'] ?: null;
+        }
         if (array_key_exists('status', $in)) {
             $rec['contactStatus'] = (int) $in['status'];
         }
@@ -232,9 +244,13 @@ final class UsersService
         }
         $rec['updated_at'] = TODAY;
 
-        global $db;
-        $ok = $db->AutoExecute('contact', $rec, 'UPDATE', "contactId='{$id}' AND companyId='{$companyId}'");
-        return $ok !== false;
+        $result = ncmUpdate([
+            'table'       => 'contact',
+            'records'     => $rec,
+            'where'       => 'contactId = ? AND companyId = ?',
+            'whereParams' => [$id, $companyId],
+        ]);
+        return $result !== false && empty($result['error']);
     }
 
     /** Activa (1) o desactiva (0) un empleado. */
