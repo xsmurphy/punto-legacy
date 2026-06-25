@@ -187,7 +187,7 @@ function ContactsPage() {
           const n = typeof v === "string" ? Number(v) : (v ?? 0)
           if (!n) return <span className="opacity-40">—</span>
           return (
-            <span className="tabular-nums text-muted-foreground">{n.toLocaleString()}</span>
+            <span className="tabular-nums text-muted-foreground">{n.toLocaleString("es-PY")}</span>
           )
         },
         meta: { label: "Loyalty", className: "tabular-nums text-right" },
