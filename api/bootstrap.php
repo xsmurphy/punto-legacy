@@ -40,6 +40,7 @@ spl_autoload_register(static function (string $class): void {
 
 $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 require_once API_APP_DIR . '/head.php'; // db, functions (ncm*, sendPush, checkCompanyStatus), config, enc/dec
+require_once __DIR__ . '/lib/Auth/hasPermission.php';
 
 // Normaliza el body → $_POST para todos los verbos (POST/PUT/DELETE/PATCH).
 // PHP sólo puebla $_POST en POST form-encoded; en JSON o los demás verbos el body
