@@ -5,8 +5,8 @@
  * (4 dígitos) para reanudar. No hay input visible: captura las teclas a
  * nivel window y muestra 4 círculos que se llenan a medida que se tipea.
  *
- * PIN: validado localmente con bcrypt.compare() contra los hashes del catalog store.
- * Decision del owner (2026-06-25): match local-first para funcionar offline.
+ * PIN: validado localmente con SHA-256 (Web Crypto API) contra los hashes del catalog store.
+ * Decision del owner (2026-06-25): SHA-256 (más simple, más rápido en browser, matchea legacy).
  * POST best-effort a /api/pos/audit-unlock solo para logging — si falla (offline),
  * el unlock ya ocurrio de todas formas.
  *
@@ -86,17 +86,21 @@ export function LockScreen() {
     return () => window.removeEventListener("keydown", onKey, true)
   }, [locked])
 
-  // Validar al llegar a 4 dígitos — match local con bcrypt contra los hashes del store.
+  // Validar al llegar a 4 dígitos — match local con SHA-256 contra los hashes del store.
   // Best-effort POST a /api/pos/audit-unlock para logging (no bloquea el unlock si falla).
   React.useEffect(() => {
     if (pin.length !== PIN_LENGTH) return
     const id = setTimeout(async () => {
-      const { default: bcrypt } = await import("bcryptjs")
+      // SHA-256 via Web Crypto API — sync feel, sub-ms compute
+      const enc = new TextEncoder().encode(pin)
+      const buf = await crypto.subtle.digest("SHA-256", enc)
+      const hashArr = Array.from(new Uint8Array(buf))
+      const pinHash = hashArr.map(b => b.toString(16).padStart(2, "0")).join("")
+
       let matched: { id: string; name: string } | null = null
       for (const u of users) {
-        if (!u.lockpasshash) continue
-        const ok = await bcrypt.compare(pin, u.lockpasshash)
-        if (ok) {
+        if (!u.pinhash) continue
+        if (u.pinhash === pinHash) {
           matched = { id: u.id, name: u.name }
           break
         }
@@ -124,12 +128,12 @@ export function LockScreen() {
     return () => clearTimeout(id)
   }, [pin, unlock, users])
 
-  // Escape hatch (P1): si ningún user tiene lockpasshash configurado, el lock screen
+  // Escape hatch (P1): si ningún user tiene pinhash configurado, el lock screen
   // se convierte en un deadlock permanente (no hay PIN que comparar).
   // Esto ocurre cuando: (a) el store degradó a users=[] por un 5xx upstream,
   // (b) el tenant nunca configuró PINs. En ese caso, desbloqueamos sin PIN
   // para no dejar la caja inutilizable offline.
-  const noPinsConfigured = users.length === 0 || users.every((u) => !u.lockpasshash)
+  const noPinsConfigured = users.length === 0 || users.every((u) => !u.pinhash)
 
   if (!locked) return null
 
