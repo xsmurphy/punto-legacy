@@ -1,35 +1,28 @@
+import * as React from "react"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
-import { PanelAuthGuard } from "@/components/layout/panel-auth-guard"
 import { PosSidebarProvider } from "@/components/layout/pos-sidebar-provider"
-import { PosUnauthorizedSentinel } from "@/components/pos/pos-unauthorized-sentinel"
+import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
+import { PosSidebar } from "@/components/layout/pos-sidebar"
 
 /**
- * Layout del POS — vive dentro del shell del panel (mismo AppSidebar + auth)
- * pero con el área de contenido full-bleed (sin padding) porque la caja maneja
- * su propio layout 2-columnas a pantalla completa.
+ * Layout del POS — auth via _jwt (device cookie, 10 años), NO _jwt_panel.
+ * PosAuthGuard redirige a /pos-pair si no hay cookie _jwt válida.
+ * PanelAuthGuard y AuthSentinel NO se montan acá — el POS es un realm
+ * separado del panel.
  *
- * Sidebar SIEMPRE colapsado y no expandible en /pos (PosSidebarProvider).
+ * PosSidebar es un sidebar mínimo (Caja / Guardadas / Bloquear / Ajustes)
+ * sin los módulos del panel (Artículos, Contactos, Reportes, etc.).
  */
 export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
     <PosSidebarProvider>
-      <PanelAuthGuard>
-        {/* En desktop el SidebarInset (variante inset) agrega m-2 (8px arriba +
-            8px abajo = 1rem). Restamos ese 1rem del alto para que la caja
-            encaje exacto en el viewport y no se pase ~16px. En mobile no hay
-            margen → h-svh completo. */}
+      <PosAuthGuard>
+        <PosSidebar />
         <SidebarInset className="h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
-          {/*
-           * Trigger mobile del sidebar — en /pos lo movemos a la esquina
-           * inferior-derecha, justo encima de la barra CartBottom (chips + cobrar),
-           * para que no se superponga con el botón ≡ del toolbar del POS.
-           * right-[...] + bottom-[...] alinea con el margen del carrito.
-           */}
           <SidebarTrigger className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
-          <PosUnauthorizedSentinel />
           {children}
         </SidebarInset>
-      </PanelAuthGuard>
+      </PosAuthGuard>
     </PosSidebarProvider>
   )
 }
