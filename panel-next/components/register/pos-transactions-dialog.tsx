@@ -151,7 +151,7 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
         <DialogHeader className="px-6 pt-6 pb-3 border-b">
           <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            Últimas ventas del comercio. Filtrá por cliente, comprobante o fecha.
+            Últimas operaciones del comercio: ventas, cotizaciones, devoluciones y más. Filtrá por cliente, comprobante o fecha.
           </DialogDescription>
         </DialogHeader>
         {/* Contenido scrollable con alto máximo para no superar el viewport */}
