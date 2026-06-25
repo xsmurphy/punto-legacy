@@ -26,6 +26,7 @@ proporcional al riesgo de la tarea:
 | Glosario | `07-glosario.md` |
 | **Convenciones críticas** | `08-convenciones-criticas.md` (241 L — invariantes nada más) |
 | **Convenciones UI / Design system** | `14-ui-conventions.md` (lectura OBLIGATORIA antes de tocar JSX/TSX) |
+| **Design system canonico (vivo)** | `20-design-system.md` (patrones de componentes, anti-patterns, changelog de decisiones) |
 | Costos / créditos IA | `09-costos-y-creditos.md` |
 | **Roadmap (vivo)** | `10-roadmap.md` (699 L) |
 | Manual de marca | `11-design-system.md` |
