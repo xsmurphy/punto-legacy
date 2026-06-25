@@ -44,13 +44,14 @@ if ($method === 'GET' && $resource === 'single') {
 
 // --- GET ?resource=mainList: lista principal de transacciones (Slice 29)
 if ($method === 'GET' && $resource === 'mainList') {
-    $encCid = trim((string) ($_GET['customerId'] ?? '')) ?: null;
-    $rawDate = trim((string) ($_GET['date'] ?? ''));
-    $date    = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawDate) ? $rawDate : null;
-    $limit   = min(100, max(1, (int) ($_GET['limit'] ?? 30)));
-    $offset  = max(0, (int) ($_GET['offset'] ?? 0));
-    $q       = trim((string) ($_GET['q'] ?? ''));
-    apiOk($svc->getMainList($outletId, $companyId, $ctx['userId'], $ctx['roleId'], $encCid, $date, $limit, $offset, $q));
+    $encCid     = trim((string) ($_GET['customerId'] ?? '')) ?: null;
+    $rawDate    = trim((string) ($_GET['date'] ?? ''));
+    $date       = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawDate) ? $rawDate : null;
+    $limit      = min(100, max(1, (int) ($_GET['limit'] ?? 30)));
+    $offset     = max(0, (int) ($_GET['offset'] ?? 0));
+    $q          = trim((string) ($_GET['q'] ?? ''));
+    $typeFilter = isset($_GET['type']) && ctype_digit($_GET['type']) ? (int) $_GET['type'] : null;
+    apiOk($svc->getMainList($outletId, $companyId, $ctx['userId'], $ctx['roleId'], $encCid, $date, $limit, $offset, $q, $typeFilter));
 }
 
 // --- GET ?resource=list: lista paginada de cotizaciones/guardados (Slice 28)

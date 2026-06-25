@@ -9,7 +9,7 @@
  */
 
 import * as React from "react"
-import { CalendarIcon, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
+import { CalendarIcon, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -108,6 +108,17 @@ function useDebounce(value: string, delay: number): string {
   return debounced
 }
 
+// ── Filtro de tipo ────────────────────────────────────────────────────────────
+
+const TYPE_OPTIONS = [
+  { value: null, label: "Todos" },
+  { value: 0, label: "Contado" },
+  { value: 3, label: "Crédito" },
+  { value: 9, label: "Cotización" },
+  { value: 6, label: "Devolución" },
+  { value: 7, label: "Anulado" },
+] as const
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -122,17 +133,19 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
   const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(undefined)
   const [calendarOpen, setCalendarOpen] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
+  const [typeFilter, setTypeFilter] = React.useState<number | null>(null)
 
   const q = useDebounce(searchInput, 300)
   const date = selectedDate ? format(selectedDate, "yyyy-MM-dd") : ""
 
-  const { flat, isFetching, hasMore, fetchNextPage, error } = usePosTransactionsList({ q, date })
+  const { flat, isFetching, hasMore, fetchNextPage, error } = usePosTransactionsList({ q, date, type: typeFilter })
 
   function handleClose() {
     onOpenChange(false)
     setSearchInput("")
     setSelectedDate(undefined)
     setSelectedId(null)
+    setTypeFilter(null)
   }
 
   return (
@@ -165,6 +178,8 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
               setCalendarOpen(false)
             }}
             onDateClear={() => setSelectedDate(undefined)}
+            typeFilter={typeFilter}
+            onTypeFilterChange={setTypeFilter}
           />
           <TransactionDetail encId={selectedId} onClose={handleClose} />
         </div>
@@ -190,6 +205,8 @@ interface ListProps {
   onCalendarOpenChange: (v: boolean) => void
   onDateChange: (d: Date | undefined) => void
   onDateClear: () => void
+  typeFilter: number | null
+  onTypeFilterChange: (v: number | null) => void
 }
 
 function TransactionList({
@@ -207,6 +224,8 @@ function TransactionList({
   onCalendarOpenChange,
   onDateChange,
   onDateClear,
+  typeFilter,
+  onTypeFilterChange,
 }: ListProps) {
   return (
     <div className="flex flex-col h-full min-h-0 border-r overflow-hidden">
@@ -236,6 +255,28 @@ function TransactionList({
               />
             </PopoverContent>
           </Popover>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-1.5 shrink-0">
+                <Filter className="size-4" />
+                <span>
+                  {typeFilter != null
+                    ? TYPE_OPTIONS.find((o) => o.value === typeFilter)?.label
+                    : "Tipo"}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {TYPE_OPTIONS.map((o) => (
+                <DropdownMenuItem
+                  key={String(o.value)}
+                  onSelect={() => onTypeFilterChange(o.value)}
+                >
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {selectedDate && (
             <Button
               variant="ghost"

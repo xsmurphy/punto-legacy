@@ -24,6 +24,7 @@ interface UsePosTransactionsListOpts {
   q?: string
   date?: string
   limit?: number
+  type?: number | null
 }
 
 interface UsePosTransactionsListResult {
@@ -39,6 +40,7 @@ export function usePosTransactionsList({
   q = "",
   date = "",
   limit = PAGE_SIZE,
+  type = null,
 }: UsePosTransactionsListOpts = {}): UsePosTransactionsListResult {
   const [pages, setPages] = React.useState<PosTransactionListItem[][]>([])
   const [offset, setOffset] = React.useState(0)
@@ -58,7 +60,7 @@ export function usePosTransactionsList({
 
   React.useEffect(() => {
     reset()
-  }, [q, date, reset])
+  }, [q, date, type, reset])
 
   React.useEffect(() => {
     let cancelled = false
@@ -71,6 +73,7 @@ export function usePosTransactionsList({
         const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
         if (q) qs.set("q", q)
         if (date) qs.set("date", date)
+        if (type != null) qs.set("type", String(type))
         const res = await fetch(`/api/pos/transactions?${qs.toString()}`)
         if (!res.ok) throw new Error(`Error ${res.status}`)
         const envelope = await res.json() as { data?: PosTransactionsListResponse } | PosTransactionsListResponse
@@ -97,7 +100,7 @@ export function usePosTransactionsList({
 
     load()
     return () => { cancelled = true }
-  }, [q, date, limit, offset])
+  }, [q, date, limit, offset, type])
 
   const fetchNextPage = React.useCallback(() => {
     if (isFetching || !hasMore) return

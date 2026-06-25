@@ -62,12 +62,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const limit = searchParams.get("limit") ?? "30"
   const offset = searchParams.get("offset") ?? "0"
   const q = searchParams.get("q") ?? ""
+  const type = searchParams.get("type")
 
   const qs = new URLSearchParams({ resource: "mainList" })
   if (date) qs.set("date", date)
   qs.set("limit", limit)
   qs.set("offset", offset)
   if (q) qs.set("q", q)
+  if (type !== null) qs.set("type", type)
 
   return proxyToApi("GET", `/v1/transactions.php?${qs.toString()}`, req)
 }

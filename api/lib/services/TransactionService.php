@@ -575,7 +575,8 @@ final class TransactionService
         ?string $date,
         int     $limit,
         int     $offset = 0,
-        string  $q = ''
+        string  $q = '',
+        ?int    $typeFilter = null
     ): array {
         global $dec, $ts;
 
@@ -615,6 +616,11 @@ final class TransactionService
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
+        }
+
+        if ($typeFilter !== null) {
+            $where[]  = 't.transactionType = ?';
+            $params[] = $typeFilter;
         }
 
         $sql = 'SELECT t.* FROM transaction t LEFT JOIN contact c ON t.customerId = c.contactId WHERE ' . implode(' AND ', $where)
