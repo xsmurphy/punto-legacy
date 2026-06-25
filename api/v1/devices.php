@@ -56,20 +56,19 @@ $rs = ncmExecute(
 $devices = [];
 if ($rs && !$rs->EOF) {
     while (!$rs->EOF) {
-        $row      = (array) $rs->fields;
         $devices[] = [
-            'deviceId'          => $row['deviceid']          ?? '',
-            'deviceName'        => $row['devicename']        ?? '',
-            'outletId'          => $row['outletid']          ?? null,
-            'outletName'        => $row['outletname']        ?? null,
-            'registerId'        => $row['registerid']        ?? null,
-            'registerName'      => $row['registername']      ?? null,
-            'pairedByContactId' => $row['pairedbycontactid'] ?? null,
-            'pairedByName'      => $row['pairedbyname']      ?? null,
-            'pairedAt'          => $row['pairedat']          ?? null,
-            'lastSeenAt'        => $row['lastseenat']        ?? null,
-            'status'            => (int) ($row['status']     ?? 1),
-            'revokedAt'         => $row['revokedat']         ?? null,
+            'deviceId'          => (string) ($rs->fields['deviceid']          ?? ''),
+            'deviceName'        => (string) ($rs->fields['devicename']        ?? ''),
+            'outletId'          => $rs->fields['outletid']                    ?? null,
+            'outletName'        => $rs->fields['outletname']                  ?? null,
+            'registerId'        => $rs->fields['registerid']                  ?? null,
+            'registerName'      => $rs->fields['registername']                ?? null,
+            'pairedByContactId' => $rs->fields['pairedbycontactid']           ?? null,
+            'pairedByName'      => $rs->fields['pairedbyname']                ?? null,
+            'pairedAt'          => $rs->fields['pairedat']                    ?? null,
+            'lastSeenAt'        => $rs->fields['lastseenat']                  ?? null,
+            'status'            => (int) ($rs->fields['status']               ?? 1),
+            'revokedAt'         => $rs->fields['revokedat']                   ?? null,
         ];
         $rs->MoveNext();
     }

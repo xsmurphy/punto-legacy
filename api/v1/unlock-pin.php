@@ -52,10 +52,12 @@ $rs = ncmExecute(
 );
 if ($rs) {
     while (!$rs->EOF) {
-        $row  = (array) $rs->fields;
-        $hash = $row['lockpasshash'] ?? null;
+        $hash = $rs->fields['lockpasshash'] ?? null;
         if ($hash !== null && password_verify($pin, (string) $hash)) {
-            $found = $row;
+            $found = [
+                'contactid'   => (string) ($rs->fields['contactid']   ?? ''),
+                'contactname' => (string) ($rs->fields['contactname'] ?? ''),
+            ];
             break;
         }
         $rs->MoveNext();
