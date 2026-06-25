@@ -49,12 +49,12 @@ import {
 
 import {
   useTeamMembers,
-  useTeamRoles,
   useCreateTeamMember,
   useUpdateTeamMember,
   type TeamMember,
   type TeamMemberFormValues,
 } from "@/hooks/use-team"
+import { useRoles } from "@/hooks/use-roles"
 import { useOutlets } from "@/hooks/use-outlets"
 
 // ── schema ─────────────────────────────────────────────────────────────────
@@ -493,7 +493,7 @@ function TeamForm({
 
 export function TeamSection({ openCreateRef }: { openCreateRef?: React.RefObject<(() => void) | null> }) {
   const { data, isLoading } = useTeamMembers()
-  const { data: rolesData } = useTeamRoles()
+  const { data: rolesData } = useRoles()
   const { data: outletsData } = useOutlets()
   const create = useCreateTeamMember()
   const update = useUpdateTeamMember()
