@@ -11,6 +11,7 @@ export interface ParkedSaleData {
   cart: CartLine[]
   customer: PosCustomer | null
   notes?: string | null
+  title?: string | null
 }
 
 export interface ParkedSale {
