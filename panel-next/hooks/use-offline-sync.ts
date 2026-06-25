@@ -69,8 +69,26 @@ export function useOfflineSync() {
     }
   }, [setPendingCount, setIsSyncing, setLastSyncAt])
 
+  // Boot-time cleanup (P1 code-review): si el proceso crasheó mid-flight
+  // (tab cerrado, error JS durante el sync), los items quedan en 'syncing'
+  // y el filtro `pending || failed` los ignoraría para siempre. Al montar,
+  // los revertimos a 'failed' para que el próximo ciclo los reintente.
   React.useEffect(() => {
-    void getCount().then(setPendingCount)
+    async function bootCleanup() {
+      const all = await peekAll()
+      const stuck = all.filter((r) => r.status === 'syncing')
+      await Promise.all(
+        stuck.map((r) =>
+          markFailed(r.clientTempId, {
+            code: 'INTERRUPTED',
+            message: 'Sync interrumpido — reintentando',
+          }),
+        ),
+      )
+      const count = await getCount()
+      setPendingCount(count)
+    }
+    void bootCleanup()
   }, [setPendingCount])
 
   React.useEffect(() => {

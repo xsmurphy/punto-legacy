@@ -126,8 +126,8 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   }
 
   function getTotal(row: OfflineSaleRow) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (row.sale.payment as any[])?.reduce((s: number, p: any) => s + (p.total ?? 0), 0) ?? row.sale.subtotal ?? 0
+    // payment es SalePaymentMethod[] (tipado en CreateSalePayload) — sin cast
+    return row.sale.payment.reduce((s, p) => s + (p.total ?? 0), 0)
   }
 
   function canRetry(row: OfflineSaleRow) {
