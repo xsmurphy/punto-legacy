@@ -42,6 +42,7 @@ final class Taxonomy
     public static function getPaymentMethodName(mixed $id, bool $decode = false): string
     {
         $map = [
+            // Legacy keys (api/v1 endpoints, app/scripts)
             'cash'            => 'Efectivo',
             'pix'             => 'PIX',
             'creditcard'      => 'T. Crédito',
@@ -57,7 +58,14 @@ final class Taxonomy
             'epos'            => 'ePOS',
             'bancardQROnline' => 'ePOS',
             'ePOSCard'        => 'ePOS Card',
+            // Aliases del panel-next FALLBACK_PAYMENT_METHODS (POS bootstrap)
+            'efectivo'        => 'Efectivo',
+            'tcredito'        => 'T. Crédito',
+            'tdebito'         => 'T. Débito',
         ];
+
+        // Guard empty/null → no consultar PG (uuid cast falla con '')
+        if ($id === '' || $id === null) return '';
 
         if (isset($map[$id])) {
             return $map[$id];
@@ -66,6 +74,8 @@ final class Taxonomy
         if ($decode) {
             $id = dec($id);
         }
+        // dec() de un string no-encriptado puede devolver '' → guard nuevamente
+        if ($id === '' || $id === null) return '';
         $result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1', [$id, COMPANY_ID]);
         if ($result) {
             return $result['taxonomyName'];
@@ -74,6 +84,7 @@ final class Taxonomy
         if (!$decode) {
             $id = dec($id);
         }
+        if ($id === '' || $id === null) return '';
         $result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1', [$id, COMPANY_ID]);
         return $result ? $result['taxonomyName'] : '';
     }
