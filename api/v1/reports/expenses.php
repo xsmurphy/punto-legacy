@@ -20,9 +20,8 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 if ($method === 'POST') {
-    // Permiso de escritura: bloquea el rol read-only (7) — misma convención que el panel local.
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('reports.expenses.view')) {
+        apiError('No tenés permiso para esta acción (requiere: reports.expenses.view)', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
     if (!in_array($action, ['update', 'delete'], true)) {

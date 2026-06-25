@@ -52,6 +52,8 @@ export interface NavItem {
   to: string
   icon: ComponentType<{ className?: string }>
   badge?: string
+  /** Permiso requerido para mostrar este item. Si no se provee, siempre visible. */
+  requires?: string
 }
 
 export interface NavGroup {

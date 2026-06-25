@@ -5,6 +5,7 @@ use Punto\Api\Context\TenantContext;
 use DB;
 
 require_once __DIR__ . '/../meta_transaction.php';
+require_once __DIR__ . '/../Auth/RoleService.php';
 
 /**
  * TransactionService — operaciones sobre transacciones/órdenes del POS (Slice 6).
@@ -584,7 +585,7 @@ final class TransactionService
         $where  = ['t.companyId = ?'];
         $params = [$companyId];
 
-        if (in_array((string) $roleId, ['4', '5'])) {
+        if (!\RoleService::hasPermission('reports.sales.view', (string) $roleId, $companyId)) {
             $where[]  = 't.transactionType IN (2, 10)';
             $where[]  = 't.userId = ?';
             $params[] = $userId;

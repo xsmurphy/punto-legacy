@@ -29,6 +29,8 @@ export interface Bootstrap {
     name?: string
     /** Etiqueta legible del rol (ej. "Cajero"). Opcional — mismo TODO que `name`. */
     roleName?: string
+    /** Permisos del usuario logueado — expuestos por /v1/bootstrap desde 2026-06-25. */
+    permissions?: string[]
   }
   /** UUID del outlet activo (claim `oid` del JWT). '' si el tenant aún no tiene outlets. */
   activeOutletId: string

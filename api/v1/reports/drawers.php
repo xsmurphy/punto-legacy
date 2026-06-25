@@ -18,8 +18,8 @@ $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 $dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
 
 if ($method === 'POST') {
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('reports.drawers.view')) {
+        apiError('No tenés permiso para esta acción (requiere: reports.drawers.view)', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
     if (!in_array($action, ['close', 'correct', 'delete'], true)) {

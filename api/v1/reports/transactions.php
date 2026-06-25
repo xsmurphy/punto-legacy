@@ -24,8 +24,8 @@ $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 /* ───────── write: eliminar cobro / cotización ───────── */
 if ($method === 'POST') {
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('reports.sales.view')) {
+        apiError('No tenés permiso para esta acción (requiere: reports.sales.view)', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
     if (!in_array($action, ['deletePayment', 'deleteQuote'], true)) {
@@ -218,8 +218,8 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
 
 /* ───────── PUT ?id= : actualizar transacción (paridad legacy) ───────── */
 if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('reports.sales.view')) {
+        apiError('No tenés permiso para esta acción (requiere: reports.sales.view)', 403);
     }
 
     $txId = (string) $_GET['id'];

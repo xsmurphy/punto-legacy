@@ -21,6 +21,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../lib/Auth/RoleService.php';
 
 $ctx = apiAuthTenant(['panel', 'pos-app']);
 
@@ -70,6 +71,8 @@ if ($outletsRs && is_object($outletsRs)) {
     $outletsRs->Close();
 }
 
+$userPermissions = RoleService::getPermissions((string)$ctx['roleId'], (string)COMPANY_ID);
+
 apiOk([
     'currency'    => $row['currency'] ?? '',
     // settingDecimal es 'yes'/'no' (usar decimales o no), NO un conteo de dígitos.
@@ -86,8 +89,9 @@ apiOk([
     // Base de las pantallas standalone (PUBLIC_URL = <host>/screens) — para links del front.
     'publicUrl'   => defined('PUBLIC_URL') ? PUBLIC_URL : '',
     'user'        => [
-        'id'   => $ctx['userId'],
-        'role' => $ctx['roleId'],
+        'id'          => $ctx['userId'],
+        'role'        => $ctx['roleId'],
+        'permissions' => $userPermissions,
     ],
     // Caja activa del POS (claim `rid` del JWT). '' = sin caja seleccionada
     // → el front fuerza el selector de caja (A7). La lista de cajas del outlet

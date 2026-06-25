@@ -31,8 +31,8 @@ $svc    = new \Punto\Api\Settings\SettingsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'POST') {
-    if ((int) $ctx['roleId'] === 7) {
-        apiError('Sin permiso para esta acción', 403);
+    if (!hasPermission('settings.company.edit')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.company.edit)', 403);
     }
     $action = (string) (validateHttp('action', 'post') ?: '');
 
