@@ -133,6 +133,19 @@ Usa solo tokens del design system. Prohibido hex hardcodeado salvo excepciones d
 - Iconos en headers de `<Dialog>` / `<DialogHeader>`
 - Iconos decorativos en cards de contenido
 
+### Formato de números/montos/fechas
+
+SIEMPRE via helpers que consumen `config` del tenant:
+
+- `formatMoney(value, config)` — monto con prefix de moneda del tenant (ej. "Gs 1.500.000")
+- `formatAmount(value, config)` — número con separadores del tenant sin prefix de moneda
+- `niceDate(date, config)` — fecha formateada según preferencias del tenant
+
+**Prohibido:**
+- `value.toLocaleString()` sin locale explícito
+- `toFixed(2)` para montos (puede romper si el tenant usa otros decimales)
+- String interpolation directa de números crudos (ej. `` `Gs ${total}` ``)
+
 ---
 
 ## 3. Layouts
@@ -617,6 +630,7 @@ Cookie `_jwt` (10 años). Separado del panel (`_jwt_panel`, 24h). No mezclar las
 | Casting `(array) $rs->fields` en PHP | `$rs->fields` es un `CaseInsensitiveArray`, no un array PHP nativo | Acceder por nombre de columna: `$rs->fields['columna']` | Bug 2026-06-18 |
 | `try/catch` que swallows excepciones en migration scripts | La migracion falla silenciosamente | Re-throw o log + abort | — |
 | `max-w-[Xvw] w-[Xvw] h-[Xvh]` hardcodeado en Dialog | Replica el legacy, no usa la escala canonica | Usar la escala xs/sm/m/l/xl de §3 | Modal transacciones 2026-06-24 |
+| Mostrar números/montos/fechas sin formato del tenant | Cada tenant tiene config propia (thousand sep, decimal sep, fecha format, moneda) | Usar helpers: `formatMoney(x, config)`, `formatAmount(x, config)`, `niceDate(date, config)`. NUNCA `toLocaleString()` sin locale, NUNCA concatenar moneda inline | hydration #418 commit 2fcbc2f |
 
 ---
 
