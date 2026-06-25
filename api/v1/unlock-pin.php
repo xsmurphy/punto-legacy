@@ -40,12 +40,12 @@ $found = null;
 
 // (a) bcrypt: no filtrable en SQL, verificar en PHP
 $rs = ncmExecute(
-    'SELECT contactid, contactname, "lockPassHash"
+    'SELECT contactid, contactname, lockpasshash
        FROM contact
       WHERE companyid = ?
         AND type = 0
         AND contactstatus = 1
-        AND "lockPassHash" IS NOT NULL',
+        AND lockpasshash IS NOT NULL',
     [COMPANY_ID],
     false,
     true
@@ -70,7 +70,7 @@ if ($found === null) {
           WHERE companyid = ?
             AND type = 0
             AND contactstatus = 1
-            AND "lockPassHash" IS NULL
+            AND lockpasshash IS NULL
             AND lockpass = ?
           LIMIT 1',
         [COMPANY_ID, $pin]
