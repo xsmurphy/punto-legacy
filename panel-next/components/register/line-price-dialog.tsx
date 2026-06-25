@@ -16,6 +16,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -52,7 +53,7 @@ export function LinePriceDialog({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
-        className="sm:max-w-sm"
+        className="sm:max-w-md"
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault()
@@ -76,18 +77,14 @@ export function LinePriceDialog({
           />
         </div>
 
-        <div className="mt-2 flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button
-            className="flex-1"
-            onClick={confirm}
-            disabled={draft === null || draft < 0}
-          >
+          <Button onClick={confirm} disabled={draft === null || draft < 0}>
             Aceptar
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
