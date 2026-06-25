@@ -19,6 +19,7 @@ export interface PosTransactionListItem {
   invoicePrefix: string
   amount: string
   rawTotal: number
+  debt: number
   label: string
   type: number
   borderColor: string

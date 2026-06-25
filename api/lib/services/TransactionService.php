@@ -746,6 +746,7 @@ final class TransactionService
                 'invoicePrefix'   => (string) ($f['invoicePrefix'] ?? ''),
                 'amount'          => $inTotal,
                 'rawTotal'        => $tTotal,
+                'debt'            => ($type === '3') ? max(0.0, $topay) : 0,
                 'label'           => $typeOfSale,
                 'type'            => $f['transactionType'],
                 'borderColor'     => $stat,

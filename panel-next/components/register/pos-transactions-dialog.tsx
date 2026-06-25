@@ -71,14 +71,17 @@ function txLabel(type: number): string {
   return TX_LABELS[type] ?? `Tipo ${type}`
 }
 
-type BadgeVariant = "default" | "secondary" | "destructive" | "outline"
-
-function txBadgeVariant(type: number): BadgeVariant {
-  if (type === 0) return "default"
-  if (type === 3) return "destructive"
-  if (type === 9) return "secondary"
-  if (type === 7) return "outline"
-  return "outline"
+function chipStyle(item: PosTransactionListItem): string {
+  if (item.type === 9) return "bg-secondary text-secondary-foreground border"
+  if (item.type === 6 || item.type === 7) return "bg-muted text-muted-foreground"
+  if (item.type === 3) {
+    const debt = item.debt ?? 0
+    const total = item.rawTotal
+    if (debt === 0) return "bg-emerald-500/10 text-emerald-700 border border-emerald-500/20"
+    if (debt <= total / 2) return "bg-amber-500/10 text-amber-700 border border-amber-500/20"
+    return "bg-destructive/10 text-destructive border border-destructive/20"
+  }
+  return "bg-secondary text-secondary-foreground border"
 }
 
 /**
@@ -334,25 +337,27 @@ function TransactionRow({
       onClick={() => onSelect(item.id)}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className={cn("font-medium truncate", !item.customerName && "text-muted-foreground")}>
+        <span className={cn("font-semibold truncate", !item.customerName && "text-muted-foreground")}>
           {item.customerName || "Sin nombre"}
         </span>
-        <span className="tabular-nums font-medium shrink-0">
+        <span className="tabular-nums font-semibold shrink-0">
           {formatMoney(item.rawTotal, config)}
         </span>
       </div>
-      <div className="flex items-center gap-1.5 mt-0.5">
-        <span className="text-sm text-muted-foreground">
-          {niceDateTime(item.rawDate || item.date)}
-        </span>
-        {item.invoiceNo && (
-          <span className="text-sm text-muted-foreground">
-            #{item.invoicePrefix}{item.invoiceNo}
+      <div className="flex items-center justify-between gap-1.5 mt-0.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs text-muted-foreground shrink-0">
+            {niceDateTime(item.rawDate || item.date)}
           </span>
-        )}
-        <Badge variant={txBadgeVariant(item.type)} className="text-[10px] px-1 py-0 h-4">
+          {item.invoiceNo && (
+            <span className="text-xs text-muted-foreground truncate">
+              #{item.invoicePrefix}{item.invoiceNo}
+            </span>
+          )}
+        </div>
+        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md font-medium shrink-0", chipStyle(item))}>
           {txLabel(item.type)}
-        </Badge>
+        </span>
       </div>
     </button>
   )
