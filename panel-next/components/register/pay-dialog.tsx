@@ -43,8 +43,10 @@ import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
 import { api } from "@/lib/api-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
-import { printSale, usePrinterBindingsStore } from "@/lib/hardware/printers"
+import { printSale } from "@/lib/hardware/printers"
+import { getBindingsForSale } from "@/lib/hardware/printers/binding"
 import { buildTicketData } from "@/lib/hardware/printers/build-ticket-data"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -143,6 +145,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   const { data: currenciesData } = useSettingsCurrencies()
   const currencies = currenciesData?.rows ?? []
+
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
 
   // Guard de caja
   const { data: drawerStatus } = useDrawerStatus()
@@ -295,13 +301,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setSaleResult(result)
 
       // Auto-print ESC/POS si hay bindings con autoPrint=true
-      const autoBindings = usePrinterBindingsStore
-        .getState()
-        .getBindingsForSale("receipt", [])
-        .filter((b) => b.autoPrint)
+      const autoBindings = getBindingsForSale(allBindings, "receipt", []).filter((b) => b.autoPrint)
       if (autoBindings.length > 0) {
         const ticketData = buildTicketData({ payload, result, config })
-        printSale({ docType: "receipt", data: ticketData })
+        printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
           .then((r) => {
             if (r.failed > 0) {
               toast.warning(`${r.failed} impresora(s) fallaron al imprimir`)
@@ -528,8 +531,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   async function handlePrint() {
     if (!saleResult) return
-    const bindings = usePrinterBindingsStore.getState().getBindingsForSale("receipt", [])
-    if (bindings.length > 0) {
+    const receiptBindings = getBindingsForSale(allBindings, "receipt", [])
+    if (receiptBindings.length > 0) {
       // Rebuild minimal payload for reprint — real payload is local to handleConfirm
       const reprPayload = {
         uid: "",
@@ -556,7 +559,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         timestamp: Math.floor(Date.now() / 1000),
       } satisfies import("@/lib/commands/create-sale").CreateSalePayload
       const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
-      const r = await printSale({ docType: "receipt", data: ticketData })
+      const r = await printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
       if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron al reimprimir`)
     } else {
       window.print()

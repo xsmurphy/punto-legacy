@@ -52,12 +52,18 @@ import { cn } from "@/lib/utils"
 
 import { useDocumentTemplates } from "@/hooks/use-document-templates"
 import { useCategories } from "@/hooks/use-categories"
+import { useRegistersAdmin } from "@/hooks/use-registers-admin"
+import {
+  usePrinterBindings,
+  useCreatePrinterBinding,
+  useUpdatePrinterBinding,
+  useDeletePrinterBinding,
+} from "@/hooks/use-printer-bindings"
 
 import {
   isWebUsbSupported,
   requestUsbPrinter,
   printTest,
-  usePrinterBindingsStore,
   type PrinterBinding,
   type PrinterDocType,
   type PrinterMode,
@@ -194,7 +200,7 @@ type DialogMode =
 interface BindingDialogProps {
   mode: DialogMode
   onClose: () => void
-  onSave: (data: Omit<PrinterBinding, "id" | "createdAt">) => void
+  onSave: (data: Omit<PrinterBinding, "id" | "createdAt" | "updatedAt">) => void
 }
 
 function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
@@ -249,9 +255,9 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       setPrintDelay(binding.printDelay)
       setCategoryIds(binding.categoryIds)
       setDocTypes(binding.docTypes)
-      setVendorId(binding.vendorId)
-      setProductId(binding.productId)
-      setDeviceLabel(binding.deviceLabel)
+      setVendorId(binding.vendorId ?? 0)
+      setProductId(binding.productId ?? 0)
+      setDeviceLabel(binding.deviceLabel ?? "")
     }
   }, [mode])
 
@@ -465,16 +471,29 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
 // ── PrintersManager ───────────────────────────────────────────────────────────
 
 export function PrintersManager() {
-  const bindings = usePrinterBindingsStore((s) => s.bindings)
-  const addBinding = usePrinterBindingsStore((s) => s.addBinding)
-  const removeBinding = usePrinterBindingsStore((s) => s.removeBinding)
-  const updateBinding = usePrinterBindingsStore((s) => s.updateBinding)
+  const { data: registersData } = useRegistersAdmin()
+  const registers = registersData?.registers ?? []
+
+  const [selectedRegisterId, setSelectedRegisterId] = React.useState<string>("")
+
+  const { data: bindingsData, isLoading: bindingsLoading } = usePrinterBindings(
+    selectedRegisterId || undefined,
+  )
+  const createMutation = useCreatePrinterBinding(selectedRegisterId || undefined)
+  const updateMutation = useUpdatePrinterBinding(selectedRegisterId || undefined)
+  const deleteMutation = useDeletePrinterBinding(selectedRegisterId || undefined)
+
+  const bindings = bindingsData?.bindings ?? []
 
   const [dialogMode, setDialogMode] = React.useState<DialogMode>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<PrinterBinding | null>(null)
   const [testingId, setTestingId] = React.useState<string | null>(null)
 
   async function handleRequestDevice() {
+    if (!selectedRegisterId) {
+      toast.error("Seleccioná una caja primero.")
+      return
+    }
     try {
       const device = await requestUsbPrinter()
       setDialogMode({ type: "new", device })
@@ -486,20 +505,31 @@ export function PrintersManager() {
     }
   }
 
-  function handleSave(data: Omit<PrinterBinding, "id" | "createdAt">) {
-    if (!dialogMode) return
+  function handleSave(data: Omit<PrinterBinding, "id" | "createdAt" | "updatedAt">) {
+    if (!dialogMode || !selectedRegisterId) return
     if (dialogMode.type === "new") {
-      addBinding({
-        ...data,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-      })
-      toast.success("Impresora vinculada correctamente.")
+      createMutation.mutate(
+        { registerId: selectedRegisterId, ...data },
+        {
+          onSuccess: () => {
+            toast.success("Impresora vinculada correctamente.")
+            setDialogMode(null)
+          },
+          onError: (e) => toast.error(e.message),
+        },
+      )
     } else {
-      updateBinding(dialogMode.binding.id, data)
-      toast.success("Impresora actualizada.")
+      updateMutation.mutate(
+        { id: dialogMode.binding.id, ...data },
+        {
+          onSuccess: () => {
+            toast.success("Impresora actualizada.")
+            setDialogMode(null)
+          },
+          onError: (e) => toast.error(e.message),
+        },
+      )
     }
-    setDialogMode(null)
   }
 
   async function handlePrintTest(binding: PrinterBinding) {
@@ -632,12 +662,32 @@ export function PrintersManager() {
           </p>
         </div>
         {webUsbOk && (
-          <Button onClick={handleRequestDevice}>
+          <Button onClick={handleRequestDevice} disabled={!selectedRegisterId}>
             <Printer className="size-4 mr-1.5" />
             Vincular impresora USB
           </Button>
         )}
       </header>
+
+      {/* Selector de caja */}
+      <div className="flex flex-col gap-1.5 max-w-xs">
+        <Label htmlFor="register-selector">Caja</Label>
+        <Select value={selectedRegisterId} onValueChange={setSelectedRegisterId}>
+          <SelectTrigger id="register-selector">
+            <SelectValue placeholder="Seleccioná una caja…" />
+          </SelectTrigger>
+          <SelectContent>
+            {registers.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.name}
+                {r.outletName && (
+                  <span className="ml-1.5 text-muted-foreground text-xs">· {r.outletName}</span>
+                )}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {!webUsbOk && (
         <Alert>
@@ -648,21 +698,31 @@ export function PrintersManager() {
         </Alert>
       )}
 
-      <DataTable
-        tableId="printers"
-        columns={columns}
-        data={bindings}
-        searchPlaceholder="Buscar impresora…"
-        exportFileName={null}
-        emptyMessage={
-          <EmptyState
-            icon={Printer}
-            title="Sin impresoras vinculadas"
-            description='Hacé clic en "Vincular impresora USB" para agregar la primera.'
-            showMarquee={false}
-          />
-        }
-      />
+      {!selectedRegisterId ? (
+        <EmptyState
+          icon={Printer}
+          title="Seleccioná una caja"
+          description="Elegí una caja para ver y administrar sus impresoras vinculadas."
+          showMarquee={false}
+        />
+      ) : (
+        <DataTable
+          tableId="printers"
+          columns={columns}
+          data={bindings}
+          isLoading={bindingsLoading}
+          searchPlaceholder="Buscar impresora…"
+          exportFileName={null}
+          emptyMessage={
+            <EmptyState
+              icon={Printer}
+              title="Sin impresoras vinculadas"
+              description='Hacé clic en "Vincular impresora USB" para agregar la primera.'
+              showMarquee={false}
+            />
+          }
+        />
+      )}
 
       <BindingDialog
         mode={dialogMode}
@@ -678,7 +738,7 @@ export function PrintersManager() {
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar impresora</AlertDialogTitle>
             <AlertDialogDescription>
-              {`¿Eliminar "${deleteTarget?.name}"? El vínculo se borrará de este dispositivo.`}
+              {`¿Eliminar "${deleteTarget?.name}"? El vínculo se borrará de la BD.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -687,9 +747,12 @@ export function PrintersManager() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
                 if (!deleteTarget) return
-                removeBinding(deleteTarget.id)
-                toast.success("Impresora eliminada.")
-                setDeleteTarget(null)
+                deleteMutation.mutate(deleteTarget.id, {
+                  onSuccess: () => {
+                    toast.success("Impresora eliminada.")
+                    setDeleteTarget(null)
+                  },
+                })
               }}
             >
               Eliminar

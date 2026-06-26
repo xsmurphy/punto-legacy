@@ -51,8 +51,10 @@ import {
 import { useCartStore } from "@/lib/cart/store"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
-import { printSale, usePrinterBindingsStore } from "@/lib/hardware/printers"
+import { printSale } from "@/lib/hardware/printers"
+import { getBindingsForSale } from "@/lib/hardware/printers/binding"
 import type { TicketData } from "@/lib/hardware/printers"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -424,6 +426,9 @@ function getPrimaryAction(typeNum: number, debt: number): {
 function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: () => void }) {
   const { data: detail, isLoading } = usePosTransactionDetail(encId)
   const config = useCatalogStore((s) => s.config)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
   const addLines = useCartStore((s) => s.addLines)
   const [quotePdfOpen, setQuotePdfOpen] = React.useState(false)
   const [creditPayOpen, setCreditPayOpen] = React.useState(false)
@@ -528,7 +533,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
 
   function handleReprint() {
     if (!detail) return
-    const bindings = usePrinterBindingsStore.getState().getBindingsForSale("receipt", [])
+    const bindings = getBindingsForSale(allBindings, "receipt", [])
     if (bindings.length > 0) {
       const txItems = (detail.transactionDatas ?? [])
         .filter((i) => i.status !== 0)
@@ -560,7 +565,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
         payments: txPayments,
         note: detail.note || undefined,
       }
-      printSale({ docType: "receipt", data: ticketData })
+      printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
         .then((r) => {
           if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron`)
         })

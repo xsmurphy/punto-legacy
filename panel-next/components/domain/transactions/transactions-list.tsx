@@ -98,8 +98,10 @@ import { formatMoney } from "@/lib/format"
 import { formatAmount } from "@/lib/format-money"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { printSale, usePrinterBindingsStore } from "@/lib/hardware/printers"
+import { printSale } from "@/lib/hardware/printers"
+import { getBindingsForSale } from "@/lib/hardware/printers/binding"
 import type { TicketData } from "@/lib/hardware/printers"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { useVoidTransaction } from "@/hooks/use-void-transaction"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
@@ -241,6 +243,9 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
   const [returnSheetForTx, setReturnSheetForTx] = React.useState<string | null>(null)
 
   const config = useCatalogStore((s) => s.config)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
   const cartLines = useCartStore((s) => s.lines)
   const clearCart = useCartStore((s) => s.clear)
   const addItem = useCartStore((s) => s.addItem)
@@ -807,7 +812,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
                   config={config}
                   onDuplicate={() => requestDuplicate(detail)}
                   onReprint={() => {
-                    const bindings = usePrinterBindingsStore.getState().getBindingsForSale("receipt", [])
+                    const bindings = getBindingsForSale(allBindings, "receipt", [])
                     if (bindings.length > 0) {
                       const txItems = (detail.transactionDatas ?? [])
                         .filter((i) => i.status !== 0)
@@ -839,7 +844,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
                         payments: txPayments,
                         note: detail.note || undefined,
                       }
-                      printSale({ docType: "receipt", data: ticketData })
+                      printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
                         .then((r) => {
                           if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron`)
                         })

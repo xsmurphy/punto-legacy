@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
 import { formatAmount } from "@/lib/format-money"
 import { toast } from "sonner"
-import { printSale, usePrinterBindingsStore } from "@/lib/hardware/printers"
+import { printSale } from "@/lib/hardware/printers"
+import { getBindingsForSale } from "@/lib/hardware/printers/binding"
 import type { TicketData } from "@/lib/hardware/printers"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { useCatalogStore } from "@/lib/catalog/store"
 
 interface QuotePrintViewDialogProps {
   tx: TransactionDetail | null
@@ -20,9 +23,13 @@ interface QuotePrintViewDialogProps {
 }
 
 export function QuotePrintViewDialog({ tx, config, open, onOpenChange, isLoading }: QuotePrintViewDialogProps) {
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
+
   function handlePrint() {
     if (!tx) return
-    const bindings = usePrinterBindingsStore.getState().getBindingsForSale("quote", [])
+    const bindings = getBindingsForSale(allBindings, "quote", [])
     if (bindings.length > 0) {
       const items = (tx.transactionDatas ?? [])
         .filter((i) => i.status !== 0)
@@ -50,7 +57,7 @@ export function QuotePrintViewDialog({ tx, config, open, onOpenChange, isLoading
         payments: [],
         note: tx.note || undefined,
       }
-      printSale({ docType: "quote", data: ticketData })
+      printSale({ docType: "quote", data: ticketData, bindings: allBindings })
         .then((r) => {
           if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron`)
         })

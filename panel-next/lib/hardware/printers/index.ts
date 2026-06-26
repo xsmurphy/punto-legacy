@@ -9,9 +9,9 @@ export * from "./transports/usb"
 export type { TicketData, TicketItem, TicketPayment } from "./build-ticket-data"
 
 import type { PrinterBinding } from "./binding"
+import { getBindingsForSale } from "./binding"
 import { buildTestTicket } from "./encoder"
 import { getAuthorizedPrinters, sendBytes } from "./transports/usb"
-import { usePrinterBindingsStore } from "./binding"
 import type { PrinterDocType } from "./binding"
 import type { TicketData } from "./build-ticket-data"
 import { renderTemplateToEscPos } from "./render-template"
@@ -28,15 +28,14 @@ import type { DocumentTemplateRow } from "@/lib/types/print-template"
 export async function printSale(opts: {
   docType: PrinterDocType
   data: TicketData
+  bindings: PrinterBinding[]
 }): Promise<{ printed: number; failed: number; errors: string[] }> {
-  const store = usePrinterBindingsStore.getState()
-
   const categoryIds = opts.data.items
     .map((i) => i.categoryId)
     .filter((id): id is string => id !== null)
 
   const uniqueCategoryIds = [...new Set(categoryIds)]
-  const bindings = store.getBindingsForSale(opts.docType, uniqueCategoryIds)
+  const bindings = getBindingsForSale(opts.bindings, opts.docType, uniqueCategoryIds)
 
   let printed = 0
   const errors: string[] = []
