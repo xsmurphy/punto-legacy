@@ -151,6 +151,63 @@ if ($method === 'PUT' && $resource === 'hotkeys') {
     apiOk(['hotkeys' => $clean]);
 }
 
+// Config general del POS por caja (toggles AjustesPanel). registerId del JWT.
+// Defaults canónicos en backend = single source of truth.
+const POS_CONFIG_DEFAULTS = [
+    'controlCaja'             => true,
+    'tecladoVirtual'          => false,
+    'ordenEnVenta'            => false,
+    'ordenAImpresion'         => false,
+    'servidorImpresion'       => false,
+    'sonidosAlertas'          => false,
+    'inhabilitarAnimaciones'  => false,
+    'permitirGuardarVentas'   => false,
+    'ocultarDetalleCombos'    => false,
+    'modoSoloOrdenes'         => false,
+    'mergeRepeated'           => true,
+    'showSoftKeyboard'        => false,
+];
+
+if ($method === 'GET' && $resource === 'config') {
+    if ($registerId === '') {
+        apiError('Sin caja activa', 422);
+    }
+    $stored = $svc->getConfig($registerId, $companyId);
+    $merged = array_merge(POS_CONFIG_DEFAULTS, $stored);
+    // Descartar keys fuera del whitelist (config vieja con keys obsoletas).
+    $clean = array_intersect_key($merged, POS_CONFIG_DEFAULTS);
+    apiOk(['config' => $clean]);
+}
+
+if ($method === 'PUT' && $resource === 'config') {
+    if ($registerId === '') {
+        apiError('Sin caja activa', 422);
+    }
+    $raw = $_POST['config'] ?? null;
+    if (!is_array($raw)) {
+        apiError('Falta config (objeto)', 422);
+    }
+    // Whitelist + validación de tipo. Aceptamos parcial — mergeamos con lo guardado.
+    $patch = [];
+    foreach ($raw as $k => $v) {
+        if (!array_key_exists($k, POS_CONFIG_DEFAULTS)) {
+            continue; // key fuera del whitelist
+        }
+        if (!is_bool($v)) {
+            apiError("Valor inválido para '$k' (se esperaba boolean)", 422);
+        }
+        $patch[$k] = $v;
+    }
+    $current = $svc->getConfig($registerId, $companyId);
+    $merged  = array_merge(POS_CONFIG_DEFAULTS, $current, $patch);
+    $clean   = array_intersect_key($merged, POS_CONFIG_DEFAULTS);
+    $ok = $svc->saveConfig($registerId, $companyId, $clean);
+    if (!$ok) {
+        apiError('No se pudo guardar la configuración del POS', 500);
+    }
+    apiOk(['config' => $clean]);
+}
+
 // GET = numeración de documentos de la caja (docsNum). registerId del JWT.
 if ($method === 'GET') {
     // P1 code-review: sin caja activa no hay numeración que devolver.

@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation"
 import {
   ScanBarcode,
   Bookmark,
-  Settings2,
   Lock,
 } from "lucide-react"
 import {
@@ -108,20 +107,6 @@ export function PosSidebar() {
             >
               <Lock />
               <span>Bloquear</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={pathname.startsWith("/pos/ajustes")}
-              tooltip="Ajustes del dispositivo"
-              className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
-            >
-              <Link href="/pos/ajustes">
-                <Settings2 />
-                <span>Ajustes del dispositivo</span>
-              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

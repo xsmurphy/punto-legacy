@@ -51,6 +51,10 @@ import {
 import { useCartStore } from "@/lib/cart/store"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
+import { printSale } from "@/lib/hardware/printers"
+import { getBindingsForSale } from "@/lib/hardware/printers/binding"
+import type { TicketData } from "@/lib/hardware/printers"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -422,6 +426,9 @@ function getPrimaryAction(typeNum: number, debt: number): {
 function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: () => void }) {
   const { data: detail, isLoading } = usePosTransactionDetail(encId)
   const config = useCatalogStore((s) => s.config)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
   const addLines = useCartStore((s) => s.addLines)
   const [quotePdfOpen, setQuotePdfOpen] = React.useState(false)
   const [creditPayOpen, setCreditPayOpen] = React.useState(false)
@@ -525,8 +532,48 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   }
 
   function handleReprint() {
-    toast.info(`Reimprimir #${docLabel || (detail?.transactionId ?? "")} — abriendo vista de impresión...`)
-    window.print()
+    if (!detail) return
+    const bindings = getBindingsForSale(allBindings, "receipt", [])
+    if (bindings.length > 0) {
+      const txItems = (detail.transactionDatas ?? [])
+        .filter((i) => i.status !== 0)
+        .map((i) => ({
+          name: i.name,
+          qty: i.count,
+          unitPrice: i.price,
+          discount: i.discount,
+          total: i.total,
+          categoryId: null as string | null,
+        }))
+      const txPayments = (detail.pMethods ?? []).map((p) => ({
+        method: p.name || p.type || "—",
+        amount: p.amount,
+      }))
+      const ticketData: TicketData = {
+        companyName: (config as { companyName?: string } | null)?.companyName ?? "",
+        customerName: detail.customerName?.trim() || undefined,
+        docType: String(detail.type),
+        documentNumber: detail.documentNo || undefined,
+        documentPrefix: detail.invoicePrefix || undefined,
+        transactionId: detail.transactionId,
+        date: detail.date ?? new Date().toISOString(),
+        items: txItems,
+        subtotal: Number(detail.total ?? 0) + Number(detail.discount ?? 0),
+        discount: Number(detail.discount ?? 0),
+        taxTotal: 0,
+        total: Number(detail.total ?? 0),
+        payments: txPayments,
+        note: detail.note || undefined,
+      }
+      printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
+        .then((r) => {
+          if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron`)
+        })
+        .catch(console.error)
+    } else {
+      toast.info(`Reimprimir #${docLabel || (detail?.transactionId ?? "")} — abriendo vista de impresión...`)
+      window.print()
+    }
   }
 
   // Formato de fecha para la cabecera (compacto pero con día)

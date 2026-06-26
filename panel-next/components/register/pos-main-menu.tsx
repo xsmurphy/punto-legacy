@@ -33,7 +33,6 @@ import {
   Component,
   Bell,
   SquaresIntersect,
-  Plus,
   Monitor,
   MessageCircle,
   RotateCcw,
@@ -96,6 +95,13 @@ import { toast } from "sonner"
 import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
+import { PrintersManager } from "@/components/settings/printers-manager"
+import {
+  usePosRegisterConfig,
+  useUpdatePosRegisterConfig,
+  POS_REGISTER_CONFIG_DEFAULTS,
+  type PosRegisterConfig,
+} from "@/hooks/use-pos-config"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -988,78 +994,18 @@ function OrdersPreview() {
 
 // ── Impresoras ────────────────────────────────────────────────────────────────
 
-/** Lista de impresoras configuradas con estado de conexión. */
 function PrintersPanel() {
-  // Mock de impresoras configuradas.
-  // TODO (backend): GET /api/v1/pos/printers
-  const impresoras: { nombre: string; config: string; conectada: boolean }[] = [
-    {
-      nombre: "Comanda",
-      config: "Ticket (Base) (Comanda) — Auto",
-      conectada: true,
-    },
-    {
-      nombre: "Ticket",
-      config: "Ticket 80mm — USB",
-      conectada: false,
-    },
-    {
-      nombre: "Resumen ticket",
-      config: "Ticket (Resumen) — Bluetooth",
-      conectada: false,
-    },
-  ]
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <p className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Impresoras configuradas
-        </p>
-
-        <div className="divide-y divide-border">
-          {impresoras.map((imp) => (
-            <div
-              key={imp.nombre}
-              className="flex items-center gap-3 px-1 py-3"
-            >
-              {/* Ícono */}
-              <Printer className="size-5 shrink-0 text-muted-foreground" />
-              {/* Info */}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">{imp.nombre}</p>
-                <p className="text-xs text-muted-foreground">{imp.config}</p>
-              </div>
-              {/* Estado */}
-              <span
-                className={cn(
-                  "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-                  imp.conectada
-                    ? "bg-green-100 text-green-700"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {imp.conectada ? "Conectada" : "No detectada"}
-              </span>
-              {/* Menú contextual (decorativo) */}
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                ···
-              </Button>
-            </div>
-          ))}
-        </div>
-
-        {/* Agregar impresora */}
-        {/* TODO (backend): abrir modal de configuración de impresora */}
-        <Button
-          variant="outline"
-          className="mt-4 w-full gap-2"
-          onClick={() => console.log("TODO (backend): agregar impresora")}
-        >
-          <Plus className="size-4" />
-          Agregar impresora
-        </Button>
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  if (!activeRegisterId) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Elegí una caja activa primero.
       </div>
+    )
+  }
+  return (
+    <div className="h-full overflow-y-auto px-6 py-6">
+      <PrintersManager registerId={activeRegisterId} />
     </div>
   )
 }
@@ -1146,41 +1092,62 @@ function ModulesPanel() {
 
 // ── Ajustes ──────────────────────────────────────────────────────────────────
 
-/** Panel de configuración del dispositivo POS. Largo y scrolleable. */
+const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; description?: string }[] = [
+  { key: "mergeRepeated", label: "Agrupar productos repetidos", description: "Sumar cantidad al tocar el mismo producto seguido. Si tocás otro entre medio, se crea una línea nueva — útil para promos con descuento por línea." },
+  { key: "showSoftKeyboard", label: "Mostrar teclado virtual en numpads", description: "Útil para pantallas táctiles sin teclado físico." },
+  { key: "controlCaja", label: "Control de Caja" },
+  { key: "tecladoVirtual", label: "Teclado virtual" },
+  { key: "ordenEnVenta", label: "Orden en venta" },
+  { key: "ordenAImpresion", label: "Orden a impresión" },
+  { key: "servidorImpresion", label: "Servidor de impresión" },
+  { key: "sonidosAlertas", label: "Sonidos en alertas" },
+  { key: "inhabilitarAnimaciones", label: "Inhabilitar animaciones" },
+  { key: "permitirGuardarVentas", label: "Permitir guardar ventas" },
+  { key: "ocultarDetalleCombos", label: "Ocultar detalle de combos en impresión" },
+  { key: "modoSoloOrdenes", label: "Modo: solo órdenes" },
+]
+
 function AjustesPanel() {
-  // Flag de agrupado de repetidos — wireado al store real del carrito.
-  const mergeRepeated = useCartStore((s) => s.mergeRepeated)
-  const setMergeRepeated = useCartStore((s) => s.setMergeRepeated)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data, isLoading } = usePosRegisterConfig(activeRegisterId)
+  const updateConfig = useUpdatePosRegisterConfig()
+  const config = data?.config ?? POS_REGISTER_CONFIG_DEFAULTS
 
-  const showSoftKeyboard = usePosUIStore((s) => s.showSoftKeyboard)
-  const setShowSoftKeyboard = usePosUIStore((s) => s.setShowSoftKeyboard)
+  const pendingRef = React.useRef<Partial<PosRegisterConfig>>({})
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Estado local de los toggles — TODO (backend): cargar y guardar desde config del tenant.
-  const [opciones, setOpciones] = React.useState({
-    controlCaja: true,
-    tecladoVirtual: false,
-    ordenEnVenta: false,
-    ordenAImpresion: false,
-    servidorImpresion: false,
-    sonidosAlertas: false,
-    inhabilitarAnimaciones: false,
-    permitirGuardarVentas: false,
-    ocultarDetalleCombos: false,
-    modoSoloOrdenes: false,
-  })
+  const flushPending = React.useCallback(() => {
+    const patch = pendingRef.current
+    pendingRef.current = {}
+    if (Object.keys(patch).length === 0) return
+    updateConfig.mutate(patch)
+  }, [updateConfig])
 
-  const toggleOpciones: { key: keyof typeof opciones; label: string }[] = [
-    { key: "controlCaja", label: "Control de Caja" },
-    { key: "tecladoVirtual", label: "Teclado virtual" },
-    { key: "ordenEnVenta", label: "Orden en venta" },
-    { key: "ordenAImpresion", label: "Orden a impresión" },
-    { key: "servidorImpresion", label: "Servidor de impresión" },
-    { key: "sonidosAlertas", label: "Sonidos en alertas" },
-    { key: "inhabilitarAnimaciones", label: "Inhabilitar animaciones" },
-    { key: "permitirGuardarVentas", label: "Permitir guardar ventas" },
-    { key: "ocultarDetalleCombos", label: "Ocultar detalle de combos en impresión" },
-    { key: "modoSoloOrdenes", label: "Modo: solo órdenes" },
-  ]
+  const handleToggle = React.useCallback(
+    (key: keyof PosRegisterConfig, value: boolean) => {
+      pendingRef.current = { ...pendingRef.current, [key]: value }
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(flushPending, 400)
+    },
+    [flushPending],
+  )
+
+  React.useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        flushPending()
+      }
+    }
+  }, [flushPending])
+
+  if (!activeRegisterId) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Elegí una caja activa primero.
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -1273,48 +1240,24 @@ function AjustesPanel() {
               Opciones del POS
             </p>
             <div>
-
-              {/* Toggle: Agrupar productos repetidos — wireado al useCartStore. */}
-              <div className="flex items-center justify-between gap-3 border-b border-border px-1 py-3">
-                <div>
-                  <p className="text-sm">Agrupar productos repetidos</p>
-                  <p className="text-xs text-muted-foreground">
-                    Sumar cantidad al tocar el mismo producto seguido. Si tocás otro entre medio, se crea una línea nueva — útil para promos con descuento por línea.
-                  </p>
-                </div>
-                <Switch
-                  checked={mergeRepeated}
-                  onCheckedChange={setMergeRepeated}
-                />
-              </div>
-
-              <div className="flex items-center justify-between gap-3 border-b border-border px-1 py-3">
-                <div>
-                  <p className="text-sm">Mostrar teclado virtual en numpads</p>
-                  <p className="text-xs text-muted-foreground">
-                    Útil para pantallas táctiles sin teclado físico.
-                  </p>
-                </div>
-                <Switch
-                  checked={showSoftKeyboard}
-                  onCheckedChange={setShowSoftKeyboard}
-                />
-              </div>
-
-              {toggleOpciones.map(({ key, label }, idx) => (
+              {AJUSTES_TOGGLES.map(({ key, label, description }, idx) => (
                 <div
                   key={key}
                   className={cn(
                     "flex items-center justify-between gap-3 px-1 py-3",
-                    idx < toggleOpciones.length - 1 && "border-b border-border",
+                    idx < AJUSTES_TOGGLES.length - 1 && "border-b border-border",
                   )}
                 >
-                  <span className="text-sm">{label}</span>
+                  <div>
+                    <p className="text-sm">{label}</p>
+                    {description && (
+                      <p className="text-xs text-muted-foreground">{description}</p>
+                    )}
+                  </div>
                   <Switch
-                    checked={opciones[key]}
-                    onCheckedChange={(val) =>
-                      setOpciones((prev) => ({ ...prev, [key]: val }))
-                    }
+                    checked={config[key]}
+                    disabled={isLoading}
+                    onCheckedChange={(val) => handleToggle(key, val)}
                   />
                 </div>
               ))}

@@ -144,8 +144,9 @@ interface CartState {
    *   otras líneas del mismo ítem — útil para promos con descuento por línea
    *   (ej. 2x1 donde cada línea lleva un descuento diferente).
    *
-   * TODO (F2): persistir mergeRepeated en register.data del backend para que
-   * sobreviva recargas y se sincronice entre dispositivos de la misma caja.
+   * Cache local sincronizada por `PosConfigSync` desde `register.data.posConfig`
+   * (server-state = fuente de verdad). Las mutaciones del AjustesPanel pasan
+   * por `useUpdatePosConfig` → el bridge re-hidrata este flag.
    */
   mergeRepeated: boolean
 

@@ -7,6 +7,12 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
 import { formatAmount } from "@/lib/format-money"
+import { toast } from "sonner"
+import { printSale } from "@/lib/hardware/printers"
+import { getBindingsForSale } from "@/lib/hardware/printers/binding"
+import type { TicketData } from "@/lib/hardware/printers"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { useCatalogStore } from "@/lib/catalog/store"
 
 interface QuotePrintViewDialogProps {
   tx: TransactionDetail | null
@@ -17,8 +23,48 @@ interface QuotePrintViewDialogProps {
 }
 
 export function QuotePrintViewDialog({ tx, config, open, onOpenChange, isLoading }: QuotePrintViewDialogProps) {
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
+
   function handlePrint() {
-    window.print()
+    if (!tx) return
+    const bindings = getBindingsForSale(allBindings, "quote", [])
+    if (bindings.length > 0) {
+      const items = (tx.transactionDatas ?? [])
+        .filter((i) => i.status !== 0)
+        .map((i) => ({
+          name: i.name,
+          qty: i.count,
+          unitPrice: i.price,
+          discount: i.discount,
+          total: i.total,
+          categoryId: null as string | null,
+        }))
+      const ticketData: TicketData = {
+        companyName: (config as { companyName?: string } | null)?.companyName ?? "",
+        customerName: tx.customerName?.trim() || undefined,
+        docType: "quote",
+        documentNumber: tx.documentNo || undefined,
+        documentPrefix: tx.invoicePrefix || undefined,
+        transactionId: tx.transactionId,
+        date: tx.date ?? new Date().toISOString(),
+        items,
+        subtotal: items.reduce((s, i) => s + i.total, 0),
+        discount: parseFloat(tx.discount) || 0,
+        taxTotal: 0,
+        total: parseFloat(tx.total) || 0,
+        payments: [],
+        note: tx.note || undefined,
+      }
+      printSale({ docType: "quote", data: ticketData, bindings: allBindings })
+        .then((r) => {
+          if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron`)
+        })
+        .catch(console.error)
+    } else {
+      window.print()
+    }
   }
 
   if (isLoading || !tx) {
