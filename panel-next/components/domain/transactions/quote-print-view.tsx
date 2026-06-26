@@ -82,7 +82,7 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
           background: #ffffff;
           max-width: 210mm;
           margin: 0 auto;
-          padding: 32px 36px;
+          padding: 20px 22px;
           border-radius: 10px;
         }
         .quote-print-view table {
@@ -121,17 +121,17 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
           padding-top: 8px;
         }
         .quote-print-view .footer {
-          margin-top: 32px;
-          padding-top: 16px;
+          margin-top: 20px;
+          padding-top: 12px;
           border-top: 1px solid #e5e7eb;
           font-size: 12px;
           color: #6b7280;
         }
       `}</style>
       <div className="quote-print-view">
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
           <div>
-            <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
               {(config as { companyName?: string } | null)?.companyName ?? "Cotización"}
             </h2>
           </div>
@@ -154,11 +154,11 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
           </div>
         </div>
 
-        <div style={{ marginBottom: 20, padding: "12px 16px", background: "#f9fafb", borderRadius: 6 }}>
-          <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        <div style={{ marginBottom: 14, padding: "8px 12px", background: "#f9fafb", borderRadius: 6 }}>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 12, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
             Cliente
           </p>
-          <p style={{ margin: "4px 0 0", fontWeight: 600, fontSize: 15 }}>
+          <p style={{ margin: "2px 0 0", fontWeight: 600, fontSize: 14 }}>
             {tx.customerName?.trim() || "Sin cliente"}
           </p>
         </div>
@@ -216,11 +216,11 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
         </div>
 
         {tx.note && (
-          <div style={{ marginTop: 24, padding: "12px 16px", background: "#f9fafb", borderRadius: 6 }}>
+          <div style={{ marginTop: 16, padding: "8px 12px", background: "#f9fafb", borderRadius: 6 }}>
             <p style={{ margin: 0, fontWeight: 600, fontSize: 12, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
               Observaciones
             </p>
-            <p style={{ margin: "6px 0 0", fontSize: 13 }}>{tx.note}</p>
+            <p style={{ margin: "4px 0 0", fontSize: 13 }}>{tx.note}</p>
           </div>
         )}
 
