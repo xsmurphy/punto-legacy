@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -39,8 +39,22 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>
 
+/**
+ * Whitelist anti-open-redirect: solo aceptamos `next` que sea una ruta
+ * interna (empieza con `/` pero NO con `//` ni `/\`). Cualquier otra cosa
+ * cae al default `/`. Esto bloquea `next=//evil.com` y `next=https://...`.
+ */
+function safeNext(next: string | null): string {
+  if (!next) return "/"
+  if (!next.startsWith("/")) return "/"
+  if (next.startsWith("//") || next.startsWith("/\\")) return "/"
+  return next
+}
+
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const next = safeNext(searchParams.get("next"))
   const [showPassword, setShowPassword] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
 
@@ -70,7 +84,7 @@ export default function LoginPage() {
         password: values.password,
       })
       toast.success("Sesión iniciada")
-      router.push("/")
+      router.push(next)
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         toast.error("Credenciales inválidas")
