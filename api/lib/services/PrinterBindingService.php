@@ -12,7 +12,7 @@ class PrinterBindingService {
 
     private function registerBelongsToTenant(string $registerId): bool {
         $rs = ncmExecute(
-            'SELECT 1 FROM "register" WHERE "registerId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT 1 FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
             [$registerId, $this->companyId],
             false, true
         );

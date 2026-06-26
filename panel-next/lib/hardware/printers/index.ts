@@ -77,6 +77,10 @@ export async function printSale(opts: {
           copies: binding.copies,
         })
 
+        if (binding.vendorId == null || binding.productId == null) {
+          throw new Error(`${binding.name}: sin dispositivo USB asociado (vinculá la impresora nuevamente)`)
+        }
+
         const devices = await getAuthorizedPrinters()
         const device = devices.find(
           (d) => d.vendorId === binding.vendorId && d.productId === binding.productId,
@@ -103,6 +107,13 @@ export async function printSale(opts: {
 }
 
 export async function printTest(binding: PrinterBinding): Promise<void> {
+  if (binding.vendorId == null || binding.productId == null) {
+    throw new Error(
+      "Impresora sin dispositivo USB asociado. " +
+        "Vinculá la impresora nuevamente desde Ajustes → Impresoras.",
+    )
+  }
+
   const devices = await getAuthorizedPrinters()
   const device = devices.find(
     (d) => d.vendorId === binding.vendorId && d.productId === binding.productId,
