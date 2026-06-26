@@ -50,7 +50,9 @@ export function LineDiscountDialog({
         setDraft("0")
       }
     }
-  }, [open, line, storedMode])
+    // storedMode INTENCIONALMENTE excluido: SHIFT persiste a storedMode → re-fire el effect → resetearía draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, line])
 
   function handleShiftToggle() {
     const next = localMode === "money" ? "percent" : "money"

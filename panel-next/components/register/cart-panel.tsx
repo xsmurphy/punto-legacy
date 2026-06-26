@@ -685,8 +685,10 @@ function CartRowExpanded({
         onClose={() => setSellerOpen(false)}
       />
 
-      {/* Más opciones — drawer inferior (no dropdown). Título = nombre del ítem. */}
-      <Drawer open={moreOpen} onOpenChange={setMoreOpen}>
+      {/* Más opciones — drawer inferior. handleOnly: vaul restringe el drag al handle bar,
+          si no, cualquier click dentro del DrawerContent puede ser interpretado como swipe-down
+          y cerrar el drawer sin disparar el onClick del botón (bug reportado por owner). */}
+      <Drawer open={moreOpen} onOpenChange={setMoreOpen} handleOnly>
         <DrawerContent className="mx-auto max-w-lg">
           <DrawerHeader className="pb-2">
             <DrawerTitle className="truncate">{line.name}</DrawerTitle>

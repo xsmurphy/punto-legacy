@@ -43,7 +43,10 @@ export function QtyEditDialog({
       setLocalMode(mode)
       setDraft(String(initialQty))
     }
-  }, [open, initialQty, storedMode])
+    // storedMode INTENCIONALMENTE excluido: solo inicializamos al abrir el dialog,
+    // no en cada cambio de modo (SHIFT toggle persiste a storedMode → resetearía draft).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialQty])
 
   function handleShiftToggle() {
     const next = localMode === "int" ? "decimal" : "int"

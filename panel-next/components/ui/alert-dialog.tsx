@@ -47,6 +47,7 @@ function AlertDialogOverlay({
 function AlertDialogContent({
   className,
   size = "default",
+  onOpenAutoFocus,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
@@ -57,6 +58,21 @@ function AlertDialogContent({
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         data-size={size}
+        onOpenAutoFocus={(e) => {
+          // Default Radix focusea el primer focusable (Cancel a la izq) → Enter cancela.
+          // Forzamos foco al Action si existe → Enter confirma. Caller puede overridear
+          // pasando su propio onOpenAutoFocus (ej. flujos destructivos que prefieren Cancel).
+          if (onOpenAutoFocus) {
+            onOpenAutoFocus(e)
+            return
+          }
+          const root = e.currentTarget as HTMLElement
+          const action = root.querySelector<HTMLElement>('[data-slot="alert-dialog-action"]')
+          if (action) {
+            e.preventDefault()
+            action.focus()
+          }
+        }}
         className={cn(
           "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
