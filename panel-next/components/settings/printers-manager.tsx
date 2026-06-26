@@ -322,20 +322,22 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
     <Dialog open={mode !== null} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="text-2xl font-semibold">
             {mode?.type === "edit" ? "Editar impresora" : "Agregar impresora"}
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="general">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="behavior">Comportamiento</TabsTrigger>
-            <TabsTrigger value="categories">Categorías</TabsTrigger>
-            <TabsTrigger value="device">Dispositivo</TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="general" className="mt-2">
+          <div className="-mx-2 overflow-x-auto px-2">
+            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
+              <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="behavior">Comportamiento</TabsTrigger>
+              <TabsTrigger value="categories">Categorías</TabsTrigger>
+              <TabsTrigger value="device">Dispositivo</TabsTrigger>
+            </TabsList>
+          </div>
 
-          <TabsContent value="general" className="space-y-4 pt-4">
+          <TabsContent value="general" className="mt-6 flex flex-col gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="printer-name">Nombre</Label>
               <Input
@@ -348,13 +350,16 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
 
             <div className="space-y-1.5">
               <Label htmlFor="printer-color">Color identificador</Label>
-              <input
-                type="color"
-                id="printer-color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="h-9 w-16 cursor-pointer rounded-md border border-input bg-transparent p-1"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  id="printer-color"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="size-9 cursor-pointer rounded-md border border-input bg-transparent p-1"
+                />
+                <span className="text-sm text-muted-foreground tabular-nums">{color}</span>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -411,31 +416,35 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="printer-copies">Copias</Label>
-              <Input
-                id="printer-copies"
-                type="number"
-                min={1}
-                max={10}
-                value={copies}
-                onChange={(e) => setCopies(Math.max(1, Math.min(10, Number(e.target.value))))}
-              />
-            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="printer-copies">Copias</Label>
+                <Input
+                  id="printer-copies"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={copies}
+                  onChange={(e) => setCopies(Math.max(1, Math.min(10, Number(e.target.value))))}
+                />
+                <p className="text-xs text-muted-foreground">Entre 1 y 10.</p>
+              </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="printer-delay">Delay entre impresiones (ms)</Label>
-              <Input
-                id="printer-delay"
-                type="number"
-                min={0}
-                value={printDelay}
-                onChange={(e) => setPrintDelay(Math.max(0, Number(e.target.value)))}
-              />
+              <div className="space-y-1.5">
+                <Label htmlFor="printer-delay">Delay entre copias (ms)</Label>
+                <Input
+                  id="printer-delay"
+                  type="number"
+                  min={0}
+                  value={printDelay}
+                  onChange={(e) => setPrintDelay(Math.max(0, Number(e.target.value)))}
+                />
+                <p className="text-xs text-muted-foreground">0 = sin pausa.</p>
+              </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="behavior" className="space-y-4 pt-4">
+          <TabsContent value="behavior" className="mt-6 flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <Switch id="auto-print" checked={autoPrint} onCheckedChange={setAutoPrint} />
               <Label htmlFor="auto-print">Auto-imprimir al cerrar venta</Label>
@@ -469,7 +478,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
             </div>
           </TabsContent>
 
-          <TabsContent value="categories" className="space-y-4 pt-4">
+          <TabsContent value="categories" className="mt-6 flex flex-col gap-4">
             <p className="text-sm text-muted-foreground">
               Si seleccionás categorías, esta impresora solo imprimirá ítems de venta con esas
               categorías. Útil para barra (solo tragos) o cocina (solo comida). Dejá vacío para
@@ -482,7 +491,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
             />
           </TabsContent>
 
-          <TabsContent value="device" className="space-y-4 pt-4">
+          <TabsContent value="device" className="mt-6 flex flex-col gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="printer-transport">Tipo de dispositivo</Label>
               <Select value={transport} onValueChange={(v) => setTransport(v as PrinterTransport)}>
@@ -609,9 +618,13 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
           </TabsContent>
         </Tabs>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-        <DialogFooter>
+        <DialogFooter className="mt-6">
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
