@@ -290,7 +290,10 @@ switch (true) {
         // que en realidad es `registerName`. Sin quotes y con el nombre real
         // funciona. Las columnas de customer_display SÍ están en lowercase fold
         // pero como ese CREATE TABLE tampoco usó quotes, también acepta sin quotes.
-        $rows = ncmExecute(
+        // forceObj=true → recordset iterable; SIEMPRE garantiza array indexado en la
+        // respuesta (sin forceObj, 0 filas → 0, 1 fila → array asociativo, 2+ → recordset
+        // — todos rompen el contrato {screens: Screen[]} esperado por el front).
+        $rs = ncmExecute(
             'SELECT cd.id, cd.name, cd.registerId, r.registerName AS "registerName",
                     cd.ipLast::text AS "ipLast", cd.lastSeenAt AS "lastSeenAt",
                     cd.status, cd.createdAt AS "createdAt"
@@ -298,8 +301,18 @@ switch (true) {
              LEFT JOIN register r ON r.registerId = cd.registerId
              WHERE cd.companyId = ?::uuid
              ORDER BY cd.status DESC, cd.createdAt DESC',
-            [$companyId]
+            [$companyId],
+            false,
+            true
         );
+        $rows = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $rows[] = $rs->fields;
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
 
         apiOk(['screens' => $rows]);
         break;
