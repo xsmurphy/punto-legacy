@@ -39,6 +39,7 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
 import { cn } from "@/lib/utils"
 import type { PosTransactionListItem } from "@/lib/types/pos-transactions"
+import type { TransactionDetail as TransactionDetailType } from "@/hooks/use-transactions"
 import { toast } from "sonner"
 import {
   DropdownMenu,
@@ -414,7 +415,7 @@ function getPrimaryAction(typeNum: number, debt: number): {
   disabled: boolean
 } {
   if (typeNum === 3 && debt > 0) return { label: "Pagar", action: "pay", disabled: false }
-  if (typeNum === 9) return { label: "Facturar", action: "invoice", disabled: true }
+  if (typeNum === 9) return { label: "Facturar", action: "invoice", disabled: false }
   return { label: "Duplicar", action: "duplicate", disabled: false }
 }
 
@@ -424,7 +425,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
   const addLines = useCartStore((s) => s.addLines)
   const [quotePdfOpen, setQuotePdfOpen] = React.useState(false)
   const [creditPayOpen, setCreditPayOpen] = React.useState(false)
-  const [receiptDetail, setReceiptDetail] = React.useState<NonNullable<typeof detail.paymentsReceived>[number] | null>(null)
+  const [receiptDetail, setReceiptDetail] = React.useState<NonNullable<TransactionDetailType["paymentsReceived"]>[number] | null>(null)
 
   if (!encId) {
     return (
@@ -482,8 +483,35 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
         discount: i.discount > 0 ? i.discount : undefined,
       }))
     )
+    // Si duplico desde una cotización, NO heredo el parentId — eso es para Facturar.
+    useCartStore.getState().setQuoteParent(null)
     onClose()
     toast.success("Items duplicados al carrito")
+  }
+
+  function handleInvoice() {
+    const validItems = items.filter((i) => i.status !== 0)
+    if (validItems.length === 0) {
+      toast.error("La cotización no tiene items para facturar")
+      return
+    }
+    if (!encId) {
+      toast.error("Cotización sin ID — no se puede facturar")
+      return
+    }
+    addLines(
+      validItems.map((i) => ({
+        itemId: i.itemId,
+        name: i.name,
+        qty: i.count,
+        unitPrice: i.price,
+        discount: i.discount > 0 ? i.discount : undefined,
+      }))
+    )
+    // Link bidireccional con la cotización: al guardar la venta, el back vincula.
+    useCartStore.getState().setQuoteParent(encId)
+    onClose()
+    toast.success("Cotización cargada — completá la venta para facturar")
   }
 
   function handlePrimaryAction() {
@@ -491,8 +519,9 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
       setCreditPayOpen(true)
     } else if (primary.action === "duplicate") {
       handleDuplicate()
+    } else if (primary.action === "invoice") {
+      handleInvoice()
     }
-    // "invoice" es disabled — no llega acá
   }
 
   function handleReprint() {
