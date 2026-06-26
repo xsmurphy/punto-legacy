@@ -43,6 +43,8 @@ import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
 import { api } from "@/lib/api-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
+import { printSale, usePrinterBindingsStore } from "@/lib/hardware/printers"
+import { buildTicketData } from "@/lib/hardware/printers/build-ticket-data"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -292,6 +294,22 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setChange(changeAmount)
       setSaleResult(result)
 
+      // Auto-print ESC/POS si hay bindings con autoPrint=true
+      const autoBindings = usePrinterBindingsStore
+        .getState()
+        .getBindingsForSale("receipt", [])
+        .filter((b) => b.autoPrint)
+      if (autoBindings.length > 0) {
+        const ticketData = buildTicketData({ payload, result, config })
+        printSale({ docType: "receipt", data: ticketData })
+          .then((r) => {
+            if (r.failed > 0) {
+              toast.warning(`${r.failed} impresora(s) fallaron al imprimir`)
+            }
+          })
+          .catch((err) => console.error("[auto-print] Error:", err))
+      }
+
       // Si hubo pago con giftcard, consumirla (fire-and-forget: la venta ya está confirmada)
       const gcPayment = appliedPayments.find((r) => r.method.id === "giftcard")
       if (gcPayment?.identifier && result?.transactionId) {
@@ -508,8 +526,41 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     void handleConfirm(applied, 0)
   }
 
-  function handlePrint() {
-    // TODO: imprimir ticket — Slice A5
+  async function handlePrint() {
+    if (!saleResult) return
+    const bindings = usePrinterBindingsStore.getState().getBindingsForSale("receipt", [])
+    if (bindings.length > 0) {
+      // Rebuild minimal payload for reprint — real payload is local to handleConfirm
+      const reprPayload = {
+        uid: "",
+        type: credito ? 3 : 0,
+        sale: lines.map((line) => ({
+          itemId: line.itemId,
+          name: line.name,
+          count: line.qty,
+          price: line.unitPrice,
+          total: line.qty * line.unitPrice,
+          discount: 0,
+          note: line.note ?? null,
+        })),
+        payment: [] as import("@/lib/commands/create-sale").SalePaymentMethod[],
+        subtotal: saleResult.total,
+        tax: 0,
+        discount: 0,
+        client: customer?.id ?? null,
+        user: null,
+        note: null,
+        interno: false,
+        tags: [] as string[],
+        date: new Date().toISOString(),
+        timestamp: Math.floor(Date.now() / 1000),
+      } satisfies import("@/lib/commands/create-sale").CreateSalePayload
+      const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
+      const r = await printSale({ docType: "receipt", data: ticketData })
+      if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron al reimprimir`)
+    } else {
+      window.print()
+    }
   }
 
   function handleClose() {
@@ -892,7 +943,7 @@ interface SuccessPhaseProps {
   total: number
   changeAmount: number
   config: ReturnType<typeof useCatalogStore.getState>["config"]
-  onPrint: () => void
+  onPrint: () => void | Promise<void>
   onClose: () => void
 }
 

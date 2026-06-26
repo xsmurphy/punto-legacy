@@ -98,6 +98,8 @@ import { formatMoney } from "@/lib/format"
 import { formatAmount } from "@/lib/format-money"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { printSale, usePrinterBindingsStore } from "@/lib/hardware/printers"
+import type { TicketData } from "@/lib/hardware/printers"
 import { useVoidTransaction } from "@/hooks/use-void-transaction"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
@@ -804,7 +806,48 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
                   tx={detail}
                   config={config}
                   onDuplicate={() => requestDuplicate(detail)}
-                  onReprint={() => window.print()}
+                  onReprint={() => {
+                    const bindings = usePrinterBindingsStore.getState().getBindingsForSale("receipt", [])
+                    if (bindings.length > 0) {
+                      const txItems = (detail.transactionDatas ?? [])
+                        .filter((i) => i.status !== 0)
+                        .map((i) => ({
+                          name: i.name,
+                          qty: i.count,
+                          unitPrice: i.price,
+                          discount: i.discount,
+                          total: i.total,
+                          categoryId: null as string | null,
+                        }))
+                      const txPayments = (detail.pMethods ?? []).map((p) => ({
+                        method: p.name || p.type || "—",
+                        amount: p.amount,
+                      }))
+                      const ticketData: TicketData = {
+                        companyName: (config as { companyName?: string } | null)?.companyName ?? "",
+                        customerName: detail.customerName?.trim() || undefined,
+                        docType: String(detail.type),
+                        documentNumber: detail.documentNo || undefined,
+                        documentPrefix: detail.invoicePrefix || undefined,
+                        transactionId: detail.transactionId,
+                        date: detail.date ?? new Date().toISOString(),
+                        items: txItems,
+                        subtotal: Number(detail.total ?? 0) + Number(detail.discount ?? 0),
+                        discount: Number(detail.discount ?? 0),
+                        taxTotal: 0,
+                        total: Number(detail.total ?? 0),
+                        payments: txPayments,
+                        note: detail.note || undefined,
+                      }
+                      printSale({ docType: "receipt", data: ticketData })
+                        .then((r) => {
+                          if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron`)
+                        })
+                        .catch(console.error)
+                    } else {
+                      window.print()
+                    }
+                  }}
                   onReturn={() => setReturnSheetForTx(detail.transactionId)}
                   onAddToCart={() => handleAddToCart(detail)}
                   onClose={() => setSheetOpen(false)}
