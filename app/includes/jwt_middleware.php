@@ -260,21 +260,28 @@ function _jwtExtractTokens(): array
     }
 
     // 2. Cookies. Dos nombres distintos por realm:
-    //    - `_jwt_panel` → emitido por PanelAuth::issueJwt / issueJwtPanel (realm panel)
-    //    - `_jwt`       → emitido por el login del POS / app (realm pos-app)
-    if (!empty($_COOKIE['_jwt_panel'])) {
-        $tokens[] = $_COOKIE['_jwt_panel'];
-    }
+    //    - `_jwt`       → emitido por el login del POS / app (realm pos-app, device pairing 10 años,
+    //                     incluye `rid` fijo desde el pairing — fuente robusta para endpoints POS)
+    //    - `_jwt_panel` → emitido por PanelAuth::issueJwt (realm panel, 24h, `rid='' por default`)
+    //
+    // ORDEN INTENCIONAL: `_jwt` ANTES que `_jwt_panel`. En endpoints multi-realm
+    // (drawer, sale, transactions — aceptan ['panel','pos-app']), el device JWT
+    // tiene el contexto operativo correcto (`rid` válido) y debe ganar.
+    // Para endpoints solo-panel, `_jwt` no matchea el realm y el loop sigue al
+    // `_jwt_panel`. Para endpoints solo-pos, gana `_jwt` también. Sin breaking.
     if (!empty($_COOKIE['_jwt'])) {
         $tokens[] = $_COOKIE['_jwt'];
     }
-
-    // 3. POST field (clientes programáticos)
-    if (!empty($_POST['_jwt_panel'])) {
-        $tokens[] = $_POST['_jwt_panel'];
+    if (!empty($_COOKIE['_jwt_panel'])) {
+        $tokens[] = $_COOKIE['_jwt_panel'];
     }
+
+    // 3. POST field (clientes programáticos). Mismo orden que cookies.
     if (!empty($_POST['_jwt'])) {
         $tokens[] = $_POST['_jwt'];
+    }
+    if (!empty($_POST['_jwt_panel'])) {
+        $tokens[] = $_POST['_jwt_panel'];
     }
 
     return $tokens;
