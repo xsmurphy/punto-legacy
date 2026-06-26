@@ -48,44 +48,57 @@ function jwtAuthenticate(array $allowedRealms = ['pos-app']): bool
     // re-login es aceptable. La allowlist la declara cada endpoint (default POS):
     // los tokens POS son eternos (device pairing) y NO deben autenticar en
     // endpoints administrativos del panel — fail-closed por call-site.
+    // Selección de candidato robusta: un token se DESCARTA (no mata el request)
+    // si está inválido/expirado, es de otro realm, o representa un device revocado.
+    // Solo se mata el request si NINGÚN candidato sobrevive. Esto es crítico
+    // cuando el browser tiene AMBAS cookies (`_jwt` device + `_jwt_panel`): si el
+    // device fue revocado, el panel debe seguir operando con `_jwt_panel`. Antes,
+    // el device-revoked check vivía FUERA del loop y mataba el panel aunque
+    // `_jwt_panel` fuera válido (incidente 2026-06-26).
     $payload = null;
+    $deviceId = '';
     $sawValidButWrongRealm = false;
+    $sawRevokedDevice = false;
     foreach ($candidates as $candidate) {
         $decoded = jwtDecode($candidate, $secret);
         if ($decoded === null) {
             // Token presente pero inválido o expirado — probar el siguiente.
             continue;
         }
-        if (in_array($decoded['iss'] ?? '', $allowedRealms, true)) {
-            $payload = $decoded;
-            break;
+        if (!in_array($decoded['iss'] ?? '', $allowedRealms, true)) {
+            // Firma válida pero realm equivocado (ej. `_jwt_panel` en endpoint POS).
+            $sawValidButWrongRealm = true;
+            continue;
         }
-        // Firma válida pero realm equivocado (ej. `_jwt_panel` en endpoint POS).
-        $sawValidButWrongRealm = true;
+        // Device pairing — el JWT de /app representa un emparejamiento (TTL 10 años,
+        // §28). Si el panel tenant revoca el device, este candidato se DESCARTA y
+        // se prueba el siguiente (ej. `_jwt_panel`). Tokens sin `did` (pre-device)
+        // pasan por compatibilidad. Cache 60s (file).
+        $candidateDid = (string)($decoded['did'] ?? '');
+        if ($candidateDid !== '' && jwtIsDeviceRevoked($candidateDid, (string)($decoded['cid'] ?? ''))) {
+            $sawRevokedDevice = true;
+            continue;
+        }
+        // Candidato válido, realm correcto, device no revocado → ganador.
+        $payload  = $decoded;
+        $deviceId = $candidateDid;
+        break;
     }
 
     if ($payload === null) {
         http_response_code(401);
         header('Content-Type: application/json');
+        if ($sawRevokedDevice && !$sawValidButWrongRealm) {
+            die(json_encode([
+                'error' => 'Dispositivo desactivado por el administrador',
+                'code'  => 'device_revoked',
+            ]));
+        }
         die(json_encode([
             'error' => $sawValidButWrongRealm
                 ? 'Token de otro realm'
                 : 'Token inválido o expirado',
             'code'  => 401,
-        ]));
-    }
-
-    // Device pairing — el JWT de /app representa un emparejamiento (TTL 10 años,
-    // §28). Si el panel tenant revoca el device, este check lo corta con cache
-    // 60s (file). Tokens viejos (pre-device) NO tienen `did` y siguen pasando
-    // por compatibilidad — al re-loguear se les asigna device row + did nuevo.
-    $deviceId = (string)($payload['did'] ?? '');
-    if ($deviceId !== '' && jwtIsDeviceRevoked($deviceId, (string)($payload['cid'] ?? ''))) {
-        http_response_code(401);
-        header('Content-Type: application/json');
-        die(json_encode([
-            'error' => 'Dispositivo desactivado por el administrador',
-            'code'  => 'device_revoked',
         ]));
     }
 
