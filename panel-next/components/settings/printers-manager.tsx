@@ -253,8 +253,8 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       setOpenDrawer(binding.openDrawer)
       setAutoPrint(binding.autoPrint)
       setPrintDelay(binding.printDelay)
-      setCategoryIds(binding.categoryIds)
-      setDocTypes(binding.docTypes)
+      setCategoryIds(Array.isArray(binding.categoryIds) ? binding.categoryIds : [])
+      setDocTypes(Array.isArray(binding.docTypes) ? binding.docTypes : [])
       setVendorId(binding.vendorId ?? 0)
       setProductId(binding.productId ?? 0)
       setDeviceLabel(binding.deviceLabel ?? "")
@@ -584,14 +584,16 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
       {
         id: "docTypes",
         header: "Documentos",
-        cell: ({ row }) =>
-          row.original.docTypes.map((dt) => DOC_TYPE_LABELS[dt].short).join(" · "),
+        cell: ({ row }) => {
+          const dts = Array.isArray(row.original.docTypes) ? row.original.docTypes : []
+          return dts.map((dt) => DOC_TYPE_LABELS[dt]?.short ?? dt).join(" · ")
+        },
       },
       {
         id: "categories",
         header: "Categorías",
         cell: ({ row }) => {
-          const n = row.original.categoryIds.length
+          const n = Array.isArray(row.original.categoryIds) ? row.original.categoryIds.length : 0
           return <Badge variant="secondary">{n === 0 ? "Todas" : `${n} categ.`}</Badge>
         },
       },

@@ -210,6 +210,20 @@ class PrinterBindingService {
         return $out;
     }
 
+    /**
+     * Garantiza array indexado (no asociativo) para JSONB que el front consume con .filter/.map.
+     * Si la BD guardo `{}` o el json_decode falla, devuelve `[]` antes que romper el contrato.
+     */
+    private static function toIndexedArray(mixed $v): array
+    {
+        if (is_string($v)) {
+            $decoded = json_decode($v, true);
+            $v = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($v)) return [];
+        return array_values($v);
+    }
+
     private function normalize(array $f): array {
         $get = function(string $camel, string $lower) use ($f) {
             return $f[$camel] ?? $f[$lower] ?? null;
@@ -232,8 +246,8 @@ class PrinterBindingService {
             'openDrawer'   => (bool)$get('openDrawer', 'opendrawer'),
             'autoPrint'    => (bool)$get('autoPrint', 'autoprint'),
             'printDelay'   => (int)($get('printDelay', 'printdelay') ?? 0),
-            'categoryIds'  => is_string($v = $get('categoryIds', 'categoryids')) ? json_decode($v, true) : ($v ?? []),
-            'docTypes'     => is_string($v2 = $get('docTypes', 'doctypes')) ? json_decode($v2, true) : ($v2 ?? []),
+            'categoryIds'  => self::toIndexedArray($get('categoryIds', 'categoryids')),
+            'docTypes'     => self::toIndexedArray($get('docTypes', 'doctypes')),
             'createdAt'    => (string)($get('createdAt', 'createdat') ?? ''),
             'updatedAt'    => (string)($get('updatedAt', 'updatedat') ?? ''),
         ];
