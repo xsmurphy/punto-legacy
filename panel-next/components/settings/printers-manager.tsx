@@ -67,7 +67,12 @@ import {
   type PrinterBinding,
   type PrinterDocType,
   type PrinterMode,
+  type PrinterTransport,
 } from "@/lib/hardware/printers"
+import {
+  isWebBluetoothSupported,
+  requestBluetoothPrinter,
+} from "@/lib/hardware/printers/transports/bluetooth"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -193,7 +198,7 @@ function SimpleCategoriesPicker({ options, value, onChange }: SimpleCategoriesPi
 // ── BindingDialog ─────────────────────────────────────────────────────────────
 
 type DialogMode =
-  | { type: "new"; device: USBDevice }
+  | { type: "new" }
   | { type: "edit"; binding: PrinterBinding }
   | null
 
@@ -218,17 +223,23 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
   const [printDelay, setPrintDelay] = React.useState(0)
   const [categoryIds, setCategoryIds] = React.useState<string[]>([])
   const [docTypes, setDocTypes] = React.useState<PrinterDocType[]>(["receipt"])
-  const [vendorId, setVendorId] = React.useState(0)
-  const [productId, setProductId] = React.useState(0)
-  const [deviceLabel, setDeviceLabel] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
+
+  // Transport state
+  const [transport, setTransport] = React.useState<PrinterTransport>("native")
+  const [vendorId, setVendorId] = React.useState<number | null>(null)
+  const [productId, setProductId] = React.useState<number | null>(null)
+  const [deviceLabel, setDeviceLabel] = React.useState("")
+  const [bluetoothDeviceId, setBluetoothDeviceId] = React.useState<string | null>(null)
+  const [bluetoothLabel, setBluetoothLabel] = React.useState("")
+  const [networkHost, setNetworkHost] = React.useState("")
+  const [networkPort, setNetworkPort] = React.useState(9100)
 
   React.useEffect(() => {
     if (!mode) return
     setError(null)
     if (mode.type === "new") {
-      const { device } = mode
-      setName(device.productName?.trim() || "Impresora")
+      setName("Impresora")
       setColor("#7bd148")
       setPrinterMode("escpos")
       setTemplateId("")
@@ -239,9 +250,14 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       setPrintDelay(0)
       setCategoryIds([])
       setDocTypes(["receipt"])
-      setVendorId(device.vendorId)
-      setProductId(device.productId)
-      setDeviceLabel(device.productName?.trim() || "")
+      setTransport("native")
+      setVendorId(null)
+      setProductId(null)
+      setDeviceLabel("")
+      setBluetoothDeviceId(null)
+      setBluetoothLabel("")
+      setNetworkHost("")
+      setNetworkPort(9100)
     } else {
       const { binding } = mode
       setName(binding.name)
@@ -255,33 +271,41 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       setPrintDelay(binding.printDelay)
       setCategoryIds(Array.isArray(binding.categoryIds) ? binding.categoryIds : [])
       setDocTypes(Array.isArray(binding.docTypes) ? binding.docTypes : [])
-      setVendorId(binding.vendorId ?? 0)
-      setProductId(binding.productId ?? 0)
+      setTransport(binding.transport)
+      setVendorId(binding.vendorId ?? null)
+      setProductId(binding.productId ?? null)
       setDeviceLabel(binding.deviceLabel ?? "")
+      setBluetoothDeviceId(binding.bluetoothDeviceId ?? null)
+      setBluetoothLabel("")
+      setNetworkHost(binding.networkHost ?? "")
+      setNetworkPort(binding.networkPort ?? 9100)
     }
   }, [mode])
 
   function handleSave() {
-    if (!name.trim()) {
-      setError("El nombre es obligatorio")
-      return
+    if (!name.trim()) { setError("El nombre es obligatorio"); return }
+    if (docTypes.length === 0) { setError("Seleccioná al menos un tipo de documento"); return }
+    if (copies < 1) { setError("Las copias deben ser al menos 1"); return }
+    if (transport === "usb" && (vendorId == null || productId == null)) {
+      setError("Vinculá una impresora USB antes de guardar"); return
     }
-    if (docTypes.length === 0) {
-      setError("Seleccioná al menos un tipo de documento")
-      return
+    if (transport === "bluetooth" && !bluetoothDeviceId) {
+      setError("Vinculá una impresora Bluetooth antes de guardar"); return
     }
-    if (copies < 1) {
-      setError("Las copias deben ser al menos 1")
-      return
+    if (transport === "network" && !networkHost.trim()) {
+      setError("Ingresá el host o IP de la impresora de red"); return
     }
     setError(null)
     onSave({
       name: name.trim(),
       color,
-      transport: "usb",
-      vendorId,
-      productId,
-      deviceLabel,
+      transport,
+      vendorId: transport === "usb" ? vendorId : null,
+      productId: transport === "usb" ? productId : null,
+      deviceLabel: transport === "usb" ? deviceLabel || null : null,
+      bluetoothDeviceId: transport === "bluetooth" ? bluetoothDeviceId : null,
+      networkHost: transport === "network" ? networkHost.trim() : null,
+      networkPort: transport === "network" ? networkPort : null,
       mode: printerMode,
       templateId: templateId === "" ? null : templateId,
       paperWidthMm,
@@ -299,15 +323,16 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {mode?.type === "edit" ? "Editar impresora" : "Configurar impresora"}
+            {mode?.type === "edit" ? "Editar impresora" : "Agregar impresora"}
           </DialogTitle>
         </DialogHeader>
 
         <Tabs defaultValue="general">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="behavior">Comportamiento</TabsTrigger>
             <TabsTrigger value="categories">Categorías</TabsTrigger>
+            <TabsTrigger value="device">Dispositivo</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="space-y-4 pt-4">
@@ -453,6 +478,132 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
               onChange={setCategoryIds}
             />
           </TabsContent>
+
+          <TabsContent value="device" className="space-y-4 pt-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="printer-transport">Tipo de dispositivo</Label>
+              <Select value={transport} onValueChange={(v) => setTransport(v as PrinterTransport)}>
+                <SelectTrigger id="printer-transport"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="native">Sin dispositivo (ventana del sistema)</SelectItem>
+                  <SelectItem value="usb">USB</SelectItem>
+                  <SelectItem value="bluetooth">Bluetooth</SelectItem>
+                  <SelectItem value="network">Red (IP/hostname)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {transport === "native" && (
+              <Alert>
+                <AlertDescription>
+                  Usará el diálogo de impresión del navegador (window.print / AirPrint). Útil para A4, cotizaciones e impresoras del sistema.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {transport === "usb" && (
+              <div className="space-y-3">
+                {isWebUsbSupported() ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const device = await requestUsbPrinter()
+                          setVendorId(device.vendorId)
+                          setProductId(device.productId)
+                          setDeviceLabel(device.productName?.trim() || `USB ${device.vendorId}:${device.productId}`)
+                        } catch (err) {
+                          if (err instanceof DOMException && err.name === "NotAllowedError") return
+                          toast.error("No se pudo acceder a la impresora.", {
+                            description: err instanceof Error ? err.message : undefined,
+                          })
+                        }
+                      }}
+                    >
+                      <Printer className="size-4 mr-1.5" />
+                      Vincular impresora USB
+                    </Button>
+                    {vendorId != null && (
+                      <p className="text-sm text-muted-foreground">
+                        Vinculada: {deviceLabel || `USB ${vendorId}:${productId}`}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <Alert>
+                    <AlertDescription>
+                      WebUSB no está disponible en este navegador. Usá Chrome o Edge en escritorio.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
+
+            {transport === "bluetooth" && (
+              <div className="space-y-3">
+                {isWebBluetoothSupported() ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const device = await requestBluetoothPrinter()
+                          setBluetoothDeviceId(device.id)
+                          setBluetoothLabel(device.name ?? device.id)
+                        } catch (err) {
+                          if (err instanceof DOMException && err.name === "NotAllowedError") return
+                          toast.error("No se pudo acceder a la impresora Bluetooth.", {
+                            description: err instanceof Error ? err.message : undefined,
+                          })
+                        }
+                      }}
+                    >
+                      Vincular impresora Bluetooth
+                    </Button>
+                    {bluetoothDeviceId && (
+                      <p className="text-sm text-muted-foreground">
+                        Vinculada: {bluetoothLabel || bluetoothDeviceId}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <Alert>
+                    <AlertDescription>
+                      Web Bluetooth no está disponible en este navegador.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
+
+            {transport === "network" && (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="network-host">IP o Hostname</Label>
+                  <Input
+                    id="network-host"
+                    value={networkHost}
+                    onChange={(e) => setNetworkHost(e.target.value)}
+                    placeholder="192.168.1.100"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="network-port">Puerto</Label>
+                  <Input
+                    id="network-port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={networkPort}
+                    onChange={(e) => setNetworkPort(Math.max(1, Math.min(65535, Number(e.target.value))))}
+                  />
+                </div>
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -471,7 +622,6 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
 // ── PrintersManager ───────────────────────────────────────────────────────────
 
 interface PrintersManagerProps {
-  /** Si viene, fuerza esa caja y oculta el selector. Usado desde el POS. */
   registerId?: string
 }
 
@@ -497,20 +647,12 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
   const [deleteTarget, setDeleteTarget] = React.useState<PrinterBinding | null>(null)
   const [testingId, setTestingId] = React.useState<string | null>(null)
 
-  async function handleRequestDevice() {
+  function handleAddPrinter() {
     if (!selectedRegisterId) {
       toast.error("Seleccioná una caja primero.")
       return
     }
-    try {
-      const device = await requestUsbPrinter()
-      setDialogMode({ type: "new", device })
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "NotAllowedError") return
-      toast.error("No se pudo acceder a la impresora.", {
-        description: err instanceof Error ? err.message : undefined,
-      })
-    }
+    setDialogMode({ type: "new" })
   }
 
   function handleSave(data: Omit<PrinterBinding, "id" | "createdAt" | "updatedAt">) {
@@ -520,7 +662,7 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
         { registerId: selectedRegisterId, ...data },
         {
           onSuccess: () => {
-            toast.success("Impresora vinculada correctamente.")
+            toast.success("Impresora agregada correctamente.")
             setDialogMode(null)
           },
           onError: (e) => toast.error(e.message),
@@ -570,6 +712,18 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
               <span className="font-medium">{b.name}</span>
             </div>
           )
+        },
+      },
+      {
+        id: "device",
+        header: "Dispositivo",
+        cell: ({ row }) => {
+          const b = row.original
+          if (b.transport === "native") return <Badge variant="outline">Sistema</Badge>
+          if (b.transport === "usb") return <Badge variant="secondary">USB: {b.deviceLabel ?? `${b.vendorId}:${b.productId}`}</Badge>
+          if (b.transport === "bluetooth") return <Badge variant="secondary">BT: {b.bluetoothDeviceId?.slice(0, 8) ?? "—"}</Badge>
+          if (b.transport === "network") return <Badge variant="secondary">Red: {b.networkHost}:{b.networkPort ?? 9100}</Badge>
+          return null
         },
       },
       {
@@ -624,17 +778,15 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
           const b = row.original
           return (
             <div className="flex gap-1">
-              {b.transport === "usb" && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={testingId === b.id}
-                  onClick={() => handlePrintTest(b)}
-                >
-                  <PrinterCheck className="size-4 mr-1.5" />
-                  {testingId === b.id ? "Imprimiendo…" : "Prueba"}
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={testingId === b.id}
+                onClick={() => handlePrintTest(b)}
+              >
+                <PrinterCheck className="size-4 mr-1.5" />
+                {testingId === b.id ? "Imprimiendo…" : "Prueba"}
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -660,23 +812,19 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
     [testingId],
   )
 
-  const webUsbOk = isWebUsbSupported()
-
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Impresoras</h1>
           <p className="text-sm text-muted-foreground">
-            Vincular impresoras térmicas por USB para tickets, comandas y facturas.
+            Administrá impresoras por caja. Cada impresora es una configuración virtual que puede conectarse por USB, Bluetooth, red o el diálogo del sistema.
           </p>
         </div>
-        {webUsbOk && (
-          <Button onClick={handleRequestDevice} disabled={!selectedRegisterId}>
-            <Printer className="size-4 mr-1.5" />
-            Vincular impresora USB
-          </Button>
-        )}
+        <Button onClick={handleAddPrinter} disabled={!selectedRegisterId}>
+          <Printer className="size-4 mr-1.5" />
+          Agregar impresora
+        </Button>
       </header>
 
       {showRegisterSelector && (
@@ -700,20 +848,11 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
         </div>
       )}
 
-      {!webUsbOk && (
-        <Alert>
-          <Printer className="size-4" />
-          <AlertDescription>
-            Tu navegador no soporta impresión directa por USB. Usá Chrome o Edge en escritorio.
-          </AlertDescription>
-        </Alert>
-      )}
-
       {!selectedRegisterId ? (
         <EmptyState
           icon={Printer}
           title="Seleccioná una caja"
-          description="Elegí una caja para ver y administrar sus impresoras vinculadas."
+          description="Elegí una caja para ver y administrar sus impresoras."
           showMarquee={false}
         />
       ) : (
@@ -727,8 +866,8 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
           emptyMessage={
             <EmptyState
               icon={Printer}
-              title="Sin impresoras vinculadas"
-              description='Hacé clic en "Vincular impresora USB" para agregar la primera.'
+              title="Sin impresoras configuradas"
+              description='Hacé clic en "Agregar impresora" para configurar la primera.'
               showMarquee={false}
             />
           }

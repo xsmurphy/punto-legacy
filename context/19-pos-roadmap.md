@@ -9,7 +9,7 @@ Lista de pendientes POS organizados por dependencia + riesgo. Origen: pedido del
 owner 2026-06-21. La ejecución se hace siempre con Sonnet (regla CLAUDE.md);
 este doc es el brief base para cada delegación.
 
-> **Estado:** plan acordado, sin ejecución. Próximo paso: arrancar Fase 1.
+> **Estado (2026-06-25):** Fases 1-5 completadas en sesión maratón. Quedan Fase 6 (UI final + Giftcard) + T4 (Anular+Devolución) + E2E Facturar cotización. Fuera del plan original se cerraron además: dual-session JWT (`_jwt_panel` + `_jwt_pos-device`), roles+permisos (RoleService, PermissionCatalog, UI /settings/roles), PWA (manifest + Serwist), offline-sync (numbering_lease + IndexedDB queue), design system canónico (`context/20-design-system.md`).
 
 ---
 

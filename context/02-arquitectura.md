@@ -111,25 +111,28 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 
 El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet". No es una sesión de usuario. El TTL largo (10 años) está justificado porque la revocación per-device ya existe vía la **tabla `device`** (migración 11, commit a3fefb4): el middleware valida `device.status` si el JWT trae claim `did`, con cache de archivo 60s en `sys_get_temp_dir/punto_device_status/{deviceId}_{companyId}.dat`. Para revocar un dispositivo individual: `UPDATE device SET status=0 WHERE deviceId=? AND companyId=?` y opcionalmente llamar `jwtInvalidateDeviceCache()`. Tokens sin `did` (legacy anterior al feat) siguen pasando (backwards compat).
 
-### Modelo de doble sesión del POS React (decisión 2026-06-16)
+### Modelo de doble sesión del POS React (IMPLEMENTADO 2026-06-25)
 
 El POS React (en `panel-next/app/(pos)/pos`) maneja **DOS sesiones independientes**:
 
-| Sesión | Cookie | Realm | Quién la cierra |
-|--------|--------|-------|----------------|
-| **Operador** | `_jwt_panel` | `panel` | "Cerrar sesión" del menú user del sidebar del panel. NO cierra la sesión del POS. |
-| **Dispositivo POS** | `_jwt_pos` (futuro F2) / hoy comparte `_jwt` | `pos-app` | ÚNICA forma: Ajustes → "Eliminar dispositivo del comercio" (llama `POST /v1/device/unpair` — TODO F2). |
+| Sesión | Cookie | Realm | TTL | Quién la cierra |
+|--------|--------|-------|-----|----------------|
+| **Operador** | `_jwt_panel` | `panel` | 24h | "Cerrar sesión" del menú user del sidebar del panel. NO cierra la sesión del POS. |
+| **Dispositivo POS** | `_jwt_pos-device` | `pos-app` + claim `did` | 10 años | ÚNICA forma: Ajustes → "Eliminar dispositivo del comercio" (`POST /v1/device/unpair`). |
+
+**Implementación completada (sprint 2026-06-25)**:
+- `app/Api/DeviceAuth.php` (PSR-4): emite `_jwt_pos-device` con claim `did` al hacer pair.
+- `apiAuthPosContext()`: middleware que lee `_jwt_pos-device` para los endpoints del POS.
+- Endpoints: `POST /v1/device/pair`, `POST /v1/device/unpair`.
+- `PosAuthGuard` React: guarda real (no depende de `_jwt_panel`), verifica `_jwt_pos-device` vía BFF.
+- `/pos-pair` page: flujo de activación de dispositivo con PIN de local.
+- PIN del cajero: SHA-256 en `localStorage` via Web Crypto API (no bcrypt — ver §42 en `08-convenciones-criticas.md`).
+- La tabla `device` (migración 11) es shared con el legacy `/app` — **no crear tabla paralela**.
 
 **Consecuencias de diseño**:
-- El lock screen del POS **NO es logout** — solo bloquea la UI hasta que se ingresa el PIN. Por eso el componente es un overlay scoped al workspace del POS (no global), no un redirect a `/login`.
+- El lock screen del POS **NO es logout** — solo bloquea la UI hasta que se ingresa el PIN. El componente es un overlay scoped al workspace del POS (no global), no un redirect a `/login`.
 - Cambiar de operador (PIN diferente) no altera el pairing del dispositivo.
-- El realm `pos-app` ya existe en backend; falta implementar la cookie `_jwt_pos` separada de `_jwt_panel` en el front (deuda F2).
-
-**TODO F2 (backend)**:
-- Separar cookie `_jwt_pos` de `_jwt_panel` en el front React del POS.
-- Endpoint `POST /v1/device/unpair` para "Eliminar dispositivo del comercio".
-- Endpoint `POST /v1/lock-screen/verify` con re-emisión de `_jwt_pos` (hoy el PIN es `STUB_PIN = "1234"`).
-- Ver lista completa en `context/10-roadmap.md § F2 — Backend pendiente del POS`.
+- El logout del sidebar del panel borra `_jwt_panel` pero NO `_jwt_pos-device`.
 
 ### SSO handoff panel→app (commit 01d02a3, 2026-06-09)
 

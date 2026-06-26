@@ -46,9 +46,10 @@ class PrinterBindingService {
             'INSERT INTO "printer_binding"
                ("id","companyId","outletId","registerId","name","color","transport",
                 "vendorId","productId","deviceLabel","mode","templateId","paperWidthMm",
-                "copies","openDrawer","autoPrint","printDelay","categoryIds","docTypes")
+                "copies","openDrawer","autoPrint","printDelay","categoryIds","docTypes",
+                bluetoothdeviceid,networkhost,networkport)
              VALUES
-               (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb)
+               (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?)
              RETURNING *',
             [
                 $this->companyId,
@@ -69,6 +70,9 @@ class PrinterBindingService {
                 $validated['printDelay'],
                 json_encode($validated['categoryIds']),
                 json_encode($validated['docTypes']),
+                $validated['bluetoothDeviceId'] ?? null,
+                $validated['networkHost'] ?? null,
+                $validated['networkPort'] ?? null,
             ],
             false, true
         );
@@ -89,6 +93,9 @@ class PrinterBindingService {
             'templateId' => '"templateId"', 'paperWidthMm' => '"paperWidthMm"',
             'copies' => '"copies"', 'openDrawer' => '"openDrawer"',
             'autoPrint' => '"autoPrint"', 'printDelay' => '"printDelay"',
+            'bluetoothDeviceId' => 'bluetoothdeviceid',
+            'networkHost'       => 'networkhost',
+            'networkPort'       => 'networkport',
         ];
         foreach ($fieldMap as $key => $col) {
             if (array_key_exists($key, $validated)) {
@@ -149,9 +156,36 @@ class PrinterBindingService {
 
         if (isset($data['transport']) || $requireAll) {
             $transport = (string)($data['transport'] ?? 'usb');
-            if (!in_array($transport, ['usb'], true))
+            if (!in_array($transport, ['usb', 'bluetooth', 'network', 'native'], true))
                 throw new \RuntimeException('transport inválido', 422);
             $out['transport'] = $transport;
+
+            // Defaults explícitos para campos de transport opcionales
+            $out['bluetoothDeviceId'] = null;
+            $out['networkHost'] = null;
+            $out['networkPort'] = null;
+
+            switch ($transport) {
+                case 'usb':
+                    break;
+                case 'bluetooth':
+                    $btId = trim((string)($data['bluetoothDeviceId'] ?? ''));
+                    if ($btId === '') throw new \RuntimeException('bluetoothDeviceId requerido para transport bluetooth', 422);
+                    $out['bluetoothDeviceId'] = $btId;
+                    break;
+                case 'network':
+                    $host = trim((string)($data['networkHost'] ?? ''));
+                    if ($host === '') throw new \RuntimeException('networkHost requerido para transport network', 422);
+                    if (!filter_var($host, FILTER_VALIDATE_IP) && !preg_match('/^[a-zA-Z0-9._-]+$/', $host))
+                        throw new \RuntimeException('networkHost inválido', 422);
+                    $port = (int)($data['networkPort'] ?? 9100);
+                    if ($port < 1 || $port > 65535) throw new \RuntimeException('networkPort debe ser 1-65535', 422);
+                    $out['networkHost'] = $host;
+                    $out['networkPort'] = $port;
+                    break;
+                case 'native':
+                    break;
+            }
         }
 
         if (isset($data['mode']) || $requireAll) {
@@ -246,6 +280,9 @@ class PrinterBindingService {
             'openDrawer'   => (bool)$get('openDrawer', 'opendrawer'),
             'autoPrint'    => (bool)$get('autoPrint', 'autoprint'),
             'printDelay'   => (int)($get('printDelay', 'printdelay') ?? 0),
+            'bluetoothDeviceId' => $get('bluetoothDeviceId', 'bluetoothdeviceid') !== null ? (string)$get('bluetoothDeviceId', 'bluetoothdeviceid') : null,
+            'networkHost'       => $get('networkHost', 'networkhost') !== null ? (string)$get('networkHost', 'networkhost') : null,
+            'networkPort'       => $get('networkPort', 'networkport') !== null ? (int)$get('networkPort', 'networkport') : null,
             'categoryIds'  => self::toIndexedArray($get('categoryIds', 'categoryids')),
             'docTypes'     => self::toIndexedArray($get('docTypes', 'doctypes')),
             'createdAt'    => (string)($get('createdAt', 'createdat') ?? ''),

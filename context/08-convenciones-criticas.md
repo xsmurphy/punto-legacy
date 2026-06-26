@@ -290,9 +290,11 @@ El browser de un operador logueado lleva **dos** cookies JWT simultáneas con pr
 | Cookie | Emite | TTL | Realm / claim `iss` | Propósito |
 |--------|-------|-----|---------------------|-----------|
 | `_jwt_panel` | `panel/includes/functions.php` | 24h | `'panel'` | Sesión del operador en el panel React |
-| `_jwt` | `app/API/auth.php` | 10 años | `'pos-app'` | Device pairing de la caja POS |
+| `_jwt_pos-device` | `app/Api/DeviceAuth.php` (PSR-4) | 10 años | `'pos-app'` + claim `did` | Device pairing de la caja POS (panel-next) |
 
-El catch-all BFF (`panel-next/app/api/v1/[...path]/route.ts`) forwardea **solo** `_jwt_panel`. Los endpoints `apiAuthTenant(['pos-app'])` leen `_jwt`. Un `POST /v1/logout` del panel borra solo `_jwt_panel` (cookie `HttpOnly`, borrado server-side); la sesión POS no se toca. Ver §28 y context/16.
+El catch-all BFF (`panel-next/app/api/v1/[...path]/route.ts`) forwardea **solo** `_jwt_panel`. Los endpoints `apiAuthTenant(['pos-app'])` leen `_jwt_pos-device`. Un `POST /v1/logout` del panel borra solo `_jwt_panel` (cookie `HttpOnly`, borrado server-side); la sesión POS no se toca. Logout del POS solo desde Ajustes → "Eliminar dispositivo del comercio". Ver §28 y context/16.
+
+**PIN del cajero (2026-06-25):** el lockscreen del POS usa SHA-256 del PIN en `localStorage`, **no bcrypt**. Razón: el PIN es identificación del cajero (quién vendió qué), no seguridad de acceso — un cajero que piratea su propio hash de PIN tiene acceso físico a la caja de todas formas. `Web Crypto API` (`crypto.subtle.digest("SHA-256", ...)`) en el cliente; comparación local sin roundtrip. No cambiar a bcrypt sin decisión explícita del owner.
 
 ---
 
@@ -366,3 +368,60 @@ Cuando `ncmExecute($db, $sql, $params, forceObj: true)` se usa para evitar el ap
 Patrón correcto de referencia: `api/lib/Reports/UsersService.php:39`.
 
 Infringir esta convención produce output vacío silencioso (ítems/asociaciones que no aparecen). Causó regresiones en dos sub-agentes durante el detalle de venta (fix 8cc54e7).
+
+---
+
+## §47 — Migraciones con índices parciales o CHECK constraints sobre la columna alterada
+
+Si una migración hace `ALTER COLUMN <col> TYPE ...` sobre una columna que tiene **índices parciales** o **CHECK constraints** que la referencian en su predicado, PG falla con `operator does not exist` al arrancar el container — el índice sigue intentando comparar el valor con el tipo antiguo.
+
+**Regla:** toda migración que cambie el tipo de una columna DEBE buscar y dropear+recrear cualquier índice parcial o CHECK que mencione esa columna en su predicado o expresión.
+
+```sql
+-- Antes del ALTER
+DROP INDEX IF EXISTS idx_contact_phone_tenant_unique;
+
+-- El ALTER
+ALTER TABLE contact ALTER COLUMN role TYPE varchar(64);
+
+-- Recrear con el tipo nuevo
+CREATE UNIQUE INDEX idx_contact_phone_tenant_unique
+  ON contact ("contactPhone", companyid)
+  WHERE type = 0
+    AND role IN ('0','1','2','7')    -- ← strings, no ints
+    AND "contactPhone" <> '';
+```
+
+Causó incidente prod 2026-06-25 (commit `14d5347`): `idx_contact_phone_tenant_unique` tenía predicado `role = ANY(ARRAY[0,1,2,7]::int[])`. El container crasheaba al arrancar → Coolify rollback silencioso → 3h de fixes backend sin deployar. **Siempre buscar con** `\d <table>` o `pg_indexes WHERE tablename=...` antes de alterar una columna.
+
+---
+
+## §48 — `getPaymentMethodName()` acepta keys de ambos sistemas
+
+La función `getPaymentMethodName(key)` en `panel-next/lib/pos/payments.ts` maneja dos formatos de keys simultáneamente — legacy (`cash`, `creditcard`, `debitcard`) y panel-next POS (`efectivo`, `tcredito`, `tdebito`) — vía tabla de aliases interna. También tiene guard para string vacío (devuelve `''` en vez de undefined).
+
+Del mismo modo, `getSingle` de payments acepta dos shapes: `{type, price, extra, UID}` (legacy) y `{name, total}` (POS panel-next). No asumir que los payments vienen en un solo formato — la BD mezcla ambos hasta que el POS legacy sea deprecado.
+
+---
+
+## §49 — Print previews: hoja blanca hardcoded (excepción al design system)
+
+Los previews de impresión (cotización, factura, recibo) usan `background: #ffffff` y texto oscuro **hardcoded**, no tokens del design system. Esto es una excepción válida documentada en `context/20-design-system.md §4.12`:
+
+- El preview debe verse igual en dark mode y light mode (simula papel físico).
+- Tokens CSS varían según el tema del usuario; un preview oscuro sobre modal oscuro es ilegible.
+- No "arreglar" esto aplicando `bg-background` o `dark:bg-gray-900` — es correcto por diseño.
+
+El patrón canónico es `className="bg-white text-gray-900 p-5"` dentro del dialog.
+
+---
+
+## §50 — Roles y permisos: `RoleService` + `PermissionCatalog` (sprint 2026-06-25)
+
+El sistema de roles vive en la tabla `taxonomy` con `type = 'role'` (metadata del rol) y `type = 'roleData'` (asignaciones usuario→rol). No hay tabla separada `role`.
+
+- **`PermissionCatalog`** (`api/lib/Auth/PermissionCatalog.php`): source of truth de los 43 permisos esenciales agrupados por módulo. Cada permiso es un string `'module.action'` (ej. `'pos.view'`, `'contacts.edit'`).
+- **`RoleService`** (`api/lib/Auth/RoleService.php`): CRUD + `getPermissions(companyId, roleId)` con cache por-request. Resuelve tanto role IDs legacy (int) como UUID.
+- **`hasPermission(user, 'module.action')`** (`panel-next/lib/auth/permissions.ts`): helper global para UI; lee `user.permissions[]` expuesto por `/v1/bootstrap`.
+- **3 seed roles por tenant** al crear empresa: `Dueño` (todos los permisos), `Encargado` (sin billing/admin), `Cajero` (pos + operación básica). Custom roles disponibles vía UI `/settings/roles`.
+- **Sidebar filtering**: el sidebar del panel filtra links por `hasPermission()`. Si `user.permissions[]` llega vacío, el sidebar queda en blanco — verificar que bootstrap exponga el array correctamente.
