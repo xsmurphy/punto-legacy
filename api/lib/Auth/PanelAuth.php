@@ -61,10 +61,9 @@ final class PanelAuth
      * cambiar de sucursal sin re-loguear), saltea la resolución por SQL.
      * Default `null` → comportamiento original (primer outlet activo).
      *
-     * `$registerIdOverride` (NUEVO 2026-06-16, A7) — caja activa del POS.
-     * El claim `rid` (que SaleService usa para numeración/asociación de la
-     * venta) arranca en '' al loguear; `/v1/active-register` lo setea tras
-     * validar que la caja pertenece a company+outlet. Default `null` → `rid=''`.
+     * `$registerIdOverride` (NUEVO 2026-06-16, A7) — reservado para firma;
+     * el rid del POS ya NO vive en el token panel (se resuelve desde la fila
+     * device en realm pos-app). Default `null` → sin efecto.
      */
     public static function issueJwt(
         array|\ArrayAccess $user,
@@ -79,10 +78,22 @@ final class PanelAuth
         // jwt.php define jwtEncode() pero no se autocarga en /api/bootstrap.
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
 
-        // deprecado: el contexto operativo ya no vive en el token panel.
+        // El contexto de sucursal (oid) se conserva en el token panel para persistir
+        // la selección entre requests (AUTHED_OUTLET_ID lo lee jwt_middleware).
+        // rid se elimina del panel: el registerId del POS viene de la fila device.
         // $outletIdOverride y $registerIdOverride se conservan en la firma para no
-        // romper callers (active-outlet.php, active-register.php), pero ya no se
-        // escriben en el token.
+        // romper callers (active-outlet.php, active-register.php).
+
+        if ($outletIdOverride !== null) {
+            $resolvedOutletId = $outletIdOverride;
+        } else {
+            // Primer outlet activo del tenant.
+            $outlet = ncmExecute(
+                'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
+                [$user['companyId']]
+            );
+            $resolvedOutletId = (string) ($outlet['outletId'] ?? '');
+        }
 
         $ttl = (int) ($_ENV['PANEL_JWT_TTL'] ?? 86400);
         $now = time();
@@ -91,6 +102,7 @@ final class PanelAuth
             'iss'  => 'panel',
             'sub'  => (string) $user['contactId'],
             'cid'  => (string) $user['companyId'],
+            'oid'  => $resolvedOutletId,
             'role' => (int) $user['role'],
             'iat'  => $now,
             'exp'  => $now + $ttl,

@@ -81,10 +81,13 @@ if (!$row) {
 }
 
 // Actualizar la fila device con la caja (y sucursal si cambió).
-ncmExecute(
+$updated = ncmExecute(
     'UPDATE device SET registerid = ?::uuid, outletid = ?::uuid WHERE deviceid = ?::uuid AND companyid = ?::uuid',
     [(string) $row['registerId'], $targetOutletId, $deviceId, COMPANY_ID]
 );
+if ($updated === false) {
+    apiError('No se pudo actualizar el dispositivo', 500);
+}
 
 apiOk([
     'registerId'   => (string) $row['registerId'],

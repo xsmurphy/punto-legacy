@@ -101,9 +101,9 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         $outletId   = (string) ($dev['outletid'] ?? '');
         $registerId = (string) ($dev['registerid'] ?? '');
     } else {
-        // Realm panel: identidad pura. El panel NO opera una caja directamente.
-        // outletId se resuelve por header X-Outlet-Id (view-scope) o first-active.
-        // deprecado: los claims oid/rid del JWT panel ya no se usan para scope
+        // Realm panel: la sucursal activa viene del claim `oid` del token (persistida
+        // por active-outlet.php). El registerId del POS ya NO vive en el token panel
+        // (rid eliminado): se resuelve desde la fila device en realm pos-app.
         $outletId   = defined('AUTHED_OUTLET_ID') ? AUTHED_OUTLET_ID : '';
         $registerId = '';
     }

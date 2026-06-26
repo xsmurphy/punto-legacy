@@ -4,7 +4,7 @@
  *
  *   POST /v1/active-outlet { outletId: "<uuid>" }
  *       → { ok: true, data: { outletId, outletName, expiresIn } }
- *       → cookie `_jwt_panel` HttpOnly reseteada con nuevo claim `oid`
+ *       → cookie `_jwt_panel` HttpOnly reseteada (oid del token se actualiza)
  *
  * Replica el "selector de sucursal" del menú user del panel legacy. El
  * front (panel-next sidebar) llama acá, el backend re-emite el JWT
