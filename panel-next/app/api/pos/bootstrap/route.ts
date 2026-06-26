@@ -132,6 +132,8 @@ interface UpstreamItemRow {
   taxId?: string | null
   categoryId?: string | null
   categoryName?: string | null
+  brandId?: string | null
+  brandName?: string | null
   coverImageUrl?: string | null
   kind?: string
 }
@@ -235,6 +237,8 @@ function reshapeItem(row: UpstreamItemRow): PosItem {
     taxId: row.taxId ?? null,
     categoryId: row.categoryId ?? null,
     categoryName: row.categoryName ?? null,
+    brandId: row.brandId ?? null,
+    brandName: row.brandName ?? null,
     imageUrl: row.coverImageUrl ?? null,
     uom: row.itemUOM ?? null,
     kind: row.kind ?? "producto",

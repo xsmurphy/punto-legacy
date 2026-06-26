@@ -241,9 +241,11 @@ function ProductResultRow({
               </span>
             )}
           </p>
-          {item.categoryName && (
+          {(item.categoryName || item.brandName) && (
             <p className="truncate text-xs text-muted-foreground">
-              › {item.categoryName}
+              {item.categoryName}
+              {item.categoryName && item.brandName && " · "}
+              {item.brandName}
             </p>
           )}
         </div>

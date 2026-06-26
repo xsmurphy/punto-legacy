@@ -71,6 +71,9 @@ export interface PosItem {
   /** Categoría principal (para la grilla de categorías del POS). */
   categoryId: string | null
   categoryName: string | null
+  /** Marca principal del item. Null si no tiene. */
+  brandId: string | null
+  brandName: string | null
   /** URL de imagen de portada. Null si no tiene. */
   imageUrl: string | null
   /** Unidad de medida (ej. "kg", "lt"). Null si no aplica. */
