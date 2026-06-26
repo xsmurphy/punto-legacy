@@ -470,11 +470,19 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
 
 // ── PrintersManager ───────────────────────────────────────────────────────────
 
-export function PrintersManager() {
+interface PrintersManagerProps {
+  /** Si viene, fuerza esa caja y oculta el selector. Usado desde el POS. */
+  registerId?: string
+}
+
+export function PrintersManager({ registerId: forcedRegisterId }: PrintersManagerProps = {}) {
   const { data: registersData } = useRegistersAdmin()
   const registers = registersData?.registers ?? []
 
-  const [selectedRegisterId, setSelectedRegisterId] = React.useState<string>("")
+  const [internalRegisterId, setInternalRegisterId] = React.useState<string>("")
+  const selectedRegisterId = forcedRegisterId ?? internalRegisterId
+  const setSelectedRegisterId = setInternalRegisterId
+  const showRegisterSelector = forcedRegisterId === undefined
 
   const { data: bindingsData, isLoading: bindingsLoading } = usePrinterBindings(
     selectedRegisterId || undefined,
@@ -669,25 +677,26 @@ export function PrintersManager() {
         )}
       </header>
 
-      {/* Selector de caja */}
-      <div className="flex flex-col gap-1.5 max-w-xs">
-        <Label htmlFor="register-selector">Caja</Label>
-        <Select value={selectedRegisterId} onValueChange={setSelectedRegisterId}>
-          <SelectTrigger id="register-selector">
-            <SelectValue placeholder="Seleccioná una caja…" />
-          </SelectTrigger>
-          <SelectContent>
-            {registers.map((r) => (
-              <SelectItem key={r.id} value={r.id}>
-                {r.name}
-                {r.outletName && (
-                  <span className="ml-1.5 text-muted-foreground text-xs">· {r.outletName}</span>
-                )}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {showRegisterSelector && (
+        <div className="flex flex-col gap-1.5 max-w-xs">
+          <Label htmlFor="register-selector">Caja</Label>
+          <Select value={selectedRegisterId} onValueChange={setSelectedRegisterId}>
+            <SelectTrigger id="register-selector">
+              <SelectValue placeholder="Seleccioná una caja…" />
+            </SelectTrigger>
+            <SelectContent>
+              {registers.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.name}
+                  {r.outletName && (
+                    <span className="ml-1.5 text-muted-foreground text-xs">· {r.outletName}</span>
+                  )}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {!webUsbOk && (
         <Alert>

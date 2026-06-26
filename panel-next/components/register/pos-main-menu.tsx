@@ -33,7 +33,6 @@ import {
   Component,
   Bell,
   SquaresIntersect,
-  Plus,
   Monitor,
   MessageCircle,
   RotateCcw,
@@ -96,6 +95,7 @@ import { toast } from "sonner"
 import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
+import { PrintersManager } from "@/components/settings/printers-manager"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -988,78 +988,18 @@ function OrdersPreview() {
 
 // ── Impresoras ────────────────────────────────────────────────────────────────
 
-/** Lista de impresoras configuradas con estado de conexión. */
 function PrintersPanel() {
-  // Mock de impresoras configuradas.
-  // TODO (backend): GET /api/v1/pos/printers
-  const impresoras: { nombre: string; config: string; conectada: boolean }[] = [
-    {
-      nombre: "Comanda",
-      config: "Ticket (Base) (Comanda) — Auto",
-      conectada: true,
-    },
-    {
-      nombre: "Ticket",
-      config: "Ticket 80mm — USB",
-      conectada: false,
-    },
-    {
-      nombre: "Resumen ticket",
-      config: "Ticket (Resumen) — Bluetooth",
-      conectada: false,
-    },
-  ]
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <p className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Impresoras configuradas
-        </p>
-
-        <div className="divide-y divide-border">
-          {impresoras.map((imp) => (
-            <div
-              key={imp.nombre}
-              className="flex items-center gap-3 px-1 py-3"
-            >
-              {/* Ícono */}
-              <Printer className="size-5 shrink-0 text-muted-foreground" />
-              {/* Info */}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">{imp.nombre}</p>
-                <p className="text-xs text-muted-foreground">{imp.config}</p>
-              </div>
-              {/* Estado */}
-              <span
-                className={cn(
-                  "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-                  imp.conectada
-                    ? "bg-green-100 text-green-700"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {imp.conectada ? "Conectada" : "No detectada"}
-              </span>
-              {/* Menú contextual (decorativo) */}
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                ···
-              </Button>
-            </div>
-          ))}
-        </div>
-
-        {/* Agregar impresora */}
-        {/* TODO (backend): abrir modal de configuración de impresora */}
-        <Button
-          variant="outline"
-          className="mt-4 w-full gap-2"
-          onClick={() => console.log("TODO (backend): agregar impresora")}
-        >
-          <Plus className="size-4" />
-          Agregar impresora
-        </Button>
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  if (!activeRegisterId) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Elegí una caja activa primero.
       </div>
+    )
+  }
+  return (
+    <div className="h-full overflow-y-auto px-6 py-6">
+      <PrintersManager registerId={activeRegisterId} />
     </div>
   )
 }
