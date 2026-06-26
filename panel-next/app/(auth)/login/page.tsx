@@ -52,6 +52,16 @@ function safeNext(next: string | null): string {
 }
 
 export default function LoginPage() {
+  // useSearchParams requiere Suspense boundary (Next 14+ prerender enforcement),
+  // sino el build falla con PRERENDER_ERROR. Inner component lo aísla.
+  return (
+    <React.Suspense fallback={null}>
+      <LoginPageInner />
+    </React.Suspense>
+  )
+}
+
+function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = safeNext(searchParams.get("next"))
