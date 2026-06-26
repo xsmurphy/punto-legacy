@@ -189,7 +189,7 @@ export default function ChatPage() {
         // ── Estado con mensajes: thread + input al pie ───────────────────────
         <>
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full space-y-4 px-2 pt-6 pb-[10px] sm:px-6 lg:px-12">
+            <div className="mx-auto w-full max-w-3xl space-y-4 px-2 pt-6 pb-[10px] sm:px-6">
               {messages.map((message) => {
                 const isUser = message.role === "user"
                 // createdAt viaja embebido en el mensaje desde la primera vez
