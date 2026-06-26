@@ -316,19 +316,14 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Color identificador</Label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="color"
-                  id="printer-color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="h-9 w-16 cursor-pointer rounded-md border border-input bg-transparent p-1"
-                />
-                <Label htmlFor="printer-color" className="text-sm text-muted-foreground">
-                  Color identificador
-                </Label>
-              </div>
+              <Label htmlFor="printer-color">Color identificador</Label>
+              <input
+                type="color"
+                id="printer-color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                className="h-9 w-16 cursor-pointer rounded-md border border-input bg-transparent p-1"
+              />
             </div>
 
             <div className="space-y-1.5">
