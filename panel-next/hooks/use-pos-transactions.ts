@@ -13,6 +13,7 @@
 
 import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
+import { api } from "@/lib/api-client"
 import type { PosTransactionListItem, PosTransactionsListResponse } from "@/lib/types/pos-transactions"
 import type { TransactionDetail } from "@/hooks/use-transactions"
 
@@ -74,13 +75,9 @@ export function usePosTransactionsList({
         if (q) qs.set("q", q)
         if (date) qs.set("date", date)
         if (type != null) qs.set("type", String(type))
-        const res = await fetch(`/api/pos/transactions?${qs.toString()}`)
-        if (!res.ok) throw new Error(`Error ${res.status}`)
-        const envelope = await res.json() as { data?: PosTransactionsListResponse } | PosTransactionsListResponse
-        const data: PosTransactionsListResponse =
-          envelope && typeof envelope === "object" && "data" in envelope && envelope.data
-            ? (envelope as { data: PosTransactionsListResponse }).data
-            : (envelope as PosTransactionsListResponse)
+        // api.get desempaqueta el envelope {ok,data} y dispatcha pos:unauthorized
+        // en 401 — el PosAuthSentinel lo captura y redirige a /pos-pair.
+        const data = await api.get<PosTransactionsListResponse>(`/api/pos/transactions?${qs.toString()}`)
 
         if (cancelled || resetRef.current !== generation) return
 
@@ -115,13 +112,8 @@ export function usePosTransactionsList({
 // ── Detalle ────────────────────────────────────────────────────────────────────
 
 async function fetchDetail(encId: string): Promise<TransactionDetail> {
-  const res = await fetch(`/api/pos/transactions/${encodeURIComponent(encId)}`)
-  if (!res.ok) throw new Error(`Error ${res.status}`)
-  const envelope = await res.json() as { data?: TransactionDetail } | TransactionDetail
-  if (envelope && typeof envelope === "object" && "data" in envelope && envelope.data) {
-    return (envelope as { data: TransactionDetail }).data
-  }
-  return envelope as TransactionDetail
+  // api.get desempaqueta el envelope {ok,data} y dispatcha pos:unauthorized en 401.
+  return api.get<TransactionDetail>(`/api/pos/transactions/${encodeURIComponent(encId)}`)
 }
 
 export function usePosTransactionDetail(encId: string | null) {
