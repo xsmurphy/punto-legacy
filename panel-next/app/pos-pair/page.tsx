@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { api } from "@/lib/api-client"
+import { getOrCreateDeviceLocalId } from "@/lib/pos/device-local-id"
 
 export default function PosPairPage() {
   const router = useRouter()
@@ -53,12 +54,19 @@ export default function PosPairPage() {
     if (!password || !outletId || !registerId) return
     setIsPending(true)
     try {
-      await api.post("/auth/pair-pos-device", {
+      const browserLocalId = getOrCreateDeviceLocalId()
+      const result = await api.post<{ deviceId: string; reused?: boolean }>("/auth/pair-pos-device", {
         password,
         outletId,
         registerId,
         deviceName: deviceName.trim() || undefined,
+        browserLocalId,
       })
+      if (result.reused) {
+        toast.success("Dispositivo re-vinculado a esta caja")
+      } else {
+        toast.success("Dispositivo vinculado")
+      }
       router.replace("/pos")
     } catch (err) {
       const e = err as { status?: number; message?: string }

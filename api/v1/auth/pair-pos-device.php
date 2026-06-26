@@ -29,6 +29,22 @@ $outletId   = trim((string) ($_POST['outletId']   ?? ''));
 $registerId = trim((string) ($_POST['registerId'] ?? ''));
 $deviceName = trim((string) ($_POST['deviceName'] ?? ''));
 
+// Leer browserLocalId — compatible con form-encoded y JSON body
+$jsonBody = [];
+$ct = strtolower(trim(explode(';', $_SERVER['CONTENT_TYPE'] ?? '')[0]));
+if ($ct === 'application/json') {
+    $jsonBody = json_decode(file_get_contents('php://input'), true) ?? [];
+}
+$browserLocalId = trim((string) ($jsonBody['browserLocalId'] ?? $_POST['browserLocalId'] ?? ''));
+// Validar UUID formato — si no pasa, ignorar
+if ($browserLocalId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $browserLocalId)) {
+    error_log('pair-pos-device: browserLocalId inválido, ignorando');
+    $browserLocalId = '';
+}
+if ($browserLocalId === '') {
+    error_log('pair-pos-device: browserLocalId no enviado, device no será idempotente');
+}
+
 if ($password === '' || $outletId === '' || $registerId === '') {
     apiError('password, outletId y registerId son requeridos', 422);
 }
@@ -75,10 +91,12 @@ $result    = DeviceAuth::issueJwt(
     USER_ID,
     $deviceName !== '' ? $deviceName : null,
     $userAgent,
+    $browserLocalId !== '' ? $browserLocalId : null,
 );
 
 apiOk([
     'deviceId'  => $result['deviceId'],
     'pairedAt'  => date('c'),
     'expiresIn' => $result['expiresIn'],
+    'reused'    => $result['reused'],
 ]);

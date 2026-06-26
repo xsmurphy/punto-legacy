@@ -23,15 +23,20 @@ final class DeviceAuth
     /**
      * Emite JWT de device, inserta en tabla `device`, setea cookie `_jwt`.
      *
-     * @return array{deviceId: string, token: string, expiresIn: int}
+     * Si `$browserLocalId` no es null/vacío y ya existe un device activo para
+     * (companyId, registerId, browserLocalId), re-emite el token del device
+     * existente en lugar de insertar uno nuevo (idempotente).
+     *
+     * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
      */
     public static function issueJwt(
         string $companyId,
         string $outletId,
         string $registerId,
         string $pairedByContactId,
-        ?string $deviceName = null,
-        ?string $userAgent  = null,
+        ?string $deviceName     = null,
+        ?string $userAgent      = null,
+        ?string $browserLocalId = null,
     ): array {
         // jwt.php no se autocarga -- cargarlo explicito (mismo patron que PanelAuth)
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
@@ -41,49 +46,88 @@ final class DeviceAuth
             throw new \RuntimeException('JWT_SECRET no configurado');
         }
 
-        // INSERT con RETURNING para obtener el UUID generado por PG
-        $row = ncmExecute(
-            'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,status)
-             VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,1)
-             RETURNING deviceid',
-            [
-                $companyId,
-                $outletId   !== '' ? $outletId   : null,
-                $registerId !== '' ? $registerId : null,
-                $pairedByContactId,
-                $deviceName ?? '',
-                $userAgent,
-                $_SERVER['REMOTE_ADDR'] ?? null,
-            ]
-        );
-
-        // ncmExecute sin forceObj retorna la primera fila. PG lowercase -> deviceid.
-        $deviceId = (string) ($row['deviceid'] ?? '');
-        if ($deviceId === '') {
-            throw new \RuntimeException('No se pudo crear el registro de device');
+        // Idempotency check: si ya existe un device activo para este browser, reusar.
+        if ($browserLocalId !== null && $browserLocalId !== '') {
+            $existing = ncmExecute(
+                'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
+                [$companyId, $registerId, $browserLocalId]
+            );
+            if ($existing) {
+                $deviceId = (string) ($existing['deviceid'] ?? '');
+                $token    = self::issueTokenAndCookie($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
+            }
         }
 
-        $now = time();
-
-        // Si jwtEncode lanza, el device queda activo sin cookie -- lo revocamos.
+        // INSERT con RETURNING para obtener el UUID generado por PG
         try {
-            $token = jwtEncode([
-                'iss'  => 'pos-app',
-                'cid'  => $companyId,
-                'oid'  => $outletId,
-                'rid'  => $registerId,
-                'did'  => $deviceId,
-                'pby'  => $pairedByContactId,
-                'iat'  => $now,
-                'exp'  => $now + self::TTL,
-            ], $secret);
-        } catch (\Throwable $e) {
-            ncmExecute(
-                'UPDATE device SET status = 0, revokedat = now() WHERE deviceid = ?::uuid AND companyid = ?::uuid',
-                [$deviceId, $companyId]
+            $row = ncmExecute(
+                'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,browserlocalid,status)
+                 VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,?,1)
+                 RETURNING deviceid',
+                [
+                    $companyId,
+                    $outletId   !== '' ? $outletId   : null,
+                    $registerId !== '' ? $registerId : null,
+                    $pairedByContactId,
+                    $deviceName ?? '',
+                    $userAgent,
+                    $_SERVER['REMOTE_ADDR'] ?? null,
+                    $browserLocalId !== '' ? $browserLocalId : null,
+                ]
             );
+
+            // ncmExecute sin forceObj retorna la primera fila. PG lowercase -> deviceid.
+            $deviceId = (string) ($row['deviceid'] ?? '');
+            if ($deviceId === '') {
+                throw new \RuntimeException('No se pudo crear el registro de device');
+            }
+
+            $token = self::issueTokenAndCookie($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+            return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => false];
+        } catch (\Throwable $e) {
+            // Race condition: otro request ganó el INSERT con el mismo browserLocalId.
+            if ($browserLocalId !== null && str_contains($e->getMessage(), 'uq_device_browser_active')) {
+                $winner = ncmExecute(
+                    'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
+                    [$companyId, $registerId, $browserLocalId]
+                );
+                if ($winner) {
+                    $deviceId = (string) ($winner['deviceid'] ?? '');
+                    $token    = self::issueTokenAndCookie($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                    return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
+                }
+            }
             throw $e;
         }
+    }
+
+    /**
+     * Emite el JWT y setea la cookie `_jwt`. Reutilizable desde los paths
+     * "nuevo device" y "device reusado" sin duplicar lógica.
+     *
+     * Si jwtEncode lanza, el device queda activo sin cookie -- el caller
+     * es responsable de decidir si revocar (solo aplica al INSERT nuevo).
+     */
+    private static function issueTokenAndCookie(
+        string $companyId,
+        string $outletId,
+        string $registerId,
+        string $deviceId,
+        string $pairedByContactId,
+        string $secret,
+    ): string {
+        $now   = time();
+        $token = jwtEncode([
+            'iss'  => 'pos-app',
+            'cid'  => $companyId,
+            'oid'  => $outletId,
+            'rid'  => $registerId,
+            'did'  => $deviceId,
+            'pby'  => $pairedByContactId,
+            'iat'  => $now,
+            'exp'  => $now + self::TTL,
+        ], $secret);
 
         $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
@@ -101,7 +145,7 @@ final class DeviceAuth
         }
         setcookie('_jwt', $token, $cookieOpts);
 
-        return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL];
+        return $token;
     }
 
     /**

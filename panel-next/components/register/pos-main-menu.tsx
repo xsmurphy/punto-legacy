@@ -90,8 +90,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
+import { clearDeviceLocalId } from "@/lib/pos/device-local-id"
 import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
@@ -1278,14 +1280,46 @@ function AjustesPanel() {
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Zona de peligro
             </p>
-            {/* TODO (backend): desasociar dispositivo del comercio — requiere confirmación */}
-            <Button
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => console.log("TODO (backend): eliminar dispositivo del comercio")}
-            >
-              Eliminar dispositivo del comercio
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                >
+                  Eliminar dispositivo del comercio
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Eliminar dispositivo del comercio</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Esta acción desvinculará este dispositivo de la caja. Tendrás que volver a parearlo para usar el POS.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch("/api/pos/revoke-this-device", { method: "POST" })
+                        if (!res.ok) {
+                          const data = await res.json().catch(() => ({}))
+                          toast.error((data as { error?: { message?: string } }).error?.message ?? "Error al eliminar el dispositivo")
+                          return
+                        }
+                        clearDeviceLocalId()
+                        window.location.href = "/pos-pair"
+                      } catch {
+                        toast.error("Error al eliminar el dispositivo")
+                      }
+                    }}
+                  >
+                    Eliminar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
 
           {/* Pantalla cliente */}
