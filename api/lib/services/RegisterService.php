@@ -118,6 +118,42 @@ final class RegisterService
     }
 
     /**
+     * Config general del POS por caja, desde register.data->'posConfig'.
+     * Blob libre de toggles; el endpoint mergea con defaults antes de devolver.
+     */
+    public function getConfig(string $registerId, string $companyId): array
+    {
+        $row = ncmExecute(
+            "SELECT data->'posConfig' AS config FROM register
+              WHERE registerId = ? AND companyId = ? LIMIT 1",
+            [$registerId, $companyId],
+            false
+        );
+        if (!$row || empty($row['config'])) {
+            return [];
+        }
+        $decoded = json_decode((string) $row['config'], true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Persiste el blob completo en register.data.posConfig (jsonb_set).
+     * El merge con el estado previo lo hace el endpoint antes de invocar esto.
+     */
+    public function saveConfig(string $registerId, string $companyId, array $config): bool
+    {
+        global $db;
+        $json = json_encode($config, JSON_UNESCAPED_UNICODE);
+        $res = $db->Execute(
+            "UPDATE register
+                SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{posConfig}', ?::jsonb, true)
+              WHERE registerId = ? AND companyId = ?",
+            [$json, $registerId, $companyId]
+        );
+        return $res !== false;
+    }
+
+    /**
      * Mayor entre el contador guardado en la caja y el último invoiceNo realmente usado
      * para $type. Corrige el bug PG del legacy getNextDocNumber()/getValue(): interpolaban
      * companyId (UUID) sin comillas en el WHERE → roto en PG. Acá va todo bindeado.
