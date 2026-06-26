@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Printer, Trash2, PrinterCheck } from "lucide-react"
+import { Check, X, Printer, Trash2, PrinterCheck, Pencil, ChevronsUpDown } from "lucide-react"
 import { toast } from "sonner"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -16,7 +16,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -33,8 +35,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
+import { cn } from "@/lib/utils"
+
+import { useDocumentTemplates } from "@/hooks/use-document-templates"
+import { useCategories } from "@/hooks/use-categories"
 
 import {
   isWebUsbSupported,
@@ -42,157 +59,452 @@ import {
   printTest,
   usePrinterBindingsStore,
   type PrinterBinding,
-  type PrinterRole,
+  type PrinterDocType,
+  type PrinterMode,
 } from "@/lib/hardware/printers"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const ROLE_LABELS: Record<PrinterRole, string> = {
-  receipt: "Ticketera",
-  kitchen: "Comandera",
-  invoice: "Factura A4",
+const DOC_TYPE_LABELS: Record<PrinterDocType, { long: string; short: string }> = {
+  receipt:  { long: "Recibo / Ticket",          short: "Recibo" },
+  quote:    { long: "Presupuesto / Cotización",  short: "Presupuesto" },
+  order:    { long: "Pedido / Comanda",          short: "Pedido" },
+  withdraw: { long: "Retiro de caja",            short: "Retiro" },
+  delivery: { long: "Remito",                    short: "Remito" },
+  closeReg: { long: "Cierre de caja",            short: "Cierre" },
+  return:   { long: "Devolución",               short: "Devolución" },
 }
 
-function toHex(n: number): string {
-  return `0x${n.toString(16).toUpperCase().padStart(4, "0")}`
+const ALL_DOC_TYPES: PrinterDocType[] = [
+  "receipt",
+  "quote",
+  "order",
+  "withdraw",
+  "delivery",
+  "closeReg",
+  "return",
+]
+
+// ── SimpleCategoriesPicker ────────────────────────────────────────────────────
+
+interface SimpleCategoriesPickerProps {
+  options: { id: string; name: string }[]
+  value: string[]
+  onChange: (next: string[]) => void
 }
 
-// ── Modal de configuración al vincular ────────────────────────────────────────
+function SimpleCategoriesPicker({ options, value, onChange }: SimpleCategoriesPickerProps) {
+  const [open, setOpen] = React.useState(false)
+  const selectedSet = React.useMemo(() => new Set(value), [value])
 
-interface ConfigDialogProps {
-  device: USBDevice | null
-  onClose: () => void
-  onSave: (opts: { label: string; role: PrinterRole; paperWidthMm: 58 | 80 }) => void
-}
-
-function ConfigDialog({ device, onClose, onSave }: ConfigDialogProps) {
-  const defaultLabel = device
-    ? device.productName?.trim() ||
-      `Impresora ${toHex(device.vendorId)}:${toHex(device.productId)}`
-    : ""
-
-  const [label, setLabel] = React.useState(defaultLabel)
-  const [role, setRole] = React.useState<PrinterRole>("receipt")
-  const [paperWidthMm, setPaperWidthMm] = React.useState<58 | 80>(80)
-
-  React.useEffect(() => {
-    if (device) {
-      setLabel(
-        device.productName?.trim() ||
-          `Impresora ${toHex(device.vendorId)}:${toHex(device.productId)}`,
-      )
-      setRole("receipt")
-      setPaperWidthMm(80)
+  const toggle = (id: string) => {
+    if (selectedSet.has(id)) {
+      onChange(value.filter((v) => v !== id))
+    } else {
+      onChange([...value, id])
     }
-  }, [device])
+  }
+
+  const optionsById = React.useMemo(
+    () => new Map(options.map((o) => [o.id, o])),
+    [options],
+  )
 
   return (
-    <Dialog open={device !== null} onOpenChange={(o) => { if (!o) onClose() }}>
+    <div className="space-y-2">
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {value.map((id) => {
+            const opt = optionsById.get(id)
+            if (!opt) return null
+            return (
+              <Badge key={id} variant="secondary" className="gap-1 pr-1">
+                {opt.name}
+                <button
+                  type="button"
+                  onClick={() => toggle(id)}
+                  className="rounded p-0.5 hover:bg-foreground/10"
+                  aria-label="Quitar"
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
+            )
+          })}
+        </div>
+      )}
+
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between font-normal"
+          >
+            <span className="truncate text-muted-foreground">
+              {value.length > 0
+                ? `${value.length} ${value.length === 1 ? "categoría seleccionada" : "categorías seleccionadas"}`
+                : "Agregar categorías…"}
+            </span>
+            <ChevronsUpDown className="size-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Buscar categoría…" />
+            <CommandList>
+              <CommandEmpty>Sin resultados.</CommandEmpty>
+              <CommandGroup>
+                {options.map((opt) => {
+                  const checked = selectedSet.has(opt.id)
+                  return (
+                    <CommandItem key={opt.id} value={opt.name} onSelect={() => toggle(opt.id)}>
+                      <div
+                        className={cn(
+                          "flex size-4 items-center justify-center rounded-sm border",
+                          checked
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-foreground/30",
+                        )}
+                      >
+                        {checked && <Check className="size-3" />}
+                      </div>
+                      <span>{opt.name}</span>
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
+// ── BindingDialog ─────────────────────────────────────────────────────────────
+
+type DialogMode =
+  | { type: "new"; device: USBDevice }
+  | { type: "edit"; binding: PrinterBinding }
+  | null
+
+interface BindingDialogProps {
+  mode: DialogMode
+  onClose: () => void
+  onSave: (data: Omit<PrinterBinding, "id" | "createdAt">) => void
+}
+
+function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
+  const { data: templatesData } = useDocumentTemplates()
+  const { data: categoriesData } = useCategories()
+
+  const [name, setName] = React.useState("")
+  const [color, setColor] = React.useState("#7bd148")
+  const [printerMode, setPrinterMode] = React.useState<PrinterMode>("escpos")
+  const [templateId, setTemplateId] = React.useState<string>("")
+  const [paperWidthMm, setPaperWidthMm] = React.useState<58 | 80>(80)
+  const [copies, setCopies] = React.useState(1)
+  const [openDrawer, setOpenDrawer] = React.useState(false)
+  const [autoPrint, setAutoPrint] = React.useState(false)
+  const [printDelay, setPrintDelay] = React.useState(0)
+  const [categoryIds, setCategoryIds] = React.useState<string[]>([])
+  const [docTypes, setDocTypes] = React.useState<PrinterDocType[]>(["receipt"])
+  const [vendorId, setVendorId] = React.useState(0)
+  const [productId, setProductId] = React.useState(0)
+  const [deviceLabel, setDeviceLabel] = React.useState("")
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!mode) return
+    setError(null)
+    if (mode.type === "new") {
+      const { device } = mode
+      setName(device.productName?.trim() || "Impresora")
+      setColor("#7bd148")
+      setPrinterMode("escpos")
+      setTemplateId("")
+      setPaperWidthMm(80)
+      setCopies(1)
+      setOpenDrawer(false)
+      setAutoPrint(false)
+      setPrintDelay(0)
+      setCategoryIds([])
+      setDocTypes(["receipt"])
+      setVendorId(device.vendorId)
+      setProductId(device.productId)
+      setDeviceLabel(device.productName?.trim() || "")
+    } else {
+      const { binding } = mode
+      setName(binding.name)
+      setColor(binding.color)
+      setPrinterMode(binding.mode)
+      setTemplateId(binding.templateId ?? "")
+      setPaperWidthMm(binding.paperWidthMm)
+      setCopies(binding.copies)
+      setOpenDrawer(binding.openDrawer)
+      setAutoPrint(binding.autoPrint)
+      setPrintDelay(binding.printDelay)
+      setCategoryIds(binding.categoryIds)
+      setDocTypes(binding.docTypes)
+      setVendorId(binding.vendorId)
+      setProductId(binding.productId)
+      setDeviceLabel(binding.deviceLabel)
+    }
+  }, [mode])
+
+  function handleSave() {
+    if (!name.trim()) {
+      setError("El nombre es obligatorio")
+      return
+    }
+    if (docTypes.length === 0) {
+      setError("Seleccioná al menos un tipo de documento")
+      return
+    }
+    if (copies < 1) {
+      setError("Las copias deben ser al menos 1")
+      return
+    }
+    setError(null)
+    onSave({
+      name: name.trim(),
+      color,
+      transport: "usb",
+      vendorId,
+      productId,
+      deviceLabel,
+      mode: printerMode,
+      templateId: templateId === "" ? null : templateId,
+      paperWidthMm,
+      copies,
+      openDrawer,
+      autoPrint,
+      printDelay,
+      categoryIds,
+      docTypes,
+    })
+  }
+
+  return (
+    <Dialog open={mode !== null} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Configurar impresora</DialogTitle>
+          <DialogTitle>
+            {mode?.type === "edit" ? "Editar impresora" : "Configurar impresora"}
+          </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="printer-label">Etiqueta</Label>
-            <Input
-              id="printer-label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Ej. Epson TM-T20III"
+        <Tabs defaultValue="general">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="behavior">Comportamiento</TabsTrigger>
+            <TabsTrigger value="categories">Categorías</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="general" className="space-y-4 pt-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="printer-name">Nombre</Label>
+              <Input
+                id="printer-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ej. Epson TM-T20III"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Color identificador</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  id="printer-color"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="h-9 w-16 cursor-pointer rounded-md border border-input bg-transparent p-1"
+                />
+                <Label htmlFor="printer-color" className="text-sm text-muted-foreground">
+                  Color identificador
+                </Label>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="printer-template">Plantilla</Label>
+              <Select value={templateId} onValueChange={setTemplateId}>
+                <SelectTrigger id="printer-template">
+                  <SelectValue placeholder="Predeterminada del sistema" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Predeterminada del sistema</SelectItem>
+                  {(templatesData?.templates ?? []).map((t) => (
+                    <SelectItem key={t.templateId} value={t.templateId}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="printer-mode">Modo</Label>
+              <Select
+                value={printerMode}
+                onValueChange={(v) => setPrinterMode(v as PrinterMode)}
+              >
+                <SelectTrigger id="printer-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="escpos">ESC/POS (térmica)</SelectItem>
+                  <SelectItem value="native">Nativa (window.print)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {printerMode === "escpos" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="printer-width">Ancho del papel</Label>
+                <Select
+                  value={String(paperWidthMm)}
+                  onValueChange={(v) => setPaperWidthMm(Number(v) as 58 | 80)}
+                >
+                  <SelectTrigger id="printer-width">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="80">80 mm</SelectItem>
+                    <SelectItem value="58">58 mm</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="printer-copies">Copias</Label>
+              <Input
+                id="printer-copies"
+                type="number"
+                min={1}
+                max={10}
+                value={copies}
+                onChange={(e) => setCopies(Math.max(1, Math.min(10, Number(e.target.value))))}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="printer-delay">Delay entre impresiones (ms)</Label>
+              <Input
+                id="printer-delay"
+                type="number"
+                min={0}
+                value={printDelay}
+                onChange={(e) => setPrintDelay(Math.max(0, Number(e.target.value)))}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="behavior" className="space-y-4 pt-4">
+            <div className="flex items-center gap-3">
+              <Switch id="auto-print" checked={autoPrint} onCheckedChange={setAutoPrint} />
+              <Label htmlFor="auto-print">Auto-imprimir al cerrar venta</Label>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch id="open-drawer" checked={openDrawer} onCheckedChange={setOpenDrawer} />
+              <Label htmlFor="open-drawer">Abrir cajón monedero al imprimir</Label>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Tipos de documento</p>
+              <p className="text-xs text-muted-foreground">Seleccioná al menos un tipo</p>
+              <div className="grid grid-cols-2 gap-2">
+                {ALL_DOC_TYPES.map((dt) => (
+                  <div key={dt} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`dt-${dt}`}
+                      checked={docTypes.includes(dt)}
+                      onCheckedChange={(checked) => {
+                        if (checked) setDocTypes((prev) => [...prev, dt])
+                        else setDocTypes((prev) => prev.filter((d) => d !== dt))
+                      }}
+                    />
+                    <Label htmlFor={`dt-${dt}`} className="text-sm font-normal">
+                      {DOC_TYPE_LABELS[dt].long}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="categories" className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Si seleccionás categorías, esta impresora solo imprimirá ítems de venta con esas
+              categorías. Útil para barra (solo tragos) o cocina (solo comida). Dejá vacío para
+              imprimir todo.
+            </p>
+            <SimpleCategoriesPicker
+              options={categoriesData?.categories ?? []}
+              value={categoryIds}
+              onChange={setCategoryIds}
             />
-          </div>
+          </TabsContent>
+        </Tabs>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="printer-role">Rol</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as PrinterRole)}>
-              <SelectTrigger id="printer-role">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="receipt">Ticketera</SelectItem>
-                <SelectItem value="kitchen">Comandera</SelectItem>
-                <SelectItem value="invoice">Factura A4</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="printer-width">Ancho del papel</Label>
-            <Select
-              value={String(paperWidthMm)}
-              onValueChange={(v) => setPaperWidthMm(Number(v) as 58 | 80)}
-            >
-              <SelectTrigger id="printer-width">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="80">80 mm</SelectItem>
-                <SelectItem value="58">58 mm</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button
-            disabled={!label.trim()}
-            onClick={() => onSave({ label: label.trim(), role, paperWidthMm })}
-          >
-            Guardar
-          </Button>
+          <Button onClick={handleSave}>Guardar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-// ── Componente principal ──────────────────────────────────────────────────────
+// ── PrintersManager ───────────────────────────────────────────────────────────
 
 export function PrintersManager() {
   const bindings = usePrinterBindingsStore((s) => s.bindings)
   const addBinding = usePrinterBindingsStore((s) => s.addBinding)
   const removeBinding = usePrinterBindingsStore((s) => s.removeBinding)
+  const updateBinding = usePrinterBindingsStore((s) => s.updateBinding)
 
-  const [pendingDevice, setPendingDevice] = React.useState<USBDevice | null>(null)
+  const [dialogMode, setDialogMode] = React.useState<DialogMode>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<PrinterBinding | null>(null)
   const [testingId, setTestingId] = React.useState<string | null>(null)
 
   async function handleRequestDevice() {
     try {
       const device = await requestUsbPrinter()
-      setPendingDevice(device)
+      setDialogMode({ type: "new", device })
     } catch (err) {
-      if (err instanceof DOMException && err.name === "NotAllowedError") {
-        // El usuario canceló el selector — no es un error real.
-        return
-      }
+      if (err instanceof DOMException && err.name === "NotAllowedError") return
       toast.error("No se pudo acceder a la impresora.", {
         description: err instanceof Error ? err.message : undefined,
       })
     }
   }
 
-  function handleSave(opts: { label: string; role: PrinterRole; paperWidthMm: 58 | 80 }) {
-    if (!pendingDevice) return
-
-    const binding: PrinterBinding = {
-      id: crypto.randomUUID(),
-      role: opts.role,
-      transport: "usb",
-      vendorId: pendingDevice.vendorId,
-      productId: pendingDevice.productId,
-      label: opts.label,
-      paperWidthMm: opts.paperWidthMm,
-      createdAt: new Date().toISOString(),
+  function handleSave(data: Omit<PrinterBinding, "id" | "createdAt">) {
+    if (!dialogMode) return
+    if (dialogMode.type === "new") {
+      addBinding({
+        ...data,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      })
+      toast.success("Impresora vinculada correctamente.")
+    } else {
+      updateBinding(dialogMode.binding.id, data)
+      toast.success("Impresora actualizada.")
     }
-    addBinding(binding)
-    setPendingDevice(null)
-    toast.success("Impresora vinculada correctamente.")
+    setDialogMode(null)
   }
 
   async function handlePrintTest(binding: PrinterBinding) {
@@ -212,30 +524,63 @@ export function PrintersManager() {
   const columns = React.useMemo<ColumnDef<PrinterBinding>[]>(
     () => [
       {
-        accessorKey: "label",
-        header: "Etiqueta",
+        accessorKey: "name",
+        header: "Nombre",
+        cell: ({ row }) => {
+          const b = row.original
+          return (
+            <div className="flex items-center">
+              <span
+                className="inline-block size-2.5 rounded-full mr-2 flex-shrink-0"
+                style={{ backgroundColor: b.color }}
+              />
+              <span className="font-medium">{b.name}</span>
+            </div>
+          )
+        },
+      },
+      {
+        id: "mode",
+        header: "Modo",
         cell: ({ row }) => (
-          <span className="font-medium">{row.original.label}</span>
+          <Badge variant={row.original.mode === "escpos" ? "secondary" : "outline"}>
+            {row.original.mode === "escpos" ? "ESC/POS" : "Nativa"}
+          </Badge>
         ),
       },
       {
-        accessorKey: "role",
-        header: "Rol",
-        cell: ({ row }) => ROLE_LABELS[row.original.role],
+        id: "docTypes",
+        header: "Documentos",
+        cell: ({ row }) =>
+          row.original.docTypes.map((dt) => DOC_TYPE_LABELS[dt].short).join(" · "),
       },
       {
-        accessorKey: "paperWidthMm",
-        header: "Ancho",
-        cell: ({ row }) => `${row.original.paperWidthMm} mm`,
+        id: "categories",
+        header: "Categorías",
+        cell: ({ row }) => {
+          const n = row.original.categoryIds.length
+          return <Badge variant="secondary">{n === 0 ? "Todas" : `${n} categ.`}</Badge>
+        },
       },
       {
-        id: "vidpid",
-        header: "VID:PID",
-        cell: ({ row }) => (
-          <span className="font-mono text-sm">
-            {toHex(row.original.vendorId)}:{toHex(row.original.productId)}
-          </span>
-        ),
+        id: "autoPrint",
+        header: "Auto",
+        cell: ({ row }) =>
+          row.original.autoPrint ? (
+            <Check className="size-4 text-green-600" />
+          ) : (
+            <X className="size-4 text-muted-foreground" />
+          ),
+      },
+      {
+        id: "openDrawer",
+        header: "Cajón",
+        cell: ({ row }) =>
+          row.original.openDrawer ? (
+            <Check className="size-4 text-green-600" />
+          ) : (
+            <X className="size-4 text-muted-foreground" />
+          ),
       },
       {
         id: "actions",
@@ -244,14 +589,24 @@ export function PrintersManager() {
           const b = row.original
           return (
             <div className="flex gap-1">
+              {b.transport === "usb" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={testingId === b.id}
+                  onClick={() => handlePrintTest(b)}
+                >
+                  <PrinterCheck className="size-4 mr-1.5" />
+                  {testingId === b.id ? "Imprimiendo…" : "Prueba"}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={testingId === b.id}
-                onClick={() => handlePrintTest(b)}
+                onClick={() => setDialogMode({ type: "edit", binding: b })}
               >
-                <PrinterCheck className="size-4 mr-1.5" />
-                {testingId === b.id ? "Imprimiendo…" : "Imprimir prueba"}
+                <Pencil className="size-4 mr-1.5" />
+                Editar
               </Button>
               <Button
                 variant="ghost"
@@ -293,65 +648,60 @@ export function PrintersManager() {
         <Alert>
           <Printer className="size-4" />
           <AlertDescription>
-            Tu navegador no soporta impresión directa por USB. Usá Chrome o Edge
-            en escritorio.
+            Tu navegador no soporta impresión directa por USB. Usá Chrome o Edge en escritorio.
           </AlertDescription>
         </Alert>
       )}
 
-      {webUsbOk && (
-        <>
-          <DataTable
-            tableId="printers"
-            columns={columns}
-            data={bindings}
-            searchPlaceholder="Buscar impresora…"
-            exportFileName={null}
-            emptyMessage={
-              <EmptyState
-                icon={Printer}
-                title="Sin impresoras vinculadas"
-                description='Hacé clic en "Vincular impresora USB" para agregar la primera.'
-                showMarquee={false}
-              />
-            }
+      <DataTable
+        tableId="printers"
+        columns={columns}
+        data={bindings}
+        searchPlaceholder="Buscar impresora…"
+        exportFileName={null}
+        emptyMessage={
+          <EmptyState
+            icon={Printer}
+            title="Sin impresoras vinculadas"
+            description='Hacé clic en "Vincular impresora USB" para agregar la primera.'
+            showMarquee={false}
           />
+        }
+      />
 
-          <ConfigDialog
-            device={pendingDevice}
-            onClose={() => setPendingDevice(null)}
-            onSave={handleSave}
-          />
+      <BindingDialog
+        mode={dialogMode}
+        onClose={() => setDialogMode(null)}
+        onSave={handleSave}
+      />
 
-          <AlertDialog
-            open={deleteTarget !== null}
-            onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Eliminar impresora</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {`¿Eliminar "${deleteTarget?.label}"? El vínculo se borrará de este dispositivo.`}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  onClick={() => {
-                    if (!deleteTarget) return
-                    removeBinding(deleteTarget.id)
-                    toast.success("Impresora eliminada.")
-                    setDeleteTarget(null)
-                  }}
-                >
-                  Eliminar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </>
-      )}
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar impresora</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`¿Eliminar "${deleteTarget?.name}"? El vínculo se borrará de este dispositivo.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!deleteTarget) return
+                removeBinding(deleteTarget.id)
+                toast.success("Impresora eliminada.")
+                setDeleteTarget(null)
+              }}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
