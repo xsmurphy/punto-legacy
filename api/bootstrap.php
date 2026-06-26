@@ -81,20 +81,34 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     }
 
     $companyId  = AUTHED_COMPANY_ID;
-    $outletId   = AUTHED_OUTLET_ID;
     $userId     = AUTHED_USER_ID;
-    $registerId = AUTHED_REGISTER_ID;
     $roleId     = AUTHED_ROLE_ID;
     $realm      = AUTHED_REALM;
+    $deviceId   = defined('AUTHED_DEVICE_ID') ? AUTHED_DEVICE_ID : '';
 
     if (!checkCompanyStatus($companyId)) {
         apiError('Company Blocked', 403);
     }
 
-    // El JWT del panel puede traer `oid` vacío (empresa sin outlet al loguear) y trae
-    // `rid` siempre vacío. data.php llama getAllOutletData(OUTLET_ID) — resolvemos el
-    // primer outlet activo (misma resolución que issueJwtPanel) ANTES de cargarlo.
-    // `rid=''` es tolerable: los endpoints del panel scopean por parámetros.
+    // Contexto operativo: la fila `device` es la fuente de verdad para pos-app.
+    // Los claims oid/rid del JWT YA NO se usan para scope (pueden estar presentes
+    // en tokens viejos, pero se ignoran — evita el drift que causaba los bugs).
+    if ($realm === 'pos-app' && $deviceId !== '') {
+        $dev = ncmExecute(
+            'SELECT outletid, registerid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
+            [$deviceId, $companyId]
+        );
+        $outletId   = (string) ($dev['outletid'] ?? '');
+        $registerId = (string) ($dev['registerid'] ?? '');
+    } else {
+        // Realm panel: identidad pura. El panel NO opera una caja directamente.
+        // outletId se resuelve por header X-Outlet-Id (view-scope) o first-active.
+        // deprecado: los claims oid/rid del JWT panel ya no se usan para scope
+        $outletId   = defined('AUTHED_OUTLET_ID') ? AUTHED_OUTLET_ID : '';
+        $registerId = '';
+    }
+
+    // Fallback: primer outlet activo (aplica a ambos realms cuando outlet queda vacío).
     if ($outletId === '') {
         $row = ncmExecute(
             'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',

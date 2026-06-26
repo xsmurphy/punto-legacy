@@ -79,17 +79,10 @@ final class PanelAuth
         // jwt.php define jwtEncode() pero no se autocarga en /api/bootstrap.
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
 
-        if ($outletIdOverride !== null) {
-            $resolvedOutletId = $outletIdOverride;
-        } else {
-            // Resolver primer outlet activo del tenant para el claim `oid`.
-            // Mismo SQL que issueJwtPanel del legacy.
-            $outlet = ncmExecute(
-                'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
-                [$user['companyId']]
-            );
-            $resolvedOutletId = (string) ($outlet['outletId'] ?? '');
-        }
+        // deprecado: el contexto operativo ya no vive en el token panel.
+        // $outletIdOverride y $registerIdOverride se conservan en la firma para no
+        // romper callers (active-outlet.php, active-register.php), pero ya no se
+        // escriben en el token.
 
         $ttl = (int) ($_ENV['PANEL_JWT_TTL'] ?? 86400);
         $now = time();
@@ -98,8 +91,6 @@ final class PanelAuth
             'iss'  => 'panel',
             'sub'  => (string) $user['contactId'],
             'cid'  => (string) $user['companyId'],
-            'oid'  => $resolvedOutletId,
-            'rid'  => $registerIdOverride ?? '',
             'role' => (int) $user['role'],
             'iat'  => $now,
             'exp'  => $now + $ttl,
