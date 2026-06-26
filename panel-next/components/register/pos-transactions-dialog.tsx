@@ -9,7 +9,7 @@
  */
 
 import * as React from "react"
-import { CalendarIcon, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
+import { CalendarIcon, ChevronLeft, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -159,30 +159,39 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
         <DialogHeader className="px-6 pt-6 pb-3 border-b">
           <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
         </DialogHeader>
-        {/* Contenido scrollable con alto máximo para no superar el viewport */}
-        <div className="grid grid-cols-[1fr_1.2fr] max-h-[80vh] min-h-0">
-          <TransactionList
-            items={flat}
-            isFetching={isFetching}
-            hasMore={hasMore}
-            error={error}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onFetchNext={fetchNextPage}
-            searchInput={searchInput}
-            onSearchChange={setSearchInput}
-            selectedDate={selectedDate}
-            calendarOpen={calendarOpen}
-            onCalendarOpenChange={setCalendarOpen}
-            onDateChange={(d) => {
-              setSelectedDate(d)
-              setCalendarOpen(false)
-            }}
-            onDateClear={() => setSelectedDate(undefined)}
-            typeFilter={typeFilter}
-            onTypeFilterChange={setTypeFilter}
-          />
-          <TransactionDetail encId={selectedId} onClose={handleClose} />
+        {/* Mobile: 1 columna, navega entre lista <-> detalle según selectedId.
+            Desktop (>=md): split 2-col clásico. */}
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1.2fr] max-h-[90vh] md:max-h-[80vh] min-h-0">
+          <div className={cn("min-h-0", selectedId ? "hidden md:flex md:flex-col" : "flex flex-col")}>
+            <TransactionList
+              items={flat}
+              isFetching={isFetching}
+              hasMore={hasMore}
+              error={error}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onFetchNext={fetchNextPage}
+              searchInput={searchInput}
+              onSearchChange={setSearchInput}
+              selectedDate={selectedDate}
+              calendarOpen={calendarOpen}
+              onCalendarOpenChange={setCalendarOpen}
+              onDateChange={(d) => {
+                setSelectedDate(d)
+                setCalendarOpen(false)
+              }}
+              onDateClear={() => setSelectedDate(undefined)}
+              typeFilter={typeFilter}
+              onTypeFilterChange={setTypeFilter}
+            />
+          </div>
+          <div className={cn("min-h-0", selectedId ? "flex flex-col" : "hidden md:flex md:flex-col")}>
+            <TransactionDetail
+              encId={selectedId}
+              onClose={handleClose}
+              onBack={() => setSelectedId(null)}
+            />
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -423,7 +432,15 @@ function getPrimaryAction(typeNum: number, debt: number): {
   return { label: "Duplicar", action: "duplicate", disabled: false }
 }
 
-function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: () => void }) {
+function TransactionDetail({
+  encId,
+  onClose,
+  onBack,
+}: {
+  encId: string | null
+  onClose: () => void
+  onBack?: () => void
+}) {
   const { data: detail, isLoading } = usePosTransactionDetail(encId)
   const config = useCatalogStore((s) => s.config)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
@@ -436,7 +453,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
 
   if (!encId) {
     return (
-      <div className="flex items-center justify-center h-full border-l">
+      <div className="flex items-center justify-center h-full md:border-l">
         <EmptyState
           icon={Receipt}
           title="Seleccioná una transacción"
@@ -448,7 +465,7 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
 
   if (isLoading || !detail) {
     return (
-      <div className="flex flex-col gap-4 p-6 border-l overflow-y-auto">
+      <div className="flex flex-col gap-4 p-6 md:border-l overflow-y-auto">
         <Skeleton className="h-6 w-1/3" />
         <Skeleton className="h-4 w-1/2" />
         <Skeleton className="h-32 w-full" />
@@ -584,7 +601,15 @@ function TransactionDetail({ encId, onClose }: { encId: string | null; onClose: 
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-full min-h-0 border-l overflow-hidden">
+      <div className="flex flex-col h-full min-h-0 md:border-l overflow-hidden">
+        {onBack && (
+          <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b">
+            <Button variant="ghost" size="sm" onClick={onBack} className="gap-1.5">
+              <ChevronLeft className="size-4" />
+              Volver
+            </Button>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-5">
 
           {/* ── Header: cliente + monto top-right + split button ─────────── */}
