@@ -35,6 +35,7 @@ export function LockScreen() {
   const setActiveUser = useLockStore((s) => s.setActiveUser)
   const outletName = useCatalogStore((s) => s.outlet?.name)
   const users = useCatalogStore((s) => s.users)
+  const catalogStatus = useCatalogStore((s) => s.status)
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -129,13 +130,29 @@ export function LockScreen() {
   }, [pin, unlock, users])
 
   // Escape hatch (P1): si ningún user tiene pinhash configurado, el lock screen
-  // se convierte en un deadlock permanente (no hay PIN que comparar).
-  // Esto ocurre cuando: (a) el store degradó a users=[] por un 5xx upstream,
-  // (b) el tenant nunca configuró PINs. En ese caso, desbloqueamos sin PIN
-  // para no dejar la caja inutilizable offline.
-  const noPinsConfigured = users.length === 0 || users.every((u) => !u.pinhash)
+  // se convierte en un deadlock permanente (no hay PIN que comparar). Solo aplica
+  // cuando el catálogo ya terminó de hidratar (`ready` o `error`); mientras
+  // `idle`/`loading`, users=[] es transitorio y mostrar el aviso seria un falso
+  // positivo (el bootstrap aun no llego).
+  const catalogSettled = catalogStatus === "ready" || catalogStatus === "error"
+  const noPinsConfigured = catalogSettled && (users.length === 0 || users.every((u) => !u.pinhash))
 
   if (!locked) return null
+
+  // Mientras el catálogo carga, evitar render del lock real (compara contra
+  // users=[]) y del aviso de "no hay PINs" (falso positivo). Spinner mínimo.
+  if (!catalogSettled) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Cargando"
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background"
+      >
+        <PuntoLogo variant="mark" className="size-[35px] animate-pulse" />
+      </div>
+    )
+  }
 
   // Si no hay hashes: mostrar aviso + botón de recarga en vez del lock real.
   if (noPinsConfigured) {
