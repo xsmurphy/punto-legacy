@@ -392,8 +392,8 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="escpos">ESC/POS (térmica)</SelectItem>
-                  <SelectItem value="native">Nativa (window.print)</SelectItem>
+                  <SelectItem value="escpos">Impresora térmica</SelectItem>
+                  <SelectItem value="native">Diálogo del navegador</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -508,7 +508,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
             {transport === "native" && (
               <Alert>
                 <AlertDescription>
-                  Usará el diálogo de impresión del navegador (window.print / AirPrint). Útil para A4, cotizaciones e impresoras del sistema.
+                  Usará el diálogo de impresión del navegador. Útil para hojas A4, cotizaciones e impresoras instaladas en el sistema operativo.
                 </AlertDescription>
               </Alert>
             )}
@@ -747,7 +747,7 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
         header: "Modo",
         cell: ({ row }) => (
           <Badge variant={row.original.mode === "escpos" ? "secondary" : "outline"}>
-            {row.original.mode === "escpos" ? "ESC/POS" : "Nativa"}
+            {row.original.mode === "escpos" ? "Térmica" : "Navegador"}
           </Badge>
         ),
       },

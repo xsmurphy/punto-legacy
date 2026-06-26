@@ -773,7 +773,7 @@ function PayPhase({
           onKeyDown={onKeyDown}
           placeholder={placeholderText}
           className={cn(
-            "w-full bg-transparent text-center tabular-nums outline-none",
+            "w-full bg-transparent text-center tabular-nums outline-none caret-transparent",
             "text-5xl font-black text-foreground",
             // Placeholder muestra el remaining con el mismo estilo que el texto
             // tipeado — visualmente es un solo visor (no parece un campo vacío)
