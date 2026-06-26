@@ -522,6 +522,16 @@ Reglas de invoice detail:
 - NO iconos en el detalle
 - NO totals block right-aligned separado
 
+**Excepción — preview de documento imprimible (cotización/factura PDF):** el
+preview de un documento que se va a imprimir (`QuotePrintView`) se renderiza como
+una **hoja de papel blanca** (`background: #ffffff`, texto oscuro, sombra) DENTRO
+del dialog oscuro. Esto es intencional y NO viola la regla de hex/tokens: el
+preview representa el papel físico, igual que invoice previews de Stripe/QuickBooks.
+El bloque usa hex hardcoded a propósito (debe verse idéntico en light/dark y en
+papel) y un `@media print` que le quita sombra/bordes. NO "arreglar" esto
+convirtiéndolo a tokens semánticos — quedaría ilegible (texto oscuro sobre dialog
+oscuro). Ver `components/domain/transactions/quote-print-view.tsx`.
+
 ### 4.13 Empty states
 
 Usar `<EmptyState>` de `@/components/empty-state`:

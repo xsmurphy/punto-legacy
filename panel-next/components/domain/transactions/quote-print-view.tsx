@@ -68,16 +68,22 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
         @media print {
           body * { visibility: hidden !important; }
           .quote-print-view, .quote-print-view * { visibility: visible !important; }
-          .quote-print-view { position: absolute; inset: 0; padding: 24mm 20mm; }
+          .quote-print-view { position: absolute; inset: 0; padding: 24mm 20mm; box-shadow: none; border-radius: 0; }
           .print-hidden { display: none !important; }
         }
+        /* En pantalla el preview es una HOJA DE PAPEL blanca — representa el
+           documento impreso. Esto es intencional y consistente en light/dark
+           mode (igual que invoice previews de Stripe/QuickBooks). El @media print
+           le quita sombra/bordes para el papel real. */
         .quote-print-view {
           font-family: system-ui, -apple-system, sans-serif;
           font-size: 14px;
           color: #1a1a1a;
+          background: #ffffff;
           max-width: 210mm;
           margin: 0 auto;
-          padding: 16px;
+          padding: 32px 36px;
+          border-radius: 10px;
         }
         .quote-print-view table {
           width: 100%;
