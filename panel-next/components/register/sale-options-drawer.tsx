@@ -55,6 +55,7 @@ import {
 import { cn } from "@/lib/utils"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
+import { useCatalogStore } from "@/lib/catalog/store"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { useTags } from "@/hooks/use-tags"
@@ -62,8 +63,7 @@ import { useSaveParkedSale } from "@/hooks/use-parked-sales"
 import { toast } from "sonner"
 import { createQuote } from "@/lib/commands/create-quote"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
-import { useTransaction } from "@/hooks/use-transactions"
-import { useQueryClient } from "@tanstack/react-query"
+import type { TransactionDetail } from "@/hooks/use-transactions"
 import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -90,13 +90,15 @@ export function SaleOptionsDrawer({
   const setDiscountPadMode = usePosUIStore((s) => s.setDiscountPadMode)
 
   const [activeDialog, setActiveDialog] = React.useState<ActiveDialog>(null)
-  const [quotePrintTxId, setQuotePrintTxId] = React.useState<string | null>(null)
+  // El preview de cotización se construye desde el snapshot del carrito (no se
+  // re-fetchea por id): acabamos de guardar la cotización con estos datos, así
+  // que no dependemos del round-trip ni de la encriptación del id devuelto.
+  const [quotePrintTx, setQuotePrintTx] = React.useState<TransactionDetail | null>(null)
   const [isSavingQuote, setIsSavingQuote] = React.useState(false)
   const [showSaveTitleDialog, setShowSaveTitleDialog] = React.useState(false)
   const [saveTitle, setSaveTitle] = React.useState("")
 
-  const qc = useQueryClient()
-  const { data: quoteTx, isLoading: quoteTxLoading } = useTransaction(quotePrintTxId)
+  const config = useCatalogStore((s) => s.config)
 
   // Selectors for icon active state.
   const note = useCartStore((s) => s.note)
@@ -135,10 +137,44 @@ export function SaleOptionsDrawer({
     setIsSavingQuote(true)
     try {
       const result = await createQuote({ lines, customer, userId: null, note: cartNote, tags })
+
+      // Construir el preview desde el snapshot del carrito ANTES de limpiarlo.
+      // Mismo cálculo que createQuote (total línea = qty * unitPrice, sin aplicar
+      // descuento de línea — paridad con lo que el backend persiste) para que el
+      // preview refleje exactamente la cotización guardada.
+      const previewTotal = lines.reduce((s, l) => s + l.qty * l.unitPrice, 0)
+      const previewTx: TransactionDetail = {
+        transactionId: result.transactionId,
+        customerId: customer?.id ?? "",
+        customerName: customer?.name ?? "",
+        name: "Quote",
+        type: "9",
+        status: "1",
+        date: new Date().toISOString().slice(0, 19).replace("T", " "),
+        documentNo: String(result.transactionNo),
+        invoicePrefix: "PRES",
+        total: String(previewTotal),
+        discount: "0",
+        note: cartNote ?? "",
+        tags: "",
+        transactionDatas: lines.map((l) => ({
+          itemId: l.itemId,
+          name: l.name,
+          count: l.qty,
+          price: l.unitPrice,
+          total: l.qty * l.unitPrice,
+          discount: 0,
+          totalDiscount: 0,
+          note: l.note ?? "",
+          sku: "",
+          status: 1,
+        })),
+        pMethods: [],
+      }
+
       useCartStore.getState().clear()
       toast.success(`Cotización #${result.transactionNo} guardada`)
-      setQuotePrintTxId(result.transactionId)
-      qc.invalidateQueries({ queryKey: ["pos-transaction", result.transactionId] })
+      setQuotePrintTx(previewTx)
     } catch (e) {
       toast.error("No se pudo guardar la cotización", {
         description: e instanceof Error ? e.message : String(e),
@@ -338,13 +374,12 @@ export function SaleOptionsDrawer({
 
       <TagsDialog open={activeDialog === "tags"} onClose={closeDialog} />
 
-      {quotePrintTxId && (
+      {quotePrintTx && (
         <QuotePrintViewDialog
-          tx={quoteTx ?? null}
-          config={null}
-          open={Boolean(quotePrintTxId)}
-          onOpenChange={(v) => { if (!v) setQuotePrintTxId(null) }}
-          isLoading={quoteTxLoading}
+          tx={quotePrintTx}
+          config={config}
+          open={Boolean(quotePrintTx)}
+          onOpenChange={(v) => { if (!v) setQuotePrintTx(null) }}
         />
       )}
 

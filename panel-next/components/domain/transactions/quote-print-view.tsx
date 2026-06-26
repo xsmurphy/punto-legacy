@@ -35,7 +35,7 @@ export function QuotePrintViewDialog({ tx, config, open, onOpenChange, isLoading
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-end gap-2 print:hidden">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cerrar
@@ -148,14 +148,14 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
           </div>
         </div>
 
-        {tx.name && (
-          <div style={{ marginBottom: 20, padding: "12px 16px", background: "#f9fafb", borderRadius: 6 }}>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Cliente
-            </p>
-            <p style={{ margin: "4px 0 0", fontWeight: 600, fontSize: 15 }}>{tx.name}</p>
-          </div>
-        )}
+        <div style={{ marginBottom: 20, padding: "12px 16px", background: "#f9fafb", borderRadius: 6 }}>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            Cliente
+          </p>
+          <p style={{ margin: "4px 0 0", fontWeight: 600, fontSize: 15 }}>
+            {tx.customerName?.trim() || "Sin cliente"}
+          </p>
+        </div>
 
         <table>
           <thead>
