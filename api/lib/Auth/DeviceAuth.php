@@ -118,11 +118,12 @@ final class DeviceAuth
         string $secret,
     ): string {
         $now   = time();
+        // oid/rid se omiten del token: se resuelven desde la fila device en cada request.
+        // Los parámetros $outletId/$registerId de la firma se conservan para el
+        // INSERT/UPDATE de la fila device (no se tocan abajo).
         $token = jwtEncode([
             'iss'  => 'pos-app',
             'cid'  => $companyId,
-            'oid'  => $outletId,
-            'rid'  => $registerId,
             'did'  => $deviceId,
             'pby'  => $pairedByContactId,
             'iat'  => $now,
