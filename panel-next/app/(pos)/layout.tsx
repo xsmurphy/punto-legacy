@@ -5,6 +5,7 @@ import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
 import { PosSidebar } from "@/components/layout/pos-sidebar"
 import { InstallPrompt } from "@/components/pos/install-prompt"
 import { PosConfigSync } from "@/lib/pos/config-sync"
+import { PosAuthSentinel } from "@/components/layout/pos-auth-sentinel"
 
 /**
  * Layout del POS — auth via _jwt (device cookie, 10 años), NO _jwt_panel.
@@ -20,6 +21,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
     <PosSidebarProvider>
       <PosAuthGuard>
         <PosConfigSync />
+        <PosAuthSentinel />
         <PosSidebar />
         <SidebarInset className="h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
           <SidebarTrigger className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
