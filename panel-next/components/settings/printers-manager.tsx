@@ -359,12 +359,15 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
 
             <div className="space-y-1.5">
               <Label htmlFor="printer-template">Plantilla</Label>
-              <Select value={templateId} onValueChange={setTemplateId}>
+              <Select
+                value={templateId === "" ? "__none__" : templateId}
+                onValueChange={(v) => setTemplateId(v === "__none__" ? "" : v)}
+              >
                 <SelectTrigger id="printer-template">
                   <SelectValue placeholder="Predeterminada del sistema" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Predeterminada del sistema</SelectItem>
+                  <SelectItem value="__none__">Predeterminada del sistema</SelectItem>
                   {(templatesData?.templates ?? []).map((t) => (
                     <SelectItem key={t.templateId} value={t.templateId}>
                       {t.name}
