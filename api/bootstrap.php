@@ -95,11 +95,19 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // en tokens viejos, pero se ignoran — evita el drift que causaba los bugs).
     if ($realm === 'pos-app' && $deviceId !== '') {
         $dev = ncmExecute(
-            'SELECT outletid, registerid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
+            'SELECT outletid, registerid, userid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
             [$deviceId, $companyId]
         );
         $outletId   = (string) ($dev['outletid'] ?? '');
         $registerId = (string) ($dev['registerid'] ?? '');
+        // userId del realm pos-app: el token device NO tiene claim `sub`, así que
+        // AUTHED_USER_ID queda vacío. La identidad operativa es el contacto que
+        // pareó el device (device.userid) — misma fuente que DeviceAuth::validateJwt.
+        // Sin esto, TenantContext::fromAuth lanza "userId no puede ser vacío" → 500
+        // → 502 en /api/pos/bootstrap (incidente 2026-06-27).
+        if ($userId === '') {
+            $userId = (string) ($dev['userid'] ?? '');
+        }
     } else {
         // Realm panel: la sucursal activa viene del claim `oid` del token (persistida
         // por active-outlet.php). El registerId del POS ya NO vive en el token panel
