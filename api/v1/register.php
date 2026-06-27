@@ -27,12 +27,10 @@ $svc        = new RegisterService(TenantContext::fromAuth($ctx));
 $method     = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource   = (string) ($_GET['resource'] ?? '');
 
-// GET ?resource=listAll — lista todas las cajas del tenant (admin panel)
-// Solo realm panel: el POS no necesita ver todas las cajas del tenant.
+// GET ?resource=listAll — lista todas las cajas del tenant.
+// Multi-realm: el panel admin lo usa para CRUD; el POS lo usa para que el
+// cajero pueda elegir otra caja/sucursal desde Ajustes (sin pasar por admin).
 if ($method === 'GET' && $resource === 'listAll') {
-    if (!in_array($ctx['realm'] ?? '', ['panel'], true)) {
-        apiError('No autorizado', 403);
-    }
     $adminSvc = new RegisterAdminService($companyId);
     apiOk(['registers' => $adminSvc->listAll()]);
 }

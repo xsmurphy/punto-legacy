@@ -94,6 +94,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
+import { useOutlets } from "@/hooks/use-outlets"
+import { useRegistersAdmin } from "@/hooks/use-registers-admin"
+import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
 import { PrintersManager } from "@/components/settings/printers-manager"
@@ -1108,6 +1111,110 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
   { key: "modoSoloOrdenes", label: "Modo: solo órdenes" },
 ]
 
+/**
+ * Selectores de sucursal+caja del device actual.
+ *
+ * El admin pre-elige estos valores al generar el link de invitación, pero el
+ * cajero puede moverse entre cajas del tenant desde Ajustes sin pedir un link
+ * nuevo. UPDATE en la fila device → invalidate del bootstrap → catalog store
+ * se re-hidrata con el contexto nuevo.
+ */
+function DeviceContextSelectors() {
+  const activeOutletId = useCatalogStore((s) => s.outlet?.id ?? "")
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+
+  const { data: outletsData } = useOutlets()
+  const { data: registersData } = useRegistersAdmin()
+  const updateContext = useUpdateDeviceContext()
+
+  const [pendingOutletId, setPendingOutletId] = React.useState<string>("")
+  const effectiveOutletId = pendingOutletId || activeOutletId
+
+  const outlets = outletsData?.rows ?? []
+  const registersOfOutlet = (registersData?.registers ?? []).filter(
+    (r) => r.outletId === effectiveOutletId && r.status,
+  )
+
+  function handleOutletChange(newOutletId: string) {
+    if (newOutletId === activeOutletId) {
+      setPendingOutletId("")
+      return
+    }
+    // No commiteamos al server hasta que elija una caja del outlet nuevo
+    // (el endpoint exige registerId — sucursal sola no se puede).
+    setPendingOutletId(newOutletId)
+  }
+
+  function handleRegisterChange(newRegisterId: string) {
+    const targetOutletId = pendingOutletId || activeOutletId
+    if (!targetOutletId) return
+    if (newRegisterId === activeRegisterId && !pendingOutletId) return
+
+    updateContext.mutate(
+      pendingOutletId
+        ? { registerId: newRegisterId, outletId: targetOutletId }
+        : { registerId: newRegisterId },
+      {
+        onSuccess: () => {
+          toast.success("Contexto actualizado")
+          setPendingOutletId("")
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  }
+
+  const disabled = updateContext.isPending
+
+  return (
+    <>
+      <div className="flex items-center gap-3">
+        <label className="w-48 shrink-0 text-sm text-muted-foreground">
+          Sucursal
+        </label>
+        <Select
+          value={effectiveOutletId}
+          onValueChange={handleOutletChange}
+          disabled={disabled}
+        >
+          <SelectTrigger className="flex-1">
+            <SelectValue placeholder="Sin seleccionar" />
+          </SelectTrigger>
+          <SelectContent>
+            {outlets.map((o) => (
+              <SelectItem key={o.id} value={o.id}>
+                {o.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <label className="w-48 shrink-0 text-sm text-muted-foreground">
+          Caja
+        </label>
+        <Select
+          value={pendingOutletId ? "" : activeRegisterId}
+          onValueChange={handleRegisterChange}
+          disabled={disabled || registersOfOutlet.length === 0}
+        >
+          <SelectTrigger className="flex-1">
+            <SelectValue placeholder={pendingOutletId ? "Elegí una caja para confirmar" : "Sin seleccionar"} />
+          </SelectTrigger>
+          <SelectContent>
+            {registersOfOutlet.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </>
+  )
+}
+
 function AjustesPanel() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data, isLoading } = usePosRegisterConfig(activeRegisterId)
@@ -1162,37 +1269,8 @@ function AjustesPanel() {
             </p>
             <div className="space-y-3">
 
-              {/* Sucursal */}
-              {/* TODO (backend): cargar outlets del tenant */}
-              <div className="flex items-center gap-3">
-                <label className="w-48 shrink-0 text-sm text-muted-foreground">
-                  Sucursal
-                </label>
-                <Select defaultValue="central">
-                  <SelectTrigger className="flex-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="central">Central</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <DeviceContextSelectors />
 
-              {/* Caja */}
-              {/* TODO (backend): cargar cajas del outlet */}
-              <div className="flex items-center gap-3">
-                <label className="w-48 shrink-0 text-sm text-muted-foreground">
-                  Caja
-                </label>
-                <Select defaultValue="principal">
-                  <SelectTrigger className="flex-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="principal">Caja Principal</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
 
               {/* Próxima numeración */}
               {/* TODO (backend): GET /api/v1/pos/register/next-seq */}
