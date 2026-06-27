@@ -33,7 +33,6 @@ import {
   Component,
   Bell,
   SquaresIntersect,
-  Monitor,
   MessageCircle,
   type LucideIcon,
 } from "lucide-react"
@@ -75,12 +74,6 @@ import {
   useDrawerExpense,
   useDrawerIncome,
 } from "@/hooks/use-drawer"
-import { Label } from "@/components/ui/label"
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,7 +86,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
-import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
 import { useOutlets } from "@/hooks/use-outlets"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
@@ -1366,167 +1358,8 @@ function AjustesPanel() {
             </AlertDialog>
           </div>
 
-          {/* Pantalla cliente */}
-          <div>
-            <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Pantalla cliente
-            </p>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Conectá una pantalla externa para que el cliente vea el carrito en tiempo real.
-            </p>
-            <ClientScreenSection />
-          </div>
         </div>
       </div>
     </div>
-  )
-}
-
-function ClientScreenSection() {
-  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const { data } = useScreens()
-  const pairScreen = usePairScreen()
-  const revokeScreen = useRevokeScreen()
-
-  const screens = (data?.screens ?? []).filter(
-    (s) => s.status === 1 && s.registerId === activeRegisterId,
-  )
-
-  const [connectOpen, setConnectOpen] = React.useState(false)
-  const [name, setName] = React.useState("")
-  const [pin, setPin] = React.useState("")
-  const [revokeId, setRevokeId] = React.useState<string | null>(null)
-
-  function handleConnect() {
-    if (!name.trim() || pin.length !== 6) return
-    pairScreen.mutate(
-      { pin, name: name.trim() },
-      {
-        onSuccess: () => {
-          toast.success("Pantalla conectada")
-          setConnectOpen(false)
-          setName("")
-          setPin("")
-        },
-        onError: (err) => {
-          if (err.message.includes("404") || err.message.toLowerCase().includes("pin")) {
-            toast.error("PIN inválido o expirado")
-          } else {
-            toast.error(err.message)
-          }
-        },
-      },
-    )
-  }
-
-  function niceDate(iso: string | null) {
-    if (!iso) return "—"
-    const d = new Date(iso)
-    return new Intl.DateTimeFormat("es", {
-      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-    }).format(d)
-  }
-
-  return (
-    <>
-      {screens.length === 0 ? (
-        <p className="text-xs text-muted-foreground mb-3">Sin pantallas conectadas.</p>
-      ) : (
-        <div className="divide-y divide-border mb-3">
-          {screens.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 py-2.5 px-1">
-              <Monitor className="size-4 shrink-0 text-muted-foreground" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{s.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  Visto {niceDate(s.lastSeenAt)}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive text-xs"
-                onClick={() => setRevokeId(s.id)}
-              >
-                Desconectar
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-      <Button variant="outline" size="sm" className="w-full" onClick={() => setConnectOpen(true)}>
-        Conectar pantalla nueva
-      </Button>
-
-      <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Conectar pantalla cliente</DialogTitle>
-            <DialogDescription>
-              Abrí <span className="font-mono text-foreground">app.punto.la/checkout</span> en la
-              pantalla del cliente e ingresá el PIN que aparece ahí.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="screen-name">Nombre de la pantalla</Label>
-              <Input
-                id="screen-name"
-                placeholder="Mostrador 1"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>PIN de 6 dígitos</Label>
-              <InputOTP maxLength={6} value={pin} onChange={setPin}>
-                <InputOTPGroup>
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <InputOTPSlot key={i} index={i} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setConnectOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              disabled={!name.trim() || pin.length !== 6 || pairScreen.isPending}
-              onClick={handleConnect}
-            >
-              {pairScreen.isPending ? "Conectando..." : "Conectar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={revokeId !== null} onOpenChange={(o) => { if (!o) setRevokeId(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Desconectar pantalla</AlertDialogTitle>
-            <AlertDialogDescription>
-              La pantalla dejará de mostrar el carrito. Esta acción no se puede deshacer.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (!revokeId) return
-                revokeScreen.mutate(revokeId, {
-                  onSuccess: () => { toast.success("Pantalla desconectada"); setRevokeId(null) },
-                  onError: (err) => { toast.error(err.message) },
-                })
-              }}
-            >
-              Desconectar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
   )
 }
