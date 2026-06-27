@@ -128,6 +128,7 @@ export function GiftcardValidationDialog({
                 placeholder="Ej. GC-1234-5678"
                 autoComplete="off"
                 disabled={validating}
+                className="h-14 text-2xl tabular-nums text-center"
               />
               <Button
                 variant="outline"

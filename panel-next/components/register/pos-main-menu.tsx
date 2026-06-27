@@ -65,7 +65,8 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { useAgentChatStore } from "@/lib/agent/store"
 import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
-import { MoneyInput } from "@/components/ui/money-input"
+import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
+import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
 import {
   useDrawerStatus,
@@ -539,32 +540,33 @@ function ControlDeCajaPanel() {
   // Estado local del modal de monto (abre/cierra con apertura/cierre/movimiento)
   type ModalMode = "open" | "close" | "expense" | "income" | null
   const [modalMode, setModalMode] = React.useState<ModalMode>(null)
-  const [monto, setMonto] = React.useState<number | null>(null)
-  const [nota, setNota] = React.useState("")
-  const [actionError, setActionError] = React.useState<string | null>(null)
 
   const isOpen = status?.isOpen ?? false
   const loading = statusLoading || summaryLoading
 
   function openModal(mode: ModalMode) {
-    setMonto(null)
-    setNota("")
-    setActionError(null)
     setModalMode(mode)
   }
 
-  async function handleConfirm() {
-    if (monto === null || monto <= 0) return
-    setActionError(null)
+  async function handleSimpleConfirm(amount: number) {
     const date = new Date().toISOString().replace("T", " ").slice(0, 19)
     try {
-      if (modalMode === "open")    await openDrawer.mutateAsync({ amount: monto, date })
-      if (modalMode === "close")   await closeDrawer.mutateAsync({ amount: monto, date })
-      if (modalMode === "expense") await expense.mutateAsync({ amount: monto, note: nota, date })
-      if (modalMode === "income")  await income.mutateAsync({ amount: monto, note: nota, date })
+      if (modalMode === "open")  await openDrawer.mutateAsync({ amount, date })
+      if (modalMode === "close") await closeDrawer.mutateAsync({ amount, date })
       setModalMode(null)
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Error desconocido")
+      toast.error(err instanceof Error ? err.message : "Error desconocido")
+    }
+  }
+
+  async function handleMovementConfirm(amount: number, note: string) {
+    const date = new Date().toISOString().replace("T", " ").slice(0, 19)
+    try {
+      if (modalMode === "expense") await expense.mutateAsync({ amount, note, date })
+      if (modalMode === "income")  await income.mutateAsync({ amount, note, date })
+      setModalMode(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error desconocido")
     }
   }
 
@@ -591,46 +593,15 @@ function ControlDeCajaPanel() {
     }).format(d)
   }
 
-  // ── Modal de monto (inline en el panel, no un Dialog aparte) ──────────────
-  if (modalMode) {
-    const needsNote = modalMode === "expense" || modalMode === "income"
-    return (
-      <div className="flex h-full flex-col">
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-          <h3 className="text-base font-semibold">{modalLabel[modalMode]}</h3>
-          <MoneyInput
-            value={monto}
-            onChange={setMonto}
-            placeholder="0"
-            autoFocus
-            className="text-xl"
-          />
-          {needsNote && (
-            <Input
-              placeholder="Concepto (opcional)"
-              value={nota}
-              onChange={(e) => setNota(e.target.value)}
-            />
-          )}
-          {actionError && (
-            <p className="text-xs text-destructive">{actionError}</p>
-          )}
-        </div>
-        <div className="flex gap-2 border-t bg-background px-6 py-4">
-          <Button variant="ghost" onClick={() => setModalMode(null)} disabled={isPending}>
-            Cancelar
-          </Button>
-          <Button
-            className="flex-1"
-            onClick={handleConfirm}
-            disabled={!monto || monto <= 0 || isPending}
-          >
-            {isPending ? "Guardando…" : "Confirmar"}
-          </Button>
-        </div>
-      </div>
-    )
-  }
+  // ── Modals de monto — NumericPadDialog para open/close, CashMovementDialog para expense/income ──
+  const isSimpleMode = modalMode === "open" || modalMode === "close"
+  const isMovementMode = modalMode === "expense" || modalMode === "income"
+  const [draftSimple, setDraftSimple] = React.useState("0")
+
+  // Reset draft al abrir un modo simple
+  React.useEffect(() => {
+    if (isSimpleMode) setDraftSimple("0")
+  }, [isSimpleMode])
 
   // ── Vista principal ────────────────────────────────────────────────────────
   return (
@@ -734,6 +705,30 @@ function ControlDeCajaPanel() {
           </Button>
         )}
       </div>
+
+      {/* NumericPadDialog para open/close (sin nota) */}
+      <NumericPadDialog
+        open={isSimpleMode}
+        onClose={() => setModalMode(null)}
+        title={modalMode && isSimpleMode ? modalLabel[modalMode] : ""}
+        mode="money"
+        value={draftSimple}
+        onValueChange={setDraftSimple}
+        onConfirm={() => { void handleSimpleConfirm(Number(draftSimple)) }}
+        confirmLabel="Confirmar"
+      />
+
+      {/* CashMovementDialog para expense/income (con nota) */}
+      {isMovementMode && (
+        <CashMovementDialog
+          open={isMovementMode}
+          onClose={() => setModalMode(null)}
+          mode={modalMode as "expense" | "income"}
+          title={modalLabel[modalMode]}
+          isPending={isPending}
+          onConfirm={handleMovementConfirm}
+        />
+      )}
     </div>
   )
 }

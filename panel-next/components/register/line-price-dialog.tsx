@@ -3,8 +3,8 @@
 /**
  * Diálogo para editar el precio unitario de una línea del carrito.
  *
- * UX: mismo patrón que qty-edit-dialog.tsx — MoneyInput grande autofocused,
- * Enter confirma, ESC cierra. El cajero puede operar sin mouse.
+ * Usa NumericPadDialog (patrón canónico) — mismo que qty-edit-dialog.tsx.
+ * Enter confirma, ESC cierra. Operación sin mouse para cajero touch/tablet.
  *
  * Ref. legacy: app/scripts/app.js L3820–3855 (type == 'price' en ncmItems.manage).
  * El legacy modifica `item.uniPrice` y llama `updateItemFinalPrice(index)`.
@@ -12,16 +12,7 @@
  */
 
 import * as React from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { MoneyInput } from "@/components/ui/money-input"
+import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import type { CartLine } from "@/lib/cart/store"
 
 interface LinePriceDialogProps {
@@ -37,55 +28,32 @@ export function LinePriceDialog({
   onConfirm,
   onClose,
 }: LinePriceDialogProps) {
-  const [draft, setDraft] = React.useState<number | null>(null)
+  const [draft, setDraft] = React.useState<string>("0")
 
   React.useEffect(() => {
     if (open && line) {
-      setDraft(line.unitPrice)
+      setDraft(String(line.unitPrice))
     }
   }, [open, line])
 
   function confirm() {
-    if (!line || draft === null || draft < 0) return
-    onConfirm(line.lineId, draft)
+    if (!line) return
+    const price = Number(draft)
+    if (isNaN(price) || price < 0) return
+    onConfirm(line.lineId, price)
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="sm:max-w-md"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            confirm()
-          }
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>Modificar precio</DialogTitle>
-          <DialogDescription className="truncate">
-            {line?.name ?? ""}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="my-2">
-          <MoneyInput
-            value={draft}
-            onChange={setDraft}
-            autoFocus
-            className="h-20 text-center text-5xl font-bold"
-          />
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button onClick={confirm} disabled={draft === null || draft < 0}>
-            Aceptar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <NumericPadDialog
+      open={open}
+      onClose={onClose}
+      title="Modificar precio"
+      subtitle={line?.name ?? ""}
+      mode="money"
+      value={draft}
+      onValueChange={setDraft}
+      onConfirm={confirm}
+      confirmLabel="Aceptar"
+    />
   )
 }

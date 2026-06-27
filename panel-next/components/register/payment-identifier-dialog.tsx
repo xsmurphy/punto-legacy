@@ -98,6 +98,7 @@ export function PaymentIdentifierDialog({
               placeholder={method.identifierPlaceholder ?? "Ej. 123456"}
               maxLength={30}
               autoComplete="off"
+              className="h-14 text-2xl tabular-nums text-center"
             />
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
