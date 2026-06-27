@@ -4,7 +4,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCreateCreditPayment } from "@/hooks/use-credit-payment"
-import { MoneyInput } from "@/components/ui/money-input"
+import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { formatAmount } from "@/lib/format-money"
 import {
   Dialog,
@@ -51,10 +51,13 @@ export function CreditPaymentDialog({
   const [amount, setAmount] = React.useState<number | null>(debt)
   const [pmKey, setPmKey] = React.useState<string>(defaultMethod?.id ?? "")
   const [note, setNote] = React.useState("")
+  const [padOpen, setPadOpen] = React.useState(false)
+  const [padDraft, setPadDraft] = React.useState<string>("0")
 
   React.useEffect(() => {
     if (open) {
       setAmount(debt)
+      setPadDraft(String(debt))
       setPmKey(defaultMethod?.id ?? "")
       setNote("")
     }
@@ -91,6 +94,7 @@ export function CreditPaymentDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -103,11 +107,16 @@ export function CreditPaymentDialog({
         <div className="flex flex-col gap-4 py-2">
           <div className="flex flex-col gap-1.5">
             <Label>Monto a cobrar</Label>
-            <MoneyInput
-              value={amount}
-              onChange={setAmount}
-              autoFocus
-            />
+            {/* h-20 y text-3xl: botón touch-first para POS con dedo en tablet */}
+            <Button
+              variant="outline"
+              className="h-20 text-3xl font-bold tabular-nums"
+              onClick={() => setPadOpen(true)}
+            >
+              {amount !== null
+                ? formatAmount(amount, config)
+                : "Tocar para ingresar"}
+            </Button>
             {!amountValid && amount !== null && (
               <p className="text-xs text-destructive">
                 El monto debe ser mayor a 0 y no superar {formatAmount(debt, config)}
@@ -162,5 +171,21 @@ export function CreditPaymentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <NumericPadDialog
+      open={padOpen}
+      onClose={() => setPadOpen(false)}
+      title="Monto a cobrar"
+      mode="money"
+      value={padDraft}
+      onValueChange={setPadDraft}
+      onConfirm={() => {
+        const parsed = Number(padDraft)
+        if (!isNaN(parsed) && parsed >= 0) setAmount(parsed)
+        setPadOpen(false)
+      }}
+      confirmLabel="Aceptar"
+    />
+    </>
   )
 }
