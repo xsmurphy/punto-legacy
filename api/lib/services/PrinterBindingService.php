@@ -258,12 +258,7 @@ class PrinterBindingService {
         return array_values($v);
     }
 
-    private function normalize(array|\ArrayAccess $f): array {
-        // ADOdb devuelve $rs->fields como CaseInsensitiveArray (no array plano).
-        // Castear acá evita un parche por call-site.
-        if (!is_array($f)) {
-            $f = (array)$f;
-        }
+    private function normalize(array $f): array {
         $get = function(string $camel, string $lower) use ($f) {
             return $f[$camel] ?? $f[$lower] ?? null;
         };
