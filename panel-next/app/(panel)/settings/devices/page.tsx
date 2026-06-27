@@ -49,6 +49,9 @@ import {
   type RegisterListItem,
 } from "@/hooks/use-registers-admin"
 import { usePosDevices, useRevokePosDevice, type PosDevice } from "@/hooks/use-pos-devices"
+import { useDeviceInvitations } from "@/hooks/use-device-invitations"
+import { DeviceInvitesTab } from "@/components/settings/device-invites-tab"
+import { DeviceInviteCreateDialog } from "@/components/settings/device-invite-create-dialog"
 
 // ---------------------------------------------------------------------------
 // ScreensTab — lógica idéntica al componente original (sin cambios funcionales)
@@ -434,6 +437,23 @@ function PosDevicesTab() {
       cell: ({ row }) => row.original.registerName ?? "—",
     },
     {
+      accessorKey: "module",
+      header: "Módulo",
+      cell: ({ row }) =>
+        row.original.module ? (
+          <Badge variant="secondary">{row.original.module.toUpperCase()}</Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      accessorKey: "ipLast",
+      header: "Última IP",
+      cell: ({ row }) => (
+        <span className="font-mono text-sm">{row.original.ipLast || "—"}</span>
+      ),
+    },
+    {
       accessorKey: "pairedByName",
       header: "Pareado por",
       cell: ({ row }) => row.original.pairedByName ?? "—",
@@ -523,6 +543,10 @@ function PosDevicesTab() {
 // ---------------------------------------------------------------------------
 
 export default function DevicesPage() {
+  const [createOpen, setCreateOpen] = React.useState(false)
+  const { data: invitationsData } = useDeviceInvitations()
+  const pendingCount = (invitationsData ?? []).filter((i) => i.status === "opened").length
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -530,13 +554,25 @@ export default function DevicesPage() {
           <h1 className="text-2xl font-semibold">Dispositivos</h1>
           <p className="text-sm text-muted-foreground">Pantallas cliente y cajas registradoras del POS.</p>
         </div>
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus className="size-4 mr-1.5" />
+          Conectar dispositivo
+        </Button>
       </header>
 
       <Tabs defaultValue="screens">
-        <TabsList>
+        <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
           <TabsTrigger value="screens">Pantallas cliente</TabsTrigger>
           <TabsTrigger value="registers">Cajas</TabsTrigger>
           <TabsTrigger value="pos-devices">Cajas POS</TabsTrigger>
+          <TabsTrigger value="invitations" className="gap-1.5">
+            Solicitudes
+            {pendingCount > 0 && (
+              <Badge variant="default" className="size-5 justify-center text-xs">
+                {pendingCount}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="screens" className="mt-4">
           <ScreensTab />
@@ -547,7 +583,12 @@ export default function DevicesPage() {
         <TabsContent value="pos-devices" className="mt-4">
           <PosDevicesTab />
         </TabsContent>
+        <TabsContent value="invitations" className="mt-4">
+          <DeviceInvitesTab />
+        </TabsContent>
       </Tabs>
+
+      <DeviceInviteCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   )
 }

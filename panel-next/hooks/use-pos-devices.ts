@@ -16,6 +16,8 @@ export interface PosDevice {
   lastSeenAt: string | null
   status: number
   revokedAt: string | null
+  module: string | null
+  ipLast: string | null
 }
 
 export function usePosDevices() {

@@ -41,7 +41,7 @@ $rs = ncmExecute(
             d.registerid, r.registername, d.userid AS pairedbycontactid,
             c.contactname AS pairedbyname,
             d.createdat AS pairedat, d.lastseenat,
-            d.status, d.revokedat
+            d.status, d.revokedat, d.module, d.iplast::text AS iplast
      FROM device d
      LEFT JOIN outlet   o ON o.outletid   = d.outletid   AND o.companyid = d.companyid
      LEFT JOIN register r ON r.registerid = d.registerid AND r.companyid = d.companyid
@@ -69,6 +69,8 @@ if ($rs && !$rs->EOF) {
             'lastSeenAt'        => $rs->fields['lastseenat']                  ?? null,
             'status'            => (int) ($rs->fields['status']               ?? 1),
             'revokedAt'         => $rs->fields['revokedat']                   ?? null,
+            'module'            => (string) ($rs->fields['module']            ?? ''),
+            'ipLast'            => (string) ($rs->fields['iplast']            ?? ''),
         ];
         $rs->MoveNext();
     }
