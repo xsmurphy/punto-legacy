@@ -5,11 +5,16 @@ import { usePosDevices } from "@/hooks/use-pos-devices"
 import type { ConnectedDevice } from "@/lib/devices/connected-device"
 
 export function useConnectedDevices(opts: { showRevoked?: boolean } = {}) {
+  const showRevoked = opts.showRevoked === true
   const { data: screensData, isLoading: screensLoading } = useScreens()
-  const { data: posData, isLoading: posLoading } = usePosDevices({ showRevoked: opts.showRevoked })
+  const { data: posData, isLoading: posLoading } = usePosDevices({ showRevoked })
 
   const devices = useMemo<ConnectedDevice[]>(() => {
-    const screens = (screensData?.screens ?? []).map((s) => ({
+    // El endpoint /v1/screens no acepta param showRevoked — filtramos client-side
+    // para que el toggle se comporte igual que con pos-devices.
+    const screens = (screensData?.screens ?? [])
+      .filter((s) => showRevoked || s.status === 1)
+      .map((s) => ({
       key: `screen:${s.id}`,
       kind: "screen" as const,
       id: s.id,
@@ -40,7 +45,7 @@ export function useConnectedDevices(opts: { showRevoked?: boolean } = {}) {
     }))
 
     return [...posDevices, ...screens]
-  }, [screensData, posData])
+  }, [screensData, posData, showRevoked])
 
   return {
     devices,
