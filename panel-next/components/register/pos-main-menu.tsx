@@ -93,7 +93,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
-import { clearDeviceLocalId } from "@/lib/pos/device-local-id"
 import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
@@ -1308,8 +1307,9 @@ function AjustesPanel() {
                           toast.error((data as { error?: { message?: string } }).error?.message ?? "Error al eliminar el dispositivo")
                           return
                         }
-                        clearDeviceLocalId()
-                        window.location.href = "/pos-pair"
+                        // El device fue revocado server-side; recargar /pos hace que
+                        // PosAuthGuard re-evalúe y muestre DeviceNotConnected.
+                        window.location.href = "/pos"
                       } catch {
                         toast.error("Error al eliminar el dispositivo")
                       }

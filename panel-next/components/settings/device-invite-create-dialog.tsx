@@ -156,7 +156,7 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="inv-ttl">Vence en (horas)</Label>
+                <Label htmlFor="inv-ttl">Validez del link (horas)</Label>
                 <Input
                   id="inv-ttl"
                   type="number"
@@ -165,6 +165,9 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
                   value={ttlHours}
                   onChange={(e) => setTtlHours(Number(e.target.value))}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Tiempo durante el cual el link sigue activo para conectar el dispositivo. Una vez conectado, el dispositivo no expira (hasta que lo revoques desde Dispositivos POS).
+                </p>
               </div>
 
               {create.error && (

@@ -5,23 +5,21 @@ import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
 import { PosSidebar } from "@/components/layout/pos-sidebar"
 import { InstallPrompt } from "@/components/pos/install-prompt"
 import { PosConfigSync } from "@/lib/pos/config-sync"
-import { PosAuthSentinel } from "@/components/layout/pos-auth-sentinel"
 
 /**
  * Layout del POS — auth via _jwt (device cookie, 10 años), NO _jwt_panel.
- * PosAuthGuard redirige a /pos-pair si no hay cookie _jwt válida.
- * PanelAuthGuard y AuthSentinel NO se montan acá — el POS es un realm
- * separado del panel.
+ * PosAuthGuard muestra <DeviceNotConnected /> si no hay cookie _jwt válida
+ * (el viejo /pos-pair fue eliminado; el pairing nuevo es invitation-based
+ * vía /connect/[id] generado por el admin desde /settings/devices).
  *
- * PosSidebar es un sidebar mínimo (Caja / Guardadas / Bloquear / Ajustes)
- * sin los módulos del panel (Artículos, Contactos, Reportes, etc.).
+ * PosSidebar es un sidebar mínimo (Caja / Guardadas / Bloquear) sin los
+ * módulos del panel.
  */
 export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
     <PosSidebarProvider>
       <PosAuthGuard>
         <PosConfigSync />
-        <PosAuthSentinel />
         <PosSidebar />
         <SidebarInset className="h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
           <SidebarTrigger className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />

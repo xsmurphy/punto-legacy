@@ -3,7 +3,8 @@
  * Contexto de autenticacion para endpoints POS.
  *
  * Acepta UNICAMENTE cookie `_jwt` (device, 10 anyos). Si no hay cookie valida,
- * retorna 401 -- el front redirigira a /pos-pair para iniciar el pairing.
+ * retorna 401 -- el front mostrara DeviceNotConnected con instrucciones para
+ * que el admin genere un link de conexion desde /settings/devices.
  *
  * IMPORTANTE: esta funcion define las constantes COMPANY_ID/OUTLET_ID/USER_ID/
  * REGISTER_ID/ROLE_ID directamente desde el ctx del device (sin pasar por
