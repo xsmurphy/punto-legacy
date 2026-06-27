@@ -5,18 +5,12 @@
  *
  * Se muestra cuando el cajero intenta cobrar y la caja no está abierta.
  * Confirmar abre la caja y continúa al flujo de pago.
+ *
+ * Usa NumericPadDialog (patrón canónico touch/tablet).
  */
 
 import * as React from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { MoneyInput } from "@/components/ui/money-input"
+import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { useOpenDrawer } from "@/hooks/use-drawer"
 import { toast } from "sonner"
 
@@ -31,12 +25,12 @@ export function DrawerOpenDialog({
   onOpenChange,
   onSuccess,
 }: DrawerOpenDialogProps) {
-  const [amount, setAmount] = React.useState<number | null>(null)
+  const [draft, setDraft] = React.useState<string>("0")
   const openDrawer = useOpenDrawer()
 
   const handleConfirm = async () => {
     try {
-      await openDrawer.mutateAsync({ amount: amount ?? 0 })
+      await openDrawer.mutateAsync({ amount: Number(draft) })
       onOpenChange(false)
       onSuccess()
     } catch {
@@ -44,49 +38,21 @@ export function DrawerOpenDialog({
     }
   }
 
-  // Resetear el monto al abrir el dialog.
+  // Resetear el draft al abrir el dialog.
   React.useEffect(() => {
-    if (open) setAmount(null)
+    if (open) setDraft("0")
   }, [open])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Abrir caja</DialogTitle>
-        </DialogHeader>
-
-        <div className="py-2">
-          <p className="mb-4 text-sm text-muted-foreground">
-            Ingresá el monto inicial en efectivo para abrir la caja y continuar
-            con el cobro.
-          </p>
-          <MoneyInput
-            value={amount}
-            onChange={setAmount}
-            placeholder="0"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !openDrawer.isPending) {
-                handleConfirm()
-              }
-            }}
-          />
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={openDrawer.isPending}
-          >
-            Cancelar
-          </Button>
-          <Button onClick={handleConfirm} disabled={openDrawer.isPending}>
-            {openDrawer.isPending ? "Abriendo..." : "Abrir caja"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <NumericPadDialog
+      open={open}
+      onClose={() => onOpenChange(false)}
+      title="Monto inicial de caja"
+      mode="money"
+      value={draft}
+      onValueChange={setDraft}
+      onConfirm={handleConfirm}
+      confirmLabel="Abrir caja"
+    />
   )
 }
