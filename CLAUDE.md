@@ -81,6 +81,15 @@ directo al código — no los invoques por protocolo.
    referencia funcional, NO visual.** El brief de un sub-agente debe leer §14
    antes de tocar JSX y FLAGEAR en el reporte si el brief contradice la regla.
 
+5. **Soluciones arquitectónicas, NUNCA parches.** Siempre proponer y aplicar la
+   solución correcta aunque cueste más (mig SQL + endpoint + hook + UI, refactor
+   del wrapper compartido, etc.), no parches locales con `// TODO`. Si un bug
+   ya fue parchado antes en otros call-sites (ej. `CaseInsensitiveArray` del
+   DB layer, doble prefix `/api/api`, Bearer faltante), atacar la raíz en el
+   wrapper, no agregar un parche más. Excepción única: hotfix de incidente
+   productivo, declarado explícitamente como temporal + tarea de seguimiento
+   para el fix arquitectónico. Ver memoria `feedback_no_patches_architecture_first`.
+
 ---
 
 ## Workflow de Git
