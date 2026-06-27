@@ -33,9 +33,10 @@ function extractDeviceIdFromJwt(token: string): string | null {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const cookieHeader = req.headers.get("cookie") ?? ""
-  const jwtMatch = cookieHeader.match(/(?:^|;\s*)_jwt=([^;]+)/)
-  const jwtToken = jwtMatch?.[1] ?? ""
+  // El deviceId se extrae del Bearer token (ya no del cookie _jwt).
+  const authHeader = req.headers.get("authorization") ?? ""
+  const bearerMatch = authHeader.match(/^Bearer\s+(\S+)/i)
+  const jwtToken = bearerMatch?.[1] ?? ""
   const deviceId = extractDeviceIdFromJwt(jwtToken)
 
   if (!deviceId) {
@@ -46,8 +47,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const base = getApiBase()
+  const cookieHeader = req.headers.get("cookie") ?? ""
   const headers = new Headers()
-  headers.set("cookie", cookieHeader)
+  headers.set("authorization", authHeader)
+  headers.set("cookie", cookieHeader) // mantener para _jwt_panel si existe
   headers.set("accept", "application/json")
   headers.set("content-type", "application/x-www-form-urlencoded")
   if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)

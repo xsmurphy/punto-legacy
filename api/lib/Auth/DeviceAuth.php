@@ -2,14 +2,14 @@
 /**
  * Auth del realm `pos-app` -- dispositivos POS pareados.
  *
- * Cookie `_jwt` (device pairing):
+ * JWT del device (Bearer token, storage en localStorage del browser):
  *   - TTL 10 anyos (JWT lib requiere exp finita).
  *   - Sin expiracion practica: el cajero opera continuamente.
  *   - Revocacion explicita via tabla `device` (status=0).
+ *   - Viaja como `Authorization: Bearer <token>` (no como cookie HttpOnly).
  *
- * Coexiste con `_jwt_panel` (panel admin, 24h). Los dos cookies
- * pueden estar presentes en el mismo browser (operador que tambien
- * usa el POS en el mismo dispositivo).
+ * Coexiste con `_jwt_panel` (panel admin, cookie HttpOnly 24h). El device
+ * puede estar autenticado en ambos realms al mismo tiempo en el mismo browser.
  */
 
 declare(strict_types=1);
@@ -21,11 +21,14 @@ final class DeviceAuth
     private const TTL = 315360000; // 10 anyos en segundos
 
     /**
-     * Emite JWT de device, inserta en tabla `device`, setea cookie `_jwt`.
+     * Emite JWT de device, inserta en tabla `device`.
      *
      * Si `$browserLocalId` no es null/vacío y ya existe un device activo para
      * (companyId, registerId, browserLocalId), re-emite el token del device
      * existente en lugar de insertar uno nuevo (idempotente).
+     *
+     * El token se retorna en el body — el cliente lo persiste en localStorage
+     * y lo envía como `Authorization: Bearer <token>` en cada request.
      *
      * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
      */
@@ -54,7 +57,7 @@ final class DeviceAuth
             );
             if ($existing) {
                 $deviceId = (string) ($existing['deviceid'] ?? '');
-                $token    = self::issueTokenAndCookie($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
                 return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
             }
         }
@@ -83,7 +86,7 @@ final class DeviceAuth
                 throw new \RuntimeException('No se pudo crear el registro de device');
             }
 
-            $token = self::issueTokenAndCookie($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+            $token = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
             return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => false];
         } catch (\Throwable $e) {
             // Race condition: otro request ganó el INSERT con el mismo browserLocalId.
@@ -94,7 +97,7 @@ final class DeviceAuth
                 );
                 if ($winner) {
                     $deviceId = (string) ($winner['deviceid'] ?? '');
-                    $token    = self::issueTokenAndCookie($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                    $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
                     return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
                 }
             }
@@ -104,7 +107,7 @@ final class DeviceAuth
 
     /**
      * Construye el JWT del device sin efectos secundarios (sin cookie).
-     * Usado tanto por issueTokenAndCookie() como por createDeviceAndIssueJwt().
+     * Usado tanto por issueToken() como por createDeviceAndIssueJwt().
      */
     private static function buildToken(
         string $companyId,
@@ -127,13 +130,13 @@ final class DeviceAuth
     }
 
     /**
-     * Emite el JWT y setea la cookie `_jwt`. Reutilizable desde los paths
+     * Construye el JWT del device y lo retorna. Reutilizable desde los paths
      * "nuevo device" y "device reusado" sin duplicar lógica.
      *
-     * Si jwtEncode lanza, el device queda activo sin cookie -- el caller
-     * es responsable de decidir si revocar (solo aplica al INSERT nuevo).
+     * No setea cookie — el token viaja como Bearer en cada request del device.
+     * Si jwtEncode lanza, el caller decide si revocar el device recién insertado.
      */
-    private static function issueTokenAndCookie(
+    private static function issueToken(
         string $companyId,
         string $outletId,
         string $registerId,
@@ -141,26 +144,7 @@ final class DeviceAuth
         string $pairedByContactId,
         string $secret,
     ): string {
-        $token = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
-
-        $now     = time();
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-
-        $cookieOpts = [
-            'expires'  => $now + self::TTL,
-            'path'     => '/',
-            'httponly' => true,
-            'samesite' => 'Lax',
-            'secure'   => $isHttps,
-        ];
-        $cookieDomain = $_ENV['COOKIE_DOMAIN'] ?? '';
-        if ($cookieDomain !== '') {
-            $cookieOpts['domain'] = $cookieDomain;
-        }
-        setcookie('_jwt', $token, $cookieOpts);
-
-        return $token;
+        return self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
     }
 
     /**
@@ -279,11 +263,11 @@ final class DeviceAuth
     }
 
     /**
-     * Valida la cookie `_jwt` y retorna el ctx del device, o null si invalido/revocado.
+     * Valida el Bearer token del device y retorna el ctx, o null si invalido/revocado.
      *
      * @return array{companyId:string,outletId:string,registerId:string,deviceId:string,userId:string,roleId:string,isDevice:bool}|null
      */
-    public static function validateJwt(string $cookieValue): ?array
+    public static function validateJwt(string $bearerToken): ?array
     {
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
 
@@ -292,7 +276,7 @@ final class DeviceAuth
             return null;
         }
 
-        $payload = jwtDecode($cookieValue, $secret);
+        $payload = jwtDecode($bearerToken, $secret);
         if (!is_array($payload) || ($payload['iss'] ?? '') !== 'pos-app') {
             return null;
         }

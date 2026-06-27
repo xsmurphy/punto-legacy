@@ -13,6 +13,7 @@
  */
 
 import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
+import { getDeviceToken, clearDeviceToken } from "@/lib/auth/device-token"
 
 type Json = Record<string, unknown> | unknown[]
 
@@ -64,6 +65,12 @@ async function request<T>(
   }
   if (jwt) {
     baseHeaders.Authorization = `Bearer ${jwt}`
+  } else if (typeof window !== "undefined") {
+    // Bearer automático para el device POS (solo en browser; en server no hay localStorage).
+    const deviceToken = getDeviceToken()
+    if (deviceToken) {
+      baseHeaders.Authorization = `Bearer ${deviceToken}`
+    }
   }
 
   // View-scope override del outlet: si el usuario eligió una sucursal o
@@ -97,13 +104,18 @@ async function request<T>(
     // del backend en error.message — lo propagamos al ApiError para que
     // el caller pueda mostrarlo directo en un toast.
     const envelope = payload as
-      | { ok?: boolean; error?: { message?: string; code?: number } }
+      | { ok?: boolean; error?: { message?: string; code?: number | string } }
       | null
     const backendMsg = envelope?.error?.message
     // Emitir evento global para que AuthSentinel lo capture — cubre todos los
     // 401 del api-client, no solo el de useBootstrap.
     if (res.status === 401 && typeof window !== "undefined") {
       const backendCode = envelope?.error?.code
+      // Si el device fue revocado, limpiar el token de localStorage.
+      // El sentinel (pos-unauthorized-sentinel.tsx) también lo hace — defensa en profundidad.
+      if (backendCode === "device_revoked" || backendCode === "DEVICE_REVOKED") {
+        clearDeviceToken()
+      }
       // TODO(arquitectura): cuando migremos los endpoints POS a /v1/pos/* prefix,
       // esto puede simplificarse a un único startsWith check.
       const isPosRoute =

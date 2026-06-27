@@ -33,9 +33,10 @@ interface UpstreamEnvelope {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const cookie = req.headers.get("cookie") ?? ""
-  const hasPanel = cookie.includes("_jwt_panel=")
-  const hasPosApp = cookie.includes("_jwt=")
-  if (!hasPanel && !hasPosApp) {
+  const authHeader = req.headers.get("authorization") ?? ""
+  const hasPanel = /(?:^|;)\s*_jwt_panel=/.test(cookie)
+  const hasBearerToken = /^Bearer\s+\S+/i.test(authHeader)
+  if (!hasPanel && !hasBearerToken) {
     return NextResponse.json(
       { ok: false, error: { message: "No autenticado", code: 401 } },
       { status: 401 },
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const base = getTargetBase()
   const headers = new Headers()
   headers.set("cookie", cookie)
+  if (authHeader) headers.set("authorization", authHeader)
   headers.set("accept", "application/json")
   headers.set("content-type", "application/json")
   if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)

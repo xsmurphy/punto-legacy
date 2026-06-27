@@ -57,27 +57,8 @@ if ($method === 'GET' && $resource === 'status') {
 
     try {
         $result = $svc->status($id);
-
-        // Si aprobado: setear cookie _jwt para que el browser del dispositivo la persista
-        if (($result['status'] ?? '') === 'approved' && !empty($result['token'])) {
-            $token   = (string) $result['token'];
-            $expires = (int) ($result['cookieExpires'] ?? 0);
-            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-                    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-            $cookieOpts = [
-                'expires'  => $expires,
-                'path'     => '/',
-                'httponly' => true,
-                'samesite' => 'Lax',
-                'secure'   => $isHttps,
-            ];
-            $cookieDomain = $_ENV['COOKIE_DOMAIN'] ?? '';
-            if ($cookieDomain !== '') {
-                $cookieOpts['domain'] = $cookieDomain;
-            }
-            setcookie('_jwt', $token, $cookieOpts);
-        }
-
+        // El $result incluye `token` cuando status=approved.
+        // El client (connect-view.tsx) lee el token del body y lo persiste en localStorage.
         apiOk($result);
     } catch (\RuntimeException $e) {
         $code = $e->getCode();

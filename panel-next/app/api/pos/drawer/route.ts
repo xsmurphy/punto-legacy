@@ -36,8 +36,10 @@ async function proxyToApi(
 ): Promise<NextResponse> {
   const base = getApiBase()
   const cookieHeader = req.headers.get("cookie") ?? ""
+  const authHeader = req.headers.get("authorization") ?? ""
   const headers = new Headers()
   headers.set("cookie", cookieHeader)
+  if (authHeader) headers.set("authorization", authHeader)
   headers.set("accept", "application/json")
   if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)
   if (body) {

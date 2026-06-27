@@ -8,31 +8,42 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { WifiOff } from "lucide-react"
 import type { PosBootstrap } from "@/lib/types/pos-bootstrap"
+import { getDeviceToken } from "@/lib/auth/device-token"
 
 /**
- * Guard de auth exclusivo del POS. Lee la cookie `_jwt` (realm pos-app, 10 años)
- * — NO la cookie del panel. Si `_jwt` ausente, expirada o revocada → muestra
- * <DeviceNotConnected /> (pantalla con instrucciones para que el admin genere
- * un link de conexión desde /settings/devices).
- *
- * El BFF /api/pos/bootstrap acepta ambas cookies pero el POS es el único realm
- * durable: la sesión del panel (_jwt_panel, 24h) puede expirar sin afectar la caja.
+ * Guard de auth exclusivo del POS. Verifica el Bearer token del device en
+ * localStorage (`punto.device.token`, realm pos-app, 10 años). Si el token
+ * está ausente, expirado o revocado → muestra <DeviceNotConnected /> con
+ * instrucciones para re-parear desde /settings/devices del panel.
  *
  * Flujos cubiertos:
- *   1. Sin _jwt → 401 → DeviceNotConnected
- *   2. _jwt válida → POS funciona
- *   3. Error transitorio (500, red) → UI de retry, NO bloquea
+ *   1. Sin token en localStorage → DeviceNotConnected inmediato (sin round-trip)
+ *   2. Token presente pero inválido/revocado → BFF retorna 401 → DeviceNotConnected
+ *   3. Token válido → POS funciona
+ *   4. Error transitorio (500, red) → UI de retry, NO bloquea
  *
- * El viejo /pos-pair (form de contraseña admin) fue eliminado. El único pairing
- * vigente es el invitation-based vía /connect/[id] generado por el admin.
+ * El pairing se hace vía /connect/[id] generado por el admin en /settings/devices.
  */
 export function PosAuthGuard({ children }: { children: React.ReactNode }) {
+  // Check sincrónico: si no hay token en localStorage → DeviceNotConnected sin round-trip.
+  // null = aún hidratando (SSR), continuar optimistamente al useQuery.
+  const [hasLocalToken, setHasLocalToken] = React.useState<boolean | null>(null)
+  React.useEffect(() => {
+    setHasLocalToken(getDeviceToken() !== null)
+  }, [])
+
   const { status, error, refetch } = useQuery<PosBootstrap>({
     queryKey: ["pos-bootstrap-auth"],
     queryFn: async () => {
+      const headers: Record<string, string> = {}
+      const deviceToken = getDeviceToken()
+      if (deviceToken) {
+        headers["Authorization"] = `Bearer ${deviceToken}`
+      }
       const res = await fetch("/api/pos/bootstrap", {
         credentials: "include",
         cache: "no-store",
+        headers,
       })
       if (res.status === 401) {
         throw Object.assign(new Error("DEVICE_UNAUTHORIZED"), { status: 401 })
@@ -45,6 +56,9 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
     retry: false,
     staleTime: 4 * 60 * 1000, // 4 min — el BFF es pesado (5 upstream calls)
   })
+
+  // Sin token en localStorage → DeviceNotConnected inmediato, sin round-trip.
+  if (hasLocalToken === false) return <DeviceNotConnected />
 
   // Loading: render children optimistically — el POS tiene su propio LoadingScreen.
   if (status === "pending") return <>{children}</>
