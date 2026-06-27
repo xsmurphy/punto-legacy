@@ -14,6 +14,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { posFetch } from "@/lib/api/pos-fetch"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export const DRAWER_KEYS = {
 // ── Helpers de fetch ──────────────────────────────────────────────────────────
 
 async function fetchDrawerStatus(): Promise<DrawerStatus> {
-  const res = await fetch("/api/pos/drawer?check=1", { cache: "no-store" })
+  const res = await posFetch("/api/pos/drawer?check=1", { cache: "no-store" })
   if (!res.ok) throw new Error(`Drawer status error ${res.status}`)
   const json = await res.json()
   // La API devuelve { ok, data: { isOpen } } o { closed: 'Closed' }
@@ -66,7 +67,7 @@ async function fetchDrawerStatus(): Promise<DrawerStatus> {
 }
 
 async function fetchDrawerSummary(): Promise<DrawerSummary | null> {
-  const res = await fetch("/api/pos/drawer", { cache: "no-store" })
+  const res = await posFetch("/api/pos/drawer", { cache: "no-store" })
   if (!res.ok) throw new Error(`Drawer summary error ${res.status}`)
   const json = await res.json()
   // Envelope canónico { ok, data: { list, date, subtotal, total, tips, returns } }
@@ -78,7 +79,7 @@ async function fetchDrawerSummary(): Promise<DrawerSummary | null> {
 }
 
 async function postDrawerAction(body: Record<string, unknown>): Promise<void> {
-  const res = await fetch("/api/pos/drawer", {
+  const res = await posFetch("/api/pos/drawer", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

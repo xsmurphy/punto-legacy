@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { posFetch } from "@/lib/api/pos-fetch"
 
 const PIN_LENGTH = 4
 
@@ -108,7 +109,7 @@ export function LockScreen() {
       }
       if (matched) {
         // Audit best-effort — no bloquear si falla (offline).
-        fetch("/api/pos/audit-unlock", {
+        posFetch("/api/pos/audit-unlock", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ contactId: matched.id }),

@@ -1,3 +1,5 @@
+import { posFetch } from "@/lib/api/pos-fetch"
+
 export async function sendBytesViaNetwork(
   host: string,
   port: number,
@@ -10,7 +12,7 @@ export async function sendBytesViaNetwork(
   }
   const b64 = btoa(binary)
 
-  const res = await fetch("/api/pos/print", {
+  const res = await posFetch("/api/pos/print", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ host, port, bytes: b64 }),

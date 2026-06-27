@@ -10,6 +10,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { posFetch } from "@/lib/api/pos-fetch"
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,7 @@ export function useCreateReturn() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (input: CreateReturnInput): Promise<ReturnResult> => {
-      const res = await fetch("/api/pos/returns", {
+      const res = await posFetch("/api/pos/returns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", ...input }),
@@ -82,7 +83,7 @@ export function useReturnsForParent(parentTransactionId: string | null) {
         action: "listForParent",
         parentId: parentTransactionId!,
       })
-      const res = await fetch(`/api/pos/returns?${qs.toString()}`)
+      const res = await posFetch(`/api/pos/returns?${qs.toString()}`)
       if (!res.ok) throw new Error("Error fetching returns")
       const data = await res.json()
       return (

@@ -13,6 +13,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query"
+import { posFetch } from "@/lib/api/pos-fetch"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ async function fetchTransactionsList(filters: {
   if (filters.date) qs.set("date", filters.date)
   if (filters.limit) qs.set("limit", String(filters.limit))
 
-  const res = await fetch(`/api/pos/transactions?${qs.toString()}`)
+  const res = await posFetch(`/api/pos/transactions?${qs.toString()}`)
   if (!res.ok) throw new Error(`Error ${res.status}`)
   const data = await res.json()
   // El backend devuelve { transactionsList: [...] }
@@ -97,7 +98,7 @@ async function fetchTransactionsList(filters: {
 }
 
 async function fetchTransactionDetail(id: string): Promise<TransactionDetail> {
-  const res = await fetch(`/api/pos/transactions/${encodeURIComponent(id)}`)
+  const res = await posFetch(`/api/pos/transactions/${encodeURIComponent(id)}`)
   if (!res.ok) throw new Error(`Error ${res.status}`)
   const data = await res.json()
   return data as TransactionDetail

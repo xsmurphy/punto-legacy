@@ -97,6 +97,7 @@ import { useScreens, usePairScreen, useRevokeScreen } from "@/hooks/use-screens"
 import { useOutlets } from "@/hooks/use-outlets"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
+import { posFetch } from "@/lib/api/pos-fetch"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
 import { PrintersManager } from "@/components/settings/printers-manager"
@@ -1368,7 +1369,7 @@ function AjustesPanel() {
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     onClick={async () => {
                       try {
-                        const res = await fetch("/api/pos/revoke-this-device", { method: "POST" })
+                        const res = await posFetch("/api/pos/revoke-this-device", { method: "POST" })
                         if (!res.ok) {
                           const data = await res.json().catch(() => ({}))
                           toast.error((data as { error?: { message?: string } }).error?.message ?? "Error al eliminar el dispositivo")
