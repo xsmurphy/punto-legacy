@@ -223,7 +223,7 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
   },
   {
     key: "devoluciones",
-    label: "Devoluciones",
+    label: "Nueva devolución",
     icon: RotateCcw,
     // onSelect abre el Sheet de devoluciones — el estado vive en PosMainMenu.
     // La clave especial "devoluciones" es interceptada en handleSidebarClick.
