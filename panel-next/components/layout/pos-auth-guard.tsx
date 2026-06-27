@@ -53,7 +53,11 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
       }
       return res.json()
     },
-    retry: false,
+    retry: 1,
+    refetchOnWindowFocus: true,
+    // Solo pollear mientras haya token — tras moduleLogout() el token se borra
+    // y refetchInterval vuelve false para no generar 401s en loop.
+    refetchInterval: () => (getDeviceToken() !== null ? 60_000 : false),
     staleTime: 4 * 60 * 1000, // 4 min — el BFF es pesado (5 upstream calls)
   })
 
