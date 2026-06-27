@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 
 import "./globals.css"
@@ -21,6 +21,9 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Punto",
   description: "Punto POS — panel de administración",
+}
+
+export const viewport: Viewport = {
   themeColor: "#0a0a0a",
 }
 
