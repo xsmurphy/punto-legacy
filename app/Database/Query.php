@@ -113,7 +113,7 @@ final class Query
                 return array_map([self::class, 'flattenJsonb'], $result);
             } else {
                 if ($count > 1 || $forceObj) {
-                    return $result;
+                    return new RecordsetIterator($result);
                 } elseif ($count > 0) {
                     return self::flattenJsonb($result->fields);
                 } else {
@@ -123,7 +123,7 @@ final class Query
         } else {
             // forceObj + query exitosa con 0 filas → recordset vacío (iterable seguro)
             if ($forceObj && $result && is_object($result)) {
-                return $result;
+                return new RecordsetIterator($result);
             }
             return false;
         }
