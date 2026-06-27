@@ -15,7 +15,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
  */
 export function DeviceNotConnected() {
   return (
-    <div className="min-h-svh flex flex-col items-center justify-center p-6 bg-background">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 bg-background">
       <Card className="max-w-md w-full">
         <CardContent className="flex flex-col items-center gap-6 p-8 text-center">
           <PuntoLogo variant="mark" className="size-12" />
