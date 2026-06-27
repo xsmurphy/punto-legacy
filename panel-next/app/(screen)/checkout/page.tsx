@@ -1,11 +1,10 @@
 "use client"
 import * as React from "react"
-import { PairingView } from "./pairing-view"
 import { LiveView } from "./live-view"
 import { ConfirmedView } from "./confirmed-view"
 import { IdleView } from "./idle-view"
+import { getDeviceToken, clearDeviceToken } from "@/lib/auth/device-token"
 
-const TOKEN_KEY = "punto_screen_token"
 const HEARTBEAT_INTERVAL = 30_000
 const CONFIRMED_DURATION = 5_000
 
@@ -23,7 +22,7 @@ export interface CartPayload {
 }
 
 type ScreenState =
-  | { kind: "pairing"; pin: string | null }
+  | { kind: "unpaired" }
   | { kind: "live"; cart: CartPayload }
   | { kind: "confirmed"; total: number; change: number }
   | { kind: "idle" }
@@ -41,7 +40,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
 }
 
 export default function CheckoutPage() {
-  const [state, setState] = React.useState<ScreenState>({ kind: "pairing", pin: null })
+  const [state, setState] = React.useState<ScreenState>({ kind: "unpaired" })
   const [token, setToken] = React.useState<string | null>(null)
   const wsRef = React.useRef<WebSocket | null>(null)
   const reconnectRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -66,14 +65,14 @@ export default function CheckoutPage() {
     }
   }, [])
 
-  // Al montar: leer token de localStorage
+  // Al montar: leer token de localStorage (punto.device.token)
   React.useEffect(() => {
     activeRef.current = true
-    const stored = localStorage.getItem(TOKEN_KEY)
+    const stored = getDeviceToken()
     if (stored) {
       setToken(stored)
     } else {
-      void requestPin()
+      setState({ kind: "unpaired" })
     }
     return () => {
       activeRef.current = false
@@ -82,7 +81,7 @@ export default function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Cuando cambia el token: conectar WS
+  // Cuando cambia el token: validar claims y conectar WS
   React.useEffect(() => {
     if (!token) return
     const claims = decodeJwtPayload(token)
@@ -90,9 +89,9 @@ export default function CheckoutPage() {
     const rid = claims["rid"] as string | undefined
     const did = claims["did"] as string | undefined
     if (!cid || !rid) {
-      localStorage.removeItem(TOKEN_KEY)
+      clearDeviceToken()
       setToken(null)
-      void requestPin()
+      setState({ kind: "unpaired" })
       return
     }
     const channels = [`${cid}:checkout:${rid}`, `screen:${did}`]
@@ -111,50 +110,6 @@ export default function CheckoutPage() {
     if (reconnectRef.current) clearTimeout(reconnectRef.current)
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     if (confirmedRef.current) clearTimeout(confirmedRef.current)
-  }
-
-  async function requestPin() {
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? ""
-      const res = await fetch(`${apiUrl}/v1/screens?resource=request`, { method: "POST" })
-      const json = (await res.json()) as { pin?: string; channel?: string }
-      if (!json.pin) throw new Error("no pin")
-      setState({ kind: "pairing", pin: json.pin })
-      connectPairingWs(`pairing:${json.pin}`)
-    } catch {
-      reconnectRef.current = setTimeout(() => { void requestPin() }, 5000)
-    }
-  }
-
-  function connectPairingWs(channel: string) {
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001"
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-    let backoff = 1000
-
-    ws.onopen = () => { ws.send(JSON.stringify({ action: "subscribe", channel })) }
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data as string) as { event: string; data: unknown }
-        if (msg.event === "paired") {
-          const d = msg.data as { token: string }
-          localStorage.setItem(TOKEN_KEY, d.token)
-          ws.close()
-          setToken(d.token)
-        }
-      } catch { /* ignore */ }
-    }
-    ws.onclose = () => {
-      if (!activeRef.current) return
-      if (wsRef.current === ws) {
-        reconnectRef.current = setTimeout(() => {
-          backoff = Math.min(backoff * 2, 30000)
-          connectPairingWs(channel)
-        }, backoff)
-      }
-    }
-    ws.onerror = () => ws.close()
   }
 
   function connectWs(tkn: string, channels: string[]) {
@@ -204,10 +159,10 @@ export default function CheckoutPage() {
         setState({ kind: "idle" })
         break
       case "revoked":
-        localStorage.removeItem(TOKEN_KEY)
+        clearDeviceToken()
         setToken(null)
         cleanup()
-        void requestPin()
+        setState({ kind: "unpaired" })
         break
     }
   }
@@ -223,10 +178,10 @@ export default function CheckoutPage() {
           body: "{}",
         })
         if (res.status === 401) {
-          localStorage.removeItem(TOKEN_KEY)
+          clearDeviceToken()
           setToken(null)
           cleanup()
-          void requestPin()
+          setState({ kind: "unpaired" })
         }
       } catch { /* best-effort */ }
     }, HEARTBEAT_INTERVAL)
@@ -240,6 +195,17 @@ export default function CheckoutPage() {
     }
   }
 
+  if (state.kind === "unpaired") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center">
+        <h1 className="text-2xl font-semibold">Esta pantalla no está conectada</h1>
+        <p className="text-sm text-muted-foreground">
+          Pedile al administrador que la conecte desde Configuración &rsaquo; Dispositivos del panel.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="relative w-full min-h-screen">
       <div className="absolute top-3 right-3 z-50 opacity-0 hover:opacity-100 transition-opacity">
@@ -251,7 +217,6 @@ export default function CheckoutPage() {
           Pantalla completa
         </button>
       </div>
-      {state.kind === "pairing" && <PairingView pin={state.pin} />}
       {state.kind === "live" && <LiveView cart={state.cart} />}
       {state.kind === "confirmed" && <ConfirmedView total={state.total} change={state.change} />}
       {state.kind === "idle" && <IdleView />}
