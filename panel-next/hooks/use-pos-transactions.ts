@@ -75,7 +75,9 @@ export function usePosTransactionsList({
         if (q) qs.set("q", q)
         if (date) qs.set("date", date)
         if (type != null) qs.set("type", String(type))
-        const data = await api.get<PosTransactionsListResponse>(`/api/pos/transactions?${qs.toString()}`)
+        // api-client ya prepende `/api` en el browser — pasar `/pos/transactions` directo.
+        // Con doble prefix daba GET /api/api/pos/transactions → 404.
+        const data = await api.get<PosTransactionsListResponse>(`/pos/transactions?${qs.toString()}`)
 
         if (cancelled || resetRef.current !== generation) return
 
@@ -110,7 +112,7 @@ export function usePosTransactionsList({
 // ── Detalle ────────────────────────────────────────────────────────────────────
 
 async function fetchDetail(encId: string): Promise<TransactionDetail> {
-  return api.get<TransactionDetail>(`/api/pos/transactions/${encodeURIComponent(encId)}`)
+  return api.get<TransactionDetail>(`/pos/transactions/${encodeURIComponent(encId)}`)
 }
 
 export function usePosTransactionDetail(encId: string | null) {
