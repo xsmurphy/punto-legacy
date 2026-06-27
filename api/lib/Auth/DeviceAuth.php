@@ -103,6 +103,30 @@ final class DeviceAuth
     }
 
     /**
+     * Construye el JWT del device sin efectos secundarios (sin cookie).
+     * Usado tanto por issueTokenAndCookie() como por createDeviceAndIssueJwt().
+     */
+    private static function buildToken(
+        string $companyId,
+        string $outletId,
+        string $registerId,
+        string $deviceId,
+        string $pairedByContactId,
+        string $secret,
+    ): string {
+        $now = time();
+        // oid/rid se omiten del token: se resuelven desde la fila device en cada request.
+        return jwtEncode([
+            'iss'  => 'pos-app',
+            'cid'  => $companyId,
+            'did'  => $deviceId,
+            'pby'  => $pairedByContactId,
+            'iat'  => $now,
+            'exp'  => $now + self::TTL,
+        ], $secret);
+    }
+
+    /**
      * Emite el JWT y setea la cookie `_jwt`. Reutilizable desde los paths
      * "nuevo device" y "device reusado" sin duplicar lógica.
      *
@@ -117,19 +141,9 @@ final class DeviceAuth
         string $pairedByContactId,
         string $secret,
     ): string {
-        $now   = time();
-        // oid/rid se omiten del token: se resuelven desde la fila device en cada request.
-        // Los parámetros $outletId/$registerId de la firma se conservan para el
-        // INSERT/UPDATE de la fila device (no se tocan abajo).
-        $token = jwtEncode([
-            'iss'  => 'pos-app',
-            'cid'  => $companyId,
-            'did'  => $deviceId,
-            'pby'  => $pairedByContactId,
-            'iat'  => $now,
-            'exp'  => $now + self::TTL,
-        ], $secret);
+        $token = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
 
+        $now     = time();
         $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
 
@@ -147,6 +161,121 @@ final class DeviceAuth
         setcookie('_jwt', $token, $cookieOpts);
 
         return $token;
+    }
+
+    /**
+     * Crea un device en BD y emite un JWT sin setear cookie.
+     * Usado por el Device Authorization Grant: el admin aprueba la invitación
+     * y el dispositivo recibe el token via polling en /status (no vía setcookie
+     * del request del admin).
+     *
+     * Misma lógica de idempotencia que issueJwt() pero sin el efecto secundario
+     * de la cookie.
+     *
+     * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
+     */
+    public static function createDeviceAndIssueJwt(
+        string $companyId,
+        string $outletId,
+        string $registerId,
+        string $pairedByContactId,
+        ?string $deviceName     = null,
+        ?string $userAgent      = null,
+        ?string $browserLocalId = null,
+    ): array {
+        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
+
+        $secret = $_ENV['JWT_SECRET'] ?? '';
+        if ($secret === '') {
+            throw new \RuntimeException('JWT_SECRET no configurado');
+        }
+
+        if ($browserLocalId !== null && $browserLocalId !== '') {
+            $existing = ncmExecute(
+                'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
+                [$companyId, $registerId, $browserLocalId]
+            );
+            if ($existing) {
+                $deviceId = (string) ($existing['deviceid'] ?? '');
+                $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
+            }
+        }
+
+        try {
+            $row = ncmExecute(
+                'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,browserlocalid,status)
+                 VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,?,1)
+                 RETURNING deviceid',
+                [
+                    $companyId,
+                    $outletId   !== '' ? $outletId   : null,
+                    $registerId !== '' ? $registerId : null,
+                    $pairedByContactId,
+                    $deviceName ?? '',
+                    $userAgent,
+                    $_SERVER['REMOTE_ADDR'] ?? null,
+                    $browserLocalId !== '' ? $browserLocalId : null,
+                ]
+            );
+
+            $deviceId = (string) ($row['deviceid'] ?? '');
+            if ($deviceId === '') {
+                throw new \RuntimeException('No se pudo crear el registro de device');
+            }
+
+            $token = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+            return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => false];
+        } catch (\Throwable $e) {
+            if ($browserLocalId !== null && str_contains($e->getMessage(), 'uq_device_browser_active')) {
+                $winner = ncmExecute(
+                    'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
+                    [$companyId, $registerId, $browserLocalId]
+                );
+                if ($winner) {
+                    $deviceId = (string) ($winner['deviceid'] ?? '');
+                    $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                    return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
+                }
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Emite un JWT para un device ya existente en BD (sin crear uno nuevo).
+     * Usado por DeviceInvitationService::status() cuando la invitación fue aprobada:
+     * el dispositivo hace polling y recibe su token directamente.
+     *
+     * @return array{token: string, expiresIn: int}
+     */
+    public static function issueJwtForExistingDevice(string $deviceId, string $companyId): array
+    {
+        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
+
+        $secret = $_ENV['JWT_SECRET'] ?? '';
+        if ($secret === '') {
+            throw new \RuntimeException('JWT_SECRET no configurado');
+        }
+
+        $device = ncmExecute(
+            'SELECT companyid, outletid, registerid, userid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
+            [$deviceId, $companyId]
+        );
+        if (!$device) {
+            throw new \RuntimeException('Device no encontrado', 404);
+        }
+
+        $token = self::buildToken(
+            (string) ($device['companyid'] ?? $companyId),
+            (string) ($device['outletid']  ?? ''),
+            (string) ($device['registerid'] ?? ''),
+            $deviceId,
+            (string) ($device['userid'] ?? ''),
+            $secret,
+        );
+
+        return ['token' => $token, 'expiresIn' => self::TTL];
     }
 
     /**
