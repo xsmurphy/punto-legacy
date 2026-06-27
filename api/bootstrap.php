@@ -95,11 +95,12 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // en tokens viejos, pero se ignoran — evita el drift que causaba los bugs).
     if ($realm === 'pos-app' && $deviceId !== '') {
         $dev = ncmExecute(
-            'SELECT outletid, registerid, userid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
+            'SELECT outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
             [$deviceId, $companyId]
         );
         $outletId   = (string) ($dev['outletid'] ?? '');
         $registerId = (string) ($dev['registerid'] ?? '');
+        $module     = (string) ($dev['module'] ?? 'pos');
         // userId del realm pos-app: el token device NO tiene claim `sub`, así que
         // AUTHED_USER_ID queda vacío. La identidad operativa es el contacto que
         // pareó el device (device.userid) — misma fuente que DeviceAuth::validateJwt.
@@ -114,6 +115,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         // (rid eliminado): se resuelve desde la fila device en realm pos-app.
         $outletId   = defined('AUTHED_OUTLET_ID') ? AUTHED_OUTLET_ID : '';
         $registerId = '';
+        $module     = '';   // no aplica para realm panel
     }
 
     // Fallback: primer outlet activo (aplica a ambos realms cuando outlet queda vacío).
@@ -173,7 +175,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         realtimeAfterMutation($__auditMethod, $__auditEndpoint, $__auditTargetId);
     }
 
-    return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm');
+    return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm', 'module');
 }
 
 /**

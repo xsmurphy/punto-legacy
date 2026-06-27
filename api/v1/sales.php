@@ -31,6 +31,9 @@ use Punto\Api\Sales\SaleType;
 // por permiso RBAC cuando exista el modelo de cajero.
 require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
 $authCtx = apiAuthPosContext();
+if (($authCtx['module'] ?? 'pos') !== 'pos') {
+    apiError('Endpoint solo accesible desde POS', 403);
+}
 
 // A7 (P0 code-review): sin caja activa (rid=''), NO se puede vender — una
 // venta sin registerId quedaría huérfana de numeración fiscal. El front

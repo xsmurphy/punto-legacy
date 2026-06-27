@@ -19,6 +19,9 @@ use Punto\Api\Services\TransactionService;
 
 require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
 $ctx        = apiAuthPosContext();
+if (($ctx['module'] ?? 'pos') !== 'pos') {
+    apiError('Endpoint solo accesible desde POS', 403);
+}
 $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 $userId     = $ctx['userId'];

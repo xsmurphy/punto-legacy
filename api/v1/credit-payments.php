@@ -11,6 +11,9 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
 $ctx       = apiAuthPosContext();
+if (($ctx['module'] ?? 'pos') !== 'pos') {
+    apiError('Endpoint solo accesible desde POS', 403);
+}
 $companyId = (string) COMPANY_ID;
 $userId    = (string) ($ctx['userId'] ?? '');
 

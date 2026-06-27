@@ -40,6 +40,7 @@ final class DeviceAuth
         ?string $deviceName     = null,
         ?string $userAgent      = null,
         ?string $browserLocalId = null,
+        string $module          = 'pos',
     ): array {
         // jwt.php no se autocarga -- cargarlo explicito (mismo patron que PanelAuth)
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
@@ -57,7 +58,7 @@ final class DeviceAuth
             );
             if ($existing) {
                 $deviceId = (string) ($existing['deviceid'] ?? '');
-                $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
                 return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
             }
         }
@@ -65,8 +66,8 @@ final class DeviceAuth
         // INSERT con RETURNING para obtener el UUID generado por PG
         try {
             $row = ncmExecute(
-                'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,browserlocalid,status)
-                 VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,?,1)
+                'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,browserlocalid,module,status)
+                 VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,?,?,1)
                  RETURNING deviceid',
                 [
                     $companyId,
@@ -77,6 +78,7 @@ final class DeviceAuth
                     $userAgent,
                     $_SERVER['REMOTE_ADDR'] ?? null,
                     $browserLocalId !== '' ? $browserLocalId : null,
+                    $module,
                 ]
             );
 
@@ -86,7 +88,7 @@ final class DeviceAuth
                 throw new \RuntimeException('No se pudo crear el registro de device');
             }
 
-            $token = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+            $token = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
             return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => false];
         } catch (\Throwable $e) {
             // Race condition: otro request ganó el INSERT con el mismo browserLocalId.
@@ -97,7 +99,7 @@ final class DeviceAuth
                 );
                 if ($winner) {
                     $deviceId = (string) ($winner['deviceid'] ?? '');
-                    $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                    $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
                     return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
                 }
             }
@@ -108,6 +110,9 @@ final class DeviceAuth
     /**
      * Construye el JWT del device sin efectos secundarios (sin cookie).
      * Usado tanto por issueToken() como por createDeviceAndIssueJwt().
+     *
+     * @param string $module Tipo de dispositivo: 'pos' | 'screen' | 'kds' | 'display'.
+     *                       Se incluye en el claim 'mdl'. Default 'pos' para back-compat.
      */
     private static function buildToken(
         string $companyId,
@@ -116,6 +121,7 @@ final class DeviceAuth
         string $deviceId,
         string $pairedByContactId,
         string $secret,
+        string $module = 'pos',
     ): string {
         $now = time();
         // oid/rid se omiten del token: se resuelven desde la fila device en cada request.
@@ -124,6 +130,7 @@ final class DeviceAuth
             'cid'  => $companyId,
             'did'  => $deviceId,
             'pby'  => $pairedByContactId,
+            'mdl'  => $module,
             'iat'  => $now,
             'exp'  => $now + self::TTL,
         ], $secret);
@@ -143,8 +150,9 @@ final class DeviceAuth
         string $deviceId,
         string $pairedByContactId,
         string $secret,
+        string $module = 'pos',
     ): string {
-        return self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+        return self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
     }
 
     /**
@@ -166,6 +174,7 @@ final class DeviceAuth
         ?string $deviceName     = null,
         ?string $userAgent      = null,
         ?string $browserLocalId = null,
+        string $module          = 'pos',
     ): array {
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
 
@@ -181,15 +190,15 @@ final class DeviceAuth
             );
             if ($existing) {
                 $deviceId = (string) ($existing['deviceid'] ?? '');
-                $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
                 return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
             }
         }
 
         try {
             $row = ncmExecute(
-                'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,browserlocalid,status)
-                 VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,?,1)
+                'INSERT INTO device (companyid,outletid,registerid,userid,devicename,useragent,ipfirst,browserlocalid,module,status)
+                 VALUES (?::uuid,?::uuid,?::uuid,?::uuid,?,?,?::inet,?,?,1)
                  RETURNING deviceid',
                 [
                     $companyId,
@@ -200,6 +209,7 @@ final class DeviceAuth
                     $userAgent,
                     $_SERVER['REMOTE_ADDR'] ?? null,
                     $browserLocalId !== '' ? $browserLocalId : null,
+                    $module,
                 ]
             );
 
@@ -208,7 +218,7 @@ final class DeviceAuth
                 throw new \RuntimeException('No se pudo crear el registro de device');
             }
 
-            $token = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+            $token = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
             return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => false];
         } catch (\Throwable $e) {
             if ($browserLocalId !== null && str_contains($e->getMessage(), 'uq_device_browser_active')) {
@@ -218,7 +228,7 @@ final class DeviceAuth
                 );
                 if ($winner) {
                     $deviceId = (string) ($winner['deviceid'] ?? '');
-                    $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret);
+                    $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
                     return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
                 }
             }
@@ -243,7 +253,7 @@ final class DeviceAuth
         }
 
         $device = ncmExecute(
-            'SELECT companyid, outletid, registerid, userid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
+            'SELECT companyid, outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
             [$deviceId, $companyId]
         );
         if (!$device) {
@@ -257,6 +267,7 @@ final class DeviceAuth
             $deviceId,
             (string) ($device['userid'] ?? ''),
             $secret,
+            (string) ($device['module'] ?? 'pos'),
         );
 
         return ['token' => $token, 'expiresIn' => self::TTL];
@@ -288,7 +299,7 @@ final class DeviceAuth
 
         // Verificar que el device no esta revocado y que cid del JWT coincide con BD
         $device = ncmExecute(
-            'SELECT deviceid, companyid, outletid, registerid, userid FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
+            'SELECT deviceid, companyid, outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
             [$deviceId, (string) ($payload['cid'] ?? '')]
         );
         if (!$device) {
@@ -305,6 +316,9 @@ final class DeviceAuth
             // best-effort
         }
 
+        // module: prioridad BD (fuente de verdad), fallback al claim del JWT, default 'pos'.
+        $module = (string) ($device['module'] ?? $payload['mdl'] ?? 'pos');
+
         return [
             'companyId'  => (string) ($device['companyid']  ?? $payload['cid'] ?? ''),
             'outletId'   => (string) ($device['outletid']   ?? $payload['oid'] ?? ''),
@@ -313,6 +327,7 @@ final class DeviceAuth
             'userId'     => (string) ($device['userid']     ?? $payload['pby'] ?? ''),
             'roleId'     => '1',
             'isDevice'   => true,
+            'module'     => $module,
         ];
     }
 

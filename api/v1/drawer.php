@@ -14,6 +14,10 @@ use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\DrawerService;
 
 $ctx        = apiAuthTenant(['panel', 'pos-app']);
+// Defensa-en-profundidad: una pantalla cliente no debe poder operar el cajón.
+if (($ctx['realm'] ?? '') === 'pos-app' && ($ctx['module'] ?? 'pos') !== 'pos') {
+    apiError('Endpoint solo accesible desde POS', 403);
+}
 $companyId  = $ctx['companyId'];
 $outletId   = $ctx['outletId'];
 $registerId = $ctx['registerId'];

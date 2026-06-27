@@ -174,6 +174,7 @@ class DeviceInvitationService
                 $result['token']         = $jwt['token'];
                 $result['deviceId']      = $deviceId;
                 $result['cookieExpires'] = time() + (int) ($jwt['expiresIn'] ?? 0);
+                $result['module']        = (string) ($row['module'] ?? 'pos');
             }
         }
 
@@ -214,28 +215,20 @@ class DeviceInvitationService
         $deviceName = (string) ($row['device_name'] ?? '');
         $module     = (string) ($row['module'] ?? '');
 
-        // Crear device sin setear cookie — el dispositivo obtiene el token via polling en /status
+        // Crear device sin setear cookie — el dispositivo obtiene el token via polling en /status.
+        // El module se persiste en la fila device y en el claim 'mdl' del JWT desde la creación.
         $issued = DeviceAuth::createDeviceAndIssueJwt(
             $companyIdOfAdmin,
             $outletId,
             $registerId,
             $approvedByUserId,
             $deviceName !== '' ? $deviceName : null,
-            null,  // userAgent no disponible aquí
-            null,  // browserLocalId no aplica en device flow
+            null,    // userAgent no disponible aquí
+            null,    // browserLocalId no aplica en device flow
+            $module, // persiste en device.module y en JWT claim 'mdl'
         );
 
         $deviceId = $issued['deviceId'];
-
-        // Registrar module en el device (best-effort — el device funciona sin este campo)
-        try {
-            ncmExecute(
-                'UPDATE device SET module = ? WHERE deviceid = ?::uuid',
-                [$module, $deviceId]
-            );
-        } catch (\Throwable) {
-            // best-effort
-        }
 
         ncmExecute(
             "UPDATE device_invitation

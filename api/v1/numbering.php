@@ -9,6 +9,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 }
 
 $authCtx = apiAuthPosContext();
+if (($authCtx['module'] ?? 'pos') !== 'pos') {
+    apiError('Endpoint solo accesible desde POS', 403);
+}
 
 if (($authCtx['registerId'] ?? '') === '') {
     apiError('Seleccioná una caja antes de operar', 403);

@@ -42,6 +42,7 @@ function apiAuthPosContext(): array
             if (!defined('USER_ID'))     define('USER_ID',     $ctx['userId']);
             if (!defined('REGISTER_ID')) define('REGISTER_ID', $ctx['registerId']);
             if (!defined('ROLE_ID'))     define('ROLE_ID',     $ctx['roleId']);
+            if (!defined('DEVICE_MODULE')) define('DEVICE_MODULE', $ctx['module'] ?? 'pos');
             // TODAY: usado por SaleService y otros endpoints POS para updated_at.
             // data.php no se carga por este path (ver doc arriba), pero TODAY es trivial.
             if (!defined('TODAY'))       define('TODAY',       date('Y-m-d H:i:s'));

@@ -20,7 +20,12 @@ require_once __DIR__ . '/../bootstrap.php';
 // es el único que debe funcionar para AMBOS callers: el operador que acaba de parear
 // el dispositivo (solo tiene _jwt) Y el admin logueado en el panel que también puede
 // operar la caja (tiene _jwt_panel). Solo se usa COMPANY_ID del contexto, nunca USER_ID.
-apiAuthTenant(['panel', 'pos-app']);
+$unlockCtx = apiAuthTenant(['panel', 'pos-app']);
+// Defensa-en-profundidad: una pantalla cliente (module=screen) autenticada como pos-app
+// no debe poder desbloquear operadores.
+if (($unlockCtx['realm'] ?? '') === 'pos-app' && ($unlockCtx['module'] ?? 'pos') !== 'pos') {
+    apiError('Endpoint solo accesible desde POS', 403);
+}
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     apiError('Solo POST soportado', 405);
