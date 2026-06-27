@@ -562,9 +562,6 @@ export default function DevicesPage() {
 
       <Tabs defaultValue="screens">
         <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
-          <TabsTrigger value="screens">Pantallas cliente</TabsTrigger>
-          <TabsTrigger value="registers">Cajas</TabsTrigger>
-          <TabsTrigger value="pos-devices">Cajas POS</TabsTrigger>
           <TabsTrigger value="invitations" className="gap-1.5">
             Solicitudes
             {pendingCount > 0 && (
@@ -573,7 +570,13 @@ export default function DevicesPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="screens">Pantallas cliente</TabsTrigger>
+          <TabsTrigger value="registers">Cajas</TabsTrigger>
+          <TabsTrigger value="pos-devices">Cajas POS</TabsTrigger>
         </TabsList>
+        <TabsContent value="invitations" className="mt-4">
+          <DeviceInvitesTab />
+        </TabsContent>
         <TabsContent value="screens" className="mt-4">
           <ScreensTab />
         </TabsContent>
@@ -582,9 +585,6 @@ export default function DevicesPage() {
         </TabsContent>
         <TabsContent value="pos-devices" className="mt-4">
           <PosDevicesTab />
-        </TabsContent>
-        <TabsContent value="invitations" className="mt-4">
-          <DeviceInvitesTab />
         </TabsContent>
       </Tabs>
 
