@@ -269,12 +269,9 @@ export function PosMainMenu() {
     }
   }
 
-  // Secciones enriquecidas con el flag `disabled` calculado en runtime.
   const sectionsWithState: MenuSection[] = SECTIONS.map((s) => ({
     ...s,
-    disabled: s.key === "edit-hotkeys" ? !activeRegisterId : false,
-    ctaLabel:
-      s.key === "edit-hotkeys" && !activeRegisterId ? "Sin caja activa" : s.ctaLabel,
+    disabled: false,
   }))
 
   const activeSection = sectionsWithState.find((s) => s.key === activeKey) ?? null
@@ -1248,14 +1245,6 @@ function AjustesPanel() {
       }
     }
   }, [flushPending])
-
-  if (!activeRegisterId) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground">
-        Elegí una caja activa primero.
-      </div>
-    )
-  }
 
   return (
     <div className="flex h-full flex-col">

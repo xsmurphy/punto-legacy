@@ -130,13 +130,24 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
 
   // Copy response headers excepto los hop-by-hop. content-encoding lo dropeamos
   // porque Next ya descomprimió/decomprimirá según el client.
+  //
+  // Set-Cookie MERECE handling especial: Headers.forEach colapsa múltiples
+  // valores del mismo nombre en una sola entry separada por comas — y comas
+  // son válidas dentro del valor de una cookie (fechas Expires), así que el
+  // colapso corrompe la cookie. Usamos getSetCookie() (Node undici) que
+  // preserva las cookies como array y las re-appendeamos individualmente.
   const respHeaders = new Headers()
   upstream.headers.forEach((value, key) => {
     const lower = key.toLowerCase()
     if (HOP_BY_HOP.has(lower)) return
     if (lower === "content-encoding") return
+    if (lower === "set-cookie") return // se maneja aparte
     respHeaders.set(key, value)
   })
+  const setCookies = (upstream.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? []
+  for (const sc of setCookies) {
+    respHeaders.append("set-cookie", sc)
+  }
 
   return new NextResponse(upstream.body, {
     status: upstream.status,
