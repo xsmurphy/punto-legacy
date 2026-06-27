@@ -35,7 +35,6 @@ import {
   SquaresIntersect,
   Monitor,
   MessageCircle,
-  RotateCcw,
   type LucideIcon,
 } from "lucide-react"
 
@@ -99,7 +98,6 @@ import { useOutlets } from "@/hooks/use-outlets"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
 import { posFetch } from "@/lib/api/pos-fetch"
-import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
 import { PrintersManager } from "@/components/settings/printers-manager"
 import {
@@ -223,13 +221,6 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
       useAgentChatStore.getState().setOpen(true)
     },
   },
-  {
-    key: "devoluciones",
-    label: "Nueva devolución",
-    icon: RotateCcw,
-    // onSelect abre el Sheet de devoluciones — el estado vive en PosMainMenu.
-    // La clave especial "devoluciones" es interceptada en handleSidebarClick.
-  },
 ]
 
 // ── Componente principal ─────────────────────────────────────────────────────
@@ -248,9 +239,6 @@ export function PosMainMenu() {
   // Stores de dominio para los handlers de secciones.
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const setHotkeysEditing = useHotkeysStore((s) => s.setEditing)
-
-  // Estado para el Sheet de devoluciones
-  const [returnSheetOpen, setReturnSheetOpen] = React.useState(false)
 
   // Estado para el Dialog de transacciones
   const [transactionsOpen, setTransactionsOpen] = React.useState(false)
@@ -327,11 +315,6 @@ export function PosMainMenu() {
                 // ejecutan la acción directo al click. Si están disabled
                 // (sin caja activa), el click no hace nada y se muestran atenuados.
                 const handleClick = () => {
-                  if (key === "devoluciones") {
-                    setOpen(false)
-                    setReturnSheetOpen(true)
-                    return
-                  }
                   if (key === "transactions") {
                     setOpen(false)
                     setTransactionsOpen(true)
@@ -425,8 +408,6 @@ export function PosMainMenu() {
           </div>
         </DialogContent>
       </Dialog>
-      {/* Sheet de devoluciones — fuera del Dialog del menú para no anidar modales */}
-      <PosReturnSheet open={returnSheetOpen} onOpenChange={setReturnSheetOpen} />
       {/* Dialog de transacciones — fuera del Dialog del menú para no anidar modales */}
       <PosTransactionsDialog open={transactionsOpen} onOpenChange={setTransactionsOpen} />
     </MenuContentCtx.Provider>
