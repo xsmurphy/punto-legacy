@@ -16,6 +16,8 @@ interface LockState {
   lock: () => void
   unlock: () => void
   setActiveUser: (user: { id: string; name: string } | null) => void
+  /** Reset completo (logout / re-pair). */
+  reset: () => void
 }
 
 export const useLockStore = create<LockState>()((set) => ({
@@ -24,4 +26,5 @@ export const useLockStore = create<LockState>()((set) => ({
   lock: () => set({ locked: true }),
   unlock: () => set({ locked: false }),
   setActiveUser: (user) => set({ activeUser: user }),
+  reset: () => set({ locked: false, activeUser: null }),
 }))

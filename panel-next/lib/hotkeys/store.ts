@@ -61,6 +61,8 @@ interface HotkeysState {
   /** Mueve un hotkey de un slot a otro (drag&drop). Swap si el destino está ocupado. */
   moveHotkey: (from: number, to: number) => void
   clearAll: () => void
+  /** Reset completo (logout / re-pair). Limpia hotkeys y sale del modo edición. */
+  reset: () => void
 }
 
 export const useHotkeysStore = create<HotkeysState>()(
@@ -113,6 +115,8 @@ export const useHotkeysStore = create<HotkeysState>()(
         }),
 
       clearAll: () => set({ hotkeys: [] }),
+
+      reset: () => set({ hotkeys: [], editing: false }),
     }),
     {
       name: "punto.pos.hotkeys",

@@ -13,7 +13,9 @@
  */
 
 import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
-import { getDeviceToken, clearDeviceToken } from "@/lib/auth/device-token"
+import { getDeviceToken } from "@/lib/auth/device-token"
+import { getSharedQueryClient } from "@/lib/auth/query-client-singleton"
+import { moduleLogout } from "@/lib/auth/module-logout"
 
 type Json = Record<string, unknown> | unknown[]
 
@@ -111,11 +113,6 @@ async function request<T>(
     // 401 del api-client, no solo el de useBootstrap.
     if (res.status === 401 && typeof window !== "undefined") {
       const backendCode = envelope?.error?.code
-      // Si el device fue revocado, limpiar el token de localStorage.
-      // El sentinel (pos-unauthorized-sentinel.tsx) también lo hace — defensa en profundidad.
-      if (backendCode === "device_revoked" || backendCode === "DEVICE_REVOKED") {
-        clearDeviceToken()
-      }
       // TODO(arquitectura): cuando migremos los endpoints POS a /v1/pos/* prefix,
       // esto puede simplificarse a un único startsWith check.
       const isPosRoute =
@@ -126,11 +123,18 @@ async function request<T>(
         path.startsWith("/v1/parked-sales") ||
         path.startsWith("/v1/credit-payments") ||
         path.startsWith("/v1/transactions")
-      window.dispatchEvent(
-        new CustomEvent(isPosRoute ? "pos:unauthorized" : "api:unauthorized", {
-          detail: { path, message: backendMsg ?? "", code: backendCode },
-        }),
-      )
+      if (isPosRoute) {
+        // Cualquier 401 POS → cleanup completo de sesión.
+        // moduleLogout despacha "module:logged-out" internamente.
+        const qc = getSharedQueryClient()
+        if (qc) moduleLogout(qc)
+      } else {
+        window.dispatchEvent(
+          new CustomEvent("api:unauthorized", {
+            detail: { path, message: backendMsg ?? "", code: backendCode },
+          }),
+        )
+      }
     }
     throw new ApiError(
       res.status,
