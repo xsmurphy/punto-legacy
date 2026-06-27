@@ -20,22 +20,36 @@ export interface PosDevice {
   ipLast: string | null
 }
 
-export function usePosDevices() {
+export function usePosDevices(opts: { showRevoked?: boolean } = {}) {
+  const qs = opts.showRevoked ? "?showRevoked=1" : ""
   return useQuery<PosDevice[]>({
-    queryKey: ["pos-devices"],
+    queryKey: ["pos-devices", { showRevoked: !!opts.showRevoked }],
     queryFn: async () => {
-      const res = await api.get<{ devices: PosDevice[] }>("/v1/devices")
+      const res = await api.get<{ devices: PosDevice[] }>(`/v1/devices${qs}`)
       return res.devices ?? []
     },
     staleTime: 30 * 1000,
   })
 }
 
+/** Soft revoke: status=0. Preserva auditoría. */
 export function useRevokePosDevice() {
   const qc = useQueryClient()
   return useMutation<{ ok: boolean }, Error, string>({
     mutationFn: (deviceId) =>
       api.del<{ ok: boolean }>(`/v1/devices?id=${deviceId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pos-devices"] })
+    },
+  })
+}
+
+/** Delete físico. Solo permitido si el device ya está revocado (status=0). */
+export function useDeletePosDevice() {
+  const qc = useQueryClient()
+  return useMutation<{ ok: boolean }, Error, string>({
+    mutationFn: (deviceId) =>
+      api.del<{ ok: boolean }>(`/v1/devices?id=${deviceId}&hard=1`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pos-devices"] })
     },

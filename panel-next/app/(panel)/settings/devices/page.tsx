@@ -23,7 +23,9 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { useScreens, useRevokeScreen, type Screen } from "@/hooks/use-screens"
-import { usePosDevices, useRevokePosDevice, type PosDevice } from "@/hooks/use-pos-devices"
+import { usePosDevices, useRevokePosDevice, useDeletePosDevice, type PosDevice } from "@/hooks/use-pos-devices"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 import { useDeviceInvitations } from "@/hooks/use-device-invitations"
 import { DeviceInvitesTab } from "@/components/settings/device-invites-tab"
 import { DeviceInviteCreateDialog } from "@/components/settings/device-invite-create-dialog"
@@ -145,9 +147,12 @@ function ScreensTab() {
 // ---------------------------------------------------------------------------
 
 function PosDevicesTab() {
-  const { data, isLoading } = usePosDevices()
+  const [showRevoked, setShowRevoked] = React.useState(false)
+  const { data, isLoading } = usePosDevices({ showRevoked })
   const revoke = useRevokePosDevice()
+  const hardDelete = useDeletePosDevice()
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
+  const [deleteId, setDeleteId] = React.useState<string | null>(null)
 
   function niceDate(iso: string | null) {
     if (!iso) return "—"
@@ -231,7 +236,17 @@ function PosDevicesTab() {
             <Trash2 className="size-4 mr-1.5" />
             Revocar
           </Button>
-        ) : null,
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setDeleteId(row.original.deviceId)}
+          >
+            <Trash2 className="size-4 mr-1.5" />
+            Eliminar
+          </Button>
+        ),
     },
   ], [])
 
@@ -239,6 +254,17 @@ function PosDevicesTab() {
 
   return (
     <>
+      <div className="flex items-center justify-end gap-3 mb-3">
+        <Label htmlFor="show-revoked" className="text-sm text-muted-foreground cursor-pointer">
+          Mostrar revocados
+        </Label>
+        <Switch
+          id="show-revoked"
+          checked={showRevoked}
+          onCheckedChange={setShowRevoked}
+        />
+      </div>
+
       <DataTable
         tableId="pos-devices"
         columns={columns}
@@ -269,6 +295,32 @@ function PosDevicesTab() {
               }}
             >
               Revocar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteId !== null} onOpenChange={(o) => { if (!o) setDeleteId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar dispositivo del historial</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se borrará permanentemente este dispositivo y su historial de auditoría. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!deleteId) return
+                hardDelete.mutate(deleteId, {
+                  onSuccess: () => { toast.success("Dispositivo eliminado"); setDeleteId(null) },
+                  onError: (err) => { toast.error(err.message) },
+                })
+              }}
+            >
+              Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
