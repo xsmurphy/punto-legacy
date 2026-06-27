@@ -17,6 +17,7 @@ import {
   Boxes,
   ClipboardEdit,
   ArrowLeftRight,
+  LayoutTemplate,
   RotateCcw,
   Users,
   Truck,
@@ -48,7 +49,7 @@ const panelNav: NavEntry[] = [
   { title: "Asistente", to: "/chat", icon: MessageCircle },
   {
     title: "Artículos",
-    icon: ShoppingBasket,
+    icon: LayoutTemplate,
     items: [
       { title: "Catálogo", to: "/items", icon: ShoppingBasket, requires: "inventory.item.view" },
       { title: "Inventario", to: "/inventory-count", icon: Boxes, requires: "inventory.stock.adjust" },
