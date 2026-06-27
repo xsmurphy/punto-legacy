@@ -94,6 +94,13 @@ export function NumericPad({
   // en un input oculto porque queremos que el foco quede libre para el Dialog.
   React.useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Si el foco está en un campo editable (textarea para notas en
+      // cash-movement-dialog, inputs en otros dialogs), dejar pasar la tecla
+      // al elemento — sino el numpad "se come" lo que el usuario tipea.
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+        return
+      }
       if (e.key >= "0" && e.key <= "9") {
         e.preventDefault()
         handleDigit(e.key)
