@@ -6,12 +6,13 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft, Boxes, Loader2, MapPin, Pencil, Phone, Receipt, Store, Trash2 } from "lucide-react"
+import { ArrowLeft, Boxes, Calculator, Loader2, MapPin, Pencil, Phone, Receipt, Store, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
+import { RegistersTab } from "@/components/outlets/registers-tab"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -286,6 +287,10 @@ export default function OutletEditPage() {
                 <Boxes className="size-3.5" />
                 Depósitos
               </TabsTrigger>
+              <TabsTrigger value="cajas" className="gap-1.5" disabled={isNew}>
+                <Calculator className="size-3.5" />
+                Cajas
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -307,6 +312,10 @@ export default function OutletEditPage() {
 
           <TabsContent value="depositos" className="mt-6">
             {!isNew && <LocationsSection outletId={id} />}
+          </TabsContent>
+
+          <TabsContent value="cajas" className="mt-6">
+            {!isNew && <RegistersTab outletId={id} />}
           </TabsContent>
         </Tabs>
       </form>
