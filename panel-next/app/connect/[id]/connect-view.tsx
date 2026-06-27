@@ -62,9 +62,10 @@ export function ConnectView({ invitationId, userCode, module }: ConnectViewProps
           const tokenFromBody = data?.token
           if (tokenFromBody) setDeviceToken(tokenFromBody)
           setTimeout(() => {
-            if (module === "pos")      router.replace("/pos")
-            else if (module === "kds") router.replace("/kds")
-            else                       router.replace("/")
+            if (module === "pos")         router.replace("/pos")
+            else if (module === "screen") router.replace("/checkout")
+            else if (module === "kds")    router.replace("/kds")
+            else                          router.replace("/pos")
           }, 800)
         }
       } catch {
