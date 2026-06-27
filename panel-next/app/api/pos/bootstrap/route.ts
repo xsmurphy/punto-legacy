@@ -176,9 +176,11 @@ interface UpstreamUsersList {
 
 function buildUpstreamHeaders(req: NextRequest): Headers {
   const h = new Headers()
-  // Reenviar solo lo que el backend PHP necesita: cookie (_jwt) y accept.
+  // Reenviar cookie (_jwt_panel del panel) y Authorization (Bearer del device POS).
   const cookie = req.headers.get("cookie")
   if (cookie) h.set("cookie", cookie)
+  const auth = req.headers.get("authorization")
+  if (auth) h.set("authorization", auth)
   h.set("accept", "application/json")
   if (HOST_OVERRIDE) h.set("host", HOST_OVERRIDE)
   return h
@@ -287,15 +289,15 @@ function reshapeUsers(
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  // El POS puede operar con cualquiera de las dos cookies:
-  //   _jwt_panel — realm `panel` (operador logueado en el panel)
-  //   _jwt        — realm `pos-app` (device pairing; sobrevive logout del panel)
-  // Si ninguna está presente → 401 sin pegarle al backend.
-  // Cuando ambas están, también funciona — los endpoints upstream aceptan ambos realms.
+  // El POS puede acceder con:
+  //   Authorization: Bearer <token> — device POS (Bearer en localStorage)
+  //   _jwt_panel cookie             — panel admin (HttpOnly, 24h)
+  // Sin ninguno → 401 sin pegarle al backend.
   const cookie = req.headers.get("cookie") ?? ""
+  const authHeader = req.headers.get("authorization") ?? ""
   const hasPanel = /(?:^|;)\s*_jwt_panel=/.test(cookie)
-  const hasPosApp = /(?:^|;)\s*_jwt=/.test(cookie)
-  if (!hasPanel && !hasPosApp) {
+  const hasBearerToken = /^Bearer\s+\S+/i.test(authHeader)
+  if (!hasPanel && !hasBearerToken) {
     return NextResponse.json(
       {
         ok: false,

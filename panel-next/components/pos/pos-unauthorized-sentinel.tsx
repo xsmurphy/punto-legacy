@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { clearDeviceToken } from "@/lib/auth/device-token"
 
 /**
  * Listener del evento `pos:unauthorized` para el POS.
@@ -19,7 +20,8 @@ export function PosUnauthorizedSentinel() {
   React.useEffect(() => {
     function handlePosUnauthorized(e: Event) {
       const detail = (e as CustomEvent<{ path: string; message: string; code?: string | number }>).detail
-      if (detail?.code === "DEVICE_REVOKED") {
+      if (detail?.code === "DEVICE_REVOKED" || detail?.code === "device_revoked") {
+        clearDeviceToken() // defensa en profundidad — api-client también lo hace
         qc.invalidateQueries({ queryKey: ["pos-bootstrap-auth"] })
       } else {
         import("@/lib/pos/lock-store")

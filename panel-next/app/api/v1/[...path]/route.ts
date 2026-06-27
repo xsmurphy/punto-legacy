@@ -56,10 +56,9 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   const search = req.nextUrl.search // incluye `?` si hay query
   const targetUrl = `${TARGET_BASE}/v1/${tail}${search}`
 
-  // Copy headers excepto hop-by-hop. `cookie` no está en HOP_BY_HOP, así
-  // que se copia automáticamente — el `_jwt_panel` viaja al upstream sin
-  // intervención explícita (evita el set duplicado que algunos runtimes Node
-  // colapsan a header con valor "x; x" → bootstrap PHP no lo parsea).
+  // Copy headers excepto hop-by-hop. `cookie` y `authorization` no están en
+  // HOP_BY_HOP — se copian automáticamente. `_jwt_panel` (panel, cookie) y
+  // el Bearer token del device viajan al upstream sin intervención explícita.
   const headers = new Headers()
   req.headers.forEach((value, key) => {
     if (!HOP_BY_HOP.has(key.toLowerCase())) {

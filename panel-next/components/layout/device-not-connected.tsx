@@ -6,7 +6,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 
 /**
  * Pantalla full-page cuando un device intenta operar el POS sin estar conectado
- * (cookie _jwt ausente, inválida, o device revocado).
+ * (Bearer token ausente en localStorage, inválido, o device revocado).
  *
  * NO ofrece formulario de pairing — el flujo nuevo es invitation-based: el admin
  * genera el link desde /settings/devices y se lo manda al usuario del device.

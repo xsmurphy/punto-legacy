@@ -28,11 +28,13 @@ async function proxyToApi(
 ): Promise<NextResponse> {
   const base = getApiBase()
   const cookieHeader = req.headers.get("cookie") ?? ""
+  const authHeader = req.headers.get("authorization") ?? ""
 
   const headers: Record<string, string> = {
     cookie: cookieHeader,
     "content-type": "application/x-www-form-urlencoded",
   }
+  if (authHeader) headers["authorization"] = authHeader
   if (HOST_OVERRIDE) headers["host"] = HOST_OVERRIDE
 
   const res = await fetch(`${base}${path}`, {

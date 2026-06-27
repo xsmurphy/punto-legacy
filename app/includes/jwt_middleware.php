@@ -3,9 +3,9 @@
  * JWT Middleware para el módulo /app.
  *
  * Lee TODOS los tokens candidatos de la request (ver _jwtExtractTokens):
- *   1. Header  Authorization: Bearer <token>
- *   2. Cookie  _jwt_panel (realm panel) y _jwt (realm pos-app)
- *   3. POST    _jwt_panel y _jwt
+ *   1. Header  Authorization: Bearer <token>  ← device POS (localStorage)
+ *   2. Cookie  _jwt_panel (realm panel)
+ *   3. POST    _jwt_panel y _jwt (back-compat programáticos)
  * y elige el que matchea el realm del endpoint (allowlist contra el claim `iss`).
  * El browser puede mandar `_jwt` y `_jwt_panel` a la vez en app.punto.la — por
  * eso se selecciona por realm, no "el primero".
@@ -29,11 +29,10 @@ function jwtAuthenticate(array $allowedRealms = ['pos-app']): bool
     }
 
     // Puede haber MÁS de un token presente en la misma request: el browser manda
-    // `_jwt` (POS, host-only) y `_jwt_panel` (panel, domain `.punto.la`) a la vez
-    // en `app.punto.la` cuando el usuario está logueado en ambos realms. Por eso
+    // un Bearer (device POS via localStorage) y `_jwt_panel` (panel, domain `.punto.la`)
+    // a la vez en `app.punto.la` cuando el usuario está logueado en ambos realms. Por eso
     // NO alcanza con tomar "el primero": hay que elegir el candidato cuyo `iss`
-    // matchea la allowlist del endpoint. Si tomáramos el primero a ciegas, un
-    // `_jwt_panel` presente eclipsaría al `_jwt` válido del POS → 401 espurio.
+    // matchea la allowlist del endpoint.
     $candidates = _jwtExtractTokens();
 
     if (empty($candidates)) {
@@ -253,12 +252,16 @@ function jwtSetCookie(string $token, int $ttl): void
  * prioridad, SIN filtrar por realm. La selección por realm la hace el caller
  * (jwtAuthenticate / refresh / logout) contra el claim `iss`.
  *
- * Por qué una lista y no "el primero": el browser puede mandar `_jwt` (POS,
- * host-only) y `_jwt_panel` (panel, domain `.punto.la`) a la vez en
- * `app.punto.la`. Quedarse con el primero hacía que `_jwt_panel` eclipsara al
- * `_jwt` del POS y devolviera 401 "Token de otro realm" aunque el token POS
- * fuera válido. Ahora el caller recorre los candidatos y se queda con el que
+ * Por qué una lista y no "el primero": el browser puede mandar `_jwt_panel`
+ * (panel, domain `.punto.la`) a la vez que un Bearer token del device en
+ * `app.punto.la`. El caller recorre los candidatos y se queda con el que
  * matchea su realm.
+ *
+ * Fuentes en orden de prioridad:
+ *   1. Header `Authorization: Bearer <token>` — device POS (localStorage)
+ *   2. Cookie `_jwt_panel`                   — panel admin (HttpOnly, 24h)
+ *   3. POST `_jwt_panel`                     — clientes programáticos panel
+ *   4. POST `_jwt`                           — clientes programáticos legacy
  *
  * @return string[] tokens crudos (sin decodificar), puede estar vacío.
  */
@@ -266,35 +269,25 @@ function _jwtExtractTokens(): array
 {
     $tokens = [];
 
-    // 1. Authorization header (Bearer) — prioridad 1.
+    // 1. Authorization header (Bearer) — device POS via localStorage.
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/Bearer\s+(\S+)/i', $authHeader, $m)) {
         $tokens[] = $m[1];
     }
 
-    // 2. Cookies. Dos nombres distintos por realm:
-    //    - `_jwt`       → emitido por el login del POS / app (realm pos-app, device pairing 10 años,
-    //                     incluye `rid` fijo desde el pairing — fuente robusta para endpoints POS)
-    //    - `_jwt_panel` → emitido por PanelAuth::issueJwt (realm panel, 24h, `rid='' por default`)
-    //
-    // ORDEN INTENCIONAL: `_jwt` ANTES que `_jwt_panel`. En endpoints multi-realm
-    // (drawer, sale, transactions — aceptan ['panel','pos-app']), el device JWT
-    // tiene el contexto operativo correcto (`rid` válido) y debe ganar.
-    // Para endpoints solo-panel, `_jwt` no matchea el realm y el loop sigue al
-    // `_jwt_panel`. Para endpoints solo-pos, gana `_jwt` también. Sin breaking.
-    if (!empty($_COOKIE['_jwt'])) {
-        $tokens[] = $_COOKIE['_jwt'];
-    }
+    // 2. Cookie `_jwt_panel` — panel admin (HttpOnly, 24h).
+    // La cookie `_jwt` del device fue eliminada: el device token viaja como Bearer.
     if (!empty($_COOKIE['_jwt_panel'])) {
         $tokens[] = $_COOKIE['_jwt_panel'];
     }
 
-    // 3. POST field (clientes programáticos). Mismo orden que cookies.
-    if (!empty($_POST['_jwt'])) {
-        $tokens[] = $_POST['_jwt'];
-    }
+    // 3. POST field (clientes programáticos).
     if (!empty($_POST['_jwt_panel'])) {
         $tokens[] = $_POST['_jwt_panel'];
+    }
+    // Back-compat para clients programáticos que aún mandan _jwt por POST.
+    if (!empty($_POST['_jwt'])) {
+        $tokens[] = $_POST['_jwt'];
     }
 
     return $tokens;

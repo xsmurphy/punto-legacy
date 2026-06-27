@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { setDeviceToken } from "@/lib/auth/device-token"
 
 const POLL_INTERVAL_MS = 3000
 const MAX_POLL_MS      = 30 * 60 * 1000 // 30 minutos
@@ -39,9 +40,9 @@ export function ConnectView({ invitationId, userCode, module }: ConnectViewProps
 
         const body = (await res.json()) as {
           ok?: boolean
-          data?: { status: InvitationStatus }
+          data?: { status: InvitationStatus; token?: string }
         }
-        const data = (body?.data ?? body) as { status: InvitationStatus }
+        const data = (body?.data ?? body) as { status: InvitationStatus; token?: string }
         const newStatus = data?.status
 
         if (!newStatus) return
@@ -57,6 +58,9 @@ export function ConnectView({ invitationId, userCode, module }: ConnectViewProps
         }
 
         if (newStatus === "approved") {
+          // Persistir el Bearer token en localStorage para el device POS.
+          const tokenFromBody = data?.token
+          if (tokenFromBody) setDeviceToken(tokenFromBody)
           setTimeout(() => {
             if (module === "pos")      router.replace("/pos")
             else if (module === "kds") router.replace("/kds")

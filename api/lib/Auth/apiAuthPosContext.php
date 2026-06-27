@@ -2,9 +2,10 @@
 /**
  * Contexto de autenticacion para endpoints POS.
  *
- * Acepta UNICAMENTE cookie `_jwt` (device, 10 anyos). Si no hay cookie valida,
- * retorna 401 -- el front mostrara DeviceNotConnected con instrucciones para
- * que el admin genere un link de conexion desde /settings/devices.
+ * Acepta UNICAMENTE el Bearer token del device (Authorization: Bearer <token>).
+ * El token viaja en localStorage del browser y se adjunta como header en cada
+ * request del front POS. Si no hay Bearer valido, retorna 401 -- el front
+ * mostrara DeviceNotConnected con instrucciones para re-parear.
  *
  * IMPORTANTE: esta funcion define las constantes COMPANY_ID/OUTLET_ID/USER_ID/
  * REGISTER_ID/ROLE_ID directamente desde el ctx del device (sin pasar por
@@ -13,9 +14,6 @@
  *
  * Si el endpoint POS necesita $company/$setting/$_modules (settings del
  * tenant), tendra que cargar data.php manualmente tras llamar a esta fn.
- *
- * Nota: el fallback a _jwt_panel que existia durante la migracion fue removido
- * en S3 (2026-06-24). Todo el front POS debe parear el dispositivo antes de operar.
  *
  * TODO follow-up: drop column contact.lockPass (plano) despues de validar
  * 1 semana en prod que lockPassHash (bcrypt) funciona para todos los operadores.
@@ -26,9 +24,13 @@ use Punto\Api\Auth\DeviceAuth;
 
 function apiAuthPosContext(): array
 {
-    $deviceCookie = $_COOKIE['_jwt'] ?? '';
-    if ($deviceCookie !== '') {
-        $ctx = DeviceAuth::validateJwt($deviceCookie);
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    $bearerToken = '';
+    if (preg_match('/Bearer\s+(\S+)/i', $authHeader, $m)) {
+        $bearerToken = $m[1];
+    }
+    if ($bearerToken !== '') {
+        $ctx = DeviceAuth::validateJwt($bearerToken);
         if ($ctx !== null) {
             // Verificar que la empresa no esta bloqueada (igual que apiAuthTenant hace via bootstrap.php:89)
             if (!checkCompanyStatus($ctx['companyId'])) {

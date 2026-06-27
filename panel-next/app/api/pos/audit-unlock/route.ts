@@ -23,9 +23,10 @@ export const dynamic = "force-dynamic"
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const cookie = req.headers.get("cookie") ?? ""
+  const authHeader = req.headers.get("authorization") ?? ""
   const hasPanel = /(?:^|;)\s*_jwt_panel=/.test(cookie)
-  const hasPosApp = /(?:^|;)\s*_jwt=/.test(cookie)
-  if (!hasPanel && !hasPosApp) {
+  const hasBearerToken = /^Bearer\s+\S+/i.test(authHeader)
+  if (!hasPanel && !hasBearerToken) {
     return NextResponse.json({ ok: false }, { status: 401 })
   }
 

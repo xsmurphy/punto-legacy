@@ -2,8 +2,12 @@
 /**
  * POST /v1/auth/unpair-pos-device -- Auto-desparea: un device se desvincula a sí mismo.
  *
- * Solo acepta cookie `_jwt` (device). El device solo puede revocarse a sí mismo.
+ * Acepta el Bearer token del device (Authorization: Bearer <token>) via apiAuthPosContext().
+ * El device solo puede revocarse a sí mismo.
  * Los admins del panel usan DELETE /v1/devices?id=X para revocar cualquier device.
+ *
+ * El cliente (panel-next/revoke-this-device/route.ts) llama clearDeviceToken() para
+ * limpiar el localStorage tras la respuesta exitosa.
  */
 
 require_once dirname(__DIR__, 2) . '/bootstrap.php';
@@ -44,24 +48,8 @@ if (!empty($ctx['isDevice']) && $ctx['isDevice'] === true) {
     }
 }
 
-// Si el caller es el propio device desvinculandose: clearear cookie
-if (($ctx['isDevice'] ?? false) === true && ($ctx['deviceId'] ?? '') === $deviceId) {
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-    $cookieOpts = [
-        'expires'  => time() - 3600,
-        'path'     => '/',
-        'httponly' => true,
-        'samesite' => 'Lax',
-        'secure'   => $isHttps,
-    ];
-    $cookieDomain = $_ENV['COOKIE_DOMAIN'] ?? '';
-    if ($cookieDomain !== '') {
-        $cookieOpts['domain'] = $cookieDomain;
-    }
-    setcookie('_jwt', '', $cookieOpts);
-}
-
+// El token está en localStorage del device; el cliente llama clearDeviceToken()
+// tras recibir la respuesta exitosa. No hay cookie que limpiar en el servidor.
 DeviceAuth::revoke($deviceId, COMPANY_ID);
 
 apiOk(['ok' => true]);
