@@ -697,12 +697,18 @@ function CartRowExpanded({
             <LineActionTile
               icon={DollarSign}
               label="Modificar precio"
-              onClick={() => { setMoreOpen(false); setTimeout(() => onEditPrice(), 50) }}
+              // Abrir el dialog ANTES de cerrar el Drawer: si invertís el
+              // orden, el setTimeout(50) cae dentro de la animación de
+              // cierre de Vaul (~300ms) y Radix interpreta el dialog como
+              // click-outside del Drawer → lo cierra inmediato. Disparar el
+              // dialog primero monta el portal aparte y el Drawer cierra
+              // su propio overlay sin tocarlo.
+              onClick={() => { onEditPrice(); setMoreOpen(false) }}
             />
             <LineActionTile
               icon={Percent}
               label="Aplicar descuento"
-              onClick={() => { setMoreOpen(false); setTimeout(() => onApplyDiscount(), 50) }}
+              onClick={() => { onApplyDiscount(); setMoreOpen(false) }}
             />
             <LineActionTile icon={Tag} label="Etiquetas" onClick={() => {}} disabled />
             <LineActionTile icon={MessageSquare} label="Comentario" onClick={() => {}} disabled />
