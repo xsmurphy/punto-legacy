@@ -65,62 +65,67 @@ export function LiveView({ cart, ctx }: Props) {
         )}
       </div>
 
-      {/* Derecha — border-l separa los paneles. Lista o logo del tenant. */}
-      {hasItems ? (
-        <div className="flex flex-col p-12 lg:p-16 overflow-auto border-l">
-          <p className="text-xl font-bold uppercase tracking-wide text-foreground mb-6 text-right">
-            Artículos
-          </p>
-          <div className="flex flex-col">
-            {cart.lines.map((line, i) => (
-              <React.Fragment key={i}>
-                <div className="grid py-4 items-center" style={{ gridTemplateColumns: "2.5rem 1fr auto" }}>
-                  <span className="text-lg tabular-nums text-muted-foreground font-medium">
-                    {line.qty}
-                  </span>
-                  <span className="text-lg text-foreground">{line.name}</span>
-                  <span className="text-lg tabular-nums text-right text-foreground">
-                    {formatMoney(line.total)}
-                  </span>
-                </div>
-                {i < cart.lines.length - 1 && <Separator />}
-              </React.Fragment>
-            ))}
+      {/* Derecha — panel relativo con border-l visible y watermark centrado abajo */}
+      <div className="relative flex flex-col border-l border-border">
+        {hasItems ? (
+          <div className="flex-1 flex flex-col p-12 lg:p-16 overflow-auto">
+            <p className="text-xl font-bold uppercase tracking-wide text-foreground mb-6 text-right">
+              Artículos
+            </p>
+            <div className="flex flex-col">
+              {cart.lines.map((line, i) => (
+                <React.Fragment key={i}>
+                  <div className="grid py-4 items-center" style={{ gridTemplateColumns: "2.5rem 1fr auto" }}>
+                    <span className="text-lg tabular-nums text-muted-foreground font-medium">
+                      {line.qty}
+                    </span>
+                    <span className="text-lg text-foreground">{line.name}</span>
+                    <span className="text-lg tabular-nums text-right text-foreground">
+                      {formatMoney(line.total)}
+                    </span>
+                  </div>
+                  {i < cart.lines.length - 1 && <Separator />}
+                </React.Fragment>
+              ))}
+            </div>
           </div>
-        </div>
-      ) : (
-        <TenantLogoBlock ctx={ctx} />
-      )}
+        ) : (
+          <div className="flex-1 flex items-center justify-center p-12 lg:p-16">
+            <TenantLogoInner ctx={ctx} />
+          </div>
+        )}
 
-      {/* Watermark Punto — abajo-derecha (siempre) */}
-      <div className="pointer-events-none absolute bottom-8 right-12 flex flex-col items-end gap-1 opacity-70">
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">Usamos</span>
-        <PuntoLogo variant="wordmark" className="h-8 w-[110px]" />
+        {/* Watermark Punto — centrado horizontal abajo del panel derecho */}
+        <div className="pointer-events-none flex flex-col items-center gap-1 opacity-70 pb-8">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Usamos</span>
+          <PuntoLogo variant="wordmark" className="h-8 w-[110px]" />
+        </div>
       </div>
     </div>
   )
 }
 
 /**
- * Bloque centrado para el logo del tenant. Con border-l fino para igualar
- * el separador entre paneles cuando hay lista de artículos.
+ * Inner del logo del tenant — sin padding/border, para usar dentro de un
+ * contenedor que ya posiciona y separa. Tamaño chico match con el mockup
+ * 2026-06-28 (h-32 w-32, antes era h-40 w-80).
  */
-export function TenantLogoBlock({ ctx }: { ctx: ScreenContext | null }) {
-  return (
-    <div className="flex flex-col items-center justify-center p-12 lg:p-16 border-l">
-      {ctx?.logoUrl ? (
-        <div className="relative h-32 w-64 lg:h-40 lg:w-80">
-          <Image
-            src={ctx.logoUrl}
-            alt={ctx.companyName || "Logo"}
-            fill
-            className="object-contain"
-            unoptimized
-          />
-        </div>
-      ) : ctx?.companyName ? (
-        <p className="text-4xl font-bold text-foreground text-center">{ctx.companyName}</p>
-      ) : null}
-    </div>
-  )
+export function TenantLogoInner({ ctx }: { ctx: ScreenContext | null }) {
+  if (ctx?.logoUrl) {
+    return (
+      <div className="relative h-32 w-32">
+        <Image
+          src={ctx.logoUrl}
+          alt={ctx.companyName || "Logo"}
+          fill
+          className="object-contain"
+          unoptimized
+        />
+      </div>
+    )
+  }
+  if (ctx?.companyName) {
+    return <p className="text-3xl font-bold text-foreground text-center">{ctx.companyName}</p>
+  }
+  return null
 }

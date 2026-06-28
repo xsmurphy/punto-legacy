@@ -1,5 +1,5 @@
 import { PuntoLogo } from "@/components/layout/punto-logo"
-import { TenantLogoBlock } from "./live-view"
+import { TenantLogoInner } from "./live-view"
 import type { ScreenContext } from "./page"
 
 function locationLine(ctx: ScreenContext | null): string {
@@ -9,13 +9,14 @@ function locationLine(ctx: ScreenContext | null): string {
 
 /**
  * Estado idle del visor — total "0", "Sin cliente", sucursal/caja
- * verticalmente centrados izq; logo del tenant centrado der; border-l
- * separa paneles. Watermark "Usamos Punto" abajo-der.
+ * verticalmente centrados izq; logo del tenant centrado der con border-l
+ * visible separando paneles; watermark "Usamos Punto" centrado horizontal
+ * abajo del panel derecho.
  */
 export function IdleView({ ctx }: { ctx: ScreenContext | null }) {
   return (
     <div className="relative min-h-screen grid" style={{ gridTemplateColumns: "55fr 45fr" }}>
-      {/* Izquierda — verticalmente centrado */}
+      {/* Izquierda */}
       <div className="flex flex-col justify-center p-12 lg:p-16">
         <p
           className="font-bold tabular-nums text-foreground leading-none"
@@ -32,13 +33,15 @@ export function IdleView({ ctx }: { ctx: ScreenContext | null }) {
         )}
       </div>
 
-      {/* Derecha — logo del tenant (TenantLogoBlock incluye border-l) */}
-      <TenantLogoBlock ctx={ctx} />
-
-      {/* Watermark Punto — abajo-derecha */}
-      <div className="pointer-events-none absolute bottom-8 right-12 flex flex-col items-end gap-1 opacity-70">
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">Usamos</span>
-        <PuntoLogo variant="wordmark" className="h-8 w-[110px]" />
+      {/* Derecha — logo del tenant + watermark centrado horizontal abajo */}
+      <div className="relative flex flex-col border-l border-border">
+        <div className="flex-1 flex items-center justify-center p-12 lg:p-16">
+          <TenantLogoInner ctx={ctx} />
+        </div>
+        <div className="pointer-events-none flex flex-col items-center gap-1 opacity-70 pb-8">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Usamos</span>
+          <PuntoLogo variant="wordmark" className="h-8 w-[110px]" />
+        </div>
       </div>
     </div>
   )
