@@ -2563,6 +2563,9 @@ function findPhoneLogin($phone){
 	// porque la mig 58 cambió contact.role de smallint a varchar(64):
 	//   - '1' legacy (users pre-mig 58)
 	//   - UUID que apunta a taxonomy role con slug='owner'
+	// Phone storage convention: contactPhone se guarda SIN el '+' inicial
+	// (libphonenumber lo agrega al normalizar, hay que strippearlo para match).
+	$phone = ltrim((string)$phone, '+');
 	return ncmExecute("SELECT c.*
                         FROM contact c
                         WHERE c.contactPhone = ?
