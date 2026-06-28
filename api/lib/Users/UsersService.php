@@ -66,6 +66,21 @@ final class UsersService
                 r.taxonomyname    AS roleName,
                 c.outletId,
                 o.outletName,
+                COALESCE(
+                  (SELECT json_agg(co.outletid::text)
+                     FROM contact_outlet co
+                    WHERE co.contactid = c.contactid
+                      AND co.companyid = c.companyid),
+                  '[]'::json
+                ) AS outletids_json,
+                COALESCE(
+                  (SELECT json_agg(o2.outletname)
+                     FROM contact_outlet co
+                     JOIN outlet o2 ON o2.outletid = co.outletid
+                    WHERE co.contactid = c.contactid
+                      AND co.companyid = c.companyid),
+                  '[]'::json
+                ) AS outletnames_json,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
@@ -112,6 +127,21 @@ final class UsersService
                 r.taxonomyname    AS roleName,
                 c.outletId,
                 o.outletName,
+                COALESCE(
+                  (SELECT json_agg(co.outletid::text)
+                     FROM contact_outlet co
+                    WHERE co.contactid = c.contactid
+                      AND co.companyid = c.companyid),
+                  '[]'::json
+                ) AS outletids_json,
+                COALESCE(
+                  (SELECT json_agg(o2.outletname)
+                     FROM contact_outlet co
+                     JOIN outlet o2 ON o2.outletid = co.outletid
+                    WHERE co.contactid = c.contactid
+                      AND co.companyid = c.companyid),
+                  '[]'::json
+                ) AS outletnames_json,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
@@ -169,6 +199,13 @@ final class UsersService
 
         [$hash, $salt] = self::hashPassword((string) $password);
 
+        // Normalizar outletIds: si viene outletIds usa eso;
+        // si solo viene outletId legacy, lo convierte; si nada, array vacío.
+        $outletIds = $this->resolveOutletIds($in, $companyId);
+
+        // back-compat: contact.outletid = primer outlet asignado (o null)
+        $primaryOutletId = $outletIds[0] ?? ($in['outletId'] ?? null);
+
         $rec = [
             'contactName'              => $name,
             'contactEmail'             => $email !== '' ? $email : null,
@@ -176,7 +213,7 @@ final class UsersService
             'contactPassword'          => $hash,
             'salt'                     => $salt,
             'role'                     => $in['roleId']           ?? null,
-            'outletId'                 => $in['outletId']         ?? null,
+            'outletId'                 => $primaryOutletId,
             'lockPass'                 => $lockPass !== '' ? $lockPass : null,
             'lockPassHash'             => $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null,
             'pinhash'                  => $lockPass !== '' ? hash('sha256', $lockPass) : null,
@@ -195,6 +232,12 @@ final class UsersService
         if ($newId === false) {
             throw new \RuntimeException('No se pudo crear el usuario');
         }
+
+        // Bulk INSERT en contact_outlet
+        if (!empty($outletIds)) {
+            $this->syncContactOutlets((string) $newId, $companyId, $outletIds);
+        }
+
         return (string) $newId;
     }
 
@@ -227,8 +270,14 @@ final class UsersService
         if (array_key_exists('roleId', $in)) {
             $rec['role']    = $in['roleId'] ?: null;
         }
-        if (array_key_exists('outletId', $in)) {
-            $rec['outletId'] = $in['outletId'] ?: null;
+        // outletIds (nuevo) tiene precedencia sobre outletId (legacy).
+        // Si viene outletIds, sincroniza contact_outlet y actualiza contact.outletid.
+        // Si solo viene outletId legacy (sin outletIds), lo trata como array de 1 o [].
+        if (array_key_exists('outletIds', $in) || array_key_exists('outletId', $in)) {
+            $outletIds = $this->resolveOutletIds($in, $companyId);
+            $primaryOutletId = $outletIds[0] ?? null;
+            $rec['outletId'] = $primaryOutletId;
+            $this->syncContactOutlets($id, $companyId, $outletIds);
         }
         if (array_key_exists('lockPass', $in)) {
             $lockPass = trim((string) ($in['lockPass'] ?? ''));
@@ -376,9 +425,79 @@ final class UsersService
             'roleName'         => $joinedRoleName ?? ($roleKey !== null ? (self::ROLES[$roleKey] ?? null) : null),
             'outletId'         => $row['outletid']          ?? $row['outletId']                 ?? null,
             'outletName'       => $row['outletname']        ?? $row['outletName']               ?? null,
+            'outletIds'        => json_decode((string) ($row['outletids_json']   ?? '[]'), true) ?: [],
+            'outletNames'      => json_decode((string) ($row['outletnames_json'] ?? '[]'), true) ?: [],
             'createdAt'        => $row['createdat']         ?? $row['createdAt']                ?? null,
             'updatedAt'        => $row['updatedat']         ?? $row['updatedAt']                ?? null,
         ];
+    }
+
+    /**
+     * Resuelve el array canónico de outletIds desde el payload de entrada.
+     * Prioridad: outletIds (nuevo) > outletId legacy > [].
+     * Valida que cada outletId pertenezca al companyId (previene injection cross-tenant).
+     *
+     * @return string[]  Array de UUID strings válidos y del tenant.
+     * @throws \InvalidArgumentException si algún outletId no pertenece al tenant.
+     */
+    private function resolveOutletIds(array $in, string $companyId): array
+    {
+        if (array_key_exists('outletIds', $in)) {
+            $ids = is_array($in['outletIds']) ? $in['outletIds'] : [];
+        } elseif (array_key_exists('outletId', $in) && !empty($in['outletId'])) {
+            $ids = [$in['outletId']];
+        } else {
+            return [];
+        }
+
+        // Filtrar vacíos
+        $ids = array_values(array_filter($ids, fn($v) => !empty($v)));
+        if (empty($ids)) return [];
+
+        // Validar pertenencia al tenant — un outletId por fuera es 422
+        foreach ($ids as $oid) {
+            $exists = ncmExecute(
+                "SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1",
+                [$oid, $companyId]
+            );
+            if (!$exists) {
+                throw new \InvalidArgumentException("La sucursal '{$oid}' no pertenece a esta empresa");
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Reemplaza todas las filas de contact_outlet para un contacto.
+     * Envuelto en transacción explícita: DELETE + INSERT bulk.
+     *
+     * @param string   $contactId UUID del contacto.
+     * @param string   $companyId UUID del tenant.
+     * @param string[] $outletIds Array de outlet UUIDs (puede ser vacío).
+     */
+    private function syncContactOutlets(string $contactId, string $companyId, array $outletIds): void
+    {
+        // DELETE previos del contacto en este tenant
+        ncmExecute(
+            "DELETE FROM contact_outlet WHERE contactid = ? AND companyid = ?",
+            [$contactId, $companyId]
+        );
+
+        if (empty($outletIds)) return;
+
+        // INSERT bulk con un solo query
+        $placeholders = implode(', ', array_fill(0, count($outletIds), '(?, ?, ?)'));
+        $params = [];
+        foreach ($outletIds as $oid) {
+            $params[] = $contactId;
+            $params[] = $oid;
+            $params[] = $companyId;
+        }
+        ncmExecute(
+            "INSERT INTO contact_outlet (contactid, outletid, companyid) VALUES {$placeholders} ON CONFLICT DO NOTHING",
+            $params
+        );
     }
 
     /**

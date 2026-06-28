@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Plus, Loader2, Users, Shield, CircleOff } from "lucide-react"
+import { Plus, Loader2, Users, Shield, CircleOff, ChevronsUpDown, Check } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import type { CountryCode } from "libphonenumber-js"
 import { toast } from "sonner"
@@ -46,6 +46,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import { Checkbox } from "@/components/ui/checkbox"
 
 import {
   useTeamMembers,
@@ -66,7 +76,7 @@ const teamSchema = z
     phone:            z.string(),
     password:         z.string(),
     roleId:           z.string(),
-    outletId:         z.string(),
+    outletIds:        z.array(z.string()),
     lockPass:         z.string().refine((v) => v === "" || /^\d{4}$/.test(v), {
       message: "El código POS debe tener 4 dígitos",
     }),
@@ -92,7 +102,7 @@ function emptyValues(): TeamFormValues {
     phone:      "",
     password:   "",
     roleId:     NONE,
-    outletId:   NONE,
+    outletIds:  [],
     lockPass:   "",
     inCalendar: false,
     color:      "",
@@ -107,7 +117,7 @@ function memberToForm(m: TeamMember): TeamFormValues {
     phone:      formatPhone(m.phone),
     password:   "",
     roleId:     m.roleId ?? NONE,
-    outletId:   m.outletId ?? NONE,
+    outletIds:  m.outletIds ?? [],
     lockPass:   m.lockPass ?? "",
     inCalendar: m.inCalendar,
     color:      m.color ?? "",
@@ -176,12 +186,25 @@ function buildColumns(
       },
     },
     {
-      accessorKey: "outletName",
+      accessorKey: "outletNames",
       header: "Sucursal",
-      cell: ({ row }) =>
-        row.original.outletName ?? (
-          <span className="text-muted-foreground text-xs">Todas</span>
-        ),
+      cell: ({ row }) => {
+        const names = row.original.outletNames ?? []
+        if (names.length === 0) {
+          return <span className="text-muted-foreground text-xs">Todas</span>
+        }
+        if (names.length === 1) {
+          return <span>{names[0]}</span>
+        }
+        return (
+          <Badge
+            variant="secondary"
+            title={names.join(", ")}
+          >
+            {names.length} sucursales
+          </Badge>
+        )
+      },
     },
     {
       accessorKey: "phone",
@@ -399,31 +422,92 @@ function TeamForm({
           />
           <FormField
             control={form.control}
-            name="outletId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Sucursal asignada</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Todas las sucursales" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="__none__">Todas las sucursales</SelectItem>
-                    {outlets.map((o) => (
-                      <SelectItem key={o.id} value={o.id}>
-                        {o.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormDescription className="text-xs">
-                  Vacío = acceso a todas las sucursales.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
+            name="outletIds"
+            render={({ field }) => {
+              const selected: string[] = field.value ?? []
+              const [open, setOpen] = React.useState(false)
+
+              function toggle(id: string) {
+                const next = selected.includes(id)
+                  ? selected.filter((v) => v !== id)
+                  : [...selected, id]
+                field.onChange(next)
+              }
+
+              const triggerLabel = selected.length === 0
+                ? null
+                : selected.length === 1
+                  ? outlets.find((o) => o.id === selected[0])?.name ?? "1 sucursal"
+                  : `${selected.length} sucursales`
+
+              return (
+                <FormItem>
+                  <FormLabel>Sucursales asignadas</FormLabel>
+                  <Popover open={open} onOpenChange={setOpen}>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between font-normal"
+                        >
+                          <span className={triggerLabel ? undefined : "text-muted-foreground"}>
+                            {triggerLabel ?? "Todas las sucursales"}
+                          </span>
+                          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Buscar sucursal…" />
+                        <CommandList>
+                          <CommandEmpty>Sin resultados.</CommandEmpty>
+                          <CommandGroup>
+                            {outlets.map((o) => {
+                              const checked = selected.includes(o.id)
+                              return (
+                                <CommandItem
+                                  key={o.id}
+                                  value={o.name}
+                                  onSelect={() => toggle(o.id)}
+                                  data-checked={checked}
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    className="mr-2"
+                                    aria-hidden
+                                    tabIndex={-1}
+                                  />
+                                  {o.name}
+                                  {checked && <Check className="ml-auto size-4" />}
+                                </CommandItem>
+                              )
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {selected.length > 1 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {selected.map((id) => {
+                        const name = outlets.find((o) => o.id === id)?.name
+                        return name ? (
+                          <Badge key={id} variant="secondary" className="text-xs">
+                            {name}
+                          </Badge>
+                        ) : null
+                      })}
+                    </div>
+                  )}
+                  <FormDescription className="text-xs">
+                    Sin selección = acceso a todas las sucursales.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )
+            }}
           />
           <FormField
             control={form.control}
