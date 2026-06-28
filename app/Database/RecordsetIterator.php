@@ -41,7 +41,14 @@ final class RecordsetIterator
     {
         if ($name === 'fields') {
             $f = $this->inner->fields;
-            return is_array($f) ? $f : (array) $f;
+            if (is_array($f)) return $f;
+            // CaseInsensitiveArray (ADOdb) implementa Iterator; iterator_to_array
+            // preserva las keys reales (lowercase del driver pg). NO usar
+            // `(array)$obj` porque eso serializa propiedades privadas con prefijos
+            // `\0...\0_arr` y todos los `$rs->fields['key']` devuelven null.
+            // Incidente 2026-06-28 (devices null + POS crash con charAt).
+            if ($f instanceof \Traversable) return iterator_to_array($f);
+            return (array) $f;
         }
         return $this->inner->{$name};
     }
@@ -60,6 +67,10 @@ final class RecordsetIterator
     {
         $raw = $this->inner->GetRows($rows);
         if (!is_array($raw)) return [];
-        return array_map(fn($r) => is_array($r) ? $r : (array) $r, $raw);
+        return array_map(function ($r) {
+            if (is_array($r)) return $r;
+            if ($r instanceof \Traversable) return iterator_to_array($r);
+            return (array) $r;
+        }, $raw);
     }
 }
