@@ -70,7 +70,17 @@ const panelNav: NavEntry[] = [
   { title: "Caja", to: "/pos", icon: ScanBarcode }, // Caja = POS dentro del propio panel...
 ]
 
-function filterByPermissions(entries: NavEntry[], perms: string[]): NavEntry[] {
+/**
+ * Filtra entries por permisos. Si `permsLoaded=false` (bootstrap aún cargando),
+ * retorna TODO sin filtrar — durante loading se muestran todos los items y
+ * cuando llegan los perms, se filtran. Evita:
+ *  1. Hidratación mismatch (React #418): SSR/primer-client tienen
+ *     perms=[] → filtro oculta todo. Tras llegada del bootstrap → perms
+ *     llenos → re-render con árbol distinto → mismatch.
+ *  2. Flicker de sidebar vacío durante el load inicial.
+ */
+function filterByPermissions(entries: NavEntry[], perms: string[], permsLoaded: boolean): NavEntry[] {
+  if (!permsLoaded) return entries
   return entries.reduce<NavEntry[]>((acc, entry) => {
     const asGroup = entry as NavGroup
     if (asGroup.items !== undefined) {
@@ -134,8 +144,10 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       badge: parkedSales?.length ? String(parkedSales.length) : undefined,
     },
   ]
-  const nav = isPos ? posNav : filterByPermissions(panelNav, permissions)
   const { data: bootstrap, isLoading } = useBootstrap()
+  // permsLoaded: solo filtrar cuando el bootstrap llegó. Si no, mostrar TODO
+  // (mejor UX + evita hidratación mismatch — ver filterByPermissions).
+  const nav = isPos ? posNav : filterByPermissions(panelNav, permissions, !!bootstrap)
   // El logo de la empresa lo trae /v1/settings (no /v1/bootstrap). Se
   // muestra en el avatar del menu user del footer. staleTime 60s del hook
   // evita el refetch en cada navegación. null si la empresa aún no subió.
