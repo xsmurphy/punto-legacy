@@ -27,7 +27,15 @@ namespace Punto\App\Database;
  */
 final class RecordsetIterator
 {
-    public function __construct(private readonly \ADORecordSet $inner) {}
+    /**
+     * @param object $inner Cualquier recordset estilo ADOdb. NO se tipa con
+     * `\ADORecordSet` porque el driver del proyecto devuelve `DBResult`
+     * (subclase ADOdb específica del proyecto) y otros call-sites podrían
+     * devolver variantes. Duck typing: requerimos las propiedades `EOF`,
+     * `fields` y los métodos `MoveNext`/`Close`/`RecordCount`/`GetRows`,
+     * validados implícitamente por __get/__call al usarse.
+     */
+    public function __construct(private readonly object $inner) {}
 
     public function __get(string $name): mixed
     {
