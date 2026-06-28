@@ -23,13 +23,17 @@ import { cookies } from "next/headers"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const PANEL_BASE = (() => {
+// Lazy: resolver en cada request, NO en module-load. Si se evalúa en module-load
+// (IIFE top-level), Next la dispara durante "Collecting page data" en build —
+// que corre SIN env vars de runtime → throw → build falla. Incidente
+// 2026-06-28 con Coolify cuando faltaba PANEL_URL en el builder.
+function getPanelBase(): string {
   const url = process.env.PANEL_URL ?? process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
   if (!url) {
     throw new Error("Panel base URL missing. Set PANEL_URL, API_URL, or NEXT_PUBLIC_API_URL.")
   }
   return url.replace(/\/$/, "")
-})()
+}
 
 const HOP_BY_HOP = new Set([
   "host",
@@ -59,7 +63,7 @@ async function proxy(
   const { path } = await ctx.params
   const tail = (path ?? []).join("/")
   const search = req.nextUrl.search
-  const targetUrl = `${PANEL_BASE}/API/v1/admin/${tail}${search}`
+  const targetUrl = `${getPanelBase()}/API/v1/admin/${tail}${search}`
 
   // Logout especial — limpia la cookie y devuelve 200 sin llamar al upstream.
   if (req.method === "POST" && tail === "logout") {

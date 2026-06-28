@@ -30,14 +30,19 @@ export const runtime = "nodejs"
 // Dynamic — el path es dinámico per-request; no cacheamos.
 export const dynamic = "force-dynamic"
 
-const TARGET_BASE = (() => {
+// Lazy: resolver en cada request, NO en module-load. La IIFE top-level se
+// evalúa durante "Collecting page data" del build de Next — que corre SIN
+// env vars de runtime → si la var faltara, el build muere completo. Hoy
+// Coolify pasa API_URL al builder por accidente; este patrón nos protege
+// contra que ese accidente cambie. (Mismo fix en /api/admin/[...path]).
+function getTargetBase(): string {
   // En server, API_URL (privado) o NEXT_PUBLIC_API_URL como fallback.
   const url = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
   if (!url) {
     throw new Error("API base URL missing. Set API_URL or NEXT_PUBLIC_API_URL.")
   }
   return url.replace(/\/$/, "")
-})()
+}
 
 /** Headers que NO reenviamos al backend (manejados por fetch interno). */
 const HOP_BY_HOP = new Set([
@@ -54,7 +59,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   const { path } = await ctx.params
   const tail = (path ?? []).join("/")
   const search = req.nextUrl.search // incluye `?` si hay query
-  const targetUrl = `${TARGET_BASE}/v1/${tail}${search}`
+  const targetUrl = `${getTargetBase()}/v1/${tail}${search}`
 
   // Copy headers excepto hop-by-hop. `cookie` y `authorization` no están en
   // HOP_BY_HOP — se copian automáticamente. `_jwt_panel` (panel, cookie) y
