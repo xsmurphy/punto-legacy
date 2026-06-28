@@ -25,6 +25,20 @@ use Punto\Api\Context\TenantContext;
  */
 final class PriceListService
 {
+    // SELECT compartido — alias explícitos con quotes para preservar casing
+    // camelCase (PG sin quotes baja todo a lowercase). shape() lee
+    // $row['priceListId'] etc, y `flattenJsonb` (Query::execute) retorna
+    // array plano sin lookup case-insensitive desde el cambio 2026-06-28.
+    private const SELECT_LIST_FIELDS = '
+        pl.priceListId      AS "priceListId",
+        pl.priceListName    AS "priceListName",
+        pl.defaultAdjustment AS "defaultAdjustment",
+        pl.validFrom         AS "validFrom",
+        pl.validTo           AS "validTo",
+        pl.status,
+        pl.createdAt         AS "createdAt",
+        pl.updatedAt         AS "updatedAt"';
+
     public function __construct(public readonly TenantContext $ctx) {}
 
     /**
@@ -34,7 +48,7 @@ final class PriceListService
     public function list(string $companyId): array
     {
         $rows = ncmExecute(
-            'SELECT pl.*, COUNT(pli.priceListItemId) AS itemCount
+            'SELECT ' . self::SELECT_LIST_FIELDS . ', COUNT(pli.priceListItemId) AS "itemCount"
                FROM price_list pl
           LEFT JOIN price_list_item pli ON pli.priceListId = pl.priceListId AND pli.companyId = pl.companyId
               WHERE pl.companyId = ?
@@ -61,7 +75,7 @@ final class PriceListService
     public function get(string $companyId, string $priceListId): ?array
     {
         $row = ncmExecute(
-            'SELECT pl.*, COUNT(pli.priceListItemId) AS itemCount
+            'SELECT ' . self::SELECT_LIST_FIELDS . ', COUNT(pli.priceListItemId) AS "itemCount"
                FROM price_list pl
           LEFT JOIN price_list_item pli ON pli.priceListId = pl.priceListId AND pli.companyId = pl.companyId
               WHERE pl.priceListId = ? AND pl.companyId = ?
@@ -110,7 +124,7 @@ final class PriceListService
 
         // Recuperar el registro recién creado (INSERT no retorna UUID en esta DB.php)
         $row = ncmExecute(
-            'SELECT pl.*, 0 AS itemCount
+            'SELECT ' . self::SELECT_LIST_FIELDS . ', 0 AS "itemCount"
                FROM price_list pl
               WHERE pl.companyId = ?
            ORDER BY pl.createdAt DESC
