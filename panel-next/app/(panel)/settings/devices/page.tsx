@@ -1,7 +1,7 @@
 "use client"
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Plus, Trash2, Bell } from "lucide-react"
+import { Plus, Trash2, Bell, MonitorSmartphone } from "lucide-react"
 import { toast } from "sonner"
 import { DataTable } from "@/components/data-table/data-table"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,7 @@ import { useConnectedDevices } from "@/hooks/use-connected-devices"
 import { DeviceInvitesTab } from "@/components/settings/device-invites-tab"
 import { DeviceInviteCreateDialog } from "@/components/settings/device-invite-create-dialog"
 import { DEVICE_KIND_LABELS, type ConnectedDevice } from "@/lib/devices/connected-device"
+import { EmptyState } from "@/components/empty-state"
 
 function niceDate(iso: string | null): string {
   if (!iso) return "—"
@@ -225,6 +226,19 @@ export default function DevicesPage() {
         isLoading={isLoading}
         searchPlaceholder="Buscar dispositivo..."
         exportFileName={null}
+        emptyMessage={
+          <EmptyState
+            icon={MonitorSmartphone}
+            title="Sin dispositivos conectados"
+            description="Conectá una caja POS o pantalla cliente desde el botón Conectar dispositivo."
+            actions={
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4 mr-1.5" />
+                Conectar dispositivo
+              </Button>
+            }
+          />
+        }
       />
 
       {/* Dialog para solicitudes pendientes */}
