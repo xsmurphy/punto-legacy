@@ -159,8 +159,8 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     icon: ReceiptText,
     CustomContent: TransactionsPreview,
   },
-  // Agenda y Órdenes ocultos por ahora — se rehabilitan cuando construyamos
-  // esas secciones reales (hoy son solo previews). 2026-06-28.
+  // Agenda, Órdenes y Módulos ocultos por ahora — se rehabilitan cuando
+  // construyamos esas secciones reales (hoy son previews). 2026-06-28.
   // {
   //   key: "agenda",
   //   label: "Agenda",
@@ -179,12 +179,13 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     icon: Printer,
     CustomContent: PrintersPanel,
   },
-  {
-    key: "modules",
-    label: "Módulos",
-    icon: Component,
-    CustomContent: ModulesPanel,
-  },
+  // Módulos oculto por ahora — ver nota más arriba (Agenda/Órdenes).
+  // {
+  //   key: "modules",
+  //   label: "Módulos",
+  //   icon: Component,
+  //   CustomContent: ModulesPanel,
+  // },
   {
     key: "settings",
     label: "Ajustes",

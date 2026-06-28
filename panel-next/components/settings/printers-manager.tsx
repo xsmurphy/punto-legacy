@@ -1,10 +1,10 @@
 "use client"
 
 import * as React from "react"
-import type { ColumnDef } from "@tanstack/react-table"
 import { Check, X, Printer, Trash2, PrinterCheck, Pencil, ChevronsUpDown } from "lucide-react"
 import { toast } from "sonner"
 
+import { Card } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -46,7 +46,6 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 import { cn } from "@/lib/utils"
 
@@ -712,122 +711,6 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
     }
   }
 
-  const columns = React.useMemo<ColumnDef<PrinterBinding>[]>(
-    () => [
-      {
-        accessorKey: "name",
-        header: "Nombre",
-        cell: ({ row }) => {
-          const b = row.original
-          return (
-            <div className="flex items-center">
-              <span
-                className="inline-block size-2.5 rounded-full mr-2 flex-shrink-0"
-                style={{ backgroundColor: b.color }}
-              />
-              <span className="font-medium">{b.name}</span>
-            </div>
-          )
-        },
-      },
-      {
-        id: "device",
-        header: "Dispositivo",
-        cell: ({ row }) => {
-          const b = row.original
-          if (b.transport === "native") return <Badge variant="outline">Sistema</Badge>
-          if (b.transport === "usb") return <Badge variant="secondary">USB: {b.deviceLabel ?? `${b.vendorId}:${b.productId}`}</Badge>
-          if (b.transport === "bluetooth") return <Badge variant="secondary">BT: {b.bluetoothDeviceId?.slice(0, 8) ?? "—"}</Badge>
-          if (b.transport === "network") return <Badge variant="secondary">Red: {b.networkHost}:{b.networkPort ?? 9100}</Badge>
-          return null
-        },
-      },
-      {
-        id: "mode",
-        header: "Modo",
-        cell: ({ row }) => (
-          <Badge variant={row.original.mode === "escpos" ? "secondary" : "outline"}>
-            {row.original.mode === "escpos" ? "Térmica" : "Navegador"}
-          </Badge>
-        ),
-      },
-      {
-        id: "docTypes",
-        header: "Documentos",
-        cell: ({ row }) => {
-          const dts = Array.isArray(row.original.docTypes) ? row.original.docTypes : []
-          return dts.map((dt) => DOC_TYPE_LABELS[dt]?.short ?? dt).join(" · ")
-        },
-      },
-      {
-        id: "categories",
-        header: "Categorías",
-        cell: ({ row }) => {
-          const n = Array.isArray(row.original.categoryIds) ? row.original.categoryIds.length : 0
-          return <Badge variant="secondary">{n === 0 ? "Todas" : `${n} categ.`}</Badge>
-        },
-      },
-      {
-        id: "autoPrint",
-        header: "Auto",
-        cell: ({ row }) =>
-          row.original.autoPrint ? (
-            <Check className="size-4 text-green-600" />
-          ) : (
-            <X className="size-4 text-muted-foreground" />
-          ),
-      },
-      {
-        id: "openDrawer",
-        header: "Cajón",
-        cell: ({ row }) =>
-          row.original.openDrawer ? (
-            <Check className="size-4 text-green-600" />
-          ) : (
-            <X className="size-4 text-muted-foreground" />
-          ),
-      },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }) => {
-          const b = row.original
-          return (
-            <div className="flex gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={testingId === b.id}
-                onClick={() => handlePrintTest(b)}
-              >
-                <PrinterCheck className="size-4 mr-1.5" />
-                {testingId === b.id ? "Imprimiendo…" : "Prueba"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setDialogMode({ type: "edit", binding: b })}
-              >
-                <Pencil className="size-4 mr-1.5" />
-                Editar
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setDeleteTarget(b)}
-              >
-                <Trash2 className="size-4 mr-1.5" />
-                Eliminar
-              </Button>
-            </div>
-          )
-        },
-      },
-    ],
-    [testingId],
-  )
-
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -871,23 +754,30 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
           description="Elegí una caja para ver y administrar sus impresoras."
           showMarquee={false}
         />
-      ) : (
-        <DataTable
-          tableId="printers"
-          columns={columns}
-          data={bindings}
-          isLoading={bindingsLoading}
-          searchPlaceholder="Buscar impresora…"
-          exportFileName={null}
-          emptyMessage={
-            <EmptyState
-              icon={Printer}
-              title="Sin impresoras configuradas"
-              description='Hacé clic en "Agregar impresora" para configurar la primera.'
-              showMarquee={false}
-            />
-          }
+      ) : bindingsLoading ? (
+        <p className="text-sm text-muted-foreground">Cargando impresoras…</p>
+      ) : bindings.length === 0 ? (
+        <EmptyState
+          icon={Printer}
+          title="Sin impresoras configuradas"
+          description='Hacé clic en "Agregar impresora" para configurar la primera.'
+          showMarquee={false}
         />
+      ) : (
+        // Grid de cards — el POS rara vez tiene más de 3 impresoras, una
+        // tabla con 7+ columnas era excesiva para tan pocas filas.
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {bindings.map((b) => (
+            <PrinterCard
+              key={b.id}
+              binding={b}
+              testing={testingId === b.id}
+              onPrintTest={() => handlePrintTest(b)}
+              onEdit={() => setDialogMode({ type: "edit", binding: b })}
+              onDelete={() => setDeleteTarget(b)}
+            />
+          ))}
+        </div>
       )}
 
       <BindingDialog
@@ -927,5 +817,108 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+// ── PrinterCard ──────────────────────────────────────────────────────────────
+// Card individual de impresora — reemplaza la fila del DataTable previo.
+// Card por impresora (no tabla): el POS típico tiene 1-3 impresoras, una
+// tabla con 7 columnas era visualmente excesiva. La card agrupa info
+// (transport + modo + docs + categorías + flags auto/cajón) en un layout
+// vertical compacto + 3 acciones al pie.
+
+function PrinterCard({
+  binding: b,
+  testing,
+  onPrintTest,
+  onEdit,
+  onDelete,
+}: {
+  binding: PrinterBinding
+  testing: boolean
+  onPrintTest: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const docs = Array.isArray(b.docTypes) ? b.docTypes : []
+  const docsLabel = docs.map((dt) => DOC_TYPE_LABELS[dt]?.short ?? dt).join(" · ") || "—"
+  const categoriesLabel =
+    !Array.isArray(b.categoryIds) || b.categoryIds.length === 0
+      ? "Todas"
+      : `${b.categoryIds.length} categ.`
+  let deviceLabel = "—"
+  if (b.transport === "native") deviceLabel = "Sistema"
+  else if (b.transport === "usb") deviceLabel = `USB · ${b.deviceLabel ?? `${b.vendorId}:${b.productId}`}`
+  else if (b.transport === "bluetooth") deviceLabel = `Bluetooth · ${b.bluetoothDeviceId?.slice(0, 8) ?? "—"}`
+  else if (b.transport === "network") deviceLabel = `Red · ${b.networkHost}:${b.networkPort ?? 9100}`
+
+  return (
+    <Card className="flex flex-col p-4 gap-3">
+      {/* Header: color + nombre + modo */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className="inline-block size-3 rounded-full shrink-0"
+            style={{ backgroundColor: b.color }}
+            aria-hidden
+          />
+          <span className="font-semibold truncate">{b.name}</span>
+        </div>
+        <Badge variant={b.mode === "escpos" ? "secondary" : "outline"} className="shrink-0">
+          {b.mode === "escpos" ? "Térmica" : "Navegador"}
+        </Badge>
+      </div>
+
+      {/* Metadatos */}
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
+        <dt className="text-muted-foreground">Dispositivo</dt>
+        <dd className="truncate">{deviceLabel}</dd>
+        <dt className="text-muted-foreground">Documentos</dt>
+        <dd className="truncate">{docsLabel}</dd>
+        <dt className="text-muted-foreground">Categorías</dt>
+        <dd>{categoriesLabel}</dd>
+      </dl>
+
+      {/* Flags */}
+      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          {b.autoPrint ? (
+            <Check className="size-4 text-green-600" />
+          ) : (
+            <X className="size-4" />
+          )}
+          Auto
+        </span>
+        <span className="flex items-center gap-1.5">
+          {b.openDrawer ? (
+            <Check className="size-4 text-green-600" />
+          ) : (
+            <X className="size-4" />
+          )}
+          Cajón
+        </span>
+      </div>
+
+      {/* Acciones */}
+      <div className="flex flex-wrap gap-1 pt-2 border-t -mx-4 px-4 -mb-4 pb-4 mt-auto">
+        <Button variant="ghost" size="sm" disabled={testing} onClick={onPrintTest}>
+          <PrinterCheck className="size-4 mr-1.5" />
+          {testing ? "Imprimiendo…" : "Prueba"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onEdit}>
+          <Pencil className="size-4 mr-1.5" />
+          Editar
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 className="size-4 mr-1.5" />
+          Eliminar
+        </Button>
+      </div>
+    </Card>
   )
 }
