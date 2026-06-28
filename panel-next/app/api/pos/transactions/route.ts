@@ -3,75 +3,30 @@
  *
  * Front (POS) → /api/pos/transactions → api/v1/transactions.php?resource=mainList
  *
- * Auth: cookie `_jwt` (realm pos-app). Misma estrategia que /api/pos/drawer.
+ * Auth: Bearer token del device (_jwt en localStorage).
  *
  * Parámetros opcionales forwarded:
  *   ?date=YYYY-MM-DD   — filtrar por fecha
  *   ?limit=N           — cantidad de resultados (default 30)
- *   ?search=texto      — búsqueda por nombre de cliente / comprobante
- *
- * La API backend devuelve { transactionsList: [...] } con campos:
- *   transactionId (enc), customerId (enc), name, type, status,
- *   date, total, discount, documentNo, invoicePrefix, pMethods, etc.
- *
- * Ref: api/lib/services/TransactionService.php getSingle y getTransactionList.
+ *   ?offset=N          — paginación (default 0)
+ *   ?q=texto           — búsqueda por nombre de cliente / comprobante
+ *   ?type=tipo         — filtrar por tipo
  */
 
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
+import { bffProxy } from "@/lib/bff/proxy"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-function getApiBase(): string {
-  const url = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
-  if (!url) throw new Error("API base URL missing. Set API_URL or NEXT_PUBLIC_API_URL.")
-  return url.replace(/\/$/, "")
-}
-
-const HOST_OVERRIDE = process.env.PUNTO_SHARED_API_HOST
-
-async function proxyToApi(
-  method: string,
-  path: string,
-  req: NextRequest,
-  body?: BodyInit,
-): Promise<NextResponse> {
-  const base = getApiBase()
-  const cookieHeader = req.headers.get("cookie") ?? ""
-  const authHeader = req.headers.get("authorization") ?? ""
-
-  const headers: Record<string, string> = {
-    cookie: cookieHeader,
-    "content-type": "application/x-www-form-urlencoded",
-  }
-  if (authHeader) headers["authorization"] = authHeader
-  if (HOST_OVERRIDE) headers["host"] = HOST_OVERRIDE
-
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers,
-    body,
-    cache: "no-store",
-  })
-
-  const data = await res.json().catch(() => ({ error: "invalid json" }))
-  return NextResponse.json(data, { status: res.status })
-}
-
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const { searchParams } = req.nextUrl
-  const date = searchParams.get("date")
-  const limit = searchParams.get("limit") ?? "30"
-  const offset = searchParams.get("offset") ?? "0"
-  const q = searchParams.get("q") ?? ""
-  const type = searchParams.get("type")
-
+export async function GET(req: NextRequest) {
+  const sp = req.nextUrl.searchParams
   const qs = new URLSearchParams({ resource: "mainList" })
-  if (date) qs.set("date", date)
-  qs.set("limit", limit)
-  qs.set("offset", offset)
-  if (q) qs.set("q", q)
-  if (type !== null) qs.set("type", type)
-
-  return proxyToApi("GET", `/v1/transactions.php?${qs.toString()}`, req)
+  for (const k of ["date", "limit", "offset", "q", "type"] as const) {
+    const v = sp.get(k)
+    if (v !== null) qs.set(k, v)
+  }
+  if (!qs.has("limit")) qs.set("limit", "30")
+  if (!qs.has("offset")) qs.set("offset", "0")
+  return bffProxy(req, { upstreamPath: `/v1/transactions.php?${qs.toString()}`, requireBearer: true })
 }

@@ -3,23 +3,19 @@
  *
  * Front (POS) → /api/pos/revoke-this-device → api/v1/auth/unpair-pos-device.php
  *
- * El BFF extrae el deviceId del cookie _jwt (decode naive sin verificar firma)
- * para no exponer el deviceId al cliente. El PHP usa el mismo cookie _jwt para
+ * El BFF extrae el deviceId del Bearer token (decode naive sin verificar firma)
+ * para no exponer el deviceId al cliente. El PHP usa el mismo Bearer para
  * validar ownership en apiAuthPosContext().
+ *
+ * Lógica especial que no entra en bffProxy: extraer deviceId del JWT y
+ * construir el form body con él. El fetch en sí va por bffProxy.
  */
 
 import { NextRequest, NextResponse } from "next/server"
+import { bffProxy } from "@/lib/bff/proxy"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-function getApiBase(): string {
-  const url = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
-  if (!url) throw new Error("API base URL missing. Set API_URL or NEXT_PUBLIC_API_URL.")
-  return url.replace(/\/$/, "")
-}
-
-const HOST_OVERRIDE = process.env.PUNTO_SHARED_API_HOST
 
 function extractDeviceIdFromJwt(token: string): string | null {
   try {
@@ -33,7 +29,7 @@ function extractDeviceIdFromJwt(token: string): string | null {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // El deviceId se extrae del Bearer token (ya no del cookie _jwt).
+  // El deviceId se extrae del Bearer token — no se acepta ningún otro método de auth.
   const authHeader = req.headers.get("authorization") ?? ""
   const bearerMatch = authHeader.match(/^Bearer\s+(\S+)/i)
   const jwtToken = bearerMatch?.[1] ?? ""
@@ -46,50 +42,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     )
   }
 
-  const base = getApiBase()
-  const cookieHeader = req.headers.get("cookie") ?? ""
-  const headers = new Headers()
-  headers.set("authorization", authHeader)
-  headers.set("cookie", cookieHeader) // mantener para _jwt_panel si existe
-  headers.set("accept", "application/json")
-  headers.set("content-type", "application/x-www-form-urlencoded")
-  if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)
-
   const formBody = new URLSearchParams({ deviceId })
 
-  let upstream: Response
-  try {
-    upstream = await fetch(`${base}/v1/auth/unpair-pos-device.php`, {
-      method: "POST",
-      headers,
-      body: formBody,
-      cache: "no-store",
-      redirect: "manual",
-    })
-  } catch (err) {
-    console.error("[bff /api/pos/revoke-this-device] upstream fetch failed", {
-      err: err instanceof Error ? err.message : String(err),
-    })
-    return NextResponse.json(
-      { ok: false, error: { message: "BFF no pudo contactar la API", code: 502 } },
-      { status: 502 }
-    )
-  }
-
-  const upstreamBody = await upstream.text()
-  const respHeaders = new Headers()
-  upstream.headers.forEach((v, k) => {
-    const lower = k.toLowerCase()
-    if (["transfer-encoding", "content-encoding", "connection"].includes(lower)) return
-    respHeaders.set(k, v)
-  })
-  if (!respHeaders.has("content-type")) {
-    respHeaders.set("content-type", "application/json")
-  }
-
-  return new NextResponse(upstreamBody, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: respHeaders,
+  return bffProxy(req, {
+    upstreamPath: "/v1/auth/unpair-pos-device.php",
+    body: formBody,
+    contentType: "application/x-www-form-urlencoded",
+    requireBearer: true,
   })
 }
