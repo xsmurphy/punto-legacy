@@ -78,6 +78,8 @@ final class OutletsService
         // rutea al JSONB con merge no-destructivo automáticamente. Esto nos deja
         // un único path de write sin el UPDATE explícito anterior.
 
+        require_once dirname(__DIR__, 3) . '/app/includes/phone.php';
+        $iso = (string)($f['country'] ?? 'PY');
         $record = [
             'outletName'            => $f['name'],
             'outletStatus'          => (int) $f['status'],
@@ -85,8 +87,8 @@ final class OutletsService
             'taxId'                 => $f['taxId'] !== '' ? $f['taxId'] : null,
             // Demoted al JSONB data — ncmUpdate los rutea.
             'outletAddress'         => $f['address'],
-            'outletPhone'           => $f['phone'],
-            'outletWhatsApp'        => $f['whatsApp'],
+            'outletPhone'           => phoneValidateForStorage($f['phone'] ?? null, $iso, 'Teléfono inválido'),
+            'outletWhatsApp'        => phoneValidateForStorage($f['whatsApp'] ?? null, $iso, 'WhatsApp inválido'),
             'outletEmail'           => $f['email'],
             'outletBillingName'     => $f['billingName'],
             'outletRUC'             => $f['ruc'],

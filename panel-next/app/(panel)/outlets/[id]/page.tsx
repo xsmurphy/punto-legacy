@@ -7,6 +7,10 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { ArrowLeft, Boxes, Calculator, Loader2, MapPin, Pencil, Phone, Receipt, Store, Trash2 } from "lucide-react"
+import { isValidPhoneNumber } from "libphonenumber-js"
+import { PhoneInput } from "@/components/forms/phone-input"
+import { DEFAULT_COUNTRY } from "@/lib/countries"
+import type { CountryCode } from "libphonenumber-js"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -81,13 +85,19 @@ import type { OutletFormValues } from "@/lib/types/outlet"
 const outletSchema = z.object({
   name: z.string().min(1, "El nombre es requerido"),
   address: z.string(),
-  phone: z.string(),
+  phone: z.string().refine(
+    (v) => v === "" || isValidPhoneNumber(v),
+    { message: "Teléfono inválido" }
+  ),
   email: z.union([z.string().email("Email inválido"), z.literal("")]),
   description: z.string(),
   status: z.boolean(),
   billingName: z.string(),
   ruc: z.string(),
-  whatsApp: z.string(),
+  whatsApp: z.string().refine(
+    (v) => v === "" || isValidPhoneNumber(v),
+    { message: "WhatsApp inválido" }
+  ),
   purchaseOrderNo: z.number().int().nonnegative().nullable(),
   // Lat/Lng: columnas numéricas con rango válido de coordenadas geográficas.
   lat: z.number().min(-90).max(90).nullable(),
@@ -555,11 +565,17 @@ function ContactoTab({ form }: FormProp) {
       <FormField
         control={form.control}
         name="phone"
-        render={({ field }) => (
+        render={({ field, fieldState }) => (
           <FormItem>
             <FormLabel>Teléfono</FormLabel>
             <FormControl>
-              <Input type="tel" placeholder="021 600 600" {...field} />
+              <PhoneInput
+                value={field.value}
+                country={DEFAULT_COUNTRY as CountryCode}
+                onChange={(v) => field.onChange(v.e164 ?? v.value)}
+                onBlur={field.onBlur}
+                aria-invalid={!!fieldState.error}
+              />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -568,11 +584,17 @@ function ContactoTab({ form }: FormProp) {
       <FormField
         control={form.control}
         name="whatsApp"
-        render={({ field }) => (
+        render={({ field, fieldState }) => (
           <FormItem>
             <FormLabel>WhatsApp</FormLabel>
             <FormControl>
-              <Input type="tel" placeholder="0981 123 456" {...field} />
+              <PhoneInput
+                value={field.value}
+                country={DEFAULT_COUNTRY as CountryCode}
+                onChange={(v) => field.onChange(v.e164 ?? v.value)}
+                onBlur={field.onBlur}
+                aria-invalid={!!fieldState.error}
+              />
             </FormControl>
             <FormMessage />
           </FormItem>

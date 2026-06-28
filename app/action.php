@@ -1017,8 +1017,8 @@ if ($action) {
       if (!empty($customerData['date']))     { $record['contactDate']     = $customerData['date']; }
       // contactBirthDay (date): "" rompe PG → NULL.
       $record['contactBirthDay']   = !empty($customerData['birthday']) ? $customerData['birthday'] : null;
-      $record['contactPhone']      = $customerData['phone']  ?? null;
-      $record['contactPhone2']     = $customerData['phone2'] ?? null;
+      $record['contactPhone']      = phoneValidateForStorage($customerData['phone']  ?? null, 'PY');
+      $record['contactPhone2']     = phoneValidateForStorage($customerData['phone2'] ?? null, 'PY');
       $record['contactEmail']      = !empty($customerData['email']) ? strtolower(preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['email'])) : null;
       $record['userId']            = USER_ID;
       $record['outletId']          = OUTLET_ID;
@@ -1147,8 +1147,8 @@ if ($action) {
       $record['contactTIN']        = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['ruc'] ?? '');
       $record['contactSecondName'] = preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['fullName'] ?? '');
       $record['contactCI']         = !empty($customerData['ci']) ? (string)$customerData['ci'] : null;
-      $record['contactPhone']      = $customerData['phone']  ?? null;
-      $record['contactPhone2']     = $customerData['phone2'] ?? null;
+      $record['contactPhone']      = phoneValidateForStorage($customerData['phone']  ?? null, 'PY');
+      $record['contactPhone2']     = phoneValidateForStorage($customerData['phone2'] ?? null, 'PY');
       $record['contactEmail']      = !empty($customerData['email']) ? strtolower(preg_replace('/[^A-Za-z0-9._+-]*$/', '', $customerData['email'])) : null;
       // contactBirthDay (date): "" rompe PG → NULL.
       $record['contactBirthDay']   = !empty($customerData['birthday']) ? $customerData['birthday'] : null;

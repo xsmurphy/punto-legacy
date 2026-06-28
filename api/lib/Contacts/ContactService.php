@@ -80,7 +80,11 @@ final class ContactService
         if (isset($in['country']))  $rec['contactCountry']  = strip_tags((string) $in['country']);
         if (isset($in['address']))  $rec['contactAddress']  = strip_tags((string) $in['address']);
         if (isset($in['address2'])) $rec['contactAddress2'] = strip_tags((string) $in['address2']);
-        if (isset($in['phone']))    $rec['contactPhone']    = $in['phone'];
+        if (isset($in['phone'])) {
+            require_once dirname(__DIR__, 3) . '/app/includes/phone.php';
+            $iso = (string)($in['country'] ?? 'PY');
+            $rec['contactPhone'] = phoneValidateForStorage($in['phone'], $iso);
+        }
         // contactPhone2 ELIMINADO de la tabla (Migración 25). El form ya no lo
         // pide; ignoramos cualquier valor legacy que llegue en el payload.
         if (isset($in['email']))    $rec['contactEmail']    = strip_tags((string) $in['email']);

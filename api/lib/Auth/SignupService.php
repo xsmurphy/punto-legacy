@@ -213,7 +213,7 @@ final class SignupService
         $userInsert = ncmInsert(['records' => [
             'contactName'     => ucwords((string) $post['username']),
             'contactPassword' => $passSalt[0],
-            'contactPhone'    => $email,
+            'contactPhone'    => normalizePhoneForStorage($email),
             'contactInCalendar' => 1,
             'companyId'       => $companyInsert,
             'outletId'        => $outletInsert,
