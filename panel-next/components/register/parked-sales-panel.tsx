@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation"
 import { Clock, ShoppingCart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { EmptyState } from "@/components/empty-state"
 import {
   useParkedSales,
   useDeleteParkedSale,
@@ -58,10 +59,11 @@ export function ParkedSalesPanel() {
 
   if (!sales || sales.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-        <ShoppingCart className="size-8 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">No hay ventas guardadas</p>
-      </div>
+      <EmptyState
+        icon={ShoppingCart}
+        title="Sin ventas guardadas"
+        description="Las ventas que pongas en espera desde el POS van a aparecer acá para retomarlas más tarde."
+      />
     )
   }
 
