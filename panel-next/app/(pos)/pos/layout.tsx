@@ -66,10 +66,13 @@ export default function PosWorkspaceLayout({
   usePosHotkeys()
 
   // Auto-lock al arrancar si hay >1 operador (sin flash entre paints).
+  // El flag vive en el lock-store (no en un useRef local) para sobrevivir
+  // remounts del layout — Next puede invalidar la cache al navegar entre
+  // rutas hijas (/pos → /pos/guardadas) y un useRef se resetearía, volviendo
+  // a lockear cada vez. Incidente 2026-06-28.
   const { data: bootstrap } = useBootstrap()
-  const autoLockApplied = React.useRef(false)
-  if (!autoLockApplied.current && bootstrap) {
-    autoLockApplied.current = true
+  if (bootstrap && !useLockStore.getState().autoLockDone) {
+    useLockStore.getState().markAutoLockDone()
     const userCount = bootstrap.userCount
     if (typeof userCount === "number" && userCount > 1) {
       useLockStore.getState().lock()
