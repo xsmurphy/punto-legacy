@@ -40,9 +40,17 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   }
 }
 
+export interface ScreenContext {
+  companyName: string
+  logoUrl: string
+  registerName: string
+  outletName: string
+}
+
 export default function CheckoutPage() {
   const [state, setState] = React.useState<ScreenState>({ kind: "unpaired" })
   const [token, setToken] = React.useState<string | null>(null)
+  const [screenCtx, setScreenCtx] = React.useState<ScreenContext | null>(null)
   const wsRef = React.useRef<WebSocket | null>(null)
   const reconnectRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const heartbeatRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
@@ -99,6 +107,23 @@ export default function CheckoutPage() {
     connectWs(token, channels)
     startHeartbeat(token)
     setState({ kind: "idle" })
+    // Fetch context (company name, logo, caja, sucursal) — best-effort.
+    void (async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? ""
+        const res = await fetch(`${apiUrl}/v1/screens?resource=context`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const body = (await res.json()) as {
+          ok?: boolean
+          data?: ScreenContext
+        }
+        if (body?.data) setScreenCtx(body.data)
+      } catch {
+        // best-effort
+      }
+    })()
     return () => {
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
       if (heartbeatRef.current) clearInterval(heartbeatRef.current)
@@ -212,9 +237,9 @@ export default function CheckoutPage() {
           Pantalla completa
         </button>
       </div>
-      {state.kind === "live" && <LiveView cart={state.cart} />}
+      {state.kind === "live" && <LiveView cart={state.cart} ctx={screenCtx} />}
       {state.kind === "confirmed" && <ConfirmedView total={state.total} change={state.change} />}
-      {state.kind === "idle" && <IdleView />}
+      {state.kind === "idle" && <IdleView ctx={screenCtx} />}
     </div>
   )
 }

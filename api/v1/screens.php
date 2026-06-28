@@ -31,6 +31,48 @@ if ($method === 'POST' && $resource === 'heartbeat') {
     exit;
 }
 
+// ── GET ?resource=context — auth device Bearer (module=screen) ───────────────
+// Devuelve datos para que la pantalla cliente arme su UI sin esperar al
+// primer cart-update del POS: companyName, registerName, outletName, logoUrl.
+
+if ($method === 'GET' && $resource === 'context') {
+    $ctx = apiAuthPosContext();
+    if (($ctx['module'] ?? 'pos') !== 'screen') {
+        apiError('Context solo para pantallas cliente', 403);
+    }
+    // settingName / settingObj viven en `company.config` JSONB y los expone
+    // el flatten de ncmExecute como top-level keys (mismo patrón que
+    // SettingsService::general). El logo se guarda en config.hasLogo +
+    // config.logoUrl + config.logoUploadedAt (cache-bust).
+    $company = ncmExecute(
+        'SELECT * FROM company WHERE companyid = ?::uuid LIMIT 1',
+        [$ctx['companyId']]
+    );
+    $obj = json_decode((string) ($company['settingObj'] ?? ''), true);
+    if (!is_array($obj)) { $obj = []; }
+    $hasLogo  = !empty($obj['hasLogo']);
+    $logoUrl  = (string) ($obj['logoUrl'] ?? '');
+    $logoStmp = isset($obj['logoUploadedAt']) ? (int) $obj['logoUploadedAt'] : null;
+    $logo     = ($hasLogo && $logoUrl !== '')
+        ? $logoUrl . ($logoStmp ? '?v=' . $logoStmp : '')
+        : '';
+
+    $reg = $ctx['registerId'] !== ''
+        ? ncmExecute('SELECT registername FROM register WHERE registerid=?::uuid LIMIT 1', [$ctx['registerId']])
+        : null;
+    $out = $ctx['outletId'] !== ''
+        ? ncmExecute('SELECT outletname FROM outlet WHERE outletid=?::uuid LIMIT 1', [$ctx['outletId']])
+        : null;
+
+    apiOk([
+        'companyName'  => (string) ($company['settingName'] ?? ''),
+        'registerName' => (string) ($reg['registername'] ?? ''),
+        'outletName'   => (string) ($out['outletname'] ?? ''),
+        'logoUrl'      => $logo,
+    ]);
+    exit;
+}
+
 // ── POST ?resource=publish — auth device Bearer (module=pos) ─────────────────
 
 if ($method === 'POST' && $resource === 'publish') {
