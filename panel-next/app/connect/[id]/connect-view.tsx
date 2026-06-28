@@ -58,9 +58,15 @@ export function ConnectView({ invitationId, userCode, module }: ConnectViewProps
         }
 
         if (newStatus === "approved") {
-          // Persistir el Bearer token en localStorage para el device POS.
+          // Persistir el Bearer token en localStorage namespaced por module
+          // (`punto.device.token.pos` / `punto.device.token.screen`). Sin el
+          // namespace, parear ambos tipos en el mismo browser pisaba el
+          // token del primero y rompía publish/auth — incidente 2026-06-28.
           const tokenFromBody = data?.token
-          if (tokenFromBody) setDeviceToken(tokenFromBody)
+          if (tokenFromBody) {
+            const mod = module === "screen" ? "screen" : "pos"
+            setDeviceToken(tokenFromBody, mod)
+          }
           setTimeout(() => {
             if (module === "pos")         router.replace("/pos")
             else if (module === "screen") router.replace("/checkout")

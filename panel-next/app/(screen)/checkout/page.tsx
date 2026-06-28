@@ -69,7 +69,7 @@ export default function CheckoutPage() {
   // Al montar: leer token de localStorage (punto.device.token)
   React.useEffect(() => {
     activeRef.current = true
-    const stored = getDeviceToken()
+    const stored = getDeviceToken("screen")
     if (stored) {
       setToken(stored)
     } else {
@@ -90,7 +90,7 @@ export default function CheckoutPage() {
     const rid = claims["rid"] as string | undefined
     const did = claims["did"] as string | undefined
     if (!cid || !rid) {
-      clearDeviceToken()
+      clearDeviceToken("screen")
       setToken(null)
       setState({ kind: "unpaired" })
       return
@@ -160,7 +160,7 @@ export default function CheckoutPage() {
         setState({ kind: "idle" })
         break
       case "revoked":
-        clearDeviceToken()
+        clearDeviceToken("screen")
         setToken(null)
         cleanup()
         setState({ kind: "unpaired" })
@@ -179,7 +179,7 @@ export default function CheckoutPage() {
           body: "{}",
         })
         if (res.status === 401) {
-          clearDeviceToken()
+          clearDeviceToken("screen")
           setToken(null)
           cleanup()
           setState({ kind: "unpaired" })
