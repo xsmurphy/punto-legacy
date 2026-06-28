@@ -25,7 +25,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { useRevokeScreen } from "@/hooks/use-screens"
 import { useRevokePosDevice, useDeletePosDevice } from "@/hooks/use-pos-devices"
 import { useDeviceInvitations } from "@/hooks/use-device-invitations"
 import { useConnectedDevices } from "@/hooks/use-connected-devices"
@@ -46,8 +45,13 @@ export default function DevicesPage() {
   const [createOpen, setCreateOpen] = React.useState(false)
   const [invitesOpen, setInvitesOpen] = React.useState(false)
   const [showRevoked, setShowRevoked] = React.useState(false)
-  const [revokeScreenId, setRevokeScreenId] = React.useState<string | null>(null)
-  const [revokePosId, setRevokePosId] = React.useState<string | null>(null)
+  // Un solo state de revoke para POS y screen — ambos viven en la misma
+  // tabla `device` y se revocan via DeviceAuth::revoke, así que invalidar
+  // un solo queryKey ["pos-devices"] funciona para los dos. Antes había
+  // useRevokeScreen separado que invalidaba ["screens"] — esa key ya no se
+  // usa para listar (useConnectedDevices lee solo de /v1/devices) → el row
+  // revocado de tipo screen no desaparecía de la tabla. Incidente 2026-06-28.
+  const [revokeId, setRevokeId] = React.useState<string | null>(null)
   const [deletePosId, setDeletePosId] = React.useState<string | null>(null)
 
   const { data: invitationsData } = useDeviceInvitations()
@@ -55,8 +59,7 @@ export default function DevicesPage() {
 
   const { devices, isLoading } = useConnectedDevices({ showRevoked })
 
-  const revokeScreen = useRevokeScreen()
-  const revokePosDevice = useRevokePosDevice()
+  const revokeDevice = useRevokePosDevice()
   const deletePosDevice = useDeletePosDevice()
 
   const columns = React.useMemo<ColumnDef<ConnectedDevice>[]>(() => [
@@ -131,32 +134,21 @@ export default function DevicesPage() {
       header: "",
       cell: ({ row }) => {
         const { kind, id, status } = row.original
-        if (kind === "screen" && status === 1) {
+        if (status === 1) {
           return (
             <Button
               variant="ghost"
               size="sm"
               className="text-destructive hover:text-destructive"
-              onClick={() => setRevokeScreenId(id)}
+              onClick={() => setRevokeId(id)}
             >
               <Trash2 className="size-4 mr-1.5" />
               Revocar
             </Button>
           )
         }
-        if (kind === "pos" && status === 1) {
-          return (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setRevokePosId(id)}
-            >
-              <Trash2 className="size-4 mr-1.5" />
-              Revocar
-            </Button>
-          )
-        }
+        // Solo POS revocado tiene hard-delete (historial); screen revocado
+        // queda en la lista cuando "Mostrar revocados" está activado.
         if (kind === "pos" && status === 0) {
           return (
             <Button
@@ -252,13 +244,13 @@ export default function DevicesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* AlertDialog: revocar pantalla */}
-      <AlertDialog open={revokeScreenId !== null} onOpenChange={(o) => { if (!o) setRevokeScreenId(null) }}>
+      {/* AlertDialog: revocar dispositivo (genérico para POS y screen). */}
+      <AlertDialog open={revokeId !== null} onOpenChange={(o) => { if (!o) setRevokeId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revocar pantalla</AlertDialogTitle>
+            <AlertDialogTitle>Revocar dispositivo</AlertDialogTitle>
             <AlertDialogDescription>
-              La pantalla dejará de funcionar inmediatamente. Esta acción no se puede deshacer.
+              El dispositivo dejará de funcionar inmediatamente. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -266,36 +258,9 @@ export default function DevicesPage() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
-                if (!revokeScreenId) return
-                revokeScreen.mutate(revokeScreenId, {
-                  onSuccess: () => { toast.success("Pantalla revocada"); setRevokeScreenId(null) },
-                  onError: (err) => { toast.error(err.message) },
-                })
-              }}
-            >
-              Revocar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* AlertDialog: revocar dispositivo POS */}
-      <AlertDialog open={revokePosId !== null} onOpenChange={(o) => { if (!o) setRevokePosId(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revocar dispositivo POS</AlertDialogTitle>
-            <AlertDialogDescription>
-              El dispositivo dejará de poder operar la caja inmediatamente. Esta acción no se puede deshacer.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (!revokePosId) return
-                revokePosDevice.mutate(revokePosId, {
-                  onSuccess: () => { toast.success("Dispositivo revocado"); setRevokePosId(null) },
+                if (!revokeId) return
+                revokeDevice.mutate(revokeId, {
+                  onSuccess: () => { toast.success("Dispositivo revocado"); setRevokeId(null) },
                   onError: (err) => { toast.error(err.message) },
                 })
               }}
