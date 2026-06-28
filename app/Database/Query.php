@@ -30,8 +30,16 @@ final class Query
      *
      * @param mixed $row  CaseInsensitiveArray o array.
      */
-    public static function flattenJsonb(mixed $row): \CaseInsensitiveArray
+    public static function flattenJsonb(mixed $row): array
     {
+        // Retorna `array` plano (no CaseInsensitiveArray). Antes retornaba
+        // CIA y CADA caller con typehint `array $row` revienta con
+        // "Argument must be of type array, CaseInsensitiveArray given"
+        // (bug recurrente: PrinterBindingService, PriceListService, etc).
+        // El nuevo contrato es uniforme: ncmExecute para 1 row → array.
+        // PG devuelve keys lowercase, callers usan `$row['contactname']` —
+        // perdemos el lookup case-insensitive del CIA pero nadie de Punto
+        // dependía de eso explícitamente. Incidente 2026-06-28.
         $arr = ($row instanceof \CaseInsensitiveArray) ? $row->toArray() : (array) $row;
 
         static $jsonbCols = ['data', 'meta', 'config'];
@@ -46,7 +54,7 @@ final class Query
             }
         }
 
-        return new \CaseInsensitiveArray($arr);
+        return $arr;
     }
 
     /**

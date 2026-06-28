@@ -12,12 +12,12 @@ import { Badge } from "@/components/ui/badge"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -140,15 +140,15 @@ function PriceListSheet({ open, onClose, editing }: PriceListSheetProps) {
   }
 
   return (
-    <Sheet open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <SheetContent className="flex flex-col gap-0 sm:max-w-md">
-        <SheetHeader className="pb-4">
-          <SheetTitle>{editing ? "Editar lista" : "Nueva lista de precios"}</SheetTitle>
-          <SheetDescription>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="flex max-h-[90vh] flex-col gap-0 sm:max-w-lg">
+        <DialogHeader className="pb-4">
+          <DialogTitle>{editing ? "Editar lista" : "Nueva lista de precios"}</DialogTitle>
+          <DialogDescription>
             Configurá nombre, ajuste global y vigencia. Podés agregar precios específicos
             por ítem desde el detalle de la lista.
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
         <form onSubmit={onSubmit} className="flex flex-1 flex-col gap-5 overflow-y-auto pb-6">
           {/* Nombre */}
           <div className="flex flex-col gap-1.5">
@@ -244,8 +244,8 @@ function PriceListSheet({ open, onClose, editing }: PriceListSheetProps) {
             </Button>
           </div>
         </form>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }
 
