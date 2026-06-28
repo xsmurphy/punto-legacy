@@ -54,6 +54,9 @@ export interface NavItem {
   badge?: string
   /** Permiso requerido para mostrar este item. Si no se provee, siempre visible. */
   requires?: string
+  /** Oculta el item en mobile (≤sm). Útil cuando hay otra entrada equivalente
+   *  para mobile (ej. el FAB del Asistente IA reemplaza al item del sidebar). */
+  hideOnMobile?: boolean
 }
 
 export interface NavGroup {
@@ -504,7 +507,9 @@ function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) 
     if (isMobile) setOpenMobile(false)
   }
   return (
-    <SidebarMenuItem>
+    // hideOnMobile = CSS-only (sin hydration mismatch). Tailwind `md:` matchea
+    // el breakpoint del sidebar persistente (md = ≥768px).
+    <SidebarMenuItem className={item.hideOnMobile ? "hidden md:block" : undefined}>
       <SidebarMenuButton
         asChild
         isActive={isActive}

@@ -46,7 +46,7 @@ import { AuthSentinel } from "@/components/auth/auth-sentinel"
 // que el set genérico anterior (Package/Users/BarChart3).
 const panelNav: NavEntry[] = [
   { title: "Dashboard", to: "/", icon: LayoutDashboard },
-  { title: "Asistente", to: "/chat", icon: MessageCircle },
+  { title: "Asistente", to: "/chat", icon: MessageCircle, hideOnMobile: true },
   {
     title: "Artículos",
     icon: LayoutTemplate,
