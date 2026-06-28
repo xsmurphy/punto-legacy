@@ -63,12 +63,19 @@ final class UsersService
                 (c.data->>'contactInCalendar' = 'true') AS inCalendar,
                 COALESCE(NULLIF(c.data->>'contactCalendarPosition','')::int, 0) AS calendarPosition,
                 c.role            AS roleId,
+                r.taxonomyname    AS roleName,
                 c.outletId,
                 o.outletName,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
             LEFT JOIN outlet o ON o.outletId = c.outletId AND o.companyId = c.companyId
+            -- Join al sistema nuevo de roles (RoleService -- taxonomy roleData
+            -- + role). c.role guarda el taxonomyid::text del rol custom.
+            -- Sin esto, todo rol que NO sea legacy Super Admin caia a Sin rol
+            -- en el front. Incidente 2026-06-28.
+            LEFT JOIN taxonomy r ON r.taxonomyid::text = c.role
+                AND r.taxonomytype = 'role' AND r.companyid = c.companyId
             WHERE {$where}
             ORDER BY c.contactName ASC
         ";
@@ -102,12 +109,15 @@ final class UsersService
                 (c.data->>'contactInCalendar' = 'true') AS inCalendar,
                 COALESCE(NULLIF(c.data->>'contactCalendarPosition','')::int, 0) AS calendarPosition,
                 c.role            AS roleId,
+                r.taxonomyname    AS roleName,
                 c.outletId,
                 o.outletName,
                 c.contactDate     AS createdAt,
                 c.updated_at      AS updatedAt
             FROM contact c
             LEFT JOIN outlet o ON o.outletId = c.outletId AND o.companyId = c.companyId
+            LEFT JOIN taxonomy r ON r.taxonomyid::text = c.role
+                AND r.taxonomytype = 'role' AND r.companyid = c.companyId
             WHERE c.contactId = ? AND c.companyId = ? AND c.type = ?
         ";
         $row = ncmExecute($sql, [$id, $companyId, self::TYPE_USER]);
@@ -345,6 +355,11 @@ final class UsersService
         $roleId = $row['roleid'] ?? $row['roleId'] ?? null;
         // Normalizamos a string para el lookup ('1' tanto desde int como string)
         $roleKey = $roleId !== null && $roleId !== '' ? (string) $roleId : null;
+        // roleName: prioridad al JOIN con taxonomy 'role' (sistema nuevo
+        // RoleService — soporta roles custom Dueño/Encargado/Cajero/etc).
+        // Fallback al catálogo legacy ROLES (solo '1' => Super Admin) para
+        // back-compat con users viejos que no estén pasados al nuevo sistema.
+        $joinedRoleName = $row['rolename'] ?? $row['roleName'] ?? null;
         return [
             'id'               => $row['id']               ?? $row['contactid']               ?? null,
             'name'             => $row['name']              ?? $row['contactname']              ?? null,
@@ -358,7 +373,7 @@ final class UsersService
             'inCalendar'       => (bool) ($row['incalendar'] ?? $row['contactincalendar']      ?? false),
             'calendarPosition' => (int) ($row['calendarposition'] ?? $row['contactcalendarposition'] ?? 0),
             'roleId'           => $roleKey,
-            'roleName'         => $roleKey !== null ? (self::ROLES[$roleKey] ?? null) : null,
+            'roleName'         => $joinedRoleName ?? ($roleKey !== null ? (self::ROLES[$roleKey] ?? null) : null),
             'outletId'         => $row['outletid']          ?? $row['outletId']                 ?? null,
             'outletName'       => $row['outletname']        ?? $row['outletName']               ?? null,
             'createdAt'        => $row['createdat']         ?? $row['createdAt']                ?? null,
