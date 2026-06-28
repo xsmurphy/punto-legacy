@@ -228,15 +228,27 @@ export default function CheckoutPage() {
 
   return (
     <div className="relative w-full min-h-screen">
-      <div className="absolute top-3 right-3 z-50 opacity-0 hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          className="text-xs text-muted-foreground px-2 py-1 rounded bg-muted/50 hover:bg-muted"
+      {/* Botón fullscreen — top-left, visible permanente (mockup 2026-06-28). */}
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        aria-label="Pantalla completa"
+        className="absolute top-4 left-4 z-50 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         >
-          Pantalla completa
-        </button>
-      </div>
+          <path d="M3 7V3h4M21 7V3h-4M3 17v4h4M21 17v4h-4" />
+        </svg>
+      </button>
       {state.kind === "live" && <LiveView cart={state.cart} ctx={screenCtx} />}
       {state.kind === "confirmed" && <ConfirmedView total={state.total} change={state.change} />}
       {state.kind === "idle" && <IdleView ctx={screenCtx} />}

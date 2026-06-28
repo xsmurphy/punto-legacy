@@ -16,17 +16,23 @@ function formatMoney(amount: number): string {
   }).format(amount)
 }
 
+function locationLine(ctx: ScreenContext | null): string {
+  if (!ctx) return ""
+  const parts = [ctx.outletName, ctx.registerName].filter(Boolean)
+  return parts.join(" - ")
+}
+
 /**
- * Visor al cliente — estado activo (cart con ítems). Estructura legacy:
- * total + cliente verticalmente centrados izq, ARTÍCULOS + lista derecha,
- * watermark "Usamos Punto" abajo-derecha. Cuando la lista está vacía, la
- * columna derecha muestra el logo del tenant centrado.
+ * Visor al cliente — estado activo (cart con ítems). Estructura del mockup
+ * 2026-06-28: total + cliente + sucursal/caja centrados verticalmente izq,
+ * artículos derecha con border-l finito que separa los paneles, logo del
+ * tenant centrado cuando lista vacía. Watermark "Usamos Punto" abajo-der.
  */
 export function LiveView({ cart, ctx }: Props) {
   const hasItems = cart.lines.length > 0
   return (
     <div className="relative min-h-screen grid" style={{ gridTemplateColumns: "55fr 45fr" }}>
-      {/* Izquierda — bloque verticalmente centrado: total + cliente */}
+      {/* Izquierda — verticalmente centrado: total + cliente + sucursal/caja */}
       <div className="flex flex-col justify-center p-12 lg:p-16">
         <p
           className="font-bold tabular-nums text-foreground leading-none"
@@ -41,24 +47,27 @@ export function LiveView({ cart, ctx }: Props) {
           </p>
         )}
         {cart.customer ? (
-          <div className="mt-10">
-            <p className="text-3xl font-semibold text-foreground italic">
-              {cart.customer.name}
-            </p>
+          <p className="mt-10 text-3xl font-semibold text-foreground italic">
+            {cart.customer.name}
             {cart.customer.tin && (
-              <p className="text-xl text-muted-foreground mt-1">{cart.customer.tin}</p>
+              <span className="block text-xl text-muted-foreground not-italic font-normal mt-1">
+                {cart.customer.tin}
+              </span>
             )}
-          </div>
+          </p>
         ) : (
           <p className="mt-10 text-2xl font-semibold text-muted-foreground italic">
             Sin cliente
           </p>
         )}
+        {locationLine(ctx) && (
+          <p className="mt-2 text-base text-muted-foreground">{locationLine(ctx)}</p>
+        )}
       </div>
 
-      {/* Derecha — con items: lista; sin items: logo del tenant centrado */}
+      {/* Derecha — border-l separa los paneles. Lista o logo del tenant. */}
       {hasItems ? (
-        <div className="flex flex-col p-12 lg:p-16 overflow-auto">
+        <div className="flex flex-col p-12 lg:p-16 overflow-auto border-l">
           <p className="text-xl font-bold uppercase tracking-wide text-foreground mb-6 text-right">
             Artículos
           </p>
@@ -93,13 +102,12 @@ export function LiveView({ cart, ctx }: Props) {
 }
 
 /**
- * Bloque centrado para mostrar el logo del tenant (o su nombre si no hay
- * logo cargado). Usado cuando la columna derecha del LiveView/IdleView no
- * tiene ítems — match con el patrón legacy de "Usamos ENCOM" tenant brand.
+ * Bloque centrado para el logo del tenant. Con border-l fino para igualar
+ * el separador entre paneles cuando hay lista de artículos.
  */
 export function TenantLogoBlock({ ctx }: { ctx: ScreenContext | null }) {
   return (
-    <div className="flex flex-col items-center justify-center p-12 lg:p-16">
+    <div className="flex flex-col items-center justify-center p-12 lg:p-16 border-l">
       {ctx?.logoUrl ? (
         <div className="relative h-32 w-64 lg:h-40 lg:w-80">
           <Image
