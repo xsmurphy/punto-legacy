@@ -685,24 +685,25 @@ function CartRowExpanded({
         onClose={() => setSellerOpen(false)}
       />
 
-      {/* Más opciones — drawer inferior. handleOnly: vaul restringe el drag al handle bar,
-          si no, cualquier click dentro del DrawerContent puede ser interpretado como swipe-down
-          y cerrar el drawer sin disparar el onClick del botón (bug reportado por owner). */}
-      <Drawer open={moreOpen} onOpenChange={setMoreOpen} handleOnly>
+      {/* Más opciones — drawer inferior. data-vaul-no-drag en el contenedor
+          de botones: Vaul interpreta cualquier touch/click dentro del
+          DrawerContent como inicio de drag y al soltarlo cierra el drawer,
+          comiéndose el onClick del button. El attribute marca esa zona como
+          "no draggable" → los clicks llegan al button normalmente.
+          (handleOnly anterior no servía: requiere un DrawerHandle explícito
+          con data-vaul-handle que shadcn no expone.) */}
+      <Drawer open={moreOpen} onOpenChange={setMoreOpen}>
         <DrawerContent className="mx-auto max-w-lg">
           <DrawerHeader className="pb-2">
             <DrawerTitle className="truncate">{line.name}</DrawerTitle>
           </DrawerHeader>
-          <div className="grid grid-cols-2 gap-2 p-4 pt-2 sm:grid-cols-3">
+          <div
+            data-vaul-no-drag
+            className="grid grid-cols-2 gap-2 p-4 pt-2 sm:grid-cols-3"
+          >
             <LineActionTile
               icon={DollarSign}
               label="Modificar precio"
-              // Abrir el dialog ANTES de cerrar el Drawer: si invertís el
-              // orden, el setTimeout(50) cae dentro de la animación de
-              // cierre de Vaul (~300ms) y Radix interpreta el dialog como
-              // click-outside del Drawer → lo cierra inmediato. Disparar el
-              // dialog primero monta el portal aparte y el Drawer cierra
-              // su propio overlay sin tocarlo.
               onClick={() => { onEditPrice(); setMoreOpen(false) }}
             />
             <LineActionTile
