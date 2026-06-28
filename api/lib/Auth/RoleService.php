@@ -90,7 +90,9 @@ final class RoleService
                     'name'        => (string)($f['taxonomyname'] ?? ''),
                     'isSeed'      => (bool)($meta['isSeed'] ?? false),
                     'slug'        => $meta['slug'] ?? null,
-                    'permissions' => self::_loadPermissions($id, $companyId),
+                    'permissions' => (($meta['slug'] ?? null) === 'owner')
+                        ? PermissionCatalog::ids()
+                        : self::_loadPermissions($id, $companyId),
                 ];
                 $rs->MoveNext();
             }
@@ -116,6 +118,11 @@ final class RoleService
             }
             $roleId = $resolvedId;
         }
+        // Owner siempre tiene TODOS los permisos del catálogo — auto-sync
+        // cuando se agregan permisos nuevos sin necesidad de re-seed.
+        if (self::_isOwnerRole($roleId, $companyId)) {
+            return PermissionCatalog::ids();
+        }
         return self::_loadPermissions($roleId, $companyId);
     }
 
@@ -131,6 +138,11 @@ final class RoleService
                 if ($resolvedId === '') return false;
             }
             $roleId = $resolvedId;
+        }
+        // Owner puede TODO incondicionalmente. No validamos contra el catálogo
+        // para que un perm aún no registrado no produzca un false-negativo.
+        if (self::_isOwnerRole($roleId, $companyId)) {
+            return true;
         }
         $perms = self::_loadPermissions($roleId, $companyId);
         return in_array($perm, $perms, true);
@@ -183,6 +195,7 @@ final class RoleService
 
         $meta   = json_decode((string)($row['taxonomyextra'] ?? '{}'), true) ?? [];
         $isSeed = (bool)($meta['isSeed'] ?? false);
+        $slug   = $meta['slug'] ?? null;
 
         if ($name !== null) {
             if ($isSeed) throw new RuntimeException('No se puede renombrar un role del sistema');
@@ -191,6 +204,11 @@ final class RoleService
         }
 
         if ($permissions !== null) {
+            // Owner es derivado en runtime (PermissionCatalog::ids()), grabar un
+            // subset confunde: la UI mostraría algo distinto a lo que se aplica.
+            if ($slug === 'owner') {
+                throw new RuntimeException('Los permisos del rol Dueño se asignan automáticamente y no se editan');
+            }
             $validIds = PermissionCatalog::ids();
             $invalid = array_diff($permissions, $validIds);
             if (!empty($invalid)) {
@@ -364,5 +382,12 @@ final class RoleService
                 }
             }
         }
+    }
+
+    /** True si el roleId resuelto coincide con el seed slug='owner' del tenant. */
+    private static function _isOwnerRole(string $roleId, string $companyId): bool
+    {
+        $ownerId = self::_resolveSlugId_bySlug('owner', $companyId);
+        return $ownerId !== '' && $ownerId === $roleId;
     }
 }

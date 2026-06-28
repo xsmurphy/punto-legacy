@@ -2556,15 +2556,24 @@ function passBuilder($pass,$salt,$hashTimes = HASH_TIMES){
 }
 
 function findPhoneLogin($phone){
-	// Tenants login SOLO por teléfono (E.164 con prefijo de país).
-	// El email del contact es opcional, NO se usa para autenticar tenants.
-	// Para super-admins del SaaS (admin realm) ver admin_user / admin/login.
-	return ncmExecute("SELECT
-                          *
-                        FROM contact
-                        WHERE contactPhone = ?
-                        AND role::text = '1'
-                        AND type = 0
+	// Solo el Dueño puede loguearse al panel. Soporta dos formatos de role
+	// porque la mig 58 cambió contact.role de smallint a varchar(64):
+	//   - '1' legacy (users pre-mig 58)
+	//   - UUID que apunta a taxonomy role con slug='owner'
+	return ncmExecute("SELECT c.*
+                        FROM contact c
+                        WHERE c.contactPhone = ?
+                          AND c.type = 0
+                          AND (
+                            c.role = '1'
+                            OR EXISTS (
+                              SELECT 1 FROM taxonomy t
+                              WHERE t.taxonomyid::text = c.role
+                                AND t.taxonomytype = 'role'
+                                AND t.companyid = c.companyid
+                                AND t.taxonomyextra::json->>'slug' = 'owner'
+                            )
+                          )
                         LIMIT 1",[$phone]);
 }
 
