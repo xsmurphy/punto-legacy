@@ -192,16 +192,16 @@ export default function DevicesPage() {
       </header>
 
       {pendingCount > 0 && (
-        <Alert>
-          <Bell className="size-4" />
-          <AlertTitle>
+        <Alert className="border-primary/40 bg-primary/5">
+          <Bell className="size-4 animate-pulse text-primary" />
+          <AlertTitle className="text-primary">
             {pendingCount === 1
               ? "1 solicitud pendiente de aprobación"
               : `${pendingCount} solicitudes pendientes de aprobación`}
           </AlertTitle>
           <AlertDescription className="flex items-center gap-3 mt-1">
             Un dispositivo abrió el link de conexión y está esperando que lo aprobés.
-            <Button variant="outline" size="sm" onClick={() => setInvitesOpen(true)}>
+            <Button size="sm" onClick={() => setInvitesOpen(true)}>
               Ver solicitudes
             </Button>
           </AlertDescription>

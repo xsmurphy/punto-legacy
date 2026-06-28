@@ -65,9 +65,14 @@ export function DeviceInviteApproveDialog({ invitation, onOpenChange }: Props) {
   const outletName = outlets.find((o) => o.id === invitation.outletId)?.name ?? "—"
   const registerName = registers.find((r) => r.id === invitation.registerId)?.name ?? "—"
 
+  // Normalizar para tolerar paste con/sin guión y espacios accidentales.
+  // El admin a veces copia el código de la pantalla del device a ojo y
+  // omite el guión, o el clipboard agrega un trailing space.
+  const normalizeCode = (s: string) =>
+    s.toUpperCase().replace(/[\s-]/g, "")
   const codeMatch =
     invitation.userCode !== null &&
-    userCodeConfirm.toUpperCase() === invitation.userCode
+    normalizeCode(userCodeConfirm) === normalizeCode(invitation.userCode)
 
   function handleApprove() {
     approve.mutate(
@@ -155,7 +160,7 @@ export function DeviceInviteApproveDialog({ invitation, onOpenChange }: Props) {
                     id="user-code"
                     value={userCodeConfirm}
                     onChange={(e) => setUserCodeConfirm(e.target.value.toUpperCase())}
-                    placeholder="XXXX-XXXX"
+                    placeholder="XXX-XXXX"
                     className="font-mono uppercase"
                   />
                   {codeMatch && (
