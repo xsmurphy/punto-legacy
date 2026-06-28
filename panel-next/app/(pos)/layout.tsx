@@ -21,7 +21,10 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
       <PosAuthGuard>
         <PosConfigSync />
         <PosSidebar />
-        <SidebarInset className="h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
+        {/* `pos-scope`: globals.css aplica typography táctil (font-size,
+            weight, tracking) a inputs/textareas descendientes. Cajero ve
+            grande sin tocar cada caller individualmente. */}
+        <SidebarInset className="pos-scope h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
           <SidebarTrigger className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
           {children}
           <InstallPrompt />

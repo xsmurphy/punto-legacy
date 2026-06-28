@@ -339,3 +339,19 @@
     h3 { letter-spacing: -0.02em; font-weight: 600; }
     code, kbd, pre, samp { @apply font-mono; }
 }
+
+/* POS — typography táctil para inputs/textareas. El cajero necesita leer
+   rápido lo que tipea sin esfuerzo. Aplica scoped al árbol bajo .pos-scope
+   (el SidebarInset del layout (pos)/) — fuera del POS los inputs del panel
+   mantienen el styling default. */
+.pos-scope input[type="text"],
+.pos-scope input[type="number"],
+.pos-scope input[type="tel"],
+.pos-scope input[type="search"],
+.pos-scope input[type="email"],
+.pos-scope input:not([type]),
+.pos-scope textarea {
+    font-size: 1.0625rem;       /* ~17px — un punto sobre text-sm */
+    font-weight: 600;
+    letter-spacing: 0.025em;
+}
