@@ -4,6 +4,7 @@ import { LiveView } from "./live-view"
 import { ConfirmedView } from "./confirmed-view"
 import { IdleView } from "./idle-view"
 import { getDeviceToken, clearDeviceToken } from "@/lib/auth/device-token"
+import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 
 const HEARTBEAT_INTERVAL = 30_000
 const CONFIRMED_DURATION = 5_000
@@ -196,14 +197,8 @@ export default function CheckoutPage() {
   }
 
   if (state.kind === "unpaired") {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center">
-        <h1 className="text-2xl font-semibold">Esta pantalla no está conectada</h1>
-        <p className="text-sm text-muted-foreground">
-          Pedile al administrador que la conecte desde Configuración &rsaquo; Dispositivos del panel.
-        </p>
-      </div>
-    )
+    // Reusa el mismo componente que el POS (paridad visual obligatoria).
+    return <DeviceNotConnected kind="screen" />
   }
 
   return (

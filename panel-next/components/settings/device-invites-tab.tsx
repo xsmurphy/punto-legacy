@@ -74,7 +74,17 @@ export function DeviceInvitesTab() {
       cell: ({ row }) => {
         const ua = row.original.deviceUa
         if (!ua) return "—"
-        return ua.length > 60 ? ua.slice(0, 60) + "…" : ua
+        // Width fijo + truncate + tooltip nativo: evita que el UserAgent largo
+        // (Mozilla/5.0 (...) AppleWebKit/...) desborde el modal "Solicitudes
+        // de conexión" en pantallas chicas.
+        return (
+          <span
+            className="block max-w-[220px] truncate text-sm"
+            title={ua}
+          >
+            {ua}
+          </span>
+        )
       },
     },
     {
