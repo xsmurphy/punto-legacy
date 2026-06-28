@@ -208,17 +208,6 @@ export default function DevicesPage() {
         </Alert>
       )}
 
-      <div className="flex items-center justify-end gap-3">
-        <Label htmlFor="show-revoked" className="text-sm text-muted-foreground cursor-pointer">
-          Mostrar revocados
-        </Label>
-        <Switch
-          id="show-revoked"
-          checked={showRevoked}
-          onCheckedChange={setShowRevoked}
-        />
-      </div>
-
       <DataTable
         tableId="connected-devices"
         columns={columns}
@@ -226,6 +215,18 @@ export default function DevicesPage() {
         isLoading={isLoading}
         searchPlaceholder="Buscar dispositivo..."
         exportFileName={null}
+        rightToolbarSlot={
+          <div className="flex items-center gap-2">
+            <Label htmlFor="show-revoked" className="text-sm text-muted-foreground cursor-pointer">
+              Mostrar revocados
+            </Label>
+            <Switch
+              id="show-revoked"
+              checked={showRevoked}
+              onCheckedChange={setShowRevoked}
+            />
+          </div>
+        }
         emptyMessage={
           <EmptyState
             icon={MonitorSmartphone}

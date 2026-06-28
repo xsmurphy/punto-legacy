@@ -80,18 +80,31 @@ class DeviceInvitationService
         $status    = (string) ($row['status'] ?? '');
         $expiresAt = (string) ($row['expires_at'] ?? '');
 
-        // Idempotente: si ya está abierta y coincide el UA+IP, devolver mismo userCode
-        if ($status === 'opened') {
-            $sameDevice = ((string) ($row['device_ua'] ?? '') === $userAgent)
-                       && ((string) ($row['device_ip'] ?? '') === $ip);
-            if ($sameDevice) {
-                return [
-                    'userCode'  => (string) ($row['user_code'] ?? ''),
-                    'module'    => (string) ($row['module'] ?? ''),
-                    'status'    => 'opened',
-                    'expiresAt' => $expiresAt,
-                ];
+        // Idempotente por id, no por UA/IP: si la invitation ya está opened y
+        // tiene un user_code asignado, devolvemos SIEMPRE ese mismo code. El
+        // chequeo previo (UA+IP match) era demasiado estricto — cualquier
+        // reload del browser, hot-reload del Next page server-side, NAT change
+        // o header forwarding diferente regeneraba el code y desincronizaba
+        // la pantalla del listado del admin (incidente 2026-06-28).
+        // El user_code es PÚBLICO (lo muestra la pantalla a quien la vea),
+        // regenerarlo no suma seguridad. Actualizamos UA/IP best-effort para
+        // mantener telemetría pero sin tocar el code.
+        if ($status === 'opened' && !empty($row['user_code'])) {
+            $persistedCode = (string) $row['user_code'];
+            try {
+                ncmExecute(
+                    'UPDATE device_invitation SET device_ua=?, device_ip=?::inet WHERE id=?::uuid',
+                    [$userAgent, ($ip !== '') ? $ip : null, $id]
+                );
+            } catch (\Throwable) {
+                // best-effort — el code ya está bien
             }
+            return [
+                'userCode'  => $persistedCode,
+                'module'    => (string) ($row['module'] ?? ''),
+                'status'    => 'opened',
+                'expiresAt' => $expiresAt,
+            ];
         }
 
         if (!in_array($status, ['pending', 'opened'], true)) {

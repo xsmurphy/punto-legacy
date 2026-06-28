@@ -64,6 +64,8 @@ export interface DataTableProps<T> {
   isLoading?: boolean
   /** Toolbar custom adicional a la izquierda (filtros por columna, etc). */
   toolbarSlot?: React.ReactNode
+  /** Slot a la DERECHA del toolbar, pegado al column-toggle (Columnas). */
+  rightToolbarSlot?: React.ReactNode
   /** Page size default. 25 por defecto. */
   pageSize?: number
   /** Habilita selección por checkbox + barra de bulk actions. */
@@ -85,6 +87,7 @@ export function DataTable<T>({
   emptyMessage,
   isLoading,
   toolbarSlot,
+  rightToolbarSlot,
   pageSize = 25,
   enableSelection,
   bulkActions,
@@ -210,6 +213,7 @@ export function DataTable<T>({
         {toolbarSlot}
 
         <div className="ml-auto flex items-center gap-2">
+          {rightToolbarSlot}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-9">
