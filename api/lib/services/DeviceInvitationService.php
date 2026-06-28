@@ -5,7 +5,7 @@ use Punto\Api\Auth\DeviceAuth;
 
 class DeviceInvitationService
 {
-    private const VALID_MODULES = ['pos', 'kds', 'display'];
+    private const VALID_MODULES = ['pos', 'screen', 'kds', 'display'];
     // Alfabeto sin I ni O para evitar confusión visual
     private const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ';         // 24 chars
     private const ALNUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars
