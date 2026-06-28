@@ -22,8 +22,12 @@ export interface TeamMember {
   calendarPosition: number
   roleId: string | null
   roleName: string | null
+  /** @deprecated Usar outletIds (primer item o null). Mantenido para back-compat. */
   outletId: string | null
+  /** @deprecated Usar outletNames. Mantenido para back-compat. */
   outletName: string | null
+  outletIds: string[]
+  outletNames: string[]
   createdAt: string | null
   updatedAt: string | null
 }
@@ -34,7 +38,7 @@ export interface TeamMemberFormValues {
   phone: string
   password: string
   roleId: string
-  outletId: string
+  outletIds: string[]
   lockPass: string
   inCalendar: boolean
   color: string
@@ -86,7 +90,7 @@ function serialize(values: TeamMemberFormValues, isEdit: boolean) {
     email:            values.email || null,
     phone:            values.phone || null,
     roleId:           (!values.roleId || values.roleId === NONE) ? null : values.roleId,
-    outletId:         (!values.outletId || values.outletId === NONE) ? null : values.outletId,
+    outletIds:        values.outletIds ?? [],
     lockPass:         values.lockPass || null,
     inCalendar:       values.inCalendar,
     color:            values.color || null,
