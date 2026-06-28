@@ -17,7 +17,13 @@ export function useBootstrap() {
   return useQuery<Bootstrap>({
     queryKey: ["bootstrap"],
     queryFn: () => api.get<Bootstrap>("/v1/bootstrap"),
-    staleTime: 5 * 60 * 1000, // 5 min — config cambia raramente
+    // staleTime alto evita refetch innecesario en navegación normal, pero
+    // refetchOnMount: "always" garantiza datos frescos al cargar/recargar
+    // la app — antes la cache cliente persistía data vieja sin user.permissions
+    // (campo agregado al backend en 2026-06-25) y el sidebar filtraba items
+    // que el user sí tenía permitidos. Incidente 2026-06-29.
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: "always",
     retry: false, // un 401 no se retry; dejar al middleware redirect
   })
 }
