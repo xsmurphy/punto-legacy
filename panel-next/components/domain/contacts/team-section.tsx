@@ -176,17 +176,6 @@ function buildColumns(
       },
     },
     {
-      accessorKey: "lockPass",
-      header: "Código POS",
-      cell: ({ row }) =>
-        row.original.lockPass ? (
-          <span className="font-mono tabular-nums">{row.original.lockPass}</span>
-        ) : (
-          <span className="text-muted-foreground text-xs">—</span>
-        ),
-      meta: { className: "tabular-nums" },
-    },
-    {
       accessorKey: "outletName",
       header: "Sucursal",
       cell: ({ row }) =>
