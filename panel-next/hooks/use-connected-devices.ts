@@ -1,54 +1,42 @@
 "use client"
 import { useMemo } from "react"
-import { useScreens } from "@/hooks/use-screens"
 import { usePosDevices } from "@/hooks/use-pos-devices"
-import type { ConnectedDevice } from "@/lib/devices/connected-device"
+import type { ConnectedDevice, DeviceKind } from "@/lib/devices/connected-device"
+
+/**
+ * Fuente única de devices conectados: lee de `/v1/devices` (que retorna TODAS
+ * las filas de `device`, sin discriminar por module) y deriva el `kind` desde
+ * el campo `module`. Reemplaza la fusión previa `useScreens + usePosDevices`
+ * que duplicaba filas y hardcodeaba `kind="pos"` para todo (bug: pantallas
+ * cliente aparecían etiquetadas como "Caja POS" en la columna Tipo).
+ */
+function moduleToKind(module: string | null | undefined): DeviceKind {
+  return module === "screen" ? "screen" : "pos"
+}
 
 export function useConnectedDevices(opts: { showRevoked?: boolean } = {}) {
   const showRevoked = opts.showRevoked === true
-  const { data: screensData, isLoading: screensLoading } = useScreens()
-  const { data: posData, isLoading: posLoading } = usePosDevices({ showRevoked })
+  const { data: posData, isLoading } = usePosDevices({ showRevoked })
 
   const devices = useMemo<ConnectedDevice[]>(() => {
-    // El endpoint /v1/screens no acepta param showRevoked — filtramos client-side
-    // para que el toggle se comporte igual que con pos-devices.
-    const screens = (screensData?.screens ?? [])
-      .filter((s) => showRevoked || s.status === 1)
-      .map((s) => ({
-      key: `screen:${s.id}`,
-      kind: "screen" as const,
-      id: s.id,
-      name: s.name,
-      outletName: null,
-      registerName: s.registerName,
-      module: null,
-      ipLast: s.ipLast,
-      pairedByName: null,
-      pairedAt: null,
-      lastSeenAt: s.lastSeenAt,
-      status: s.status,
-    }))
+    return (posData ?? []).map((d) => {
+      const kind = moduleToKind(d.module)
+      return {
+        key: `${kind}:${d.deviceId}`,
+        kind,
+        id: d.deviceId,
+        name: d.deviceName || "Sin nombre",
+        outletName: d.outletName,
+        registerName: d.registerName,
+        module: d.module,
+        ipLast: d.ipLast,
+        pairedByName: d.pairedByName,
+        pairedAt: d.pairedAt,
+        lastSeenAt: d.lastSeenAt,
+        status: d.status,
+      }
+    })
+  }, [posData])
 
-    const posDevices = (posData ?? []).map((d) => ({
-      key: `pos:${d.deviceId}`,
-      kind: "pos" as const,
-      id: d.deviceId,
-      name: d.deviceName || "Sin nombre",
-      outletName: d.outletName,
-      registerName: d.registerName,
-      module: d.module,
-      ipLast: d.ipLast,
-      pairedByName: d.pairedByName,
-      pairedAt: d.pairedAt,
-      lastSeenAt: d.lastSeenAt,
-      status: d.status,
-    }))
-
-    return [...posDevices, ...screens]
-  }, [screensData, posData, showRevoked])
-
-  return {
-    devices,
-    isLoading: screensLoading || posLoading,
-  }
+  return { devices, isLoading }
 }

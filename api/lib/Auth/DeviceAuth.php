@@ -124,11 +124,19 @@ final class DeviceAuth
         string $module = 'pos',
     ): string {
         $now = time();
-        // oid/rid se omiten del token: se resuelven desde la fila device en cada request.
+        // oid/rid se INCLUYEN como info-only para el cliente (ej. la pantalla
+        // cliente necesita el `rid` en el front para suscribirse al canal WS
+        // `${cid}:checkout:${rid}` al que el POS publica el cart en vivo).
+        // El backend NO los lee para auth scope: sigue resolviendo desde la
+        // fila `device` en cada request (memoria: jerarquia_dominio, bootstrap
+        // pos-app branch). Si la fila cambia, este claim queda stale pero el
+        // backend siempre gana.
         return jwtEncode([
             'iss'  => 'pos-app',
             'cid'  => $companyId,
             'did'  => $deviceId,
+            'oid'  => $outletId,
+            'rid'  => $registerId,
             'pby'  => $pairedByContactId,
             'mdl'  => $module,
             'iat'  => $now,
