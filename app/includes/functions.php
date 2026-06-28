@@ -1174,8 +1174,11 @@ function validity($value,$force=false){
  */
 /**
  * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::flattenJsonb()`. ~23 callers.
+ *             Return type alineado con el wrapper canónico (sesión 28-jun: pasó
+ *             de CaseInsensitiveArray a array plano). Esta firma se quedó atrás
+ *             y rompía con TypeError a TODO endpoint que pasara por acá.
  */
-function _flattenJsonb($row): CaseInsensitiveArray
+function _flattenJsonb($row): array
 {
     return \Punto\App\Database\Query::flattenJsonb($row);
 }
