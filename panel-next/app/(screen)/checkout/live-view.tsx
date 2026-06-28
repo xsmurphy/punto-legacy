@@ -15,31 +15,30 @@ function formatMoney(amount: number): string {
 }
 
 /**
- * Pantalla al cliente en estado activo (cart con ítems). Estructura inspirada
- * en el legacy ENCOM (total + datos izquierda, artículos derecha, watermark
- * Punto abajo-derecha) pero con colores del design system (no turquesa).
+ * Pantalla al cliente en estado activo (cart con ítems). Estructura
+ * inspirada en el legacy ENCOM: total + cliente arriba-izq, "ARTÍCULOS" +
+ * lista derecha, watermark "Usamos Punto" abajo-derecha. Sin colores
+ * turquesa — usa tokens del design system.
  */
 export function LiveView({ cart }: Props) {
   return (
     <div className="relative min-h-screen grid" style={{ gridTemplateColumns: "55fr 45fr" }}>
-      {/* Izquierda — total + cliente */}
-      <div className="flex flex-col justify-between p-12 lg:p-16">
-        <div>
-          <p
-            className="font-bold tabular-nums text-foreground leading-none"
-            style={{ fontSize: "clamp(3rem, 7vw, 6rem)" }}
-          >
-            {formatMoney(cart.total)}
+      {/* Izquierda — total, "Total a pagar en Gs", y cliente debajo */}
+      <div className="flex flex-col p-12 lg:p-16">
+        <p
+          className="font-bold tabular-nums text-foreground leading-none"
+          style={{ fontSize: "clamp(3rem, 7vw, 6rem)" }}
+        >
+          {formatMoney(cart.total)}
+        </p>
+        <p className="text-2xl text-muted-foreground mt-3">Total a pagar en Gs</p>
+        {cart.discount > 0 && (
+          <p className="text-lg text-muted-foreground mt-2">
+            Descuento: {formatMoney(cart.discount)}
           </p>
-          <p className="text-2xl text-muted-foreground mt-3">Total a pagar en Gs</p>
-          {cart.discount > 0 && (
-            <p className="text-lg text-muted-foreground mt-2">
-              Descuento: {formatMoney(cart.discount)}
-            </p>
-          )}
-        </div>
+        )}
         {cart.customer ? (
-          <div className="mt-12">
+          <div className="mt-10">
             <p className="text-3xl font-semibold text-foreground italic">
               {cart.customer.name}
             </p>
@@ -48,15 +47,15 @@ export function LiveView({ cart }: Props) {
             )}
           </div>
         ) : (
-          <p className="mt-12 text-2xl font-semibold text-muted-foreground italic">
+          <p className="mt-10 text-2xl font-semibold text-muted-foreground italic">
             Sin cliente
           </p>
         )}
       </div>
 
-      {/* Derecha — lista de artículos */}
-      <div className="bg-card flex flex-col p-12 lg:p-16 overflow-auto">
-        <p className="text-xl font-bold uppercase tracking-wide text-foreground mb-6">
+      {/* Derecha — header "ARTÍCULOS" + lista */}
+      <div className="flex flex-col p-12 lg:p-16 overflow-auto">
+        <p className="text-xl font-bold uppercase tracking-wide text-foreground mb-6 text-right">
           Artículos
         </p>
         <div className="flex flex-col">
@@ -77,10 +76,10 @@ export function LiveView({ cart }: Props) {
         </div>
       </div>
 
-      {/* Watermark Punto — esquina inferior derecha */}
-      <div className="pointer-events-none absolute bottom-6 right-8 flex flex-col items-end gap-1 opacity-60">
+      {/* Watermark Punto — abajo-derecha */}
+      <div className="pointer-events-none absolute bottom-8 right-12 flex flex-col items-end gap-1 opacity-70">
         <span className="text-xs uppercase tracking-wide text-muted-foreground">Usamos</span>
-        <PuntoLogo variant="wordmark" className="h-6 w-auto" />
+        <PuntoLogo variant="wordmark" className="h-8 w-[110px]" />
       </div>
     </div>
   )
