@@ -31,9 +31,11 @@ function locationLine(ctx: ScreenContext | null): string {
 export function LiveView({ cart, ctx }: Props) {
   const hasItems = cart.lines.length > 0
   return (
-    <div className="relative min-h-screen grid" style={{ gridTemplateColumns: "55fr 45fr" }}>
-      {/* Izquierda — verticalmente centrado: total + cliente + sucursal/caja */}
-      <div className="flex flex-col justify-center p-12 lg:p-16">
+    <div className="relative min-h-screen grid grid-cols-2">
+      {/* Izquierda — verticalmente centrado: total + cliente + sucursal/caja.
+          min-w-0 evita que un total grande (ej. millones) expanda la columna
+          y desplace la línea central — la grid 50/50 queda siempre fija. */}
+      <div className="min-w-0 flex flex-col justify-center p-12 lg:p-16">
         <p
           className="font-bold tabular-nums text-foreground leading-none"
           style={{ fontSize: "clamp(3rem, 7vw, 6rem)" }}
@@ -66,7 +68,7 @@ export function LiveView({ cart, ctx }: Props) {
       </div>
 
       {/* Derecha — panel relativo con border-l visible y watermark centrado abajo */}
-      <div className="relative flex flex-col border-l border-border">
+      <div className="min-w-0 relative flex flex-col border-l border-border">
         {hasItems ? (
           <div className="flex-1 flex flex-col p-12 lg:p-16 overflow-auto">
             <p className="text-xl font-bold uppercase tracking-wide text-foreground mb-6 text-right">
@@ -95,8 +97,11 @@ export function LiveView({ cart, ctx }: Props) {
           </div>
         )}
 
-        {/* Watermark Punto — centrado horizontal abajo del panel derecho */}
-        <div className="pointer-events-none flex flex-col items-center gap-1 opacity-70 pb-8">
+        {/* Watermark Punto — centrado horizontal abajo del panel derecho.
+            w-full obliga al flex a llenar el panel; items-center centra el
+            stack (label + logo) en X (sin esto el bloque queda intrínseco
+            del lado izquierdo del panel). */}
+        <div className="pointer-events-none w-full flex flex-col items-center gap-1 opacity-70 pb-8">
           <span className="text-xs uppercase tracking-wide text-muted-foreground">Usamos</span>
           <PuntoLogo variant="wordmark" className="h-8 w-[110px]" />
         </div>

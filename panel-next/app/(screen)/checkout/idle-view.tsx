@@ -11,13 +11,14 @@ function locationLine(ctx: ScreenContext | null): string {
  * Estado idle del visor — total "0", "Sin cliente", sucursal/caja
  * verticalmente centrados izq; logo del tenant centrado der con border-l
  * visible separando paneles; watermark "Usamos Punto" centrado horizontal
- * abajo del panel derecho.
+ * abajo del panel derecho. Grid 50/50 fijo (con min-w-0 en hijos) para
+ * que el divisor central no se mueva al crecer el contenido izquierdo.
  */
 export function IdleView({ ctx }: { ctx: ScreenContext | null }) {
   return (
-    <div className="relative min-h-screen grid" style={{ gridTemplateColumns: "55fr 45fr" }}>
+    <div className="relative min-h-screen grid grid-cols-2">
       {/* Izquierda */}
-      <div className="flex flex-col justify-center p-12 lg:p-16">
+      <div className="min-w-0 flex flex-col justify-center p-12 lg:p-16">
         <p
           className="font-bold tabular-nums text-foreground leading-none"
           style={{ fontSize: "clamp(3rem, 7vw, 6rem)" }}
@@ -34,11 +35,11 @@ export function IdleView({ ctx }: { ctx: ScreenContext | null }) {
       </div>
 
       {/* Derecha — logo del tenant + watermark centrado horizontal abajo */}
-      <div className="relative flex flex-col border-l border-border">
+      <div className="min-w-0 relative flex flex-col border-l border-border">
         <div className="flex-1 flex items-center justify-center p-12 lg:p-16">
           <TenantLogoInner ctx={ctx} />
         </div>
-        <div className="pointer-events-none flex flex-col items-center gap-1 opacity-70 pb-8">
+        <div className="pointer-events-none w-full flex flex-col items-center gap-1 opacity-70 pb-8">
           <span className="text-xs uppercase tracking-wide text-muted-foreground">Usamos</span>
           <PuntoLogo variant="wordmark" className="h-8 w-[110px]" />
         </div>
