@@ -37,7 +37,10 @@ function hoursUntil(iso: string): number {
 }
 
 export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
-  const [module, setModule] = React.useState("pos")
+  // Default vacío: obliga al admin a elegir conscientemente el tipo del
+  // dispositivo. Antes era "pos" y solicitudes para pantalla terminaban
+  // creadas como POS cuando el admin no abría el Select.
+  const [module, setModule] = React.useState("")
   const [outletId, setOutletId] = React.useState("")
   const [registerId, setRegisterId] = React.useState("")
   const [deviceName, setDeviceName] = React.useState("")
@@ -55,7 +58,7 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
     : []
 
   function reset() {
-    setModule("pos")
+    setModule("")
     setOutletId("")
     setRegisterId("")
     setDeviceName("")
@@ -100,7 +103,7 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
                 <Label htmlFor="inv-module">Módulo</Label>
                 <Select value={module} onValueChange={setModule}>
                   <SelectTrigger id="inv-module">
-                    <SelectValue />
+                    <SelectValue placeholder="Seleccioná el tipo de dispositivo..." />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pos">Caja POS</SelectItem>
