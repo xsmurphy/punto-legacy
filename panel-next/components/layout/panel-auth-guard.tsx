@@ -104,8 +104,10 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const permissions = usePermissions()
   // Sidebar contextual: dentro de /pos se muestran los módulos de la caja.
   const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
-  // Siempre llamado — el hook maneja su propio ciclo de vida.
-  const { data: parkedSales } = useParkedSales()
+  // Solo en POS: el endpoint /v1/parked-sales requiere Bearer del device.
+  // Desde el panel sin POS pareado devolvía 401 tras ~6s, retrasando todas
+  // las cargas de página (incluido /settings/devices). Incidente 2026-06-28.
+  const { data: parkedSales } = useParkedSales({ enabled: isPos })
   // Módulos: solo se muestran items condicionales cuando enabled===true confirmado.
   // Mientras isLoading o error, los items condicionales no aparecen (default conservador).
   const { data: modules, isLoading: modulesLoading } = useModules()

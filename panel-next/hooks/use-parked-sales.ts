@@ -26,12 +26,16 @@ const PARKED_SALES_KEY = ["parked-sales"] as const
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
-/** Lista las ventas guardadas del usuario en el outlet activo. */
-export function useParkedSales() {
+/** Lista las ventas guardadas del usuario en el outlet activo.
+ * `enabled` para que los call-sites del panel (que NO tienen Bearer device)
+ * no disparen la query — el endpoint requiere `apiAuthPosContext` y solo
+ * devolvería 401. Default `true` para back-compat con el POS. */
+export function useParkedSales(opts: { enabled?: boolean } = {}) {
   return useQuery<ParkedSale[]>({
     queryKey: PARKED_SALES_KEY,
     queryFn: () => api.get<ParkedSale[]>("/v1/parked-sales"),
     staleTime: 30 * 1000,
+    enabled: opts.enabled ?? true,
   })
 }
 
