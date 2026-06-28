@@ -159,18 +159,20 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     icon: ReceiptText,
     CustomContent: TransactionsPreview,
   },
-  {
-    key: "agenda",
-    label: "Agenda",
-    icon: CalendarDays,
-    CustomContent: AgendaPreview,
-  },
-  {
-    key: "orders",
-    label: "Órdenes",
-    icon: SquareKanban,
-    CustomContent: OrdersPreview,
-  },
+  // Agenda y Órdenes ocultos por ahora — se rehabilitan cuando construyamos
+  // esas secciones reales (hoy son solo previews). 2026-06-28.
+  // {
+  //   key: "agenda",
+  //   label: "Agenda",
+  //   icon: CalendarDays,
+  //   CustomContent: AgendaPreview,
+  // },
+  // {
+  //   key: "orders",
+  //   label: "Órdenes",
+  //   icon: SquareKanban,
+  //   CustomContent: OrdersPreview,
+  // },
   {
     key: "printers",
     label: "Impresoras",
