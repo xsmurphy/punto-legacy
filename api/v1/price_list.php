@@ -18,10 +18,15 @@ require_once __DIR__ . '/../lib/services/PriceListService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\PriceListService;
 
-$ctx       = apiAuthTenant(['panel']);
-$companyId = $ctx['companyId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $id        = trim((string) ($_GET['id'] ?? ''));
+
+// GET acepta panel + pos-app (el dialog "Lista de precios" en /pos lee listas
+// con el Bearer del device, ver memoria: el POS es módulo separado y nunca
+// usa el JWT panel). Mutaciones (POST/PUT/DELETE) siguen exclusivas del panel.
+$realms    = $method === 'GET' ? ['panel', 'pos-app'] : ['panel'];
+$ctx       = apiAuthTenant($realms);
+$companyId = $ctx['companyId'];
 
 $svc = new PriceListService(TenantContext::fromAuth($ctx));
 
