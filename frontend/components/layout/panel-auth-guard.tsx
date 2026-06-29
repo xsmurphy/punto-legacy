@@ -187,6 +187,18 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       ? "Todas las sucursales"
       : (bootstrap?.activeOutletName ?? "")
 
+  // Sucursal SELECCIONADA (view-scope) que ve el operador en el dropdown del
+  // logo. El agente IA debe respetarla igual que el resto del panel (header
+  // `X-Outlet-Id`). Si no hay override (viewScope null), cae al outlet del JWT.
+  const viewOutletId =
+    typeof viewScope === "string" && viewScope !== "all" ? viewScope : viewScope === "all" ? "all" : ""
+  const viewOutletName =
+    viewScope === "all"
+      ? "Todas las sucursales"
+      : typeof viewScope === "string"
+        ? (outlets.find((o) => o.id === viewScope)?.name ?? bootstrap?.activeOutletName ?? "")
+        : (bootstrap?.activeOutletName ?? "")
+
   const user = bootstrap
     ? {
         name: bootstrap.companyName || "Punto",
@@ -300,7 +312,8 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       {bootstrap?.companyId != null && (
         <AgentChatFloating
           companyName={bootstrap.companyName}
-          outletName={bootstrap.activeOutletName}
+          viewOutletId={viewOutletId}
+          viewOutletName={viewOutletName}
           showFab={!isPos && pathname !== "/chat"}
         />
       )}

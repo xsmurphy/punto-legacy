@@ -25,7 +25,8 @@ export async function POST(req: Request) {
   let body: {
     messages?: UIMessage[]
     companyName?: string
-    outletName?: string
+    viewOutletId?: string
+    viewOutletName?: string
     pathname?: string
     snapshot?: PageSnapshot
   }
@@ -35,7 +36,17 @@ export async function POST(req: Request) {
     return Response.json({ error: "Body inválido" }, { status: 400 })
   }
 
-  const { messages = [], companyName = "", outletName = "", pathname, snapshot } = body
+  const { messages = [], companyName = "", viewOutletId = "", viewOutletName = "", pathname, snapshot } = body
+
+  // Headers para los fetches de DATOS del negocio: reenvían el view-scope
+  // seleccionado en el panel (header `X-Outlet-Id`) para que las lecturas del
+  // agente salgan de la MISMA sucursal que el resto del panel, no la del JWT.
+  // Si no hay override (viewOutletId vacío), el backend usa el outlet del JWT.
+  // Los fetches de infra (ai/config, balance, debit, settings) son tenant-level
+  // y NO se scopean — siguen usando solo `{ cookie }`.
+  const dataHeaders: Record<string, string> = viewOutletId
+    ? { cookie, "X-Outlet-Id": viewOutletId }
+    : { cookie }
 
   // Elegir modelo desde la config del tenant (fail-safe: deepseek por defecto)
   let modelId = "deepseek/deepseek-chat"
@@ -93,9 +104,12 @@ export async function POST(req: Request) {
 
   const today = new Date().toISOString().slice(0, 10)
   const system =
-    `Sos el asistente de ${companyName}${outletName ? ` (sucursal ${outletName})` : ""} dentro de Punto, un sistema de punto de venta. Hoy es ${today}. Ayudás a consultar y analizar datos del negocio, y también podés crear o modificar registros cuando el usuario lo pide. Respondé siempre en español. Sé conciso y claro. Cuando necesites datos usá las tools disponibles.\n\n` +
+    `Sos el asistente de ${companyName}${viewOutletName ? ` (sucursal ${viewOutletName})` : ""} dentro de Punto, un sistema de punto de venta. Hoy es ${today}. Ayudás a consultar y analizar datos del negocio, y también podés crear o modificar registros cuando el usuario lo pide. Respondé siempre en español. Sé conciso y claro. Cuando necesites datos usá las tools disponibles.\n\n` +
     `## Contexto del negocio\n` +
-    `Empresa: ${companyName || "(sin nombre)"}${outletName ? ` · Sucursal: ${outletName}` : ""}.\n` +
+    `Empresa: ${companyName || "(sin nombre)"}.\n` +
+    (viewOutletName
+      ? `Sucursal seleccionada actualmente: ${viewOutletName}. Cuando consultes datos (stock, ventas, etc.) las tools ya vienen scopeadas a la sucursal seleccionada; si el usuario pregunta por "esta sucursal" o no especifica, referite a la sucursal seleccionada (${viewOutletName}).\n`
+      : "") +
     (country ? `País: ${country}.\n` : "") +
     (currency
       ? `Moneda: ${currency}. Expresá TODOS los montos en ${currency} (ej. "${currency} 1.500.000"). NUNCA uses el símbolo "$". Si la moneda es Gs/PYG (Guaraníes), NO uses decimales y separá los miles con punto.\n`
@@ -178,7 +192,7 @@ export async function POST(req: Request) {
           try {
             const res = await fetch(
               `${apiUrl}/v1/reports/summary_year?y=${year}`,
-              { headers: { cookie } }
+              { headers: dataHeaders }
             )
             if (!res.ok) {
               return { error: `No se pudo obtener el reporte (${res.status})` }
@@ -202,7 +216,7 @@ export async function POST(req: Request) {
           try {
             const params = new URLSearchParams({ type, limit: String(limit ?? 20) })
             if (q) params.set("q", q)
-            const res = await fetch(`${apiUrl}/v1/contacts?${params}`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/contacts?${params}`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -222,7 +236,7 @@ export async function POST(req: Request) {
           try {
             const params = new URLSearchParams({ limit: String(limit ?? 20) })
             if (q) params.set("q", q)
-            const res = await fetch(`${apiUrl}/v1/items?${params}`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/items?${params}`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -244,7 +258,7 @@ export async function POST(req: Request) {
             // Filtramos en este handler ANTES de devolver al LLM para no
             // mandarle el listado entero (puede ser miles de filas → muchos
             // tokens). El filtro es case-insensitive sobre name y sku.
-            const res = await fetch(`${apiUrl}/v1/reports/stock`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/reports/stock`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             const raw = (json?.data ?? json) as unknown
@@ -273,7 +287,7 @@ export async function POST(req: Request) {
         inputSchema: z.object({}),
         execute: async () => {
           try {
-            const res = await fetch(`${apiUrl}/v1/categories`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/categories`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -288,7 +302,7 @@ export async function POST(req: Request) {
         inputSchema: z.object({}),
         execute: async () => {
           try {
-            const res = await fetch(`${apiUrl}/v1/brands`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/brands`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -303,7 +317,7 @@ export async function POST(req: Request) {
         inputSchema: z.object({}),
         execute: async () => {
           try {
-            const res = await fetch(`${apiUrl}/v1/tags`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/tags`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -322,7 +336,7 @@ export async function POST(req: Request) {
           try {
             const params = new URLSearchParams()
             if (q) params.set("q", q)
-            const res = await fetch(`${apiUrl}/v1/users?${params}`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/users?${params}`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -343,7 +357,7 @@ export async function POST(req: Request) {
             const params = new URLSearchParams()
             if (from) params.set("from", from)
             if (to) params.set("to", to)
-            const res = await fetch(`${apiUrl}/v1/reports/drawers?${params}`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/reports/drawers?${params}`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -365,7 +379,7 @@ export async function POST(req: Request) {
             const params = new URLSearchParams({ limit: String(limit ?? 50) })
             if (from) params.set("from", from)
             if (to) params.set("to", to)
-            const res = await fetch(`${apiUrl}/v1/reports/transactions?${params}`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/reports/transactions?${params}`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -387,7 +401,7 @@ export async function POST(req: Request) {
             const params = new URLSearchParams({ view: "general" })
             if (from) params.set("from", from)
             if (to) params.set("to", to)
-            const res = await fetch(`${apiUrl}/v1/reports/products?${params}`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/reports/products?${params}`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             const raw = (json?.data ?? json) as unknown
@@ -408,7 +422,7 @@ export async function POST(req: Request) {
         inputSchema: z.object({}),
         execute: async () => {
           try {
-            const res = await fetch(`${apiUrl}/v1/outlets`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/outlets`, { headers: dataHeaders })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json

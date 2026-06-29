@@ -64,10 +64,14 @@ const ALL_AGENT_KEYS: readonly string[][] = [
  */
 export function useAgentChat({
   companyName,
-  outletName,
+  viewOutletId,
+  viewOutletName,
 }: {
   companyName: string
-  outletName: string
+  /** UUID de la sucursal seleccionada (view-scope), "all", o "" si no hay override. */
+  viewOutletId: string
+  /** Nombre de la sucursal seleccionada — alimenta el contexto del prompt. */
+  viewOutletName: string
 }) {
   const setStored = useChatHistoryStore((s) => s.setMessages)
   const clearStored = useChatHistoryStore((s) => s.clear)
@@ -79,7 +83,7 @@ export function useAgentChat({
   const chat = useChat({
     transport: new DefaultChatTransport({
       api: "/api/agent/chat",
-      body: { companyName, outletName, pathname, snapshot: snapshot ?? undefined },
+      body: { companyName, viewOutletId, viewOutletName, pathname, snapshot: snapshot ?? undefined },
     }),
     onFinish: ({ message, messages }) => {
       // Recolectar (confirmToken → action) de TODOS los registers previos del

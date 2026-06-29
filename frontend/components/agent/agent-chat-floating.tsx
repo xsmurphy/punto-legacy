@@ -9,11 +9,14 @@ import { useAgentChatStore } from "@/lib/agent/store"
 
 interface Props {
   companyName: string
-  outletName: string
+  /** UUID de la sucursal seleccionada (view-scope), "all", o "" si no hay override. */
+  viewOutletId: string
+  /** Nombre de la sucursal seleccionada para el contexto del prompt. */
+  viewOutletName: string
   showFab?: boolean
 }
 
-export function AgentChatFloating({ companyName, outletName, showFab = true }: Props) {
+export function AgentChatFloating({ companyName, viewOutletId, viewOutletName, showFab = true }: Props) {
   const open = useAgentChatStore((s) => s.open)
   const setOpen = useAgentChatStore((s) => s.setOpen)
 
@@ -37,7 +40,7 @@ export function AgentChatFloating({ companyName, outletName, showFab = true }: P
             Desktop ≥sm: max-w-md side panel. */}
         <SheetContent side="right" overlay={false} className="flex !w-[95vw] flex-col p-0 sm:!w-full sm:max-w-md">
           <SheetTitle className="sr-only">Asistente</SheetTitle>
-          <AgentChatContent companyName={companyName} outletName={outletName} showHeader />
+          <AgentChatContent companyName={companyName} viewOutletId={viewOutletId} viewOutletName={viewOutletName} showHeader />
         </SheetContent>
       </Sheet>
     </>

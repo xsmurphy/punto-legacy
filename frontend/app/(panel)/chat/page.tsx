@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useViewScope } from "@/hooks/use-view-scope"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
@@ -59,6 +60,18 @@ const SUGGESTIONS: Suggestion[] = [
 
 export default function ChatPage() {
   const { data: bootstrap } = useBootstrap()
+  const { scope: viewScope } = useViewScope()
+  const outlets = bootstrap?.outlets ?? []
+  // Mismo cálculo del view-scope que panel-auth-guard: UUID → ese outlet,
+  // "all" → todas, null → outlet del JWT (sin override).
+  const viewOutletId =
+    typeof viewScope === "string" && viewScope !== "all" ? viewScope : viewScope === "all" ? "all" : ""
+  const viewOutletName =
+    viewScope === "all"
+      ? "Todas las sucursales"
+      : typeof viewScope === "string"
+        ? (outlets.find((o) => o.id === viewScope)?.name ?? bootstrap?.activeOutletName ?? "")
+        : (bootstrap?.activeOutletName ?? "")
   const [input, setInput] = React.useState("")
   const [tick, setTick] = React.useState(0)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
@@ -66,7 +79,8 @@ export default function ChatPage() {
 
   const { messages, sendMessage, status, error, clear } = useAgentChat({
     companyName: bootstrap?.companyName ?? "",
-    outletName: bootstrap?.activeOutletName ?? "",
+    viewOutletId,
+    viewOutletName,
   })
 
   const isStreaming = status === "streaming" || status === "submitted"

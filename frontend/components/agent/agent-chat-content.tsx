@@ -19,7 +19,10 @@ import { formatRelativeTime } from "@/lib/agent/format-relative-time"
 
 interface Props {
   companyName: string
-  outletName: string
+  /** UUID de la sucursal seleccionada (view-scope), "all", o "" si no hay override. */
+  viewOutletId: string
+  /** Nombre de la sucursal seleccionada para el contexto del prompt. */
+  viewOutletName: string
   showHeader?: boolean
   initialInput?: string
   onInputChange?: (v: string) => void
@@ -28,7 +31,8 @@ interface Props {
 
 export function AgentChatContent({
   companyName,
-  outletName,
+  viewOutletId,
+  viewOutletName,
   showHeader = true,
   initialInput,
   onInputChange,
@@ -41,7 +45,8 @@ export function AgentChatContent({
 
   const { messages, sendMessage, status, error, attachments, addAttachment, removeAttachment, clearAttachments } = useAgentChat({
     companyName,
-    outletName,
+    viewOutletId,
+    viewOutletName,
   })
 
   const isStreaming = status === "streaming" || status === "submitted"
