@@ -47,6 +47,8 @@ if ($method === 'DELETE') {
         exit;
     }
     DeviceAuth::revoke($deviceId, COMPANY_ID);
+    require_once API_APP_DIR . '/includes/auth_session.php';
+    authSessionRevokeByDevice($deviceId, COMPANY_ID, defined('AUTHED_USER_ID') ? AUTHED_USER_ID : null);
     apiOk(['ok' => true, 'deleted' => 'soft']);
     exit;
 }
