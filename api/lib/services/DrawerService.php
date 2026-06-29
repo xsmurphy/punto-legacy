@@ -54,11 +54,16 @@ final class DrawerService
     /** Drawer abierto actual (la fila sin cerrar). null si la caja está cerrada. */
     public function getOpen(string $registerId, string $outletId, string $companyId): ?array
     {
+        // Alias quoted para preservar camelCase post-refactor 28-jun (array
+        // plano lowercase). Sin esto $drwr['drawerOpenDate'] devolvía null y
+        // getSummary pasaba null a getExpenses(string $since) → TypeError.
         $drwr = ncmExecute(
-            "SELECT drawerOpenDate, drawerOpenAmount FROM drawer
+            'SELECT drawerOpenDate   AS "drawerOpenDate",
+                    drawerOpenAmount AS "drawerOpenAmount"
+             FROM drawer
              WHERE registerId = ? AND outletId = ? AND companyId = ?
-             AND (drawerCloseDate IS NULL OR drawerCloseDate < '2000-01-01 01:00:00')
-             ORDER BY drawerOpenDate DESC LIMIT 1",
+             AND (drawerCloseDate IS NULL OR drawerCloseDate < \'2000-01-01 01:00:00\')
+             ORDER BY drawerOpenDate DESC LIMIT 1',
             [$registerId, $outletId, $companyId]
         );
         if (!$drwr) {
@@ -286,10 +291,12 @@ final class DrawerService
     private function findOpenRow(string $registerId, string $outletId, string $companyId): ?array
     {
         $row = ncmExecute(
-            "SELECT drawerId, drawerOpenDate FROM drawer
+            'SELECT drawerId       AS "drawerId",
+                    drawerOpenDate AS "drawerOpenDate"
+             FROM drawer
              WHERE registerId = ? AND outletId = ? AND companyId = ?
-             AND (drawerCloseDate IS NULL OR drawerCloseDate < '2000-01-01 00:00:00')
-             ORDER BY drawerOpenDate DESC LIMIT 1",
+             AND (drawerCloseDate IS NULL OR drawerCloseDate < \'2000-01-01 00:00:00\')
+             ORDER BY drawerOpenDate DESC LIMIT 1',
             [$registerId, $outletId, $companyId]
         );
         if (!$row) return null;
