@@ -12,6 +12,7 @@
 
 import * as React from "react"
 import { Button } from "@/components/ui/button"
+import { usePosUIStore } from "@/lib/ui/store"
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
@@ -42,6 +43,10 @@ function isDismissed(): boolean {
 export function InstallPrompt() {
   const [show, setShow] = React.useState(false)
   const deferredPrompt = React.useRef<BeforeInstallPromptEvent | null>(null)
+  // El event handler captura beforeinstallprompt al inicio y queda en background;
+  // la visibilidad del banner se gatea por menuOpen para no tapar el botón de
+  // cobrar — solo aparece cuando el cajero abre el menú principal del POS.
+  const menuOpen = usePosUIStore((s) => s.menuOpen)
 
   React.useEffect(() => {
     if (isAlreadyInstalled() || isDismissed()) return
@@ -56,7 +61,7 @@ export function InstallPrompt() {
     return () => window.removeEventListener("beforeinstallprompt", handler)
   }, [])
 
-  if (!show) return null
+  if (!show || !menuOpen) return null
 
   async function handleInstall() {
     const prompt = deferredPrompt.current
