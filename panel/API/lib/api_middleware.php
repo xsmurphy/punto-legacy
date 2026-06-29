@@ -67,7 +67,7 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
     include_once __DIR__ . '/../../includes/functions.php';
 
     // 4. Autenticación: sesión opaca, realm panel. Sin fallback legacy (no hay cuentas legacy).
-    require_once __DIR__ . '/../../includes/auth_session.php';
+    require_once __DIR__ . '/../../../app/includes/auth_session.php';
 
     if (!authResolve(['panel'])) {
         apiUnauthorized('Autenticación requerida');

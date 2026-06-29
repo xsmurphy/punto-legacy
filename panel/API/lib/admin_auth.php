@@ -149,7 +149,7 @@ function adminMiddleware(): void
 
     global $db;
     include_once __DIR__ . '/../../includes/db.php';
-    require_once __DIR__ . '/../../includes/auth_session.php';
+    require_once __DIR__ . '/../../../app/includes/auth_session.php';
 
     if (!authResolve(['admin'])) {
         apiUnauthorized('No autorizado (admin)');
