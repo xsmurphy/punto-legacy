@@ -8995,69 +8995,30 @@ function menuFrame($position, $isoutlet = false, $register = false, $submenu = f
 		 */
 		function issueJwtPanel(array|ArrayAccess $user): array
 		{
-			global $db;
+			// FLAG: el doc (§F2.1) dice `require_once __DIR__ . '/auth_session.php'` asumiendo
+			// co-ubicación con functions.php, pero auth_session.php vive en app/includes/.
+			// Ruta corregida a la ubicación real.
+			require_once __DIR__ . '/../../app/includes/auth_session.php';
 
-			require_once __DIR__ . '/jwt.php';
-
-			$secret = $_ENV['JWT_SECRET'] ?? '';
-			if (!$secret) {
-				return ['token' => null, 'expiresIn' => 0];
-			}
-
-			// Primer outlet activo del usuario (o cualquiera de la empresa)
 			$outlet = ncmExecute(
 				"SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1",
 				[$user['companyId']]
 			);
 
-			// TTL del JWT del panel — separado del JWT_TTL del POS app (que es 10 años por
-			// el modelo "device pairing", inadecuado para sesión interactiva del panel).
-			// Default 86400s (24h) para que el operador no se quede colgado a mitad de
-			// jornada perdiendo trabajo. Override con env var PANEL_JWT_TTL si hace falta.
-			$ttl = (int)($_ENV['PANEL_JWT_TTL'] ?? 86400);
-			$now = time();
+			$ttl = (int)($_ENV['PANEL_JWT_TTL'] ?? 86400); // 24h (sesión interactiva)
 
-			$token = jwtEncode([
-				'iss'  => 'panel', // realm: separa tokens panel de POS/admin (mismo JWT_SECRET)
-				'sub'  => (string)$user['contactId'],
-				'cid'  => (string)$user['companyId'],
-				'oid'  => (string)($outlet['outletId'] ?? ''),
-				'rid'  => '',
-				'role' => (int)$user['role'],
-				'iat'  => $now,
-				'exp'  => $now + $ttl,
-			], $secret);
+			$raw = authSessionCreate('panel', [
+				'companyId'  => (string)$user['companyId'],
+				'userId'     => (string)$user['contactId'],
+				'outletId'   => (string)($outlet['outletId'] ?? ''),
+				'roleId'     => (string)(int)$user['role'],
+				'module'     => 'panel',
+				'expiresAt'  => date('Y-m-d H:i:s', time() + $ttl),
+			]);
 
-			// Cookie HttpOnly — el browser la enviará automáticamente en requests same-origin.
-			// Detección HTTPS via X-Forwarded-Proto (Traefik agrega ese header detrás de TLS termination).
-			// SameSite=Lax porque Strict bloquea la cookie en flujos cross-origin top-level
-			// (links de email, redirects post-OAuth, etc.) y rompe XHR en algunos browsers.
-			//
-			// domain: scope desde env COOKIE_DOMAIN (ej. ".punto.la"). Permite que el
-			// panel legacy (panel-legacy.punto.la), el panel nuevo (panel.punto.la /
-			// panel-next-dev.punto.la) y la API (api.punto.la) compartan la sesión
-			// sin re-login durante la coexistencia del rewrite. Si la env no está
-			// seteada, default = no setear domain (cookie atada al host actual,
-			// comportamiento histórico — local dev sigue funcionando).
-			$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-			        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-			$cookieOpts = [
-				'expires'  => $now + $ttl,
-				'path'     => '/',
-				'httponly' => true,
-				'samesite' => 'Lax',
-				'secure'   => $isHttps,
-			];
-			$cookieDomain = $_ENV['COOKIE_DOMAIN'] ?? '';
-			if ($cookieDomain !== '') {
-				$cookieOpts['domain'] = $cookieDomain;
-			}
-			setcookie('_jwt_panel', $token, $cookieOpts);
+			authSetOpaqueCookie('_jwt_panel', $raw, $ttl, 'Lax');
 
-			return [
-				'token'     => $token,
-				'expiresIn' => $ttl,
-			];
+			return ['token' => $raw, 'expiresIn' => $ttl];
 		}
 
 		function loginPart($result)
