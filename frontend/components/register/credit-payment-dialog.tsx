@@ -4,8 +4,8 @@ import * as React from "react"
 import { toast } from "sonner"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCreateCreditPayment } from "@/hooks/use-credit-payment"
-import { MoneyInput } from "@/components/ui/money-input"
-import { formatAmount } from "@/lib/format-money"
+import { formatAmount, formatMoney } from "@/lib/format-money"
+import { MoneyVisor, parseDisplay, formatDisplayInput } from "@/components/register/money-visor"
 import {
   Dialog,
   DialogContent,
@@ -48,27 +48,49 @@ export function CreditPaymentDialog({
 
   const defaultMethod = paymentMethods.find((m) => m.isDefault) ?? paymentMethods[0]
 
-  const [amount, setAmount] = React.useState<number | null>(debt)
+  // display es el string formateado del visor (vacío = cajero no tipeó nada).
+  // Si está vacío, el monto efectivo es `debt` (cobra el saldo completo).
+  const [display, setDisplay] = React.useState("")
   const [pmKey, setPmKey] = React.useState<string>(defaultMethod?.id ?? "")
   const [note, setNote] = React.useState("")
 
+  const visorRef = React.useRef<HTMLInputElement>(null)
+
   React.useEffect(() => {
     if (open) {
-      setAmount(debt)
+      setDisplay("")
       setPmKey(defaultMethod?.id ?? "")
       setNote("")
+      // autofocus al visor
+      setTimeout(() => visorRef.current?.focus(), 50)
     }
-  }, [open, debt, defaultMethod?.id])
+  }, [open, defaultMethod?.id])
+
+  // Si el cajero no tipeó nada, cobra el saldo completo
+  const amount = display === "" ? debt : parseDisplay(display)
+  const amountValid = amount > 0 && amount <= debt + 0.001
 
   const selectedMethod = paymentMethods.find((m) => m.id === pmKey)
-  const amountValid = (amount ?? 0) > 0 && (amount ?? 0) <= debt + 0.001
+
+  function handleVisorChange(raw: number) {
+    // Sincronizamos el display string formateado a partir del raw
+    const formatted = raw === 0 ? "" : formatDisplayInput(String(raw))
+    setDisplay(formatted)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && display === "") {
+      // visor vacío: no hacer nada especial, ya muestra placeholder
+      return
+    }
+  }
 
   function handleConfirm() {
     if (!amountValid || !selectedMethod) return
     mutation.mutate(
       {
         parentTransactionId,
-        amount: amount!,
+        amount,
         paymentMethodKey: selectedMethod.id,
         note: note.trim() || undefined,
       },
@@ -91,7 +113,6 @@ export function CreditPaymentDialog({
   }
 
   return (
-    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -102,16 +123,21 @@ export function CreditPaymentDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-2">
+          {/* Visor grande estándar POS — igual que PayDialog */}
           <div className="flex flex-col gap-1.5">
-            <Label>Monto a cobrar</Label>
-            <MoneyInput
-              value={amount}
-              onChange={setAmount}
-              autoFocus
-              className="h-14 text-2xl font-bold tabular-nums text-center"
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Monto a cobrar
+            </Label>
+            <MoneyVisor
+              ref={visorRef}
+              value={display}
+              onValueChange={handleVisorChange}
+              placeholder={formatMoney(debt, config)}
+              ariaLabel="Monto a cobrar"
+              onKeyDown={handleKeyDown}
             />
-            {!amountValid && amount !== null && (
-              <p className="text-xs text-destructive">
+            {!amountValid && display !== "" && (
+              <p className="text-center text-xs text-destructive">
                 El monto debe ser mayor a 0 y no superar {formatAmount(debt, config)}
               </p>
             )}
@@ -164,6 +190,5 @@ export function CreditPaymentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    </>
   )
 }
