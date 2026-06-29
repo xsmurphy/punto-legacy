@@ -752,9 +752,15 @@ function LineActionTile({
   onClick: () => void
   disabled?: boolean
 }) {
+  // data-vaul-no-drag también en el button (no solo en la grid padre): el
+  // active:scale puede confundir el detector de drag de vaul y comer el click.
+  // Aplicar el attr al elemento que recibe el touch garantiza que se preserve.
+  // onPointerDownCapture stopPropagation por las dudas (toque mobile + scale).
   return (
     <button
       type="button"
+      data-vaul-no-drag
+      onPointerDownCapture={(e) => e.stopPropagation()}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       title={disabled ? "Próximamente" : undefined}
