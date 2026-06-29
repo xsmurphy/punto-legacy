@@ -63,6 +63,9 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { useAgentChatStore } from "@/lib/agent/store"
 import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
+import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import type { TicketData } from "@/lib/hardware/printers"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
@@ -512,8 +515,12 @@ function ControlDeCajaPanel() {
   // En el POS usamos el config del catalog store (ya hidratado por useCatalogSeed).
   // useBootstrap no se necesita en el POS — el config viene del PosBootstrap.
   const config = useCatalogStore((s) => s.config)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: status, isLoading: statusLoading } = useDrawerStatus()
   const { data: summary, isLoading: summaryLoading } = useDrawerSummary()
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
+  const { requestPrint, pickerDialog } = usePrintWithPicker()
 
   const openDrawer  = useOpenDrawer()
   const closeDrawer = useCloseDrawer()
@@ -677,7 +684,40 @@ function ControlDeCajaPanel() {
               <ArrowUp className="size-4" />
               Ingresar
             </Button>
-            <Button variant="outline" size="sm" onClick={() => window.print()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!summary) {
+                  toast.info("No hay datos de caja para imprimir")
+                  return
+                }
+                // Construir TicketData con los datos del summary del turno.
+                // items va vacío — el cierre no es una venta de productos sino un
+                // resumen de pagos. Los totales/breakdown vienen de summary.list.
+                // FLAG: summary.list trae filas (name, amount) pero no hay campo
+                // separado de "apertura" vs "ventas por método" — se mapean como
+                // payments usando las filas de list tal como vienen del backend.
+                const closingPayments = summary.list.map((row) => ({
+                  method: row.name,
+                  amount: row.amount,
+                }))
+                const ticketData: TicketData = {
+                  companyName: (config as { companyName?: string } | null)?.companyName ?? "",
+                  docType: "closeReg",
+                  transactionId: "",
+                  date: summary.date ?? new Date().toISOString(),
+                  items: [],
+                  subtotal: summary.subtotal,
+                  discount: 0,
+                  taxTotal: 0,
+                  total: summary.total,
+                  payments: closingPayments,
+                  note: summary.tips > 0 ? `Propinas: ${summary.tips}` : undefined,
+                }
+                requestPrint("closeReg", ticketData, allBindings)
+              }}
+            >
               <Printer className="size-4" />
               Imprimir
             </Button>
@@ -712,6 +752,9 @@ function ControlDeCajaPanel() {
           onConfirm={handleMovementConfirm}
         />
       )}
+
+      {/* Picker de impresora (fallback cuando no hay binding para closeReg) */}
+      {pickerDialog}
     </div>
   )
 }
