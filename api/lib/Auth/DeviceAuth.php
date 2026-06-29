@@ -136,11 +136,11 @@ final class DeviceAuth
     }
 
     /**
-     * Construye el JWT del device y lo retorna. Reutilizable desde los paths
-     * "nuevo device" y "device reusado" sin duplicar lógica.
+     * Crea una sesión opaca para el device vía authSessionCreate() y la retorna.
+     * Reutilizable desde los paths "nuevo device" y "device reusado" sin duplicar lógica.
      *
-     * No setea cookie — el token viaja como Bearer en cada request del device.
-     * Si jwtEncode lanza, el caller decide si revocar el device recién insertado.
+     * No setea cookie — el token opaco viaja como Bearer en cada request del device.
+     * Si authSessionCreate lanza, el caller decide si revocar el device recién insertado.
      */
     private static function issueToken(
         string $companyId,

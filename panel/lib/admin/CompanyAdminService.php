@@ -1044,7 +1044,7 @@ class CompanyAdminService
      * inyecta en la respuesta al browser.
      *
      * Usa JWT_SECRET (panel tenant), no ADMIN_JWT_SECRET.
-     * Requiere include de jwt.php para jwtEncode().
+     * Requiere include de auth_session.php (authSessionCreate).
      *
      * Devuelve null si la empresa no existe o no tiene propietario.
      */
