@@ -62,18 +62,23 @@ final class Store
         if (validateResultFromDB($result)) {
             while (!$result->EOF) {
                 $fields = $result->fields;
-                $data[$fields['outletId']] = [];
-                foreach ($fields as $key => $value) {
-                    if (strpos($key, 'outlet') !== false) {
-                        $key = str_replace('outlet', '', $key);
-                        $key = lcfirst($key);
-                        $data[$fields['outletId']][str_replace('outlet', '', $key)] = $value;
+                // Refactor 28-jun: ncmExecute/flattenJsonb devuelve array plano
+                // con keys lowercase. Sustituimos el acceso case-sensitive
+                // anterior por stripos/str_ireplace para tolerar ambos shapes.
+                $outletId = $fields['outletId'] ?? $fields['outletid'] ?? null;
+                if ($outletId !== null) {
+                    $data[$outletId] = [];
+                    foreach ($fields as $key => $value) {
+                        if (stripos($key, 'outlet') !== false) {
+                            $newKey = lcfirst((string) str_ireplace('outlet', '', $key));
+                            $data[$outletId][$newKey] = $value;
+                        }
                     }
                 }
                 $result->MoveNext();
             }
+            $result->Close();
         }
-        $result->Close();
 
         if ($id) {
             return $data[$id];
