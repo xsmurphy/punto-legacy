@@ -49,6 +49,15 @@ final class TransactionService
         if (!$fields) {
             return null;
         }
+        // Post-refactor 28-jun: ncmExecute devuelve array plano lowercase, pero
+        // este método tiene ~20 accesos $fields['transactionType']/etc. en
+        // camelCase. Envolver en CaseInsensitiveArray para preservar el lookup
+        // case-insensitive sin reescribir todo el método. Bug: facturas a
+        // crédito mostraban total=0 y CTA 'Duplicar' en lugar de 'Pagar'
+        // porque transactionType === '3' nunca matcheaba (key era 'transactiontype').
+        if (!($fields instanceof \CaseInsensitiveArray)) {
+            $fields = new \CaseInsensitiveArray((array) $fields);
+        }
 
         // tags en meta → _flattenJsonb expone como JSON string
         $rawTags = $fields['tags'] ?? null;
