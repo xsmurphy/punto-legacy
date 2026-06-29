@@ -9,11 +9,11 @@
 
 ## 0. TL;DR — Recomendación
 
-**Es factible y recomendable, pero es un lift bastante más grande que panel-next.**
+**Es factible y recomendable, pero es un lift bastante más grande que frontend.**
 El POS es la superficie operacionalmente crítica (offline-first, hardware,
 fiscal, velocidad en caja). La buena noticia: **el backend de ventas ya está
 modernizado y desacoplado** (`SaleService` idempotente en `/api`), así que el
-nuevo POS pega contra la MISMA `/api` que ya consume panel-next — igual que el
+nuevo POS pega contra la MISMA `/api` que ya consume frontend — igual que el
 panel, "un cliente React puede pegar hoy sin esperar nada del backend".
 
 Recomendación de approach (alineada con lo que propuso el owner):
@@ -189,7 +189,7 @@ búsqueda server-side. Es una mejora natural pasar a **IndexedDB real (Dexie)**
 ## 5. Arquitectura propuesta del nuevo POS
 
 ```
-app-next/  (Next.js 15 PWA — separado de panel-next por necesidades offline/PWA)
+app-next/  (Next.js 15 PWA — separado de frontend por necesidades offline/PWA)
   app/(pos)/...            ← rutas: caja, mesas, agenda, ordenes, clientes, caja/arqueo
   lib/store/               ← store en memoria (Zustand) + IndexedDB (Dexie)
     catalog.ts             ← productos/clientes en memoria, hidratados de IndexedDB
@@ -201,14 +201,14 @@ app-next/  (Next.js 15 PWA — separado de panel-next por necesidades offline/PW
     barcode-scanner.ts     ← hook keyboard-wedge (reimplementado)
   lib/realtime/
     ncm-ws.ts              ← cliente WS (portado de ncm-ws.js) + hook useChannel
-  lib/api/                 ← cliente a /api compartida (mismo patrón BFF que panel-next)
+  lib/api/                 ← cliente a /api compartida (mismo patrón BFF que frontend)
 ```
 
 **Decisiones de arquitectura:**
-- **App separada (`app-next/`)**, NO dentro de panel-next: el POS es PWA
+- **App separada (`app-next/`)**, NO dentro de frontend: el POS es PWA
   offline-first con necesidades distintas (SW agresivo, IndexedDB, hardware).
   Comparten `/api` y se puede compartir un paquete de UI shadcn. (Decisión D1.)
-- **Stack idéntico a panel-next:** Next 15 + TS estricto + shadcn + Tailwind +
+- **Stack idéntico a frontend:** Next 15 + TS estricto + shadcn + Tailwind +
   TanStack Query + RHF + Zod. Reglas de memoria aplican (shadcn-first, MoneyInput,
   DataTable, phone E.164, etc.).
 - **Data layer:** Zustand (store en memoria) + Dexie (IndexedDB) + TanStack Query
@@ -221,13 +221,13 @@ app-next/  (Next.js 15 PWA — separado de panel-next por necesidades offline/PW
 
 ## 6. Plan de migración por fases
 
-> Greenfield como panel-next. El legacy `/app` queda en producción hasta que el
+> Greenfield como frontend. El legacy `/app` queda en producción hasta que el
 > nuevo cubra el core 100%. Coexisten en subdominios (`app.punto.la` legacy →
 > `app-next.punto.la` o flip cuando esté listo).
 
 **F0 — Sprint 0 / plumbing — ✅ COMPLETO (commits 2ead57f, 218ad54, dc3b5e5, 513bf9d, 2026-06-15)**
 
-Scaffold `app-next/` ✅ — Next.js 15, React 19, TS, shadcn, Tailwind, TanStack Query. Stack idéntico a panel-next. Dockerfile + `.dockerignore` para deploy en Coolify ✅.
+Scaffold `app-next/` ✅ — Next.js 15, React 19, TS, shadcn, Tailwind, TanStack Query. Stack idéntico a frontend. Dockerfile + `.dockerignore` para deploy en Coolify ✅.
 
 Slices implementados:
 - **Scaffold base**: `app/(pos)/layout.tsx`, `app/api/v1/[...path]/route.ts` (catch-all BFF same-origin → PHP `/api`), `app/api/pos/bootstrap/route.ts` (auth handoff JWT `_jwt` realm `pos-app`), `hooks/use-pos-bootstrap.ts`, `hooks/use-catalog-seed.ts`.
@@ -266,7 +266,7 @@ Smoke test E2E vs legacy. Flip de subdominio. Borrar `/app` legacy.
 
 ## 7. Decisiones abiertas (para el owner)
 
-- **D1** — ¿App separada `app-next/` o sub-app dentro de panel-next? (Recomiendo
+- **D1** — ¿App separada `app-next/` o sub-app dentro de frontend? (Recomiendo
   separada por PWA/offline.)
 - **D2** — ¿Online-first MVP y offline en F2 (recomendado), u offline desde F1?
 - **D3** — ✅ **RESUELTO (2026-06-15): lease exclusivo por register + incremento
@@ -284,7 +284,7 @@ Smoke test E2E vs legacy. Flip de subdominio. Borrar `/app` legacy.
 
 ## 8. Comparación con el rewrite del panel
 
-| Dimensión | panel-next | app-next (POS) |
+| Dimensión | frontend | app-next (POS) |
 |---|---|---|
 | Backend listo | Sí (`/api` F2) | **Sí** (`/api` + SaleService idempotente) |
 | Offline | No requerido | **Requerido** (núcleo del valor) |

@@ -8,7 +8,7 @@ namespace Punto\Api\Settings;
  *
  * Reemplaza el storage legacy en taxonomy(taxonomyType='printTemplate'). El
  * config JSONB acepta cualquier shape; el shape canónico lo define el frontend
- * en panel-next/lib/types/document-template.ts. Mantenemos abierto para que
+ * en frontend/lib/types/document-template.ts. Mantenemos abierto para que
  * agregar campos no requiera migración (toggles nuevos, textos extra, etc.).
  *
  * Reglas:

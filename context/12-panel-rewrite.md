@@ -84,7 +84,7 @@ hasta que el nuevo lo cubra al 100%.
 ## Estructura propuesta del repo
 
 ```
-/panel-next/                       ← carpeta nueva
+/frontend/                       ← carpeta nueva
   app/
     (auth)/
       login/page.tsx
@@ -119,7 +119,7 @@ hasta que el nuevo lo cubra al 100%.
   package.json
 ```
 
-El repo monorepo queda con: `/api` (PHP), `/app` (POS PHP), `/panel-next` (nuevo), `/panel` (legacy — se borra al final).
+El repo monorepo queda con: `/api` (PHP), `/app` (POS PHP), `/frontend` (nuevo), `/panel` (legacy — se borra al final).
 
 ---
 
@@ -148,7 +148,7 @@ cañería con un módulo simple y subir complejidad gradualmente.
 
 ## Sprint 0 — Checklist concreto (3-4 hs)
 
-1. `mkdir panel-next && cd panel-next`
+1. `mkdir frontend && cd frontend`
 2. `npx create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias "@/*"`
 3. `npx shadcn@latest init` (configuración: New York style, neutral base, CSS variables)
 4. Componentes iniciales: `npx shadcn@latest add button card form input label dialog dropdown-menu sidebar`
@@ -156,7 +156,7 @@ cañería con un módulo simple y subir complejidad gradualmente.
 6. `Dockerfile` multi-stage (build + runtime con `next start`)
 7. `next.config.ts`: `output: 'standalone'` para slim docker
 8. Levantar localmente, hit a `/api/v1/bootstrap` con cookie real → verificar 200
-9. Push a un branch `panel-next-init`, deploy en Coolify como container `panel-next`, subdomain temporal `panel-next-dev.punto.la`
+9. Push a un branch `frontend-init`, deploy en Coolify como container `frontend`, subdomain temporal `frontend-dev.punto.la`
 10. Verificar que `/api/v1/bootstrap` responde a través del cliente desde el container Node
 
 Si esos 10 pasos terminan en 4hs, la cañería está validada y los slices reales
@@ -168,8 +168,8 @@ empiezan recto.
 
 0. **`panel/a_<modulo>.php` = referencia funcional obligatoria de cada slice.** Antes de empezar cualquier slice, leer el módulo legacy equivalente entero (vista + handlers `?action=*`) y catalogar: campos del form, columnas de tabla, filtros, acciones, validaciones, permisos, integraciones cross-módulo. El legacy lleva años de iteración con clientes reales — saltearse esa lectura garantiza perder features que ya usan. La VISUAL no se replica (Linear-inspired + shadcn la reemplaza), pero el comportamiento funcional sí. Si algo en el legacy parece bug o cruft, preguntar antes de "limpiarlo".
 
-1. **No tocar el panel legacy salvo bug crítico de seguridad.** Cero features nuevas. Bug fixes se pasan al `/panel-next` cuando el módulo correspondiente migra.
-2. **No tocar `/api` salvo para bug fixes o para portar handlers que el `/panel-next` necesita.** El backend está al 97% listo.
+1. **No tocar el panel legacy salvo bug crítico de seguridad.** Cero features nuevas. Bug fixes se pasan al `/frontend` cuando el módulo correspondiente migra.
+2. **No tocar `/api` salvo para bug fixes o para portar handlers que el `/frontend` necesita.** El backend está al 97% listo.
 3. **No mover lógica de negocio al cliente React.** El cliente formatea, valida y muestra. La lógica de negocio (tenant scoping, business rules, money path) vive en `/api`.
 4. **TypeScript estricto desde día 1.** `strict: true`, sin `any` salvo en boundary points temporales documentados.
 5. **shadcn copy-paste, no dependencia.** Los componentes shadcn viven en `components/ui/` como código tuyo — los editás libremente.

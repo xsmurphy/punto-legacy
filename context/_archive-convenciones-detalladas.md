@@ -1586,11 +1586,11 @@ public static function insert(string $table, array $data): string|false
 
 ---
 
-## §36 — Jerarquía visual de formularios en panel-next (establecido 2026-06-12, commit 9bf9934)
+## §36 — Jerarquía visual de formularios en frontend (establecido 2026-06-12, commit 9bf9934)
 
 **Regla**: los títulos de sección de formulario usan `text-base font-semibold tracking-tight` + `border-b`; los `FormLabel` individuales usan `text-sm font-medium`. No invertir esta jerarquía.
 
-**Componente canónico**: `<FormSection>` en `panel-next/components/forms/form-section.tsx`. Todo agrupamiento de campos dentro de un form de panel-next debe usar este componente en vez de markup ad-hoc.
+**Componente canónico**: `<FormSection>` en `frontend/components/forms/form-section.tsx`. Todo agrupamiento de campos dentro de un form de frontend debe usar este componente en vez de markup ad-hoc.
 
 ```tsx
 // BIEN
@@ -1604,11 +1604,11 @@ public static function insert(string $table, array $data): string|false
 
 ---
 
-## §37 — BFF same-origin en panel-next: `api-client.ts` SIEMPRE va al catch-all de Next.js (establecido 2026-06-12, commit 580d79a)
+## §37 — BFF same-origin en frontend: `api-client.ts` SIEMPRE va al catch-all de Next.js (establecido 2026-06-12, commit 580d79a)
 
-**Regla**: el `api-client.ts` del browser en panel-next usa baseURL `/api` (same-origin). NUNCA configura una URL externa del backend PHP directamente desde el browser — eso requeriría CORS y expone la URL interna.
+**Regla**: el `api-client.ts` del browser en frontend usa baseURL `/api` (same-origin). NUNCA configura una URL externa del backend PHP directamente desde el browser — eso requeriría CORS y expone la URL interna.
 
-**Cómo funciona**: `panel-next/app/api/v1/[...path]/route.ts` es el catch-all de Next.js que actúa como BFF: recibe el request del browser, agrega la cookie `_jwt_panel`, y hace forward al backend PHP (`NEXT_PUBLIC_API_URL` o `API_URL` según el entorno).
+**Cómo funciona**: `frontend/app/api/v1/[...path]/route.ts` es el catch-all de Next.js que actúa como BFF: recibe el request del browser, agrega la cookie `_jwt_panel`, y hace forward al backend PHP (`NEXT_PUBLIC_API_URL` o `API_URL` según el entorno).
 
 **Todo cálculo / reshape** que antes hubiera ido en un BFF PHP puede ir en los route handlers de `app/api/` de Next.js. La API PHP sigue devolviendo datos crudos.
 
@@ -1620,11 +1620,11 @@ Next.js catch-all route.ts
   → PHP backend (NEXT_PUBLIC_API_URL/v1/outlets)
 ```
 
-**Diagnóstico**: ante errores de creación/mutación en panel-next, el primer lugar a revisar es el catch-all route — puede ser que el path no esté siendo reescrito correctamente o que la cookie no se esté propagando.
+**Diagnóstico**: ante errores de creación/mutación en frontend, el primer lugar a revisar es el catch-all route — puede ser que el path no esté siendo reescrito correctamente o que la cookie no se esté propagando.
 
 ---
 
-## §35 — Panel React (panel-next/): portar endpoint a /api ANTES de implementar el front (establecido 2026-06-10)
+## §35 — Panel React (frontend/): portar endpoint a /api ANTES de implementar el front (establecido 2026-06-10)
 
 **Regla**: cuando un slice del nuevo panel React necesite datos o mutaciones que hoy existen solo como handlers in-process del legacy (`panel/API/v1/*.php` + `panel/lib/*/`), el handler debe portarse a la API compartida (`api/v1/` + `api/lib/<Modulo>/`) ANTES de implementar el componente React.
 
@@ -1636,7 +1636,7 @@ Next.js catch-all route.ts
 
 **Referencia**: `docs/PLAN_panel_desacople.md` (F3 marcada CANCELADA) documenta los handlers que quedaron pendientes — sirve de referencia para saber qué handlers in-process necesitarán portarse cuando el slice React llegue a esa funcionalidad.
 
-**Aplica a**: cualquier sesión que trabaje en `panel-next/`. La REGLA RAÍZ sigue siendo la misma: el BFF (ahora el fetch de Next.js/TanStack Query) nunca toca la BD directamente.
+**Aplica a**: cualquier sesión que trabaje en `frontend/`. La REGLA RAÍZ sigue siendo la misma: el BFF (ahora el fetch de Next.js/TanStack Query) nunca toca la BD directamente.
 
 ---
 
@@ -1668,7 +1668,7 @@ useEffect(() => {
 }, [])
 ```
 
-**Aplica a**: cualquier hook en `panel-next/` o en el POS React que combine TanStack Query (`useQuery`) con un store Zustand para hidratación local.
+**Aplica a**: cualquier hook en `frontend/` o en el POS React que combine TanStack Query (`useQuery`) con un store Zustand para hidratación local.
 
 ---
 
@@ -1694,4 +1694,4 @@ interface MenuSection {
 - Si ninguno está presente → comportamiento default: muestra descripción + CTA en el content panel.
 - Estado inicial sin sección seleccionada → empty state en el content panel (nunca auto-seleccionar la primera).
 
-**Primer uso**: `panel-next/components/register/pos-main-menu.tsx`. El patrón es replicable en cualquier UI panel-left + content-right de panel-next.
+**Primer uso**: `frontend/components/register/pos-main-menu.tsx`. El patrón es replicable en cualquier UI panel-left + content-right de frontend.

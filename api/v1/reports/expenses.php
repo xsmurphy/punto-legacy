@@ -77,7 +77,7 @@ if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
     apiError('Formato de fecha inválido', 422);
 }
 
-// Roc::build (panel-next 2026-06-13: respeta VIEW_OUTLET_ID si el browser
+// Roc::build (frontend 2026-06-13: respeta VIEW_OUTLET_ID si el browser
 // mandó el header X-Outlet-Id del dropdown del logo).
 try {
     $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);

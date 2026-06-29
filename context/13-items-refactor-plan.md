@@ -91,7 +91,7 @@ CREATE INDEX idx_item_kind ON item(itemKind);
 
 Los flags viejos (`itemType`, `itemCanSale`, `itemTrackInventory`,
 `itemProduction`) se MANTIENEN para que el legacy panel/POS sigan
-funcionando. Dual-write: panel-next + endpoints nuevos escriben kind +
+funcionando. Dual-write: frontend + endpoints nuevos escriben kind +
 los flags legacy en sync. DROP al final cuando el legacy muera.
 
 ### Migration 16 — `item_category` many-to-many
@@ -216,7 +216,7 @@ Pack es 1 fila en `item`, las sesiones consumidas se trackean en
 
 ---
 
-## UI panel-next — Form components dedicados
+## UI frontend — Form components dedicados
 
 ### Lista `/items` refactoreada
 
@@ -333,7 +333,7 @@ el legacy gracias al dual-write y al keep de los flags antiguos.
 1. ✅ Migration 15 (itemKind canonical) + 16 (item_category m2m).
 2. ✅ `presentItem()` agrega `kind`, `categories[]`, `tags[]`.
 3. ✅ POST/PUT dual-write kind + flags legacy. PUT rechaza cambio de kind (409).
-4. ✅ UI panel-next lista usa `kind` directo. KIND_META con 12 kinds.
+4. ✅ UI frontend lista usa `kind` directo. KIND_META con 12 kinds.
 5. ⬜ Editor categorías m2m UI (pendiente — requiere UI nueva en [id]/page.tsx).
 
 ### Slice B — Modifier groups (toppings + recetas + combos)

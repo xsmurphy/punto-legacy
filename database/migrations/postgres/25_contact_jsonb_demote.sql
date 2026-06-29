@@ -32,7 +32,7 @@
 --   1. _getTableSchema() 'contact' en app/ y panel/: quitar las columnas
 --      demoted del whitelist + contactPhone2.
 --   2. ContactRepository: search/findByCI usan (data->>'contactCI') etc.
---   3. Frontend panel-next: tipo Contact + form + listado sin phone2.
+--   3. Frontend frontend: tipo Contact + form + listado sin phone2.
 --
 -- ⚠️ PRIVILEGIOS: ALTER TABLE ... DROP COLUMN requiere ser OWNER de la tabla.
 --

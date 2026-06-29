@@ -9,13 +9,13 @@
  * vieja del script quedó en el container). El operador hit'ea esta URL desde
  * browser/curl y la migración se aplica.
  *
- * SIN AUTH: durante DEV (panel-next-dev.punto.la) la URL no es pública y el
+ * SIN AUTH: durante DEV (frontend-dev.punto.la) la URL no es pública y el
  * worst-case de un attacker que la descubra es triggerear las migraciones
  * que YA están en el repo — no puede inyectar SQL custom. El script solo
  * aplica archivos `database/migrations/postgres/NN_*.sql` que existen en
  * disco (controlados por git, no por input del request).
  *
- * Cuando el panel-next pase a panel.punto.la (URL pública), agregar auth
+ * Cuando el frontend pase a panel.punto.la (URL pública), agregar auth
  * acá o eliminar el archivo. Por ahora la simplicidad ganan al teatro de
  * seguridad.
  *

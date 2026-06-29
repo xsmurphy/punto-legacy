@@ -1,6 +1,6 @@
 <?php
 /**
- * /api/v1/pack_component.php — componentes de un pack (editor de items en panel-next).
+ * /api/v1/pack_component.php — componentes de un pack (editor de items en frontend).
  *
  *   GET ?packItemId=<uuid>               → lista componentes del pack
  *   PUT ?packItemId=<uuid>  {components:[{componentItemId, componentQty, sort}]}

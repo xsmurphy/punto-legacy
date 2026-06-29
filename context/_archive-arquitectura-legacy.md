@@ -1,10 +1,10 @@
-<!-- ARCHIVE — secciones de 02-arquitectura.md superseded por el rewrite panel-next.
+<!-- ARCHIVE — secciones de 02-arquitectura.md superseded por el rewrite frontend.
      NO es contexto vivo. Solo referencia histórica. -->
 
 # Archive — Arquitectura legacy (referencia histórica)
 
-Secciones de `02-arquitectura.md` que perdieron vigencia después del pivote panel-next
-(2026-06-10). El "molde por módulo" del panel legacy ya no se sigue — el panel-next
+Secciones de `02-arquitectura.md` que perdieron vigencia después del pivote frontend
+(2026-06-10). El "molde por módulo" del panel legacy ya no se sigue — el frontend
 es greenfield. Estas notas existen como referencia de cómo se pensaba el desacople
 incremental del monolito antes de la decisión del rewrite.
 

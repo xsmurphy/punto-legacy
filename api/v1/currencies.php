@@ -13,7 +13,7 @@ use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\CurrencyService;
 
 // Multi-realm: panel necesita las monedas para el editor de cotizaciones del
-// item; pos-app las usa al cobrar. El default era solo ['pos-app'] → panel-next
+// item; pos-app las usa al cobrar. El default era solo ['pos-app'] → frontend
 // recibía 401 silente y la UI mostraba 'No hay monedas configuradas'.
 $ctx = apiAuthTenant(['panel', 'pos-app']);
 

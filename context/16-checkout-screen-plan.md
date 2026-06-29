@@ -14,7 +14,7 @@
 ## Arquitectura
 
 ```
-┌─ POS (panel-next/app/(pos)/pos) ─────────┐
+┌─ POS (frontend/app/(pos)/pos) ─────────┐
 │  cartStore cambia                        │
 │  → debounce 200ms                        │
 │  → POST /v1/screens/publish              │──┐
@@ -28,7 +28,7 @@
                                         ws-server (Node)
                                               │
                                               ▼
-┌─ Checkout Screen (panel-next/app/(screen)/checkout) ─┐
+┌─ Checkout Screen (frontend/app/(screen)/checkout) ─┐
 │  WS suscribe al canal del registerId             │
 │  recibe cart-update / sale-confirmed / cleared   │
 │  re-render UI                                    │
@@ -118,7 +118,7 @@ CREATE INDEX idx_customer_display_token ON customer_display(tokenHash) WHERE sta
 
 ### Slice B — POS cart publish + UI de pareo
 
-**Cart publish** (en `panel-next/lib/cart/store.ts` o componente que escucha el cart):
+**Cart publish** (en `frontend/lib/cart/store.ts` o componente que escucha el cart):
 
 - `useCartPublisher()` hook: `useEffect` con dependencias `[cart, customer]`. Debounce 200ms. POST a `/v1/screens/publish` con tipo `cart-update`. Si el carrito vacío y no hubo cambio reciente, mandar `idle`.
 - Al confirmar venta (después del `pay-dialog` exitoso): publicar `sale-confirmed` con `{ total, change }`. La screen muestra 5s y vuelve a idle solo.
@@ -149,7 +149,7 @@ Dialog: input para PIN (6 dígitos con `InputOTP`) + input nombre ("Mostrador 1"
 
 Estructura:
 ```
-panel-next/app/(screen)/
+frontend/app/(screen)/
   layout.tsx               ← fullscreen, sin nav/sidebar, color-scheme aware
   checkout/
     page.tsx               ← state machine pairing/live/confirmed/idle
@@ -181,7 +181,7 @@ panel-next/app/(screen)/
 
 ### Slice D — Panel `/settings/devices`
 
-Nueva ruta `panel-next/app/(panel)/settings/devices/page.tsx`. Patrón DataTable estándar del proyecto.
+Nueva ruta `frontend/app/(panel)/settings/devices/page.tsx`. Patrón DataTable estándar del proyecto.
 
 Columnas: Nombre · Caja · IP última · Última conexión · Estado · Acciones.
 Acciones: solo "Revocar" con AlertDialog confirmación.

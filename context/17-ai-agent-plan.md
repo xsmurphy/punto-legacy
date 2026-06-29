@@ -17,7 +17,7 @@ Ver memoria [[ai-agent-openrouter-direction]].
 ## Arquitectura
 
 ```
-┌─ Browser (panel-next) ───────────────────────┐
+┌─ Browser (frontend) ───────────────────────┐
 │  <AssistantChat> (assistant-ui, Sheet)       │
 │  useChat() → POST /api/agent/chat (BFF)       │──┐
 └───────────────────────────────────────────────┘  │
@@ -34,7 +34,7 @@ Ver memoria [[ai-agent-openrouter-direction]].
                                           API Punto /v1/* (PHP)
 ```
 
-- El **route handler vive en panel-next** (`app/api/agent/chat/route.ts`), NO en PHP. Tiene la `OPENROUTER_API_KEY` (server-side, nunca al browser). Reusa el `_jwt_panel` del request para que las tools hereden los permisos del operador.
+- El **route handler vive en frontend** (`app/api/agent/chat/route.ts`), NO en PHP. Tiene la `OPENROUTER_API_KEY` (server-side, nunca al browser). Reusa el `_jwt_panel` del request para que las tools hereden los permisos del operador.
 - Las **tools** son funciones TS que pegan a `/v1/*` (mismo BFF que ya usa el panel). Una tool = un wrapper tipado sobre un endpoint existente.
 - **Débito de créditos**: en `onFinish`, con `usage.promptTokens`/`completionTokens`, calcular el costo (tabla de pricing por modelo) → POST `/v1/ai/debit` que inserta en `ai_credit_ledger` (delta negativo) y baja `aiCreditsBalance`. Atómico, con lock (mismo patrón que `PaymentsService::creditInvoice`).
 
@@ -71,7 +71,7 @@ CREATE TABLE ai_model_config (
 Stack confirmado: Next 16.2.6, React 19.2.4, npm. AI SDK **v5**.
 
 - **Deps** (npm): `ai`, `@ai-sdk/react`, `@openrouter/ai-sdk-provider`. **NO assistant-ui en AI-1** — el chat se arma hand-rolled con `useChat` de `@ai-sdk/react` + shadcn `Sheet`, para evitar el churn de API de assistant-ui en el slice fundacional. assistant-ui queda como mejora futura si se quiere UI más rica.
-- **Env**: `OPENROUTER_API_KEY` (Coolify, servicio panel-next, server-side — nunca al browser).
+- **Env**: `OPENROUTER_API_KEY` (Coolify, servicio frontend, server-side — nunca al browser).
 - **Mig `43_ai_model_config.sql`**: tabla `ai_model_config(capability PK, model, enabled, creditsPerKToken, updatedAt)` + seeds (chat→`deepseek/deepseek-chat`, vision→`google/gemini-flash-1.5` — placeholders que el owner confirma). `creditsPerKToken` ya incluido para que AI-2 (billing) solo lea.
 - **Endpoint PHP `/v1/ai/config`** (GET, `apiAuthTenant(['panel'])`): devuelve `{ chat: {model, creditsPerKToken}, vision: {...} }` desde `ai_model_config WHERE enabled`. El route handler lo consulta para elegir modelo. La UI de edición en /admin es AI-4.
 - **Route handler `app/api/agent/chat/route.ts`** (Node runtime):
@@ -135,7 +135,7 @@ Endpoint `api/v1/ai/execute.php` (POST, auth panel):
 
 Si user dice "no" → el modelo descarta. El token expira solo a los 5 min.
 
-### Helper `lib/ai-tools-utils.ts` en panel-next
+### Helper `lib/ai-tools-utils.ts` en frontend
 
 Funciones reusables para las 8 tools de escritura:
 - `requestConfirm(action, payload, cookie)` → fetch a `/v1/ai/confirm`
@@ -180,7 +180,7 @@ Feedback del owner sobre AI-3 entregado: el FAB verde es agresivo (el brand verd
    - Necesita un store mínimo `lib/agent/store.ts`: `{ open: boolean, setOpen, toggle }` (Zustand, igual patrón que `lib/ui/store.ts`).
    - `AgentChatFloating` lee `useAgentChatStore.open` para controlar el Sheet (en lugar de su propio useState).
 
-5. **Sidebar item en panel-next:**
+5. **Sidebar item en frontend:**
    - En `panel-auth-guard.tsx`, `panelNav` array: agregar entre Dashboard y Artículos: `{ title: "Asistente", to: "/chat", icon: MessageCircle }`.
 
 6. **Página `/chat`** (`app/(panel)/chat/page.tsx`):

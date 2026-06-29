@@ -2,7 +2,7 @@
 -- Slice 4 del refactor taxonomy: borrar rows huérfanos.
 --
 -- `tusFacturas` confirmado muerto por el owner. No hay consumers activos
--- en /api ni /app ni panel-next (sólo aparece en comentario de
+-- en /api ni /app ni frontend (sólo aparece en comentario de
 -- TransactionsService.php). El panel legacy lo usaba pero va a morir.
 --
 -- NO se tocan otros types — siguen vivos:

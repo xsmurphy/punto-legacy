@@ -45,19 +45,19 @@ Commits `50eca3d..793613c` (7). Highlights: bug nombre empresa en /settings (3 c
 - `api/bootstrap.php` — `apiAuthTenant()` + `tenantAudit()` (choke point de instrumentación)
 - `api/v1/reports/audit.php` — endpoint GET con filtros
 - `database/migrations/postgres/35_tenant_audit.sql` + `36_tenant_audit_pgcron.sql`
-- `panel-next/app/(panel)/reports/audit/page.tsx` — UI listado de auditoría
+- `frontend/app/(panel)/reports/audit/page.tsx` — UI listado de auditoría
 
 **Edición/detalle de venta**
 - `api/v1/reports/transactions.php` — GET (detalle + items + métodos de pago) y PUT (edición, gate de editabilidad en backend)
-- `panel-next/components/domain/transactions/transactions-list.tsx` — DataTable + modal de detalle/edición
+- `frontend/components/domain/transactions/transactions-list.tsx` — DataTable + modal de detalle/edición
 
 **Cierre de caja**
 - `api/lib/Reports/DrawersService.php` — `close()` con guard `drawerCloseDate IS NULL`
-- `panel-next/components/reports/drawer-detail-modal.tsx` — modal de detalle + botón cerrar caja
+- `frontend/components/reports/drawer-detail-modal.tsx` — modal de detalle + botón cerrar caja
 
 **Import de items / archivar-eliminar**
 - `api/lib/Items/ItemImporter.php` — importador CSV/XLSX + autocreación de tags
-- `panel-next/components/items/import-dialog.tsx` — SheetJS → CSV → POST
+- `frontend/components/items/import-dialog.tsx` — SheetJS → CSV → POST
 - `api/lib/Items/ItemRepository.php` — `hardDelete()` con guard ventas
 - `api/v1/items.php` — DELETE handler (activos→Archivar, archivados→hard-delete)
 
@@ -72,29 +72,29 @@ Commits `50eca3d..793613c` (7). Highlights: bug nombre empresa en /settings (3 c
 ## 2026-06-17 — MVP POS slices + X-ray cliente + mapa MapLibre
 Commits `ce454a6..50eca3d` (39). Highlights: Slice 1 arqueo de caja (DrawerService + migs 33/34 race-condition-safe); Slice 3 gaps POS (barcode scanner, edición precio/descuento por línea, transacciones con duplicar/reimprimir); modal X-ray del cliente con `<ContactDetailView>` variant POS; pay dialog dinámico (métodos del bootstrap, grilla kbd, auto-confirm); bug fix coordenadas + mapa MapLibre/OpenFreeMap; autorrellenar precio con último precio de compra; fix `CaseInsensitiveArray` en `ContactAnalyticsService`.
 
-## 2026-06-16 (tarde) — fixes panel-next + cleanup masivo de contexto + workflow
-Commits `1ce7a08..1ec8880` (9). Highlights: fix `itemSold` en `_getTableSchema()` (422 vacío en /purchase); 5 fixes UX panel-next (phone flags, Tab→nueva línea en /purchase, favicon, menú settings); poda agresiva context/ (-44.5%, archives + split convenciones); `context-updater` apagado definitivamente; nueva `_feature-requests.md` con 32 pedidos del batch comercial.
+## 2026-06-16 (tarde) — fixes frontend + cleanup masivo de contexto + workflow
+Commits `1ce7a08..1ec8880` (9). Highlights: fix `itemSold` en `_getTableSchema()` (422 vacío en /purchase); 5 fixes UX frontend (phone flags, Tab→nueva línea en /purchase, favicon, menú settings); poda agresiva context/ (-44.5%, archives + split convenciones); `context-updater` apagado definitivamente; nueva `_feature-requests.md` con 32 pedidos del batch comercial.
 
 ## 2026-06-16 — POS post-fusión: pulido masivo, lock screen y módulos
-Commits `556789c..5220d63` (~74). Highlights: fusión POS dentro de panel-next y eliminación de app-next; slices A6/A7 (BFF bootstrap, caja activa, JWT con `rid`); lock screen scoped + IVA real + rework UX del menú principal.
+Commits `556789c..5220d63` (~74). Highlights: fusión POS dentro de frontend y eliminación de app-next; slices A6/A7 (BFF bootstrap, caja activa, JWT con `rid`); lock screen scoped + IVA real + rework UX del menú principal.
 
 ## 2026-06-15 — app-next Slice A3 cobro, correcciones UI y salida de Dropbox
 Commits `9781463..77518ee` (31). Highlights: módulos Packs de Servicios y Listas de Precios (migs 31/32); tab Direcciones contactos; Slices A1/A2/A3 del POS rewrite + Dockerfile Coolify.
 
 ## 2026-06-14 — /modules, billing tenant+admin, /admin greenfield y dLocal Go
-Commits `1edc674..780ec4b` (63). Highlights: marketplace /modules + billing completo + /admin reescrito en panel-next; dLocal Go con webhook anti-doble-acreditación; 12 reportes nuevos; módulo Compras y Gastos slice 1 + view-scope "Todas las sucursales" + MoneyInput/DatePicker convencional + revert Intercepting Routes.
+Commits `1edc674..780ec4b` (63). Highlights: marketplace /modules + billing completo + /admin reescrito en frontend; dLocal Go con webhook anti-doble-acreditación; 12 reportes nuevos; módulo Compras y Gastos slice 1 + view-scope "Todas las sucursales" + MoneyInput/DatePicker convencional + revert Intercepting Routes.
 
-## 2026-06-13 — Sprint mayor panel-next: selector sucursal, /settings, dashboard
+## 2026-06-13 — Sprint mayor frontend: selector sucursal, /settings, dashboard
 Commits `fd5e5b3..580d79a` (15). Highlights: selector de sucursal + /settings modal Alfred + dashboard 2-col legacy; JSONB demote slice II (migs 25/26/27); 10/24 reportes implementados; patrón canónico Front → BFF → API reafirmado.
 
 ## 2026-06-12 — Editor de plantillas, refactor theme y refactor taxonomy
 Commits `1c2055b..7d52335` (25). Highlights: editor visual de plantillas de impresión (`/settings/print-templates`); refactor theme tweakcn b5eYG4A9A + multi-category; refactor `taxonomy` → tablas dedicadas en 4 slices con triggers PG bidireccionales.
 
-## 2026-06-11 — panel-next CRUDs y auditoría de tokens
+## 2026-06-11 — frontend CRUDs y auditoría de tokens
 Commits `772f12b..df3cf03`. Highlights: build-out CRUDs reales (auth+outlets+contacts+items+settings); plan refactor profundo de Items en `context/13`; auditoría de consumo de tokens (agents Opus→Sonnet, CLAUDE.md reescrito).
 
 ## 2026-06-10 — F2 cierre técnico y PIVOTE panel legacy → React
-Commits `2f68193..c4978c1`. Highlights: F2 cierre técnico 100% (outlets/settings/bootstrap/contacts/items/vpayments); rebrand visual Encom→Punto; PIVOTE arquitectónico — panel legacy se reescribe greenfield en panel-next con plan en `context/12`; desacople /panel → /api fases 0/1/2 completas (21/23 reportes migrados).
+Commits `2f68193..c4978c1`. Highlights: F2 cierre técnico 100% (outlets/settings/bootstrap/contacts/items/vpayments); rebrand visual Encom→Punto; PIVOTE arquitectónico — panel legacy se reescribe greenfield en frontend con plan en `context/12`; desacople /panel → /api fases 0/1/2 completas (21/23 reportes migrados).
 
 ## 2026-06-09 — Deploy a Coolify single-container y onboarding production
 Commits `ea7b67f..5ea3a2d`. Highlights: pasaje de 4-services a container único con `router.php` por Host header; auth phone-first system-wide con libphonenumber + migración 12; SSO panel→app con JWT pos-app de 15s + Redis sessions.

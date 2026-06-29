@@ -225,8 +225,8 @@ de plataforma para los demás.
 |---------|--------|
 | Backend | PHP 8.4, sin framework, wrapper PDO propio (`app/includes/lib/DB.php` — NO ADOdb) ✅ |
 | DB | PostgreSQL 16 + Docker, migrations runner automático ✅ |
-| Frontend (panel) | **panel-next** (Next.js 15 + React 19 + shadcn/ui + TanStack Query). Legacy panel eliminado. ✅ |
-| Frontend (POS) | **fusionado dentro de panel-next** en `app/(pos)/pos` desde 2026-06-16. ✅ |
+| Frontend (panel) | **frontend** (Next.js 15 + React 19 + shadcn/ui + TanStack Query). Legacy panel eliminado. ✅ |
+| Frontend (POS) | **fusionado dentro de frontend** en `app/(pos)/pos` desde 2026-06-16. ✅ |
 | Dominio | **app.punto.la** sirve panel + `/pos` + `/admin` + `/chat` + `/checkout` (POS legacy descontinuado, 2026-06-19) ✅ |
 | Auth realms | 3 cookies JWT distintas: `_jwt_panel` (panel, 24h), `_jwt` (pos-app, device pairing 10y), `_jwt_screen` (checkout screen, 10y). Realm gate por `iss` claim. ✅ |
 | IDs | UUID v4 (gen_random_uuid) ✅ — v7 fue dropeado en pivot |
@@ -245,9 +245,9 @@ de plataforma para los demás.
 ```
 Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase WS ✅ → Phase UUID ✅ → Phase PG ✅
                                   ↓
-              panel-next rewrite ✅ (greenfield Next/shadcn, plan context/12)
+              frontend rewrite ✅ (greenfield Next/shadcn, plan context/12)
                                   ↓
-                       Fusión POS → panel-next ✅ (2026-06-16)
+                       Fusión POS → frontend ✅ (2026-06-16)
                                   ↓
                        Catálogo M2M ✅ (sprint 2026-06-19, context/14)
                                   ↓
@@ -291,9 +291,9 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 
 ---
 
-## panel-next — Selector de sucursal en menú del usuario (NUEVO 2026-06-12)
+## frontend — Selector de sucursal en menú del usuario (NUEVO 2026-06-12)
 
-**Feature ausente del panel-next que SÍ existe en legacy.** En el menú dropdown del usuario (sidebar bottom) el panel legacy permite, cuando la cuenta tiene ≥2 sucursales:
+**Feature ausente del frontend que SÍ existe en legacy.** En el menú dropdown del usuario (sidebar bottom) el panel legacy permite, cuando la cuenta tiene ≥2 sucursales:
 
 1. Mostrar el **nombre de la sucursal activa** debajo del nombre de la empresa
 2. **Cambiar la sucursal seleccionada** (o elegir "Todas las sucursales")
@@ -325,9 +325,9 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 
 ### Por qué es importante
 
-- **UX inconsistente** vs legacy — usuario que ya está acostumbrado a cambiar sucursal del legacy se confunde si en panel-next no aparece.
+- **UX inconsistente** vs legacy — usuario que ya está acostumbrado a cambiar sucursal del legacy se confunde si en frontend no aparece.
 - **Multi-outlet es caso común** — la mayoría de tenants medianos tiene 2-4 sucursales y necesita cambiar de scope diariamente (ej. el dueño revisa los 4 dashboards de la mañana).
-- **Bloquea adopción del panel-next** para tenants multi-outlet — sin esto no pueden migrar.
+- **Bloquea adopción del frontend** para tenants multi-outlet — sin esto no pueden migrar.
 
 ### Notas técnicas
 
@@ -347,13 +347,13 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 
 **Franchiser:** sigue como realm tenant (`/panel/franchiser.php`, gateado por `isParent`) — NO va a `/admin`.
 
-### 🆕 PIVOTE 2026-06-14 — el /admin se reescribe DE CERO en el stack de panel-next
+### 🆕 PIVOTE 2026-06-14 — el /admin se reescribe DE CERO en el stack de frontend
 
 **Decisión del owner**: la UI del realm `/admin` (hoy vanilla JS + Bootstrap en
-`panel/admin/*`) se reescribe **greenfield**, **mismo techstack que panel-next**
+`panel/admin/*`) se reescribe **greenfield**, **mismo techstack que frontend**
 (Next.js 15 App Router + TS + shadcn/ui + Tailwind v4 + TanStack Query).
 **NO** nos guiamos por el legacy: no se replica su visual ni su estructura —
-se diseña de cero (análogo al pivote del panel tenant → panel-next del 2026-06-10).
+se diseña de cero (análogo al pivote del panel tenant → frontend del 2026-06-10).
 
 - El backend del admin (realm aislado `_jwt_admin`/`aud:"admin"`, `adminMiddleware`,
   tablas `admin_user`) **se conserva** — lo que muere es la UI legacy, no la auth.
@@ -361,10 +361,10 @@ se diseña de cero (análogo al pivote del panel tenant → panel-next del 2026-
 - El billing del admin agregado el 2026-06-14 (grantAiCredits / setAddons /
   listRequests / resolveRequest en `CompanyAdminService` + drawer legacy
   `panel/admin`) es **transitorio**: vive en el legacy hasta que exista el shell
-  admin en panel-next. Migrar esas pantallas al nuevo /admin cuando se construya.
+  admin en frontend. Migrar esas pantallas al nuevo /admin cuando se construya.
 - Prerequisito: auth de realm admin en el `/api` compartido (hoy solo existe en
   `panel/API/v1/admin/*`) o un BFF admin equivalente en el nuevo app, + shell/layout
-  + auth-guard del admin en el stack panel-next.
+  + auth-guard del admin en el stack frontend.
 - El legacy `panel/admin/*` se borra cuando el nuevo /admin lo cubra 100% (mismo
   criterio que el panel tenant).
 
@@ -407,7 +407,7 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 ### Realtime sync panel ↔ POS ✅ (plan `context/15`)
 
 - `realtimePublish` helper PHP wire en `apiAuthTenant::realtimeAfterMutation` (mapeo cerrado endpoint→entity)
-- Cliente WS singleton en `panel-next/lib/realtime.ts` con reconnect exponential
+- Cliente WS singleton en `frontend/lib/realtime.ts` con reconnect exponential
 - `useRealtimeSync(scope)` mapea entity→queryKeys de TanStack
 - ws-server deployado en Coolify a `wss://ws.punto.la`
 - Convención mantenida: el mapa `realtimeAfterMutation` debe incluir TODO endpoint mutante (caso clásico de drift: `/v1/sales` faltaba)
@@ -446,7 +446,7 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 - Wrapper PDO: agregados `Affected_Rows`, `BeginTrans/CommitTrans/RollbackTrans` (Services del API los llamaban pensando que era ADOdb — memoria [[project_db_wrapper_not_adodb]])
 - `Taxonomy::getIdOrInsert` usaba `$SQLcompanyId` global vacío en /api → duplicados en imports (commit `6ec65bb`)
 - `transactions.php` detalle: `CaseInsensitiveArray` no es `JsonSerializable` → frontend recibía `{}` (fix con `GetRowAssoc()`)
-- Cookies JWT mezcladas tras cambio de dominio panel-next-dev → app.punto.la: nuevo `/v1/logout` para borrar solo `_jwt_panel`
+- Cookies JWT mezcladas tras cambio de dominio frontend-dev → app.punto.la: nuevo `/v1/logout` para borrar solo `_jwt_panel`
 - `screens.php` usaba `new Redis()` (extension phpredis no instalada) → fix con fsockopen+RESP igual que `wsPublish`
 - Mig 37 inicial asumía columnas que no existen en BD real (`outlet.taxId`, `outlet.categoryId`) → self-heal con `information_schema` check
 - Barra de categorías POS con ancho fijo (no se ve fea con 1 sola)
@@ -459,7 +459,7 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 
 ## Phase AI — Agente IA del producto
 
-> **Estado actual (2026-06-21):** AI-1, AI-2, AI-3 y AI-3b ✅ ENTREGADOS en el sprint reciente — chat embebido funcional en producción. Stack: OpenRouter (NO Anthropic SDK directo como originalmente planeaba este doc), AI SDK v6 + `@ai-sdk/react`, React/Next embebido en panel-next (NO microservicio FastAPI). Ver memorias [[ai-agent-openrouter-direction]] y [[ai-agent-scope-limits]] + plan `context/17-ai-agent-plan.md` para arquitectura real.
+> **Estado actual (2026-06-21):** AI-1, AI-2, AI-3 y AI-3b ✅ ENTREGADOS en el sprint reciente — chat embebido funcional en producción. Stack: OpenRouter (NO Anthropic SDK directo como originalmente planeaba este doc), AI SDK v6 + `@ai-sdk/react`, React/Next embebido en frontend (NO microservicio FastAPI). Ver memorias [[ai-agent-openrouter-direction]] y [[ai-agent-scope-limits]] + plan `context/17-ai-agent-plan.md` para arquitectura real.
 >
 > El texto debajo refleja la VISIÓN ORIGINAL — útil como referencia conceptual (correctitud, dashboards por IA, reportes ad-hoc) pero los detalles de implementación están desactualizados (FastAPI, Python, microservicio). Lo que SÍ aplica vivo: la regla de oro (tool calling determinista, NUNCA text-to-SQL libre) y la visión de "reportes ad-hoc + dashboards custom por IA" (AI-5 pendiente).
 

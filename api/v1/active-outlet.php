@@ -7,7 +7,7 @@
  *       → cookie `_jwt_panel` HttpOnly reseteada (oid del token se actualiza)
  *
  * Replica el "selector de sucursal" del menú user del panel legacy. El
- * front (panel-next sidebar) llama acá, el backend re-emite el JWT
+ * front (frontend sidebar) llama acá, el backend re-emite el JWT
  * panel con el nuevo `oid` y la cookie viaja en la response. La
  * próxima request a cualquier endpoint que filtre por outlet (reports,
  * stock, drawers) usa la nueva sucursal automáticamente.
@@ -31,7 +31,7 @@
  *  - CSRF: la cookie `_jwt_panel` viaja con `SameSite=Lax`, lo que bloquea
  *    POST cross-site desde el browser. Sin token CSRF explícito ni check de
  *    Origin/Referer — clientes nativos NO están cubiertos. Aceptable para el
- *    modelo de amenaza actual (panel-next se sirve del mismo eTLD+1).
+ *    modelo de amenaza actual (frontend se sirve del mismo eTLD+1).
  */
 
 require_once __DIR__ . '/../bootstrap.php';

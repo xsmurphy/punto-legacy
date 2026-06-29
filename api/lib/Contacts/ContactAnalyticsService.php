@@ -9,7 +9,7 @@ namespace Punto\Api\Contacts;
  *   GET /v1/contacts?id=<uuid>&resource=analytics
  *
  * Devuelve un blob con KPIs + series + tops para alimentar el tab "Resumen"
- * y "Comportamiento" del perfil de contacto en panel-next.
+ * y "Comportamiento" del perfil de contacto en frontend.
  *
  * Diseño: TODA la query agregada está scopeada por tenant (companyId) +
  * customerId/supplierId según el type. Para clientes (type=1) se agrega por

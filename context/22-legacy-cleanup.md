@@ -10,10 +10,10 @@
 
 ## Entry points VIVOS (todo lo demás es candidato a borrar)
 
-1. `api/bootstrap.php` (backend que panel-next consume vía catch-all) — hace `chdir(/app)` y
+1. `api/bootstrap.php` (backend que frontend consume vía catch-all) — hace `chdir(/app)` y
    requiere un subset de `/app`.
-2. Path admin de panel — panel-next BFF admin pega a `${PANEL_URL}/API/v1/admin/*`.
-3. panel-next (Node, app aparte) — no requiere PHP en disco, los consume por HTTP.
+2. Path admin de panel — frontend BFF admin pega a `${PANEL_URL}/API/v1/admin/*`.
+3. frontend (Node, app aparte) — no requiere PHP en disco, los consume por HTTP.
 
 ## Cierre KEEP — NO BORRAR (probado por trace de `require`)
 
@@ -65,27 +65,27 @@
 `/screens/*.php` (cds, kds, checkoutScreen, receipt, digitalInvoice, giftCardRedeem, orderView,
 scheduleConfirm, quoteView, etc.) son las pantallas customer-facing VIEJAS. `router.php` NO las
 sirve (cero refs). `/api` las referencia SOLO como strings de URL (`getShortURL('/screens/...')`,
-`href`), nunca con `require`/`include` → borrar los archivos NO rompe `/api`. panel-next solo
+`href`), nunca con `require`/`include` → borrar los archivos NO rompe `/api`. frontend solo
 migró `(screen)/checkout`; el resto no está reconstruido.
 - **Borrable**: toda la carpeta `/screens/` (verificar primero cero `require/include` de
   `screens/*` desde KEEP/api — confirmado: solo URL-strings).
-- **FOLLOW-UP (roadmap, no bloquea)**: reconstruir en panel-next las páginas customer-facing que
+- **FOLLOW-UP (roadmap, no bloquea)**: reconstruir en frontend las páginas customer-facing que
   `/api` linkea (receipt, digitalInvoice, giftCardRedeem, orderView, scheduleConfirm) y limpiar/
   repuntar la generación de esos links en `api/lib/Sales/SaleService.php` (L334/388/394),
   `api/v1/{transactions,schedule,orders}.php`, `api/lib/services/GiftCardService.php`.
 
 ### Batch E — otros top-level a auditar
 `cache/`, `scripts/` (raíz) — posibles legacy. Trazar reachability (router.php,
-api/bootstrap, panel-next) antes de borrar.
+api/bootstrap, frontend) antes de borrar.
 
 **`/assets` (raíz) — BORRADO 2026-06-29 (manual por owner).** NO era puro estático: lo
 referenciaba código vivo. FOLLOW-UP (no bloquea, no hay datos/prod):
 - `api/lib/services/ItemService.php:63` genera URLs de imágenes de ítems `/assets/250-250/...jpg`.
 - `app/includes/functions.php` (lo usa `/api`) hace `the_file_exists(ASSETS_URL.$img)` + arma
   `/assets/src.php?src=...` → el redimensionador `/assets/src.php` ya no existe.
-- `panel-next/app/(auth)/signup/page.tsx:432` linkea `/assets/terminos.pdf`.
+- `frontend/app/(auth)/signup/page.tsx:432` linkea `/assets/terminos.pdf`.
 Pendiente: rehacer/repuntar manejo de imágenes de ítems + resizer + PDF de términos en la
-arquitectura nueva (subir a S3 / servir desde panel-next o /api), y limpiar la generación de
+arquitectura nueva (subir a S3 / servir desde frontend o /api), y limpiar la generación de
 esas URLs en `ItemService` y `functions.php`.
 
 ### Batch C — /panel PHP legacy (DESPUÉS de trazar cierre admin)
@@ -93,7 +93,7 @@ esas URLs en `ItemService` y `functions.php`.
   `empty_page.php`, `franchiser.php`, `get2COrecurring.php`, `index.php`, `inventory*.php`,
   `login.php`, `logout.php`, `main.php`, `mainFranchiser.php`, `orders.php`, `report_*.php`,
   `signup.php`, `user-register.php`, `@.php`, `barcode.php`, `new.cache.*.php`
-- `bff/` EXCEPTO lo que el admin use (verificar; panel-next admin pega a API/v1/admin directo)
+- `bff/` EXCEPTO lo que el admin use (verificar; frontend admin pega a API/v1/admin directo)
 - `API/` EXCEPTO `API/v1/admin/`, `API/lib/{admin_auth,response}.php` (+ lo que esos requieran)
 
 ## Protocolo de verificación (cada batch)
@@ -102,7 +102,7 @@ esas URLs en `ItemService` y `functions.php`.
    archivos PHP SOBREVIVIENTES de `api/`, `app/`, `panel/`, resolver el path target y confirmar
    que el archivo existe. Cualquier dangling → revertir ese borrado. (cwd de `/api` = `/app` por
    el chdir → los includes relativos de `functions.php`/`head.php` resuelven contra `/app`.)
-3. `cd panel-next && npm run build` debe pasar.
+3. `cd frontend && npm run build` debe pasar.
 4. Commit del batch + push.
 
 ## Fase 2 — Extracción `/api/includes` (elimina `/app`)
@@ -115,7 +115,7 @@ Mover el cierre KEEP de `/app` a `/api` para cortar la dependencia `/api → /ap
 5. Sacar `chdir(/app)` + `API_APP_DIR` de `bootstrap.php`; reapuntar todos los `require`.
 6. Idéntico para el cierre admin de `/panel` → mover a un home propio si se quiere eliminar
    `/panel` también (o dejar `/panel` solo con el realm admin).
-7. Borrar `/app` entero. Verificar `/api` + panel-next + admin.
+7. Borrar `/app` entero. Verificar `/api` + frontend + admin.
 
 > Fase 2 es delicada (functions.php 26k L). Hacer en pasos chicos, verificando el scan de
 > integridad + un boot real de `/api` (curl a un endpoint) tras cada movimiento.

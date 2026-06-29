@@ -1,7 +1,7 @@
 <?php
 /**
  * Realtime publish — wrapper sobre wsPublish() para invalidaciones de cache
- * tenant-wide. El cliente (panel-next) escucha el canal `<companyId>:invalidate`
+ * tenant-wide. El cliente (frontend) escucha el canal `<companyId>:invalidate`
  * y mapea el `entity` a queryKeys de TanStack Query.
  *
  * Best-effort: si COMPANY_ID no está definido (jobs CLI, scripts internos),

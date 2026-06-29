@@ -47,7 +47,7 @@ require_once __DIR__ . '/lib/Auth/hasPermission.php';
 // queda en php://input. Así los endpoints REST leen $_POST uniformemente sin
 // importar el verbo ni el content-type. (Mismo enfoque que panel api_middleware.)
 // El BFF legacy de /app manda form-encoded (http_build_query) → $_POST ya
-// poblado, salteamos. El cliente nuevo de panel-next manda JSON en POST →
+// poblado, salteamos. El cliente nuevo de frontend manda JSON en POST →
 // $_POST vacío, parseamos.
 if (empty($_POST) && in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT', 'DELETE', 'PATCH'], true)) {
     $rawBody = file_get_contents('php://input');
@@ -130,7 +130,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // data.php define COMPANY_ID/OUTLET_ID/TODAY/COMPANY_NAME/etc. desde estas locales.
     require API_APP_DIR . '/data.php';
 
-    // View-scope override (panel-next 2026-06-13). Si el browser eligió una sucursal
+    // View-scope override (frontend 2026-06-13). Si el browser eligió una sucursal
     // o "Todas" desde el dropdown del logo, manda header X-Outlet-Id:
     //   - 'all' → VIEW_OUTLET_ID = '' → Roc::build NO filtra por outlet (consolidado)
     //   - UUID  → VIEW_OUTLET_ID = ese UUID, previa validación de pertenencia al tenant

@@ -216,7 +216,7 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 - `browserLocalId TEXT NULL` (mig 60): UUID en localStorage del browser para idempotencia de pairing.
 - `module TEXT NULL DEFAULT 'pos'` (mig 63): identifica el módulo del device (pos/kds/display).
 
-**UI implementada**: `/settings/devices` en panel-next — listado con tab "Solicitudes" (invitaciones) + tab "Dispositivos" (activos). Revocados ocultos por default; hard-delete físico disponible.
+**UI implementada**: `/settings/devices` en frontend — listado con tab "Solicitudes" (invitaciones) + tab "Dispositivos" (activos). Revocados ocultos por default; hard-delete físico disponible.
 
 **Nota migration runner**: desde mig 59 en adelante, el runner automático `database/migrate.php` aplica las migraciones en deploy (ver `06-infraestructura.md`).
 
@@ -384,7 +384,7 @@ Registro inmutable de cada mutación ejecutada por un super-admin. El helper `ad
 
 ### Endpoint `/v1/bootstrap` — campos de sucursal (commit fd5e5b3, 2026-06-12)
 
-El bootstrap del panel-next ahora incluye campos de selector de sucursal:
+El bootstrap del frontend ahora incluye campos de selector de sucursal:
 
 | Campo | Tipo | Notas |
 |-------|------|-------|
@@ -402,7 +402,7 @@ El bootstrap del realm `pos-app` (`api/v1/bootstrap.php`) ahora incluye:
 |-------|------|-------|
 | `userCount` | int | COUNT de `contact` con `type=0 AND status > 0` para el tenant. Consumido por `lock-store.ts` para activar auto-lock cuando hay más de un usuario. |
 
-**Campos pendientes** (TODO F2 — anotados en `panel-next/lib/types/bootstrap.ts`):
+**Campos pendientes** (TODO F2 — anotados en `frontend/lib/types/bootstrap.ts`):
 - `user.name` — nombre del operador logueado (para el toast de bienvenida del lock screen).
 - `user.roleName` — rol del operador. La columna `roleName` ya existe en `UsersService` del backend; solo falta agregarlo al SELECT del bootstrap.
 

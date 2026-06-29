@@ -12,7 +12,7 @@
  *   - Acepta JSON body en vez de form-encoded.
  *   - No setea $_SESSION (el front no lo lee; la cookie JWT es suficiente).
  *   - Devuelve JSON envelope canónico (apiOk / apiError).
- *   - Cookie con scope `.punto.la` para compartir sesión con panel-next.
+ *   - Cookie con scope `.punto.la` para compartir sesión con frontend.
  *
  * Validación de password: replica EXACTA del legacy:
  *   PanelAuth::checkPassword($pass, $row['salt']) === rtrim($row['contactPassword'])
@@ -44,7 +44,7 @@ if ($phoneInput === '' || $password === '') {
 }
 
 // Normalizar a E.164. El front YA lo manda en E.164 (ver
-// panel-next/components/forms/phone-input.tsx que emite `e164` antes
+// frontend/components/forms/phone-input.tsx que emite `e164` antes
 // del submit), pero validamos por las dudas y para no atar el contract
 // al frontend.
 $phoneE164 = phoneToE164($phoneInput, $iso);

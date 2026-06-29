@@ -132,7 +132,7 @@ final class OutletsService
      *
      * Si `$fields` está vacío, crea un placeholder ("Nueva Sucursal" activa). Esto
      * sigue soportado por compatibilidad con el flujo legacy (click → blank → edit)
-     * pero el flujo nuevo de panel-next pasa el payload completo del form para
+     * pero el flujo nuevo de frontend pasa el payload completo del form para
      * crear la sucursal con los datos finales en un solo round-trip — evita
      * sucursales huérfanas si el usuario abandona el form sin guardar.
      *

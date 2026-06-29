@@ -1,10 +1,10 @@
 <!-- REGLA: Design system canónico de Punto POS. Lectura OBLIGATORIA antes de
-     crear o modificar componentes visuales en panel-next. Referenciá la sección
+     crear o modificar componentes visuales en frontend. Referenciá la sección
      exacta en el brief del sub-agente. -->
 
 # 20 — Design System
 
-> Doc vivo. Referencia canónica de patrones UI para panel-next.
+> Doc vivo. Referencia canónica de patrones UI para frontend.
 > Lee `context/14-ui-conventions.md` para reglas operativas básicas de shadcn;
 > este doc agrega patrones de componentes, anti-patterns explícitos y el changelog
 > de decisiones de diseño.
@@ -47,13 +47,13 @@
 
 **Densidad media por default.** No comprimas espaciado para meter mas info. No agrandes para parecer "moderno". El default de shadcn es correcto.
 
-**Disenar desde cero, no copiar legacy.** El POS y panel legacy son referencia funcional: que campos, que flujos, que edge cases. No son referencia visual. Tamaños, paddings, colores y tipografia vienen del design system shadcn + lo que ya esta en panel-next.
+**Disenar desde cero, no copiar legacy.** El POS y panel legacy son referencia funcional: que campos, que flujos, que edge cases. No son referencia visual. Tamaños, paddings, colores y tipografia vienen del design system shadcn + lo que ya esta en frontend.
 
 El caso del modal de transacciones ilustra el costo de no seguir esta regla: tuvo 3 iteraciones (stat cards → stat cards restyle → invoice pattern) porque se arranco copiando la estructura del legacy en lugar de disenar desde cero con los patrones canónicos.
 
 **Multi-vertical.** El copy debe ser neutral. No usar "vendedor" (usar "usuario" u "operador"), no usar "mozo" (usar "asignado"), no usar "factura" cuando aplica (usar "comprobante"). Los strings de UI pueden vivir en verticales de gastronomia, retail, servicio tecnico, etc.
 
-**Cuando hay duda, mirar legacy SOLO para entender la FUNCION.** Que dato se muestra, que accion se puede tomar, que estados existen. La forma visual siempre sale de panel-next.
+**Cuando hay duda, mirar legacy SOLO para entender la FUNCION.** Que dato se muestra, que accion se puede tomar, que estados existen. La forma visual siempre sale de frontend.
 
 ---
 
@@ -237,7 +237,7 @@ Field stacking: vertical, `gap-3`.
 
 ### 4.3 Modales numericos — NumericPadDialog
 
-Ruta: `panel-next/components/pos/numeric-pad-dialog.tsx`
+Ruta: `frontend/components/pos/numeric-pad-dialog.tsx`
 
 Pattern canonico (snippet real):
 
@@ -319,7 +319,7 @@ Reglas:
 
 Bucket `xl` (`sm:max-w-6xl`). Grid `grid-cols-[1fr_1.2fr]`, `max-h-[80vh]`.
 
-Caso canonico: `PosTransactionsDialog` (`panel-next/components/register/pos-transactions-dialog.tsx`)
+Caso canonico: `PosTransactionsDialog` (`frontend/components/register/pos-transactions-dialog.tsx`)
 
 ```tsx
 <DialogContent className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
@@ -398,7 +398,7 @@ Para grilla de stats en dashboard:
 - Label arriba (`text-xs text-muted-foreground`), valor grande abajo (`text-2xl font-semibold tabular-nums`), delta opcional en `text-sm`
 - NUNCA labels uppercase + `tracking-wider` en stats
 
-**Excepcion valida — detalle de transaccion a credito**: las stats "Deuda" / "Pagado" SI van en 2 cards con border porque son la PRIMARY CONTENT del view (el usuario abre el detalle de un credito especificamente para ver cuanto debe). Pattern: `grid grid-cols-2 gap-4`, label `text-xs uppercase tracking-wide text-muted-foreground`, valor `text-2xl font-bold tabular-nums` con color semantico (`text-destructive` para deuda, `text-muted-foreground` para pagado), `<Progress>` debajo con porcentaje inline. Ver `panel-next/components/register/pos-transactions-dialog.tsx` funcion `TransactionDetail`.
+**Excepcion valida — detalle de transaccion a credito**: las stats "Deuda" / "Pagado" SI van en 2 cards con border porque son la PRIMARY CONTENT del view (el usuario abre el detalle de un credito especificamente para ver cuanto debe). Pattern: `grid grid-cols-2 gap-4`, label `text-xs uppercase tracking-wide text-muted-foreground`, valor `text-2xl font-bold tabular-nums` con color semantico (`text-destructive` para deuda, `text-muted-foreground` para pagado), `<Progress>` debajo con porcentaje inline. Ver `frontend/components/register/pos-transactions-dialog.tsx` funcion `TransactionDetail`.
 
 ### 4.11 Reportes
 
@@ -409,7 +409,7 @@ Estructura de pagina de reporte:
 
 ### 4.12 Detalles tipo invoice
 
-Caso canonico: `TransactionDetail` en `panel-next/components/register/pos-transactions-dialog.tsx`
+Caso canonico: `TransactionDetail` en `frontend/components/register/pos-transactions-dialog.tsx`
 
 Estructura (snippets reales):
 
@@ -567,7 +567,7 @@ Los empty states son la unica excepcion donde los iconos van fuera del sidebar.
 Para warnings transversales (offline, configuracion faltante):
 - Sticky top
 - Tonos: `amber` (warning), info (default) — NO destructive para banners transversales
-- Caso canonico: `OfflineBanner` en `panel-next/components/pos/offline-banner.tsx`
+- Caso canonico: `OfflineBanner` en `frontend/components/pos/offline-banner.tsx`
 
 ### 4.16 Toasts
 
@@ -608,7 +608,7 @@ Minimo 44px de alto. Usar `h-11` + padding en botones principales del carrito y 
 
 ### Hotkeys globales del POS
 
-`panel-next/hooks/use-pos-hotkeys.ts`
+`frontend/hooks/use-pos-hotkeys.ts`
 
 | Tecla | Accion |
 |---|---|
@@ -649,7 +649,7 @@ Cookie `_jwt` (10 años). Separado del panel (`_jwt_panel`, 24h). No mezclar las
 
 | Anti-pattern | Por que | Alternativa | Caso real |
 |---|---|---|---|
-| Copiar estructura del legacy BS3 con shadcn primitives | Genera 3+ iteraciones de restyling | Disenar desde cero con patrones de panel-next | Modal transacciones POS (2026-06-24) |
+| Copiar estructura del legacy BS3 con shadcn primitives | Genera 3+ iteraciones de restyling | Disenar desde cero con patrones de frontend | Modal transacciones POS (2026-06-24) |
 | Stat cards con uppercase labels + tracking-wider | Replica el legacy, rompe el design system | `text-xs text-muted-foreground` sin uppercase | Varios — 2026-06-24 |
 | `<table>` one-off custom | Inconsistente con DataTable, no tiene sort/export/search | `<DataTable>` para listas largas, `<Table>` shadcn para tablas cortas embebidas | — |
 | `text-white` hardcodeado en boton destructivo | No respeta dark mode, no usa tokens semanticos | `text-destructive-foreground` | `cart-panel.tsx` — badge amber con `text-white` |
