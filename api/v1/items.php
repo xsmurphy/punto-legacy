@@ -609,7 +609,7 @@ switch ($method) {
         if ($id !== null) {
             $item = $itemService->find($id, $companyId);
             if ($item === null) apiError('Item no encontrado', 404);
-            $presented = presentItem($item->toArray());
+            $presented = presentItem($item instanceof \CaseInsensitiveArray ? $item->toArray() : (array) $item);
             $presented['categories'] = fetchItemCategories($id);
             $presented['brands']     = fetchItemBrands($id);
             $presented['tags']       = fetchItemTags($id);
@@ -762,7 +762,9 @@ switch ($method) {
         $itemService->update($newId, $companyId, $extras);
 
         $item = $itemService->find($newId, $companyId);
-        $presented = $item !== null ? presentItem($item->toArray()) : ['itemId' => $newId];
+        $presented = $item !== null
+            ? presentItem($item instanceof \CaseInsensitiveArray ? $item->toArray() : (array) $item)
+            : ['itemId' => $newId];
         if ($item !== null) {
             $presented['categories'] = [];
             $presented['brands']     = [];
@@ -884,7 +886,9 @@ switch ($method) {
         if (!$ok) apiError('Update falló', 500);
 
         $item = $itemService->find($id, $companyId);
-        $presented = $item !== null ? presentItem($item->toArray()) : ['itemId' => $id];
+        $presented = $item !== null
+            ? presentItem($item instanceof \CaseInsensitiveArray ? $item->toArray() : (array) $item)
+            : ['itemId' => $id];
         if ($item !== null) {
             $presented['categories'] = fetchItemCategories($id);
             $presented['brands']     = fetchItemBrands($id);
