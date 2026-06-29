@@ -2,23 +2,20 @@
 /**
  * Router raíz — dispatcher por Host header (deploy single-container).
  *
- * Punto sirve 3 subdominios bajo el mismo container PHP en Coolify:
- *   panel.punto.la  → /panel
- *   admin.punto.la  → /panel (con /admin prefix forzado en path)
- *   api.punto.la    → /api
+ * Punto sirve un único backend PHP en Coolify:
+ *   api.punto.la → /api
  *
- * app.punto.la fue eliminado en la Fase 2 del cleanup (legacy-cleanup 2026-06-29):
- * el backend legacy de /app se movió a api/core.
+ * panel.punto.la y admin.punto.la fueron eliminados en dissolve-panel (2026-06-29):
+ *   - El backend admin se movió a api/v1/admin/ (misma API PHP compartida).
+ *   - El front admin vive en frontend/ (Node/Next.js). Configurar en Coolify/Traefik
+ *     que panel.punto.la y admin.punto.la apunten al container del frontend (Node),
+ *     NO al container PHP — ya no hay PHP que sirva esos dominios.
  *
- * Cada módulo conserva su router.php — este dispatcher solo decide CUÁL
- * delegar y maneja archivos estáticos (porque PHP -S sirve estáticos vía
- * docroot fijo, y nosotros tenemos 4 docroots virtuales).
+ * Uso local:
+ *   php -S 0.0.0.0:80 router.php   (solo sirve api.*)
  *
- * Uso:
- *   php -S 0.0.0.0:80 router.php
- *
- * En dev local sigue funcionando levantar cada módulo en su propio puerto
- * (panel:8001, app:8002, api:8000). El root router.php es para prod.
+ * INFRA FLAG: admin.punto.la + panel.punto.la deben redirigirse al container Next.js
+ * en Coolify. El PHP container solo necesita escuchar api.punto.la.
  */
 
 ini_set('display_errors', 0);
@@ -27,59 +24,23 @@ error_reporting(E_ALL & ~E_DEPRECATED & ~E_WARNING);
 $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// Resolver módulo por subdomain.
-// app.punto.la fue eliminado en la Fase 2 del cleanup (legacy-cleanup 2026-06-29):
-// el backend de /app se movió a api/core — ya no existe como módulo web propio.
-$module = match (true) {
-    str_starts_with($host, 'panel.') => 'panel',
-    str_starts_with($host, 'admin.') => 'panel', // mismo container, prefix forzado abajo
-    str_starts_with($host, 'api.')   => 'api',
-    default                          => 'panel',
-};
+// Solo módulo api. panel/* ya no existe.
+$moduleDir = __DIR__ . '/api';
 
-// admin.* → forzar /admin prefix (replica el chain stripPrefix+addPrefix de Traefik)
-// Si el browser pide /login → reescribir a /admin/login.
-// Si ya viene /admin/users → dejarlo igual.
-if (str_starts_with($host, 'admin.') && !str_starts_with($path, '/admin')) {
-    $newPath = '/admin' . $path;
-    $qs = $_SERVER['QUERY_STRING'] ?? '';
-    $_SERVER['REQUEST_URI'] = $newPath . ($qs !== '' ? '?' . $qs : '');
-    $path = $newPath;
-}
-
-// Resolver archivo del módulo. Caso especial admin.*: si el prepend /admin
-// transformó /scripts/foo.js en /admin/scripts/foo.js pero el archivo NO existe
-// en panel/admin/scripts/, hacer fallback a panel/scripts/ — los assets comunes
-// (jquery, bootstrap, common.js) viven en panel/, no en panel/admin/.
 $resolvedPath = $path;
-$moduleDir    = __DIR__ . '/' . $module;
 $resolvedFile = $moduleDir . $resolvedPath;
-if (!is_file($resolvedFile) && str_starts_with($host, 'admin.') && str_starts_with($path, '/admin/')) {
-    $fallbackPath = substr($path, 6); // strip "/admin"
-    $fallback = $moduleDir . $fallbackPath;
-    if (is_file($fallback)) {
-        $resolvedFile = $fallback;
-        $resolvedPath = $fallbackPath;
-    }
-}
 
 $ext = strtolower(pathinfo($resolvedPath, PATHINFO_EXTENSION));
 $isPhpExecutable = in_array($ext, ['php', 'phtml', 'phar', 'php3', 'php4', 'php5', 'php7', 'php8'], true);
 
 // CRÍTICO: paths a .php SIEMPRE se ejecutan vía require, NUNCA via readfile.
-// Si los servimos como estático leakeamos el source PHP entero (info disclosure P0).
-// El módulo's router.php hace `return false` para estos, asumiendo que PHP-S los
-// sirve desde docroot — pero nuestro docroot es /var/www (no /var/www/panel),
-// así que PHP-S no los encuentra. Por eso los ejecutamos acá explícitamente.
 if ($isPhpExecutable && $path !== '/' && is_file($resolvedFile)) {
     chdir($moduleDir);
     require $resolvedFile;
     return true;
 }
 
-// Servir estáticos del módulo (CSS, JS, imágenes, fonts) por readfile, porque
-// PHP-S sirve estáticos desde su docroot fijo y nuestro docroot "real" depende
-// del Host.
+// Servir estáticos del módulo (CSS, JS, imágenes, fonts).
 if (!$isPhpExecutable && $path !== '/' && is_file($resolvedFile)) {
     $mime = match ($ext) {
         'css'           => 'text/css',
@@ -113,15 +74,7 @@ if (!$isPhpExecutable && $path !== '/' && is_file($resolvedFile)) {
     return true;
 }
 
-// Si el path se resolvió a admin/ fallback (admin.* → panel/), persistirlo en
-// $_SERVER para que el módulo router vea el path correcto.
-if ($resolvedPath !== $path) {
-    $qs = $_SERVER['QUERY_STRING'] ?? '';
-    $_SERVER['REQUEST_URI'] = $resolvedPath . ($qs !== '' ? '?' . $qs : '');
-}
-
-// Delegar al router del módulo para paths no resueltos (extension-less que mapean
-// a .php, default index, 404, etc.). chdir() para que __DIR__ relativos sigan ok.
+// Delegar al router de api para paths no resueltos (extension-less → .php, 404, etc.).
 chdir($moduleDir);
 require $moduleDir . '/router.php';
 return true;

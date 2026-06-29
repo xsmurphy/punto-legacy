@@ -1,7 +1,7 @@
 /**
  * BFF catch-all proxy del realm admin.
  *
- * Front /admin → /api/admin/<path> → ${PANEL_URL}/API/v1/admin/<path>
+ * Front /admin → /api/admin/<path> → ${API_URL}/v1/admin/<path>
  *
  * Reglas de aislamiento de realm:
  *   - Solo lee/escribe la cookie `_jwt_admin`. NUNCA toca `_jwt_panel`.
@@ -12,9 +12,9 @@
  *     upstream; el BFF lo convierte en cookie `_jwt_admin` HttpOnly + Lax.
  *   - El logout (POST /api/admin/logout) limpia `_jwt_admin`.
  *
- * URL upstream: las rutas PHP de admin viven en panel/API/v1/admin/*.php.
- * PANEL_URL apunta a la raíz del panel PHP (mismo contenedor en Coolify).
- * Fallback a API_URL si no hay PANEL_URL separado.
+ * URL upstream: las rutas PHP de admin viven en api/v1/admin/*.php (desde
+ * dissolve-panel 2026-06-29; antes en panel/API/v1/admin/).
+ * API_URL apunta a la raíz de la API PHP compartida.
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -27,10 +27,10 @@ export const dynamic = "force-dynamic"
 // (IIFE top-level), Next la dispara durante "Collecting page data" en build —
 // que corre SIN env vars de runtime → throw → build falla. Incidente
 // 2026-06-28 con Coolify cuando faltaba PANEL_URL en el builder.
-function getPanelBase(): string {
-  const url = process.env.PANEL_URL ?? process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
+function getApiBase(): string {
+  const url = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
   if (!url) {
-    throw new Error("Panel base URL missing. Set PANEL_URL, API_URL, or NEXT_PUBLIC_API_URL.")
+    throw new Error("API base URL missing. Set API_URL or NEXT_PUBLIC_API_URL.")
   }
   return url.replace(/\/$/, "")
 }
@@ -63,7 +63,7 @@ async function proxy(
   const { path } = await ctx.params
   const tail = (path ?? []).join("/")
   const search = req.nextUrl.search
-  const targetUrl = `${getPanelBase()}/API/v1/admin/${tail}${search}`
+  const targetUrl = `${getApiBase()}/v1/admin/${tail}${search}`
 
   // Logout especial — limpia la cookie y devuelve 200 sin llamar al upstream.
   if (req.method === "POST" && tail === "logout") {
