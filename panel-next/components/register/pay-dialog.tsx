@@ -562,7 +562,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       const r = await printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
       if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron al reimprimir`)
     } else {
-      window.print()
+      // window.print() acá imprimía la página del POS entera (contenido del
+      // sitio, no la plantilla del recibo) y abría el diálogo del sistema con
+      // el HTML del dialog encima. Sin impresora configurada no imprimimos.
+      toast.warning("Configurá una impresora en Ajustes → Impresoras")
     }
   }
 
@@ -1001,7 +1004,7 @@ function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }:
           onClick={onPrint}
         >
           <Printer className="size-4" />
-          Imprimir ticket
+          Imprimir
         </Button>
         <Button
           className="flex-1 bg-white font-bold text-[#060A0E] hover:bg-white/90"

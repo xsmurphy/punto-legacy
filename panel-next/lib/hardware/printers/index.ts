@@ -80,16 +80,19 @@ export async function printSale(opts: {
       const dataForPrinter: TicketData = { ...opts.data, items: filteredItems }
 
       if (binding.transport === "native") {
-        if (binding.templateId) {
-          const res = await fetch(`/api/v1/document-templates?id=${binding.templateId}`)
-          if (!res.ok) throw new Error(`Template fetch failed: ${res.status}`)
-          const json = (await res.json()) as { data?: { config: PrintTemplateConfig } } | { config: PrintTemplateConfig }
-          const templateRow = (json as { data?: { config: PrintTemplateConfig } }).data ?? (json as { config: PrintTemplateConfig })
-          const html = renderTemplateToHtml(templateRow.config, dataForPrinter)
-          triggerWindowPrint(html)
-        } else {
-          window.print()
+        if (!binding.templateId) {
+          // window.print() acá imprimía el contenido del sitio (no la plantilla)
+          // y causaba doble diálogo cuando había varias impresoras. Skip con
+          // error — la binding debe tener una plantilla asignada en Ajustes.
+          errors.push(`${binding.name}: sin plantilla asignada`)
+          continue
         }
+        const res = await fetch(`/api/v1/document-templates?id=${binding.templateId}`)
+        if (!res.ok) throw new Error(`Template fetch failed: ${res.status}`)
+        const json = (await res.json()) as { data?: { config: PrintTemplateConfig } } | { config: PrintTemplateConfig }
+        const templateRow = (json as { data?: { config: PrintTemplateConfig } }).data ?? (json as { config: PrintTemplateConfig })
+        const html = renderTemplateToHtml(templateRow.config, dataForPrinter)
+        triggerWindowPrint(html)
         printed++
         continue
       }
