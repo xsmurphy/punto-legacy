@@ -77,6 +77,7 @@ import {
 
 const DOC_TYPE_LABELS: Record<PrinterDocType, { long: string; short: string }> = {
   receipt:  { long: "Recibo / Ticket",          short: "Recibo" },
+  factura:  { long: "Factura",                   short: "Factura" },
   quote:    { long: "Presupuesto / Cotización",  short: "Presupuesto" },
   order:    { long: "Pedido / Comanda",          short: "Pedido" },
   withdraw: { long: "Retiro de caja",            short: "Retiro" },
@@ -87,6 +88,7 @@ const DOC_TYPE_LABELS: Record<PrinterDocType, { long: string; short: string }> =
 
 const ALL_DOC_TYPES: PrinterDocType[] = [
   "receipt",
+  "factura",
   "quote",
   "order",
   "withdraw",

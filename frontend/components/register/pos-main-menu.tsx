@@ -30,6 +30,7 @@ import {
   ArrowDown,
   ArrowUp,
   Printer,
+  Palette,
   Component,
   Bell,
   SquaresIntersect,
@@ -190,6 +191,12 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
   //   icon: Component,
   //   CustomContent: ModulesPanel,
   // },
+  {
+    key: "appearance",
+    label: "Apariencia",
+    icon: Palette,
+    CustomContent: AppearancePanel,
+  },
   {
     key: "settings",
     label: "Ajustes",
@@ -1033,6 +1040,23 @@ function PrintersPanel() {
   )
 }
 
+// ── Apariencia ────────────────────────────────────────────────────────────────
+
+/** Selector de tema (light/dark/system) — reusa ThemePicker del panel para
+    consistencia de UX entre POS y /settings. */
+function AppearancePanel() {
+  return (
+    <div className="h-full overflow-y-auto px-6 py-6">
+      <div>
+        <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Apariencia
+        </p>
+        <ThemePicker />
+      </div>
+    </div>
+  )
+}
+
 // ── Módulos ──────────────────────────────────────────────────────────────────
 
 /** Toggles para habilitar módulos del POS. */
@@ -1352,15 +1376,6 @@ function AjustesPanel() {
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* Sección: Apariencia — selector light/dark/system (reusa ThemePicker
-              del panel: misma UX que /settings, consistencia entre POS y panel). */}
-          <div>
-            <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Apariencia
-            </p>
-            <ThemePicker />
           </div>
 
           {/* Sección: Acción peligrosa */}

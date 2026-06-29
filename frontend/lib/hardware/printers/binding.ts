@@ -1,7 +1,7 @@
 export type PrinterTransport = "usb" | "bluetooth" | "network" | "native"
 export type PrinterMode = "escpos" | "native"
 export type PrinterDocType =
-  | "receipt" | "quote" | "order" | "withdraw" | "delivery" | "closeReg" | "return"
+  | "receipt" | "factura" | "quote" | "order" | "withdraw" | "delivery" | "closeReg" | "return"
 
 export interface PrinterBinding {
   id: string
