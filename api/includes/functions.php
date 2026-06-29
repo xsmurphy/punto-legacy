@@ -1860,7 +1860,6 @@ function allowUser($section,$action,$boolean=false){
 				if($boolean){
 					return false;
 				}else{
-					include_once("a_stand_by_page.php");
 					dai();
 				}
 			}else{

@@ -15,11 +15,11 @@
     },
     "autoload": {
         "psr-4": {
-            "Punto\\App\\Helpers\\":  "Helpers/",
-            "Punto\\App\\Domain\\":   "Domain/",
-            "Punto\\App\\Http\\":     "Http/",
-            "Punto\\App\\Services\\": "Services/",
-            "Punto\\App\\Database\\": "Database/"
+            "Punto\\App\\Helpers\\":  "lib/App/Helpers/",
+            "Punto\\App\\Domain\\":   "lib/App/Domain/",
+            "Punto\\App\\Http\\":     "lib/App/Http/",
+            "Punto\\App\\Services\\": "lib/App/Services/",
+            "Punto\\App\\Database\\": "lib/App/Database/"
         }
     },
     "config": {

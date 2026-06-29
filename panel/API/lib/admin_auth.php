@@ -47,7 +47,7 @@ function adminVerifyPassword(string $email, string $pass)
 /** Crea la sesion opaca del admin (sin setear cookie — la API es stateless; el BFF setea _jwt_admin). */
 function adminIssueSession($admin): string
 {
-    require_once __DIR__ . '/../../../api/core/includes/auth_session.php';
+    require_once __DIR__ . '/../../../api/includes/auth_session.php';
 
     $ttl = (int) ($_ENV['ADMIN_JWT_TTL'] ?? 28800);
 
@@ -129,7 +129,7 @@ function adminMiddleware(): void
 
     global $db;
     include_once __DIR__ . '/../../includes/db.php';
-    require_once __DIR__ . '/../../../api/core/includes/auth_session.php';
+    require_once __DIR__ . '/../../../api/includes/auth_session.php';
 
     if (!authResolve(['admin'])) {
         apiUnauthorized('No autorizado (admin)');

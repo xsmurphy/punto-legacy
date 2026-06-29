@@ -1079,7 +1079,7 @@ class CompanyAdminService
         );
         $outletId = ($outlet && !$outlet->EOF) ? (string) ($outlet->fields['outletid'] ?? '') : '';
 
-        require_once __DIR__ . '/../../../api/core/includes/auth_session.php';
+        require_once __DIR__ . '/../../../api/includes/auth_session.php';
 
         $ttl = (int) ($_ENV['JWT_TTL'] ?? 28800);
         $raw = authSessionCreate('panel', [

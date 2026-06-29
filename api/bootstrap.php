@@ -13,13 +13,15 @@
 
 session_start();
 
-define('API_APP_DIR', __DIR__ . '/core');
-chdir(API_APP_DIR); // los includes de head.php/data.php son relativos al cwd
+// API_APP_DIR apunta a api/ (antes apuntaba a api/core; api/core fue disuelto 2026-06-29).
+// La constante se mantiene para compatibilidad con los endpoints v1/ que la usan directamente.
+define('API_APP_DIR', __DIR__);
 
-require_once API_APP_DIR . '/includes/cors.php';
-require_once API_APP_DIR . '/includes/jwt_middleware.php';
-require_once API_APP_DIR . '/includes/realtime.php';
-require_once API_APP_DIR . '/includes/rollup.php';
+require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/includes/cors.php';
+require_once __DIR__ . '/includes/jwt_middleware.php';
+require_once __DIR__ . '/includes/realtime.php';
+require_once __DIR__ . '/includes/rollup.php';
 require_once __DIR__ . '/lib/response.php';
 
 // Autoloader mínimo PSR-4 para código nuevo en `api/lib/` con namespace `Punto\Api\…`.
@@ -39,7 +41,7 @@ spl_autoload_register(static function (string $class): void {
 });
 
 $rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-require_once API_APP_DIR . '/head.php'; // db, functions (ncm*, sendPush, checkCompanyStatus), config, enc/dec
+require_once __DIR__ . '/head.php'; // db, functions (ncm*, sendPush, checkCompanyStatus), config, enc/dec
 require_once __DIR__ . '/lib/Auth/hasPermission.php';
 
 // Normaliza el body → $_POST para todos los verbos (POST/PUT/DELETE/PATCH).
@@ -128,7 +130,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     }
 
     // data.php define COMPANY_ID/OUTLET_ID/TODAY/COMPANY_NAME/etc. desde estas locales.
-    require API_APP_DIR . '/data.php';
+    require __DIR__ . '/data.php';
 
     // View-scope override (frontend 2026-06-13). Si el browser eligió una sucursal
     // o "Todas" desde el dropdown del logo, manda header X-Outlet-Id:

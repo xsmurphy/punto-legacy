@@ -2,9 +2,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Punto — API compartida (sirve api.punto.la)
 #
-# El backend legacy de /app fue movido a api/core en la Fase 2 del cleanup
-# (legacy-cleanup 2026-06-29). El namespace Punto\App\* se conserva;
-# composer/autoload vive en api/core/vendor.
+# Namespace Punto\App\* — composer/autoload en api/vendor (unificado 2026-06-29,
+# api/core disuelto). Fuente de verdad: api/composer.json → lib/App/*.
 #
 # Build context: ROOT del repo.
 #
@@ -64,9 +63,9 @@ RUN { \
 
 WORKDIR /var/www
 
-# Composer deps de api/core (namespace Punto\App\* — autoload canonico del backend)
-COPY api/core/composer.json api/core/composer.lock* ./api/core/
-RUN cd api/core && composer install \
+# Composer deps (namespace Punto\App\* — autoload canonico del backend, unificado en api/)
+COPY api/composer.json api/composer.lock* ./api/
+RUN cd api && composer install \
         --no-dev \
         --no-interaction \
         --prefer-dist \
@@ -74,10 +73,10 @@ RUN cd api/core && composer install \
         --no-autoloader \
     && rm -rf /root/.composer
 
-# /api entero (incluye api/core con head.php, includes/, vendor)
+# /api entero (includes, lib/App, vendor unificados en api/)
 COPY api ./api
 
-RUN cd api/core && composer dump-autoload --no-dev --optimize --classmap-authoritative
+RUN cd api && composer dump-autoload --no-dev --optimize --classmap-authoritative
 
 ENV PHP_CLI_SERVER_WORKERS=8 \
     APP_ENV=production
