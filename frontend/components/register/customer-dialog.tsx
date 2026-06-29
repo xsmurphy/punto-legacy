@@ -557,6 +557,10 @@ function CreateCustomerForm({
                     value={birthdateValue}
                     onChange={(v) => setValue("birthdate", v, { shouldDirty: true })}
                     placeholder="Seleccionar fecha"
+                    captionLayout="dropdown"
+                    startMonth={new Date(1920, 0)}
+                    endMonth={new Date()}
+                    defaultMonth={new Date(1990, 0)}
                   />
                 </div>
               </div>

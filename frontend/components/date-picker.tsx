@@ -20,6 +20,14 @@ interface Props {
   className?: string
   id?: string
   disabled?: boolean
+  /** Layout del caption del calendario (react-day-picker v10). Default "label". */
+  captionLayout?: "label" | "dropdown" | "dropdown-months" | "dropdown-years"
+  /** Mes inicial de navegación (uncontrolled). */
+  defaultMonth?: Date
+  /** Límite inferior de navegación para dropdown. */
+  startMonth?: Date
+  /** Límite superior de navegación para dropdown. */
+  endMonth?: Date
 }
 
 /**
@@ -36,6 +44,10 @@ export function DatePicker({
   className,
   id,
   disabled,
+  captionLayout,
+  defaultMonth,
+  startMonth,
+  endMonth,
 }: Props) {
   const [open, setOpen] = React.useState(false)
 
@@ -69,6 +81,10 @@ export function DatePicker({
             setOpen(false)
           }}
           autoFocus
+          captionLayout={captionLayout}
+          defaultMonth={defaultMonth}
+          startMonth={startMonth}
+          endMonth={endMonth}
         />
       </PopoverContent>
     </Popover>

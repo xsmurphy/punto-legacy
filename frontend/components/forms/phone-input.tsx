@@ -127,7 +127,8 @@ export function PhoneInput({
   return (
     <InputGroup
       className={cn(
-        "h-10 rounded-md",
+        "h-8 rounded-2xl",
+        // h-8/rounded-2xl: alineado al estándar de Input (h-8 rounded-2xl bg-input/50).
         // Pintamos invalid del padre — InputGroup tiene el selector pero solo
         // se prende si el hijo lleva aria-invalid; lo propagamos al input.
         className,
