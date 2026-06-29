@@ -4,11 +4,12 @@ declare(strict_types=1);
 namespace Punto\App\Database;
 
 /**
- * Adapter sobre ADORecordSet que GARANTIZA `$rs->fields` como array plano.
+ * Adapter sobre el recordset `DBResult` (capa de DB propia, api/includes/lib/DB.php
+ * sobre PDO — el proyecto NO usa ADOdb) que GARANTIZA `$rs->fields` con lookup
+ * case-insensitive vía la `CaseInsensitiveArray` de DB.php.
  *
- * El recordset de ADOdb puede devolver `fields` como CaseInsensitiveArray
- * (objeto), lo que rompe cualquier función con typehint `array`. Este wrapper
- * lo castea on-access vía __get, manteniendo el resto del API intacto.
+ * `$rs->fields` puede venir como array plano (keys lowercase de PG); este wrapper
+ * lo envuelve on-access vía __get en la CIA, manteniendo el resto del API intacto.
  *
  * API expuesta (composición + delegación):
  *   property  EOF              — delegada (bool)
@@ -28,10 +29,9 @@ namespace Punto\App\Database;
 final class RecordsetIterator
 {
     /**
-     * @param object $inner Cualquier recordset estilo ADOdb. NO se tipa con
-     * `\ADORecordSet` porque el driver del proyecto devuelve `DBResult`
-     * (subclase ADOdb específica del proyecto) y otros call-sites podrían
-     * devolver variantes. Duck typing: requerimos las propiedades `EOF`,
+     * @param object $inner El recordset `DBResult` de la capa de DB propia
+     * (api/includes/lib/DB.php). No se tipa estricto porque otros call-sites
+     * podrían devolver variantes. Duck typing: requerimos las propiedades `EOF`,
      * `fields` y los métodos `MoveNext`/`Close`/`RecordCount`/`GetRows`,
      * validados implícitamente por __get/__call al usarse.
      */
@@ -43,11 +43,11 @@ final class RecordsetIterator
             $f = $this->inner->fields;
             // Extraer array plano y envolver en CIA para lookup case-insensitive.
             // PG devuelve keys lowercase; callers historicamente leen camelCase.
-            // CIA es el wrapper que restaura ese contrato sin depender de ADOdb.
+            // CIA (de DB.php) es el wrapper que restaura ese contrato.
             if (is_array($f)) {
                 return Query::flattenJsonb($f);
             }
-            // CaseInsensitiveArray (ADOdb) implementa Iterator; iterator_to_array
+            // CaseInsensitiveArray (DB.php) implementa Iterator; iterator_to_array
             // preserva las keys reales (lowercase del driver pg). NO usar
             // `(array)$obj` porque eso serializa propiedades privadas con prefijos
             // `\0...\0_arr` y todos los `$rs->fields['key']` devuelven null.

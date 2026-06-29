@@ -4,7 +4,8 @@ declare(strict_types=1);
 namespace Punto\App\Database;
 
 /**
- * Capa de acceso a DB del POS. Envuelve ADOdb + JSONB demoting.
+ * Capa de acceso a DB del POS. Envuelve la capa de DB propia (api/includes/lib/DB.php,
+ * sobre PDO — el proyecto NO usa ADOdb) + JSONB demoting.
  *
  * Reemplaza las funciones globales (Slice 10 del plan PSR-4):
  *   - _flattenJsonb($row)                         → Query::flattenJsonb($row)
@@ -29,10 +30,10 @@ final class Query
      * Equivalente legacy: `_flattenJsonb($row)`.
      *
      * Devuelve CaseInsensitiveArray — el lookup de keys es case-insensitive,
-     * igual que el contrato original de ADOdb. Callers que lean $row['outletId']
+     * igual que el contrato de la CIA de DB.php. Callers que lean $row['outletId']
      * con PG devolviendo 'outletid' funcionan sin cambios.
      *
-     * @param mixed $row  CaseInsensitiveArray (propia), CaseInsensitiveArray (ADOdb legacy), o array plano.
+     * @param mixed $row  CaseInsensitiveArray (de DB.php), o array plano (keys lowercase de PG).
      */
     public static function flattenJsonb(mixed $row): \CaseInsensitiveArray
     {
@@ -64,7 +65,7 @@ final class Query
     }
 
     /**
-     * Ejecuta un SELECT sobre la DB con soporte de caché ADOdb y JSONB demoting.
+     * Ejecuta un SELECT sobre la DB con soporte de caché de la capa DB y JSONB demoting.
      * Equivalente legacy: `ncmExecute($sql, $array, $cache, $forceObj, $getAssoc)`.
      *
      * Retorno:
@@ -74,7 +75,7 @@ final class Query
      *   - count>1         → RecordsetIterator (el flatten se aplica al iterar via fields).
      *   - count=0         → 0 (sin forceObj), o false.
      *
-     * El CIA restaura el lookup case-insensitive que tenia ADOdb: $row['outletId']
+     * El CIA (de DB.php) restaura el lookup case-insensitive: $row['outletId']
      * funciona aunque PG devuelva la key como 'outletid'.
      *
      * SEMÁNTICA VERBATIM — no modificar sin regression suite completo.
@@ -147,7 +148,7 @@ final class Query
     }
 
     /**
-     * UPDATE via AutoExecute de ADOdb.
+     * UPDATE via AutoExecute (capa de DB propia, DB.php).
      * Equivalente legacy: `ncmUpdate($options)`.
      *
      * @param array $options  {records: array, table: string, where: string}
@@ -164,7 +165,7 @@ final class Query
     }
 
     /**
-     * INSERT via AutoExecute de ADOdb. Devuelve el ID insertado o false.
+     * INSERT via AutoExecute (capa de DB propia, DB.php). Devuelve el ID insertado o false.
      * Equivalente legacy: `ncmInsert($options)`.
      *
      * @param array $options  {records: array, table: string}
@@ -195,7 +196,7 @@ final class Query
     }
 
     /**
-     * Itera sobre un ADOdb recordset invocando $callback en cada fila.
+     * Itera sobre un recordset DBResult invocando $callback en cada fila.
      * Equivalente legacy: `ncmWhile($result, $callback, $vars)`.
      */
     public static function iterate(mixed $result, callable $callback, mixed $vars): void
