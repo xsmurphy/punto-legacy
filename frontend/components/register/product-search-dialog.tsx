@@ -55,7 +55,6 @@ export function ProductSearchDialog({
   // Query en el store para que persista al cerrar y reabrir el modal.
   const query = usePosUIStore((s) => s.itemSearchQuery)
   const setQuery = usePosUIStore((s) => s.setItemSearchQuery)
-  const clearQuery = usePosUIStore((s) => s.clearItemSearchQuery)
 
   // Estado de vista de hijos de un grupo (null = vista de resultados normal).
   const [viewingGroup, setViewingGroup] = React.useState<PosItem | null>(null)
@@ -87,9 +86,9 @@ export function ProductSearchDialog({
       return
     }
     addItem({ id: item.id, name: item.name, price: item.price })
-    // No cerramos el modal — el cajero puede seguir agregando productos.
-    // Limpiamos la búsqueda y devolvemos el foco al input para el siguiente artículo.
-    clearQuery()
+    // No cerramos el modal ni reseteamos la búsqueda: el cajero puede seguir
+    // agregando varios productos de la misma lista de resultados. Mantenemos el
+    // foco en el input por si quiere refinar o escanear el siguiente.
     setTimeout(() => inputRef.current?.focus(), 0)
   }
 
