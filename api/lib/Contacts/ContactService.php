@@ -81,7 +81,7 @@ final class ContactService
         if (isset($in['address']))  $rec['contactAddress']  = strip_tags((string) $in['address']);
         if (isset($in['address2'])) $rec['contactAddress2'] = strip_tags((string) $in['address2']);
         if (isset($in['phone'])) {
-            require_once dirname(__DIR__, 3) . '/app/includes/phone.php';
+            require_once dirname(__DIR__, 3) . '/api/core/includes/phone.php';
             $iso = (string)($in['country'] ?? 'PY');
             $rec['contactPhone'] = phoneValidateForStorage($in['phone'], $iso);
         }

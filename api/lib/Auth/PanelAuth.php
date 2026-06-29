@@ -70,7 +70,7 @@ final class PanelAuth
         ?string $outletIdOverride = null,
         ?string $registerIdOverride = null,
     ): array {
-        require_once dirname(__DIR__, 2) . '/../app/includes/auth_session.php';
+        require_once dirname(__DIR__, 2) . '/core/includes/auth_session.php';
 
         if ($outletIdOverride !== null) {
             $resolvedOutletId = $outletIdOverride;

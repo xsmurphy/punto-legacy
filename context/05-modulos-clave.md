@@ -506,7 +506,7 @@ Componente: `panel-next/components/register/pos-main-menu.tsx`.
 
 Estado inicial sin selección muestra un empty state en el content area.
 
-**TODO F2**: las secciones de Control de Caja (apertura/cierre/arqueo) y las previews de Transacciones/Agenda/Órdenes son mocks. Impresoras pendiente de persistencia en `register.data.printers`.
+**TODO F2**: las secciones de Control de Caja (apertura/cierre/arqueo) y las previews de Transacciones/Agenda/Órdenes son mocks. ~~Impresoras pendiente~~ — sistema de impresión implementado (mig 59, módulo WebUSB, ver §Módulo Impresión WebUSB).
 
 ### Bootstrap POS — campo `userCount` (commit 5220d63, 2026-06-16)
 
@@ -574,17 +574,27 @@ Sincronización en tiempo real entre el panel y el POS sin polling.
 
 ---
 
-## Módulo Checkout Screen (sprint 2026-06-20, context/16)
+## Módulo Checkout Screen (unificado al device flow, 2026-06-28)
 
-Pantalla secundaria orientada al cliente (customer-facing display), controlada por el POS.
+Pantalla secundaria orientada al cliente (customer-facing display), controlada por el POS. **`customer_display` droppada (mig 64)** — la pantalla ahora es un `device` con `module='screen'`, mismo invitation-based flow que el POS.
 
-- **Schema**: tabla `customer_display` (migración 40). Ver `context/04-modelo-de-dominio.md § customer_display`.
-- **Endpoints**: `/v1/screens/{request,pair,publish,heartbeat,list,revoke}` (realm mixto panel+pos-app).
-- **POS**: publica eventos `cart-update` al confirmarse una venta. `AjustesPanel` incluye sección de pantallas. Ruta Next.js: `(screen)/checkout` con estados pairing/live/confirmed/idle.
-- **Panel-next**: `/settings/devices` CRUD de pantallas (hoy solo checkout screens; UI de cajas POS pendiente).
-- **Gotcha Redis**: `phpredis` no está disponible en el servidor de prod — la publish PHP usa `fsockopen` + protocolo RESP directo.
+- **Schema**: tabla `device WHERE module='screen'` (ver mig 63/64 en `context/04-modelo-de-dominio.md`). Token en `localStorage['punto.device.token.screen']`.
+- **Pairing**: admin crea device invitation seleccionando tipo "Pantalla cliente" en `/settings/devices`. La pantalla abre `/connect/[id]`, admin aprueba → redirige a `/checkout` automáticamente.
+- **Endpoints**: `/v1/screens/{publish,heartbeat}` para eventos real-time (Redis RESP directo, sin phpredis). `/v1/screens?resource=context` devuelve logo + companyName del tenant a la pantalla.
+- **POS**: publica `cart-update` vía `checkoutScreen.php` al confirmar venta. Sin pairing por PIN (eliminado).
+- **Panel-next**: `/settings/devices` — un solo DataTable con columna `kind` (POS/Screen/futuro KDS). Ruta `(screen)/checkout`: estados pairing/live/confirmed/idle; light mode forzado independiente del tema del panel.
+- **Gotcha Redis**: `fsockopen` + protocolo RESP directo (phpredis no disponible en prod).
 
 ---
+
+## Multi-sucursal por usuario (sprint 2026-06-28)
+
+Permite que un operador tenga acceso a más de una sucursal.
+
+- **Schema**: tabla M2M `contact_outlet` (mig 66: `contactId`, `outletId`, `companyId`). `contact.outletid` legacy se conserva durante transición.
+- **Backend**: `UsersService` sync atómico de outlets — DELETE WHERE NOT IN + INSERT IGNORE en TX única al guardar el usuario.
+- **Frontend**: multi-select Popover+Command en el form de Team. Campo `outletIds[]` en `TeamMember` type. `contact.outletid` sigue como "sucursal principal" para compatibilidad con módulos que no migraron aún.
+- **Pendiente**: drop `contact.outletid` cuando todos los queries lean de `contact_outlet`.
 
 ## Módulo Reports Rollup (sprint 2026-06-20, context/18)
 
@@ -637,6 +647,19 @@ Variantes de producto Phase 1. `bulkUpsertVariants()` en TX única: genera combi
 `panel-next/components/auth/auth-sentinel.tsx`. Escucha el `CustomEvent("api:unauthorized")` emitido por `api-client.ts` antes de throwear un 401. Al dispararse: `queryClient.clear()` + toast "Tu sesión expiró" + `router.replace("/login")`. Debounce con `firedRef` + guard `pathname.startsWith("/login")`. **No montado en el layout del POS** — el POS usa `_jwt` device pairing (no sesión humana con expiración).
 
 ---
+
+## Módulo Impresión WebUSB + ESC/POS (sprint 2026-06-27)
+
+Sistema de impresión multi-transport para el POS React. Los bindings viven en BD (tabla `printer_binding`, mig 59) por `registerId` — no en localStorage — para que cambiar de caja cambie de config automáticamente.
+
+- **Transports**: USB (WebUSB API), Bluetooth (Web Bluetooth API), Network (TCP vía WebSocket proxy), window.print (fallback).
+- **Concepto**: "impresora como objeto virtual" — el mismo `VirtualPrinter` puede tener múltiples transports.
+- **UI**: `/settings/printers` en panel-next — tabs por tipo, filtros, formulario de binding por caja.
+- **Renderer**: genera comandos ESC/POS desde la plantilla configurada en `/settings/print-templates` del panel. Auto-print en checkout del POS.
+- **PrintersManager**: componente wire dentro de `AjustesPanel` del POS.
+- **Print fallback (`window.print`)**: usa iframe oculto con `srcdoc` en vez de `window.open` popup — sin doble diálogo de confirmación ni flicker de ventana nueva. `triggerWindowPrint(html)` en `lib/pos/printer/`.
+- **Config general del POS** (toggles, plantillas): persistida en `register.data.posConfig` JSONB por registerId.
+- **Archivos clave**: `panel-next/lib/pos/printer/`, `panel-next/app/(pos)/pos/components/ajustes/`, `panel-next/app/(panel)/settings/printers/`.
 
 ## Módulo Agente IA (sprint 2026-06-21, context/17)
 

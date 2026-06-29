@@ -1,16 +1,18 @@
 # syntax=docker/dockerfile:1.6
 # ─────────────────────────────────────────────────────────────────────────────
-# Punto — container ÚNICO (panel + admin + app + api)
+# Punto — container ÚNICO (panel + admin + api)
 #
-# Este Dockerfile combina los 3 módulos PHP en un solo container y los rutea
+# Este Dockerfile combina los módulos PHP en un solo container y los rutea
 # vía router.php raíz que despacha por Host: header. Coolify deploya esto
 # como recurso tipo "Dockerfile" (no Docker Compose).
 #
-# 4 subdominios → 1 container:
+# 3 subdominios → 1 container:
 #   panel.punto.la → /panel
 #   admin.punto.la → /panel (con /admin path prefix forzado)
-#   app.punto.la   → /app
-#   api.punto.la   → /api
+#   api.punto.la   → /api  (backend compartido; legacy /app movido a api/core)
+#
+# app.punto.la fue eliminado en la Fase 2 del cleanup (legacy-cleanup 2026-06-29):
+# el backend de /app se movió a api/core.
 #
 # El WebSocket (ws.punto.la) NO va acá — es Node.js, vive en ws-server/Dockerfile
 # como recurso aparte.
@@ -34,13 +36,10 @@ RUN npm ci --no-audit --no-fund --omit=optional --ignore-scripts
 COPY assets   ./assets
 COPY scripts  ./scripts
 COPY panel    ./panel
-COPY app      ./app
 COPY build.sh ./
 
 # Build de panel (genera panel/scripts/*.js, panel/css/ncm.css)
 RUN bash build.sh panel
-# Build de app (genera app/cach/<hash>.{js,css})
-RUN bash build.sh app
 
 
 # ─── Stage 2: runtime PHP ────────────────────────────────────────────────────
@@ -83,20 +82,20 @@ RUN { \
 
 WORKDIR /var/www
 
-# Composer deps de /panel y /app (la /api consume vendor/autoload de /app)
+# Composer deps de /panel (vendor separado para cache de layer)
 COPY panel/composer.json panel/composer.lock* ./panel/
 RUN cd panel && composer install \
         --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader \
     && rm -rf /root/.composer
 
-COPY app/composer.json app/composer.lock* ./app/
-RUN cd app && composer install \
+# Composer deps de api/core (backend compartido; namespace Punto\App\*)
+COPY api/core/composer.json api/core/composer.lock* ./api/core/
+RUN cd api/core && composer install \
         --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader \
     && rm -rf /root/.composer
 
-# Código de los 3 módulos
+# Código de los módulos
 COPY panel ./panel
-COPY app   ./app
 COPY api   ./api
 COPY assets ./assets
 
@@ -107,18 +106,17 @@ COPY database ./database
 # Bundles generados en stage 1 (sobreescriben lo que vino del COPY si existía)
 COPY --from=assets /build/panel/scripts ./panel/scripts
 COPY --from=assets /build/panel/css     ./panel/css
-COPY --from=assets /build/app/cach      ./app/cach
 
 # Dispatcher raíz por Host
 COPY router.php ./router.php
 
 # Autoload final de ambos composer
-RUN cd panel && composer dump-autoload --no-dev --optimize --classmap-authoritative
-RUN cd app   && composer dump-autoload --no-dev --optimize --classmap-authoritative
+RUN cd panel    && composer dump-autoload --no-dev --optimize --classmap-authoritative
+RUN cd api/core && composer dump-autoload --no-dev --optimize --classmap-authoritative
 
-# 28 workers: el built-in server sirve panel+app+api+admin y el BFF de /app hace
-# self-HTTP (loopback in-container) → cada venta consume 2 workers. 8 se saturaba
-# bajo carga → 502. Overridable por env de Coolify.
+# 28 workers: el built-in server sirve panel+api+admin y el BFF legacy (api/core)
+# hace self-HTTP (loopback in-container) → cada venta puede consumir 2 workers.
+# Overridable por env de Coolify.
 ENV PHP_CLI_SERVER_WORKERS=28 \
     APP_ENV=production
 

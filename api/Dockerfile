@@ -2,11 +2,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Punto — API compartida (sirve api.punto.la)
 #
-# La /api reusa código de /app (includes/cors, includes/jwt_middleware, head.php
-# + vendor/autoload del composer de /app) — ver api/bootstrap.php. Por eso este
-# container también monta /app, aunque NO sirve /app públicamente. Es deuda
-# documentada: cuando /api tenga su propio includes/composer canónico se podrá
-# desacoplar (ver context/10-roadmap.md § API compartida).
+# El backend legacy de /app fue movido a api/core en la Fase 2 del cleanup
+# (legacy-cleanup 2026-06-29). El namespace Punto\App\* se conserva;
+# composer/autoload vive en api/core/vendor.
 #
 # Build context: ROOT del repo.
 #
@@ -66,9 +64,9 @@ RUN { \
 
 WORKDIR /var/www
 
-# Composer deps de /app (la /api consume vendor/autoload de /app vía bootstrap.php)
-COPY app/composer.json app/composer.lock* ./app/
-RUN cd app && composer install \
+# Composer deps de api/core (namespace Punto\App\* — autoload canonico del backend)
+COPY api/core/composer.json api/core/composer.lock* ./api/core/
+RUN cd api/core && composer install \
         --no-dev \
         --no-interaction \
         --prefer-dist \
@@ -76,14 +74,10 @@ RUN cd app && composer install \
         --no-autoloader \
     && rm -rf /root/.composer
 
-# /app entero (la api reusa includes/, head.php, functions.php). El container NO
-# sirve /app — solo la API tiene acceso al filesystem.
-COPY app ./app
-
-# /api propiamente dicho
+# /api entero (incluye api/core con head.php, includes/, vendor)
 COPY api ./api
 
-RUN cd app && composer dump-autoload --no-dev --optimize --classmap-authoritative
+RUN cd api/core && composer dump-autoload --no-dev --optimize --classmap-authoritative
 
 ENV PHP_CLI_SERVER_WORKERS=8 \
     APP_ENV=production

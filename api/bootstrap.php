@@ -13,7 +13,7 @@
 
 session_start();
 
-define('API_APP_DIR', dirname(__DIR__) . '/app');
+define('API_APP_DIR', __DIR__ . '/core');
 chdir(API_APP_DIR); // los includes de head.php/data.php son relativos al cwd
 
 require_once API_APP_DIR . '/includes/cors.php';

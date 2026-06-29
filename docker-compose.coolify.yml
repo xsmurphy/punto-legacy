@@ -5,9 +5,11 @@
 #   panel  → https://panel.punto.la  (también atiende admin.punto.la — mismo
 #                                     container, Traefik prefija /admin para
 #                                     todas las requests del subdomain admin)
-#   app    → https://app.punto.la
-#   api    → https://api.punto.la    (consumida por panel/app vía PUNTO_API_BASE)
+#   api    → https://api.punto.la    (consumida por panel vía PUNTO_API_BASE;
+#                                     backend legacy en api/core desde Fase 2 cleanup)
 #   ws     → https://ws.punto.la     (WebSocket WSS, Node 20)
+#
+# app.punto.la fue eliminado en la Fase 2 del cleanup (legacy-cleanup 2026-06-29).
 #
 # Postgres se asume MANAGED por Coolify (POSTGRES_HOST en env apunta al host
 # que Coolify expone). Redis se levanta acá porque no requiere persistencia
@@ -59,27 +61,14 @@ services:
       - "traefik.http.services.panel-svc.loadbalancer.server.port=80"
 
 
-  # ── App POS (app.punto.la) ──────────────────────────────────────────────────
-  app:
-    build:
-      context: .
-      dockerfile: app/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    expose:
-      - "80"
-    depends_on:
-      - redis
-    networks:
-      - punto_net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.app.rule=Host(`app.punto.la`)"
-      - "traefik.http.routers.app.entrypoints=https"
-      - "traefik.http.routers.app.tls=true"
-      - "traefik.http.routers.app.tls.certresolver=letsencrypt"
-      - "traefik.http.services.app-svc.loadbalancer.server.port=80"
-      - "traefik.http.routers.app.service=app-svc"
+  # ── App POS (app.punto.la) — ELIMINADO Fase 2 legacy-cleanup 2026-06-29 ──────
+  # El backend legacy de /app se movió a api/core. El subdomain app.punto.la ya
+  # no existe. Servicio comentado pendiente limpieza de infra (DNS + Coolify).
+  # app:
+  #   build:
+  #     context: .
+  #     dockerfile: app/Dockerfile   # <-- app/Dockerfile ya no existe
+  #   ...eliminado
 
 
   # ── API compartida (api.punto.la) ───────────────────────────────────────────
