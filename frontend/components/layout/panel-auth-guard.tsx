@@ -197,16 +197,56 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         subtitle: "",
       }
 
-  // Invalidamos solo queries de lectura scope-dependientes en lugar de
-  // `qc.invalidateQueries()` sin args (que abortaría mutations en vuelo,
-  // refetch del bootstrap, etc.). Las query keys cubiertas son las que se
-  // verán afectadas por el cambio del header X-Outlet-Id.
+  // Config/identity keys that must NOT be invalidated on outlet change.
+  // Everything else is treated as outlet-scoped and gets refetched.
+  // Denylist is robust to new per-outlet keys being added — unlike the old
+  // allowlist which silently missed keys (e.g. "dashboard-widget" vs "dashboard").
+  const NON_SCOPED_ROOTS = React.useMemo(
+    () =>
+      new Set([
+        "bootstrap",
+        "pos-bootstrap",
+        "pos-bootstrap-auth",
+        "pos-config",
+        "pos-hotkeys",
+        "settings",
+        "modules",
+        "admin",
+        "billing",
+        "roles",
+        "team",
+        "team-roles",
+        "document-templates",
+        "printer-bindings",
+        "pos-devices",
+        "device-invitations",
+        "registers",
+        "permission-catalog",
+        "me",
+        "users",
+        "auth-sessions",
+        "plans",
+        "companies",
+        "company",
+        "currencies",
+        "ai-balance",
+        "ai-ledger",
+        "screens",
+      ]),
+    [],
+  )
+
+  // Invalidate all outlet-scoped queries by predicate (denylist approach).
+  // An allowlist was used before but drifted — e.g. "dashboard-widget" was missed
+  // because the key differs from "dashboard". A denylist is robust to new keys.
   const invalidateScopedReads = React.useCallback(() => {
-    const keys = ["dashboard", "reports", "items", "contacts", "outlets", "drawers", "stock"]
-    for (const k of keys) {
-      qc.invalidateQueries({ queryKey: [k] })
-    }
-  }, [qc])
+    qc.invalidateQueries({
+      predicate: (q) => {
+        const root = q.queryKey?.[0]
+        return typeof root === "string" && !NON_SCOPED_ROOTS.has(root)
+      },
+    })
+  }, [qc, NON_SCOPED_ROOTS])
 
   const handleSelectOutlet = (outletId: string) => {
     if (outletId === bootstrap?.activeOutletId) {
