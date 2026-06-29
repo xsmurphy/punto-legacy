@@ -42,9 +42,6 @@ final class DeviceAuth
         ?string $browserLocalId = null,
         string $module          = 'pos',
     ): array {
-        // jwt.php no se autocarga -- cargarlo explicito (mismo patron que PanelAuth)
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
-
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
             throw new \RuntimeException('JWT_SECRET no configurado');
@@ -178,8 +175,6 @@ final class DeviceAuth
         ?string $browserLocalId = null,
         string $module          = 'pos',
     ): array {
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
-
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
             throw new \RuntimeException('JWT_SECRET no configurado');
@@ -250,8 +245,6 @@ final class DeviceAuth
      */
     public static function issueTokenForExistingDevice(string $deviceId, ?string $companyId = null): array
     {
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
-
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
             throw new \RuntimeException('JWT_SECRET no configurado');

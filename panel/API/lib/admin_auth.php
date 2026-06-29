@@ -17,7 +17,6 @@
  */
 
 require_once __DIR__ . '/response.php';
-require_once __DIR__ . '/../../includes/jwt.php';
 
 /** Verifica credenciales contra admin_user (activo). Devuelve la fila o false. */
 function adminVerifyPassword(string $email, string $pass)
@@ -60,22 +59,6 @@ function adminIssueSession($admin): string
         'meta'      => ['email' => (string) $admin['email']],
         'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
     ]);
-}
-
-/** Extrae el token del realm admin (Bearer | cookie _jwt_admin | POST _jwt). */
-function _adminExtractJwt(): ?string
-{
-    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (preg_match('/Bearer\s+(\S+)/i', $auth, $m)) {
-        return $m[1];
-    }
-    if (!empty($_COOKIE['_jwt_admin'])) {
-        return $_COOKIE['_jwt_admin'];
-    }
-    if (!empty($_POST['_jwt'])) {
-        return $_POST['_jwt'];
-    }
-    return null;
 }
 
 /**

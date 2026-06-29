@@ -1,21 +1,8 @@
 <?php
 /**
  * JWT Middleware para el módulo /app.
- *
- * Lee TODOS los tokens candidatos de la request (ver _jwtExtractTokens):
- *   1. Header  Authorization: Bearer <token>  ← device POS (localStorage)
- *   2. Cookie  _jwt_panel (realm panel)
- *   3. POST    _jwt_panel y _jwt (back-compat programáticos)
- * y elige el que matchea el realm del endpoint (allowlist contra el claim `iss`).
- * El browser puede mandar `_jwt` y `_jwt_panel` a la vez en app.punto.la — por
- * eso se selecciona por realm, no "el primero".
- *
- * Comportamiento:
- *   - Token válido del realm → define AUTHED_* constants, retorna true
- *   - Sin ningún token       → retorna false (sigue la ruta legacy)
- *   - Token inválido / de otro realm → responde 401 y muere
- *
- * Dependencias: jwt.php, simple.config.php (para leer JWT_SECRET desde $_ENV)
+ * F6: residual eliminado (jwtIsDeviceRevoked, jwtSetCookie, _jwtExtractTokens, etc.).
+ * Solo queda jwtAuthenticate(), que delega a authResolve() del sistema de sesiones opacas.
  */
 
 function jwtAuthenticate(array $allowedRealms = ['pos-app']): bool
