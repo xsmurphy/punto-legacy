@@ -78,7 +78,7 @@ final class OutletsService
         // rutea al JSONB con merge no-destructivo automáticamente. Esto nos deja
         // un único path de write sin el UPDATE explícito anterior.
 
-        require_once dirname(__DIR__, 3) . '/api/core/includes/phone.php';
+        require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
         $iso = (string)($f['country'] ?? 'PY');
         $record = [
             'outletName'            => $f['name'],

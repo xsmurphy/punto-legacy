@@ -21,7 +21,7 @@ final class ContactImporter
     public function importFromCsv(string $csvPath, string $mode, string $companyId, string $userId): array
     {
         if (!function_exists('phoneToE164')) {
-            require_once dirname(__DIR__, 3) . '/api/core/includes/phone.php';
+            require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
         }
 
         $report = ['total' => 0, 'created' => 0, 'updated' => 0, 'errors' => []];

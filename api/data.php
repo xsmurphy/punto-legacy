@@ -44,7 +44,7 @@ $compPhoneCode  = '+' . $countries[$compCountryCode]['phone'];
 $compSocial     = json_decode($setting['settingSocialMedia'],true);
 $_fullSettings  = json_decode($setting['settingObj'],true);
 
-include_once('languages/' . $compLanguage . '.php');
+include_once(__DIR__ . '/languages/' . $compLanguage . '.php');
 
 //outletdata
 $allOutletData = getAllOutletData(OUTLET_ID);

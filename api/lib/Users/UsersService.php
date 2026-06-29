@@ -210,7 +210,7 @@ final class UsersService
             'contactName'              => $name,
             'contactEmail'             => $email !== '' ? $email : null,
             'contactPhone'             => (function () use ($in) {
-                require_once dirname(__DIR__, 3) . '/api/core/includes/phone.php';
+                require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
                 return phoneValidateForStorage($in['phone'] ?? null, (string)($in['country'] ?? 'PY'));
             })(),
             'contactPassword'          => $hash,
@@ -263,7 +263,7 @@ final class UsersService
             $rec['contactEmail'] = $email !== '' ? $email : null;
         }
         if (array_key_exists('phone', $in)) {
-            require_once dirname(__DIR__, 3) . '/api/core/includes/phone.php';
+            require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
             $rec['contactPhone'] = phoneValidateForStorage($in['phone'] ?? null, (string)($in['country'] ?? 'PY'));
         }
         if (!empty($in['password'])) {

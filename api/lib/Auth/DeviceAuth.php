@@ -120,7 +120,7 @@ final class DeviceAuth
         string $secret,
         string $module = 'pos',
     ): string {
-        require_once dirname(__DIR__, 2) . '/core/includes/auth_session.php';
+        require_once dirname(__DIR__, 2) . '/includes/auth_session.php';
         // Device = sesión opaca eterna (expiresAt null), revocable por sesión o por device.status.
         // oid/rid/module se guardan info-only; el backend resuelve scope desde la fila device.
         return authSessionCreate('pos-app', [
@@ -292,7 +292,7 @@ final class DeviceAuth
      */
     public static function resolveDeviceToken(string $bearerToken): ?array
     {
-        require_once dirname(__DIR__, 2) . '/core/includes/auth_session.php';
+        require_once dirname(__DIR__, 2) . '/includes/auth_session.php';
 
         $s = authSessionLookup($bearerToken);
         if ($s === null

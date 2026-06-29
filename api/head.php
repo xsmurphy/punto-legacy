@@ -1,5 +1,5 @@
 <?php
-include_once("libraries/rateLimiter.php");
+include_once(__DIR__ . "/libraries/rateLimiter.php");
 
 $rateLimiter  = new RateLimiter($rateLimiterId);
 $limit        = 80;//240       //  number of connections to limit a user per $minutes
@@ -15,11 +15,11 @@ try {
 	die(json_encode(['error'=>'Rate Limit Exceeded']));
 }
 
-include_once("app_version.php");
-include_once("includes/db.php");
-include_once("includes/simple.config.php");
-include_once("libraries/countries.php");
-include_once("includes/functions.php");
+include_once(__DIR__ . "/app_version.php");
+include_once(__DIR__ . "/includes/db.php");
+include_once(__DIR__ . "/includes/simple.config.php");
+include_once(__DIR__ . "/libraries/countries.php");
+include_once(__DIR__ . "/includes/functions.php");
 
 theErrorHandler('json');
 
