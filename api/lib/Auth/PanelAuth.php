@@ -79,7 +79,8 @@ final class PanelAuth
                 'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
                 [$user['companyId']]
             );
-            $resolvedOutletId = (string) ($outlet['outletId'] ?? '');
+            // hotfix: ncmExecute 1-fila devuelve keys lowercase (refactor 28-jun) — fallback a camelCase. Fix arquitectónico pendiente en el wrapper.
+            $resolvedOutletId = (string) ($outlet['outletId'] ?? $outlet['outletid'] ?? '');
         }
 
         $ttl = (int) ($_ENV['PANEL_JWT_TTL'] ?? 86400);
