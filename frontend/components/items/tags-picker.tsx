@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Check, ChevronsUpDown, X } from "lucide-react"
+import { Check, ChevronsUpDown, X, PlusCircle } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { useCreateTag } from "@/hooks/use-tags"
 
 /**
  * Multi-select de etiquetas para items (m2m item_tag, sin isPrimary).
@@ -41,12 +43,36 @@ export function TagsPicker({
   disabled,
 }: Props) {
   const [open, setOpen] = React.useState(false)
+  const [inputValue, setInputValue] = React.useState("")
+  const createTag = useCreateTag()
 
   const selectedIds = React.useMemo(() => new Set(value), [value])
   const optionsById = React.useMemo(
     () => new Map(options.map((o) => [o.id, o])),
     [options],
   )
+
+  const showCreateOption =
+    inputValue.trim().length > 0 &&
+    !options.some((o) => o.name.toLowerCase() === inputValue.trim().toLowerCase())
+
+  const handleCreate = () => {
+    const name = inputValue.trim()
+    if (!name) return
+    createTag.mutate(
+      { name },
+      {
+        onSuccess: (created) => {
+          onChange([...value, created.id])
+          setInputValue("")
+          toast.success(`Etiqueta "${created.name}" creada`)
+        },
+        onError: () => {
+          toast.error("No se pudo crear la etiqueta")
+        },
+      },
+    )
+  }
 
   const toggle = (id: string) => {
     if (selectedIds.has(id)) {
@@ -100,7 +126,11 @@ export function TagsPicker({
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
           <Command>
-            <CommandInput placeholder="Buscar etiqueta…" />
+            <CommandInput
+              placeholder="Buscar etiqueta…"
+              value={inputValue}
+              onValueChange={setInputValue}
+            />
             <CommandList>
               <CommandEmpty>Sin resultados.</CommandEmpty>
               <CommandGroup>
@@ -127,6 +157,20 @@ export function TagsPicker({
                   )
                 })}
               </CommandGroup>
+              {showCreateOption && (
+                <CommandGroup>
+                  <CommandItem
+                    value={`__create__${inputValue}`}
+                    onSelect={handleCreate}
+                    disabled={createTag.isPending}
+                  >
+                    <PlusCircle className="size-4 text-muted-foreground" />
+                    <span>
+                      Crear &ldquo;{inputValue.trim()}&rdquo;
+                    </span>
+                  </CommandItem>
+                </CommandGroup>
+              )}
             </CommandList>
           </Command>
         </PopoverContent>
