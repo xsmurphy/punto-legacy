@@ -5,8 +5,8 @@
  * Topología (2026-06-29): un único dominio público `app.punto.la` = el frontend
  * (Next.js, Node). El PHP NO tiene dominio público propio: es la API interna que
  * el BFF del frontend llama server-side por API_URL. Este router despacha todo a
- * /api sin importar el Host (no hay más subdominios panel.*/admin.*; admin y panel
- * viven bajo app.punto.la, servidos por el frontend).
+ * /api sin importar el Host (ya no hay subdominios separados de panel ni admin;
+ * ambos viven bajo app.punto.la, servidos por el frontend).
  *
  * Uso local:  php -S 0.0.0.0:80 router.php
  *
