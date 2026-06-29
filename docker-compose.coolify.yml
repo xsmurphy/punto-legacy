@@ -16,7 +16,7 @@
 # que Coolify expone). Redis se levanta acá porque no requiere persistencia
 # crítica para el cache + WS pubsub.
 #
-# Build context = ROOT del repo.
+# Build context = ./api (self-contained desde api/restructure 2026-06-29).
 # ─────────────────────────────────────────────────────────────────────────────
 
 version: '3.8'
@@ -27,7 +27,7 @@ services:
   # También sirve admin realm en /v1/admin/* (desde dissolve-panel 2026-06-29).
   api:
     build:
-      context: .
+      context: ./api
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
