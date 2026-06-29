@@ -41,14 +41,21 @@ final class RecordsetIterator
     {
         if ($name === 'fields') {
             $f = $this->inner->fields;
-            if (is_array($f)) return $f;
+            // Extraer array plano y envolver en CIA para lookup case-insensitive.
+            // PG devuelve keys lowercase; callers historicamente leen camelCase.
+            // CIA es el wrapper que restaura ese contrato sin depender de ADOdb.
+            if (is_array($f)) {
+                return Query::flattenJsonb($f);
+            }
             // CaseInsensitiveArray (ADOdb) implementa Iterator; iterator_to_array
             // preserva las keys reales (lowercase del driver pg). NO usar
             // `(array)$obj` porque eso serializa propiedades privadas con prefijos
             // `\0...\0_arr` y todos los `$rs->fields['key']` devuelven null.
             // Incidente 2026-06-28 (devices null + POS crash con charAt).
-            if ($f instanceof \Traversable) return iterator_to_array($f);
-            return (array) $f;
+            if ($f instanceof \Traversable) {
+                return Query::flattenJsonb(iterator_to_array($f));
+            }
+            return Query::flattenJsonb((array) $f);
         }
         return $this->inner->{$name};
     }
