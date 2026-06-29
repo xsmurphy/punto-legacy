@@ -1,21 +1,17 @@
 <?php
 /**
- * Router raíz — dispatcher por Host header (deploy single-container).
+ * Router raíz del container PHP — sirve SOLO la API.
  *
- * Punto sirve un único backend PHP en Coolify:
- *   api.punto.la → /api
+ * Topología (2026-06-29): un único dominio público `app.punto.la` = el frontend
+ * (Next.js, Node). El PHP NO tiene dominio público propio: es la API interna que
+ * el BFF del frontend llama server-side por API_URL. Este router despacha todo a
+ * /api sin importar el Host (no hay más subdominios panel.*/admin.*; admin y panel
+ * viven bajo app.punto.la, servidos por el frontend).
  *
- * panel.punto.la y admin.punto.la fueron eliminados en dissolve-panel (2026-06-29):
- *   - El backend admin se movió a api/v1/admin/ (misma API PHP compartida).
- *   - El front admin vive en frontend/ (Node/Next.js). Configurar en Coolify/Traefik
- *     que panel.punto.la y admin.punto.la apunten al container del frontend (Node),
- *     NO al container PHP — ya no hay PHP que sirva esos dominios.
+ * Uso local:  php -S 0.0.0.0:80 router.php
  *
- * Uso local:
- *   php -S 0.0.0.0:80 router.php   (solo sirve api.*)
- *
- * INFRA FLAG: admin.punto.la + panel.punto.la deben redirigirse al container Next.js
- * en Coolify. El PHP container solo necesita escuchar api.punto.la.
+ * INFRA (Coolify): `app.punto.la` → container del frontend. El container PHP solo
+ * necesita ser alcanzable internamente por el frontend (API_URL), sin dominio público.
  */
 
 ini_set('display_errors', 0);
