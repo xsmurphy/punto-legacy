@@ -83,14 +83,21 @@ export function ParkedSalesPanel() {
             className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">
-                {itemCount} {itemCount === 1 ? "ítem" : "ítems"}
+              <p className="text-sm font-medium text-foreground truncate">
+                {sale.data.title?.trim()
+                  ? sale.data.title
+                  : `${itemCount} ${itemCount === 1 ? "ítem" : "ítems"}`}
                 {sale.data.customer && (
                   <span className="ml-1.5 text-muted-foreground">
                     · {sale.data.customer.name}
                   </span>
                 )}
               </p>
+              {sale.data.title?.trim() && (
+                <p className="text-xs text-muted-foreground">
+                  {itemCount} {itemCount === 1 ? "ítem" : "ítems"}
+                </p>
+              )}
               <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock className="size-3 shrink-0" />
                 <span>{timeLabel}</span>
