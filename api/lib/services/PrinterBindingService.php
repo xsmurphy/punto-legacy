@@ -258,7 +258,7 @@ class PrinterBindingService {
         return array_values($v);
     }
 
-    private function normalize(array $f): array {
+    private function normalize(array|\CaseInsensitiveArray $f): array {
         $get = function(string $camel, string $lower) use ($f) {
             return $f[$camel] ?? $f[$lower] ?? null;
         };
