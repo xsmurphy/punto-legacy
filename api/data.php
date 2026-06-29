@@ -44,7 +44,8 @@ $compPhoneCode  = '+' . $countries[$compCountryCode]['phone'];
 $compSocial     = json_decode($setting['settingSocialMedia'],true);
 $_fullSettings  = json_decode($setting['settingObj'],true);
 
-include_once(__DIR__ . '/languages/' . $compLanguage . '.php');
+$_langFile = __DIR__ . '/languages/' . $compLanguage . '.php';
+if (is_file($_langFile)) { include_once($_langFile); } // i18n por archivo (opcional; sin archivos hoy)
 
 //outletdata
 $allOutletData = getAllOutletData(OUTLET_ID);
