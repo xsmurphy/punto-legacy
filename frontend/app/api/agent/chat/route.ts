@@ -72,12 +72,36 @@ export async function POST(req: Request) {
     // ignorar — si no podemos verificar, dejamos pasar (fail-open)
   }
 
+  // Contexto del negocio (server-side, autoritativo): moneda + país. Para que el
+  // agente formatee montos en la moneda correcta (Gs, no $) y tenga contexto base.
+  let currency = ""
+  let country = ""
+  try {
+    const setRes = await fetch(`${apiUrl}/v1/settings`, { headers: { cookie } })
+    if (setRes.ok) {
+      const sj = (await setRes.json()) as { data?: Record<string, unknown> } & Record<string, unknown>
+      const s = (sj.data ?? sj) as Record<string, unknown>
+      currency = String(s.currency ?? "")
+      country = String(s.country ?? "")
+    }
+  } catch {
+    // fail-open: el agente sigue funcionando sin el contexto extra
+  }
+
   const openrouter = createOpenRouter({ apiKey })
   const model = openrouter(modelId)
 
   const today = new Date().toISOString().slice(0, 10)
   const system =
     `Sos el asistente de ${companyName}${outletName ? ` (sucursal ${outletName})` : ""} dentro de Punto, un sistema de punto de venta. Hoy es ${today}. Ayudás a consultar y analizar datos del negocio, y también podés crear o modificar registros cuando el usuario lo pide. Respondé siempre en español. Sé conciso y claro. Cuando necesites datos usá las tools disponibles.\n\n` +
+    `## Contexto del negocio\n` +
+    `Empresa: ${companyName || "(sin nombre)"}${outletName ? ` · Sucursal: ${outletName}` : ""}.\n` +
+    (country ? `País: ${country}.\n` : "") +
+    (currency
+      ? `Moneda: ${currency}. Expresá TODOS los montos en ${currency} (ej. "${currency} 1.500.000"). NUNCA uses el símbolo "$". Si la moneda es Gs/PYG (Guaraníes), NO uses decimales y separá los miles con punto.\n`
+      : `Expresá los montos con la moneda configurada del negocio. NUNCA uses el símbolo "$" salvo que la moneda del negocio sea dólar.\n`) +
+    `\n## REGLA CRÍTICA — nunca inventar datos\n` +
+    `Los datos del negocio son sensibles y reales. NUNCA inventes ni adivines productos, montos, nombres, cantidades, cifras ni resultados. Solo afirmá información que provenga de una tool ejecutada en ESTA conversación. Si una tool devuelve vacío o sin resultados, decí claramente que no hay datos para ese criterio/período — NO completes con ejemplos, datos plausibles, ni información de mensajes previos que no esté respaldada por una tool. Si no podés obtener un dato con las tools, decí que no lo tenés en vez de inventarlo.\n\n` +
     (pathname ? `Ruta actual del operador en el panel: ${pathname}.\n` : "") +
     (snapshot
       ? (() => {
