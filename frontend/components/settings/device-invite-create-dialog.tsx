@@ -1,5 +1,6 @@
 "use client"
 import * as React from "react"
+import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,6 +47,11 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
   const [deviceName, setDeviceName] = React.useState("")
   const [ttlHours, setTtlHours] = React.useState(24)
   const [result, setResult] = React.useState<CreateInvitationResponse | null>(null)
+  const [canShare, setCanShare] = React.useState(false)
+
+  React.useEffect(() => {
+    setCanShare(typeof navigator !== "undefined" && "share" in navigator)
+  }, [])
 
   const { data: outletsData } = useOutlets()
   const { data: registersData } = useRegistersAdmin()
@@ -195,11 +201,19 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
           </>
         ) : (
           <>
-            <div className="flex flex-col gap-4 py-2">
-              <p className="text-sm text-muted-foreground">
+            <div className="flex flex-col items-center gap-4 py-2">
+              <p className="text-sm text-muted-foreground text-center">
                 Mandale este link al usuario del dispositivo. Solo se puede usar una vez.
               </p>
-              <div className="flex gap-2">
+
+              <div className="bg-muted p-4 rounded-lg">
+                <QRCodeSVG value={result.url} size={192} />
+              </div>
+              <p className="text-sm text-muted-foreground text-center">
+                Escaneá con el dispositivo
+              </p>
+
+              <div className="flex w-full gap-2">
                 <Input readOnly value={result.url} className="font-mono text-xs" />
                 <Button
                   variant="outline"
@@ -211,11 +225,27 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
                   Copiar
                 </Button>
               </div>
-              <p className="text-sm text-muted-foreground">
-                Vence en {hoursUntil(result.expiresAt)} horas.
-              </p>
-              <p className="text-sm">
-                Cuando abra el link y vos lo aprobes, aparecerá en la tab Dispositivos.
+
+              {canShare && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={async () => {
+                    try {
+                      await navigator.share({ title: "Conectar dispositivo", url: result.url })
+                    } catch (err) {
+                      if (err instanceof Error && err.name !== "AbortError") {
+                        toast.error("No se pudo compartir")
+                      }
+                    }
+                  }}
+                >
+                  Compartir
+                </Button>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                Vence en {hoursUntil(result.expiresAt)} horas. Cuando se conecte, aparecerá en la tab Dispositivos.
               </p>
             </div>
 
