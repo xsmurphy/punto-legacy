@@ -580,7 +580,7 @@ function TransactionDetail({
       payments: txPayments,
       note: detail.note || undefined,
     }
-    requestPrint("receipt", ticketData, allBindings)
+    requestPrint(Number(detail.type) === 5 ? "receipt" : "factura", ticketData, allBindings)
   }
 
   // Formato de fecha para la cabecera (compacto pero con día)

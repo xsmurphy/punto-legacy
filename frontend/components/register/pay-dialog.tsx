@@ -306,10 +306,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setSaleResult(result)
 
       // Auto-print ESC/POS si hay bindings con autoPrint=true
-      const autoBindings = getBindingsForSale(allBindings, "receipt", []).filter((b) => b.autoPrint)
+      const autoBindings = getBindingsForSale(allBindings, "factura", []).filter((b) => b.autoPrint)
       if (autoBindings.length > 0) {
         const ticketData = buildTicketData({ payload, result, config })
-        printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
+        printSale({ docType: "factura", data: ticketData, bindings: allBindings })
           .then((r) => {
             if (r.failed > 0) {
               toast.warning(`${r.failed} impresora(s) fallaron al imprimir`)
@@ -536,7 +536,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   async function handlePrint() {
     if (!saleResult) return
-    const receiptBindings = getBindingsForSale(allBindings, "receipt", [])
+    const receiptBindings = getBindingsForSale(allBindings, "factura", [])
     if (receiptBindings.length > 0) {
       // Rebuild minimal payload for reprint — real payload is local to handleConfirm
       const reprPayload = {
@@ -564,7 +564,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         timestamp: Math.floor(Date.now() / 1000),
       } satisfies import("@/lib/commands/create-sale").CreateSalePayload
       const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
-      const r = await printSale({ docType: "receipt", data: ticketData, bindings: allBindings })
+      const r = await printSale({ docType: "factura", data: ticketData, bindings: allBindings })
       if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron al reimprimir`)
     } else {
       // window.print() acá imprimía la página del POS entera (contenido del
