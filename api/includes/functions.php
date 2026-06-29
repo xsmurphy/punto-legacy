@@ -1178,7 +1178,7 @@ function validity($value,$force=false){
  *             de CaseInsensitiveArray a array plano). Esta firma se quedó atrás
  *             y rompía con TypeError a TODO endpoint que pasara por acá.
  */
-function _flattenJsonb($row): array
+function _flattenJsonb($row): \Punto\App\Database\CaseInsensitiveArray
 {
     return \Punto\App\Database\Query::flattenJsonb($row);
 }
