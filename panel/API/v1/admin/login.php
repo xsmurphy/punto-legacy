@@ -2,7 +2,7 @@
 /**
  * REST — Login del ADMIN REALM (público). POST { email, password }.
  *
- * Verifica contra admin_user (bcrypt) y mintea el JWT del realm admin (aud:"admin", ADMIN_JWT_SECRET).
+ * Verifica contra admin_user (bcrypt) y crea la sesion opaca del realm admin.
  * NO setea cookie (la API es stateless) — devuelve el token y el BFF setea _jwt_admin HttpOnly.
  * Rate-limit por email+IP. NO usa apiMiddleware (ese es el gate del realm tenant).
  */
@@ -44,7 +44,7 @@ if ($admin === false) {
     apiUnauthorized('Credenciales inválidas');   // mismo mensaje para email inexistente / pass errado
 }
 
-$token = adminIssueJwt($admin);
+$token = adminIssueSession($admin);
 
 // Auditoría: marcar último login (no bloqueante).
 $db->Execute("UPDATE admin_user SET lastLoginAt = now(), updated_at = now() WHERE adminId = ?", [(string) $admin['adminId']]);

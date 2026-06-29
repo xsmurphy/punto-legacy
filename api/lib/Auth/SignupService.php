@@ -5,7 +5,7 @@
  * Port FIEL de `signUp()` (panel/includes/functions.php:9601-9865) con
  * dos cambios:
  *   - Retorna array estructurado en lugar de string mixto.
- *   - No emite cookie acá; el endpoint que lo llama usa PanelAuth::issueJwt.
+ *   - No emite cookie acá; el endpoint que lo llama usa PanelAuth::issuePanelSession.
  *
  * Single source of truth para el flujo de signup en /api. El panel legacy
  * mantiene su copia de `signUp()` hasta que desaparezca — cualquier cambio
@@ -235,7 +235,7 @@ final class SignupService
         RoleService::seedCompanyRoles((string) $companyInsert);
 
         // Login automático: recuperar el contact con todos los campos para
-        // que PanelAuth::issueJwt lo use para emitir el JWT.
+        // que PanelAuth::issuePanelSession lo use para emitir la sesion opaca.
         $contact = findPhoneLogin($email);
         if (!$contact) {
             // Recién insertado pero no lo encontramos por phone — replication

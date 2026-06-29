@@ -103,7 +103,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         $module     = (string) ($dev['module'] ?? 'pos');
         // userId del realm pos-app: el token device NO tiene claim `sub`, así que
         // AUTHED_USER_ID queda vacío. La identidad operativa es el contacto que
-        // pareó el device (device.userid) — misma fuente que DeviceAuth::validateJwt.
+        // pareó el device (device.userid) — misma fuente que DeviceAuth::resolveDeviceToken.
         // Sin esto, TenantContext::fromAuth lanza "userId no puede ser vacío" → 500
         // → 502 en /api/pos/bootstrap (incidente 2026-06-27).
         if ($userId === '') {

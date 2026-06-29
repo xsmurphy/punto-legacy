@@ -16,7 +16,7 @@
  *
  * Endpoint PÚBLICO. Re-verifica el OTP server-side antes de crear la cuenta
  * para que no sea bypasseable saltando el paso 2 del front. Llama a
- * SignupService::create() y emite el JWT vía PanelAuth::issueJwt().
+ * SignupService::create() y emite la sesión opaca vía PanelAuth::issuePanelSession().
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -83,7 +83,7 @@ if (!$result['ok']) {
 }
 
 $contact = $result['contact'];
-$jwt = \Punto\Api\Auth\PanelAuth::issueJwt($contact);
+$jwt = \Punto\Api\Auth\PanelAuth::issuePanelSession($contact);
 if ($jwt['token'] === null) {
     apiError('JWT_SECRET no configurado', 500);
 }

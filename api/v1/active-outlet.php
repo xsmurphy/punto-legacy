@@ -66,9 +66,9 @@ if (!$row) {
     apiError('Sucursal no encontrada o inactiva', 404);
 }
 
-// PanelAuth::issueJwt acepta override de outletId (NUEVO 2026-06-12) — saltea
+// PanelAuth::issuePanelSession acepta override de outletId (NUEVO 2026-06-12) — saltea
 // el SQL que resuelve "primer outlet activo" porque acá ya validamos pertenencia.
-$jwt = \Punto\Api\Auth\PanelAuth::issueJwt([
+$jwt = \Punto\Api\Auth\PanelAuth::issuePanelSession([
     'contactId' => $ctx['userId'],
     'companyId' => COMPANY_ID,
     'role'      => $ctx['roleId'],

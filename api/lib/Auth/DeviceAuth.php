@@ -2,10 +2,10 @@
 /**
  * Auth del realm `pos-app` -- dispositivos POS pareados.
  *
- * JWT del device (Bearer token, storage en localStorage del browser):
- *   - TTL 10 anyos (JWT lib requiere exp finita).
- *   - Sin expiracion practica: el cajero opera continuamente.
- *   - Revocacion explicita via tabla `device` (status=0).
+ * Sesion opaca del device (Bearer token, storage en localStorage del browser):
+ *   - TTL nulo (sesion sin expiracion practica).
+ *   - Sin expiracion: el cajero opera continuamente.
+ *   - Revocacion explicita via tabla `device` (status=0) o por sesion opaca.
  *   - Viaja como `Authorization: Bearer <token>` (no como cookie HttpOnly).
  *
  * Coexiste con `_jwt_panel` (panel admin, cookie HttpOnly 24h). El device
@@ -21,7 +21,7 @@ final class DeviceAuth
     private const TTL = 315360000; // 10 anyos en segundos
 
     /**
-     * Emite JWT de device, inserta en tabla `device`.
+     * Emite sesion opaca de device, inserta en tabla `device`.
      *
      * Si `$browserLocalId` no es null/vacío y ya existe un device activo para
      * (companyId, registerId, browserLocalId), re-emite el token del device
@@ -32,7 +32,7 @@ final class DeviceAuth
      *
      * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
      */
-    public static function issueJwt(
+    public static function issueDeviceToken(
         string $companyId,
         string $outletId,
         string $registerId,
@@ -108,8 +108,8 @@ final class DeviceAuth
     }
 
     /**
-     * Construye el JWT del device sin efectos secundarios (sin cookie).
-     * Usado tanto por issueToken() como por createDeviceAndIssueJwt().
+     * Construye el token opaco del device sin efectos secundarios (sin cookie).
+     * Usado tanto por issueToken() como por createDeviceAndIssueToken().
      *
      * @param string $module Tipo de dispositivo: 'pos' | 'screen' | 'kds' | 'display'.
      *                       Se incluye en el claim 'mdl'. Default 'pos' para back-compat.
@@ -158,17 +158,17 @@ final class DeviceAuth
     }
 
     /**
-     * Crea un device en BD y emite un JWT sin setear cookie.
+     * Crea un device en BD y emite un token opaco sin setear cookie.
      * Usado por el Device Authorization Grant: el admin aprueba la invitación
      * y el dispositivo recibe el token via polling en /status (no vía setcookie
      * del request del admin).
      *
-     * Misma lógica de idempotencia que issueJwt() pero sin el efecto secundario
+     * Misma lógica de idempotencia que issueDeviceToken() pero sin el efecto secundario
      * de la cookie.
      *
      * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
      */
-    public static function createDeviceAndIssueJwt(
+    public static function createDeviceAndIssueToken(
         string $companyId,
         string $outletId,
         string $registerId,
@@ -239,7 +239,7 @@ final class DeviceAuth
     }
 
     /**
-     * Emite un JWT para un device ya existente en BD (sin crear uno nuevo).
+     * Emite un token opaco para un device ya existente en BD (sin crear uno nuevo).
      * Usado por DeviceInvitationService::status() y createReconnect().
      *
      * Si $companyId se provee, se usa como filtro adicional (scoped al tenant).
@@ -248,7 +248,7 @@ final class DeviceAuth
      *
      * @return array{deviceId: string, token: string, expiresIn: int}
      */
-    public static function issueJwtForExistingDevice(string $deviceId, ?string $companyId = null): array
+    public static function issueTokenForExistingDevice(string $deviceId, ?string $companyId = null): array
     {
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
 
@@ -293,11 +293,11 @@ final class DeviceAuth
     }
 
     /**
-     * Valida el Bearer token del device y retorna el ctx, o null si invalido/revocado.
+     * Resuelve el token opaco del device y retorna el ctx, o null si invalido/revocado.
      *
      * @return array{companyId:string,outletId:string,registerId:string,deviceId:string,userId:string,roleId:string,isDevice:bool}|null
      */
-    public static function validateJwt(string $bearerToken): ?array
+    public static function resolveDeviceToken(string $bearerToken): ?array
     {
         require_once dirname(__DIR__, 2) . '/../app/includes/auth_session.php';
 

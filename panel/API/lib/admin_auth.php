@@ -10,7 +10,7 @@
  *
  * Provee:
  *   adminVerifyPassword($email, $pass) → fila admin_user (CaseInsensitiveArray) | false
- *   adminIssueJwt($admin)              → string token (la cookie la setea el BFF, no la API)
+ *   adminIssueSession($admin)          → string token (la cookie la setea el BFF, no la API)
  *   adminMiddleware()                  → valida _jwt_admin; define ADMIN_AUTHED_ID/EMAIL o corta 401
  *
  * Password con bcrypt (password_hash/password_verify) — NO el sha256+salt de `contact`.
@@ -45,8 +45,8 @@ function adminVerifyPassword(string $email, string $pass)
     return $row;
 }
 
-/** Mintea el token opaco del admin (sin setear cookie — la API es stateless; el BFF setea _jwt_admin). */
-function adminIssueJwt($admin): string
+/** Crea la sesion opaca del admin (sin setear cookie — la API es stateless; el BFF setea _jwt_admin). */
+function adminIssueSession($admin): string
 {
     require_once __DIR__ . '/../../../app/includes/auth_session.php';
 

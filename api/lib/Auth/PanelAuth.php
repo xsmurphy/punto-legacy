@@ -3,8 +3,8 @@
  * Servicios de autenticación del realm `panel` para la API compartida.
  *
  * Port mínimo de los helpers del legacy `panel/includes/functions.php`:
- *   - checkPassword()  ← checkForPassword() (linea 412)
- *   - issueJwt()       ← issueJwtPanel()    (linea 8988)
+ *   - checkPassword()      ← checkForPassword() (linea 412)
+ *   - issuePanelSession()  ← issueJwtPanel()    (linea 8988)
  *
  * Razón del port en lugar de include: los helpers viven enredados con el
  * resto de panel/includes (10k líneas) que arrastraría sesiones PHP,
@@ -43,7 +43,7 @@ final class PanelAuth
     }
 
     /**
-     * Emite el JWT del realm `panel` y setea la cookie `_jwt_panel` con
+     * Emite la sesión opaca del realm `panel` y setea la cookie `_jwt_panel` con
      * el scope correcto para coexistencia panel legacy + panel-next.
      *
      * Cookie domain: `COOKIE_DOMAIN` env var (ej. ".punto.la"). Si no
@@ -65,7 +65,7 @@ final class PanelAuth
      * el rid del POS ya NO vive en el token panel (se resuelve desde la fila
      * device en realm pos-app). Default `null` → sin efecto.
      */
-    public static function issueJwt(
+    public static function issuePanelSession(
         array|\ArrayAccess $user,
         ?string $outletIdOverride = null,
         ?string $registerIdOverride = null,

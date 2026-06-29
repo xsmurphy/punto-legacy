@@ -30,7 +30,7 @@ function apiAuthPosContext(): array
         $bearerToken = $m[1];
     }
     if ($bearerToken !== '') {
-        $ctx = DeviceAuth::validateJwt($bearerToken);
+        $ctx = DeviceAuth::resolveDeviceToken($bearerToken);
         if ($ctx !== null) {
             // Verificar que la empresa no esta bloqueada (igual que apiAuthTenant hace via bootstrap.php:89)
             if (!checkCompanyStatus($ctx['companyId'])) {
