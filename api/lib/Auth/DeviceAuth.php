@@ -123,25 +123,19 @@ final class DeviceAuth
         string $secret,
         string $module = 'pos',
     ): string {
-        $now = time();
-        // oid/rid se INCLUYEN como info-only para el cliente (ej. la pantalla
-        // cliente necesita el `rid` en el front para suscribirse al canal WS
-        // `${cid}:checkout:${rid}` al que el POS publica el cart en vivo).
-        // El backend NO los lee para auth scope: sigue resolviendo desde la
-        // fila `device` en cada request (memoria: jerarquia_dominio, bootstrap
-        // pos-app branch). Si la fila cambia, este claim queda stale pero el
-        // backend siempre gana.
-        return jwtEncode([
-            'iss'  => 'pos-app',
-            'cid'  => $companyId,
-            'did'  => $deviceId,
-            'oid'  => $outletId,
-            'rid'  => $registerId,
-            'pby'  => $pairedByContactId,
-            'mdl'  => $module,
-            'iat'  => $now,
-            'exp'  => $now + self::TTL,
-        ], $secret);
+        require_once dirname(__DIR__, 2) . '/../app/includes/auth_session.php';
+        // Device = sesión opaca eterna (expiresAt null), revocable por sesión o por device.status.
+        // oid/rid/module se guardan info-only; el backend resuelve scope desde la fila device.
+        return authSessionCreate('pos-app', [
+            'companyId'  => $companyId,
+            'userId'     => $pairedByContactId,
+            'deviceId'   => $deviceId,
+            'outletId'   => $outletId,
+            'registerId' => $registerId,
+            'roleId'     => '1',
+            'module'     => $module,
+            'expiresAt'  => null,
+        ]);
     }
 
     /**
@@ -288,7 +282,14 @@ final class DeviceAuth
             (string) ($device['module'] ?? 'pos'),
         );
 
-        return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL];
+        return [
+            'deviceId'   => $deviceId,
+            'token'      => $token,
+            'expiresIn'  => self::TTL,
+            'companyId'  => (string) ($device['companyid']  ?? $companyId ?? ''),
+            'registerId' => (string) ($device['registerid'] ?? ''),
+            'outletId'   => (string) ($device['outletid']   ?? ''),
+        ];
     }
 
     /**
@@ -298,33 +299,32 @@ final class DeviceAuth
      */
     public static function validateJwt(string $bearerToken): ?array
     {
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
+        require_once dirname(__DIR__, 2) . '/../app/includes/auth_session.php';
 
-        $secret = $_ENV['JWT_SECRET'] ?? '';
-        if ($secret === '') {
+        $s = authSessionLookup($bearerToken);
+        if ($s === null
+            || (int) $s['status'] !== 1
+            || (string) $s['realm'] !== 'pos-app') {
             return null;
         }
-
-        $payload = jwtDecode($bearerToken, $secret);
-        if (!is_array($payload) || ($payload['iss'] ?? '') !== 'pos-app') {
+        $exp = (string) ($s['expiresAt'] ?? '');
+        if ($exp !== '' && strtotime($exp) < time()) {
             return null;
         }
-
-        $deviceId = (string) ($payload['did'] ?? '');
+        $deviceId = (string) ($s['deviceId'] ?? '');
         if ($deviceId === '') {
             return null;
         }
 
-        // Verificar que el device no esta revocado y que cid del JWT coincide con BD
+        // Fila device = fuente de verdad (outlet/register/module pueden cambiar post-pairing).
         $device = ncmExecute(
             'SELECT deviceid, companyid, outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
-            [$deviceId, (string) ($payload['cid'] ?? '')]
+            [$deviceId, (string) ($s['companyId'] ?? '')]
         );
         if (!$device) {
             return null;
         }
 
-        // Actualizar lastSeenAt + iplast best-effort
         try {
             ncmExecute(
                 'UPDATE device SET lastseenat = now(), iplast = ?::inet WHERE deviceid = ?::uuid',
@@ -334,15 +334,13 @@ final class DeviceAuth
             // best-effort
         }
 
-        // module: prioridad BD (fuente de verdad), fallback al claim del JWT, default 'pos'.
-        $module = (string) ($device['module'] ?? $payload['mdl'] ?? 'pos');
-
+        $module = (string) ($device['module'] ?? $s['module'] ?? 'pos');
         return [
-            'companyId'  => (string) ($device['companyid']  ?? $payload['cid'] ?? ''),
-            'outletId'   => (string) ($device['outletid']   ?? $payload['oid'] ?? ''),
-            'registerId' => (string) ($device['registerid'] ?? $payload['rid'] ?? ''),
+            'companyId'  => (string) ($device['companyid']  ?? ''),
+            'outletId'   => (string) ($device['outletid']   ?? ''),
+            'registerId' => (string) ($device['registerid'] ?? ''),
             'deviceId'   => $deviceId,
-            'userId'     => (string) ($device['userid']     ?? $payload['pby'] ?? ''),
+            'userId'     => (string) ($device['userid']     ?? ''),
             'roleId'     => '1',
             'isDevice'   => true,
             'module'     => $module,

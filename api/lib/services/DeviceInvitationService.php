@@ -162,6 +162,8 @@ class DeviceInvitationService
                 'token'       => $issued['token'],
                 'deviceId'    => $issued['deviceId'],
                 'module'      => (string)($row['module'] ?? ''),
+                'companyId'   => (string) ($issued['companyId']  ?? ''),
+                'registerId'  => (string) ($issued['registerId'] ?? ''),
             ];
         }
 
@@ -214,6 +216,8 @@ class DeviceInvitationService
                 $result['deviceId']      = $deviceId;
                 $result['cookieExpires'] = time() + (int) ($jwt['expiresIn'] ?? 0);
                 $result['module']        = (string) ($row['module'] ?? 'pos');
+                $result['companyId']     = (string) ($jwt['companyId']  ?? '');
+                $result['registerId']    = (string) ($jwt['registerId'] ?? '');
             }
         }
 
