@@ -61,6 +61,33 @@
   `pseudocrypt.class.php` — grep-verify
 - `error_log` (basura)
 
+### Batch D — /screens (legacy, NO ruteado, solo referenciado por URL-strings)
+`/screens/*.php` (cds, kds, checkoutScreen, receipt, digitalInvoice, giftCardRedeem, orderView,
+scheduleConfirm, quoteView, etc.) son las pantallas customer-facing VIEJAS. `router.php` NO las
+sirve (cero refs). `/api` las referencia SOLO como strings de URL (`getShortURL('/screens/...')`,
+`href`), nunca con `require`/`include` → borrar los archivos NO rompe `/api`. panel-next solo
+migró `(screen)/checkout`; el resto no está reconstruido.
+- **Borrable**: toda la carpeta `/screens/` (verificar primero cero `require/include` de
+  `screens/*` desde KEEP/api — confirmado: solo URL-strings).
+- **FOLLOW-UP (roadmap, no bloquea)**: reconstruir en panel-next las páginas customer-facing que
+  `/api` linkea (receipt, digitalInvoice, giftCardRedeem, orderView, scheduleConfirm) y limpiar/
+  repuntar la generación de esos links en `api/lib/Sales/SaleService.php` (L334/388/394),
+  `api/v1/{transactions,schedule,orders}.php`, `api/lib/services/GiftCardService.php`.
+
+### Batch E — otros top-level a auditar
+`cache/`, `scripts/` (raíz) — posibles legacy. Trazar reachability (router.php,
+api/bootstrap, panel-next) antes de borrar.
+
+**`/assets` (raíz) — BORRADO 2026-06-29 (manual por owner).** NO era puro estático: lo
+referenciaba código vivo. FOLLOW-UP (no bloquea, no hay datos/prod):
+- `api/lib/services/ItemService.php:63` genera URLs de imágenes de ítems `/assets/250-250/...jpg`.
+- `app/includes/functions.php` (lo usa `/api`) hace `the_file_exists(ASSETS_URL.$img)` + arma
+  `/assets/src.php?src=...` → el redimensionador `/assets/src.php` ya no existe.
+- `panel-next/app/(auth)/signup/page.tsx:432` linkea `/assets/terminos.pdf`.
+Pendiente: rehacer/repuntar manejo de imágenes de ítems + resizer + PDF de términos en la
+arquitectura nueva (subir a S3 / servir desde panel-next o /api), y limpiar la generación de
+esas URLs en `ItemService` y `functions.php`.
+
 ### Batch C — /panel PHP legacy (DESPUÉS de trazar cierre admin)
 - todos los `a_*.php`, `account_payments.php`, `billing.php`, `digitalInvoice.php`,
   `empty_page.php`, `franchiser.php`, `get2COrecurring.php`, `index.php`, `inventory*.php`,
