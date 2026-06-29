@@ -1,8 +1,5 @@
-# Python (graphify CLI)
+# Python (venv local)
 .venv/
-
-# graphify generated output (rebuild with `/graphify .` in Claude Code)
-graphify-out/
 
 # Environment
 .env

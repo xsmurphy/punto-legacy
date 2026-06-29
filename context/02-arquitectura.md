@@ -111,28 +111,32 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 
 El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet". No es una sesión de usuario. El TTL largo (10 años) está justificado porque la revocación per-device ya existe vía la **tabla `device`** (migración 11, commit a3fefb4): el middleware valida `device.status` si el JWT trae claim `did`, con cache de archivo 60s en `sys_get_temp_dir/punto_device_status/{deviceId}_{companyId}.dat`. Para revocar un dispositivo individual: `UPDATE device SET status=0 WHERE deviceId=? AND companyId=?` y opcionalmente llamar `jwtInvalidateDeviceCache()`. Tokens sin `did` (legacy anterior al feat) siguen pasando (backwards compat).
 
-### Modelo de doble sesión del POS React (IMPLEMENTADO 2026-06-25)
+### Modelo de doble sesión del POS React (ACTUALIZADO 2026-06-27)
 
 El POS React (en `panel-next/app/(pos)/pos`) maneja **DOS sesiones independientes**:
 
-| Sesión | Cookie | Realm | TTL | Quién la cierra |
-|--------|--------|-------|-----|----------------|
-| **Operador** | `_jwt_panel` | `panel` | 24h | "Cerrar sesión" del menú user del sidebar del panel. NO cierra la sesión del POS. |
-| **Dispositivo POS** | `_jwt_pos-device` | `pos-app` + claim `did` | 10 años | ÚNICA forma: Ajustes → "Eliminar dispositivo del comercio" (`POST /v1/device/unpair`). |
+| Sesión | Mecanismo | Realm | TTL | Quién la cierra |
+|--------|-----------|-------|-----|----------------|
+| **Operador** | Cookie `_jwt_panel` | `panel` | 24h | "Cerrar sesión" del menú user del sidebar. NO cierra la sesión del POS. |
+| **Dispositivo POS** | `Authorization: Bearer` + `localStorage['punto.device.token']` | `pos-app` + claim `did` | 10 años | ÚNICA forma: Ajustes → "Eliminar dispositivo del comercio" → revocación desde panel. |
 
-**Implementación completada (sprint 2026-06-25)**:
-- `app/Api/DeviceAuth.php` (PSR-4): emite `_jwt_pos-device` con claim `did` al hacer pair.
-- `apiAuthPosContext()`: middleware que lee `_jwt_pos-device` para los endpoints del POS.
-- Endpoints: `POST /v1/device/pair`, `POST /v1/device/unpair`.
-- `PosAuthGuard` React: guarda real (no depende de `_jwt_panel`), verifica `_jwt_pos-device` vía BFF.
-- `/pos-pair` page: flujo de activación de dispositivo con PIN de local.
-- PIN del cajero: SHA-256 en `localStorage` via Web Crypto API (no bcrypt — ver §42 en `08-convenciones-criticas.md`).
-- La tabla `device` (migración 11) es shared con el legacy `/app` — **no crear tabla paralela**.
+**IMPORTANTE — cambio 2026-06-27**: el token del device POS migró de cookie HttpOnly `_jwt` a **Bearer + localStorage**. Razón: las cookies HttpOnly no se pueden limpiar desde JS — cuando el admin revoca un device, el browser quedaba con cookie zombie. Con localStorage, el patrón es self-healing: server devuelve 401 → cliente limpia su propio token. `_jwt_panel` del admin sigue siendo cookie (sin tocar).
+
+**Implementación**:
+- `lib/auth/device.ts`: `getDeviceToken()` / `setDeviceToken()` / `clearDeviceToken()` — acceso al token en `localStorage['punto.device.token']`.
+- Backend (`jwt_middleware._jwtExtractTokens()`): lee `Authorization: Bearer` como fuente principal para realm `pos-app`. Cookie `_jwt` device eliminada.
+- `PosAuthGuard`: `refetchInterval: () => getDeviceToken() ? 60_000 : false` — polling cada 60s, se desactiva tras logout (evita 401 loop).
+- `lib/auth/module-logout.ts`: `moduleLogout()` — cleanup centralizado: `clearDeviceToken()` + reset Zustand stores (catalog/cart/hotkeys/lock) + `queryClient.clear()`. Llamado por `api-client` en cualquier 401 POS.
+- `lib/auth/query-client-singleton.ts`: expone `queryClient` fuera de React (api-client no es módulo React).
+- La tabla `device` es shared con el legacy `/app` — no crear tabla paralela.
+- PIN del cajero: SHA-256 en `localStorage` via Web Crypto API (no bcrypt).
 
 **Consecuencias de diseño**:
-- El lock screen del POS **NO es logout** — solo bloquea la UI hasta que se ingresa el PIN. El componente es un overlay scoped al workspace del POS (no global), no un redirect a `/login`.
+- El lock screen del POS **NO es logout** — solo bloquea la UI hasta que se ingresa el PIN.
 - Cambiar de operador (PIN diferente) no altera el pairing del dispositivo.
-- El logout del sidebar del panel borra `_jwt_panel` pero NO `_jwt_pos-device`.
+- El logout del sidebar del panel borra `_jwt_panel` pero NO el device token.
+- Revocar device desde panel → próximo fetch POS (max 60s) → `moduleLogout()` se ejecuta automáticamente → UI muestra `DeviceNotConnected`.
+- Devices pareados antes del deploy 2026-06-27 perdieron auth (cookie zombie eliminada) y debieron re-pairear — decisión consciente.
 
 ### SSO handoff panel→app (commit 01d02a3, 2026-06-09)
 
@@ -241,8 +245,7 @@ El franchiser (`panel/franchiser.php`, gateado por `isParent`) es un **realm ten
 
 ## God nodes (más rompen si se tocan mal)
 
-Derivados de `graphify-out/GRAPH_REPORT.md` (medido sobre 2555 nodos / 4058 edges).
-Para detalle vivo: leer ese reporte antes de tocar estas funciones.
+God nodes del repo por tamaño + responsabilidad medida (2555 nodos / 4058 edges al momento del análisis).
 
 ### Funciones críticas (medidas)
 
@@ -618,60 +621,69 @@ jQuery se queda en la capa de UI.
 
 ---
 
-## Auth — Modelo dual de cookies
+## Auth — Modelo dual de sesiones POS (ACTUALIZADO 2026-06-27)
 
-El sistema tiene dos cookies JWT que coexisten en el browser del operador:
+El browser del operador tiene UN token de sesión de panel (cookie) y UN token de device POS (localStorage):
 
-| Cookie | Realm | TTL | Origen | Fin |
-|---|---|---|---|---|
-| `_jwt_panel` | panel | 24h | `/login` del panel admin | Logout o expiración |
-| `_jwt` | pos-app | 10 años | Admin logueado → click Caja → `/pos-pair` → password re-auth → POST `/v1/auth/pair-pos-device` | Ajustes → "Dispositivos" → "Revocar" |
+| Token | Mecanismo | Realm | TTL | Origen | Fin |
+|---|---|---|---|---|---|
+| `_jwt_panel` | Cookie HttpOnly | `panel` | 24h | `/login` del panel | Logout o expiración |
+| `punto.device.token` | `localStorage` + `Authorization: Bearer` | `pos-app` + claim `did` | 10 años | Invitation flow (ver abajo) | Admin revoca → `moduleLogout()` auto o Ajustes → "Eliminar dispositivo" |
 
-### Flujo de pairing
+### Flujo de pairing — Invitation-based (reemplaza /pos-pair, 2026-06-27)
+
+Modelo "Netflix/Spotify": el admin genera un link único con los parámetros pre-configurados. El cajero lo abre, el admin aprueba con 1 click. Sin password re-auth.
 
 ```
-Admin logueado (_jwt_panel) → abre /pos-pair
-  → Form: password (re-confirmación) + outlet + caja + deviceName
-  → POST /api/auth/pair-pos-device
-    → BFF → /v1/auth/pair-pos-device (PHP)
-      → valida password admin (SHA-256 salt)
-      → valida outletId + registerId pertenecen al companyId
-      → DeviceAuth::issueJwt() → INSERT en tabla device + emite _jwt
-  → Browser guarda cookie _jwt (10 años)
-  → Redirect a /pos
+Admin (panel) → /settings/devices → tab "Solicitudes"
+  → "Nueva invitación" → elige outlet + caja + nombre + TTL
+  → POST /v1/device_invitations → INSERT device_invitation (UUID, status=pending)
+  → Admin copia link → manda al cajero (WhatsApp/Slack/etc.)
+
+Cajero → abre https://app.punto.la/connect/{uuid} en el device
+  → /connect/[id] page (sin auth requerida)
+  → polling GET /v1/device_invitations/{uuid} → status=pending → UI "Esperando aprobación"
+
+Admin → panel recarga tab "Solicitudes" → ve la invitación activa
+  → "Aprobar" → POST /v1/device_invitations/{uuid}/approve
+    → INSERT en tabla device (con browserLocalId para idempotencia, mig 60)
+    → DeviceInvitationService::issueToken() → emite JWT pos-app
+    → invitation.status = approved, token guardado
+
+Cajero → polling detecta status=approved → recibe token
+  → localStorage['punto.device.token'] = token
+  → redirect a /pos
 ```
+
+**Idempotencia por `browserLocalId`** (mig 60): el device envía un UUID generado en localStorage (`punto.browser.id`). El índice único parcial en `device(browserLocalId, registerId, companyId) WHERE status=1` garantiza que el mismo browser + misma caja = 1 fila (auto-dedup si se vuelve a invitar).
 
 ### Flujo de operación POS
 
 ```
-Browser con _jwt → /pos
-  → PosAuthGuard: useBootstrap() → si 401 → /pos-pair
-  → POS carga, sidebar con sesión del panel (_jwt_panel si existe)
+Browser con punto.device.token → /pos
+  → PosAuthGuard: useBootstrap() con Authorization: Bearer
+    → si null token → /connect (sin token)
+    → si 401 → moduleLogout() → DeviceNotConnected
+  → POS carga, polling refetchInterval 60s (desactivado si token nulo)
   → Operador tipea PIN en LockScreen → POST /v1/unlock-pin
-    → valida PIN por bcrypt (lockPassHash) con fallback a plano (lockPass — depreciado)
   → Operación desbloqueada — identidad del operador en Zustand lock-store
-  → En 401 durante operación: PosUnauthorizedSentinel emite pos:unauthorized
-    → DEVICE_REVOKED → /pos-pair
-    → Otro error → lock-store.lock() (LockScreen tapa la UI, carrito intacto)
 ```
 
-### Revocación
+### Revocación y auto-cleanup
 
 ```
-Admin (panel) → /settings/devices → tab "Cajas POS"
-  → Botón Revocar → DELETE /v1/devices?id=<deviceId>
+Admin → /settings/devices → "Revocar"
   → device.status = 0 en BD
-  → El device afectado: próximo request → 401 → pos:unauthorized → /pos-pair
+  → Device afectado: próximo refetch (≤60s) → 401
+    → api-client: cualquier 401 POS → moduleLogout()
+      → clearDeviceToken() + reset Zustand (catalog/cart/hotkeys/lock) + queryClient.clear()
+      → UI muestra DeviceNotConnected (sin redirect a /pos-pair — ese flow fue eliminado)
 ```
 
 ### Modelo de operador (PIN)
 
-El PIN del operador es identidad por-acción, NO genera JWT. El `lock-store` del browser
-guarda el operador actual (name, id). Se pierde con refresh → cajero re-tipea PIN en
-LockScreen. La cookie `_jwt` del device sigue intacta.
+El PIN del operador es identidad por-acción, NO genera JWT. El `lock-store` del browser guarda el operador actual. Se pierde con refresh → cajero re-tipea PIN en LockScreen. El device token de localStorage sigue intacto.
 
 ### Env vars
 
-No hay env vars nuevas. Se reutilizan:
-- `JWT_SECRET` — secret compartido para todos los JWT del sistema
-- `COOKIE_DOMAIN` — dominio de las cookies (ej. `.punto.la`), opcional
+Sin env vars nuevas. Se reutilizan `JWT_SECRET` + `COOKIE_DOMAIN`.

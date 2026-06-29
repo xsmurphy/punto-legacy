@@ -125,4 +125,3 @@ versionados. Alpine queda con `^` (fuera del freeze legacy).
 | `package.json` | Scripts de build + devDeps |
 | `.claude/launch.json` | Servidores de desarrollo locales |
 | `build.sh` | Pipeline de build (JS + CSS) |
-| `.graphifyignore` | Exclusiones para el grafo de código |

@@ -19,7 +19,6 @@ app/vendor
 
 # Cache
 cache/
-graphify-out/
 **/*.log
 **/.DS_Store
 
@@ -27,7 +26,6 @@ graphify-out/
 .claude/
 .vscode/
 .idea/
-mempalace.yaml
 context/
 docs/
 screens/
