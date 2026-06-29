@@ -71,22 +71,35 @@ final class Taxonomy
             return $map[$id];
         }
 
+        // taxonomyId es UUID. Una key no-mapeada SIN forma de UUID (ej. "credito")
+        // nunca matchea y reventaba el cast a uuid (SQLSTATE 22P02 → 500 en
+        // /v1/credit-payments). Solo consultamos PG con candidatos con forma UUID.
+        $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+        $lookup = static function (mixed $candidate) use ($uuidRe): ?string {
+            $candidate = (string) $candidate;
+            if ($candidate === '' || !preg_match($uuidRe, $candidate)) {
+                return null;
+            }
+            $r = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1', [$candidate, COMPANY_ID]);
+            return $r ? (string) $r['taxonomyName'] : null;
+        };
+
         if ($decode) {
             $id = dec($id);
         }
-        // dec() de un string no-encriptado puede devolver '' → guard nuevamente
-        if ($id === '' || $id === null) return '';
-        $result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1', [$id, COMPANY_ID]);
-        if ($result) {
-            return $result['taxonomyName'];
+        $name = $lookup($id);
+        if ($name !== null) {
+            return $name;
         }
 
+        // Segundo intento con dec() para el path no-decode (id pudo venir encriptado).
         if (!$decode) {
-            $id = dec($id);
+            $name = $lookup(dec($id));
+            if ($name !== null) {
+                return $name;
+            }
         }
-        if ($id === '' || $id === null) return '';
-        $result = ncmExecute('SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1', [$id, COMPANY_ID]);
-        return $result ? $result['taxonomyName'] : '';
+        return '';
     }
 
     /**
