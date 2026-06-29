@@ -209,7 +209,10 @@ final class UsersService
         $rec = [
             'contactName'              => $name,
             'contactEmail'             => $email !== '' ? $email : null,
-            'contactPhone'             => $in['phone']            ?? null,
+            'contactPhone'             => (function () use ($in) {
+                require_once dirname(__DIR__, 3) . '/app/includes/phone.php';
+                return phoneValidateForStorage($in['phone'] ?? null, (string)($in['country'] ?? 'PY'));
+            })(),
             'contactPassword'          => $hash,
             'salt'                     => $salt,
             'role'                     => $in['roleId']           ?? null,
@@ -260,7 +263,8 @@ final class UsersService
             $rec['contactEmail'] = $email !== '' ? $email : null;
         }
         if (array_key_exists('phone', $in)) {
-            $rec['contactPhone'] = $in['phone'] ?: null;
+            require_once dirname(__DIR__, 3) . '/app/includes/phone.php';
+            $rec['contactPhone'] = phoneValidateForStorage($in['phone'] ?? null, (string)($in['country'] ?? 'PY'));
         }
         if (!empty($in['password'])) {
             [$hash, $salt] = self::hashPassword((string) $in['password']);
