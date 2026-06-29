@@ -201,6 +201,23 @@ final class OutletsService
             );
         }
 
+        // Depósito por defecto — toda sucursal necesita al menos uno (jerarquía
+        // Company → Outlet → Depósito → Caja). Es una taxonomy type 'location'
+        // scopeada al outlet (mismo shape que LocationTaxonomyService::create).
+        $depRes = $db->Execute(
+            "INSERT INTO taxonomy (taxonomyid, companyid, taxonomytype, outletid, taxonomyname)
+             VALUES (gen_random_uuid(), ?, 'location', ?, ?)",
+            [$companyId, $outletId, 'Depósito Principal']
+        );
+        if ($depRes === false) {
+            $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException(
+                'No se pudo crear el depósito inicial: ' . ($errMsg !== '' ? $errMsg : 'sin detalle del driver')
+            );
+        }
+
         // Inventory blank-rows: solo si el plan de la company incluye `inventory`.
         // `inventory` vive en el JSONB `features` (db-schema-postgres.sql:78) como
         // BOOLEAN (`true`/`false`), no integer — el seed `plans` serializa PHP
