@@ -123,8 +123,9 @@ jobs:
         run: echo "Sin .js cambiados — skip."
 
   # ────────────────────────────────────────────────────────────────────
-  # Composer validate — chequea que app/composer.json y panel/composer.json
-  # estén bien formados y sus locks coherentes
+  # Composer validate — chequea que api/composer.json esté bien formado.
+  # (app/ y panel/ se eliminaron en la reestructura 2026-06-29; el único
+  #  composer del repo es api/composer.json)
   # ────────────────────────────────────────────────────────────────────
   composer-validate:
     name: Composer Validate
@@ -139,10 +140,6 @@ jobs:
           tools: composer:v2
           coverage: none
 
-      - name: Validate app/composer.json
+      - name: Validate api/composer.json
         run: composer validate --no-check-publish --strict
-        working-directory: ./app
-
-      - name: Validate panel/composer.json
-        run: composer validate --no-check-publish --strict
-        working-directory: ./panel
+        working-directory: ./api
