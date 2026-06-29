@@ -44,7 +44,7 @@ export function BlockInspector({ block, onChange }: Props) {
         <p className="mt-1 font-medium">{block.type}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <NumberField label="Izquierda (px)" value={block.left} onChange={(v) => onChange({ left: v })} />
         <NumberField label="Arriba (px)" value={block.top} onChange={(v) => onChange({ top: v })} />
         <NumberField label="Ancho" value={block.width} onChange={(v) => onChange({ width: v })} />
@@ -72,7 +72,7 @@ export function BlockInspector({ block, onChange }: Props) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Tamaño</Label>
           <Select value={block.size} onValueChange={(v) => onChange({ size: v })}>
@@ -105,7 +105,7 @@ export function BlockInspector({ block, onChange }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Alineación</Label>
           <Select
