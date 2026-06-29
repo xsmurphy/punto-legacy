@@ -2566,7 +2566,13 @@ function findPhoneLogin($phone){
 	// Phone storage convention: contactPhone se guarda SIN el '+' inicial
 	// (libphonenumber lo agrega al normalizar, hay que strippearlo para match).
 	$phone = ltrim((string)$phone, '+');
-	return ncmExecute("SELECT c.*
+	// Alias quoted para preservar camelCase — convención del proyecto
+	// post-refactor 28-jun (flattenJsonb plano ya no es CaseInsensitive).
+	// login.php lee $row['contactPassword'], 'companyId', 'contactId', 'role'.
+	return ncmExecute("SELECT c.*,
+                              c.contactpassword AS \"contactPassword\",
+                              c.contactid       AS \"contactId\",
+                              c.companyid       AS \"companyId\"
                         FROM contact c
                         WHERE c.contactPhone = ?
                           AND c.type = 0
