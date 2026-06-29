@@ -24,37 +24,42 @@ namespace Punto\App\Database;
 final class Query
 {
     /**
-     * Aplana columnas JSONB (data/meta/config) en el array de una fila.
-     * Las keys del JSONB se mezclan en el array; la columna nombrada gana sobre JSONB.
+     * Aplana columnas JSONB (data/meta/config) en una fila y devuelve CIA.
+     * Las keys del JSONB se mezclan en la fila; la columna nombrada gana sobre JSONB.
      * Equivalente legacy: `_flattenJsonb($row)`.
      *
-     * @param mixed $row  CaseInsensitiveArray o array.
+     * Devuelve CaseInsensitiveArray — el lookup de keys es case-insensitive,
+     * igual que el contrato original de ADOdb. Callers que lean $row['outletId']
+     * con PG devolviendo 'outletid' funcionan sin cambios.
+     *
+     * @param mixed $row  CaseInsensitiveArray (propia), CaseInsensitiveArray (ADOdb legacy), o array plano.
      */
-    public static function flattenJsonb(mixed $row): array
+    public static function flattenJsonb(mixed $row): CaseInsensitiveArray
     {
-        // Retorna `array` plano (no CaseInsensitiveArray). Antes retornaba
-        // CIA y CADA caller con typehint `array $row` revienta con
-        // "Argument must be of type array, CaseInsensitiveArray given"
-        // (bug recurrente: PrinterBindingService, PriceListService, etc).
-        // El nuevo contrato es uniforme: ncmExecute para 1 row → array.
-        // PG devuelve keys lowercase, callers usan `$row['contactname']` —
-        // perdemos el lookup case-insensitive del CIA pero nadie de Punto
-        // dependía de eso explícitamente. Incidente 2026-06-28.
-        $arr = ($row instanceof \CaseInsensitiveArray) ? $row->toArray() : (array) $row;
+        // Extraer array plano de cualquier envoltorio.
+        if ($row instanceof CaseInsensitiveArray) {
+            $arr = $row->getArrayCopy();
+        } elseif ($row instanceof \CaseInsensitiveArray) {
+            // ADOdb legacy — tiene toArray() o es Traversable
+            $arr = method_exists($row, 'toArray') ? $row->toArray() : iterator_to_array($row);
+        } else {
+            $arr = (array) $row;
+        }
 
         static $jsonbCols = ['data', 'meta', 'config'];
         foreach ($jsonbCols as $col) {
-            $val = $arr[$col] ?? $arr[strtolower($col)] ?? null;
+            // CIA resuelve case-insensitive: $arr[$col] funciona aunque PG devuelva 'data'.
+            $val = $arr[$col] ?? null;
             if (isset($val) && is_string($val) && $val !== '') {
                 $decoded = json_decode($val, true);
                 if (is_array($decoded) && !array_is_list($decoded)) {
-                    $arr = array_merge($decoded, $arr); // columna gana sobre JSONB
+                    $arr = array_merge($decoded, $arr); // columna nombrada gana sobre JSONB
                     unset($arr[$col]);
                 }
             }
         }
 
-        return $arr;
+        return new CaseInsensitiveArray($arr);
     }
 
     /**
@@ -62,11 +67,14 @@ final class Query
      * Equivalente legacy: `ncmExecute($sql, $array, $cache, $forceObj, $getAssoc)`.
      *
      * Retorno:
-     *   - $getAssoc=true  → array asociativo con _flattenJsonb en cada fila, o false.
-     *   - $forceObj=true  → objeto ADOdb recordset (inclusive si 0 filas), o false.
-     *   - count=1         → CaseInsensitiveArray de la primera fila, o false.
-     *   - count>1         → objeto ADOdb recordset (el flatten se aplica al iterar).
+     *   - $getAssoc=true  → array asociativo con flattenJsonb en cada fila (valores son CIA), o false.
+     *   - $forceObj=true  → RecordsetIterator (iterable, fields devuelve CIA via flattenJsonb), o false.
+     *   - count=1         → CaseInsensitiveArray (propia) de la primera fila, o false.
+     *   - count>1         → RecordsetIterator (el flatten se aplica al iterar via fields).
      *   - count=0         → 0 (sin forceObj), o false.
+     *
+     * El CIA restaura el lookup case-insensitive que tenia ADOdb: $row['outletId']
+     * funciona aunque PG devuelva la key como 'outletid'.
      *
      * SEMÁNTICA VERBATIM — no modificar sin regression suite completo.
      */

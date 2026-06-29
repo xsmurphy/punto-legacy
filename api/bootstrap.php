@@ -126,8 +126,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
             'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
             [$companyId]
         );
-        // hotfix: ncmExecute 1-fila devuelve keys lowercase (refactor 28-jun) — fallback a camelCase. Fix arquitectónico pendiente en el wrapper.
-        $outletId = (string)($row['outletId'] ?? $row['outletid'] ?? '');
+        $outletId = (string) ($row['outletId'] ?? ''); // CIA wrapper resuelve case-insensitive
     }
 
     // data.php define COMPANY_ID/OUTLET_ID/TODAY/COMPANY_NAME/etc. desde estas locales.
