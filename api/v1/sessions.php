@@ -8,11 +8,17 @@ global $db;
 
 if ($method === 'GET') {
     $showRevoked = ($_GET['showRevoked'] ?? '') === '1';
-    $where = '"companyId" = ?' . ($showRevoked ? '' : ' AND status = 1');
     $r = $db->Execute(
-        'SELECT "sessionId", realm, "userId", "deviceId", "outletId", "registerId", module,
-                status, "createdAt", "lastSeenAt", "expiresAt", "revokedAt", "ipLast", "userAgent"
-           FROM auth_session WHERE ' . $where . ' ORDER BY "lastSeenAt" DESC NULLS LAST LIMIT 500',
+        'SELECT s."sessionId", s.realm, s."userId", s."deviceId", s."outletId", s."registerId", s.module,
+                s.status, s."createdAt", s."lastSeenAt", s."expiresAt", s."revokedAt", s."ipLast", s."userAgent",
+                c.contactname AS "userName",
+                o.outletname  AS "outletName",
+                d.devicename  AS "deviceName"
+           FROM auth_session s
+           LEFT JOIN contact c ON c.contactid = s."userId"   AND c.companyid = s."companyId"
+           LEFT JOIN outlet  o ON o.outletid  = s."outletId" AND o.companyid = s."companyId"
+           LEFT JOIN device  d ON d.deviceid  = s."deviceId" AND d.companyid = s."companyId"
+          WHERE s."companyId" = ? ' . ($showRevoked ? '' : 'AND s.status = 1 ') . 'ORDER BY s."lastSeenAt" DESC NULLS LAST LIMIT 500',
         [$ctx['companyId']]
     );
     $rows = [];

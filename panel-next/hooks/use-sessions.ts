@@ -15,6 +15,9 @@ export interface AuthSession {
   expiresAt: string | null
   ipLast: string | null
   userAgent: string | null
+  userName: string | null
+  outletName: string | null
+  deviceName: string | null
 }
 
 export function useSessions(opts: { showRevoked?: boolean } = {}) {

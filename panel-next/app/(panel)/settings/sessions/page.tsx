@@ -74,20 +74,42 @@ export default function SessionsPage() {
       {
         accessorKey: "userId",
         header: "Usuario",
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {row.original.userId ?? "—"}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const name = row.original.userName
+          const id = row.original.userId
+          return name ? (
+            <span>{name}</span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">{id ?? "—"}</span>
+          )
+        },
       },
       {
         accessorKey: "outletId",
         header: "Sucursal",
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {row.original.outletId ?? "—"}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const name = row.original.outletName
+          const id = row.original.outletId
+          return name ? (
+            <span>{name}</span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">{id ?? "—"}</span>
+          )
+        },
+      },
+      {
+        accessorKey: "deviceId",
+        header: "Dispositivo",
+        cell: ({ row }) => {
+          const name = row.original.deviceName
+          const id = row.original.deviceId
+          if (!id) return <span className="text-muted-foreground">—</span>
+          return name ? (
+            <span>{name}</span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">{id}</span>
+          )
+        },
       },
       {
         accessorKey: "lastSeenAt",
