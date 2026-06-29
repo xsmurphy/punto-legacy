@@ -540,7 +540,7 @@ final class PriceListService
         return $out;
     }
 
-    private function shape(array $row): array
+    private function shape(array|\CaseInsensitiveArray $row): array
     {
         return [
             'priceListId'       => (string) ($row['priceListId'] ?? ''),
@@ -555,7 +555,7 @@ final class PriceListService
         ];
     }
 
-    private function shapeItem(array $row, array $listRow): array
+    private function shapeItem(array|\CaseInsensitiveArray $row, array|\CaseInsensitiveArray $listRow): array
     {
         $basePrice  = (float) ($row['itemPrice'] ?? 0);
         $fixedPrice = isset($row['fixedPrice']) && $row['fixedPrice'] !== null

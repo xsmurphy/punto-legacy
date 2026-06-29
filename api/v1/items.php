@@ -37,7 +37,7 @@ use Punto\Api\Context\TenantContext;
  * canonical para el front. Expone `kind` (desde `itemKind`), `categories[]`,
  * y `tags[]` (desde JSONB data.tags).
  */
-function presentItem(array $row): array
+function presentItem(array|\CaseInsensitiveArray $row): array
 {
     $map = [
         'itemid'              => 'itemId',

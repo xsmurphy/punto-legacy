@@ -1159,7 +1159,7 @@ class CompanyAdminService
     }
 
     /** Acceso case-insensitive a una clave (PG suele devolver lowercase). */
-    private function pick(array $row, string $key): mixed
+    private function pick(array|\CaseInsensitiveArray $row, string $key): mixed
     {
         return $row[$key] ?? $row[strtolower($key)] ?? null;
     }

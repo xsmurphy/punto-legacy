@@ -169,7 +169,7 @@ final class CategoryService
         }
     }
 
-    private function present(array $row): array
+    private function present(array|\CaseInsensitiveArray $row): array
     {
         return [
             'id'         => (string) ($row['categoryid'] ?? $row['categoryId'] ?? ''),

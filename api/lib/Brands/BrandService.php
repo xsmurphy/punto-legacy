@@ -196,7 +196,7 @@ final class BrandService
         }
     }
 
-    private function present(array $row): array
+    private function present(array|\CaseInsensitiveArray $row): array
     {
         return [
             'id'         => (string) ($row['brandid'] ?? $row['brandId'] ?? ''),

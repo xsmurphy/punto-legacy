@@ -141,7 +141,7 @@ final class DocumentTemplateService
 
     // ── Internals ─────────────────────────────────────────────────────────
 
-    private function present(array $row): array
+    private function present(array|\CaseInsensitiveArray $row): array
     {
         // PG jsonb puede llegar como string (driver pdo_pgsql/pgsql, lo más común),
         // como stdClass (algunos drivers PHP 8.x con cast automático), o como

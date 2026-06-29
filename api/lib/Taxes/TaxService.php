@@ -162,7 +162,7 @@ final class TaxService
         return (string) ($rs->fields['name'] ?? '');
     }
 
-    private function present(array $row): array
+    private function present(array|\CaseInsensitiveArray $row): array
     {
         $name = (string) ($row['name'] ?? '');
         // rate: best-effort cast del name a número. Si no es parseable, null.
