@@ -723,14 +723,10 @@ final class SaleService
         ];
 
         // recurringTransactionData: el cron (cronCreateRecurringInvoice.php) hace:
-        //   $url = '/action?l=' . base64_encode($fields['recurringTransactionData'])
-        //   → action.php: base64_decode(?l) → json_decode → $get['action']
-        // El JSON DEBE tener la clave `action` para que action.php despache correctamente.
-        // Además el cron lee $transData['registerId'] y $transData['companyId'] (raw UUID).
-        // Guardamos el mismo shape que el legacy (base64_decode(masterUrlParams())):
-        // {"action":"processData","companyId":"...","outletId":"...","userId":"...","roleId":1,"registerId":"..."}.
-        // El cron mintea un JWT de servicio de corta vida (120s) usando este contexto —
-        // ver panel/crons/cronCreateRecurringInvoice.php (fix del cron JWT).
+        // LEGACY (cron + action.php ELIMINADOS 2026-06-29): se persistía este shape de
+        // recurringTransactionData para que el cron lo re-posteara a action.php?l=processData.
+        // Ese path ya no existe. TODO: rehacer la automatización de facturas recurrentes sobre
+        // el path moderno (/v1/sales → SaleService). El dato se sigue guardando por compat.
         $txData = json_encode([
             'action'     => 'processData',
             'companyId'  => $this->ctx->companyId,

@@ -26,7 +26,7 @@ if ($method === 'POST' && $resource === 'heartbeat') {
     if (($ctx['module'] ?? 'pos') !== 'screen') {
         apiError('Heartbeat solo para pantallas cliente', 403);
     }
-    // apiAuthPosContext ya actualiza lastSeenAt + iplast en la fila device (DeviceAuth::validateJwt)
+    // apiAuthPosContext ya actualiza lastSeenAt + iplast en la fila device (DeviceAuth::resolveDeviceToken)
     apiOk(['ok' => true]);
     exit;
 }

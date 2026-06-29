@@ -35,6 +35,7 @@ proporcional al riesgo de la tarea:
 | Plan mesas | `15-mesas-module-plan.md` |
 | Rewrite POS (app-next) | `16-app-next-rewrite.md` |
 | **POS roadmap (sprint 2026-06-21+)** | `19-pos-roadmap.md` |
+| **Auth rewrite (JWT → tokens opacos)** | `21-auth-rewrite.md` (plan cerrado 2026-06-29) |
 | Bitácora de sesiones | `_session-log.md` |
 
 > Items completados / docs superseded archivados en `_archive-*.md` (no se leen en uso normal).
@@ -44,16 +45,7 @@ proporcional al riesgo de la tarea:
 NO leer estos archivos con Read sin `offset`/`limit` — los chunks
 explotan el contexto:
 
-- `graphify-out/graph.json` (2.1 MB) — datos crudos del grafo, sirve solo a graphify
-- `graphify-out/graph.html` (1.9 MB), `graph.svg` (5.3 MB) — visualizaciones
 - `context/_archive-convenciones-detalladas.md` (1697 L) y `context/_archive-roadmap-completado.md` (1058 L) — son archives, no contexto vivo; Grep solo si necesitás referencia histórica
-
-Mempalace y Graphify **pueden usarse si la tarea lo justifica** (decisión
-revisada 2026-06-16). Antes la regla era "no usar nunca" porque gastaban
-tokens regenerando sin retorno — ahora se permiten cuando agregan valor
-real (debug arquitectónico, contexto previo de decisiones, mapeo de
-dependencias entre módulos). Para tareas de día a día seguí pasando
-directo al código — no los invoques por protocolo.
 
 ---
 

@@ -2,10 +2,10 @@
 /**
  * Auth del realm `pos-app` -- dispositivos POS pareados.
  *
- * JWT del device (Bearer token, storage en localStorage del browser):
- *   - TTL 10 anyos (JWT lib requiere exp finita).
- *   - Sin expiracion practica: el cajero opera continuamente.
- *   - Revocacion explicita via tabla `device` (status=0).
+ * Sesion opaca del device (Bearer token, storage en localStorage del browser):
+ *   - TTL nulo (sesion sin expiracion practica).
+ *   - Sin expiracion: el cajero opera continuamente.
+ *   - Revocacion explicita via tabla `device` (status=0) o por sesion opaca.
  *   - Viaja como `Authorization: Bearer <token>` (no como cookie HttpOnly).
  *
  * Coexiste con `_jwt_panel` (panel admin, cookie HttpOnly 24h). El device
@@ -21,7 +21,7 @@ final class DeviceAuth
     private const TTL = 315360000; // 10 anyos en segundos
 
     /**
-     * Emite JWT de device, inserta en tabla `device`.
+     * Emite sesion opaca de device, inserta en tabla `device`.
      *
      * Si `$browserLocalId` no es null/vacío y ya existe un device activo para
      * (companyId, registerId, browserLocalId), re-emite el token del device
@@ -32,7 +32,7 @@ final class DeviceAuth
      *
      * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
      */
-    public static function issueJwt(
+    public static function issueDeviceToken(
         string $companyId,
         string $outletId,
         string $registerId,
@@ -42,9 +42,6 @@ final class DeviceAuth
         ?string $browserLocalId = null,
         string $module          = 'pos',
     ): array {
-        // jwt.php no se autocarga -- cargarlo explicito (mismo patron que PanelAuth)
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
-
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
             throw new \RuntimeException('JWT_SECRET no configurado');
@@ -108,8 +105,8 @@ final class DeviceAuth
     }
 
     /**
-     * Construye el JWT del device sin efectos secundarios (sin cookie).
-     * Usado tanto por issueToken() como por createDeviceAndIssueJwt().
+     * Construye el token opaco del device sin efectos secundarios (sin cookie).
+     * Usado tanto por issueToken() como por createDeviceAndIssueToken().
      *
      * @param string $module Tipo de dispositivo: 'pos' | 'screen' | 'kds' | 'display'.
      *                       Se incluye en el claim 'mdl'. Default 'pos' para back-compat.
@@ -123,33 +120,27 @@ final class DeviceAuth
         string $secret,
         string $module = 'pos',
     ): string {
-        $now = time();
-        // oid/rid se INCLUYEN como info-only para el cliente (ej. la pantalla
-        // cliente necesita el `rid` en el front para suscribirse al canal WS
-        // `${cid}:checkout:${rid}` al que el POS publica el cart en vivo).
-        // El backend NO los lee para auth scope: sigue resolviendo desde la
-        // fila `device` en cada request (memoria: jerarquia_dominio, bootstrap
-        // pos-app branch). Si la fila cambia, este claim queda stale pero el
-        // backend siempre gana.
-        return jwtEncode([
-            'iss'  => 'pos-app',
-            'cid'  => $companyId,
-            'did'  => $deviceId,
-            'oid'  => $outletId,
-            'rid'  => $registerId,
-            'pby'  => $pairedByContactId,
-            'mdl'  => $module,
-            'iat'  => $now,
-            'exp'  => $now + self::TTL,
-        ], $secret);
+        require_once dirname(__DIR__, 2) . '/core/includes/auth_session.php';
+        // Device = sesión opaca eterna (expiresAt null), revocable por sesión o por device.status.
+        // oid/rid/module se guardan info-only; el backend resuelve scope desde la fila device.
+        return authSessionCreate('pos-app', [
+            'companyId'  => $companyId,
+            'userId'     => $pairedByContactId,
+            'deviceId'   => $deviceId,
+            'outletId'   => $outletId,
+            'registerId' => $registerId,
+            'roleId'     => '1',
+            'module'     => $module,
+            'expiresAt'  => null,
+        ]);
     }
 
     /**
-     * Construye el JWT del device y lo retorna. Reutilizable desde los paths
-     * "nuevo device" y "device reusado" sin duplicar lógica.
+     * Crea una sesión opaca para el device vía authSessionCreate() y la retorna.
+     * Reutilizable desde los paths "nuevo device" y "device reusado" sin duplicar lógica.
      *
-     * No setea cookie — el token viaja como Bearer en cada request del device.
-     * Si jwtEncode lanza, el caller decide si revocar el device recién insertado.
+     * No setea cookie — el token opaco viaja como Bearer en cada request del device.
+     * Si authSessionCreate lanza, el caller decide si revocar el device recién insertado.
      */
     private static function issueToken(
         string $companyId,
@@ -164,17 +155,17 @@ final class DeviceAuth
     }
 
     /**
-     * Crea un device en BD y emite un JWT sin setear cookie.
+     * Crea un device en BD y emite un token opaco sin setear cookie.
      * Usado por el Device Authorization Grant: el admin aprueba la invitación
      * y el dispositivo recibe el token via polling en /status (no vía setcookie
      * del request del admin).
      *
-     * Misma lógica de idempotencia que issueJwt() pero sin el efecto secundario
+     * Misma lógica de idempotencia que issueDeviceToken() pero sin el efecto secundario
      * de la cookie.
      *
      * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
      */
-    public static function createDeviceAndIssueJwt(
+    public static function createDeviceAndIssueToken(
         string $companyId,
         string $outletId,
         string $registerId,
@@ -184,8 +175,6 @@ final class DeviceAuth
         ?string $browserLocalId = null,
         string $module          = 'pos',
     ): array {
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
-
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
             throw new \RuntimeException('JWT_SECRET no configurado');
@@ -245,7 +234,7 @@ final class DeviceAuth
     }
 
     /**
-     * Emite un JWT para un device ya existente en BD (sin crear uno nuevo).
+     * Emite un token opaco para un device ya existente en BD (sin crear uno nuevo).
      * Usado por DeviceInvitationService::status() y createReconnect().
      *
      * Si $companyId se provee, se usa como filtro adicional (scoped al tenant).
@@ -254,10 +243,8 @@ final class DeviceAuth
      *
      * @return array{deviceId: string, token: string, expiresIn: int}
      */
-    public static function issueJwtForExistingDevice(string $deviceId, ?string $companyId = null): array
+    public static function issueTokenForExistingDevice(string $deviceId, ?string $companyId = null): array
     {
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
-
         $secret = $_ENV['JWT_SECRET'] ?? '';
         if ($secret === '') {
             throw new \RuntimeException('JWT_SECRET no configurado');
@@ -288,43 +275,49 @@ final class DeviceAuth
             (string) ($device['module'] ?? 'pos'),
         );
 
-        return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL];
+        return [
+            'deviceId'   => $deviceId,
+            'token'      => $token,
+            'expiresIn'  => self::TTL,
+            'companyId'  => (string) ($device['companyid']  ?? $companyId ?? ''),
+            'registerId' => (string) ($device['registerid'] ?? ''),
+            'outletId'   => (string) ($device['outletid']   ?? ''),
+        ];
     }
 
     /**
-     * Valida el Bearer token del device y retorna el ctx, o null si invalido/revocado.
+     * Resuelve el token opaco del device y retorna el ctx, o null si invalido/revocado.
      *
      * @return array{companyId:string,outletId:string,registerId:string,deviceId:string,userId:string,roleId:string,isDevice:bool}|null
      */
-    public static function validateJwt(string $bearerToken): ?array
+    public static function resolveDeviceToken(string $bearerToken): ?array
     {
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
+        require_once dirname(__DIR__, 2) . '/core/includes/auth_session.php';
 
-        $secret = $_ENV['JWT_SECRET'] ?? '';
-        if ($secret === '') {
+        $s = authSessionLookup($bearerToken);
+        if ($s === null
+            || (int) $s['status'] !== 1
+            || (string) $s['realm'] !== 'pos-app') {
             return null;
         }
-
-        $payload = jwtDecode($bearerToken, $secret);
-        if (!is_array($payload) || ($payload['iss'] ?? '') !== 'pos-app') {
+        $exp = (string) ($s['expiresAt'] ?? '');
+        if ($exp !== '' && strtotime($exp) < time()) {
             return null;
         }
-
-        $deviceId = (string) ($payload['did'] ?? '');
+        $deviceId = (string) ($s['deviceId'] ?? '');
         if ($deviceId === '') {
             return null;
         }
 
-        // Verificar que el device no esta revocado y que cid del JWT coincide con BD
+        // Fila device = fuente de verdad (outlet/register/module pueden cambiar post-pairing).
         $device = ncmExecute(
             'SELECT deviceid, companyid, outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
-            [$deviceId, (string) ($payload['cid'] ?? '')]
+            [$deviceId, (string) ($s['companyId'] ?? '')]
         );
         if (!$device) {
             return null;
         }
 
-        // Actualizar lastSeenAt + iplast best-effort
         try {
             ncmExecute(
                 'UPDATE device SET lastseenat = now(), iplast = ?::inet WHERE deviceid = ?::uuid',
@@ -334,15 +327,13 @@ final class DeviceAuth
             // best-effort
         }
 
-        // module: prioridad BD (fuente de verdad), fallback al claim del JWT, default 'pos'.
-        $module = (string) ($device['module'] ?? $payload['mdl'] ?? 'pos');
-
+        $module = (string) ($device['module'] ?? $s['module'] ?? 'pos');
         return [
-            'companyId'  => (string) ($device['companyid']  ?? $payload['cid'] ?? ''),
-            'outletId'   => (string) ($device['outletid']   ?? $payload['oid'] ?? ''),
-            'registerId' => (string) ($device['registerid'] ?? $payload['rid'] ?? ''),
+            'companyId'  => (string) ($device['companyid']  ?? ''),
+            'outletId'   => (string) ($device['outletid']   ?? ''),
+            'registerId' => (string) ($device['registerid'] ?? ''),
             'deviceId'   => $deviceId,
-            'userId'     => (string) ($device['userid']     ?? $payload['pby'] ?? ''),
+            'userId'     => (string) ($device['userid']     ?? ''),
             'roleId'     => '1',
             'isDevice'   => true,
             'module'     => $module,

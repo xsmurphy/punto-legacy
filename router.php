@@ -2,11 +2,13 @@
 /**
  * Router raíz — dispatcher por Host header (deploy single-container).
  *
- * Punto sirve 4 subdominios bajo el mismo container PHP en Coolify:
+ * Punto sirve 3 subdominios bajo el mismo container PHP en Coolify:
  *   panel.punto.la  → /panel
  *   admin.punto.la  → /panel (con /admin prefix forzado en path)
- *   app.punto.la    → /app
  *   api.punto.la    → /api
+ *
+ * app.punto.la fue eliminado en la Fase 2 del cleanup (legacy-cleanup 2026-06-29):
+ * el backend legacy de /app se movió a api/core.
  *
  * Cada módulo conserva su router.php — este dispatcher solo decide CUÁL
  * delegar y maneja archivos estáticos (porque PHP -S sirve estáticos vía
@@ -25,11 +27,12 @@ error_reporting(E_ALL & ~E_DEPRECATED & ~E_WARNING);
 $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// Resolver módulo por subdomain
+// Resolver módulo por subdomain.
+// app.punto.la fue eliminado en la Fase 2 del cleanup (legacy-cleanup 2026-06-29):
+// el backend de /app se movió a api/core — ya no existe como módulo web propio.
 $module = match (true) {
     str_starts_with($host, 'panel.') => 'panel',
     str_starts_with($host, 'admin.') => 'panel', // mismo container, prefix forzado abajo
-    str_starts_with($host, 'app.')   => 'app',
     str_starts_with($host, 'api.')   => 'api',
     default                          => 'panel',
 };

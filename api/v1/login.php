@@ -4,7 +4,7 @@
  *
  *   POST /v1/login { phone: "E.164", password: "..." }
  *       → { ok: true, data: { token, expiresIn, user: { id, role, companyId } } }
- *       → cookie `_jwt_panel` HttpOnly seteada vía PanelAuth::issueJwt()
+ *       → cookie `_jwt_panel` HttpOnly seteada vía PanelAuth::issuePanelSession()
  *
  * Endpoint PÚBLICO (no `apiAuthTenant`) — esto es lo que produce la sesión.
  *
@@ -70,7 +70,7 @@ if ($computed !== rtrim((string) $result['contactPassword'])) {
 // Reutilizar loginPart() del legacy: chequea status de cuenta, resuelve outlet,
 // limpia datos sensibles del row. Lo SÍ usamos pero descartamos su output
 // (envía HTML al body). Solo nos importa que valide companyStatus + resolve
-// outlet para que issueJwt arme el JWT con el `oid` correcto.
+// outlet para que issuePanelSession arme la sesion con el `oid` correcto.
 // NO llamamos loginPart() porque su output mezcla HTML — duplicamos solo el
 // company status check inline.
 $company = ncmExecute('SELECT status FROM company WHERE companyId = ? LIMIT 1', [$result['companyId']]);
@@ -78,7 +78,7 @@ if (!$company || ((string) $company['status']) !== 'Active') {
     apiError('Cuenta inhabilitada', 403);
 }
 
-$jwt = \Punto\Api\Auth\PanelAuth::issueJwt($result);
+$jwt = \Punto\Api\Auth\PanelAuth::issuePanelSession($result);
 if ($jwt['token'] === null) {
     apiError('JWT_SECRET no configurado', 500);
 }

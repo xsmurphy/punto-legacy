@@ -13,7 +13,7 @@
 
 session_start();
 
-define('API_APP_DIR', dirname(__DIR__) . '/app');
+define('API_APP_DIR', __DIR__ . '/core');
 chdir(API_APP_DIR); // los includes de head.php/data.php son relativos al cwd
 
 require_once API_APP_DIR . '/includes/cors.php';
@@ -103,7 +103,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         $module     = (string) ($dev['module'] ?? 'pos');
         // userId del realm pos-app: el token device NO tiene claim `sub`, así que
         // AUTHED_USER_ID queda vacío. La identidad operativa es el contacto que
-        // pareó el device (device.userid) — misma fuente que DeviceAuth::validateJwt.
+        // pareó el device (device.userid) — misma fuente que DeviceAuth::resolveDeviceToken.
         // Sin esto, TenantContext::fromAuth lanza "userId no puede ser vacío" → 500
         // → 502 en /api/pos/bootstrap (incidente 2026-06-27).
         if ($userId === '') {

@@ -6,6 +6,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { setDeviceToken } from "@/lib/auth/device-token"
+import { setDeviceClaims } from "@/lib/auth/device-claims"
 
 const POLL_INTERVAL_MS = 3000
 const MAX_POLL_MS      = 30 * 60 * 1000 // 30 minutos
@@ -13,13 +14,16 @@ const MAX_POLL_MS      = 30 * 60 * 1000 // 30 minutos
 type InvitationStatus = "pending" | "opened" | "approved" | "denied" | "expired"
 
 interface ConnectViewProps {
-  invitationId:      string
-  userCode:          string
-  module:            string
-  autoApproveToken?: string | null
+  invitationId:          string
+  userCode:              string
+  module:                string
+  autoApproveToken?:     string | null
+  autoApproveCompanyId?: string | null
+  autoApproveRegisterId?: string | null
+  autoApproveDeviceId?:  string | null
 }
 
-export function ConnectView({ invitationId, userCode, module, autoApproveToken }: ConnectViewProps) {
+export function ConnectView({ invitationId, userCode, module, autoApproveToken, autoApproveCompanyId, autoApproveRegisterId, autoApproveDeviceId }: ConnectViewProps) {
   const router = useRouter()
   const [status, setStatus] = React.useState<InvitationStatus>("opened")
   const startedAt = React.useRef(Date.now())
@@ -30,6 +34,9 @@ export function ConnectView({ invitationId, userCode, module, autoApproveToken }
     if (!autoApproveToken) return
     const mod = module === "screen" ? "screen" : "pos"
     setDeviceToken(autoApproveToken, mod)
+    if (autoApproveCompanyId && autoApproveRegisterId && autoApproveDeviceId) {
+      setDeviceClaims({ companyId: autoApproveCompanyId, registerId: autoApproveRegisterId, deviceId: autoApproveDeviceId }, mod)
+    }
     setStatus("approved")
     setTimeout(() => {
       if (module === "pos")         router.replace("/pos")
@@ -59,9 +66,9 @@ export function ConnectView({ invitationId, userCode, module, autoApproveToken }
 
         const body = (await res.json()) as {
           ok?: boolean
-          data?: { status: InvitationStatus; token?: string }
+          data?: { status: InvitationStatus; token?: string; companyId?: string; registerId?: string; deviceId?: string }
         }
-        const data = (body?.data ?? body) as { status: InvitationStatus; token?: string }
+        const data = (body?.data ?? body) as { status: InvitationStatus; token?: string; companyId?: string; registerId?: string; deviceId?: string }
         const newStatus = data?.status
 
         if (!newStatus) return
@@ -85,6 +92,9 @@ export function ConnectView({ invitationId, userCode, module, autoApproveToken }
           if (tokenFromBody) {
             const mod = module === "screen" ? "screen" : "pos"
             setDeviceToken(tokenFromBody, mod)
+            if (data.companyId && data.registerId && data.deviceId) {
+              setDeviceClaims({ companyId: data.companyId, registerId: data.registerId, deviceId: data.deviceId }, mod)
+            }
           }
           setTimeout(() => {
             if (module === "pos")         router.replace("/pos")

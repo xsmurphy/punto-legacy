@@ -147,7 +147,7 @@ class DeviceInvitationService
             if ($targetDeviceId === '') {
                 throw new \RuntimeException('Invitación auto-aprobada sin device target', 500);
             }
-            $issued = \Punto\Api\Auth\DeviceAuth::issueJwtForExistingDevice($targetDeviceId);
+            $issued = \Punto\Api\Auth\DeviceAuth::issueTokenForExistingDevice($targetDeviceId);
             ncmExecute(
                 "UPDATE device_invitation
                  SET status='approved', approved_at=now(), approved_by=created_by
@@ -162,6 +162,8 @@ class DeviceInvitationService
                 'token'       => $issued['token'],
                 'deviceId'    => $issued['deviceId'],
                 'module'      => (string)($row['module'] ?? ''),
+                'companyId'   => (string) ($issued['companyId']  ?? ''),
+                'registerId'  => (string) ($issued['registerId'] ?? ''),
             ];
         }
 
@@ -209,11 +211,13 @@ class DeviceInvitationService
             $deviceId  = (string) ($row['device_id'] ?? '');
             $companyId = (string) ($row['company_id'] ?? '');
             if ($deviceId !== '' && $companyId !== '') {
-                $jwt                     = DeviceAuth::issueJwtForExistingDevice($deviceId, $companyId);
+                $jwt                     = DeviceAuth::issueTokenForExistingDevice($deviceId, $companyId);
                 $result['token']         = $jwt['token'];
                 $result['deviceId']      = $deviceId;
                 $result['cookieExpires'] = time() + (int) ($jwt['expiresIn'] ?? 0);
                 $result['module']        = (string) ($row['module'] ?? 'pos');
+                $result['companyId']     = (string) ($jwt['companyId']  ?? '');
+                $result['registerId']    = (string) ($jwt['registerId'] ?? '');
             }
         }
 
@@ -255,8 +259,8 @@ class DeviceInvitationService
         $module     = (string) ($row['module'] ?? '');
 
         // Crear device sin setear cookie — el dispositivo obtiene el token via polling en /status.
-        // El module se persiste en la fila device y en el claim 'mdl' del JWT desde la creación.
-        $issued = DeviceAuth::createDeviceAndIssueJwt(
+        // El module se persiste en la fila device y en el claim 'mdl' del token desde la creación.
+        $issued = DeviceAuth::createDeviceAndIssueToken(
             $companyIdOfAdmin,
             $outletId,
             $registerId,

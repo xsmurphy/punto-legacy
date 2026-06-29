@@ -4,6 +4,7 @@ import { LiveView } from "./live-view"
 import { ConfirmedView } from "./confirmed-view"
 import { IdleView } from "./idle-view"
 import { getDeviceToken, clearDeviceToken } from "@/lib/auth/device-token"
+import { getDeviceClaims, clearDeviceClaims } from "@/lib/auth/device-claims"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 
 const HEARTBEAT_INTERVAL = 30_000
@@ -27,18 +28,6 @@ type ScreenState =
   | { kind: "live"; cart: CartPayload }
   | { kind: "confirmed"; total: number; change: number }
   | { kind: "idle" }
-
-function decodeJwtPayload(token: string): Record<string, unknown> {
-  try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return {}
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/")
-    const padded = b64 + "==".slice((b64.length % 4) || 4)
-    return JSON.parse(atob(padded)) as Record<string, unknown>
-  } catch {
-    return {}
-  }
-}
 
 export interface ScreenContext {
   companyName: string
@@ -93,12 +82,13 @@ export default function CheckoutPage() {
   // Cuando cambia el token: validar claims y conectar WS
   React.useEffect(() => {
     if (!token) return
-    const claims = decodeJwtPayload(token)
-    const cid = claims["cid"] as string | undefined
-    const rid = claims["rid"] as string | undefined
-    const did = claims["did"] as string | undefined
+    const claims = getDeviceClaims("screen")
+    const cid = claims?.companyId
+    const rid = claims?.registerId
+    const did = claims?.deviceId
     if (!cid || !rid) {
       clearDeviceToken("screen")
+      clearDeviceClaims("screen")
       setToken(null)
       setState({ kind: "unpaired" })
       return
@@ -186,6 +176,7 @@ export default function CheckoutPage() {
         break
       case "revoked":
         clearDeviceToken("screen")
+        clearDeviceClaims("screen")
         setToken(null)
         cleanup()
         setState({ kind: "unpaired" })
@@ -205,6 +196,7 @@ export default function CheckoutPage() {
         })
         if (res.status === 401) {
           clearDeviceToken("screen")
+          clearDeviceClaims("screen")
           setToken(null)
           cleanup()
           setState({ kind: "unpaired" })

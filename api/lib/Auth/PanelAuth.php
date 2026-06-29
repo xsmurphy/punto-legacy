@@ -3,8 +3,8 @@
  * Servicios de autenticación del realm `panel` para la API compartida.
  *
  * Port mínimo de los helpers del legacy `panel/includes/functions.php`:
- *   - checkPassword()  ← checkForPassword() (linea 412)
- *   - issueJwt()       ← issueJwtPanel()    (linea 8988)
+ *   - checkPassword()      ← checkForPassword() (linea 412)
+ *   - issuePanelSession()  ← issueJwtPanel()    (linea 8988)
  *
  * Razón del port en lugar de include: los helpers viven enredados con el
  * resto de panel/includes (10k líneas) que arrastraría sesiones PHP,
@@ -43,7 +43,7 @@ final class PanelAuth
     }
 
     /**
-     * Emite el JWT del realm `panel` y setea la cookie `_jwt_panel` con
+     * Emite la sesión opaca del realm `panel` y setea la cookie `_jwt_panel` con
      * el scope correcto para coexistencia panel legacy + panel-next.
      *
      * Cookie domain: `COOKIE_DOMAIN` env var (ej. ".punto.la"). Si no
@@ -65,29 +65,16 @@ final class PanelAuth
      * el rid del POS ya NO vive en el token panel (se resuelve desde la fila
      * device en realm pos-app). Default `null` → sin efecto.
      */
-    public static function issueJwt(
+    public static function issuePanelSession(
         array|\ArrayAccess $user,
         ?string $outletIdOverride = null,
         ?string $registerIdOverride = null,
     ): array {
-        $secret = $_ENV['JWT_SECRET'] ?? '';
-        if ($secret === '') {
-            return ['token' => null, 'expiresIn' => 0];
-        }
-
-        // jwt.php define jwtEncode() pero no se autocarga en /api/bootstrap.
-        require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
-
-        // El contexto de sucursal (oid) se conserva en el token panel para persistir
-        // la selección entre requests (AUTHED_OUTLET_ID lo lee jwt_middleware).
-        // rid se elimina del panel: el registerId del POS viene de la fila device.
-        // $outletIdOverride y $registerIdOverride se conservan en la firma para no
-        // romper callers (active-outlet.php, active-register.php).
+        require_once dirname(__DIR__, 2) . '/core/includes/auth_session.php';
 
         if ($outletIdOverride !== null) {
             $resolvedOutletId = $outletIdOverride;
         } else {
-            // Primer outlet activo del tenant.
             $outlet = ncmExecute(
                 'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
                 [$user['companyId']]
@@ -96,37 +83,18 @@ final class PanelAuth
         }
 
         $ttl = (int) ($_ENV['PANEL_JWT_TTL'] ?? 86400);
-        $now = time();
 
-        $token = jwtEncode([
-            'iss'  => 'panel',
-            'sub'  => (string) $user['contactId'],
-            'cid'  => (string) $user['companyId'],
-            'oid'  => $resolvedOutletId,
-            'role' => (string) ($user['role'] ?? ''),
-            'iat'  => $now,
-            'exp'  => $now + $ttl,
-        ], $secret);
+        $raw = authSessionCreate('panel', [
+            'companyId' => (string) $user['companyId'],
+            'userId'    => (string) $user['contactId'],
+            'outletId'  => $resolvedOutletId,
+            'roleId'    => (string) ($user['role'] ?? ''),
+            'module'    => 'panel',
+            'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
+        ]);
 
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+        authSetOpaqueCookie('_jwt_panel', $raw, $ttl, 'Lax');
 
-        $cookieOpts = [
-            'expires'  => $now + $ttl,
-            'path'     => '/',
-            'httponly' => true,
-            'samesite' => 'Lax',
-            'secure'   => $isHttps,
-        ];
-        $cookieDomain = $_ENV['COOKIE_DOMAIN'] ?? '';
-        if ($cookieDomain !== '') {
-            $cookieOpts['domain'] = $cookieDomain;
-        }
-        setcookie('_jwt_panel', $token, $cookieOpts);
-
-        return [
-            'token'     => $token,
-            'expiresIn' => $ttl,
-        ];
+        return ['token' => $raw, 'expiresIn' => $ttl];
     }
 }

@@ -1,8 +1,5 @@
-# Python (graphify CLI)
+# Python (venv local)
 .venv/
-
-# graphify generated output (rebuild with `/graphify .` in Claude Code)
-graphify-out/
 
 # Environment
 .env
@@ -18,9 +15,9 @@ panel/composer/
 panel/vendor/
 
 # Cache
-app/cach/*.js
-app/cach/*.css
-app/cach/*.mobile
+api/core/cach/*.js
+api/core/cach/*.css
+api/core/cach/*.mobile
 cache/adodb/
 
 # Logs
@@ -39,4 +36,4 @@ postgres_data/
 .claude/settings.local.json
 # Claude preview launch config (local, per-machine)
 **/.claude/launch.json
-app/error_log
+api/core/error_log

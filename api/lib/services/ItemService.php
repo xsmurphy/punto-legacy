@@ -57,10 +57,18 @@ final class ItemService
         $eItemId    = enc($item['itemId']);
         $eCompanyId = enc($companyId);
 
+        // Imagen primaria desde la galeria moderna (item_image + DO Spaces). URL S3 cruda;
+        // null si el item no tiene imagen (el front muestra placeholder).
+        $imgRow = ncmExecute(
+            'SELECT url FROM item_image WHERE itemId = ? AND companyId = ? ORDER BY sort ASC, created_at ASC LIMIT 1',
+            [$item['itemId'], $companyId]
+        );
+        $imgUrl = (is_array($imgRow) && !empty($imgRow['url'])) ? (string) $imgRow['url'] : null;
+
         return [
             'id'          => $eItemId,
             'name'        => $item['itemName'],
-            'img'         => '/assets/250-250/0/' . $eCompanyId . '_' . $eItemId . '.jpg?' . mt_rand(),
+            'img'         => $imgUrl,
             'price'       => CURRENCY . ' ' . formatCurrentNumber($item['itemPrice'], $dec, $ts),
             'sku'         => iftn($item['itemSKU'], 'Sin SKU'),
             'type'        => getItemTypeName($item),

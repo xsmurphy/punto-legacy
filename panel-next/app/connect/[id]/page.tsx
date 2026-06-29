@@ -34,10 +34,12 @@ export default async function ConnectPage({ params }: ConnectPageProps) {
     autoApprove?: boolean
     token?: string
     deviceId?: string
+    companyId?: string
+    registerId?: string
   }
 
   let openResult: { userCode: string; module: string } | null = null
-  let autoApproveResult: { token: string; deviceId: string; module: string } | null = null
+  let autoApproveResult: { token: string; deviceId: string; module: string; companyId: string; registerId: string } | null = null
   let errorReason = "unknown"
 
   try {
@@ -68,9 +70,11 @@ export default async function ConnectPage({ params }: ConnectPageProps) {
     // el token directamente sin esperar aprobación del admin.
     if (data?.autoApprove && data?.token && data?.deviceId) {
       autoApproveResult = {
-        token:    data.token,
-        deviceId: data.deviceId,
-        module:   data.module ?? "pos",
+        token:      data.token,
+        deviceId:   data.deviceId,
+        module:     data.module ?? "pos",
+        companyId:  data.companyId ?? "",
+        registerId: data.registerId ?? "",
       }
     } else {
       if (!data?.userCode) { errorReason = "error"; throw new Error("no-user-code") }
@@ -90,6 +94,9 @@ export default async function ConnectPage({ params }: ConnectPageProps) {
       userCode={openResult?.userCode ?? ""}
       module={openResult?.module ?? autoApproveResult?.module ?? "pos"}
       autoApproveToken={autoApproveResult?.token ?? null}
+      autoApproveCompanyId={autoApproveResult?.companyId ?? null}
+      autoApproveRegisterId={autoApproveResult?.registerId ?? null}
+      autoApproveDeviceId={autoApproveResult?.deviceId ?? null}
     />
   )
 }

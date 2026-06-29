@@ -212,9 +212,13 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 
 **Backwards compat**: tokens sin claim `did` (emitidos antes del feat) siguen pasando sin validar `device.status`.
 
-**Deuda pendiente**:
-- **UI panel del tenant**: pantalla para listar y revocar devices. Diferida al ciclo de React del panel.
-- **Migration runner**: `11_device.sql` se aplicó manualmente con `php -r` parseando por `;`. Ver deuda de runner en `06-infraestructura.md`.
+**Columnas adicionales** (migs posteriores):
+- `browserLocalId TEXT NULL` (mig 60): UUID en localStorage del browser para idempotencia de pairing.
+- `module TEXT NULL DEFAULT 'pos'` (mig 63): identifica el módulo del device (pos/kds/display).
+
+**UI implementada**: `/settings/devices` en panel-next — listado con tab "Solicitudes" (invitaciones) + tab "Dispositivos" (activos). Revocados ocultos por default; hard-delete físico disponible.
+
+**Nota migration runner**: desde mig 59 en adelante, el runner automático `database/migrate.php` aplica las migraciones en deploy (ver `06-infraestructura.md`).
 
 ### Extensiones PostgreSQL activas
 
@@ -275,6 +279,15 @@ Creada en **migración 11** (`11_device.sql`). Es el mecanismo de revocación pe
 | 56 | `56_pin_sha256_backfill.php` | Backfill: hashea PINs existentes de bcrypt a SHA-256. Script PHP. | Aplicada 2026-06-25 |
 | 57 | `57_simplify_seed_roles.php` | Simplifica los seed roles de 5 a 3 (drop Supervisor y Vendedor — PYMEs no necesitan jerarquía profunda). Idempotente. | Aplicada 2026-06-25 |
 | 58 | `58_contact_role_varchar.sql` | `contact.role` smallint → varchar(64) para soportar UUIDs de roles custom (RoleService guarda roleId en `contact.role`; smallint no admite UUIDs). **BLOQUEANTE resuelto**: debía dropear+recrear `idx_contact_phone_tenant_unique` (predicado con `role = ANY(int[])` era incompatible con el ALTER TYPE). Ver §47 en `08-convenciones-criticas.md` sobre este patrón. Migración aplicada en prod tras fix del índice. | Aplicada 2026-06-25 |
+| 59 | `59_printer_bindings.sql` | Crea tabla `printer_binding` para mapear impresoras a cajas por tenant. Mueve PrinterBinding de localStorage a BD. Columnas: `id UUID PK`, `companyId`, `registerId`, `printerName TEXT`, `transport SMALLINT` (0=USB/1=BT/2=Network/3=window.print), `config JSONB` (vendorId/productId/host/etc), `docTypes JSONB` (array de tipos habilitados), `categoryIds JSONB` (array de categorías), `createdAt`. Índice: `idx_printer_binding_company_register (companyId, registerId)`. | Aplicada 2026-06-27 |
+| 60 | `60_device_browser_local_id.sql` | Agrega `browserLocalId TEXT NULL` a tabla `device` + índice único parcial `uq_device_browser_local_id (companyId, registerId, browserLocalId) WHERE status=1`. Garantiza idempotencia de pairing: mismo browser + misma caja = 1 fila activa (auto-dedup en invitation flow). | Aplicada 2026-06-27 |
+| 62 | `62_device_invitation.sql` | Crea tabla `device_invitation` para el invitation-based device flow. Columnas: `id UUID PK`, `companyId`, `outletId`, `registerId`, `deviceName TEXT`, `status SMALLINT` (0=pending/1=approved/2=expired/3=cancelled), `token TEXT NULL` (JWT emitido al aprobar), `expiresAt TIMESTAMPTZ`, `createdBy UUID`, `approvedBy UUID NULL`, `approvedAt TIMESTAMPTZ NULL`, `createdAt`. Índice: `idx_device_invitation_company_status (companyId, status)`. | Aplicada 2026-06-27 |
+| 63 | `63_device_module.sql` | Agrega columna `module TEXT NULL DEFAULT 'pos'` a tabla `device` para soportar futuros módulos de device (KDS, Display, etc.) con el mismo mecanismo de pairing. | Aplicada 2026-06-27 |
+| 64 | `64_drop_customer_display.sql` | DROP TABLE `customer_display`. La pantalla cliente migra al device flow: ahora es un `device` con `module='screen'`. Ver §devices-screen abajo. | Aplicada 2026-06-28 |
+| 65 | `65_device_invitation_user_code_idempotent.sql` | Índice único en `device_invitation(companyId, user_code)` WHERE `status=0` — garantiza idempotencia de `user_code` por tenant. | Aplicada 2026-06-28 |
+| 66 | `66_contact_outlet.sql` | Crea tabla M2M `contact_outlet` (`contactId UUID FK`, `outletId UUID FK`, `companyId UUID`, PK compuesta). Permite que un usuario tenga acceso a múltiples sucursales. `contact.outletid` legacy se mantiene durante transición. | Aplicada 2026-06-28 |
+| 67 | `67_strip_plus_phones.sql` | Cleanup phones legacy: strip `+` de `contact.contactPhone` y del JSONB `outlet.data` para alinear con la nueva convención de storage SIN `+` (ver §31 en context/08). | Aplicada 2026-06-29 |
+| 68 | `68_device_invitation_auto_approve.sql` | Agrega columna `auto_approve BOOLEAN DEFAULT false` a `device_invitation`. Permite el reconnect flow: admin genera invitación auto-aprobada → device obtiene nuevo Bearer sin re-pair manual. `DeviceAuth::issueJwtForExistingDevice` + `DeviceInvitationService::createReconnect`. | Aplicada 2026-06-29 |
 
 ### Tabla `ai_credit_ledger` — ledger de créditos de IA (migración 28)
 
@@ -524,21 +537,9 @@ Módulo de listas con ajuste porcentual (o precio fijo) sobre el precio base de 
 - **`tag`**: `tagId UUID PK`, `tagName TEXT NOT NULL`, `tagSlug TEXT`, `companyId UUID NOT NULL`. Triggers bidireccionales sincronizan con `taxonomy` (legacy). `tagName` UNIQUE case-insensitive por tenant.
 - **`item_tag`**: `itemTagId UUID PK`, `itemId UUID NOT NULL FK`, `tagId UUID NOT NULL FK`, `companyId UUID NOT NULL`. UNIQUE `(itemId, tagId)`. Es el lado M2M del catálogo; el lado de marcas sigue en `taxonomy` (1→N por ítem).
 
-#### Checkout Screen — tabla `customer_display` (migración 40)
+#### Checkout Screen — unificada al Device Authorization Grant (migración 64, 2026-06-28)
 
-Representa un dispositivo de pantalla secundaria (customer-facing display) que el POS publica en tiempo real.
-
-| Columna | Tipo | Notas |
-|---------|------|-------|
-| `id` | UUID PK | `DEFAULT gen_random_uuid()` |
-| `companyId` | UUID NOT NULL | Multi-tenant scope |
-| `outletId` | UUID NULL | FK → `outlet` |
-| `token` | TEXT NOT NULL | Token de pairing (generado en `/v1/screens/request`) |
-| `status` | TEXT NOT NULL | `'pending'` / `'paired'` / `'revoked'` |
-| `lastHeartbeatAt` | TIMESTAMPTZ NULL | Último heartbeat del display |
-| `createdAt` | TIMESTAMPTZ | — |
-
-Endpoints: `/v1/screens/{request,pair,publish,heartbeat,list,revoke}`. El POS publica eventos `cart-update` vía Redis; el display los consume por polling SSE. Ruta Next.js: `(screen)/checkout` con estados pairing/live/confirmed/idle. CRUD en `/settings/devices`.
+**`customer_display` fue droppada en mig 64.** La pantalla cliente ahora es un `device` con `module='screen'` — mismo mecanismo de pairing invitation-based que el POS. El token vive en `localStorage['punto.device.token.screen']`. Endpoints de publicación (`/v1/screens/publish`, `/v1/screens?resource=context`) conviven; el pairing por PIN fue eliminado. Ver §devices-screen en `context/05-modulos-clave.md`.
 
 #### Reports Rollup — tablas `report_rollup`, `rollup_dirty`, `item_sales`, `item_returns`, `payments` (migraciones 41–42)
 

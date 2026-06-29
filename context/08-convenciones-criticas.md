@@ -127,13 +127,13 @@ Nunca ajustar `JWT_TTL` "por seguridad de sesión" — la seguridad por turno la
 
 ---
 
-## §31 — Teléfonos: E.164 storage, libphonenumber para conversión (REGLA ABSOLUTA)
+## §31 — Teléfonos: storage SIN `+`, libphonenumber para conversión (REGLA ABSOLUTA)
 
-1. **Storage en DB y queries**: SIEMPRE E.164 con `+` y código de país (`+595991234567`). Nunca `0991234567`, nunca sin `+`.
+1. **Storage en DB**: SIN `+` (`595991234567`, no `+595991234567`). Helpers canónicos: `phoneValidateForStorage($input, $iso)` valida + normaliza; `normalizePhoneForStorage($e164)` strip `+`. Ambos en `app/includes/phone.php`. Mig 67 hizo cleanup de phones legacy con `+` en `contact.contactPhone` y `outlet.data`. **Anterior §31 decía "E.164 con +"** — esa regla fue revertida (2026-06-29).
 2. **Display al usuario**: SIEMPRE nacional vía `phoneFormatNational()`.
 3. **Validación/parsing**: SIEMPRE libphonenumber. Backend: `phoneToE164($input, $iso)` en `panel/includes/phone.php` y `app/includes/phone.php`. Frontend: `window.libphonenumber.parsePhoneNumberFromString(input, iso)`.
 4. **PROHIBIDO** concatenar `+`, `0` o código de país a mano (`'+595' + phone`).
-5. El ISO viaja con el phone: `{phone: '+595991234567', iso: 'PY'}`. El backend re-valida con `phoneToE164()`.
+5. El ISO viaja con el phone en el wire: `{phone: '595991234567', iso: 'PY'}` (sin `+`). El backend normaliza con `phoneValidateForStorage()`.
 
 Schema invariante: índice UNIQUE parcial `idx_contact_phone_tenant_unique` sobre `contactPhone` (role IN (0,1,2,7) AND type=0).
 
@@ -152,6 +152,8 @@ Todo endpoint nuevo en `api/v1/` DEBE declarar el realm aceptado. No usar defaul
 | Mixto | `apiAuthTenant(['pos-app', 'panel'])` |
 
 Los tokens POS son **eternos** (device pairing). Si un endpoint de panel no declara `['panel']`, cualquier token de caja podría autenticar en él — privilege escalation a dispositivos de cajero.
+
+**Ejemplo mixto vigente**: `GET /v1/price_list` acepta `['pos-app', 'panel']` (el POS usa este endpoint con su JWT de device para mostrar el dialog "Lista de precios"). Las mutaciones (`POST`, `PUT`, `DELETE`) de price_list siguen siendo solo `['panel']`.
 
 BFF panel → /api: base `'shared'` + `Authorization: Bearer <_jwt_panel>` (no cookie — coexiste con `_jwt` del POS en el mismo browser).
 
@@ -241,6 +243,58 @@ interface MenuSection {
 - Sin sección seleccionada → empty state. Nunca auto-seleccionar la primera.
 
 Primer uso: `panel-next/components/register/pos-main-menu.tsx`.
+
+---
+
+## §40 — BFF routes POS usan `bffProxy()` con `requireBearer:true` (2026-06-28)
+
+Todo route handler de Next.js bajo `/api/pos/*` DEBE usar el wrapper `lib/bff/proxy.ts`:
+
+```ts
+import { bffProxy } from "@/lib/bff/proxy"
+export const GET = bffProxy({ requireBearer: true })
+```
+
+`requireBearer:true` extrae el token de `punto.device.token.pos` del header `Authorization` y lo reenvía al backend PHP. Sin este wrapper, la llamada llega sin token y la API retorna 401. **Nunca reimplementar el forward de Bearer en un route handler individual.**
+
+---
+
+## §41 — `RecordsetIterator` garantiza `fields` siempre como array (2026-06-28)
+
+`ncmExecute(forceObj:true)` retorna un `DBResult` (no `\ADORecordSet`). Siempre iterar con `RecordsetIterator`:
+
+```php
+use Punto\App\Database\RecordsetIterator;
+$rs = ncmExecute($sql, $params, true);
+foreach (new RecordsetIterator($rs) as $row) { ... }
+```
+
+Nunca usar `while(!$rs->EOF)` directo ni castear `(array)$rs` — serializa propiedades privadas. `iterator_to_array($rs)` tampoco aplana correctamente.
+
+---
+
+## §42 — `flattenJsonb` retorna `array` plano; SELECTs usan alias con quotes (2026-06-28)
+
+`Query::flattenJsonb` retorna `array` plano (no `CaseInsensitiveArray`). Consecuencia: los services con `shape(array $row)` deben asegurar que los alias de columna preserven camelCase. En tablas legacy (PG almacena en lowercase), usar alias con quotes:
+
+```sql
+SELECT "itemName" AS "itemName", "priceListId" AS "priceListId" FROM item ...
+```
+
+Sin quotes, PG devuelve lowercase y `shape()` no encuentra las claves. **Primer caso afectado**: `PriceListService` (fix en commit `223b39ac`). Patrón replicable a cualquier service con `SELECT *` sobre tabla legacy.
+
+---
+
+## §43 — localStorage device token namespaced por module (2026-06-28)
+
+Los tokens de device se guardan en localStorage con namespace por module:
+
+| Module | Key |
+|--------|-----|
+| POS (cajero) | `punto.device.token.pos` |
+| Screen (pantalla cliente) | `punto.device.token.screen` |
+
+Antes había un solo key `punto.device.token` — si el mismo browser tenía dos devices de tipos distintos, se pisaban. **Nunca leer/escribir el key sin el sufijo de module.**
 
 ---
 
