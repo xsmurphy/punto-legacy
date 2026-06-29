@@ -66,61 +66,18 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
     include_once __DIR__ . '/../../includes/simple.config.php';
     include_once __DIR__ . '/../../includes/functions.php';
 
-    // 4. Autenticación: sesión opaca (realm panel) primero, legacy api_key/sesión como fallback
+    // 4. Autenticación: sesión opaca, realm panel. Sin fallback legacy (no hay cuentas legacy).
     require_once __DIR__ . '/../../includes/auth_session.php';
 
-    if (!empty(_authExtractTokens()) && authResolve(['panel'])) {
-        // authResolve ya cortó 401 si el token está presente pero es inválido/otro realm.
-        $eCompanyId = AUTHED_COMPANY_ID;
-        define('PANEL_JWT_AUTHED', true);
-        define('PANEL_AUTHED_USER', AUTHED_USER_ID);
-        define('PANEL_AUTHED_ROLE', (int)AUTHED_ROLE_ID);
-        _apiDefineSharedConstants($eCompanyId, AUTHED_COMPANY_ID, AUTHED_OUTLET_ID, AUTHED_REGISTER_ID);
-    } else {
-        // Ruta legacy: company_id + api_key
-        $companyId = validateHttp('company_id', 'post');
-        $apiKey    = validateHttp('api_key', 'post');
+    if (!authResolve(['panel'])) {
+        apiUnauthorized('Autenticación requerida');
+    }
 
-        if (validateAPIAccess($companyId, $apiKey, $_GET['debug'] ?? false)) {
-            define('PANEL_JWT_AUTHED',    false);
-            define('PANEL_AUTHED_USER',   0);
-            define('PANEL_AUTHED_ROLE',   0);
-            _apiDefineSharedConstants($companyId, $companyId, '', '');
-        } elseif (_apiTrySessionAuth($sUser)) {
-            // Fallback: usuario del panel autenticado vía $_SESSION['user'].
-            // Permite que el mismo browser logueado en /@ consuma la API sin
-            // pasar api_key ni JWT (caso típico: el frontend del panel hace
-            // fetch('/API/v1/...') con credentials:'include').
-            define('PANEL_JWT_AUTHED',    false);
-            define('PANEL_AUTHED_USER',   $sUser['userId']   ?? $sUser['contactId'] ?? 0);
-            define('PANEL_AUTHED_ROLE',   $sUser['userRole'] ?? 0);
-            _apiDefineSharedConstants(
-                $sUser['companyId'],
-                $sUser['companyId'],
-                $sUser['outletId']   ?? '',
-                $sUser['registerId'] ?? ''
-            );
-        } else {
-            apiForbidden('Acceso denegado');
-        }
-    }
-}
-
-/**
- * Si hay una sesión PHP activa con un user del panel, devuelve true y popula $out.
- * Booteja la sesión si no está iniciada (los endpoints API por defecto no la
- * inician — solo se hace acá para verificar credentials).
- */
-function _apiTrySessionAuth(?array &$out = null): bool
-{
-    if (session_status() === PHP_SESSION_NONE) {
-        @session_start();
-    }
-    if (!empty($_SESSION['user']) && is_array($_SESSION['user']) && !empty($_SESSION['user']['companyId'])) {
-        $out = $_SESSION['user'];
-        return true;
-    }
-    return false;
+    $eCompanyId = AUTHED_COMPANY_ID;
+    define('PANEL_JWT_AUTHED', true);
+    define('PANEL_AUTHED_USER', AUTHED_USER_ID);
+    define('PANEL_AUTHED_ROLE', (int)AUTHED_ROLE_ID);
+    _apiDefineSharedConstants($eCompanyId, AUTHED_COMPANY_ID, AUTHED_OUTLET_ID, AUTHED_REGISTER_ID);
 }
 
 /**
@@ -178,27 +135,6 @@ function _apiRateLimit(): void
         echo json_encode(apiErrorEnvelope('Rate Limit Exceeded', 429));
         exit;
     }
-}
-
-function _apiExtractJwtToken(): ?string
-{
-    // Authorization: Bearer <token>
-    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (preg_match('/Bearer\s+(\S+)/i', $auth, $m)) {
-        return $m[1];
-    }
-
-    // Cookie _jwt_panel (nombre distinto al del módulo /app para no colisionar)
-    if (!empty($_COOKIE['_jwt_panel'])) {
-        return $_COOKIE['_jwt_panel'];
-    }
-
-    // POST field _jwt
-    if (!empty($_POST['_jwt'])) {
-        return $_POST['_jwt'];
-    }
-
-    return null;
 }
 
 function _apiDefineSharedConstants(string $eCompanyId, string $companyId, string $outletId, string $registerId): void

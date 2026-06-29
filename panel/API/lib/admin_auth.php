@@ -162,6 +162,8 @@ function adminMiddleware(): void
     try {
         $r = $db->Execute('SELECT email FROM admin_user WHERE adminId = ? LIMIT 1', [AUTHED_USER_ID]);
         if ($r && !$r->EOF) { $email = (string)($r->fields['email'] ?? ''); }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) {
+        error_log('[adminMiddleware] email lookup falló: ' . $e->getMessage());
+    }
     define('ADMIN_AUTHED_EMAIL', $email);
 }
