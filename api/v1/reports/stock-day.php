@@ -30,7 +30,7 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 }
 
 // Roc::build sin prefijo (el service consulta directo a `stock`). Respeta
-// VIEW_OUTLET_ID si el browser mandó X-Outlet-Id (panel-next 2026-06-13).
+// VIEW_OUTLET_ID si el browser mandó X-Outlet-Id (frontend 2026-06-13).
 try {
     $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
 } catch (\RuntimeException $e) {

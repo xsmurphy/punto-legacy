@@ -8,7 +8,7 @@
  *   PUT    ?id=<uuid> { ... }  → actualiza encabezado
  *   DELETE ?id=<uuid>          → elimina lista y sus ítems (CASCADE)
  *
- * Auth: realm panel (panel-next) — las listas son admin, no el cajero.
+ * Auth: realm panel (frontend) — las listas son admin, no el cajero.
  * El resolve de precio en la caja usa /v1/price_resolve.php.
  */
 

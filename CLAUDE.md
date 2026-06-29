@@ -65,7 +65,7 @@ explotan el contexto:
    cualquier cambio debe preservar la allowlist actual como fallback.
 
 4. **Design system — shadcn default, NO copiar legacy visual.** Cualquier JSX/TSX
-   nuevo en `panel-next/` respeta `context/14-ui-conventions.md`: tipografía
+   nuevo en `frontend/` respeta `context/14-ui-conventions.md`: tipografía
    canónica (`h1=text-2xl font-semibold`, etc.), componentes shadcn sin
    sobreescribir tamaños sin razón documentada, `<DataTable>` para listados
    largos, `<EmptyState>` para vacíos, sin hex colors (excepto pedidos
@@ -87,25 +87,25 @@ explotan el contexto:
 
 **Branch por subproyecto cuando hay sesiones paralelas; `main` para todo lo demás.**
 
-Cuando una sesión va a tocar exclusivamente `panel-next/` (o `api/`) y hay
+Cuando una sesión va a tocar exclusivamente `frontend/` (o `api/`) y hay
 riesgo de que otra sesión esté tocando algo en paralelo, trabajá en una
 branch dedicada del subproyecto. Esto evita stomp entre sesiones y simplifica
 el merge.
 
-> **El POS vive dentro de `panel-next/` en `app/(pos)/pos`** (fusión 2026-06-16).
+> **El POS vive dentro de `frontend/` en `app/(pos)/pos`** (fusión 2026-06-16).
 > El subproyecto `app-next/` fue eliminado — su contenido se movió al panel.
 > Ya NO existen branches `app-next/*`.
 
 Convención de nombres:
-- `panel-next/<slice>` — ej. `panel-next/pos-fusion`, `panel-next/team-crud`
+- `frontend/<slice>` — ej. `frontend/pos-fusion`, `frontend/team-crud`
 - `api/<feature>` — solo para refactors grandes de `/api` PHP compartida
 - Cualquier otra cosa (fixes triviales, docs, hooks, settings) → directo en `main`
 
 Reglas:
 1. **Una branch toca UN subproyecto.** Si necesitás un cambio cross-cutting
-   (ej. `panel-next/` Y `api/` a la vez de forma acoplada), hacelo en `main`.
+   (ej. `frontend/` Y `api/` a la vez de forma acoplada), hacelo en `main`.
 2. **`api/`** y **`context/`** se pueden tocar desde la branch del subproyecto
-   que los necesita (ej. una branch `panel-next/*` puede modificar
+   que los necesita (ej. una branch `frontend/*` puede modificar
    `api/v1/bootstrap.php` si su feature lo requiere — declaralo en el commit).
 3. **`code-reviewer`** solo en commits de alto riesgo: schema/migrations,
    auth/JWT, admin realm, aislamiento multi-tenant, billing/pagos,
@@ -133,8 +133,8 @@ Invocá solo cuando matchee claramente la descripción del agente:
 | `code-reviewer` | Commits de alto riesgo (ver Workflow §1) |
 | `codebase-orchestrator` | Refactors multi-archivo con riesgo de regresión |
 | `postgres-pro` | Optimización queries/índices, replicación, schema design |
-| `typescript-pro` | TypeScript avanzado (panel-next) |
-| `react-specialist` | React 18+ en panel-next |
+| `typescript-pro` | TypeScript avanzado (frontend) |
+| `react-specialist` | React 18+ en frontend |
 | `Explore` | Búsqueda exploratoria ≥ 3 queries |
 | `Plan` | Planificación de tareas no-triviales |
 
@@ -148,7 +148,7 @@ las más relevantes son:
 - `engineering:architecture`, `engineering:system-design` — decisiones grandes
 - `claude-api` — código que importa `anthropic` SDK
 - `security-review` — auditoría de seguridad del branch
-- `shadcn` — panel-next, componentes UI
+- `shadcn` — frontend, componentes UI
 - `end-session` — cierre con resumen en `_session-log.md`
 
 El resto (operations, design, documentos, enterprise-search) solo si la

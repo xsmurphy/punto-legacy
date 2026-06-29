@@ -33,7 +33,7 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 }
 
 // Roc::build con alias `b` (transaction en el JOIN itemSold/transaction/item).
-// Roc::build respeta VIEW_OUTLET_ID si está definida (panel-next 2026-06-13).
+// Roc::build respeta VIEW_OUTLET_ID si está definida (frontend 2026-06-13).
 $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'b');
 
 $outletId = defined('VIEW_OUTLET_ID') ? (string) VIEW_OUTLET_ID : (string) OUTLET_ID;

@@ -50,11 +50,11 @@ final class SettingsService
         if (!is_array($obj)) { $obj = []; }
 
         // Logo: el flag `hasLogo` + `logoUrl` + `logoUploadedAt` (cache-bust)
-        // se persisten en settingObj cuando el panel-next sube/borra via
+        // se persisten en settingObj cuando el frontend sube/borra via
         // uploadLogo()/deleteLogo(). La URL es la pública directa de S3
         // (path-style devuelto por S3Client::put) — NO va por el resize
         // service legacy, porque ese servicio depende de un prefix S3
-        // distinto al de panel-next (S3_KEY_PREFIX=puntosys agrega un nivel
+        // distinto al de frontend (S3_KEY_PREFIX=puntosys agrega un nivel
         // que el resize legacy no conoce → 404).
         $hasLogo  = !empty($obj['hasLogo']);
         $logoUrl  = (string) ($obj['logoUrl'] ?? '');

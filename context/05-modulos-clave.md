@@ -237,7 +237,7 @@ reportes, configuración de módulos, usuarios.
 
 ---
 
-## panel-next/ — Nuevo panel React (greenfield, 2026-06-10+)
+## frontend/ — Nuevo panel React (greenfield, 2026-06-10+)
 
 **Propósito**: reescritura del panel legacy a React + Next.js + shadcn/ui. Ver `context/12-panel-rewrite.md` para el plan completo de slices.
 
@@ -257,7 +257,7 @@ Página `app/(panel)/modules/page.tsx` — marketplace de módulos que el tenant
 
 Hay una allowlist estricta de keys para el double-write. Código nuevo en /api escribe al JSONB; la lectura del POS sigue leyendo columnas planas.
 
-**Hook**: `hooks/use-modules.ts` — TanStack Query, patrón canónico CRUD panel-next.
+**Hook**: `hooks/use-modules.ts` — TanStack Query, patrón canónico CRUD frontend.
 
 ### /history-billing — Mi plan (Billing tenant, commits 0ff4906 + 53331fe + 8ce0739, 2026-06-14)
 
@@ -288,7 +288,7 @@ Sin captura de tarjeta en el frontend — el flujo redirige al checkout de dLoca
 
 ### BFF catch-all same-origin (commit 580d79a, 2026-06-12)
 
-`panel-next/app/api/v1/[...path]/route.ts` — catch-all de Next.js que reenvía **todos** los requests a `/api/v1/*` al backend PHP (`NEXT_PUBLIC_API_URL`) preservando la cookie `_jwt_panel`. El `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Este es el patrón canónico para CRUD en panel-next** (antes solo existía para el income-chart). Ver §37 en `08-convenciones.md`.
+`frontend/app/api/v1/[...path]/route.ts` — catch-all de Next.js que reenvía **todos** los requests a `/api/v1/*` al backend PHP (`NEXT_PUBLIC_API_URL`) preservando la cookie `_jwt_panel`. El `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Este es el patrón canónico para CRUD en frontend** (antes solo existía para el income-chart). Ver §37 en `08-convenciones.md`.
 
 **Diagnóstico de sucursal**: el mismo commit incluye logging de diagnóstico en el handler de creación de sucursal para trazar errores de validación del backend.
 
@@ -309,9 +309,9 @@ Devuelve por contacto:
 - `outlets` — sucursales frecuentadas
 - `financial` — crédito en cuenta, gift cards, puntos de fidelidad
 
-Frontend perfil de contacto en panel-next reescrito a **4 tabs**: Resumen / Comportamiento / Financiero / Datos.
+Frontend perfil de contacto en frontend reescrito a **4 tabs**: Resumen / Comportamiento / Financiero / Datos.
 
-### Módulo Reportes panel-next (commits 93b7ffb, 80c775c, 4e1bd90, ee61451, 780ec4b, 2026-06-12 a 2026-06-14)
+### Módulo Reportes frontend (commits 93b7ffb, 80c775c, 4e1bd90, ee61451, 780ec4b, 2026-06-12 a 2026-06-14)
 
 Landing `/reports` con 3 grupos del legacy (Ventas / Inventario / Admin). **23 de 24 reportes implementados** (solo "Conteo de inventario" pendiente — sin endpoint ni vista legacy):
 
@@ -341,9 +341,9 @@ Landing `/reports` con 3 grupos del legacy (Ventas / Inventario / Admin). **23 d
 
 ### `/settings` como Dialog modal (commit 67113d4, 2026-06-12)
 
-La pantalla `/settings` en panel-next se renderiza como **Dialog modal estilo Alfred** (sidebar de 220px + content panel). Tab "Redes" fusionado al final del tab "Empresa".
+La pantalla `/settings` en frontend se renderiza como **Dialog modal estilo Alfred** (sidebar de 220px + content panel). Tab "Redes" fusionado al final del tab "Empresa".
 
-### Dashboard panel-next — layout 2-col (commit 8bc61e9, 2026-06-12)
+### Dashboard frontend — layout 2-col (commit 8bc61e9, 2026-06-12)
 
 Dashboard refactoreado al **layout 2-col del legacy (8/4)**:
 
@@ -363,7 +363,7 @@ Suscripciones/combos de servicios: se define un ítem de tipo "pack" con N compo
 | Migration | `database/migrations/postgres/31_pack_services.sql` | 3 tablas + índices |
 | Service | `api/lib/Packs/PackService.php` | CRUD de componentes (`pack_component`), consulta de packs activos por contacto, canje (`sold_pack_usage`), historial |
 | Endpoints | `api/v1/pack_component.php`, `api/v1/sold_pack.php`, `api/v1/sold_pack_usage.php` | gateados `apiAuthTenant(['panel','pos-app'])` |
-| Panel-next | editor de ítems — tab "Pack" con builder de componentes | `panel-next/` — tipo pack dentro del form de ítem |
+| Panel-next | editor de ítems — tab "Pack" con builder de componentes | `frontend/` — tipo pack dentro del form de ítem |
 | Integración venta | `api/lib/Sales/SaleService.php` | al vender un ítem tipo pack, crea `sold_pack` automáticamente |
 | POS Alpine | `app/` | vista de packs activos del cliente + modal de canje |
 | Panel-next perfil | tab "Packs" en perfil de contacto | historial de canjes del cliente |
@@ -386,8 +386,8 @@ Listas de precios con ajuste porcentual global o override por ítem. Soporta rec
 | Migration | `database/migrations/postgres/32_price_lists.sql` | 2 tablas + índices |
 | Service | `api/lib/PriceLists/PriceListService.php` | CRUD de listas, CRUD de overrides por ítem, resolución de precio (`price_resolve`) |
 | Endpoints | `api/v1/price_list.php`, `api/v1/price_list_item.php`, `api/v1/price_resolve.php` | gateados `apiAuthTenant(['panel','pos-app'])` |
-| Panel-next settings | `panel-next/app/(panel)/settings/` | página de gestión de listas de precios |
-| Asignación | panel-next — perfil de contacto y ficha de sucursal | dropdown de lista activa; guarda en `contact.data->>'priceListId'` y `outlet.data->>'priceListId'` |
+| Panel-next settings | `frontend/app/(panel)/settings/` | página de gestión de listas de precios |
+| Asignación | frontend — perfil de contacto y ficha de sucursal | dropdown de lista activa; guarda en `contact.data->>'priceListId'` y `outlet.data->>'priceListId'` |
 | POS Alpine | `app/` | F5: carga la lista al seleccionar cliente/sucursal, resuelve precio localmente |
 
 **Resolución de precio**: override de ítem con `fixedPrice` > override con `itemAdjustment` > `defaultAdjustment` de la lista > precio base. Lista del contacto tiene precedencia sobre lista de sucursal.
@@ -423,9 +423,9 @@ Listas de precios con ajuste porcentual global o override por ítem. Soporta rec
 
 **Estado**: F0 (tabla+seed) ✅, F1 (auth) ✅, F2 (CRUD super-admins) ✅, F3.1 (companies read-only) ✅, F3.2 (update company) ✅, F3.3 (delete cascade soft+hard) ✅, F3.4 (billing view + plan selector + balance edit) ✅, F3.5 (impersonación JWT — "Ingresar como empresa") ✅ — **F3 COMPLETO**. Próximo: F4 (desacoplar SAAS_ADM/MASTER_COMPANY_ID) o F5 (login por teléfono). Ver plan completo en `10-roadmap.md § Admin realm`.
 
-### /admin en panel-next — Sub-app React greenfield (commits be39b06 + 605286e, 2026-06-14)
+### /admin en frontend — Sub-app React greenfield (commits be39b06 + 605286e, 2026-06-14)
 
-El realm admin tiene ahora su propio route group React dentro de `panel-next/`: `app/(admin)/admin/*`. **Path-based dentro del mismo dominio** (`panel-next-dev.punto.la/admin`), no en subdominio dedicado.
+El realm admin tiene ahora su propio route group React dentro de `frontend/`: `app/(admin)/admin/*`. **Path-based dentro del mismo dominio** (`frontend-dev.punto.la/admin`), no en subdominio dedicado.
 
 **Route group `(admin)`**: layout propio (`app/(admin)/layout.tsx`), no comparte hooks ni contexto con el route group `(panel)`. Rutas: `admin/login`, `admin/dashboard`, `admin/companies` (list+detail), `admin/users` (CRUD), `admin/requests`, `admin/reports`.
 
@@ -448,9 +448,9 @@ El realm admin tiene ahora su propio route group React dentro de `panel-next/`: 
 
 ---
 
-## POS React — fusionado en panel-next (2026-06-16)
+## POS React — fusionado en frontend (2026-06-16)
 
-> **El subproyecto `app-next/` fue ELIMINADO (fusión 2026-06-16).** El POS React vive dentro de `panel-next/` en el route group `app/(pos)/pos`. Ya NO existen branches `app-next/*`.
+> **El subproyecto `app-next/` fue ELIMINADO (fusión 2026-06-16).** El POS React vive dentro de `frontend/` en el route group `app/(pos)/pos`. Ya NO existen branches `app-next/*`.
 
 **Propósito**: reescritura del POS legacy (`/app`, jQuery + Bootstrap 3) a React + Next.js + shadcn/ui. Ver `context/14-app-rewrite-analysis.md` para el análisis completo.
 
@@ -458,7 +458,7 @@ El realm admin tiene ahora su propio route group React dentro de `panel-next/`: 
 
 **Estado**: Slice A1 (pantalla de caja con carrito) + Slice A2 (modales búsqueda producto/cliente) + lock screen + menú POS + hotkeys. Backend de ventas: `/api` compartida (`SaleService`, realm `pos-app`).
 
-**Estructura de directorios** (dentro de `panel-next/`):
+**Estructura de directorios** (dentro de `frontend/`):
 
 | Directorio | Responsabilidad |
 |------------|----------------|
@@ -482,7 +482,7 @@ El realm admin tiene ahora su propio route group React dentro de `panel-next/`: 
 
 ### Lock screen del POS (commits f4fb03c..70b708c, 2026-06-16)
 
-Componente: `panel-next/components/register/lock-screen.tsx`. Store: `panel-next/lib/pos/lock-store.ts` (Zustand).
+Componente: `frontend/components/register/lock-screen.tsx`. Store: `frontend/lib/pos/lock-store.ts` (Zustand).
 
 **Scope**: overlay `absolute inset-0 z-[60]` scoped al workspace del POS — NO al viewport global. Esto es intencional: el lock bloquea la UI de caja sin interferir con el resto del layout de Next.js ni con la sesión del operador.
 
@@ -496,7 +496,7 @@ Componente: `panel-next/components/register/lock-screen.tsx`. Store: `panel-next
 
 ### Menú principal del POS (commits 162329b + 1a4ec47, 2026-06-16)
 
-Componente: `panel-next/components/register/pos-main-menu.tsx`.
+Componente: `frontend/components/register/pos-main-menu.tsx`.
 
 **8 secciones**: Control de Caja / Transacciones / Agenda / Órdenes / Impresoras / Módulos / Ajustes / HotKeys.
 
@@ -512,7 +512,7 @@ Estado inicial sin selección muestra un empty state en el content area.
 
 `api/v1/bootstrap.php` (realm `pos-app`) ahora incluye `userCount`: count de `contact` con `type=0 AND status > 0` para el tenant. El front lo consume en `lock-store.ts` para decidir si activar el auto-lock.
 
-**TODOs en `panel-next/lib/types/bootstrap.ts`**:
+**TODOs en `frontend/lib/types/bootstrap.ts`**:
 - `user.name?` — nombre del operador logueado (para el toast de bienvenida del lock)
 - `user.roleName?` — rol del operador (col `roleName` ya disponible en `UsersService` del backend)
 
@@ -548,7 +548,7 @@ Registro de mutaciones realizadas por usuarios del tenant. Retención automátic
 | Bootstrap/choke point | `api/bootstrap.php` — `apiAuthTenant()` + `tenantAudit()` |
 | Endpoint | `api/v1/reports/audit.php` — GET con filtros (fecha, userId, method, path) |
 | Migraciones | `database/migrations/postgres/35_tenant_audit.sql`, `36_pg_cron_retention.sql` |
-| UI panel-next | `panel-next/app/(panel)/reports/audit/page.tsx` |
+| UI frontend | `frontend/app/(panel)/reports/audit/page.tsx` |
 
 ---
 
@@ -557,7 +557,7 @@ Registro de mutaciones realizadas por usuarios del tenant. Retención automátic
 Tags multi-valor por ítem (a diferencia de `taxonomy` que es 1→N). Plan completo en `context/14-catalogo-m2m-plan.md`.
 
 - **Backend**: `TagService` en `api/lib/Tags/TagService.php` + endpoint `/v1/tags` + ramas `resource=brands|tags` en `items.php`.
-- **UI panel-next**: tab "Etiquetas" en `/settings/catalog` + `BrandsPicker`/`TagsPicker` multi-select en el form de ítem.
+- **UI frontend**: tab "Etiquetas" en `/settings/catalog` + `BrandsPicker`/`TagsPicker` multi-select en el form de ítem.
 - **Import**: `ItemImporter` acepta listas separadas por `|` en columnas CATEGORIA/MARCA/ETIQUETAS.
 - **Schema**: migs 37–39 (`tag`, `item_tag`, triggers bidireccionales taxonomy↔tag). Ver `context/04-modelo-de-dominio.md § Catálogo M2M`.
 
@@ -568,7 +568,7 @@ Tags multi-valor por ítem (a diferencia de `taxonomy` que es 1→N). Plan compl
 Sincronización en tiempo real entre el panel y el POS sin polling.
 
 - **Backend PHP**: `realtimePublish()` wired en `apiAuthTenant::realtimeAfterMutation` — publica automáticamente un evento Redis por cada mutación exitosa.
-- **Cliente WS**: singleton `ncm-ws.ts` en `panel-next/lib/realtime/`. Hook `useRealtimeSync` mapea `entity → queryKeys` de TanStack Query y llama `invalidateQueries` al recibir el evento.
+- **Cliente WS**: singleton `ncm-ws.ts` en `frontend/lib/realtime/`. Hook `useRealtimeSync` mapea `entity → queryKeys` de TanStack Query y llama `invalidateQueries` al recibir el evento.
 - **Entidades cubiertas**: items, contacts, transactions, sales (el dashboard se actualiza con ventas POS en tiempo real).
 - **Redis pub/sub**: el ws-server (`ws-server/index.js`) hace de bridge Redis → WebSocket al browser.
 
@@ -642,9 +642,9 @@ CRUD de depósitos (locations/outlets) desde el detalle de sucursal en `/outlets
 
 Variantes de producto Phase 1. `bulkUpsertVariants()` en TX única: genera combinaciones cartesianas de atributos, upsert por `(variantParentId, variantAttributes)`, stock inicial vía `Inventory::manageStock`. Invariantes: padre fuerza price/cost/stock=0, anti-anidamiento 409. UI: tab Variantes en el form de ítem con matriz editable + regeneración preservando filas existentes; badge "Variantes (N)" en listado + toggle "Mostrar variantes".
 
-### AuthSentinel — handler global 401 en panel-next
+### AuthSentinel — handler global 401 en frontend
 
-`panel-next/components/auth/auth-sentinel.tsx`. Escucha el `CustomEvent("api:unauthorized")` emitido por `api-client.ts` antes de throwear un 401. Al dispararse: `queryClient.clear()` + toast "Tu sesión expiró" + `router.replace("/login")`. Debounce con `firedRef` + guard `pathname.startsWith("/login")`. **No montado en el layout del POS** — el POS usa `_jwt` device pairing (no sesión humana con expiración).
+`frontend/components/auth/auth-sentinel.tsx`. Escucha el `CustomEvent("api:unauthorized")` emitido por `api-client.ts` antes de throwear un 401. Al dispararse: `queryClient.clear()` + toast "Tu sesión expiró" + `router.replace("/login")`. Debounce con `firedRef` + guard `pathname.startsWith("/login")`. **No montado en el layout del POS** — el POS usa `_jwt` device pairing (no sesión humana con expiración).
 
 ---
 
@@ -654,19 +654,19 @@ Sistema de impresión multi-transport para el POS React. Los bindings viven en B
 
 - **Transports**: USB (WebUSB API), Bluetooth (Web Bluetooth API), Network (TCP vía WebSocket proxy), window.print (fallback).
 - **Concepto**: "impresora como objeto virtual" — el mismo `VirtualPrinter` puede tener múltiples transports.
-- **UI**: `/settings/printers` en panel-next — tabs por tipo, filtros, formulario de binding por caja.
+- **UI**: `/settings/printers` en frontend — tabs por tipo, filtros, formulario de binding por caja.
 - **Renderer**: genera comandos ESC/POS desde la plantilla configurada en `/settings/print-templates` del panel. Auto-print en checkout del POS.
 - **PrintersManager**: componente wire dentro de `AjustesPanel` del POS.
 - **Print fallback (`window.print`)**: usa iframe oculto con `srcdoc` en vez de `window.open` popup — sin doble diálogo de confirmación ni flicker de ventana nueva. `triggerWindowPrint(html)` en `lib/pos/printer/`.
 - **Config general del POS** (toggles, plantillas): persistida en `register.data.posConfig` JSONB por registerId.
-- **Archivos clave**: `panel-next/lib/pos/printer/`, `panel-next/app/(pos)/pos/components/ajustes/`, `panel-next/app/(panel)/settings/printers/`.
+- **Archivos clave**: `frontend/lib/pos/printer/`, `frontend/app/(pos)/pos/components/ajustes/`, `frontend/app/(panel)/settings/printers/`.
 
 ## Módulo Agente IA (sprint 2026-06-21, context/17)
 
 Asistente de IA integrado en el panel y el POS. Plan completo en `context/17-ai-agent-plan.md`.
 
 - **Provider**: OpenRouter (NO SDK Anthropic). Modelo default `deepseek/deepseek-chat-v3-0324`, configurable por tenant desde /admin (tabla `ai_model_config`, migración 43).
-- **Route handler**: `panel-next/app/api/agent/chat/route.ts` — AI SDK v6 en modo OpenAI-compatible, tool `get_sales_summary` (AI-1) + 12 tools adicionales (AI-3).
+- **Route handler**: `frontend/app/api/agent/chat/route.ts` — AI SDK v6 en modo OpenAI-compatible, tool `get_sales_summary` (AI-1) + 12 tools adicionales (AI-3).
 - **13 tools**: 5 de lectura (sin confirmación) + 8 de escritura con `confirmToken` UUID expiración real 60s, 3 capas de defense-in-depth.
 - **Créditos**: gate 402 + débito atómico en `/v1/ai/debit` (`SELECT FOR UPDATE` sobre `company.aiCreditsBalance`). Ledger `agent_chat` en `ai_credit_ledger`. Calibración pricing (creditsPerKToken vs costo real OpenRouter) pendiente.
 - **UI (AI-3b)**: 3 componentes (`AgentChatContent`, `AgentChatFloating`, page `/chat`); historial Zustand persist con patrón `useChatHistoryHydrated` (`onFinishHydration`); markdown formateado (react-markdown + remark-gfm); copiar/voz; input ChatGPT-style; 5 sugerencias; mobile Sheet fullscreen.

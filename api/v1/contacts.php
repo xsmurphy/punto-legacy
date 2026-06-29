@@ -46,7 +46,7 @@ if ($id !== null && $resource === 'addresses') {
 }
 
 // ── Sub-recurso: analytics (KPIs + comportamiento del contacto) ────────────
-// Alimenta el tab "Resumen" / "Comportamiento" del perfil en panel-next.
+// Alimenta el tab "Resumen" / "Comportamiento" del perfil en frontend.
 // type=1 (cliente, default) o type=2 (proveedor) — cambia el set de tx_types
 // agregados (venta vs compra) dentro del Service.
 if ($id !== null && $resource === 'analytics') {

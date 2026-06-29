@@ -45,7 +45,7 @@ if (!is_object($row) && !is_array($row)) {
 }
 
 // Sucursales activas del tenant + nombre de la activa (para el selector del
-// menú user en panel-next). Se inline acá en vez de pedirlo aparte porque
+// menú user en frontend). Se inline acá en vez de pedirlo aparte porque
 // el sidebar lo necesita en el primer paint y evita un round-trip extra.
 // `forceObj=true` (4to arg) fuerza recordset multi-row iterable — sin él
 // ncmExecute con una única fila colapsa a CaseInsensitiveArray escalar.
@@ -97,7 +97,7 @@ apiOk([
     // → el front fuerza el selector de caja (A7). La lista de cajas del outlet
     // la trae GET /v1/register?resource=list.
     'activeRegisterId' => $ctx['registerId'] ?? '',
-    // Selector de sucursal del menú user (panel-next 2026-06-12). El front
+    // Selector de sucursal del menú user (frontend 2026-06-12). El front
     // muestra el subtitle con `activeOutletName` y lista `outlets` cuando
     // hay ≥2. POST /v1/active-outlet re-emite el JWT con el `oid` nuevo.
     'activeOutletId'   => OUTLET_ID,

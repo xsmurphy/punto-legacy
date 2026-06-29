@@ -5,7 +5,7 @@
 
 ## Casos de uso
 
-1. **Panel → POS**: el dueño edita el precio de un item en panel-next → la tablet del POS lo refleja sin recargar.
+1. **Panel → POS**: el dueño edita el precio de un item en frontend → la tablet del POS lo refleja sin recargar.
 2. **POS → Panel**: el cajero hace una venta → el dashboard del dueño actualiza KPIs y listados en vivo.
 3. **Panel → Panel**: dos browsers del mismo dueño se mantienen sincronizados.
 
@@ -49,7 +49,7 @@ El alcance NO incluye:
 | # | Slice | Resultado |
 |---|---|---|
 | A | **Infra publish** — helper `realtimePublish`, wire desde `apiAuthTenant`, mapeo endpoint→entity | Mutaciones PHP publican a Redis. Sin cliente todavía. |
-| B | **Cliente WS** — hook `useRealtimeSync`, mapeo entity→queryKeys, wire en layout panel-next y `/pos` | El browser se sincroniza vía WS |
+| B | **Cliente WS** — hook `useRealtimeSync`, mapeo entity→queryKeys, wire en layout frontend y `/pos` | El browser se sincroniza vía WS |
 | C | **Deploy ws-server** — instrucciones para Coolify, env vars, subdominio | ws-server disponible en `wss://ws.punto.la` |
 | D | **Plan vivo** (este archivo) — registro de avance, cronología | Trazabilidad |
 
@@ -122,11 +122,11 @@ El alcance NO incluye:
 
 **Sin tocar:** ningún Service ni endpoint individual. Todo el wire pasa por `apiAuthTenant` — mismo patrón que `tenantAudit`. Si un endpoint nuevo agrega más mutaciones, basta agregar línea al mapa.
 
-### Slice B — Cliente WS (panel-next)
+### Slice B — Cliente WS (frontend)
 
 **Archivos:**
 
-- `panel-next/lib/realtime.ts` (NUEVO) — singleton WS client con reconnect exponential backoff:
+- `frontend/lib/realtime.ts` (NUEVO) — singleton WS client con reconnect exponential backoff:
 
   ```ts
   type InvalidateEvent = {
@@ -187,7 +187,7 @@ El alcance NO incluye:
   }
   ```
 
-- `panel-next/hooks/use-realtime-sync.ts` (NUEVO) — hook que invalida queries según entity:
+- `frontend/hooks/use-realtime-sync.ts` (NUEVO) — hook que invalida queries según entity:
 
   ```ts
   "use client"
@@ -225,7 +225,7 @@ El alcance NO incluye:
   }
   ```
 
-- `panel-next/components/realtime-provider.tsx` (NUEVO) — abre el WS en cuanto el bootstrap nos entrega `companyId`:
+- `frontend/components/realtime-provider.tsx` (NUEVO) — abre el WS en cuanto el bootstrap nos entrega `companyId`:
 
   ```tsx
   "use client"
@@ -243,9 +243,9 @@ El alcance NO incluye:
   }
   ```
 
-- `panel-next/app/(panel)/layout.tsx` y `panel-next/app/(pos)/pos/layout.tsx` (MODIFICAR): leer `companyId` del bootstrap (ya está en algún Provider/Context) y envolver con `<RealtimeProvider>`. Dentro, llamar `useRealtimeSync("panel")` o `useRealtimeSync("pos")` desde un hook stub en el layout. El subagente debe encontrar dónde está el contexto del bootstrap y ajustar.
+- `frontend/app/(panel)/layout.tsx` y `frontend/app/(pos)/pos/layout.tsx` (MODIFICAR): leer `companyId` del bootstrap (ya está en algún Provider/Context) y envolver con `<RealtimeProvider>`. Dentro, llamar `useRealtimeSync("panel")` o `useRealtimeSync("pos")` desde un hook stub en el layout. El subagente debe encontrar dónde está el contexto del bootstrap y ajustar.
 
-- `panel-next/.env.example` y `Coolify env vars`: agregar `NEXT_PUBLIC_WS_URL=wss://ws.punto.la`.
+- `frontend/.env.example` y `Coolify env vars`: agregar `NEXT_PUBLIC_WS_URL=wss://ws.punto.la`.
 
 ### Slice C — Deploy ws-server (manual en Coolify)
 

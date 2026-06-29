@@ -40,7 +40,7 @@ final class SignupService
         $email     = strtolower((string) ($post['email'] ?? $post['phone'] ?? ''));
         $storeName = ucwords((string) $post['storename']);
 
-        // El flujo del panel-next manda el teléfono como `email` (legacy carry-over:
+        // El flujo del frontend manda el teléfono como `email` (legacy carry-over:
         // la columna BD contactEmail/contactPhone es histórica; el legacy mete el
         // phone en `email` cuando no es valid email). Mantenemos esa convención.
         if ($email === '') {

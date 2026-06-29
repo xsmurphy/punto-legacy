@@ -35,7 +35,7 @@ use RuntimeException;
 final class ContactService
 {
     /** Discriminador `type` de la tabla `contact`. Solo cliente y proveedor;
-        el resto de tipos (3+) son legacy y no entran al panel-next por ahora. */
+        el resto de tipos (3+) son legacy y no entran al frontend por ahora. */
     const TYPE_CUSTOMER = 1;
     const TYPE_SUPPLIER = 2;
 

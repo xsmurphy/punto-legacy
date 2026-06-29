@@ -19,7 +19,7 @@ dedicados, manteniendo compat con el flujo `type=11/12` durante la transición.
 
 **Alcance/orden (decidido 2026-06-15 — ver §9):**
 1. **Backend + schema primero** — base durable.
-2. **Config (definir sectores/mesas/layout) en panel-next** — ya es React/shadcn.
+2. **Config (definir sectores/mesas/layout) en frontend** — ya es React/shadcn.
    Puede avanzar independiente.
 3. **Operación (abrir/ordenar/cobrar) en `app-next`** (D1) — el nuevo POS React,
    NO el `/app` legacy en Alpine. → **depende de que `app-next` arranque**
@@ -196,7 +196,7 @@ mozo + total parcial + estado, en una sola respuesta.
 
 ## 5. Frontend
 
-### 5.1 Config (en panel-next — React/shadcn)
+### 5.1 Config (en frontend — React/shadcn)
 - **Editor de salón/plano**: definir sectores, crear mesas con capacidad, forma y
   posición (drag-drop en canvas, como el editor de plantillas de impresión ya
   existente). Asignación de mozos a sectores.
@@ -299,7 +299,7 @@ de servicio) antes de cerrar; no permitir cerrar con saldo descubierto.
 
 - **D1 — UI operativa → ✅ `app-next`** (no legacy/Alpine). El módulo operativo
   se construye en el nuevo POS React. **Depende de que `app-next` arranque**
-  (`context/14`). Backend + schema + config (panel-next) pueden avanzar antes.
+  (`context/14`). Backend + schema + config (frontend) pueden avanzar antes.
 - **D2 — Offline → ✅ ONLINE-ONLY.** El módulo de mesas NO funciona offline. El
   offline se reserva exclusivamente para ventas simples + creación de clientes.
   Elimina lease/reconciliación de mesas (ver §7).
@@ -319,7 +319,7 @@ de servicio) antes de cerrar; no permitir cerrar con saldo descubierto.
   registro en `_getTableSchema()`. Migración. Corte limpio del `type=11/12`
   (eliminar `ncmSpaces` legacy + TableService/OrderService viejos).
 - **F1 — Config**: `SectorService` + `TableService` CRUD + editor de salón/plano
-  en panel-next. Asignación de mozos.
+  en frontend. Asignación de mozos.
 - **Backend operativo**: `TableSessionService`, `ReservationService`,
   `SplitBillService`, endpoints `/v1/*` — se pueden tener listos y probados por
   API antes de que exista la UI operativa.

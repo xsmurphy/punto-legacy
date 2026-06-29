@@ -7,7 +7,7 @@
  *   GET  /v1/billing?resource=ai-ledger → últimos 20 movimientos del ledger IA
  *   POST /v1/billing (action=requestPlanChange, planCode, note?) → solicita cambio de plan
  *
- * Auth: apiAuthTenant(['panel']) — JWT realm "panel" (panel-next → BFF → aquí).
+ * Auth: apiAuthTenant(['panel']) — JWT realm "panel" (frontend → BFF → aquí).
  * Scoping: tenant por COMPANY_ID del JWT. NO captura ni almacena datos de pago.
  *
  * Sigue el patrón de api/v1/settings.php:

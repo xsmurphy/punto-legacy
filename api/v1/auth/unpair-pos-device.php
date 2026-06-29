@@ -6,7 +6,7 @@
  * El device solo puede revocarse a sí mismo.
  * Los admins del panel usan DELETE /v1/devices?id=X para revocar cualquier device.
  *
- * El cliente (panel-next/revoke-this-device/route.ts) llama clearDeviceToken() para
+ * El cliente (frontend/revoke-this-device/route.ts) llama clearDeviceToken() para
  * limpiar el localStorage tras la respuesta exitosa.
  */
 

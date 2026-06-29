@@ -58,7 +58,7 @@ if ($method === 'POST') {
     // Parseo de fields (create con datos + update lo usan).
     // Distinción crítica: `array_key_exists` vs `!empty`.
     //   - Field PRESENT but empty → cliente explicitly mandó '' → REJECT (422).
-    //     El form de panel-next con zod no submitea con name vacío; este caso
+    //     El form de frontend con zod no submitea con name vacío; este caso
     //     es defensa server-side ante clientes maliciosos / requests crudas.
     //   - Field ABSENT del todo → cliente legacy (panel/a_outlets.js) que solo
     //     manda {action:create} → fallback al flujo blank ("Nueva Sucursal"
@@ -102,7 +102,7 @@ if ($method === 'POST') {
 
     if ($action === 'create') {
         if ($nameProvided) {
-            // Cliente nuevo (panel-next form): validamos requireds.
+            // Cliente nuevo (frontend form): validamos requireds.
             if ($name === '') {
                 apiError('El nombre es requerido', 422);
             }

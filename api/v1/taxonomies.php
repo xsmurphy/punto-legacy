@@ -8,7 +8,7 @@
  *                                        tax, location, supplier, ...)
  *
  * Read-only por ahora; las taxonomías se crean en el panel legacy. Cuando
- * panel-next implemente CRUD de categorías/marcas, se agregan POST/PUT/DELETE.
+ * frontend implemente CRUD de categorías/marcas, se agregan POST/PUT/DELETE.
  *
  * Auth: realm panel (apiAuthTenant(['panel'])). Multi-tenant scoping via
  * companyId del JWT.

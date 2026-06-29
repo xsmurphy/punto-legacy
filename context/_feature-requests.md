@@ -7,7 +7,7 @@
 
 ## 2026-06-24 — pendientes Panel (owner → desarrollo, lista vieja)
 
-Lista de bugs/feature requests del panel-next que el owner mandó en sesiones
+Lista de bugs/feature requests del frontend que el owner mandó en sesiones
 anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
 — auditoría inicial pendiente.
 
@@ -51,7 +51,7 @@ anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
 
 ## 2026-06-24 — pendientes POS (primer batch, owner → desarrollo)
 
-Lista de cambios pedidos para el módulo POS (`app/(pos)/pos` en panel-next).
+Lista de cambios pedidos para el módulo POS (`app/(pos)/pos` en frontend).
 Una de varias listas que el owner mandó en sesiones anteriores. Sin priorización
 todavía. Auditoría inicial pendiente para marcar qué está implementado.
 

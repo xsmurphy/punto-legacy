@@ -1,4 +1,4 @@
-<!-- REGLA: Convenciones de UI del panel-next. Lectura OBLIGATORIA antes de
+<!-- REGLA: Convenciones de UI del frontend. Lectura OBLIGATORIA antes de
      crear o modificar componentes visuales. Cualquier desviación documentada
      en el código (comentario "// razón:") o no se mergea. -->
 
@@ -14,10 +14,10 @@ para replicar el legacy).
 
 El POS y panel legacy son referencia **funcional**: qué campos, qué flujos, qué
 edge cases. **No** son referencia visual. Tamaños, paddings, colores, posiciones
-y tipografía vienen del design system de shadcn + lo que ya está en panel-next.
+y tipografía vienen del design system de shadcn + lo que ya está en frontend.
 
 Si en un sub-agente leés un screenshot del legacy: usalo solo para entender qué
-información mostrar. La forma visual sale de los patrones de panel-next.
+información mostrar. La forma visual sale de los patrones de frontend.
 
 ---
 
@@ -68,7 +68,7 @@ shadcn `<DialogContent>` viene con `sm:max-w-lg` por default (32rem / 512px). **
 
 **Anti-patrón detectado (2026-06-24)**: modal del listado de transacciones POS con `max-w-[95vw] w-[95vw] h-[90vh]` hardcoded. **Mal**. Eso replica el legacy. Lo correcto: `sm:max-w-6xl` para split 2-col, alto del contenido.
 
-**Si el `<Dialog>` no acepta override de tamaño** (componente shadcn que envuelve y fuerza): editá el componente base en `panel-next/components/ui/dialog.tsx` para aceptar `size="xs|sm|m|l|xl"` como prop, default `m`. Esa edición vale el cost porque elimina la fricción.
+**Si el `<Dialog>` no acepta override de tamaño** (componente shadcn que envuelve y fuerza): editá el componente base en `frontend/components/ui/dialog.tsx` para aceptar `size="xs|sm|m|l|xl"` como prop, default `m`. Esa edición vale el cost porque elimina la fricción.
 
 ---
 
@@ -171,7 +171,7 @@ Antes de mergear (o de cerrar el brief de un sub-agente):
 Cuando recibís un brief con un screenshot del legacy o una descripción de pantalla:
 
 1. Leé la lista de regla 0–8 antes de tocar JSX
-2. Buscá la pantalla análoga en panel-next (`app/(panel)/items/page.tsx`,
+2. Buscá la pantalla análoga en frontend (`app/(panel)/items/page.tsx`,
    `app/(panel)/outlets/[id]/page.tsx`, `components/domain/transactions/transactions-list.tsx`)
 3. Copiá la estructura/tipografía/spacing de **esa**, no del screenshot
 4. Si el brief contradice estas reglas, FLAG en el reporte ("el brief decía X

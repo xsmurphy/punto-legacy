@@ -29,10 +29,10 @@ final class Roc
      * @return string Fragmento que arranca con " AND " (concatenable después de un WHERE existente).
      * @throws \RuntimeException si companyId no es UUID — el endpoint debe abortar con 500.
      *
-     * View-scope override (panel-next 2026-06-13): si bootstrap.php definió
+     * View-scope override (frontend 2026-06-13): si bootstrap.php definió
      * `VIEW_OUTLET_ID` (porque el browser mandó header `X-Outlet-Id`), ese
      * gana sobre el `$outletId` que pasa el endpoint. Permite que el dropdown
-     * del logo de panel-next switchee entre sucursales o el modo "Todas"
+     * del logo de frontend switchee entre sucursales o el modo "Todas"
      * (`VIEW_OUTLET_ID=''` → no se agrega filtro outletId al WHERE) sin tocar
      * los 21 endpoints de reports.
      */

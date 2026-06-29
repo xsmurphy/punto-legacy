@@ -58,7 +58,7 @@ final class Taxonomy
             'epos'            => 'ePOS',
             'bancardQROnline' => 'ePOS',
             'ePOSCard'        => 'ePOS Card',
-            // Aliases del panel-next FALLBACK_PAYMENT_METHODS (POS bootstrap)
+            // Aliases del frontend FALLBACK_PAYMENT_METHODS (POS bootstrap)
             'efectivo'        => 'Efectivo',
             'tcredito'        => 'T. Crédito',
             'tdebito'         => 'T. Débito',

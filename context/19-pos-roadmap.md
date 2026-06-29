@@ -1,9 +1,9 @@
-<!-- REGLA: Roadmap de mejoras POS post-fusión panel-next (sprint 2026-06-21+).
+<!-- REGLA: Roadmap de mejoras POS post-fusión frontend (sprint 2026-06-21+).
      6 fases ordenadas por dependencia. Cada fase = una delegación a Sonnet con
      brief cerrado. Al completar un item, mover a _archive-roadmap-completado.md
      o marcarlo done acá hasta cerrar la fase. -->
 
-# 19 — POS Roadmap (post-fusión panel-next)
+# 19 — POS Roadmap (post-fusión frontend)
 
 Lista de pendientes POS organizados por dependencia + riesgo. Origen: pedido del
 owner 2026-06-21. La ejecución se hace siempre con Sonnet (regla CLAUDE.md);

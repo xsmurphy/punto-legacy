@@ -177,17 +177,17 @@ En el write path, `ncmInsert` y `ncmUpdate` son la ÚNICA implementación de tre
 
 ---
 
-## §37 — BFF same-origin en panel-next
+## §37 — BFF same-origin en frontend
 
 El `api-client.ts` del browser usa baseURL `/api` (same-origin). NUNCA configura URL externa del backend PHP directamente desde el browser — eso requeriría CORS y expone la URL interna.
 
-`panel-next/app/api/v1/[...path]/route.ts` es el catch-all que actúa como BFF: agrega cookie `_jwt_panel` y forwardea a `NEXT_PUBLIC_API_URL`/`API_URL`. Cálculo/reshape va en los route handlers de Next.js; la API PHP devuelve datos crudos.
+`frontend/app/api/v1/[...path]/route.ts` es el catch-all que actúa como BFF: agrega cookie `_jwt_panel` y forwardea a `NEXT_PUBLIC_API_URL`/`API_URL`. Cálculo/reshape va en los route handlers de Next.js; la API PHP devuelve datos crudos.
 
-Ante errores de mutación en panel-next, primer lugar a revisar: el catch-all (path mal reescrito o cookie no propagada).
+Ante errores de mutación en frontend, primer lugar a revisar: el catch-all (path mal reescrito o cookie no propagada).
 
 ---
 
-## Convenciones obligatorias del rewrite panel-next
+## Convenciones obligatorias del rewrite frontend
 
 ### shadcn obligatorio (sobre HTML nativo)
 
@@ -195,7 +195,7 @@ Prohibido `<table>`, `<img>`, `<label>`, `<button>`, `<input>` etc. cuando hay p
 
 ### MoneyInput obligatorio para campos de moneda
 
-Todo monto `$` usa `<MoneyInput>` (`panel-next/components/ui/money-input.tsx`) — respeta `bootstrap.thousand`/`decimal` del tenant. NUNCA `<Input type="number">` para precio/costo/descuento/total/monto.
+Todo monto `$` usa `<MoneyInput>` (`frontend/components/ui/money-input.tsx`) — respeta `bootstrap.thousand`/`decimal` del tenant. NUNCA `<Input type="number">` para precio/costo/descuento/total/monto.
 
 ### Listados = DataTable
 
@@ -207,7 +207,7 @@ Estado y validación con react-hook-form + Zod. No estado ad-hoc.
 
 ### §36 — Jerarquía visual de formularios
 
-Títulos de sección: `text-base font-semibold tracking-tight` + `border-b`. `FormLabel` individual: `text-sm font-medium`. **No invertir**. Componente canónico: `<FormSection>` en `panel-next/components/forms/form-section.tsx` — todo agrupamiento de campos lo usa, nunca markup ad-hoc.
+Títulos de sección: `text-base font-semibold tracking-tight` + `border-b`. `FormLabel` individual: `text-sm font-medium`. **No invertir**. Componente canónico: `<FormSection>` en `frontend/components/forms/form-section.tsx` — todo agrupamiento de campos lo usa, nunca markup ad-hoc.
 
 ### §38 — Anti-patrón: gate `status !== "idle"` en TanStack Query + Zustand
 
@@ -242,7 +242,7 @@ interface MenuSection {
 - Ninguno → default (descripción + CTA).
 - Sin sección seleccionada → empty state. Nunca auto-seleccionar la primera.
 
-Primer uso: `panel-next/components/register/pos-main-menu.tsx`.
+Primer uso: `frontend/components/register/pos-main-menu.tsx`.
 
 ---
 
@@ -344,9 +344,9 @@ El browser de un operador logueado lleva **dos** cookies JWT simultáneas con pr
 | Cookie | Emite | TTL | Realm / claim `iss` | Propósito |
 |--------|-------|-----|---------------------|-----------|
 | `_jwt_panel` | `panel/includes/functions.php` | 24h | `'panel'` | Sesión del operador en el panel React |
-| `_jwt_pos-device` | `app/Api/DeviceAuth.php` (PSR-4) | 10 años | `'pos-app'` + claim `did` | Device pairing de la caja POS (panel-next) |
+| `_jwt_pos-device` | `app/Api/DeviceAuth.php` (PSR-4) | 10 años | `'pos-app'` + claim `did` | Device pairing de la caja POS (frontend) |
 
-El catch-all BFF (`panel-next/app/api/v1/[...path]/route.ts`) forwardea **solo** `_jwt_panel`. Los endpoints `apiAuthTenant(['pos-app'])` leen `_jwt_pos-device`. Un `POST /v1/logout` del panel borra solo `_jwt_panel` (cookie `HttpOnly`, borrado server-side); la sesión POS no se toca. Logout del POS solo desde Ajustes → "Eliminar dispositivo del comercio". Ver §28 y context/16.
+El catch-all BFF (`frontend/app/api/v1/[...path]/route.ts`) forwardea **solo** `_jwt_panel`. Los endpoints `apiAuthTenant(['pos-app'])` leen `_jwt_pos-device`. Un `POST /v1/logout` del panel borra solo `_jwt_panel` (cookie `HttpOnly`, borrado server-side); la sesión POS no se toca. Logout del POS solo desde Ajustes → "Eliminar dispositivo del comercio". Ver §28 y context/16.
 
 **PIN del cajero (2026-06-25):** el lockscreen del POS usa SHA-256 del PIN en `localStorage`, **no bcrypt**. Razón: el PIN es identificación del cajero (quién vendió qué), no seguridad de acceso — un cajero que piratea su propio hash de PIN tiene acceso físico a la caja de todas formas. `Web Crypto API` (`crypto.subtle.digest("SHA-256", ...)`) en el cliente; comparación local sin roundtrip. No cambiar a bcrypt sin decisión explícita del owner.
 
@@ -452,9 +452,9 @@ Causó incidente prod 2026-06-25 (commit `14d5347`): `idx_contact_phone_tenant_u
 
 ## §48 — `getPaymentMethodName()` acepta keys de ambos sistemas
 
-La función `getPaymentMethodName(key)` en `panel-next/lib/pos/payments.ts` maneja dos formatos de keys simultáneamente — legacy (`cash`, `creditcard`, `debitcard`) y panel-next POS (`efectivo`, `tcredito`, `tdebito`) — vía tabla de aliases interna. También tiene guard para string vacío (devuelve `''` en vez de undefined).
+La función `getPaymentMethodName(key)` en `frontend/lib/pos/payments.ts` maneja dos formatos de keys simultáneamente — legacy (`cash`, `creditcard`, `debitcard`) y frontend POS (`efectivo`, `tcredito`, `tdebito`) — vía tabla de aliases interna. También tiene guard para string vacío (devuelve `''` en vez de undefined).
 
-Del mismo modo, `getSingle` de payments acepta dos shapes: `{type, price, extra, UID}` (legacy) y `{name, total}` (POS panel-next). No asumir que los payments vienen en un solo formato — la BD mezcla ambos hasta que el POS legacy sea deprecado.
+Del mismo modo, `getSingle` de payments acepta dos shapes: `{type, price, extra, UID}` (legacy) y `{name, total}` (POS frontend). No asumir que los payments vienen en un solo formato — la BD mezcla ambos hasta que el POS legacy sea deprecado.
 
 ---
 
@@ -476,6 +476,6 @@ El sistema de roles vive en la tabla `taxonomy` con `type = 'role'` (metadata de
 
 - **`PermissionCatalog`** (`api/lib/Auth/PermissionCatalog.php`): source of truth de los 43 permisos esenciales agrupados por módulo. Cada permiso es un string `'module.action'` (ej. `'pos.view'`, `'contacts.edit'`).
 - **`RoleService`** (`api/lib/Auth/RoleService.php`): CRUD + `getPermissions(companyId, roleId)` con cache por-request. Resuelve tanto role IDs legacy (int) como UUID.
-- **`hasPermission(user, 'module.action')`** (`panel-next/lib/auth/permissions.ts`): helper global para UI; lee `user.permissions[]` expuesto por `/v1/bootstrap`.
+- **`hasPermission(user, 'module.action')`** (`frontend/lib/auth/permissions.ts`): helper global para UI; lee `user.permissions[]` expuesto por `/v1/bootstrap`.
 - **3 seed roles por tenant** al crear empresa: `Dueño` (todos los permisos), `Encargado` (sin billing/admin), `Cajero` (pos + operación básica). Custom roles disponibles vía UI `/settings/roles`.
 - **Sidebar filtering**: el sidebar del panel filtra links por `hasPermission()`. Si `user.permissions[]` llega vacío, el sidebar queda en blanco — verificar que bootstrap exponga el array correctamente.

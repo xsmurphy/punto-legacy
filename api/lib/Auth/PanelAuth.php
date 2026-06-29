@@ -44,7 +44,7 @@ final class PanelAuth
 
     /**
      * Emite la sesión opaca del realm `panel` y setea la cookie `_jwt_panel` con
-     * el scope correcto para coexistencia panel legacy + panel-next.
+     * el scope correcto para coexistencia panel legacy + frontend.
      *
      * Cookie domain: `COOKIE_DOMAIN` env var (ej. ".punto.la"). Si no
      * está seteado, default = sin domain (cookie atada al host actual —

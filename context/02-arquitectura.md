@@ -8,7 +8,7 @@
 > **El panel legacy (`/panel`) se reescribe greenfield a React + Next.js.** F3/F4/F5 del plan de desacople original están CANCELADOS. El legacy se mantiene SOLO en producción mientras el nuevo no lo cubra al 100%, luego se elimina.
 > Ver `context/12-panel-rewrite.md` para el plan completo (stack, slices, sprint 0 checklist).
 
-**Implicación para los god-nodes del panel legacy**: `panel/includes/functions.php`, `panel/a_*.php`, `panel/API/v1/*.php` y `panel/lib/*/` son código **condenado** — no conviene invertir refactors en ellos más allá de lo necesario para producción estable. El trabajo nuevo va en `panel-next/` (React).
+**Implicación para los god-nodes del panel legacy**: `panel/includes/functions.php`, `panel/a_*.php`, `panel/API/v1/*.php` y `panel/lib/*/` son código **condenado** — no conviene invertir refactors en ellos más allá de lo necesario para producción estable. El trabajo nuevo va en `frontend/` (React).
 
 **Lo que NO cambia**: `/app` (POS) sigue legacy — decisión separada. `/api` compartida sigue en PHP y es el backend del nuevo panel. El realm `/admin` se mantiene hasta que el nuevo panel cubra esa funcionalidad.
 
@@ -107,13 +107,13 @@ El sistema tiene **dos realms de autenticación criptográficamente aislados**:
 | Nivel | Quién | Mecanismo | Persistencia |
 |-------|-------|-----------|-------------|
 | **Activación de caja** | Admin | JWT (`_jwt`, `JWT_TTL=10y`) + claim `did` (deviceId UUID) | Permanente mientras el secret no rote. Análogo a Apple TV pareado a una cuenta. |
-| **Acceso del cajero** | Cajero | PIN de 4 dígitos → `ncmAuth.activeUser` + `lockPad` en JS (legacy) / lock screen React en panel-next | Transitorio por turno — el JWT del dispositivo NO se toca. |
+| **Acceso del cajero** | Cajero | PIN de 4 dígitos → `ncmAuth.activeUser` + `lockPad` en JS (legacy) / lock screen React en frontend | Transitorio por turno — el JWT del dispositivo NO se toca. |
 
 El JWT de /app representa "este dispositivo está pareado a esta empresa/outlet". No es una sesión de usuario. El TTL largo (10 años) está justificado porque la revocación per-device ya existe vía la **tabla `device`** (migración 11, commit a3fefb4): el middleware valida `device.status` si el JWT trae claim `did`, con cache de archivo 60s en `sys_get_temp_dir/punto_device_status/{deviceId}_{companyId}.dat`. Para revocar un dispositivo individual: `UPDATE device SET status=0 WHERE deviceId=? AND companyId=?` y opcionalmente llamar `jwtInvalidateDeviceCache()`. Tokens sin `did` (legacy anterior al feat) siguen pasando (backwards compat).
 
 ### Modelo de doble sesión del POS React (ACTUALIZADO 2026-06-27)
 
-El POS React (en `panel-next/app/(pos)/pos`) maneja **DOS sesiones independientes**:
+El POS React (en `frontend/app/(pos)/pos`) maneja **DOS sesiones independientes**:
 
 | Sesión | Mecanismo | Realm | TTL | Quién la cierra |
 |--------|-----------|-------|-----|----------------|
@@ -235,9 +235,9 @@ El franchiser (`panel/franchiser.php`, gateado por `isParent`) es un **realm ten
 | Monolito con API REST emergente | `/panel/API/*.php` (93 endpoints) |
 | ~~Action dispatcher~~ → **Vaciado (2026-06-01)** | `/app/action.php` tenía ~43+ acciones vía param `l=`; post-Slice 36 solo queda `processData`. El patrón BFF→API→Service lo reemplazó concern-por-concern. |
 | BFF 3 capas (Front→BFF→API→Service) | `/panel/` (completo) + **`/app/` en desacople progresivo** (slice 1: customerAddress ✅, 2026-05-28) |
-| **BFF same-origin Next.js (panel-next)** | `panel-next/app/api/v1/[...path]/route.ts` — catch-all que reenvía `/api/v1/*` al backend PHP preservando cookie `_jwt_panel`. `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Patrón canónico para CRUD en panel-next desde commit 580d79a (2026-06-12).** Ver §37 en `08-convenciones.md`. |
-| **BFF admin same-origin Next.js (panel-next)** | `panel-next/app/api/admin/[...path]/route.ts` — catch-all análogo al anterior para el realm admin. Solo forwarda cookie `_jwt_admin`; NUNCA forwarda `_jwt_panel`. Proxea a `panel/API/v1/admin/*`. Aislamiento de realm mantenido dentro del proceso Next.js. (commit be39b06, 2026-06-14) |
-| **Route group `(admin)` en panel-next** | `panel-next/app/(admin)/admin/*` — sub-app greenfield del realm admin dentro de panel-next. Layout propio, no comparte hooks ni contexto con `(panel)`. Path-based (`/admin`) dentro del mismo dominio, no subdominio dedicado. Ruta de login: `admin/login`. Páginas: dashboard, companies (list+detail), users (CRUD), requests, reports. (commits be39b06 + 605286e, 2026-06-14) |
+| **BFF same-origin Next.js (frontend)** | `frontend/app/api/v1/[...path]/route.ts` — catch-all que reenvía `/api/v1/*` al backend PHP preservando cookie `_jwt_panel`. `api-client.ts` del browser usa baseURL `/api` (same-origin, sin CORS). **Patrón canónico para CRUD en frontend desde commit 580d79a (2026-06-12).** Ver §37 en `08-convenciones.md`. |
+| **BFF admin same-origin Next.js (frontend)** | `frontend/app/api/admin/[...path]/route.ts` — catch-all análogo al anterior para el realm admin. Solo forwarda cookie `_jwt_admin`; NUNCA forwarda `_jwt_panel`. Proxea a `panel/API/v1/admin/*`. Aislamiento de realm mantenido dentro del proceso Next.js. (commit be39b06, 2026-06-14) |
+| **Route group `(admin)` en frontend** | `frontend/app/(admin)/admin/*` — sub-app greenfield del realm admin dentro de frontend. Layout propio, no comparte hooks ni contexto con `(panel)`. Path-based (`/admin`) dentro del mismo dominio, no subdominio dedicado. Ruta de login: `admin/login`. Páginas: dashboard, companies (list+detail), users (CRUD), requests, reports. (commits be39b06 + 605286e, 2026-06-14) |
 | Pub/Sub bridge | PHP → Redis → Node.js WS → Browser |
 | JSONB extensible | Columnas `config`, `data`, `meta` en tablas principales |
 | UUID v7 como PK | Todas las tablas (via `ncmInsert()`) |
@@ -617,7 +617,7 @@ jQuery se queda en la capa de UI.
 
 ---
 
-> Sección "Estrategia de modernización del monolito (decisión 2026-05-24)" + el molde por módulo movidos a [_archive-arquitectura-legacy.md](_archive-arquitectura-legacy.md) — superseded por el rewrite panel-next.
+> Sección "Estrategia de modernización del monolito (decisión 2026-05-24)" + el molde por módulo movidos a [_archive-arquitectura-legacy.md](_archive-arquitectura-legacy.md) — superseded por el rewrite frontend.
 
 ---
 

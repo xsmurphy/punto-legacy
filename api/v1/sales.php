@@ -24,7 +24,7 @@ use Punto\Api\Sales\SaleInput;
 use Punto\Api\Sales\SaleService;
 use Punto\Api\Sales\SaleType;
 
-// MULTI-REALM (A7, 2026-06-16): la caja vive dentro de panel-next y vende con
+// MULTI-REALM (A7, 2026-06-16): la caja vive dentro de frontend y vende con
 // la sesión del panel (`_jwt_panel`), no con un realm pos-app aparte. El
 // `registerId` (caja activa) viene del claim `rid` del JWT — lo setea
 // /v1/active-register tras validar la caja. TODO (F2): gatear "puede vender"

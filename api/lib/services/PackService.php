@@ -25,7 +25,7 @@ final class PackService
     // ── Componentes ──────────────────────────────────────────────────────────
 
     /**
-     * Lista los componentes de un pack (para el editor de items en panel-next).
+     * Lista los componentes de un pack (para el editor de items en frontend).
      *
      * @return list<array{packComponentId:string, componentItemId:string, componentName:string, componentQty:int, sort:int}>
      */

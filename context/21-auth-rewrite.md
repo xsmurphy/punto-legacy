@@ -431,7 +431,7 @@ Cada fase = un commit. Branch `auth-rewrite` (auto-deploy OFF; el owner deploya 
 `code-reviewer` OBLIGATORIO en cada fase (auth = alto riesgo).
 
 > ⚠️ **REVISIÓN 2026-06-29 — F2/F3/F4 RE-TARGETEADAS.** El primer relevamiento se perdió toda
-> la superficie moderna `api/lib/Auth/`. Los emisores REALES que panel-next usa NO son los
+> la superficie moderna `api/lib/Auth/`. Los emisores REALES que frontend usa NO son los
 > legacy (`issueJwtPanel`, `app/API/auth.php`, `app/handoff.php`, `pos-redirect.php`, `app/login.php`)
 > — esos son **código muerto de referencia, NO se tocan**. Los targets correctos están en la
 > sección **"## REVISIÓN MODERNA (F2/F3/F4 reales)"** al final de este doc, con código exacto.
@@ -603,7 +603,7 @@ Firma y return IDÉNTICOS → `loginPart()` y el endpoint de login no se tocan. 
 ?>
 ```
 
-**2.3 — Endpoint `POST /v1/logout` del panel** (panel-next lo llama; §42). Localizar el archivo
+**2.3 — Endpoint `POST /v1/logout` del panel** (frontend lo llama; §42). Localizar el archivo
 (`api/v1/logout.php` o `panel/API/v1/logout.php` — `grep -rn "v1/logout\|logout" api/v1 panel/API/v1`).
 Asegurar que su cuerpo sea:
 
@@ -649,7 +649,7 @@ $raw = authSessionCreate('pos-app', [
     'expiresAt'  => $ttl > 0 ? date('Y-m-d H:i:s', time() + $ttl) : null,
 ]);
 
-// Legacy /app (browser app.punto.la) aún espera la cookie _jwt. El POS panel-next usa Bearer.
+// Legacy /app (browser app.punto.la) aún espera la cookie _jwt. El POS frontend usa Bearer.
 authSetOpaqueCookie('_jwt', $raw, $ttl, 'Lax');
 $token = $raw;
 ```
@@ -737,7 +737,7 @@ echo json_encode([
 > `decodeJwtPayload(token)` para sacar companyId/outletId. Eso DEBE reemplazarse (3.6).
 
 **3.5 — SSO handoff legacy (`panel/bff/pos-redirect.php` + `app/handoff.php`)**: el POS productivo
-vive en panel-next (mismo dominio), pero el link "Caja" → `app.punto.la` (legacy /app) sigue. Reescribir:
+vive en frontend (mismo dominio), pero el link "Caja" → `app.punto.la` (legacy /app) sigue. Reescribir:
 
 `panel/bff/pos-redirect.php` — reemplazar la emisión del token 15s (`jwtEncode([... 'exp'=>$_now+15])`)
 por una sesión pos-app corta de un solo salto:
@@ -806,7 +806,7 @@ header('Location: /?i=' . rawurlencode($i));
 exit;
 ```
 
-**3.6 — Frontend screen** (`panel-next/app/(screen)/checkout/page.tsx`): reemplazar el uso de
+**3.6 — Frontend screen** (`frontend/app/(screen)/checkout/page.tsx`): reemplazar el uso de
 `decodeJwtPayload(token)` por la lectura de los claims que ahora devuelve el pairing (3.4),
 persistidos en localStorage junto al token. Agregar a `lib/auth/device-token.ts` (o un helper
 adyacente) el guardado de un blob de claims namespaced por module:
@@ -845,7 +845,7 @@ Reemplazar todo `decodeJwtPayload(token)` por `getDeviceClaims("screen")`. En el
 screen, llamar también `clearDeviceClaims("screen")` junto a `clearDeviceToken("screen")`.
 
 > Aplicar el mismo `setDeviceClaims(..., "pos")` en el pairing del POS si en algún punto el POS
-> decodifica el token client-side (auditar `decodeJwtPayload` en panel-next; si solo lo usa el
+> decodifica el token client-side (auditar `decodeJwtPayload` en frontend; si solo lo usa el
 > screen, el POS no necesita claims porque `/api/pos/bootstrap` ya le da el contexto).
 
 **Criterio de done:** POS y Screen paréan → fila `auth_session` (realm pos-app/screen);
@@ -873,13 +873,13 @@ function adminIssueJwt($admin): string
 }
 ```
 
-El BFF `panel-next/app/api/admin/[...path]/route.ts` ya toma `data.token` del login y setea
+El BFF `frontend/app/api/admin/[...path]/route.ts` ya toma `data.token` del login y setea
 `_jwt_admin` (TTL `ADMIN_JWT_TTL`) — NO cambia (recibe el token opaco igual que antes).
 
 **4.2 — Logout admin con revocación server-side.** Hoy `panel/bff/admin/logout.php` (legacy) y el
-catch-all `route.ts` (panel-next) solo limpian la cookie local. Agregar revocación:
+catch-all `route.ts` (frontend) solo limpian la cookie local. Agregar revocación:
 
-- En `panel-next/app/api/admin/[...path]/route.ts`, en el branch `if (req.method === "POST" && tail === "logout")`,
+- En `frontend/app/api/admin/[...path]/route.ts`, en el branch `if (req.method === "POST" && tail === "logout")`,
   ANTES de limpiar la cookie, reenviar la revocación al backend. Reemplazar ese branch por:
 
 ```ts
@@ -979,7 +979,7 @@ apiError('Método no permitido', 405);
 Registrar el entity en el mapa `realtimeAfterMutation` de `api/bootstrap.php` (opcional):
 `'/v1/sessions' => ['entity' => 'session', 'scope' => 'all'],`.
 
-**5.3 — UI `panel-next/app/(panel)/settings/sessions/page.tsx`** + hook `hooks/use-sessions.ts`.
+**5.3 — UI `frontend/app/(panel)/settings/sessions/page.tsx`** + hook `hooks/use-sessions.ts`.
 DataTable (§ convenciones: `<DataTable>` reusable) con columnas: realm/módulo, usuario, outlet,
 última actividad, IP, estado; acción revocar. Hook:
 
@@ -1161,7 +1161,7 @@ function _authCacheDel(string $hash): void
 
 ## REVISIÓN MODERNA (F2/F3/F4 reales) — 2026-06-29
 
-Superficie real que panel-next usa. Devices = realm **`pos-app`** + columna **`module`**
+Superficie real que frontend usa. Devices = realm **`pos-app`** + columna **`module`**
 (`pos`/`screen`/`kds`/`display`) — NO realm separado por tipo. `auth_session.php` se requiere
 desde `api/lib/Auth/` con `dirname(__DIR__, 2) . '/../app/includes/auth_session.php'` (mismo
 patrón que el `require` de `jwt.php` que ya tienen esos archivos).
@@ -1318,9 +1318,9 @@ responses deben incluir `companyId` + `registerId` para que el screen arme los c
 
 (`$issued = issueJwtForExistingDevice(...)` ya devuelve esos campos por el cambio (c).)
 
-### F3r — Frontend del screen (panel-next)
+### F3r — Frontend del screen (frontend)
 
-**Nuevo `panel-next/lib/auth/device-claims.ts`** (claims que el token opaco ya no expone):
+**Nuevo `frontend/lib/auth/device-claims.ts`** (claims que el token opaco ya no expone):
 
 ```ts
 import type { DeviceModule } from "@/lib/auth/device-token"
@@ -1368,7 +1368,7 @@ export function clearDeviceClaims(module: DeviceModule = "pos"): void {
   `clearDeviceToken("screen")`.
 - Borrar la función `decodeJwtPayload` (queda sin uso).
 
-**`panel-next/app/api/pos/revoke-this-device/route.ts`** — hoy hace `atob` del token para sacar
+**`frontend/app/api/pos/revoke-this-device/route.ts`** — hoy hace `atob` del token para sacar
 el `deviceId`. Con token opaco no se puede decodificar server-side. Cambiar para que el cliente
 mande el `deviceId` en el body (lo tiene en `getDeviceClaims("pos")?.deviceId`), y el route lo
 reenvíe al backend de revocación. Si el caller del route no tiene el deviceId disponible, leerlo
@@ -1400,7 +1400,7 @@ entra como el dueño del tenant). `getEnterToken` vive en `panel/lib/admin/` →
         return ['token' => $raw, 'expiresIn' => $ttl];
 ```
 
-El BFF admin (`panel-next/app/api/admin/[...path]/route.ts`, rama `action=enter`) ya toma
+El BFF admin (`frontend/app/api/admin/[...path]/route.ts`, rama `action=enter`) ya toma
 `data.token` y setea cookie `_jwt_panel` — sin cambios.
 
 ### F4r — Admin propio: `adminIssueJwt()`
@@ -1426,9 +1426,9 @@ Igual que la F4 vieja del doc (la función `adminIssueJwt` en `panel/API/lib/adm
 | F0 | `database/migrations/postgres/69_auth_session.sql` (nuevo), `app/includes/auth_session.php` (nuevo) |
 | F1 | `app/includes/jwt_middleware.php`, `panel/API/lib/api_middleware.php`, `panel/API/lib/admin_auth.php` |
 | F2 | `panel/includes/functions.php` (`issueJwtPanel`), `panel/logout.php`, `api/v1/logout.php` (o panel equiv) |
-| F3 | `app/API/auth.php`, `app/API/refresh.php`, `app/API/logout.php`, screen pairing endpoint, `panel/bff/pos-redirect.php`, `app/handoff.php`, `panel-next/app/(screen)/checkout/page.tsx`, `panel-next/lib/auth/device-claims.ts` (nuevo) |
-| F4 | `panel/API/lib/admin_auth.php` (`adminIssueJwt`), `panel-next/app/api/admin/[...path]/route.ts`, `panel/API/v1/admin/logout.php` |
-| F5 | `api/v1/devices.php` (DELETE), `api/v1/sessions.php` (nuevo), `panel-next/hooks/use-sessions.ts` (nuevo), `panel-next/app/(panel)/settings/sessions/page.tsx` (nuevo) |
+| F3 | `app/API/auth.php`, `app/API/refresh.php`, `app/API/logout.php`, screen pairing endpoint, `panel/bff/pos-redirect.php`, `app/handoff.php`, `frontend/app/(screen)/checkout/page.tsx`, `frontend/lib/auth/device-claims.ts` (nuevo) |
+| F4 | `panel/API/lib/admin_auth.php` (`adminIssueJwt`), `frontend/app/api/admin/[...path]/route.ts`, `panel/API/v1/admin/logout.php` |
+| F5 | `api/v1/devices.php` (DELETE), `api/v1/sessions.php` (nuevo), `frontend/hooks/use-sessions.ts` (nuevo), `frontend/app/(panel)/settings/sessions/page.tsx` (nuevo) |
 | F6 | borrado de `jwt.php`/`jwt_middleware.php` residual + docs |
 | F7 | `app/includes/auth_session.php` (cache real) |
 

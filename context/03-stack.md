@@ -23,13 +23,13 @@
 | Mustache | 4.0.1 | Templating legacy (/app POS: ~22 templates existentes; panel: items/contacts editform). **Deprecación incremental** — NO crear templates Mustache nuevos. Los existentes migran a Alpine cuando se toquen. |
 | ncm-ws.js | custom | Drop-in de Pusher para WebSocket |
 
-## Stack en plan — `panel-next/` (rewrite del panel, desde 2026-06-10)
+## Stack en plan — `frontend/` (rewrite del panel, desde 2026-06-10)
 
 > Ver `context/12-panel-rewrite.md` para el plan completo. F3/F4/F5 del desacople original están CANCELADOS; el panel legacy se reemplaza greenfield.
 
 | Componente | Versión | Notas |
 |-----------|---------|-------|
-| Next.js | 15 (App Router) | Framework del nuevo panel. `panel-next/` como directorio raíz del proyecto React. |
+| Next.js | 15 (App Router) | Framework del nuevo panel. `frontend/` como directorio raíz del proyecto React. |
 | TypeScript | strict | `strict: true`, `noUncheckedIndexedAccess: true`. |
 | shadcn/ui | latest | Componentes copy-paste sobre Radix UI. Tema: New York vs Default — pendiente decidir en Sprint 0. |
 | Tailwind CSS | 4 | Utilitario, convive con shadcn. |
@@ -38,7 +38,7 @@
 | Zod | 3 | Validación de schemas client+server. |
 
 **Coexistencia temporal**: mientras el nuevo panel no cubra el 100% de la funcionalidad, los dos paneles corren en paralelo en subdominios distintos:
-- `panel.punto.la` → nuevo panel React (`panel-next/`)
+- `panel.punto.la` → nuevo panel React (`frontend/`)
 - `panel-legacy.punto.la` → panel PHP actual (`/panel`)
 
 La cookie `_jwt_panel` se emite sobre `.punto.la` (sin subdominio) para que ambos la compartan sin SSO intermedio.

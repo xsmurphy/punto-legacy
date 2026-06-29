@@ -64,8 +64,8 @@ Para cada `(companyId, taxonomyType, lower(taxonomyName))` con count > 1, manten
 
 ### Slice C — UI /settings/catalog
 
-- `panel-next/hooks/use-tags.ts` (paridad con `use-brands.ts`).
-- `panel-next/lib/types/tag.ts`.
+- `frontend/hooks/use-tags.ts` (paridad con `use-brands.ts`).
+- `frontend/lib/types/tag.ts`.
 - Agregar tab "Etiquetas" en `catalog/page.tsx`, grid pasa a 4-col, ícono `Tags` de lucide.
 - Mostrar mensaje del backend si el UNIQUE rebota: `toast.error("Ya existe una categoría con ese nombre")`.
 

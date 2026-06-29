@@ -2,12 +2,12 @@
 
 > **Creado:** 2026-06-15. **Decisión del owner:** el POS legacy (`/app`,
 > jQuery + Bootstrap 3 + 26.5k L en un `app.js`) se reescribe greenfield en
-> `app-next/`, mismo stack que `panel-next`. Análogo al rewrite del panel
+> `app-next/`, mismo stack que `frontend`. Análogo al rewrite del panel
 > (`context/12`). La feasibility y los subsistemas están analizados en
 > `context/14`; las decisiones fiscales/numeración en `context/14 §9`.
 
 > ⚠️ **DESACTUALIZADO desde 2026-06-16 — FUSIÓN.** El subproyecto `app-next/`
-> standalone **fue eliminado**: el POS se fusionó DENTRO de `panel-next` en
+> standalone **fue eliminado**: el POS se fusionó DENTRO de `frontend` en
 > `app/(pos)/pos` (un solo dominio/deploy, design system y auth `_jwt_panel`
 > compartidos). Razón: el muro de seguridad real está en la API (realm +
 > RBAC), no en el dominio. El sidebar del panel es contextual en `/pos`
@@ -18,14 +18,14 @@
 > impresión, crear-cliente backend, F2 (lock/`_jwt_pos`/RBAC), hotkeys modo
 > edición. Ya NO hay subdominio `app-next.punto.la`. Lo de abajo (§4 BFF, §6
 > pantallas, §8 UX) sigue válido como spec; las refs a `app-next/` mapean a
-> `panel-next/`. Ver `_session-log` 2026-06-16 para el detalle.
+> `frontend/`. Ver `_session-log` 2026-06-16 para el detalle.
 
 ---
 
 ## 0. TL;DR
 
 - **Greenfield** en `app-next/` (Next 15 + TS + shadcn + Tailwind + TanStack
-  Query), app **separada** de panel-next (PWA, hardware, necesidades distintas),
+  Query), app **separada** de frontend (PWA, hardware, necesidades distintas),
   consumiendo la **misma `/api`** (el SaleService ya está hecho e idempotente).
 - **UX = la del `/app` legacy, restyle con shadcn + colores de marca.** Mismos
   flujos y velocidad de caja; cambia el look, no la experiencia operativa.
@@ -47,7 +47,7 @@
   ventas simples a `bff/sales` → `api/v1/sales.php`.
 - La `/api` compartida ya sirve items, contacts, bootstrap, reports, etc. con
   `apiAuthTenant(['panel','pos-app'])` → **un cliente React puede pegar hoy sin
-  esperar nada del backend** (igual que panel-next).
+  esperar nada del backend** (igual que frontend).
 - El POS **no está en producción** (`context/01`) → corte limpio, sin migración
   de clientes ni compat shims.
 
@@ -66,7 +66,7 @@ datos. Ver `context/14 §2`.
      carrito, las categorías, el numpad, los botones de acción, el cobro, la
      búsqueda. Mismas posiciones, mismo orden, mismos flujos de clicks/teclas.
    - Lo que cambia es **solo el estilo**: shadcn + paleta de marca (`context/11`,
-     skill `brand-manual`, verde Punto `#01D7A1` en accents/charts como panel-next),
+     skill `brand-manual`, verde Punto `#01D7A1` en accents/charts como frontend),
      tipografía, espaciados, componentes. NO se reubican elementos ni se cambian
      flujos. Si hay duda entre "más lindo/moderno" y "igual que el legacy", **gana
      igual que el legacy**.
@@ -79,14 +79,14 @@ datos. Ver `context/14 §2`.
    solo venta contado/crédito + alta cliente offline.
 4. **Backend ya hecho.** Reusar `/api` vía BFF propio (§4); no reescribir backend
    salvo gaps puntuales.
-5. **Mismas reglas que panel-next** (§9): shadcn-first, `MoneyInput`, teléfonos
+5. **Mismas reglas que frontend** (§9): shadcn-first, `MoneyInput`, teléfonos
    E.164, `DataTable`, `npm run build` antes de pushear, etc.
 
 ---
 
 ## 3. Stack
 
-Idéntico a `panel-next` (`context/12 §Stack`):
+Idéntico a `frontend` (`context/12 §Stack`):
 
 | Componente | Tecnología |
 |---|---|
@@ -102,7 +102,7 @@ Idéntico a `panel-next` (`context/12 §Stack`):
 | Real-time | `ncm-ws` portado a TS (cliente WS, hook `useChannel`) |
 
 Auth: cookie `_jwt` (realm `pos-app`), handoff JWT desde el panel (`app/handoff.php`
-equivalente). BFF same-origin como panel-next (`app/api/v1/[...path]` → `/api`).
+equivalente). BFF same-origin como frontend (`app/api/v1/[...path]` → `/api`).
 
 ---
 
@@ -124,7 +124,7 @@ exponen sus endpoints crudos.
 sobre la misma `/api` + BD.)
 
 ```
-app-next/  (Next 15 PWA — separada de panel-next, comparte /api y UI shadcn)
+app-next/  (Next 15 PWA — separada de frontend, comparte /api y UI shadcn)
   app/(pos)/...           ← register, pay, customers, transactions, drawer, tables…
   app/api/...            ← ★ BFF del POS (Next route handlers). Reciben del front,
                             llaman a /api compartida, RESHAPEAN al shape que la
@@ -146,7 +146,7 @@ app-next/  (Next 15 PWA — separada de panel-next, comparte /api y UI shadcn)
   lib/realtime/ncm-ws.ts  ← cliente WS portado + useChannel
 ```
 
-- **App separada** (no dentro de panel-next): PWA offline-first parcial, hardware,
+- **App separada** (no dentro de frontend): PWA offline-first parcial, hardware,
   pantalla de caja full-screen, ciclo de vida distinto.
 - **BFF propio del POS** (D2): endpoints REST nuevos en el BFF de app-next que
   reshapean la `/api`. NO se exponen los endpoints crudos de `/api` al front, NO se
@@ -209,7 +209,7 @@ legacy → rutas App Router en app-next.)
 ## 6.1 Referencia visual por pantalla (ESTRUCTURA a replicar)
 
 > Transcrito de los screenshots del POS legacy (sesión 2026-06-15). **Replicar la
-> estructura/disposición, NO el diseño** — estilo = shadcn + marca panel-next
+> estructura/disposición, NO el diseño** — estilo = shadcn + marca frontend
 > (`context/11`). Cada región abajo va a su componente shadcn equivalente.
 
 ### Login (PIN de usuario)
@@ -363,7 +363,7 @@ No perder en el restyle:
 
 ---
 
-## 9. Reglas (heredadas de panel-next — memoria del proyecto)
+## 9. Reglas (heredadas de frontend — memoria del proyecto)
 
 shadcn-first y obligatorio sobre HTML nativo · `MoneyInput` para todo monto ·
 teléfonos front nacional / back E.164 (libphonenumber) · `DataTable` para listados

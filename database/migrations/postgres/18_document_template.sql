@@ -7,7 +7,7 @@
 --
 -- config JSONB contiene los toggles de bloques visibles, textos custom de
 -- header/footer, font/size/uppercase, y márgenes. Schema documentado en
--- panel-next/lib/types/document-template.ts.
+-- frontend/lib/types/document-template.ts.
 
 CREATE TABLE IF NOT EXISTS document_template (
   templateId  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
