@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Check, ChevronsUpDown, X, Star } from "lucide-react"
+import { Check, ChevronsUpDown, X, Star, PlusCircle } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { useCreateCategory } from "@/hooks/use-categories"
 
 /**
  * Multi-select de categorías para items. Usa el m2m item_category con flag
@@ -50,6 +52,35 @@ export function CategoriesPicker({
   disabled,
 }: Props) {
   const [open, setOpen] = React.useState(false)
+  const [inputValue, setInputValue] = React.useState("")
+  const createCategory = useCreateCategory()
+
+  const showCreateOption =
+    inputValue.trim().length > 0 &&
+    !options.some((o) => o.name.toLowerCase() === inputValue.trim().toLowerCase())
+
+  const handleCreate = () => {
+    const name = inputValue.trim()
+    if (!name) return
+    createCategory.mutate(
+      { name },
+      {
+        onSuccess: (created) => {
+          // Auto-select the newly created category.
+          const next = {
+            id: created.id,
+            isPrimary: value.length === 0,
+          }
+          onChange([...value, next])
+          setInputValue("")
+          toast.success(`Categoría "${created.name}" creada`)
+        },
+        onError: () => {
+          toast.error("No se pudo crear la categoría")
+        },
+      },
+    )
+  }
 
   const selectedIds = React.useMemo(() => new Set(value.map((v) => v.id)), [value])
   const optionsById = React.useMemo(
@@ -145,7 +176,11 @@ export function CategoriesPicker({
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
           <Command>
-            <CommandInput placeholder="Buscar categoría…" />
+            <CommandInput
+              placeholder="Buscar categoría…"
+              value={inputValue}
+              onValueChange={setInputValue}
+            />
             <CommandList>
               <CommandEmpty>Sin resultados.</CommandEmpty>
               <CommandGroup>
@@ -172,6 +207,20 @@ export function CategoriesPicker({
                   )
                 })}
               </CommandGroup>
+              {showCreateOption && (
+                <CommandGroup>
+                  <CommandItem
+                    value={`__create__${inputValue}`}
+                    onSelect={handleCreate}
+                    disabled={createCategory.isPending}
+                  >
+                    <PlusCircle className="size-4 text-muted-foreground" />
+                    <span>
+                      Crear &ldquo;{inputValue.trim()}&rdquo;
+                    </span>
+                  </CommandItem>
+                </CommandGroup>
+              )}
             </CommandList>
           </Command>
         </PopoverContent>
