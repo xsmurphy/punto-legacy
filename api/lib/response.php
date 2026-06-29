@@ -8,7 +8,7 @@
  * Ambas funciones terminan la ejecución (never). Ver context/02-arquitectura.md.
  */
 
-function apiOk($data, int $code = 200): void
+function apiOk($data, int $code = 200): never
 {
     http_response_code($code);
     header('Content-Type: application/json');
@@ -16,10 +16,30 @@ function apiOk($data, int $code = 200): void
     exit;
 }
 
-function apiError(string $message, int $code = 400): void
+function apiError(string $message, int $code = 400): never
 {
     http_response_code($code);
     header('Content-Type: application/json');
     echo json_encode(['ok' => false, 'error' => ['message' => $message, 'code' => $code]], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+function apiNotFound(string $message = 'No se encontraron registros'): never
+{
+    apiError($message, 404);
+}
+
+function apiUnauthorized(string $message = 'No autorizado'): never
+{
+    apiError($message, 401);
+}
+
+function apiForbidden(string $message = 'Acceso denegado'): never
+{
+    apiError($message, 403);
+}
+
+function apiUnprocessable(string $message, array $details = []): never
+{
+    apiError($message, 422);
 }

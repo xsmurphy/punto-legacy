@@ -1,85 +1,38 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Punto — Compose para Coolify (staging / beta)
 #
+# Tras dissolve-panel (2026-06-29) el servicio `panel` fue eliminado.
+# El backend admin se movió a api/v1/admin/. El front admin vive en frontend/.
+#
 # Servicios:
-#   panel  → https://panel.punto.la  (también atiende admin.punto.la — mismo
-#                                     container, Traefik prefija /admin para
-#                                     todas las requests del subdomain admin)
-#   api    → https://api.punto.la    (consumida por panel vía PUNTO_API_BASE;
-#                                     backend legacy en api/core desde Fase 2 cleanup)
+#   api    → https://api.punto.la    (backend PHP compartido; admin en /v1/admin/)
 #   ws     → https://ws.punto.la     (WebSocket WSS, Node 20)
 #
-# app.punto.la fue eliminado en la Fase 2 del cleanup (legacy-cleanup 2026-06-29).
+# INFRA FLAG: panel.punto.la y admin.punto.la deben apuntar al container
+# del frontend Next.js (frontend/), NO a este API PHP. Actualizar DNS +
+# Coolify para ambos subdominios.
 #
 # Postgres se asume MANAGED por Coolify (POSTGRES_HOST en env apunta al host
 # que Coolify expone). Redis se levanta acá porque no requiere persistencia
 # crítica para el cache + WS pubsub.
 #
-# Build context = ROOT del repo. Cada servicio referencia su Dockerfile.
+# Build context = ROOT del repo.
 # ─────────────────────────────────────────────────────────────────────────────
 
 version: '3.8'
 
 services:
 
-  # ── Panel (panel.punto.la + admin.punto.la) ────────────────────────────────
-  panel:
-    build:
-      context: .
-      dockerfile: panel/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    expose:
-      - "80"
-    depends_on:
-      - redis
-    networks:
-      - punto_net
-    labels:
-      - "traefik.enable=true"
-
-      # Router 1: panel.punto.la (sin rewrite — sirve /panel directo)
-      - "traefik.http.routers.panel.rule=Host(`panel.punto.la`)"
-      - "traefik.http.routers.panel.entrypoints=https"
-      - "traefik.http.routers.panel.tls=true"
-      - "traefik.http.routers.panel.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.panel.service=panel-svc"
-
-      # Router 2: admin.punto.la → mismo container, Traefik prefija /admin
-      # Chain (stripPrefix→addPrefix) garantiza que el backend siempre vea /admin/*,
-      # tanto si el browser pide /login (→/admin/login) como /admin/users (→strip a /users →add /admin/users).
-      # Go regex no tiene lookahead negativo, por eso usamos el chain.
-      - "traefik.http.routers.admin.rule=Host(`admin.punto.la`)"
-      - "traefik.http.routers.admin.entrypoints=https"
-      - "traefik.http.routers.admin.tls=true"
-      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.admin.service=panel-svc"
-      - "traefik.http.routers.admin.middlewares=admin-strip,admin-add"
-      - "traefik.http.middlewares.admin-strip.stripprefix.prefixes=/admin"
-      - "traefik.http.middlewares.admin-add.addprefix.prefix=/admin"
-
-      - "traefik.http.services.panel-svc.loadbalancer.server.port=80"
-
-
-  # ── App POS (app.punto.la) — ELIMINADO Fase 2 legacy-cleanup 2026-06-29 ──────
-  # El backend legacy de /app se movió a api/core. El subdomain app.punto.la ya
-  # no existe. Servicio comentado pendiente limpieza de infra (DNS + Coolify).
-  # app:
-  #   build:
-  #     context: .
-  #     dockerfile: app/Dockerfile   # <-- app/Dockerfile ya no existe
-  #   ...eliminado
-
-
   # ── API compartida (api.punto.la) ───────────────────────────────────────────
+  # También sirve admin realm en /v1/admin/* (desde dissolve-panel 2026-06-29).
   api:
     build:
       context: .
-      dockerfile: api/Dockerfile
+      dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
     expose:
-      - "80"
+      - "3000"
     depends_on:
       - redis
     networks:
@@ -90,7 +43,7 @@ services:
       - "traefik.http.routers.api.entrypoints=https"
       - "traefik.http.routers.api.tls=true"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.api-svc.loadbalancer.server.port=80"
+      - "traefik.http.services.api-svc.loadbalancer.server.port=3000"
       - "traefik.http.routers.api.service=api-svc"
 
 
@@ -120,8 +73,6 @@ services:
 
 
   # ── Redis (cache + WS pubsub) ───────────────────────────────────────────────
-  # Postgres viene managed por Coolify; Redis lo levantamos acá porque el data
-  # es efímero (cache + WS).
   redis:
     image: redis:7-alpine
     restart: unless-stopped
