@@ -29,10 +29,13 @@ export function AgentChatFloating({ companyName, outletName, showFab = true }: P
         </Button>
       )}
       <Sheet open={open} onOpenChange={setOpen} modal={false}>
-        {/* Mobile: 90% del ancho — deja un margen visible del panel para que
-            el user sepa que el chat es un overlay (no fullscreen) y pueda
-            tocar afuera para volver. Desktop ≥sm: max-w-sm side panel. */}
-        <SheetContent side="right" overlay={false} className="flex w-[90vw] flex-col p-0 sm:w-full sm:max-w-sm">
+        {/* Mobile: 95vw — más ancho posible que aún muestre un margen visible
+            del panel (señal de overlay + zona de cierre al tap-afuera).
+            Force con `!` porque SheetContent default tiene
+            `data-[side=right]:w-3/4` con más specificity que un className
+            custom — sin important el override se pierde.
+            Desktop ≥sm: max-w-md side panel. */}
+        <SheetContent side="right" overlay={false} className="flex !w-[95vw] flex-col p-0 sm:!w-full sm:max-w-md">
           <SheetTitle className="sr-only">Asistente</SheetTitle>
           <AgentChatContent companyName={companyName} outletName={outletName} showHeader />
         </SheetContent>
