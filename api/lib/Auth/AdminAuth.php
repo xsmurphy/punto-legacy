@@ -2,15 +2,19 @@
 /**
  * Auth del ADMIN REALM (/admin) — aislado del realm tenant.
  *
- * Realm separado criptográficamente del de tenants:
- *   - secret propio  : $_ENV['ADMIN_JWT_SECRET']  (≠ JWT_SECRET)
+ * El admin NO usa JWT firmado con secret propio. Usa sesión opaca almacenada en la
+ * tabla auth_session con realm = 'admin' (via authSessionCreate / authResolve).
+ * El token que se emite es un handle opaco, no un JWT — ADMIN_JWT_SECRET está deprecado
+ * y ya no se usa en ninguna parte del auth flow.
+ *
+ * Aislamiento de realms:
  *   - cookie propia  : _jwt_admin                 (≠ _jwt_panel)
- *   - audience       : claim `aud = "admin"`
- * Un `_jwt_panel` de tenant NUNCA valida acá (secret + aud distintos) y viceversa.
+ *   - realm          : 'admin' en auth_session     (≠ 'panel')
+ * Un token de tenant NUNCA valida acá (realm distinto) y viceversa.
  *
  * Provee:
  *   adminVerifyPassword($email, $pass) → fila admin_user (CaseInsensitiveArray) | false
- *   adminIssueSession($admin)          → string token (la cookie la setea el BFF, no la API)
+ *   adminIssueSession($admin)          → string token opaco (la cookie la setea el BFF, no la API)
  *   adminMiddleware()                  → valida _jwt_admin; define ADMIN_AUTHED_ID/EMAIL o corta 401
  *
  * Password con bcrypt (password_hash/password_verify) — NO el sha256+salt de `contact`.

@@ -41,5 +41,12 @@ function apiForbidden(string $message = 'Acceso denegado'): never
 
 function apiUnprocessable(string $message, array $details = []): never
 {
-    apiError($message, 422);
+    http_response_code(422);
+    header('Content-Type: application/json');
+    $error = ['message' => $message, 'code' => 422];
+    if ($details !== []) {
+        $error['details'] = $details;
+    }
+    echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_UNICODE);
+    exit;
 }
