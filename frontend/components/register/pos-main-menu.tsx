@@ -255,10 +255,16 @@ export function PosMainMenu() {
     }
   }
 
-  const sectionsWithState: MenuSection[] = SECTIONS.map((s) => ({
-    ...s,
-    disabled: false,
-  }))
+  // Leer config para gatear la sección de caja según controlCaja.
+  const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
+  const controlCaja = registerConfigData?.config?.controlCaja ?? true
+
+  const sectionsWithState: MenuSection[] = SECTIONS
+    .filter((s) => s.key !== "drawer" || controlCaja)
+    .map((s) => ({
+      ...s,
+      disabled: false,
+    }))
 
   const activeSection = sectionsWithState.find((s) => s.key === activeKey) ?? null
 

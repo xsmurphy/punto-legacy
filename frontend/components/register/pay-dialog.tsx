@@ -47,6 +47,7 @@ import { printSale } from "@/lib/hardware/printers"
 import { getBindingsForSale } from "@/lib/hardware/printers/binding"
 import { buildTicketData } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -153,7 +154,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   // Guard de caja
   const { data: drawerStatus } = useDrawerStatus()
-  const drawerClosed = drawerStatus !== undefined && !drawerStatus.isOpen
+  const { data: configData } = usePosRegisterConfig(activeRegisterId)
+  const controlCaja = configData?.config?.controlCaja ?? true
+  const drawerClosed = controlCaja ? (drawerStatus !== undefined && !drawerStatus.isOpen) : false
 
   const qc = useQueryClient()
 

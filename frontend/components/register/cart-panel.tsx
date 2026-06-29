@@ -77,6 +77,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import { toast } from "sonner"
 import { useCartPublisher } from "@/hooks/use-cart-publisher"
 import { useDrawerStatus } from "@/hooks/use-drawer"
+import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
@@ -110,6 +111,9 @@ export function CartPanel() {
 
   // Gate de apertura de caja — se abre si la caja está cerrada al intentar cobrar.
   const { data: drawerStatus } = useDrawerStatus()
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: configData } = usePosRegisterConfig(activeRegisterId)
+  const controlCaja = configData?.config?.controlCaja ?? true
   const [drawerOpenDialogOpen, setDrawerOpenDialogOpen] = React.useState(false)
 
   // Modo edición de hotkeys: el panel de venta muestra una guía en su lugar.
@@ -193,13 +197,14 @@ export function CartPanel() {
   // Gate de apertura de caja: si la caja está cerrada, mostrar el modal antes
   // de abrir el flujo de pago. Si drawerStatus es undefined (cargando o error),
   // dejamos pasar — el modal de pago tiene su propio guard interno.
+  // Cuando controlCaja === false: el guard no aplica y se abre el pago directo.
   const handlePayClick = React.useCallback(() => {
-    if (drawerStatus !== undefined && !drawerStatus.isOpen) {
+    if (controlCaja && drawerStatus !== undefined && !drawerStatus.isOpen) {
       setDrawerOpenDialogOpen(true)
     } else {
       setPayOpen(true)
     }
-  }, [drawerStatus, setPayOpen])
+  }, [controlCaja, drawerStatus, setPayOpen])
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
