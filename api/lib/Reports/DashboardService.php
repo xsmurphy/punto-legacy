@@ -238,7 +238,7 @@ final class DashboardService
         foreach ($res as $r) {
             $item = $this->itemData((string) $r['id'], $companyId);
             $out[] = [
-                'name'  => $item ? (string) ($item['itemName'] ?? '') : '',
+                'name'  => $item ? (string) ($item['itemName'] ?? $item['itemname'] ?? '') : '',
                 'count' => (float) $r['count'],
                 'total' => (float) $r['total'],
             ];
@@ -549,10 +549,13 @@ final class DashboardService
         }
         if (!array_key_exists($id, $this->taxonomyCache)) {
             $r = ncmExecute(
-                "SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1",
+                'SELECT taxonomyName AS "taxonomyName" FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1',
                 [$id, $companyId]
             );
-            $name = $r ? (string) ($r['taxonomyName'] ?? '') : '';
+            // Post-refactor 28-jun: array plano lowercase es el contrato base;
+            // el alias quoted preserva camelCase. Fallback al lowercase por las
+            // dudas si alguna ruta aún devuelve el legacy CaseInsensitiveArray.
+            $name = $r ? (string) ($r['taxonomyName'] ?? $r['taxonomyname'] ?? '') : '';
             $this->taxonomyCache[$id] = ($name === '' || $name === 'None') ? '' : toUTF8($name);
         }
         return $this->taxonomyCache[$id];

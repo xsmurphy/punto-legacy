@@ -34,7 +34,7 @@ final class ContactRepository
      * Buscar contacto por id + companyId (+ type opcional).
      * Devuelve CaseInsensitiveArray (accede por contactName o contactname).
      */
-    public function find(string $id, string $companyId, ?int $type = null): ?CaseInsensitiveArray
+    public function find(string $id, string $companyId, ?int $type = null): array|CaseInsensitiveArray|null
     {
         $sql    = "SELECT * FROM contact WHERE contactId = ? AND companyId = ?";
         $params = [$id, $companyId];
@@ -58,7 +58,7 @@ final class ContactRepository
      * por ahora el uso es bajo (solo upsert por documento) y la tabla está
      * acotada al tenant, así que el scan filtrado es suficiente.
      */
-    public function findByCI(string $ci, string $companyId, int $type = 1): ?CaseInsensitiveArray
+    public function findByCI(string $ci, string $companyId, int $type = 1): array|CaseInsensitiveArray|null
     {
         $sql = "SELECT * FROM contact
                  WHERE data->>'contactCI' = ?
@@ -195,7 +195,7 @@ final class ContactRepository
     /**
      * Dirección default de un contacto, o null.
      */
-    public function defaultAddress(string $contactId, string $companyId): ?CaseInsensitiveArray
+    public function defaultAddress(string $contactId, string $companyId): array|CaseInsensitiveArray|null
     {
         $sql = "SELECT * FROM customerAddress
                  WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true

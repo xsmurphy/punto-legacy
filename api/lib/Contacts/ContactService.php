@@ -190,7 +190,7 @@ final class ContactService
      * tenés el id (PK) y no querés discriminar. Para listings filtrados por
      * cliente/proveedor usar listByType().
      */
-    public function find(string $id, string $companyId): ?CaseInsensitiveArray
+    public function find(string $id, string $companyId): array|CaseInsensitiveArray|null
     {
         return $this->repo->find($id, $companyId);
     }

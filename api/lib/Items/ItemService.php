@@ -122,7 +122,7 @@ final class ItemService
         return $this->repo->hardDelete($id, $companyId);
     }
 
-    public function find(string $id, string $companyId): ?CaseInsensitiveArray
+    public function find(string $id, string $companyId): array|CaseInsensitiveArray|null
     {
         return $this->repo->find($id, $companyId);
     }

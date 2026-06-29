@@ -27,7 +27,7 @@ final class ItemRepository
     /**
      * Buscar item por id + companyId. Devuelve CaseInsensitiveArray (accede por itemName o itemname).
      */
-    public function find(string $id, string $companyId): ?CaseInsensitiveArray
+    public function find(string $id, string $companyId): array|CaseInsensitiveArray|null
     {
         $sql = "SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1";
         $rs  = $this->db->Execute($sql, [$id, $companyId]);
