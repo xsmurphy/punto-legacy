@@ -13,17 +13,36 @@ const MAX_POLL_MS      = 30 * 60 * 1000 // 30 minutos
 type InvitationStatus = "pending" | "opened" | "approved" | "denied" | "expired"
 
 interface ConnectViewProps {
-  invitationId: string
-  userCode:     string
-  module:       string
+  invitationId:      string
+  userCode:          string
+  module:            string
+  autoApproveToken?: string | null
 }
 
-export function ConnectView({ invitationId, userCode, module }: ConnectViewProps) {
+export function ConnectView({ invitationId, userCode, module, autoApproveToken }: ConnectViewProps) {
   const router = useRouter()
   const [status, setStatus] = React.useState<InvitationStatus>("opened")
   const startedAt = React.useRef(Date.now())
 
+  // Reconnect: el token llega directamente desde open() — persistir y redirigir
+  // de inmediato sin mostrar el userCode ni iniciar polling.
   React.useEffect(() => {
+    if (!autoApproveToken) return
+    const mod = module === "screen" ? "screen" : "pos"
+    setDeviceToken(autoApproveToken, mod)
+    setStatus("approved")
+    setTimeout(() => {
+      if (module === "pos")         router.replace("/pos")
+      else if (module === "screen") router.replace("/checkout")
+      else if (module === "kds")    router.replace("/kds")
+      else                          router.replace("/pos")
+    }, 800)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoApproveToken])
+
+  React.useEffect(() => {
+    // Si ya fue auto-aprobado, no iniciar polling.
+    if (autoApproveToken) return
     const intervalId = setInterval(async () => {
       if (Date.now() - startedAt.current > MAX_POLL_MS) {
         clearInterval(intervalId)
@@ -80,7 +99,7 @@ export function ConnectView({ invitationId, userCode, module }: ConnectViewProps
     }, POLL_INTERVAL_MS)
 
     return () => clearInterval(intervalId)
-  }, [invitationId, module, router])
+  }, [invitationId, module, router, autoApproveToken])
 
   return (
     <div className="min-h-svh flex flex-col items-center justify-center p-6 bg-background">

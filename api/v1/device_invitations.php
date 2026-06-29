@@ -129,6 +129,20 @@ if ($method === 'POST') {
         }
     }
 
+    if ($action === 'reconnect') {
+        $deviceId = trim((string)($body['deviceId'] ?? ''));
+        if ($deviceId === '' || !preg_match($UUID_RE, $deviceId)) {
+            apiError('deviceId invalido', 422);
+        }
+        try {
+            $result = $svc->createReconnect($deviceId, $companyId, $userId);
+            apiOk($result);
+        } catch (\RuntimeException $e) {
+            $code = $e->getCode();
+            apiError($e->getMessage(), in_array($code, [404, 410, 409, 422, 403], true) ? $code : 422);
+        }
+    }
+
     apiError('Accion invalida', 422);
 }
 

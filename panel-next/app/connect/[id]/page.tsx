@@ -27,7 +27,17 @@ export default async function ConnectPage({ params }: ConnectPageProps) {
   const ua  = headersList.get("user-agent") ?? ""
   const xff = headersList.get("x-forwarded-for") ?? ""
 
+  interface OpenData {
+    status?: string
+    userCode?: string
+    module?: string
+    autoApprove?: boolean
+    token?: string
+    deviceId?: string
+  }
+
   let openResult: { userCode: string; module: string } | null = null
+  let autoApproveResult: { token: string; deviceId: string; module: string } | null = null
   let errorReason = "unknown"
 
   try {
@@ -50,25 +60,36 @@ export default async function ConnectPage({ params }: ConnectPageProps) {
 
     const body = (await res.json()) as {
       ok?: boolean
-      data?: { userCode: string; module: string }
+      data?: OpenData
     }
-    const data = (body?.data ?? body) as { userCode: string; module: string }
-    if (!data?.userCode) { errorReason = "error"; throw new Error("no-user-code") }
+    const data = (body?.data ?? body) as OpenData
 
-    openResult = { userCode: data.userCode, module: data.module ?? "pos" }
+    // Reconnect invitations se auto-aprueban en open(): el dispositivo recibe
+    // el token directamente sin esperar aprobación del admin.
+    if (data?.autoApprove && data?.token && data?.deviceId) {
+      autoApproveResult = {
+        token:    data.token,
+        deviceId: data.deviceId,
+        module:   data.module ?? "pos",
+      }
+    } else {
+      if (!data?.userCode) { errorReason = "error"; throw new Error("no-user-code") }
+      openResult = { userCode: data.userCode, module: data.module ?? "pos" }
+    }
   } catch {
     // errorReason ya seteado arriba
   }
 
-  if (!openResult) {
+  if (!openResult && !autoApproveResult) {
     return <InvalidLink reason={errorReason} />
   }
 
   return (
     <ConnectView
       invitationId={id}
-      userCode={openResult.userCode}
-      module={openResult.module}
+      userCode={openResult?.userCode ?? ""}
+      module={openResult?.module ?? autoApproveResult?.module ?? "pos"}
+      autoApproveToken={autoApproveResult?.token ?? null}
     />
   )
 }

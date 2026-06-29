@@ -246,12 +246,15 @@ final class DeviceAuth
 
     /**
      * Emite un JWT para un device ya existente en BD (sin crear uno nuevo).
-     * Usado por DeviceInvitationService::status() cuando la invitación fue aprobada:
-     * el dispositivo hace polling y recibe su token directamente.
+     * Usado por DeviceInvitationService::status() y createReconnect().
      *
-     * @return array{token: string, expiresIn: int}
+     * Si $companyId se provee, se usa como filtro adicional (scoped al tenant).
+     * Si es null, sólo se filtra por deviceid + status=1 (reconnect flow donde
+     * ya validamos la pertenencia al tenant en el Service).
+     *
+     * @return array{deviceId: string, token: string, expiresIn: int}
      */
-    public static function issueJwtForExistingDevice(string $deviceId, string $companyId): array
+    public static function issueJwtForExistingDevice(string $deviceId, ?string $companyId = null): array
     {
         require_once dirname(__DIR__, 2) . '/../app/includes/jwt.php';
 
@@ -260,16 +263,23 @@ final class DeviceAuth
             throw new \RuntimeException('JWT_SECRET no configurado');
         }
 
-        $device = ncmExecute(
-            'SELECT companyid, outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
-            [$deviceId, $companyId]
-        );
+        if ($companyId !== null && $companyId !== '') {
+            $device = ncmExecute(
+                'SELECT companyid, outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
+                [$deviceId, $companyId]
+            );
+        } else {
+            $device = ncmExecute(
+                'SELECT companyid, outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND status = 1',
+                [$deviceId]
+            );
+        }
         if (!$device) {
-            throw new \RuntimeException('Device no encontrado', 404);
+            throw new \RuntimeException('Device no encontrado o revocado', 404);
         }
 
         $token = self::buildToken(
-            (string) ($device['companyid'] ?? $companyId),
+            (string) ($device['companyid'] ?? $companyId ?? ''),
             (string) ($device['outletid']  ?? ''),
             (string) ($device['registerid'] ?? ''),
             $deviceId,
@@ -278,7 +288,7 @@ final class DeviceAuth
             (string) ($device['module'] ?? 'pos'),
         );
 
-        return ['token' => $token, 'expiresIn' => self::TTL];
+        return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL];
     }
 
     /**

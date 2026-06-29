@@ -1,17 +1,20 @@
 "use client"
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Plus, Trash2, Bell, MonitorSmartphone } from "lucide-react"
+import { Plus, Trash2, Bell, MonitorSmartphone, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { DataTable } from "@/components/data-table/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -32,6 +35,20 @@ import { DeviceInvitesTab } from "@/components/settings/device-invites-tab"
 import { DeviceInviteCreateDialog } from "@/components/settings/device-invite-create-dialog"
 import { DEVICE_KIND_LABELS, type ConnectedDevice } from "@/lib/devices/connected-device"
 import { EmptyState } from "@/components/empty-state"
+import { api } from "@/lib/api-client"
+
+interface ReconnectResult {
+  id: string
+  url: string
+  expiresAt: string
+  autoApprove: boolean
+}
+
+interface ReconnectDialogState {
+  open: boolean
+  deviceName: string
+  url: string
+}
 
 function niceDate(iso: string | null): string {
   if (!iso) return "—"
@@ -53,6 +70,12 @@ export default function DevicesPage() {
   // revocado de tipo screen no desaparecía de la tabla. Incidente 2026-06-28.
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
   const [deletePosId, setDeletePosId] = React.useState<string | null>(null)
+  const [reconnectingId, setReconnectingId] = React.useState<string | null>(null)
+  const [reconnectDialog, setReconnectDialog] = React.useState<ReconnectDialogState>({
+    open: false,
+    deviceName: "",
+    url: "",
+  })
 
   const { data: invitationsData } = useDeviceInvitations()
   const pendingCount = (invitationsData ?? []).filter((i) => i.status === "opened").length
@@ -61,6 +84,21 @@ export default function DevicesPage() {
 
   const revokeDevice = useRevokePosDevice()
   const deletePosDevice = useDeletePosDevice()
+
+  async function handleReconnect(device: ConnectedDevice) {
+    setReconnectingId(device.id)
+    try {
+      const form = new FormData()
+      form.append("action", "reconnect")
+      form.append("deviceId", device.id)
+      const result = await api.postForm<ReconnectResult>("/v1/device_invitations", form)
+      setReconnectDialog({ open: true, deviceName: device.name, url: result.url })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo generar el link de reconexión")
+    } finally {
+      setReconnectingId(null)
+    }
+  }
 
   const columns = React.useMemo<ColumnDef<ConnectedDevice>[]>(() => [
     {
@@ -136,15 +174,26 @@ export default function DevicesPage() {
         const { kind, id, status } = row.original
         if (status === 1) {
           return (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setRevokeId(id)}
-            >
-              <Trash2 className="size-4 mr-1.5" />
-              Revocar
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={reconnectingId === id}
+                onClick={() => handleReconnect(row.original)}
+              >
+                <RefreshCw className={`size-4 mr-1.5${reconnectingId === id ? " animate-spin" : ""}`} />
+                Reconectar
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setRevokeId(id)}
+              >
+                <Trash2 className="size-4 mr-1.5" />
+                Revocar
+              </Button>
+            </div>
           )
         }
         // Solo POS revocado tiene hard-delete (historial); screen revocado
@@ -166,7 +215,8 @@ export default function DevicesPage() {
         return null
       },
     },
-  ], [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [reconnectingId])
 
   return (
     <div className="flex flex-col gap-6">
@@ -299,6 +349,53 @@ export default function DevicesPage() {
       </AlertDialog>
 
       <DeviceInviteCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+
+      {/* Dialog: reconectar dispositivo */}
+      <Dialog
+        open={reconnectDialog.open}
+        onOpenChange={(o) => setReconnectDialog((prev) => ({ ...prev, open: o }))}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reconectar {reconnectDialog.deviceName}</DialogTitle>
+            <DialogDescription>
+              El link expira en 10 minutos. Abrilo en el dispositivo para reconectarlo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2">
+            <Input
+              readOnly
+              value={reconnectDialog.url}
+              className="font-mono text-xs"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard.writeText(reconnectDialog.url)
+                toast.success("Link copiado")
+              }}
+            >
+              Copiar
+            </Button>
+          </div>
+          {reconnectDialog.url && (
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(reconnectDialog.url)}&size=200x200`}
+              alt="QR code"
+              className="mx-auto mt-4"
+            />
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setReconnectDialog((prev) => ({ ...prev, open: false }))}
+            >
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

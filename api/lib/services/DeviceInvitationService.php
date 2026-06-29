@@ -69,7 +69,7 @@ class DeviceInvitationService
     public function open(string $id, string $userAgent, string $ip): array
     {
         $row = ncmExecute(
-            'SELECT id, company_id, module, status, opened_at, device_ua, device_ip, expires_at, user_code
+            'SELECT id, company_id, module, status, opened_at, device_ua, device_ip, expires_at, user_code, auto_approve, device_id
              FROM device_invitation WHERE id = ?::uuid',
             [$id]
         );
@@ -137,6 +137,32 @@ class DeviceInvitationService
         }
         if ($userCode === null) {
             throw new \RuntimeException('No se pudo generar un código único', 500);
+        }
+
+        // Auto-approve: reconnect invitations se resuelven inmediatamente sin
+        // mostrar user_code ni esperar aprobación del admin.
+        $autoApprove = ($row['auto_approve'] ?? false) === true || ($row['auto_approve'] ?? '') === 't';
+        if ($autoApprove) {
+            $targetDeviceId = (string)($row['device_id'] ?? '');
+            if ($targetDeviceId === '') {
+                throw new \RuntimeException('Invitación auto-aprobada sin device target', 500);
+            }
+            $issued = \Punto\Api\Auth\DeviceAuth::issueJwtForExistingDevice($targetDeviceId);
+            ncmExecute(
+                "UPDATE device_invitation
+                 SET status='approved', approved_at=now(), approved_by=created_by
+                 WHERE id=?::uuid",
+                [$id]
+            );
+            return [
+                'id'          => $id,
+                'status'      => 'approved',
+                'userCode'    => null,
+                'autoApprove' => true,
+                'token'       => $issued['token'],
+                'deviceId'    => $issued['deviceId'],
+                'module'      => (string)($row['module'] ?? ''),
+            ];
         }
 
         return [
@@ -251,6 +277,47 @@ class DeviceInvitationService
         );
 
         return ['deviceId' => $deviceId, 'token' => $issued['token']];
+    }
+
+    public function createReconnect(string $deviceId, string $companyId, string $userId): array
+    {
+        $device = ncmExecute(
+            'SELECT deviceid, companyid, outletid, registerid, module, devicename
+             FROM device
+             WHERE deviceid = ?::uuid AND status = 1',
+            [$deviceId]
+        );
+        if (!$device) {
+            throw new \RuntimeException('Device no encontrado o revocado', 404);
+        }
+        if ((string)($device['companyid'] ?? '') !== $companyId) {
+            throw new \RuntimeException('No autorizado', 403);
+        }
+        $row = ncmExecute(
+            "INSERT INTO device_invitation
+               (company_id, created_by, module, outlet_id, register_id, device_name, device_id, auto_approve, expires_at)
+             VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, ?, ?::uuid, true, now() + interval '10 minutes')
+             RETURNING id, expires_at",
+            [
+                $companyId, $userId,
+                (string)($device['module'] ?? 'pos'),
+                $device['outletid'] !== null ? (string)$device['outletid'] : null,
+                $device['registerid'] !== null ? (string)$device['registerid'] : null,
+                (string)($device['devicename'] ?? ''),
+                $deviceId,
+            ]
+        );
+        if (!$row) {
+            throw new \RuntimeException('No se pudo crear la invitación de reconexión', 500);
+        }
+        $id     = (string)($row['id'] ?? '');
+        $appUrl = rtrim($_ENV['APP_URL'] ?? 'https://app.punto.la', '/');
+        return [
+            'id'          => $id,
+            'url'         => $appUrl . '/connect/' . $id,
+            'expiresAt'   => (string)($row['expires_at'] ?? ''),
+            'autoApprove' => true,
+        ];
     }
 
     public function deny(string $id, string $companyIdOfAdmin): void
