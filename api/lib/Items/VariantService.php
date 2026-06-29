@@ -37,7 +37,7 @@ final class VariantService
         while (!$rs->EOF) {
             $row = $rs->fields;
             if (function_exists('_flattenJsonb')) {
-                $out[] = _flattenJsonb($row)->toArray();
+                $out[] = _flattenJsonb($row);
             } else {
                 $out[] = $row;
             }
@@ -114,7 +114,7 @@ final class VariantService
         }
         $parentRow = $parentRs->fields;
         if (function_exists('_flattenJsonb')) {
-            $parentRow = _flattenJsonb($parentRow)->toArray();
+            $parentRow = _flattenJsonb($parentRow);
         }
 
         $this->db->BeginTrans();

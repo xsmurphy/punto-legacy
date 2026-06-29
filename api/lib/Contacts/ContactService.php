@@ -296,7 +296,7 @@ final class ContactService
     /**
      * Da forma al shape público de un contacto (incluye dirección default).
      */
-    private function presentRow(CaseInsensitiveArray $row, string $companyId): array
+    private function presentRow(array|CaseInsensitiveArray $row, string $companyId): array
     {
         $id      = (string) $row['contactId'];
         $address = $this->repo->defaultAddress($id, $companyId);

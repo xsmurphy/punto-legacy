@@ -712,7 +712,7 @@ switch ($method) {
         $items = [];
         if ($rs !== false) {
             foreach ($rs->GetRows() as $row) {
-                $items[] = presentItem(_flattenJsonb($row)->toArray());
+                $items[] = presentItem(_flattenJsonb($row));
             }
         }
 
