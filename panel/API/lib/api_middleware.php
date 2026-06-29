@@ -23,7 +23,6 @@
  */
 
 require_once __DIR__ . '/response.php';
-require_once __DIR__ . '/../../includes/jwt.php';
 
 // enc()/dec() son helpers globales que todos los endpoints usan.
 // En api_head.php se definen inline; aquí las proveemos para endpoints migrados.
@@ -67,44 +66,16 @@ function apiMiddleware(bool $rateLimitEnabled = true): void
     include_once __DIR__ . '/../../includes/simple.config.php';
     include_once __DIR__ . '/../../includes/functions.php';
 
-    // 4. Autenticación: JWT primero, legacy api_key como fallback
-    $jwtSecret = $_ENV['JWT_SECRET'] ?? '';
-    $jwtToken  = _apiExtractJwtToken();
+    // 4. Autenticación: sesión opaca (realm panel) primero, legacy api_key/sesión como fallback
+    require_once __DIR__ . '/../../includes/auth_session.php';
 
-    if ($jwtSecret && $jwtToken !== null) {
-        // Ruta JWT
-        $payload = jwtDecode($jwtToken, $jwtSecret);
-        if ($payload === null) {
-            apiUnauthorized('Token inválido o expirado');
-        }
-
-        // Realm gate: JWT_SECRET es COMPARTIDO con POS; el claim `iss` separa
-        // los realms para que un token POS NO autentique contra el panel
-        // (privilege confusion). Tokens sin `iss` (pre-fix de seguridad) son
-        // rechazados — pre-producción, forzar re-login es aceptable.
-        if (($payload['iss'] ?? '') !== 'panel') {
-            apiUnauthorized('Token de otro realm');
-        }
-
-        $companyIdInt  = $payload['cid']  ?? '';
-        $outletIdInt   = $payload['oid']  ?? '';
-        $registerIdInt = $payload['rid']  ?? '';
-        $userIdInt     = $payload['sub']  ?? '';
-        $roleInt       = (int)($payload['role'] ?? 0);
-
-        if (!$companyIdInt) {
-            apiUnauthorized('Token sin companyId');
-        }
-
-        $eCompanyId = $companyIdInt; // con UUID, el ID codificado es el mismo
-
-            define('PANEL_JWT_AUTHED',  true);
-        define('PANEL_AUTHED_USER', $userIdInt);
-        define('PANEL_AUTHED_ROLE', $roleInt);
-
-        // Constantes compartidas con api_head.php legacy
-        _apiDefineSharedConstants($eCompanyId, $companyIdInt, $outletIdInt, $registerIdInt);
-
+    if (!empty(_authExtractTokens()) && authResolve(['panel'])) {
+        // authResolve ya cortó 401 si el token está presente pero es inválido/otro realm.
+        $eCompanyId = AUTHED_COMPANY_ID;
+        define('PANEL_JWT_AUTHED', true);
+        define('PANEL_AUTHED_USER', AUTHED_USER_ID);
+        define('PANEL_AUTHED_ROLE', (int)AUTHED_ROLE_ID);
+        _apiDefineSharedConstants($eCompanyId, AUTHED_COMPANY_ID, AUTHED_OUTLET_ID, AUTHED_REGISTER_ID);
     } else {
         // Ruta legacy: company_id + api_key
         $companyId = validateHttp('company_id', 'post');

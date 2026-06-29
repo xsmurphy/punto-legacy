@@ -134,42 +134,34 @@ function adminAudit(
 }
 
 /**
- * Gate de los endpoints del admin realm. Valida el _jwt_admin con ADMIN_JWT_SECRET y exige
- * `aud === "admin"`. Define ADMIN_AUTHED_ID / ADMIN_AUTHED_EMAIL. Corta 401 si falla.
+ * Gate de los endpoints del admin realm. Valida la sesión opaca (realm admin).
+ * Define ADMIN_AUTHED_ID / ADMIN_AUTHED_EMAIL. Corta 401 si falla.
  */
 function adminMiddleware(): void
 {
-    // Body JSON → $_POST (igual que apiMiddleware)
     if (empty($_POST)) {
         $body = file_get_contents('php://input');
         if ($body) {
             $decoded = json_decode($body, true);
-            if (is_array($decoded)) {
-                $_POST = $decoded;
-            }
+            if (is_array($decoded)) { $_POST = $decoded; }
         }
     }
 
     global $db;
     include_once __DIR__ . '/../../includes/db.php';
+    require_once __DIR__ . '/../../includes/auth_session.php';
 
-    $secret = $_ENV['ADMIN_JWT_SECRET'] ?? '';
-    $token  = _adminExtractJwt();
-    if ($secret === '' || $token === null) {
+    if (!authResolve(['admin'])) {
         apiUnauthorized('No autorizado (admin)');
     }
 
-    $payload = jwtDecode($token, $secret);
-    // Realm gate: aud=admin + iss=admin + sub presente. Tokens emitidos antes del
-    // fix de iss son rechazados (admin usa ADMIN_JWT_SECRET distinto a JWT_SECRET,
-    // así que cross-realm por construcción NO ocurre; el iss es defense-in-depth).
-    if (!is_array($payload)
-        || ($payload['iss'] ?? '') !== 'admin'
-        || ($payload['aud'] ?? '') !== 'admin'
-        || empty($payload['sub'])) {
-        apiUnauthorized('No autorizado (admin)');
-    }
+    define('ADMIN_AUTHED_ID', AUTHED_USER_ID);
 
-    define('ADMIN_AUTHED_ID',    (string) $payload['sub']);
-    define('ADMIN_AUTHED_EMAIL', (string) ($payload['email'] ?? ''));
+    // Email para auditoría (el token opaco no lo lleva). Lookup barato (tráfico admin mínimo).
+    $email = '';
+    try {
+        $r = $db->Execute('SELECT email FROM admin_user WHERE adminId = ? LIMIT 1', [AUTHED_USER_ID]);
+        if ($r && !$r->EOF) { $email = (string)($r->fields['email'] ?? ''); }
+    } catch (\Throwable $e) {}
+    define('ADMIN_AUTHED_EMAIL', $email);
 }
