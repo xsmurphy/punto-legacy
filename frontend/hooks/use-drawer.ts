@@ -115,6 +115,18 @@ export function useDrawerSummary() {
 
 // ── Mutaciones ────────────────────────────────────────────────────────────────
 
+/**
+ * "YYYY-MM-DD HH:MM:SS" en hora LOCAL (no UTC). El backend guarda
+ * `transactionDate` de las ventas en hora local naive; usar `toISOString()`
+ * (UTC) para `drawerOpenDate` lo desalineaba ~offset TZ respecto de las ventas,
+ * y el resumen de caja (`transactionDate > drawerOpenDate`) excluía las ventas
+ * de la misma sesión. Mantener ambos en la misma convención local.
+ */
+function localDateTime(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 function useDrawerMutation(action: string) {
   const qc = useQueryClient()
   return useMutation({
@@ -123,7 +135,7 @@ function useDrawerMutation(action: string) {
         action,
         amount: vars.amount ?? 0,
         note: vars.note ?? "",
-        date: vars.date ?? new Date().toISOString().replace("T", " ").slice(0, 19),
+        date: vars.date ?? localDateTime(),
         user: vars.user ?? "",
       }),
     onSuccess: () => {
