@@ -166,6 +166,12 @@ export interface BuildSaleInput {
    * Se envía como parentTransactionId al backend para vincular ambas transacciones.
    */
   quoteParentId?: string | null
+  /**
+   * Descuento de venta (transactionDiscount). Se convierte a plata antes de
+   * mandarse al backend (campo `discount` top-level del payload, tipo float).
+   * SaleInput.php::fromPayload lee: `(float) ($payload['discount'] ?? 0)`.
+   */
+  saleDiscount?: { value: number; mode: "percent" | "money" } | null
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -175,7 +181,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount } = input
 
   const saleItems: SaleItem[] = lines.map((line) => ({
     itemId: line.itemId,
@@ -183,11 +189,26 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     count: line.qty,
     price: line.unitPrice,
     total: line.qty * line.unitPrice,
-    discount: 0,
+    // discount por línea: porcentaje aplicado a esa línea (independiente del saleDiscount)
+    discount: line.discount ?? 0,
     note: line.note ?? null,
   }))
 
   const subtotal = saleItems.reduce((s, i) => s + i.total, 0)
+
+  // Resolver el descuento de venta a plata. Mismo cálculo que selectSaleDiscountAmount
+  // del store (consistencia con lo que muestra la UI).
+  // Base: subtotal de líneas con descuentos de línea ya aplicados.
+  const linesSubtotal = lines.reduce((s, line) => {
+    const discountFactor = 1 - (line.discount ?? 0) / 100
+    return s + line.qty * line.unitPrice * discountFactor
+  }, 0)
+  const transactionDiscount = (() => {
+    if (!saleDiscount || linesSubtotal === 0) return 0
+    if (saleDiscount.mode === "money") return Math.min(saleDiscount.value, linesSubtotal)
+    const pct = Math.min(100, Math.max(0, saleDiscount.value))
+    return Math.round(linesSubtotal * pct / 100)
+  })()
 
   const now = new Date()
   // Construir fecha+hora local con offset de timezone explícito para que PG
@@ -208,7 +229,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     sale: saleItems,
     subtotal,
     tax: 0,
-    discount: 0,
+    discount: transactionDiscount,
     payment: payments,
     date: dateStr,
     timestamp,

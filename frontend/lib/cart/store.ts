@@ -74,14 +74,42 @@ export function lineSubtotal(line: CartLine, ivaRemoved: boolean): number {
 }
 
 /**
+ * Subtotal de las líneas (post-descuentos de línea, pre-descuento de venta).
+ * Es la base sobre la que se aplica saleDiscount.
+ */
+export const selectLinesSubtotal = (s: CartState): number =>
+  s.lines.reduce((sum, line) => sum + lineSubtotal(line, s.ivaRemoved), 0)
+
+/**
+ * Monto en plata del descuento de venta. Calcula sobre selectLinesSubtotal:
+ * - mode "percent": porcentaje del subtotal de líneas.
+ * - mode "money": monto directo (capeado al subtotal de líneas).
+ * Devuelve 0 si no hay saleDiscount activo.
+ */
+export const selectSaleDiscountAmount = (s: CartState): number => {
+  if (!s.saleDiscount) return 0
+  const base = selectLinesSubtotal(s)
+  if (base === 0) return 0
+  if (s.saleDiscount.mode === "money") {
+    return Math.min(s.saleDiscount.value, base)
+  }
+  // percent: 0-100
+  const pct = Math.min(100, Math.max(0, s.saleDiscount.value))
+  return Math.round(base * pct / 100)
+}
+
+/**
  * Total del carrito. Suma de los subtotales por línea (idéntico cálculo que
  * `lineSubtotal`), así la suma del listado coincide con el total.
+ * Resta el descuento de venta al final. Total mínimo = 0.
  *
  * Al desactivar `ivaRemoved`, vuelve al precio original porque `unitPrice` no
  * se muta — el cálculo es derivado.
  */
 export const selectCartTotal = (s: CartState): number => {
-  return s.lines.reduce((sum, line) => sum + lineSubtotal(line, s.ivaRemoved), 0)
+  const linesTotal = selectLinesSubtotal(s)
+  const saleDisc = selectSaleDiscountAmount(s)
+  return Math.max(0, linesTotal - saleDisc)
 }
 
 /**
@@ -124,6 +152,13 @@ interface CartState {
 
   /** Etiquetas de texto libre asociadas a la venta. */
   tags: string[]
+
+  /**
+   * Descuento a nivel venta (transactionDiscount). Se resuelve en plata en
+   * selectSaleDiscountAmount y se resta al total en selectCartTotal. NO se
+   * bakea en las líneas — siempre removible con clearSaleDiscount().
+   */
+  saleDiscount: { value: number; mode: "percent" | "money" } | null
 
   /**
    * ID de cotización padre. Cuando el cajero elige "Facturar" desde una
@@ -226,16 +261,18 @@ interface CartState {
   setQuoteParent: (id: string | null) => void
 
   /**
-   * Aplica un descuento global al carrito distribuyéndolo al precio unitario
-   * de las líneas ACTUALES sin descuento individual previo. NO se almacena
-   * como state global — se "bakea" en cada line.discount.
-   *
-   * - mode "percent": aplica `value` (0-100) directo a cada línea aplicable.
-   * - mode "money": calcula el % equivalente que reduce el monto total
-   *   solicitado, lo aplica uniforme a todas las líneas aplicables.
-   *
-   * Líneas con discount > 0 quedan exentas. Líneas agregadas después de
-   * llamar esta action NO se afectan.
+   * Setea el descuento de venta (transactionDiscount). No toca las líneas.
+   * El monto en plata se resuelve via selectSaleDiscountAmount y se resta
+   * en selectCartTotal. Siempre removible con clearSaleDiscount().
+   */
+  setSaleDiscount: (value: number, mode: "percent" | "money") => void
+
+  /** Elimina el descuento de venta. */
+  clearSaleDiscount: () => void
+
+  /**
+   * @deprecated Usar setSaleDiscount. Mantenido como alias para compatibilidad
+   * mientras no queden call-sites directos.
    */
   applyGlobalDiscount: (value: number, mode: "percent" | "money") => void
 
@@ -261,6 +298,7 @@ const initialState = {
   mergeRepeated: true,
   tags: [] as string[],
   quoteParentId: null as string | null,
+  saleDiscount: null as { value: number; mode: "percent" | "money" } | null,
 }
 
 export const useCartStore = create<CartState>()((set, _get) => ({
@@ -436,37 +474,17 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     set({ quoteParentId: id })
   },
 
+  setSaleDiscount: (value, mode) => {
+    set({ saleDiscount: { value, mode } })
+  },
+
+  clearSaleDiscount: () => {
+    set({ saleDiscount: null })
+  },
+
+  // @deprecated alias — redirige a setSaleDiscount
   applyGlobalDiscount: (value, mode) => {
-    set((state) => {
-      const applicable = state.lines.filter((l) => !l.discount)
-      if (applicable.length === 0) return state
-
-      let effectivePercent: number
-
-      if (mode === "percent") {
-        effectivePercent = Math.min(100, Math.max(0, value))
-        if (effectivePercent === 0) return state
-      } else {
-        // mode "money": derivar el % sobre el subtotal raw de las líneas aplicables
-        // (qty * unitPrice sin descuento, sin ivaRemoved adjustment).
-        const applicableBase = applicable.reduce(
-          (sum, l) => sum + l.qty * l.unitPrice,
-          0,
-        )
-        if (applicableBase === 0) return state
-        effectivePercent = Math.min(100, (value / applicableBase) * 100)
-        if (effectivePercent === 0) return state
-      }
-
-      const applicableIds = new Set(applicable.map((l) => l.lineId))
-      return {
-        lines: state.lines.map((l) =>
-          applicableIds.has(l.lineId)
-            ? { ...l, discount: effectivePercent }
-            : l,
-        ),
-      }
-    })
+    set({ saleDiscount: { value, mode } })
   },
 
   addLines: (lines) => {

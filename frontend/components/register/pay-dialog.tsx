@@ -134,6 +134,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const interno = useCartStore((s) => s.interno)
   const tags = useCartStore((s) => s.tags)
   const quoteParentId = useCartStore((s) => s.quoteParentId)
+  const saleDiscount = useCartStore((s) => s.saleDiscount)
   const setQuoteParent = useCartStore((s) => s.setQuoteParent)
   const clear = useCartStore((s) => s.clear)
   const total = useCartStore(selectCartTotal)
@@ -239,6 +240,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         userId: null,
         tags,
         quoteParentId,
+        saleDiscount,
       })
 
       let result: CreateSaleResult

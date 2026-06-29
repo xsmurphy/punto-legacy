@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Tags,
   X,
+  XCircle,
   MoreVertical,
   type LucideIcon,
 } from "lucide-react"
@@ -104,11 +105,9 @@ export function SaleOptionsDrawer({
   const note = useCartStore((s) => s.note)
   const cartLines = useCartStore((s) => s.lines)
   const cartTags = useCartStore((s) => s.tags)
+  const saleDiscount = useCartStore((s) => s.saleDiscount)
 
-  const hasGlobalDiscount = React.useMemo(() => {
-    if (cartLines.length === 0) return false
-    return cartLines.some((l) => (l.discount ?? 0) > 0)
-  }, [cartLines])
+  const hasGlobalDiscount = saleDiscount !== null
 
   const hasGlobalSeller = React.useMemo(() => {
     if (cartLines.length === 0) return false
@@ -207,6 +206,16 @@ export function SaleOptionsDrawer({
       action: () => openDialog("discount"),
       active: hasGlobalDiscount,
     },
+    ...(hasGlobalDiscount ? [{
+      key: "clear-discount",
+      label: "Quitar descuento",
+      icon: XCircle as LucideIcon,
+      action: () => {
+        useCartStore.getState().clearSaleDiscount()
+        toast.success("Descuento de venta eliminado")
+        setOpen(false)
+      },
+    }] : []),
     {
       key: "note",
       label: "Nota",
@@ -498,7 +507,7 @@ function DiscountDialog({
     // Clampear a 0-100 cuando es porcentaje
     const clamped = mode === "percent" ? Math.min(100, Math.max(0, num)) : num
     if (!isNaN(clamped) && clamped > 0) {
-      useCartStore.getState().applyGlobalDiscount(clamped, mode)
+      useCartStore.getState().setSaleDiscount(clamped, mode)
       toast.success(
         mode === "percent"
           ? `Descuento del ${clamped}% aplicado`
