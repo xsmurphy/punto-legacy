@@ -34,21 +34,22 @@ final class Query
      *
      * @param mixed $row  CaseInsensitiveArray (propia), CaseInsensitiveArray (ADOdb legacy), o array plano.
      */
-    public static function flattenJsonb(mixed $row): CaseInsensitiveArray
+    public static function flattenJsonb(mixed $row): \CaseInsensitiveArray
     {
-        // Extraer array plano de cualquier envoltorio.
-        if ($row instanceof CaseInsensitiveArray) {
-            $arr = $row->getArrayCopy();
-        } elseif ($row instanceof \CaseInsensitiveArray) {
-            // ADOdb legacy — tiene toArray() o es Traversable
-            $arr = method_exists($row, 'toArray') ? $row->toArray() : iterator_to_array($row);
+        // Usa la CIA canónica del DB layer (api/includes/lib/DB.php) — la MISMA
+        // que referencian todos los typehints `CaseInsensitiveArray|array` del
+        // codebase. NO crear una clase nueva: rompía esos typehints (incidente
+        // POS 502 2026-06-29).
+        if ($row instanceof \CaseInsensitiveArray) {
+            $arr = $row->toArray();
+        } elseif ($row instanceof \Traversable) {
+            $arr = iterator_to_array($row);
         } else {
             $arr = (array) $row;
         }
 
         static $jsonbCols = ['data', 'meta', 'config'];
         foreach ($jsonbCols as $col) {
-            // CIA resuelve case-insensitive: $arr[$col] funciona aunque PG devuelva 'data'.
             $val = $arr[$col] ?? null;
             if (isset($val) && is_string($val) && $val !== '') {
                 $decoded = json_decode($val, true);
@@ -59,7 +60,7 @@ final class Query
             }
         }
 
-        return new CaseInsensitiveArray($arr);
+        return new \CaseInsensitiveArray($arr);
     }
 
     /**
