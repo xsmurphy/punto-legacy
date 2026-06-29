@@ -334,7 +334,9 @@ function CreateCustomerForm({
   const [lookingUpRuc, setLookingUpRuc] = React.useState(false)
   async function handleLookupRuc() {
     const raw = (getValues("tin") || "").trim()
-    const doc = raw.replace(/[^\d]/g, "") // sólo dígitos
+    // turuc.com.py espera el número sin el dígito verificador.
+    // Si el user escribió "7659394-0", quedarnos sólo con "7659394".
+    const doc = raw.split("-")[0].replace(/[^\d]/g, "")
     if (!doc) {
       toast.warning("Ingresá un RUC para buscar")
       return
@@ -425,7 +427,6 @@ function CreateCustomerForm({
               <div className="flex gap-2">
                 <Input
                   id="tin"
-                  placeholder="ej. 80012345-6"
                   className="flex-1"
                   {...register("tin")}
                 />
@@ -515,7 +516,6 @@ function CreateCustomerForm({
                   <Input
                     id="email"
                     type="email"
-                    placeholder="ejemplo@mail.com"
                     aria-invalid={!!errors.email}
                     {...register("email")}
                   />
