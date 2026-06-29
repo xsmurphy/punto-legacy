@@ -45,24 +45,21 @@ function adminVerifyPassword(string $email, string $pass)
     return $row;
 }
 
-/** Mintea el JWT del admin (sin setear cookie — la API es stateless; el BFF setea _jwt_admin). */
+/** Mintea el token opaco del admin (sin setear cookie — la API es stateless; el BFF setea _jwt_admin). */
 function adminIssueJwt($admin): string
 {
-    $secret = $_ENV['ADMIN_JWT_SECRET'] ?? '';
-    if ($secret === '') {
-        apiError('Admin auth no configurada (ADMIN_JWT_SECRET)', 500);
-    }
-    $ttl = (int) ($_ENV['ADMIN_JWT_TTL'] ?? 28800);
-    $now = time();
+    require_once __DIR__ . '/../../../app/includes/auth_session.php';
 
-    return jwtEncode([
-        'iss'   => 'admin', // realm explícito; además del aud y del secret distinto (ADMIN_JWT_SECRET)
-        'sub'   => (string) $admin['adminId'],
-        'email' => (string) $admin['email'],
-        'aud'   => 'admin',
-        'iat'   => $now,
-        'exp'   => $now + $ttl,
-    ], $secret);
+    $ttl = (int) ($_ENV['ADMIN_JWT_TTL'] ?? 28800);
+
+    return authSessionCreate('admin', [
+        'companyId' => null,
+        'userId'    => (string) $admin['adminId'],
+        'roleId'    => 'admin',
+        'module'    => 'admin',
+        'meta'      => ['email' => (string) $admin['email']],
+        'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
+    ]);
 }
 
 /** Extrae el token del realm admin (Bearer | cookie _jwt_admin | POST _jwt). */

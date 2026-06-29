@@ -1079,27 +1079,19 @@ class CompanyAdminService
         );
         $outletId = ($outlet && !$outlet->EOF) ? (string) ($outlet->fields['outletid'] ?? '') : '';
 
-        $secret = $_ENV['JWT_SECRET'] ?? '';
-        if (!$secret) {
-            return null;
-        }
+        require_once __DIR__ . '/../../../app/includes/auth_session.php';
 
-        require_once __DIR__ . '/../../includes/jwt.php';
+        $ttl = (int) ($_ENV['JWT_TTL'] ?? 28800);
+        $raw = authSessionCreate('panel', [
+            'companyId' => (string) ($cf['companyid'] ?? ''),
+            'userId'    => (string) ($cf['contactid'] ?? ''),
+            'outletId'  => $outletId,
+            'roleId'    => (string) ((int) ($cf['role'] ?? 1)),
+            'module'    => 'panel',
+            'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
+        ]);
 
-        $ttl   = (int) ($_ENV['JWT_TTL'] ?? 28800);
-        $now   = time();
-        $token = jwtEncode([
-            'iss'  => 'panel',
-            'sub'  => (string) ($cf['contactid'] ?? ''),
-            'cid'  => (string) ($cf['companyid'] ?? ''),
-            'oid'  => $outletId,
-            'rid'  => '',
-            'role' => (int) ($cf['role']      ?? 1),
-            'iat'  => $now,
-            'exp'  => $now + $ttl,
-        ], $secret);
-
-        return ['token' => $token, 'expiresIn' => $ttl];
+        return ['token' => $raw, 'expiresIn' => $ttl];
     }
 
     // --- internos -----------------------------------------------------------
