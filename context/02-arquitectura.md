@@ -3,14 +3,26 @@
 
 # 02 — Arquitectura
 
-## PIVOTE ARQUITECTÓNICO — 2026-06-10
+## REESTRUCTURA TOTAL — 2026-06-29
 
-> **El panel legacy (`/panel`) se reescribe greenfield a React + Next.js.** F3/F4/F5 del plan de desacople original están CANCELADOS. El legacy se mantiene SOLO en producción mientras el nuevo no lo cubra al 100%, luego se elimina.
-> Ver `context/12-panel-rewrite.md` para el plan completo (stack, slices, sprint 0 checklist).
+> **Sesión estructural máxima.** `/app`, `/panel`, `/screens`, `api/core` eliminados. `panel-next` renombrado a `frontend`. La estructura del repo es ahora definitiva.
+> Ver `context/21-auth-rewrite.md` (auth) y `context/22-legacy-cleanup.md` (limpieza).
 
-**Implicación para los god-nodes del panel legacy**: `panel/includes/functions.php`, `panel/a_*.php`, `panel/API/v1/*.php` y `panel/lib/*/` son código **condenado** — no conviene invertir refactors en ellos más allá de lo necesario para producción estable. El trabajo nuevo va en `frontend/` (React).
+**Estructura de directorios final (top-level):**
+```
+api/          → backend PHP único (toda la lógica de negocio)
+frontend/     → Next.js: panel + POS + screen + admin + auth (TODO el front)
+ws-server/    → Node.js WebSocket
+database/     → migraciones SQL
+context/      → docs de arquitectura
+docs/         → docs públicos
+scripts/      → utilidades de dev
+```
+NO existen más `/app`, `/panel`, `/screens`, `api/core`.
 
-**Lo que NO cambia**: `/app` (POS) sigue legacy — decisión separada. `/api` compartida sigue en PHP y es el backend del nuevo panel. El realm `/admin` se mantiene hasta que el nuevo panel cubra esa funcionalidad.
+**Modelo obligatorio:** FRONT+BFF (`frontend/`, independiente, sin compartir archivos con API) → HTTP → `api/` (backend PHP unificado) → BD. El browser NUNCA toca el PHP directamente.
+
+**Auth:** sesiones opacas stateful (`auth_session` tabla). Token `pt_`+random, sha256 en BD. `realm` = columna (`panel`/`pos-app`/`admin`/`screen`). Funciones en `api/includes/auth_session.php`. No hay JWT en el sistema.
 
 ---
 
@@ -19,27 +31,29 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                             BROWSER                                   │
-│  ┌──────────┐    ┌──────────┐    ┌──────────────────────┐            │
-│  │  /app    │    │  /panel  │    │  standalone (KDS,CDS) │            │
-│  └────┬─────┘    └────┬─────┘    └──────────┬───────────┘            │
-└───────┼────────────────┼─────────────────────┼────────────────────────┘
-        │ HTTP           │ HTTP                │ WebSocket
-        ▼                ▼                     ▼
-┌───────────────┐  ┌───────────────┐  ┌──────────────────┐
-│  PHP /app     │  │  PHP /panel   │  │  ws-server       │
-│  (BFF/action) │  │  (BFF/panel)  │  │  (Node.js:6001)  │
-└───────┬───────┘  └───────┬───────┘  └────────┬─────────┘
-        │ HTTP (BFF→API)   │ HTTP (BFF→API)     │
-        └────────┬─────────┘                    │
-                 ▼                              │
-┌────────────────────────────────────┐          │
-│  PHP /api  (API compartida :8000)  │          │
-│  backend ÚNICO del sistema         │          │
-│  (futuro: server dedicado)         │          │
-│  /api/v1/* — superficie pública    │          │
-└────────────────┬───────────────────┘          │
-                 │                              │
-                 ▼                              ▼
+│              app.punto.la  (path-based routing)                       │
+│  /panel  /pos  /admin  /checkout  /connect  /screen                   │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                │ HTTP / WebSocket
+                                ▼
+┌───────────────────────────────────────────────┐  ┌──────────────────┐
+│  frontend/  (Next.js — BFF same-origin)       │  │  ws-server       │
+│  app/(panel)   → panel de tenant              │  │  (Node.js:6001)  │
+│  app/(pos)/pos → POS                          │  └────────┬─────────┘
+│  app/(admin)   → admin greenfield             │           │
+│  app/(screen)  → screen/display               │           │
+└───────────────────────┬───────────────────────┘           │
+                        │ HTTP server-side (API_URL, interna)│
+                        ▼                                   │
+┌────────────────────────────────────┐                      │
+│  api/  (PHP — backend único)       │                      │
+│  api/v1/*  — endpoints REST        │                      │
+│  api/lib/App/*  — servicios        │                      │
+│  api/lib/Admin/* — realm admin     │                      │
+│  api/includes/auth_session.php     │                      │
+└────────────────┬───────────────────┘                      │
+                 │                                          │
+                 ▼                                          ▼
 ┌──────────────────────────────────────┐  ┌─────────┐
 │         PostgreSQL 16                 │  │  Redis  │
 │  (puntoDB — multi-tenant por         │  │  7      │
@@ -48,24 +62,21 @@
                                                ▲
                                                │ Pub/Sub + Sessions
                                     ┌──────────┘
-                                    │
-                              PHP wsPublish() / PHP sessions
+                              PHP wsPublish() / auth_session store
                           (fsockopen → RESP raw / session.save_handler=redis)
 ```
 
-## Deploy single-container (Coolify, 2026-06-09)
+## Deploy (Coolify) — topología objetivo post-cutover
 
-**Arquitectura de producción**: un solo container PHP sirve los 4 subdominios. El despacho por subdominio lo hace `router.php` en la raíz del repo, leyendo el header `Host:`.
+**Un dominio público `app.punto.la`** = container `frontend` (Next.js, path-based). El PHP (`api/`) es la API INTERNA — el BFF la llama server-side por `API_URL`; el browser nunca toca el PHP.
 
 ```
-panel.punto.la  → /panel    (panel de tenant + realm admin)
-admin.punto.la  → /panel    (mismo codebase, path /admin forzado)
-app.punto.la    → /app      (POS)
-api.punto.la    → /api      (API compartida)
+app.punto.la    → container frontend (Next.js)
 ws.punto.la     → ws-server (contenedor Node.js separado)
+API_URL (interna) → api/ PHP (no expuesto públicamente)
 ```
 
-**`router.php` raíz** es un nuevo god-node de routing en prod. Recibe cada request, determina el módulo por `$_SERVER['HTTP_HOST']`, hace `chdir()` al directorio del módulo y delega al `router.php` del módulo correspondiente. Maneja también archivos estáticos (que `php -S` normalmente serviría del docroot fijo). **Regla de seguridad (commit 352285f)**: el router raíz nunca sirve `.php` como estático — previene source leak.
+> **Pendiente de cutover:** actualizar Coolify build subdir `panel-next`→`frontend`; confirmar `app.punto.la` apunta al container frontend; PHP configurado como API interna por `API_URL`. Cutover = re-login masivo (sesiones opacas, no hay JWT que migrar). `/admin` en prod nunca fue smoke-testeado.
 
 **PHP sessions en Redis (commit 5ea3a2d)**: el `docker-entrypoint.sh` raíz parsea `REDIS_URL` al arrancar y configura `session.save_handler=redis` + `session.save_path=tcp://host:port?auth=...` en el php.ini runtime. Sin esto las sesiones viven en `/tmp/sess_*` y se pierden en cada deploy (el container se recrea). Con Redis, las sesiones persisten entre deploys.
 

@@ -3,6 +3,26 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-29 — Auth rewrite (JWT→sesiones opacas) + limpieza legacy total + reestructura repo
+
+Commits `7d0c09b2..3ddb96f0` (~50). Sesión estructural máxima — tres bloques mergeados a main.
+
+**Hecho:**
+- Auth rewrite F0–F6: tabla `auth_session` (mig 69) + `api/includes/auth_session.php`; 3 validadores colapsados en `authResolve($realms)`; emisores panel/device/admin a sesión opaca; revocación desde UI (`/settings/sessions`, endpoint `/v1/sessions`); rip-out completo de `jwt.php`. Token = `pt_`+random opaco (sha256 en BD). `realm` es columna, no claim criptográfico.
+- Limpieza legacy: borrados `/app` (POS PHP), `/panel` (BS3), `/screens`, scripts MySQL→PG, `graphify-out`/mempalace/.venv, `/assets`, `/crons`, `panel/thirdparty`.
+- Reestructura: `panel-next`→`frontend` (es todo el front: panel+POS+screen+admin+auth); `api/core` disuelto en `api/` (`api/includes/`, `api/lib/App/*`, vendor unificado, `chdir` eliminado); backend admin → `api/v1/admin/` + `api/lib/Admin/`. P0 cerrado: `migrate.php exec()` sin auth borrado.
+- Docs de plan: `context/21-auth-rewrite.md`, `context/22-legacy-cleanup.md`.
+
+**Decisión:** sesiones opacas stateful sobre JWT (revocación requerida por owner); `Punto\App` namespace conservado (colisión macOS case-insensitive con `api/lib/services`); cookies sin renombrar (`_jwt_panel`/`_jwt`/`_jwt_admin`); admin moderno (`frontend/(admin)`) es el canónico.
+
+**Pendiente:**
+- Deploy Coolify: cambiar build subdir `panel-next`→`frontend`; `app.punto.la` apunta al container frontend; PHP = API interna (`API_URL`); cutover = re-login masivo. `/admin` nunca probado en prod → smoke-test obligatorio.
+- Reconstruir sobre stack moderno: facturas recurrentes (era cron→action.php, borrado); páginas `/screens` (recibo, factura E, gift card, order view, schedule confirm) — `SaleService`/transactions/orders/GiftCardService generan links `/screens/*` muertos; thumbnails items (250) + logo empresa.
+- Polish: rename `Punto\App→Punto\Api` (diferido); romper `functions.php` (26k L); unificar `api/lib/services` lowercase; quitar `JWT_SECRET`/`ADMIN_JWT_SECRET`.
+- Sweep completo de `context/*` — muchos docs referencian `/app`, `/panel`, `panel-next`, `api/core`, subdominios legacy.
+
+**Atención:** `router.php` raíz necesita actualización para la nueva topología (un dominio `app.punto.la`, path-based); deploy hasta que se actualice Coolify mantiene el esquema viejo.
+
 ## 2026-06-29 — cleanup refactor flattenJsonb + phone storage sin "+" + reconnect device
 
 Commits `5f745f43..91d09de9` (22). Highlights: cleanup refactor 28-jun en 10+ services (alias quoted + wrap CIA); convención phone storage SIN `+` end-to-end (mig 67 cleanup); feature reconnect device auto-aprobado (mig 68); window.print() global eliminado; `/v1/price_list` GET multi-realm; hotfix BD: phone Dueño + reset pass + outlet asignado + 4 GB swap server. Pendiente: drawer getIncome/getPaymentBreakdown (latente), crossing deviceId reconnect, TenantContext outletId opcional.
