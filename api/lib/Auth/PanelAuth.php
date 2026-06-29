@@ -103,7 +103,7 @@ final class PanelAuth
             'sub'  => (string) $user['contactId'],
             'cid'  => (string) $user['companyId'],
             'oid'  => $resolvedOutletId,
-            'role' => (int) $user['role'],
+            'role' => (string) ($user['role'] ?? ''),
             'iat'  => $now,
             'exp'  => $now + $ttl,
         ], $secret);

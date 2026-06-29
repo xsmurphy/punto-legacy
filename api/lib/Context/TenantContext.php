@@ -22,7 +22,7 @@ final class TenantContext
         public readonly string $outletId,
         public readonly string $userId,
         public readonly string $registerId,
-        public readonly int $roleId,
+        public readonly string $roleId,
     ) {
         if ($companyId === '' || $outletId === '' || $userId === '') {
             throw new \InvalidArgumentException('TenantContext: companyId/outletId/userId no pueden ser vacíos');
@@ -37,7 +37,7 @@ final class TenantContext
             outletId:   (string) ($ctx['outletId']   ?? ''),
             userId:     (string) ($ctx['userId']     ?? ''),
             registerId: (string) ($ctx['registerId'] ?? ''),
-            roleId:     (int)    ($ctx['roleId']     ?? 0),
+            roleId:     (string) ($ctx['roleId']     ?? ''),
         );
     }
 }

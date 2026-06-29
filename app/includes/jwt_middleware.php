@@ -102,12 +102,12 @@ function jwtAuthenticate(array $allowedRealms = ['pos-app']): bool
     }
 
     // Definir identidad autenticada como constantes PHP.
-    // IDs son UUIDs (string) desde Phase UUID; role sigue siendo int.
+    // Todos los IDs y role son string — soporta legacy int ("1") y UUID.
     define('AUTHED_USER_ID',     (string)($payload['sub']  ?? ''));
     define('AUTHED_COMPANY_ID',  (string)($payload['cid']  ?? ''));
     define('AUTHED_OUTLET_ID',   (string)($payload['oid']  ?? ''));
     define('AUTHED_REGISTER_ID', (string)($payload['rid']  ?? ''));
-    define('AUTHED_ROLE_ID',     (int)($payload['role'] ?? 0));
+    define('AUTHED_ROLE_ID',     (string)($payload['role'] ?? ''));
     define('AUTHED_DEVICE_ID',   $deviceId);
     define('AUTHED_REALM',       (string)($payload['iss'] ?? ''));
 
