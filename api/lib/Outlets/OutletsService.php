@@ -350,6 +350,14 @@ final class OutletsService
      */
     private function shape($r, $full)
     {
+        // Post-refactor 28-jun: ncmExecute / _flattenJsonb devuelven array
+        // plano lowercase. Wrap a CIA para que los ~15 accesos camelCase de
+        // este método (outletId, outletName, outletStatus, etc.) resuelvan
+        // case-insensitive sin reescribir cada uno. Bug reportado: el front
+        // recibía id="" y SelectItem crasheaba Radix en /pos > Ajustes.
+        if (!($r instanceof \CaseInsensitiveArray)) {
+            $r = new \CaseInsensitiveArray((array) $r);
+        }
         $row = [
             'id'          => (string) ($r['outletId'] ?? ''),
             'name'        => (string) ($r['outletName'] ?? ''),
