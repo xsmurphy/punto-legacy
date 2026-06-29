@@ -1,0 +1,29 @@
+# Build context = ./api — archivos excluidos del contexto Docker.
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Composer vendor (se regenera en el Dockerfile)
+vendor
+
+# Cache y logs
+cache/
+**/*.log
+**/.DS_Store
+
+# Tooling local
+.claude/
+.vscode/
+.idea/
+.editorconfig
+
+# Dumps locales
+*.sql.bak
+*.dump

@@ -1,57 +1,56 @@
 # syntax=docker/dockerfile:1.6
 # ─────────────────────────────────────────────────────────────────────────────
-# Punto — API compartida (sirve api.punto.la)
+# Punto — container PHP auto-contenido (api/)
 #
-# Namespace Punto\App\* — composer/autoload en api/vendor (unificado 2026-06-29,
-# api/core disuelto). Fuente de verdad: api/composer.json → lib/App/*.
+# Build context: ./api  (no ROOT del repo)
+# Uso: docker build -t punto-api ./api
 #
-# Build context: ROOT del repo.
+# Layout en el container:
+#   /var/www/api/       — código PHP (COPY . ./api)
+#   /var/www/database/  — migraciones SQL (COPY database ./database)
+#   WORKDIR /var/www
+#   CMD: php -S 0.0.0.0:3000 api/router.php
 #
-# Uso: docker build -f api/Dockerfile -t punto-api .
+# DECISIÓN DE LAYOUT: database/ queda en /var/www/database (no dentro de api/)
+# para que docker-entrypoint.sh pueda encontrarlo en /var/www/database/migrate.php
+# sin cambiar el entrypoint. migrate.php usa dirname(__DIR__) como repoRoot para
+# buscar .env — con este layout dirname(__DIR__) = /var/www, lo que es correcto.
+#
+# Tras dissolve-panel (2026-06-29): solo api.punto.la vive en este container.
+# panel.punto.la / admin.punto.la → frontend/ (Node/Next.js, container separado).
 #
 # TODO(prod): migrar de `php -S` a nginx + php-fpm cuando crezca.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# ─── Stage 1: runtime PHP ────────────────────────────────────────────────────
 FROM php:8.4-cli-alpine AS runtime
 
+# install-php-extensions de mlocati: instala extensiones pre-compiladas cuando
+# puede, compila si no. Mucho más rápido y confiable que docker-php-ext-install
+# manual + apk build-deps (que tarda 5+ min compilando gd/intl desde source).
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+
 RUN set -eux; \
-    apk add --no-cache --virtual .build-deps \
-        $PHPIZE_DEPS \
-        postgresql-dev \
-        libpng-dev \
-        libjpeg-turbo-dev \
-        freetype-dev \
-        icu-dev \
-        libzip-dev \
-        oniguruma-dev \
-        linux-headers; \
-    apk add --no-cache \
-        postgresql-libs \
-        libpng \
-        libjpeg-turbo \
-        freetype \
-        icu-libs \
-        libzip \
-        bash \
-        curl \
-        tini; \
-    docker-php-ext-configure gd --with-freetype --with-jpeg; \
-    docker-php-ext-install -j"$(nproc)" \
+    chmod +x /usr/local/bin/install-php-extensions; \
+    apk add --no-cache bash curl tini; \
+    install-php-extensions \
         pdo \
         pdo_pgsql \
         gd \
         intl \
         zip \
         opcache \
-        bcmath; \
-    pecl install redis && docker-php-ext-enable redis; \
-    apk del --no-network .build-deps
+        bcmath \
+        redis
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 RUN { \
     echo 'opcache.enable=1'; \
+    # CRÍTICO: el server corre con `php -S` (CLI SAPI), no FPM. Sin enable_cli=1
+    # opcache queda inactivo y cada request recompila functions.php (10k+ líneas).
+    echo 'opcache.enable_cli=1'; \
     echo 'opcache.validate_timestamps=1'; \
     echo 'opcache.revalidate_freq=2'; \
     echo 'opcache.memory_consumption=128'; \
@@ -63,31 +62,39 @@ RUN { \
 
 WORKDIR /var/www
 
-# Composer deps (namespace Punto\App\* — autoload canonico del backend, unificado en api/)
-COPY api/composer.json api/composer.lock* ./api/
+# Composer deps primero (layer cacheado hasta que cambie composer.json/lock).
+# Build context = ./api, así que los paths son relativos a api/.
+COPY composer.json composer.lock* ./api/
 RUN cd api && composer install \
-        --no-dev \
-        --no-interaction \
-        --prefer-dist \
-        --no-scripts \
-        --no-autoloader \
+        --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader \
     && rm -rf /root/.composer
 
-# /api entero (includes, lib/App, vendor unificados en api/)
-COPY api ./api
+# Código de la API (todo el context = api/)
+COPY . ./api
 
+# Migraciones SQL — en /var/www/database para que docker-entrypoint.sh las encuentre
+# en /var/www/database/migrate.php (ruta hardcodeada en entrypoint).
+# database/ se incluye en el build context via COPY en el compose o build --build-context.
+# NOTA: database/ se copia desde el directorio hermano api/database/ (movido via git mv).
+COPY database ./database
+
+# Autoload final (después de copiar el código)
 RUN cd api && composer dump-autoload --no-dev --optimize --classmap-authoritative
 
-ENV PHP_CLI_SERVER_WORKERS=8 \
+# Workers: el built-in server sirve la API. Overridable por env de Coolify.
+ENV PHP_CLI_SERVER_WORKERS=28 \
     APP_ENV=production
 
-# Healthcheck: pide un endpoint real de /v1. El server vivo responde 200|401|403;
-# un container muerto/colgado da curl-fail o 5xx.
+# Entrypoint: configura PHP sessions en Redis al boot y corre auto-migrate.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Puerto 3000 — default que Coolify configura en Traefik.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS -o /dev/null -w '%{http_code}' http://localhost:80/v1/currencies | grep -qE '^(200|401|403)$' || exit 1
+    CMD curl -fsS -H "Host: api.punto.la" http://localhost:3000/v1/health > /dev/null || exit 1
 
-EXPOSE 80
-WORKDIR /var/www/api
+EXPOSE 3000
+WORKDIR /var/www
 
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["php", "-S", "0.0.0.0:80", "router.php"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "/sbin/tini", "--"]
+CMD ["php", "-S", "0.0.0.0:3000", "api/router.php"]
