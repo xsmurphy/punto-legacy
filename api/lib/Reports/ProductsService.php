@@ -417,7 +417,7 @@ final class ProductsService
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
-            "SELECT contactId, contactName, contactSecondName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
+            "SELECT contactId, contactName, data->>'contactSecondName' AS contactSecondName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
             array_merge([$companyId], $ids), false, false, true
         );
         $res = is_array($res) ? $res : [];

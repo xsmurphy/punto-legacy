@@ -533,7 +533,7 @@ final class OrderService
         $sql = "SELECT t.transactionId, t.transactionName, t.transactionStatus,
                        t.transactionNote, t.transactionDate, t.transactionDueDate,
                        t.userId, t.customerId, t.invoiceNo, t.meta,
-                       COALESCE(NULLIF(c.contactSecondName,''), c.contactName) AS customerName,
+                       COALESCE(NULLIF(c.data->>'contactSecondName',''), c.contactName) AS customerName,
                        ca.customerAddressText     AS customerAddress,
                        ca.customerAddressCity     AS customerCity,
                        ca.customerAddressLocation AS customerLocation,
@@ -647,7 +647,7 @@ final class OrderService
 
         $row = ncmExecute(
             "SELECT t.transactionId, t.invoiceNo, t.customerId,
-                    COALESCE(NULLIF(c.contactSecondName,''), c.contactName) AS customerName,
+                    COALESCE(NULLIF(c.data->>'contactSecondName',''), c.contactName) AS customerName,
                     ca.customerAddressText AS customerAddress,
                     ca.customerAddressLat  AS customerLat,
                     ca.customerAddressLng  AS customerLng

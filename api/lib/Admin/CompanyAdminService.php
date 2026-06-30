@@ -241,7 +241,7 @@ class CompanyAdminService
         }
         $place = implode(',', array_fill(0, count($ids), '?'));
         $r = $db->Execute(
-            "SELECT companyId, contactId, contactName, contactSecondName, contactEmail, contactPhone
+            "SELECT companyId, contactId, contactName, data->>'contactSecondName' AS contactSecondName, contactEmail, contactPhone
                FROM contact
               WHERE companyId IN ($place) AND main = 'true' AND role = 1 AND type = 0",
             $ids

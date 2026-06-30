@@ -47,7 +47,7 @@ final class TransactionsService
                     AND (customerId IN (
                             SELECT contactId FROM contact
                             WHERE type = 1 AND companyId = ?
-                            AND (contactName ILIKE ? OR contactTIN ILIKE ? OR contactSecondName ILIKE ?)
+                            AND (contactName ILIKE ? OR contactTIN ILIKE ? OR data->>'contactSecondName' ILIKE ?)
                          )" . $invoiceClause . ")
                     ORDER BY transactionDate DESC LIMIT 5000";
             $params = $isNum
@@ -167,7 +167,7 @@ final class TransactionsService
                     WHERE transactionType IN (5)" . $roc . "
                     AND customerId IN (
                         SELECT contactId FROM contact WHERE type = 1 AND companyId = ?
-                        AND (contactName ILIKE ? OR contactTIN ILIKE ? OR contactSecondName ILIKE ?)
+                        AND (contactName ILIKE ? OR contactTIN ILIKE ? OR data->>'contactSecondName' ILIKE ?)
                     )
                     ORDER BY transactionDate DESC LIMIT 5000";
             $params = [$companyId, $like, $like, $like];
@@ -245,7 +245,7 @@ final class TransactionsService
                     WHERE transactionType IN (9)" . $roc . "
                     AND customerId IN (
                         SELECT contactId FROM contact WHERE type = 1 AND companyId = ?
-                        AND (contactName ILIKE ? OR contactTIN ILIKE ? OR contactSecondName ILIKE ?)
+                        AND (contactName ILIKE ? OR contactTIN ILIKE ? OR data->>'contactSecondName' ILIKE ?)
                     )
                     ORDER BY transactionDate DESC LIMIT 5000";
             $params = [$companyId, $like, $like, $like];
