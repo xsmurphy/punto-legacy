@@ -223,13 +223,8 @@ export default function DashboardPage() {
             />
           </section>
 
-          {/* Clientes + Top 5 Artículos */}
-          <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <CustomersCard
-              data={customers.data}
-              rates={customersRates.data}
-              isLoading={customers.isLoading}
-            />
+          {/* Top 5 Artículos (Clientes se movió a la sidebar) */}
+          <section>
             <TopItemsCard
               data={topItems.data ?? []}
               isLoading={topItems.isLoading}
@@ -252,6 +247,11 @@ export default function DashboardPage() {
           <SatisfactionCard
             data={satisfaction.data}
             isLoading={satisfaction.isLoading}
+          />
+          <CustomersCard
+            data={customers.data}
+            rates={customersRates.data}
+            isLoading={customers.isLoading}
           />
           <InfoGeneralCard
             stats={stats.data}
@@ -773,7 +773,7 @@ function CustomersCard({
   const churn = toPct(rates?.churn)
 
   return (
-    <Card>
+    <Card className="bg-[#f3f4f6] dark:bg-muted">
       <CardHeader>
         <CardTitle className="text-sm font-medium">Clientes</CardTitle>
       </CardHeader>
