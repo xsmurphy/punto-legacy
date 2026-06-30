@@ -385,7 +385,14 @@ final class Inventory
 
         try {
             $userName     = getValue('contact',  'contactName',  "WHERE contactId = '" . USER_ID . "'");
-            $registerName = getValue('register', 'registerName', "WHERE registerId = '" . REGISTER_ID . "'");
+            // REGISTER_ID es '' en contexto panel (compras/ajustes sin caja). Un
+            // SELECT con registerId = '' tira "invalid input syntax for type uuid"
+            // y, al correr DENTRO de la TX de la compra, la ABORTA (la transacción
+            // PG queda envenenada aunque PHP no lance). Solo resolvemos el nombre
+            // si hay una caja real.
+            $registerName = (defined('REGISTER_ID') && REGISTER_ID !== '')
+                ? getValue('register', 'registerName', "WHERE registerId = '" . REGISTER_ID . "'")
+                : '';
             $companyName  = defined('COMPANY_NAME') ? COMPANY_NAME : '';
             $outletName   = getCurrentOutletName(OUTLET_ID);
             $itemName     = getItemName($itemId);
