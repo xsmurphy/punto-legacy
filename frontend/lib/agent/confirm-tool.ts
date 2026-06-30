@@ -2,8 +2,37 @@ import { tool } from "ai"
 import { z } from "zod"
 
 // Approach permisivo: un único z.object con todos los campos optional.
-// z.union con discriminatedUnion puede romper en algunos providers de OpenRouter
-// (DeepSeek, Gemini) que no soportan oneOf en JSON Schema.
+// z.union/discriminatedUnion rompe en algunos providers de OpenRouter (DeepSeek,
+// Gemini) que no soportan oneOf en JSON Schema.
+//
+// `payload` se define con campos EXPLÍCITOS (no z.record/additionalProperties):
+// los modelos de tool-calling (DeepSeek incluido) no logran poblar un objeto de
+// propiedades libres y terminan no llamando la tool (síntoma: el agente muestra
+// el resumen de confirmación pero "no inserta" + filtra texto del protocolo).
+// Un schema concreto le da al modelo exactamente qué campos llenar por acción.
+const payloadSchema = z.object({
+  // contactos / nombres genéricos (item, categoría, marca, etiqueta, usuario)
+  name: z.string().optional().describe("Nombre del registro (contacto, ítem, categoría, marca, etiqueta, usuario)"),
+  type: z.number().int().optional().describe("contacto: 1=cliente, 2=proveedor"),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  note: z.string().optional(),
+  id: z.string().optional().describe("id del registro a actualizar (update_*)"),
+  // ítems
+  kind: z.string().optional().describe("create_item: 'producto'|'servicio'. tabular_import: 'items'|'contacts'"),
+  price: z.number().optional().describe("create_item: precio de venta"),
+  cost: z.number().optional().describe("create_item: costo"),
+  sku: z.string().optional(),
+  categoryName: z.string().optional(),
+  brandName: z.string().optional(),
+  newPrice: z.number().optional().describe("update_item_price: nuevo precio"),
+  // usuarios
+  roleName: z.string().optional().describe("create_user: nombre del rol (no admin)"),
+  // importación tabular
+  sessionId: z.string().optional().describe("tabular_import: id de sesión del adjunto"),
+  mode: z.string().optional().describe("tabular_import: 'insert'|'update'"),
+  mapping: z.record(z.string(), z.string()).nullish().describe("tabular_import: mapeo campo→columna, o null para auto"),
+})
 
 const confirmInputSchema = z.object({
   // Si viene confirmToken, se ejecuta; si no, se registra la confirmación
@@ -13,7 +42,7 @@ const confirmInputSchema = z.object({
   action: z.string().optional().describe(
     "Acción a ejecutar: create_contact | update_contact | create_item | update_item_price | create_user | create_category | create_brand | create_tag | tabular_import"
   ),
-  payload: z.record(z.string(), z.unknown()).optional().describe("Datos de la acción"),
+  payload: payloadSchema.optional().describe("Datos de la acción (llená solo los campos que aplican al action)"),
   summary: z.string().optional().describe("Descripción legible para el usuario"),
 })
 
