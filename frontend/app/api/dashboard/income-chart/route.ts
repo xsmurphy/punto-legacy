@@ -72,10 +72,16 @@ export async function GET(req: NextRequest) {
   }
   const url = `${apiBase.replace(/\/$/, "")}/v1/reports/sales?dataset=series&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
 
+  // Reenviar el view-scope de sucursal seleccionado en el panel para que el chart
+  // se filtre por la MISMA sucursal que el resto del dashboard. Sin esto el chart
+  // quedaba fijo en el outlet del JWT y no actualizaba al cambiar de sucursal.
+  const viewOutlet = req.headers.get("x-outlet-id")
+
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${jwt}`,
       Accept: "application/json",
+      ...(viewOutlet ? { "X-Outlet-Id": viewOutlet } : {}),
     },
     cache: "no-store",
   })

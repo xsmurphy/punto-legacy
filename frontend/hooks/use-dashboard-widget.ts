@@ -144,14 +144,21 @@ export interface IncomeChartData {
 }
 
 import { useQuery as useQ } from "@tanstack/react-query"
+import { readViewScope } from "@/hooks/use-view-scope"
 
 export function useIncomeChart(opts: { from: string; to: string }) {
+  // El scope va en el queryKey para que React Query refetchee al cambiar de
+  // sucursal (este chart usa fetch crudo, no el api-client que ya manda el header).
+  const scope = readViewScope()
   return useQ<IncomeChartData>({
-    queryKey: ["bff", "income-chart", opts.from, opts.to],
+    queryKey: ["bff", "income-chart", opts.from, opts.to, scope],
     queryFn: async () => {
       const params = new URLSearchParams({ from: opts.from, to: opts.to })
       const res = await fetch(`/api/dashboard/income-chart?${params.toString()}`, {
         credentials: "include",
+        // Sin api-client hay que reenviar el view-scope a mano para que el chart
+        // se filtre por la sucursal seleccionada (no por la del JWT).
+        headers: scope ? { "X-Outlet-Id": scope } : undefined,
       })
       if (!res.ok) throw new Error(`BFF ${res.status}`)
       const env = (await res.json()) as { ok?: boolean; data?: IncomeChartData }
