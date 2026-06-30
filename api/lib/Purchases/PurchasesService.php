@@ -363,6 +363,100 @@ final class PurchasesService
     }
 
     /**
+     * Anula una compra (soft-void). NO borra la fila — auditoría + fiscal.
+     *
+     * Lógica:
+     *   - Carga la transacción (type=1, companyId). Si no existe o status != 1
+     *     → RuntimeException (idempotente: una compra ya anulada no se re-anula).
+     *   - Inicia TX. UPDATE transactionStatus = 6 ("Cancelado").
+     *   - Por cada línea con itemId real: revierte stock vía manageStock con
+     *     type='-' / source='purchase-void'. Las líneas de gasto libre (sin
+     *     itemId) no tocan stock.
+     *   - Commit. Devuelve ['id', 'status'=>6].
+     *
+     * El dashboard de egresos filtra transactionStatus = 1, así que al marcar 6
+     * la compra anulada se excluye sola de los reportes de egresos.
+     *
+     * @throws \RuntimeException si la compra no existe, no es anulable, o la TX falla.
+     */
+    public function void(string $id, string $companyId, string $userId): array
+    {
+        global $db;
+
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('id de compra inválido');
+        }
+        if (!preg_match(self::UUID_RE, $userId)) {
+            throw new \RuntimeException('userId requerido');
+        }
+
+        $row = ncmExecute(
+            "SELECT * FROM transaction
+              WHERE transactionId = ? AND companyId = ? AND transactionType = 1
+              LIMIT 1",
+            [$id, $companyId]
+        );
+        if (!$row) {
+            throw new \RuntimeException('Compra no encontrada');
+        }
+        if ((int) $row['transactionstatus'] !== 1) {
+            throw new \RuntimeException('La compra ya fue anulada o no es anulable');
+        }
+
+        // meta JSONB → array (string JSON o ya decoded según el adapter).
+        $meta = $row['meta'] ?? '{}';
+        if (is_string($meta)) {
+            $meta = json_decode($meta, true) ?: [];
+        }
+        $details = is_array($meta['details'] ?? null) ? $meta['details'] : [];
+
+        $outletId   = (string) $row['outletid'];
+        $supplierId = $row['supplierid'] !== null ? (string) $row['supplierid'] : null;
+        $date       = (string) $row['transactiondate'];
+
+        $db->StartTrans();
+
+        ncmExecute(
+            'UPDATE transaction SET transactionStatus = 6, updated_at = NOW()
+              WHERE transactionId = ? AND companyId = ?',
+            [$id, $companyId]
+        );
+
+        // Revertir stock por cada línea con producto real.
+        foreach ($details as $d) {
+            $itemId = (string) ($d['itemId'] ?? '');
+            if ($itemId === '') {
+                continue; // gasto libre — no tocó stock al crear
+            }
+            $units = (float) ($d['qty'] ?? 0);
+            if ($units <= 0) {
+                continue;
+            }
+            \Punto\App\Domain\Inventory::manageStock([
+                'itemId'        => $itemId,
+                'outletId'      => $outletId,
+                'count'         => $units,
+                'type'          => '-',
+                'supplierId'    => $supplierId,
+                'source'        => 'purchase-void',
+                'transactionId' => $id,
+                'locationId'    => null,
+                'userId'        => $userId,
+                'companyId'     => $companyId,
+                'date'          => $date,
+            ]);
+        }
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException('No se pudo anular la compra: la transacción abortó');
+        }
+
+        return ['id' => $id, 'status' => 6];
+    }
+
+    /**
      * Normaliza fecha del request:
      *  - null/empty + $useTodayDefault → ahora.
      *  - 'YYYY-MM-DD' → 'YYYY-MM-DD 00:00:00'.

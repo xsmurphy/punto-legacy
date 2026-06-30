@@ -71,4 +71,17 @@ if ($method === 'POST') {
     apiOk(['id' => $id]);
 }
 
+if ($method === 'DELETE') {
+    $id = trim((string) ($_GET['id'] ?? ''));
+    if ($id === '') {
+        apiError('id requerido', 400);
+    }
+    try {
+        $res = $svc->void($id, (string) COMPANY_ID, (string) ($ctx['userId'] ?? ''));
+    } catch (\RuntimeException $e) {
+        apiError($e->getMessage(), 422);
+    }
+    apiOk($res);
+}
+
 apiError('Método no permitido', 405);

@@ -127,3 +127,19 @@ export function useCreatePurchase() {
     },
   })
 }
+
+/**
+ * Anula una compra (soft-void): revierte stock y marca status=6 en el backend.
+ * Invalida `purchases` (listado + detalle) y `dashboard` (egresos) al éxito.
+ */
+export function useVoidPurchase() {
+  const qc = useQueryClient()
+  return useMutation<{ id: string; status: number }, Error, string>({
+    mutationFn: (id) =>
+      api.del<{ id: string; status: number }>(`/v1/purchases?id=${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["purchases"] })
+      qc.invalidateQueries({ queryKey: ["dashboard-widget"] })
+    },
+  })
+}

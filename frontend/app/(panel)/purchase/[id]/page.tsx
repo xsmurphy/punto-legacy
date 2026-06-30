@@ -3,10 +3,22 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, Loader2, Receipt } from "lucide-react"
+import { ArrowLeft, Loader2, Receipt, Ban } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import {
   Card,
   CardContent,
@@ -23,7 +35,11 @@ import {
 } from "@/components/ui/table"
 import { Separator } from "@/components/ui/separator"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { usePurchase, type PurchaseDetailItem } from "@/hooks/use-purchases"
+import {
+  usePurchase,
+  useVoidPurchase,
+  type PurchaseDetailItem,
+} from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
 
 /**
@@ -90,7 +106,10 @@ export default function PurchaseDetailPage() {
               : "Sin proveedor registrado"}
           </p>
         </div>
-        <StatusBadge status={purchase.status} />
+        <div className="flex items-center gap-3">
+          <StatusBadge status={purchase.status} />
+          {purchase.status === 1 && <VoidPurchaseButton id={purchase.id} />}
+        </div>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -216,7 +235,68 @@ function BackButton() {
 function StatusBadge({ status }: { status: number }) {
   if (status === 1) return <Badge variant="secondary">Completa</Badge>
   if (status === 0) return <Badge variant="outline">Orden</Badge>
+  if (status === 6) return <Badge variant="destructive">Anulada</Badge>
   return <Badge variant="outline">{status}</Badge>
+}
+
+/**
+ * Botón de anulación de compra. Confirma con AlertDialog antes de disparar el
+ * soft-void (revierte stock + marca status=6 en el backend). La invalidación
+ * del hook re-fetchea el detalle, que pasa a mostrar el badge "Anulada".
+ */
+function VoidPurchaseButton({ id }: { id: string }) {
+  const voidPurchase = useVoidPurchase()
+  const [open, setOpen] = React.useState(false)
+
+  const onConfirm = async () => {
+    try {
+      await voidPurchase.mutateAsync(id)
+      toast.success("Compra anulada")
+      setOpen(false)
+    } catch (err) {
+      toast.error("No se pudo anular la compra", {
+        description: err instanceof Error ? err.message : undefined,
+      })
+    }
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button variant="destructive" size="sm">
+          <Ban className="size-3.5" />
+          Anular compra
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Anular esta compra?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta acción revierte el stock ingresado por la compra. La compra
+            quedará marcada como anulada y se excluirá de los reportes de
+            egresos. No se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={voidPurchase.isPending}>
+            Cancelar
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault()
+              onConfirm()
+            }}
+            disabled={voidPurchase.isPending}
+          >
+            {voidPurchase.isPending && (
+              <Loader2 className="mr-1.5 size-4 animate-spin" />
+            )}
+            Anular compra
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
 }
 
 function InfoCard({
