@@ -11,8 +11,8 @@
  *   payments(from, to)    → pagos del período (cpayments JOIN company)
  *
  * Convenciones idénticas a CompanyAdminService:
- *   - $db global (ADOdb), sin inyección
- *   - ADOdb PG devuelve column names en lowercase → usar pick() case-insensitive
+ *   - $db global (wrapper PDO), sin inyección
+ *   - PG devuelve column names en lowercase → usar pick() case-insensitive
  *   - Queries parametrizadas (nunca interpolar user input)
  *   - Aplanar config JSONB inline cuando sea necesario
  */

@@ -33,7 +33,7 @@ namespace Punto\Api\Reports;
  */
 final class DashboardService
 {
-    private mixed $meta = null;   // CaseInsensitiveArray (ADOdb) o []
+    private mixed $meta = null;   // CaseInsensitiveArray (wrapper) o []
     private array $taxonomyCache = [];
 
     public function widget(string $name, array $opts, string $roc, string $companyId, string $outletId, string $userId): array
@@ -413,7 +413,7 @@ final class DashboardService
         return [$from, $to];
     }
 
-    /** Retorna el ROW de company (CaseInsensitiveArray de ADOdb) — NO castear a (array) porque
+    /** Retorna el ROW de company (CaseInsensitiveArray del wrapper) — NO castear a (array) porque
      *  el cast pierde el lookup case-insensitive y devuelve campos vacíos. */
     private function companyMeta(string $companyId)
     {
@@ -472,7 +472,7 @@ final class DashboardService
     }
 
     /** Port inline de getItemData (panel-only): lookup item por id+companyId.
-     *  Retorna el CaseInsensitiveArray de ADOdb sin cast — el cast pierde campos. */
+     *  Retorna el CaseInsensitiveArray del wrapper sin cast — el cast pierde campos. */
     private function itemData(string $itemId, string $companyId)
     {
         $r = ncmExecute(

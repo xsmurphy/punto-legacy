@@ -13,7 +13,7 @@ use Punto\Api\Billing\Payments\DlocalGoProvider;
  *   createPackCheckout()  → crea invoice pending + payment en dLocal → redirectUrl
  *   handleWebhook()       → verifica firma, re-consulta el pago, acredita (idempotente)
  *
- * Usa el `$db` global (ADOdb, lo provee head.php en el contexto /api) para las
+ * Usa el `$db` global (wrapper PDO, lo provee head.php en el contexto /api) para las
  * partes transaccionales — mismo patrón que CompanyAdminService::grantAiCredits.
  * Para lecturas simples usa ncmExecute (helper global).
  *

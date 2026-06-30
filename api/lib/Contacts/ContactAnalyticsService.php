@@ -58,7 +58,7 @@ final class ContactAnalyticsService
         $linkCol    = $isCustomer ? 'customerId'     : 'supplierId';
         $txCol      = 'transactionType';
 
-        // Marcadores SQL inline para IN(?,?,?) — ADOdb/PG no expande arrays.
+        // Marcadores SQL inline para IN(?,?,?) — PDO/PG no expande arrays en un placeholder.
         $txMarkers  = implode(',', array_fill(0, count($txTypes), '?'));
 
         // ── Totales agregados (sumario) ─────────────────────────────────────

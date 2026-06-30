@@ -985,7 +985,7 @@ class CompanyAdminService
         if ($r) {
             while (!$r->EOF) {
                 $f         = $r->fields;
-                // ADOdb con PG devuelve column names en lowercase.
+                // PG devuelve column names en lowercase.
                 $payments[] = [
                     'id'      => (string) ($f['cpaymentsid']      ?? ''),
                     'date'    =>          ($f['cpaymentsdate']     ?? null),

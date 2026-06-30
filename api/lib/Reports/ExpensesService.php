@@ -113,7 +113,7 @@ final class ExpensesService
     {
         global $db;
         // $db->Execute (no ncmExecute): UPDATE no es SELECT → ncmExecute devolvería false aunque
-        // funcione. ADOdb Execute devuelve objeto en éxito, false en error.
+        // funcione. Execute() del wrapper devuelve objeto en éxito, false en error.
         $r = $db->Execute(
             "UPDATE expenses
              SET expensesDate = ?, expensesAmount = ?, expensesDescription = ?, userId = ?

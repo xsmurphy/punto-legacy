@@ -142,7 +142,7 @@ final class Store
      * Equivalente legacy: `getOperatingCost($outletId)`.
      *
      * Quirk legacy preservado: outletId concatenado sin parametrizar (sin cambio de semántica),
-     * y acceso posicional fields[0] (ADOdb).
+     * y acceso posicional fields[0].
      */
     public static function getOperatingCost(mixed $outletId): mixed
     {

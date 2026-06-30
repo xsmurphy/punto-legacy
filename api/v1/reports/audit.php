@@ -60,7 +60,7 @@ $rs = ncmExecute(
      LIMIT 1000',
     [(string) COMPANY_ID, $from, $to],
     false,
-    true  // forceObj = true → devuelve un recordset ADOdb, hay que iterarlo
+    true  // forceObj = true → devuelve un recordset del wrapper, hay que iterarlo
 );
 
 // ncmExecute con forceObj=true devuelve el recordset, NO un array — materializar.

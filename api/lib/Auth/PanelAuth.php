@@ -53,7 +53,7 @@ final class PanelAuth
      * Devuelve `['token' => string, 'expiresIn' => int]`.
      *
      * Acepta `array|\ArrayAccess` porque `findPhoneLogin()` y `ncmExecute()`
-     * devuelven `CaseInsensitiveArray` (objeto ADOdb con ArrayAccess), no un
+     * devuelven `CaseInsensitiveArray` (objeto del wrapper con ArrayAccess), no un
      * array plano. Matchea la firma de `issueJwtPanel()` del legacy.
      *
      * `$outletIdOverride` (NUEVO 2026-06-12) — cuando el caller ya validó la

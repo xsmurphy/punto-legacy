@@ -57,7 +57,7 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         apiError('id inválido', 422);
     }
 
-    // ncmExecute con forceObj=true devuelve el recordset ADOdb (NO un array) — hay
+    // ncmExecute con forceObj=true devuelve el recordset del wrapper (NO un array) — hay
     // que iterarlo para materializar las filas (patrón de Reports/UsersService).
     $fetchAll = static function ($rs): array {
         $out = [];

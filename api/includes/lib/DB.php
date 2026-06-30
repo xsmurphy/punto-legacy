@@ -108,8 +108,8 @@ class DBResult
 
     /**
      * Rebobina el cursor al primer registro.
-     * Equivale a $rs->moveFirst() / $rs->MoveFirst() de ADOdb — PHP es
-     * case-insensitive en nombres de método, así que basta con uno.
+     * Define moveFirst() y MoveFirst() — PHP es case-insensitive en nombres
+     * de método, así que basta con una implementación.
      */
     public function MoveFirst(): void
     {
@@ -142,12 +142,12 @@ class DBResult
         return $this->rows;
     }
 
-    /** No-op: compatibilidad ADOdb ($rs->Close()). */
+    /** No-op: compatibilidad con la API legacy ($rs->Close()). */
     public function Close(): void {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DB — reemplaza el objeto ADOdb
+// DB — reemplaza el objeto de acceso a datos legacy
 // ─────────────────────────────────────────────────────────────────────────────
 class DB
 {
@@ -157,7 +157,7 @@ class DB
     private bool   $transOk      = true;
     private int    $lastRowCount = 0;
 
-    // Propiedades públicas de compatibilidad ADOdb
+    // Propiedades públicas de compatibilidad con la API legacy
     public int    $port         = 5432;
     public int    $cacheSecs    = 3600;
     public bool   $debug        = false;
@@ -174,14 +174,13 @@ class DB
 
     /**
      * Establece la conexión con PostgreSQL.
-     * Equivale a ADOdb->Connect($host, $user, $pass, $db).
      */
     public function Connect(string $host, string $user, string $pass, string $db): bool
     {
         return $this->_connect($host, $user, $pass, $db);
     }
 
-    /** Alias de Connect (ADOdb tenía NConnect para conexiones no-persistentes). */
+    /** Alias de Connect (la API legacy tenía NConnect para conexiones no-persistentes). */
     public function NConnect(string $host, string $user, string $pass, string $db): bool
     {
         return $this->_connect($host, $user, $pass, $db);
@@ -207,7 +206,7 @@ class DB
     // ─── Consultas ─────────────────────────────────────────────────────────
 
     /**
-     * Compat ADOdb: primera fila de un SELECT (CaseInsensitiveArray) o false.
+     * Primera fila de un SELECT (CaseInsensitiveArray) o false.
      * La capa NO implementaba este método → callers `$db->GetRow(...)` reventaban
      * con "Call to undefined method" → 500 silente (display_errors=0). Causó el
      * incidente de pagos a crédito y devoluciones (2026-06-30). Agregarlo acá
@@ -223,7 +222,7 @@ class DB
     }
 
     /**
-     * Compat ADOdb: primer valor (primera columna de la primera fila) o false.
+     * Primer valor (primera columna de la primera fila) o false.
      */
     public function GetOne(string|array $sql, array|false $params = []): mixed
     {
@@ -240,11 +239,10 @@ class DB
     /**
      * Ejecuta SQL con parámetros posicionales (?).
      * Retorna DBResult en éxito, false en error.
-     * Equivale a ADOdb->Execute($sql, $params).
      */
     public function Execute(string|array $sql, array|false $params = []): DBResult|false
     {
-        // ADOdb->Prepare() devuelve [$sql, false, false]; compatibilidad:
+        // Prepare() de la API legacy devuelve [$sql, false, false]; compatibilidad:
         if (is_array($sql)) {
             $sql = $sql[0];
         }
@@ -286,7 +284,6 @@ class DB
 
     /**
      * INSERT o UPDATE automático desde un array asociativo.
-     * Equivale a ADOdb->AutoExecute($table, $data, 'INSERT'|'UPDATE', $where).
      */
     public function AutoExecute(string $table, array $data, string $mode, string $where = '', array $whereParams = []): bool
     {
@@ -333,8 +330,8 @@ class DB
 
     /**
      * Retorna el PK auto-generado por el último AutoExecute INSERT.
-     * Equivale a ADOdb->Insert_ID() / MySQL's LAST_INSERT_ID().
-     * En PostgreSQL con UUIDs, capturamos vía RETURNING *.
+     * Equivalente a MySQL's LAST_INSERT_ID(). En PostgreSQL con UUIDs,
+     * capturamos vía RETURNING *.
      */
     public function Insert_ID(): ?string
     {
@@ -342,7 +339,7 @@ class DB
     }
 
     /**
-     * INSERT simple. Equivale a ADOdb->Insert($table, $fields).
+     * INSERT simple.
      */
     public function Insert(string $table, array $data): bool
     {
@@ -351,7 +348,6 @@ class DB
 
     /**
      * SELECT con LIMIT y OFFSET.
-     * Equivale a ADOdb->SelectLimit($sql, $limit, $offset).
      */
     public function SelectLimit(string $sql, int $limit, int $offset = -1, array $params = []): DBResult|false
     {
@@ -364,7 +360,6 @@ class DB
 
     /**
      * Retorna array asociativo keyed por la primera columna.
-     * Equivale a ADOdb->GetAssoc($sql).
      */
     public function GetAssoc(string $sql, array $params = [], bool $force = false): array|false
     {
@@ -406,7 +401,6 @@ class DB
 
     /**
      * Escapa y entrecomilla un valor para uso directo en SQL.
-     * Equivale a ADOdb->qstr($value).
      *
      * PREFERÍ SIEMPRE PARÁMETROS POSICIONALES (?) EN LUGAR DE ESTE MÉTODO.
      */
@@ -421,14 +415,14 @@ class DB
     /**
      * Heurística de compatibilidad:
      * - Si recibe SQL (contiene espacio o ?), retorna [$sql, false, false]
-     *   para que Execute() lo desenrolle (emula ADOdb Prepare para statements).
+     *   para que Execute() lo desenrolle (emula el Prepare legacy para statements).
      * - Si recibe un valor simple (ID, string corto), lo escapa como qstr().
      *
      * En este codebase Prepare() se usa de las dos formas.
      */
     public function Prepare(mixed $value): string
     {
-        // En ADOdb, Prepare() devuelve [$sql, false, false] para caching.
+        // En la API legacy, Prepare() devolvía [$sql, false, false] para caching.
         // En PDO no necesitamos ese wrapping — devolvemos el SQL directamente.
         if (is_array($value)) {
             return (string) $value[0];
@@ -456,8 +450,7 @@ class DB
     }
 
     /**
-     * Retorna el placeholder posicional.
-     * ADOdb->Param($name) devuelve '?' en drivers PostgreSQL.
+     * Retorna el placeholder posicional ('?' para PostgreSQL).
      */
     public function Param(string $name = ''): string
     {
@@ -466,7 +459,7 @@ class DB
 
     // ─── Transacciones ─────────────────────────────────────────────────────
 
-    /** Inicia una transacción. Equivale a ADOdb->StartTrans(). */
+    /** Inicia una transacción. */
     public function StartTrans(): void
     {
         $this->transOk = true;
@@ -475,7 +468,6 @@ class DB
 
     /**
      * Confirma o revierte la transacción según FailTrans().
-     * Equivale a ADOdb->CompleteTrans().
      */
     public function CompleteTrans(): bool
     {
@@ -502,7 +494,7 @@ class DB
     /**
      * Inicia transacción directa (PDO nativo).
      * Complemento de CommitTrans/RollbackTrans (patrón try/catch/rollback).
-     * Diferente de StartTrans/CompleteTrans (patrón ADOdb FailTrans).
+     * Diferente de StartTrans/CompleteTrans (patrón FailTrans de la API legacy).
      */
     public function BeginTrans(): void
     {
@@ -529,7 +521,7 @@ class DB
 
     /**
      * Retorna filas afectadas por el último DML (INSERT/UPDATE/DELETE).
-     * Equivale a ADOdb->Affected_Rows(). Usa PDOStatement::rowCount() internamente.
+     * Usa PDOStatement::rowCount() internamente.
      */
     public function Affected_Rows(): int
     {
@@ -554,7 +546,7 @@ class DB
     public function selectDb(string $db): bool { return true; }
 
     /**
-     * Absorbe propiedades ADOdb no definidas (e.g. $db->outp, $db->bind)
+     * Absorbe propiedades legacy no definidas (e.g. $db->outp, $db->bind)
      * sin lanzar errores.
      */
     public function __set(string $name, mixed $value): void {}
