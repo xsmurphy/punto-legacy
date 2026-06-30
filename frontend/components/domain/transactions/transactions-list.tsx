@@ -95,6 +95,7 @@ import {
 } from "@/hooks/use-transactions"
 import { api } from "@/lib/api-client"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 import { formatAmount } from "@/lib/format-money"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -127,29 +128,12 @@ function txTypeLabel(type: string): string {
 
 function niceDateTime(iso: string): string {
   if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return formatDateTime(iso)
 }
 
 function fmtDate(iso: string): string {
   if (!iso) return ""
-  try {
-    return new Intl.DateTimeFormat("es", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(iso.replace(" ", "T")))
-  } catch {
-    return iso
-  }
+  return formatDateTime(iso, "d MMM yyyy, HH:mm")
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────

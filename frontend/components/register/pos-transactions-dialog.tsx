@@ -12,6 +12,7 @@ import * as React from "react"
 import { CalendarIcon, ChevronLeft, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
+import { parseNaive, formatDateTime } from "@/lib/format-date"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -92,13 +93,7 @@ function chipStyle(item: PosTransactionListItem): string {
  */
 function niceDateTime(iso: string): string {
   if (!iso) return "—"
-  try {
-    const d = new Date(iso.replace(" ", "T"))
-    if (Number.isNaN(d.getTime())) return iso
-    return format(d, "d MMM HH:mm", { locale: es })
-  } catch {
-    return iso
-  }
+  return formatDateTime(iso)
 }
 
 
@@ -584,8 +579,8 @@ function TransactionDetail({
   }
 
   // Formato de fecha para la cabecera (compacto pero con día)
-  const dateObj = detail.date ? new Date(detail.date.replace(" ", "T")) : null
-  const formattedDate = dateObj && !Number.isNaN(dateObj.getTime())
+  const dateObj = detail.date ? parseNaive(detail.date) : null
+  const formattedDate = dateObj
     ? format(dateObj, "d MMM, HH:mm", { locale: es })
     : "—"
 
@@ -741,8 +736,8 @@ function TransactionDetail({
                 ) : (
                   <div className="divide-y divide-border/60">
                     {detail.paymentsReceived.map((r) => {
-                      const rDate = r.date ? new Date(r.date.replace(" ", "T")) : null
-                      const rDateStr = rDate && !Number.isNaN(rDate.getTime())
+                      const rDate = r.date ? parseNaive(r.date) : null
+                      const rDateStr = rDate
                         ? format(rDate, "d MMM, HH:mm", { locale: es })
                         : "—"
                       return (
@@ -824,8 +819,8 @@ function TransactionDetail({
             </DialogTitle>
           </DialogHeader>
           {receiptDetail && (() => {
-            const rDate = receiptDetail.date ? new Date(receiptDetail.date.replace(" ", "T")) : null
-            const rDateStr = rDate && !Number.isNaN(rDate.getTime())
+            const rDate = receiptDetail.date ? parseNaive(receiptDetail.date) : null
+            const rDateStr = rDate
               ? format(rDate, "EEEE d 'de' MMMM, yyyy · HH:mm", { locale: es })
               : "—"
             return (

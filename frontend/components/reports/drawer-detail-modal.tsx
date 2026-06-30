@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { type DrawerRow, useCloseDrawerPanel } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
 
 interface DrawerDetailModalProps {
@@ -251,14 +252,7 @@ function computeTheoretical(r: DrawerRow): number {
 
 function niceDateTime(iso: string): string {
   if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return formatDateTime(iso)
 }
 
 interface MovRowProps {

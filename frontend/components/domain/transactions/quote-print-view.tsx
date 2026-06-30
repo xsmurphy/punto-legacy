@@ -7,6 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
 import { formatAmount } from "@/lib/format-money"
+import { formatDateTime } from "@/lib/format-date"
 import { toast } from "sonner"
 import { printSale } from "@/lib/hardware/printers"
 import { getBindingsForSale } from "@/lib/hardware/printers/binding"
@@ -190,11 +191,7 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
             )}
             {tx.date && (
               <p style={{ color: "#6b7280", fontSize: 13, margin: "2px 0 0" }}>
-                {new Date(tx.date.replace(" ", "T")).toLocaleDateString("es", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
+                {formatDateTime(tx.date, "d 'de' MMMM yyyy")}
               </p>
             )}
           </div>

@@ -70,6 +70,7 @@ import type { TicketData } from "@/lib/hardware/printers"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
+import { formatDateTime } from "@/lib/format-date"
 import {
   useDrawerStatus,
   useDrawerSummary,
@@ -582,12 +583,7 @@ function ControlDeCajaPanel() {
 
   function niceDate(iso: string) {
     if (!iso) return ""
-    const d = new Date(iso.replace(" ", "T"))
-    if (Number.isNaN(d.getTime())) return iso
-    return new Intl.DateTimeFormat("es", {
-      weekday: "long", day: "numeric", month: "short",
-      year: "numeric", hour: "2-digit", minute: "2-digit",
-    }).format(d)
+    return formatDateTime(iso, "EEEE d MMM yyyy, HH:mm")
   }
 
   // ── Modals de monto — NumericPadDialog para open/close, CashMovementDialog para expense/income ──
