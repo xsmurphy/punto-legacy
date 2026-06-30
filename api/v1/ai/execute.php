@@ -40,6 +40,45 @@ if ($stored === null) {
 $payload = $stored['payload'] ?? [];
 $action  = (string) ($payload['action'] ?? '');
 
+/**
+ * Permiso ESPECÍFICO por acción (defense in depth — `ai.agent.use` solo habilita
+ * el agente; cada acción exige además el permiso real que el operador necesitaría
+ * para hacerla a mano en el panel). El agente NUNCA puede ejecutar algo que el
+ * usuario logueado no esté autorizado a hacer por sí mismo.
+ *
+ * Keys del catálogo canónico (PermissionCatalog):
+ *   - contactos:   contacts.customer.create / .edit, contacts.user.manage
+ *   - inventario:  inventory.item.create / .edit
+ * No existe permiso propio para taxonomías (category/brand/tag): se gatean con
+ * inventory.item.edit (gestión de catálogo), el más restrictivo razonable.
+ * tabular_import (operación masiva) exige el permiso de CREAR de la entidad
+ * importada — gate fuerte, resuelto abajo por $payload['kind'].
+ */
+$actionPermission = [
+    'create_contact'    => 'contacts.customer.create',
+    'update_contact'    => 'contacts.customer.edit',
+    'create_item'       => 'inventory.item.create',
+    'update_item_price' => 'inventory.item.edit',
+    'create_user'       => 'contacts.user.manage',
+    'create_category'   => 'inventory.item.edit',
+    'create_brand'      => 'inventory.item.edit',
+    'create_tag'        => 'inventory.item.edit',
+];
+
+if ($action === 'tabular_import') {
+    // Import masivo: el permiso depende de la entidad. Gate fuerte (crear).
+    $importKind   = (string) ($payload['kind'] ?? '');
+    $requiredPerm = $importKind === 'contacts'
+        ? 'contacts.customer.create'
+        : 'inventory.item.create';
+} else {
+    $requiredPerm = $actionPermission[$action] ?? null;
+}
+
+if ($requiredPerm !== null && !hasPermission($requiredPerm)) {
+    apiError('No tenés permiso para esta acción (requiere: ' . $requiredPerm . ')', 403);
+}
+
 global $db;
 
 try {
