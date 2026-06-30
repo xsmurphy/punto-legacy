@@ -207,6 +207,37 @@ class DB
     // ─── Consultas ─────────────────────────────────────────────────────────
 
     /**
+     * Compat ADOdb: primera fila de un SELECT (CaseInsensitiveArray) o false.
+     * La capa NO implementaba este método → callers `$db->GetRow(...)` reventaban
+     * con "Call to undefined method" → 500 silente (display_errors=0). Causó el
+     * incidente de pagos a crédito y devoluciones (2026-06-30). Agregarlo acá
+     * (wrapper) en vez de parchear cada call-site.
+     */
+    public function GetRow(string|array $sql, array|false $params = []): CaseInsensitiveArray|false
+    {
+        $rs = $this->Execute($sql, $params);
+        if ($rs === false || $rs->EOF) {
+            return false;
+        }
+        return $rs->fields;
+    }
+
+    /**
+     * Compat ADOdb: primer valor (primera columna de la primera fila) o false.
+     */
+    public function GetOne(string|array $sql, array|false $params = []): mixed
+    {
+        $rs = $this->Execute($sql, $params);
+        if ($rs === false || $rs->EOF) {
+            return false;
+        }
+        foreach ($rs->fields as $v) {
+            return $v;
+        }
+        return false;
+    }
+
+    /**
      * Ejecuta SQL con parámetros posicionales (?).
      * Retorna DBResult en éxito, false en error.
      * Equivale a ADOdb->Execute($sql, $params).
