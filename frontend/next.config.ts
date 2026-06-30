@@ -1,5 +1,6 @@
 import type { NextConfig } from "next"
 import withSerwistInit from "@serwist/next"
+import { withSentryConfig } from "@sentry/nextjs"
 
 const withSerwist = withSerwistInit({
   swSrc: "app/sw.ts",
@@ -24,4 +25,19 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default withSerwist(nextConfig)
+// withSentryConfig: solo sube sourcemaps si hay SENTRY_AUTH_TOKEN (CI con auth).
+// Sin token, silent + sin upload → el build NO se rompe si no hay credenciales/DSN.
+// La instrumentación de runtime (instrumentation*.ts) ya está gateada por DSN aparte.
+const hasSentryAuth = Boolean(process.env.SENTRY_AUTH_TOKEN)
+
+export default withSentryConfig(withSerwist(nextConfig), {
+  silent: !process.env.CI,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  sourcemaps: {
+    disable: !hasSentryAuth,
+  },
+  // Sin auth token no se suben sourcemaps; el build queda igual de liviano.
+  disableLogger: true,
+})

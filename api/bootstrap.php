@@ -19,8 +19,15 @@
 // handlers logean a stderr (→ docker logs) y devuelven un JSON 500 limpio en
 // vez de una respuesta vacía/HTML. error_log va a stderr por la config del
 // Dockerfile (log_errors=On, error_log=/proc/self/fd/2).
+// Sentry (observabilidad/alertas) se inicializa más abajo, después del autoload,
+// y SOLO si SENTRY_DSN está seteado. Estos handlers lo invocan vía function_exists:
+// si Sentry no se inicializó (sin DSN), captureException/captureMessage no existen
+// y el reporte es no-op — el error_log + JSON 500 siguen funcionando igual.
 set_exception_handler(static function (\Throwable $e): void {
     error_log('[uncaught] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    if (function_exists('\\Sentry\\captureException')) {
+        \Sentry\captureException($e);
+    }
     if (!headers_sent()) {
         http_response_code(500);
         header('Content-Type: application/json');
@@ -33,6 +40,12 @@ register_shutdown_function(static function (): void {
         return;
     }
     error_log('[fatal] ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line']);
+    if (function_exists('\\Sentry\\captureMessage')) {
+        \Sentry\captureMessage(
+            '[fatal] ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line'],
+            \Sentry\Severity::fatal()
+        );
+    }
     if (!headers_sent()) {
         http_response_code(500);
         header('Content-Type: application/json');
@@ -47,6 +60,20 @@ session_start();
 define('API_APP_DIR', __DIR__);
 
 require_once __DIR__ . '/vendor/autoload.php';
+
+// ── Sentry ───────────────────────────────────────────────────────────────────
+// Init temprano, SOLO si hay DSN. Sin DSN no se inicializa: \Sentry\init no se
+// llama y los handlers de arriba (que chequean function_exists) quedan no-op.
+// traces_sample_rate=0.0 → solo errores, sin performance (no gastar cuota).
+$__sentryDsn = getenv('SENTRY_DSN') ?: ($_ENV['SENTRY_DSN'] ?? '');
+if ($__sentryDsn !== '') {
+    \Sentry\init([
+        'dsn'                => $__sentryDsn,
+        'environment'        => $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'production',
+        'traces_sample_rate' => 0.0,
+    ]);
+}
+
 require_once __DIR__ . '/includes/cors.php';
 require_once __DIR__ . '/includes/jwt_middleware.php';
 require_once __DIR__ . '/includes/realtime.php';
