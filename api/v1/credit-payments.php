@@ -7,7 +7,7 @@
  * Auth: realm panel + pos-app. userId del JWT, nunca del body.
  * registerId y paymentMethodName se resuelven server-side (desde el parent y el catálogo).
  */
-require_once __DIR__ . '/../../bootstrap.php';
+require_once __DIR__ . '/../bootstrap.php';
 
 require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
 $ctx       = apiAuthPosContext();
