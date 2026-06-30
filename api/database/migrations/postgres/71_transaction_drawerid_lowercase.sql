@@ -1,9 +1,9 @@
 BEGIN;
 
 -- Fix de mig 70: la columna se creó ENTRE COMILLAS ("drawerId") → nombre físico
--- case-sensitive `drawerId`. Pero ADOdb AutoExecute referencia la columna sin
--- comillas (key 'drawerId' del records array) y Postgres pliega los identificadores
--- sin comillas a minúscula → el INSERT busca `drawerid` → "column does not exist".
+-- case-sensitive `drawerId`. Pero el wrapper DB (api/includes/lib/DB.php) arma el
+-- INSERT con las keys del array sin comillas (key 'drawerId') y Postgres pliega los
+-- identificadores sin comillas a minúscula → busca `drawerid` → "column does not exist".
 -- Rompía POST /v1/sales y /v1/credit-payments. El resto del schema usa nombres
 -- físicos en minúscula (transactionDate/registerId andan porque su columna real es
 -- lowercase). Renombramos para alinear. Idempotente: solo renombra si la columna
