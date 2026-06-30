@@ -163,49 +163,45 @@ export default function DashboardPage() {
               error={incomeChart.error}
               bootstrap={bootstrap}
             />
-            <div className="flex flex-col gap-3">
-              <Card>
-                <CardContent className="flex flex-col items-center gap-1 py-6">
-                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Ganancia
+            <div className="flex flex-col self-start">
+              <div className="flex flex-col items-center gap-1 py-6">
+                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Ganancia
+                </span>
+                {stats.isLoading ? (
+                  <Skeleton className="h-8 w-32" />
+                ) : (
+                  <span className="text-2xl font-bold tabular-nums text-[var(--chart-1)]">
+                    {formatMoney(stats.data?.revenue, bootstrap)}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 divide-x divide-border border-t py-4">
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Margen
                   </span>
                   {stats.isLoading ? (
-                    <Skeleton className="h-8 w-32" />
+                    <Skeleton className="h-6 w-12" />
                   ) : (
-                    <span className="text-2xl font-bold tabular-nums text-[var(--chart-1)]">
-                      {formatMoney(stats.data?.revenue, bootstrap)}
+                    <span className="text-xl font-bold tabular-nums">
+                      {stats.data?.margin ?? 0}%
                     </span>
                   )}
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="grid grid-cols-2 divide-x divide-border py-4">
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Margen
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Cant. Ventas
+                  </span>
+                  {stats.isLoading ? (
+                    <Skeleton className="h-6 w-12" />
+                  ) : (
+                    <span className="text-xl font-bold tabular-nums">
+                      {formatInt(stats.data?.count, bootstrap)}
                     </span>
-                    {stats.isLoading ? (
-                      <Skeleton className="h-6 w-12" />
-                    ) : (
-                      <span className="text-xl font-bold tabular-nums">
-                        {stats.data?.margin ?? 0}%
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Cant. Ventas
-                    </span>
-                    {stats.isLoading ? (
-                      <Skeleton className="h-6 w-12" />
-                    ) : (
-                      <span className="text-xl font-bold tabular-nums">
-                        {formatInt(stats.data?.count, bootstrap)}
-                      </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                  )}
+                </div>
+              </div>
             </div>
           </section>
 
@@ -395,48 +391,38 @@ function IncomeOutcomeChart({
 }) {
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">
-            Margen, Ingresos y Egresos
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-[240px] w-full" />
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-2">
+        <h3 className="text-base font-semibold tracking-tight">
+          Margen, Ingresos y Egresos
+        </h3>
+        <Skeleton className="h-[240px] w-full" />
+      </div>
     )
   }
 
   if (error || !data) {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">
-            Margen, Ingresos y Egresos
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex h-[240px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
-            {error?.message || "No se pudieron cargar los datos del chart."}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-2">
+        <h3 className="text-base font-semibold tracking-tight">
+          Margen, Ingresos y Egresos
+        </h3>
+        <div className="flex h-[240px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+          {error?.message || "No se pudieron cargar los datos del chart."}
+        </div>
+      </div>
     )
   }
 
   const hasData = data.data.some((p) => p.ingresos > 0 || p.egresos > 0)
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center justify-between text-sm font-medium">
-          <span>Margen, Ingresos y Egresos</span>
-          <span className="text-xs font-normal text-muted-foreground">
-            Promedio: {formatMoney(data.totals.average, bootstrap)}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between text-sm font-medium">
+        <span>Margen, Ingresos y Egresos</span>
+        <span className="text-xs font-normal text-muted-foreground">
+          Promedio: {formatMoney(data.totals.average, bootstrap)}
+        </span>
+      </div>
+      <div>
         {!hasData ? (
           <div className="flex h-[240px] items-center justify-center">
             <EmptyState
@@ -506,8 +492,8 @@ function IncomeOutcomeChart({
             </ComposedChart>
           </ChartContainer>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -922,7 +908,7 @@ function InfoGeneralCard({
     },
   ]
   return (
-    <Card>
+    <Card className="bg-[#f3f4f6] dark:bg-muted">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">Información general</CardTitle>
       </CardHeader>
@@ -988,7 +974,7 @@ function PlanSidebarCard({
     },
   ]
   return (
-    <Card>
+    <Card className="bg-[#f3f4f6] dark:bg-muted">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center justify-between text-sm font-medium">
           <span>Plan {info?.plan || ""}</span>
