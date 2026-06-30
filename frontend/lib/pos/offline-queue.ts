@@ -85,7 +85,14 @@ export async function markSynced(clientTempId: string): Promise<void> {
   await db.delete('pendingSales', clientTempId)
 }
 
-/** Marca una venta como fallida con el error. */
+/**
+ * Marca una venta como fallida TERMINAL: NO se reintenta automáticamente.
+ * Para errores de negocio no recuperables (ej. LEASE_EXPIRED — el número de
+ * comprobante venció/ya se usó) o cuando se agotaron los reintentos transitorios.
+ * Queda en la cola para que el operador la revise/descarte manualmente; el loop
+ * de sync la ignora (solo reintenta 'pending'). Evita el bucle de reintento
+ * infinito que generaba cientos de POSTs por cliente (auto-DDoS).
+ */
 export async function markFailed(
   clientTempId: string,
   error: OfflineError,
@@ -96,6 +103,27 @@ export async function markFailed(
   await db.put('pendingSales', {
     ...row,
     status: 'failed',
+    error,
+    attempts: row.attempts + 1,
+    lastAttemptAt: new Date().toISOString(),
+  })
+}
+
+/**
+ * Reintento TRANSITORIO: vuelve la venta a 'pending' (reintentable) e incrementa
+ * attempts + lastAttemptAt. Para errores recuperables (red, sync interrumpido).
+ * El loop aplica backoff exponencial sobre lastAttemptAt/attempts.
+ */
+export async function markRetry(
+  clientTempId: string,
+  error: OfflineError,
+): Promise<void> {
+  const db = await getDB()
+  const row = await db.get('pendingSales', clientTempId)
+  if (!row) return
+  await db.put('pendingSales', {
+    ...row,
+    status: 'pending',
     error,
     attempts: row.attempts + 1,
     lastAttemptAt: new Date().toISOString(),
