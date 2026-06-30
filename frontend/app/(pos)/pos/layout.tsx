@@ -84,15 +84,21 @@ export default function PosWorkspaceLayout({
   }
 
   return (
-    <div className="relative flex h-full w-full overflow-hidden">
+    <div className="relative flex h-full w-full flex-col overflow-hidden">
+      {/* Banner full-width ARRIBA. Antes era hijo directo del flex-row de
+          paneles → se renderizaba como una franja vertical (toda la altura)
+          entre el contenido y el carrito, parpadeando en cada ciclo de sync.
+          Ahora el tope es flex-col: banner arriba, paneles en una fila debajo. */}
       <OfflineBanner />
       <BeforeUnloadGuard />
       <OfflineSyncRunner />
-      <div className="hidden flex-[7] overflow-hidden md:block">
-        {children}
-      </div>
-      <div className="flex-1 overflow-hidden md:flex-[3]">
-        <CartPanel />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="hidden flex-[7] overflow-hidden md:block">
+          {children}
+        </div>
+        <div className="flex-1 overflow-hidden md:flex-[3]">
+          <CartPanel />
+        </div>
       </div>
       <LockScreen />
     </div>
