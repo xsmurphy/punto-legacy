@@ -1014,11 +1014,11 @@ function lessInternalTotals($roc,$from,$to,$tTypes = false){
 	return ['total' => (float) $total, 'discount' => (float) $discount, 'tax' => (float) $tax, 'qty' => (float) $qty, 'count' => (float) $count];
 }
 
-function getSalesByPayment($from,$to,$regId){
+function getSalesByPayment($from,$to,$regId,$drawerId=null){
 	global $db,$SQLcompanyId;
 	$regId 	= iftn($regId,REGISTER_ID);
 	//return false;
-	//selecciono todas las transacciones filtradas por la fecha de apertura de caja y cierrre si es que tiene, es decir: fecha transacción && fecha apertura caja
+	//selecciono todas las transacciones de la SESIÓN de caja (drawerId) actual.
 	//hago un loop para agrupar todos los metodos de pago
 	if(validity($from) && validity($regId)){
 		if(($to == '0000-00-00 00:00:00') || !$to){
@@ -1028,19 +1028,40 @@ function getSalesByPayment($from,$to,$regId){
 		// Fechas parametrizadas (no $db->Prepare, que quotea y además el código las
 		// re-quoteaba → '<doble-quote>' roto en PG). El orden de los params sigue al
 		// de los placeholders en el WHERE.
-		if($to){
-			$date 	= "transactionDate BETWEEN ? AND ?";
-			$params = [$from, $to, $regId];
+		//
+		// Filtro de sesión de caja (mig 70): drawerId primario + fallback por fecha
+		// para filas NULL (ventas viejas o sin caja abierta). Belt-and-suspenders —
+		// JAMÁS perder una transacción. El OR es EXCLUYENTE: una fila con drawerId
+		// matchea solo la rama "drawerId = ?"; una fila NULL solo la rama de fecha.
+		// Sin doble-conteo. Si no se pasa $drawerId (backward-compat) → solo fecha.
+		// companyId SIEMPRE en el WHERE (aislamiento multi-tenant) — bind al final.
+		if($drawerId !== null && $drawerId !== ''){
+			if($to){
+				$date 	= '("drawerId" = ? OR ("drawerId" IS NULL AND transactionDate BETWEEN ? AND ?))';
+				$params = [$drawerId, $from, $to, $regId, COMPANY_ID];
+			}else{
+				$date 	= '("drawerId" = ? OR ("drawerId" IS NULL AND transactionDate > ?))';
+				$params = [$drawerId, $from, $regId, COMPANY_ID];
+			}
 		}else{
-			$date 	= "transactionDate > ?";
-			$params = [$from, $regId];
+			if($to){
+				$date 	= "transactionDate BETWEEN ? AND ?";
+				$params = [$from, $to, $regId, COMPANY_ID];
+			}else{
+				$date 	= "transactionDate > ?";
+				$params = [$from, $regId, COMPANY_ID];
+			}
 		}
 
-		$result 	= ncmExecute("SELECT transactionId, abs(transactionTotal) as transactionTotal, abs(transactionDiscount) as transactionDiscount,transactionPaymentType, transactionType, transactionParentId, tags
+		// `tags` no es columna de `transaction` (los tags viven en `meta` jsonb).
+		// Pedir `tags` crudo aborta el resumen con 42703 → `meta->>'tags' AS tags`
+		// (mismo patrón que la query de rollup en functions.php:~990).
+		$result 	= ncmExecute("SELECT transactionId, abs(transactionTotal) as transactionTotal, abs(transactionDiscount) as transactionDiscount,transactionPaymentType, transactionType, transactionParentId, meta->>'tags' AS tags
 									FROM transaction
 									WHERE  " . $date . "
 									AND transactionType IN (0,5,6)
-									AND registerId = ?"
+									AND registerId = ?
+									AND companyId = ?"
 									,$params,false,true);
 		if($result){
 			$group = [];

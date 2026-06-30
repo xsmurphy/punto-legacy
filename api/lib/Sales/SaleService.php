@@ -556,6 +556,14 @@ final class SaleService
             'responsibleId'          => $responsibleId,             // null si user del request == JWT
             'outletId'               => $this->ctx->outletId,
             'companyId'              => $this->ctx->companyId,
+
+            // Sesión de caja: drawerId de la caja ABIERTA del register actual.
+            // null si no hay caja abierta (controlCaja off) → la venta NO falla;
+            // el resumen la recupera por el fallback de fecha (mig 70).
+            'drawerId'               => \Punto\Api\Services\DrawerService::resolveOpenDrawerId(
+                (string) $this->ctx->registerId,
+                (string) $this->ctx->companyId,
+            ),
         ];
     }
 

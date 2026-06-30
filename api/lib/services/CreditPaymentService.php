@@ -94,6 +94,12 @@ final class CreditPaymentService
         // registerId siempre del parent (no del operador actual).
         $parentRegisterId = (string)($parent['registerId'] ?? '');
 
+        // Sesión de caja: drawerId de la caja ABIERTA del register del parent.
+        // null si no hay caja abierta → el pago se registra igual (recuperable
+        // por el fallback de fecha del resumen, mig 70). Helper compartido con
+        // SaleService — el wrapper (ncmExecute) es obligatorio, sin DB directa.
+        $openDrawerId = DrawerService::resolveOpenDrawerId($parentRegisterId, $companyId);
+
         $tPay = [
             'transactionDate'        => TODAY,
             'transactionTotal'       => $amount,
@@ -115,6 +121,7 @@ final class CreditPaymentService
             'responsibleId'          => $parent['responsibleId'],
             'outletId'               => $parent['outletId'],
             'companyId'              => $companyId,
+            'drawerId'               => $openDrawerId,
         ];
         if ($note !== null && $note !== '') {
             $tPay['transactionNote'] = $note;

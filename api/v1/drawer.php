@@ -50,10 +50,17 @@ if ($method === 'GET' && in_array($resource, ['expenses', 'income', 'salesByPaym
     if ($since === '') {
         apiError('Falta since', 422);
     }
+    // Para salesByPayment resolvemos el drawerId de la caja abierta (mig 70):
+    // filtra exacto por sesión + fallback por fecha para filas NULL. Sin caja
+    // abierta → drawerId null → solo fallback por `since` (backward-compat).
+    $openForBreakdown = ($resource === 'salesByPayment')
+        ? $svc->getOpen($registerId, $outletId, $companyId)
+        : null;
+    $drawerIdForBreakdown = $openForBreakdown['drawerId'] ?? null;
     $data = match ($resource) {
         'expenses'       => $svc->getExpenses($registerId, $since),
         'income'         => $svc->getIncome($registerId, $since),
-        'salesByPayment' => ['payments' => $svc->getPaymentBreakdown($registerId, $since)],
+        'salesByPayment' => ['payments' => $svc->getPaymentBreakdown($registerId, $since, $drawerIdForBreakdown)],
     };
     apiOk($data);
 }

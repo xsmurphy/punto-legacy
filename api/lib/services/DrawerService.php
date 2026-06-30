@@ -58,7 +58,8 @@ final class DrawerService
         // plano lowercase). Sin esto $drwr['drawerOpenDate'] devolvía null y
         // getSummary pasaba null a getExpenses(string $since) → TypeError.
         $drwr = ncmExecute(
-            'SELECT drawerOpenDate   AS "drawerOpenDate",
+            'SELECT drawerId         AS "drawerId",
+                    drawerOpenDate   AS "drawerOpenDate",
                     drawerOpenAmount AS "drawerOpenAmount"
              FROM drawer
              WHERE registerId = ? AND outletId = ? AND companyId = ?
@@ -70,6 +71,7 @@ final class DrawerService
             return null;
         }
         return [
+            'drawerId'         => $drwr['drawerId'] ?? null,
             'drawerOpenDate'   => $drwr['drawerOpenDate'],
             'drawerOpenAmount' => $drwr['drawerOpenAmount'] ? (float) $drwr['drawerOpenAmount'] : 0.0,
         ];
@@ -110,10 +112,14 @@ final class DrawerService
         return ['total' => $totalIncome, 'tips' => $totalTips];
     }
 
-    /** Ventas agrupadas por método de pago del registro desde `$since`. */
-    public function getPaymentBreakdown(string $registerId, string $since): array
+    /**
+     * Ventas agrupadas por método de pago del registro de la sesión de caja.
+     * Filtra por `$drawerId` (exacto) + fallback por `$since` para filas NULL
+     * (mig 70). `$drawerId` null → solo fallback por fecha (backward-compat).
+     */
+    public function getPaymentBreakdown(string $registerId, string $since, ?string $drawerId = null): array
     {
-        $detail = getSalesByPayment($since, false, $registerId);
+        $detail = getSalesByPayment($since, false, $registerId, $drawerId);
         $out    = [];
         if (validity($detail, 'array')) {
             foreach ($detail as $arr) {
@@ -285,6 +291,37 @@ final class DrawerService
     // ========================================================================
 
     /**
+     * drawerId de la caja ABIERTA de un register (scopeado por company), o null.
+     * Helper compartido para sellar `transaction.drawerId` en el momento de la
+     * venta/pago (mig 70). Best-effort: cualquier fallo devuelve null → la venta
+     * se registra sin drawerId (recuperable por el fallback de fecha del resumen).
+     *
+     * Por register+company (sin outlet): el register ya determina el outlet, y
+     * el money-path no siempre lo tiene a mano (el credit payment toma el
+     * register del parent).
+     */
+    public static function resolveOpenDrawerId(string $registerId, string $companyId): ?string
+    {
+        try {
+            $row = ncmExecute(
+                'SELECT drawerId AS "drawerId" FROM drawer
+                 WHERE registerId = ? AND companyId = ?
+                 AND (drawerCloseDate IS NULL OR drawerCloseDate < \'2000-01-01 00:00:00\')
+                 ORDER BY drawerOpenDate DESC LIMIT 1',
+                [$registerId, $companyId]
+            );
+            if (!$row) {
+                return null;
+            }
+            $id = $row['drawerId'] ?? null;
+            return ($id !== null && $id !== '') ? (string) $id : null;
+        } catch (\Throwable $e) {
+            error_log('[DrawerService] resolveOpenDrawerId: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Devuelve la fila del drawer abierto (drawerId + drawerOpenDate) o null.
      * Centraliza la query de "hay caja abierta" usada por open() y close().
      */
@@ -317,9 +354,10 @@ final class DrawerService
             return null;
         }
         $since    = $open['drawerOpenDate'];
+        $drawerId = $open['drawerId'] ?? null;
         $expenses = $this->getExpenses($registerId, $since);
         $income   = $this->getIncome($registerId, $since);
-        $payments = $this->getPaymentBreakdown($registerId, $since);
+        $payments = $this->getPaymentBreakdown($registerId, $since, $drawerId);
 
         return self::composeSummary($open, $expenses, $income, $payments);
     }
