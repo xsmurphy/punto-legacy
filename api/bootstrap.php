@@ -89,10 +89,24 @@ spl_autoload_register(static function (string $class): void {
     if (!str_starts_with($class, $prefix)) {
         return;
     }
-    $relative = substr($class, strlen($prefix));
-    $path = __DIR__ . '/lib/' . str_replace('\\', '/', $relative) . '.php';
+    $relative = str_replace('\\', '/', substr($class, strlen($prefix)));
+    $path = __DIR__ . '/lib/' . $relative . '.php';
     if (is_file($path)) {
         require_once $path;
+        return;
+    }
+    // Fallback de case: el dir físico de algunos módulos es lowercase (ej.
+    // `lib/services/` con namespace `Punto\Api\Services`). En macOS (FS
+    // case-insensitive) el path de arriba matchea igual, pero en Linux prod
+    // (case-sensitive) falla → "Class not found". Reintentamos con el primer
+    // segmento del path en minúscula para resolver ese mismatch sin renombrar
+    // el directorio (que rompería los require_once existentes en lowercase).
+    $lower = preg_replace_callback('#^[^/]+#', static fn ($m) => strtolower($m[0]), $relative);
+    if ($lower !== $relative) {
+        $pathLower = __DIR__ . '/lib/' . $lower . '.php';
+        if (is_file($pathLower)) {
+            require_once $pathLower;
+        }
     }
 });
 
