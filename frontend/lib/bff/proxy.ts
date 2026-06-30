@@ -104,6 +104,11 @@ export async function bffProxy(req: NextRequest, opts: BffProxyOptions): Promise
   const setCookies = (upstream.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? []
   for (const sc of setCookies) respHeaders.append("set-cookie", sc)
 
+  // Defense-in-depth: las respuestas del BFF son per-tenant/per-outlet (el scope
+  // viaja en `X-Outlet-Id`, no en la URL). Sin no-store un cache HTTP podría
+  // servir datos de otra sucursal para la misma URL al cambiar de scope.
+  respHeaders.set("Cache-Control", "no-store")
+
   return new NextResponse(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,

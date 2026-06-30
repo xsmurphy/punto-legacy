@@ -91,6 +91,11 @@ async function request<T>(
 
   const res = await fetch(`${baseUrl()}${path}`, {
     ...rest,
+    // El view-scope de sucursal viaja en el header `X-Outlet-Id`, NO en la URL.
+    // Sin no-store el browser puede servir del HTTP cache una respuesta de la
+    // sucursal anterior (misma URL) al cambiar de scope → los reportes "no se
+    // actualizan". Forzamos red siempre: estos reads son per-outlet/per-tenant.
+    cache: "no-store",
     credentials: "include",
     headers: {
       ...baseHeaders,
