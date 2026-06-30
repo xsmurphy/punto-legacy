@@ -163,6 +163,12 @@ export async function POST(req: Request) {
     system,
     messages: modelMessages,
     stopWhen: stepCountIs(10),
+    // Tope de seguridad: acota el gasto de créditos si el modelo se degenera
+    // en un loop de repetición (síntoma conocido de deepseek-chat con tools).
+    // Una respuesta del asistente POS no necesita más que esto.
+    maxOutputTokens: 1500,
+    // Baja la temperatura para reducir la repetición degenerada.
+    temperature: 0.3,
     onFinish: async ({ usage }) => {
       const tokensIn  = Number(usage.inputTokens  ?? 0)
       const tokensOut = Number(usage.outputTokens ?? 0)
