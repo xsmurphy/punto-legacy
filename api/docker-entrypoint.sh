@@ -79,5 +79,13 @@ else
     echo "[entrypoint] database/migrate.php no encontrado — skip"
 fi
 
+# Seed idempotente del super-admin de /admin (realm admin). Best-effort: lee
+# ADMIN_EMAIL/ADMIN_PASSWORD de env, crea el admin si no existe, no-op si faltan.
+# No aborta el boot si falla (a diferencia de migrate, que es fail-fast).
+if [ -f /var/www/database/seed_admin.php ]; then
+    echo "[entrypoint] seed admin_user (si ADMIN_EMAIL/ADMIN_PASSWORD están seteados)..."
+    php /var/www/database/seed_admin.php || echo "[entrypoint] seed_admin falló (ignorado)" >&2
+fi
+
 # Ejecutar el CMD original (tini + php -S)
 exec "$@"
