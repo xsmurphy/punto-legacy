@@ -179,13 +179,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   // aparece la sucursal en la que se está trabajando, sin importar si hay 1 o N
   // sucursales). El selector dentro del dropdown sigue gateado a outlets.length>1
   // (no tiene sentido mostrar un picker con una sola opción).
-  // Si viewScope='all', el subtitle refleja el modo consolidado en lugar de
-  // la sucursal del JWT (la sucursal del JWT solo afecta escrituras / POS).
   const outlets = bootstrap?.outlets ?? []
-  const subtitle =
-    viewScope === "all"
-      ? "Todas las sucursales"
-      : (bootstrap?.activeOutletName ?? "")
 
   // Sucursal SELECCIONADA (view-scope) que ve el operador en el dropdown del
   // logo. El agente IA debe respetarla igual que el resto del panel (header
@@ -199,10 +193,12 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         ? (outlets.find((o) => o.id === viewScope)?.name ?? bootstrap?.activeOutletName ?? "")
         : (bootstrap?.activeOutletName ?? "")
 
+  // El footer muestra la sucursal SELECCIONADA (view-scope), consistente con el
+  // dropdown del logo — antes mostraba la del JWT (activeOutlet) y desalineaba.
   const user = bootstrap
     ? {
         name: bootstrap.companyName || "Punto",
-        subtitle,
+        subtitle: viewOutletName,
       }
     : {
         name: isLoading ? "Cargando…" : "Punto User",
