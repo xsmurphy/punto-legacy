@@ -967,7 +967,7 @@ function isParentInternalSale($parentId){
 	}
 
 	$ignore = false;
-	$field 	= ncmExecute('SELECT tags FROM transaction WHERE transactionId = ? AND transactionType IN(0,3) AND companyId = ? LIMIT 1',[$parentId,COMPANY_ID]);
+	$field 	= ncmExecute("SELECT meta->>'tags' AS tags FROM transaction WHERE transactionId = ? AND transactionType IN(0,3) AND companyId = ? LIMIT 1",[$parentId,COMPANY_ID]);
 
 	if($field){
 		$tags 	= json_decode($field['tags'],true);

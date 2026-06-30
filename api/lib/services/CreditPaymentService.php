@@ -60,7 +60,10 @@ final class CreditPaymentService
         $db->StartTrans();
 
         // Dentro de la TX: bloquear la fila padre para serializar concurrencia.
-        $parent = $db->GetRow(
+        // ncmExecute (wrapper obligatorio): la clase DB propia NO tiene GetRow
+        // — `$db->GetRow(...)` reventaba con "Call to undefined method" → 500
+        // silente (display_errors=0) en TODO pago a crédito.
+        $parent = ncmExecute(
             'SELECT * FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1 FOR UPDATE',
             [$parentTransactionId, $companyId]
         );
@@ -78,7 +81,7 @@ final class CreditPaymentService
 
         // Computar deuda dentro de la TX (después del lock).
         $total   = (float)($parent['transactionTotal'] ?? 0) - (float)($parent['transactionDiscount'] ?? 0);
-        $paidRow = $db->GetRow(
+        $paidRow = ncmExecute(
             "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?",
             [$parentTransactionId, $companyId]
         );
