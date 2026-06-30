@@ -62,11 +62,8 @@ import {
   type IncomeChartData,
   type IncomeOutcomeStatsWidget,
   type InfoWidget,
-  type OrdersWidget,
   type PaymentStatusWidget,
   type SatisfactionWidget,
-  type ScheduleWidget,
-  type TablesWidget,
   type TopHoursWidget,
   type TopItemRow,
   type TopTaxonomyRow,
@@ -94,9 +91,6 @@ export default function DashboardPage() {
   const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", opts)
   const topHours = useDashboardWidget<TopHoursWidget>("topHours", opts)
   const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
-  const orders = useDashboardWidget<OrdersWidget>("orders", opts)
-  const tables = useDashboardWidget<TablesWidget>("tables", opts)
-  const schedule = useDashboardWidget<ScheduleWidget>("schedule", opts)
 
   // "Negocio sin actividad" = cero transacciones (el dashboard es de ventas).
   // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
@@ -264,13 +258,6 @@ export default function DashboardPage() {
             data={satisfaction.data}
             isLoading={satisfaction.isLoading}
           />
-          <OrdersCard
-            orders={orders.data}
-            isLoading={orders.isLoading}
-            bootstrap={bootstrap}
-          />
-          <TablesCard data={tables.data} isLoading={tables.isLoading} />
-          <ScheduleCard data={schedule.data} isLoading={schedule.isLoading} />
           <InfoGeneralCard
             stats={stats.data}
             info={info.data}
@@ -542,7 +529,7 @@ function compactNumber(v: number): string {
   return String(Math.round(v))
 }
 
-// ── Órdenes / Espacios / Agendamientos ─────────────────────────────────────
+// ── Satisfacción (NPS) — sin caritas, solo dots + número ──────────────────
 
 /**
  * Helper: el endpoint devuelve `[]` (PHP array vacío) cuando el módulo está
@@ -554,133 +541,6 @@ function isModuleOff<T>(data: T | undefined): boolean {
   if (Array.isArray(data)) return true
   return false
 }
-
-function OrdersCard({
-  orders,
-  isLoading,
-  bootstrap,
-}: {
-  orders: OrdersWidget | undefined
-  isLoading: boolean
-  bootstrap: ReturnType<typeof useBootstrap>["data"]
-}) {
-  if (!isLoading && isModuleOff(orders)) return <ModuleOffCard title="Órdenes" />
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">Órdenes en curso</CardTitle>
-      </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-4">
-        <Stat
-          label="Total"
-          value={isLoading ? null : formatInt(orders?.ordersCount, bootstrap)}
-        />
-        <Stat
-          label="Online"
-          value={isLoading ? null : formatInt(orders?.onlineCount, bootstrap)}
-        />
-      </CardContent>
-    </Card>
-  )
-}
-
-function TablesCard({
-  data,
-  isLoading,
-}: {
-  data: TablesWidget | undefined
-  isLoading: boolean
-}) {
-  if (!isLoading && isModuleOff(data)) return <ModuleOffCard title="Espacios" />
-  const occ = Math.max(0, Math.min(100, data?.occupacy ?? 0))
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">Espacios</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-4">
-          <Stat
-            label="Ocupados"
-            value={isLoading ? null : String(data?.tablesCount ?? 0)}
-          />
-          <Stat
-            label="Disponibles"
-            value={isLoading ? null : String(data?.freeTables ?? 0)}
-          />
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-2 w-full rounded-full" />
-        ) : (
-          <div className="flex flex-col gap-1">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-[var(--chart-1)] transition-all"
-                style={{ width: `${occ}%` }}
-              />
-            </div>
-            <div className="text-[10px] text-muted-foreground tabular-nums">
-              {occ}% de ocupación
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function ScheduleCard({
-  data,
-  isLoading,
-}: {
-  data: ScheduleWidget | undefined
-  isLoading: boolean
-}) {
-  if (!isLoading && isModuleOff(data)) return <ModuleOffCard title="Agendamientos" />
-  const occ = Math.max(0, Math.min(100, data?.occupancy ?? 0))
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">Agendamientos</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <Stat
-          label="Reservas"
-          value={isLoading ? null : String(data?.scheduledCount ?? 0)}
-        />
-        {isLoading ? (
-          <Skeleton className="h-2 w-full rounded-full" />
-        ) : (
-          <div className="flex flex-col gap-1">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-[var(--chart-1)] transition-all"
-                style={{ width: `${occ}%` }}
-              />
-            </div>
-            <div className="text-[10px] text-muted-foreground tabular-nums">
-              {occ}% de ocupación
-            </div>
-          </div>
-        )}
-        {!isLoading && data && (
-          <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground tabular-nums">
-            <div className="flex items-center justify-between">
-              <span>Horas trabajadas</span>
-              <span>{data.workingHours}h</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Horas libres</span>
-              <span>{data.freeHours}h</span>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ── Satisfacción (NPS) — sin caritas, solo dots + número ──────────────────
 
 function SatisfactionCard({
   data,
