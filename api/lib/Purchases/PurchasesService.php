@@ -295,7 +295,11 @@ final class PurchasesService
                 'supplierId'            => $supplierId,
                 'outletId'              => $outletId,
                 'companyId'             => $companyId,
-                'meta'                  => $meta,
+                // json_encode explícito: meta es columna jsonb real; ncmInsert/
+                // AutoExecute NO serializa un array PHP crudo en una columna real
+                // (solo rutea campos desconocidos al jsonb), así que sin esto meta
+                // se guardaba NULL y las líneas (meta.details) se perdían.
+                'meta'                  => json_encode($meta),
             ],
             'table' => 'transaction',
         ]);
