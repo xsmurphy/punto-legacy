@@ -162,6 +162,7 @@ final class SalesService
                       COALESCE(SUM(transactionDiscount), 0) AS discount
                    FROM transaction
                    WHERE transactionType IN (1, 4)
+                   AND transactionStatus <> 6
                    AND transactionDate >= ?
                    AND transactionDate <= ?' . $roc . '
                    GROUP BY bucket
