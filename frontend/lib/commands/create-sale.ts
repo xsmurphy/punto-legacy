@@ -29,6 +29,7 @@
 import { api } from "@/lib/api-client"
 import type { CartLine } from "@/lib/cart/store"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
+import { tenantNow } from "@/lib/format-date"
 
 // ── Shape del payload ─────────────────────────────────────────────────────────
 
@@ -98,7 +99,7 @@ export interface CreateSalePayload {
   discount: number
   /** Métodos de pago aplicados. */
   payment: SalePaymentMethod[]
-  /** Fecha+hora local (ej. '2026-06-15 14:32:07'). Hora del browser, no UTC. */
+  /** Fecha+hora local del TENANT, naive (ej. '2026-06-15 14:32:07'). No UTC. */
   date: string
   /** Unix timestamp en segundos. */
   timestamp: number
@@ -172,6 +173,12 @@ export interface BuildSaleInput {
    * SaleInput.php::fromPayload lee: `(float) ($payload['discount'] ?? 0)`.
    */
   saleDiscount?: { value: number; mode: "percent" | "money" } | null
+  /**
+   * TZ IANA del tenant (PosConfig.timezone). La fecha de la venta se formatea
+   * en esta TZ para que un device en otra zona no la desfase. Si es falsy se
+   * cae a la hora local del device (ver tenantNow en lib/format-date.ts).
+   */
+  timezone?: string | null
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -181,7 +188,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone } = input
 
   const saleItems: SaleItem[] = lines.map((line) => ({
     itemId: line.itemId,
@@ -211,16 +218,12 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
   })()
 
   const now = new Date()
-  // Construir fecha+hora local con offset de timezone explícito para que PG
-  // interprete el instante correctamente (TIMESTAMPTZ). Usar solo 'YYYY-MM-DD'
-  // o una cadena sin offset hace que PG asuma el TZ del servidor (típicamente
-  // UTC), lo que insertar HH:00:00 o desfasa el instante respecto al epoch.
-  const pad = (n: number) => String(n).padStart(2, "0")
-  const tzMinutes = -now.getTimezoneOffset() // getTimezoneOffset devuelve negativo para UTC+
-  const tzSign = tzMinutes >= 0 ? "+" : "-"
-  const tzHH = pad(Math.floor(Math.abs(tzMinutes) / 60))
-  const tzMM = pad(Math.abs(tzMinutes) % 60)
-  const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${tzSign}${tzHH}:${tzMM}`
+  // Storage = hora local del TENANT, naive. El server ya guarda en
+  // settingTimeZone (data.php); formatear "ahora" en la TZ del tenant evita
+  // que un device en otra zona (tablet en UTC, device que viajó) desfase la
+  // fecha de la venta. tenantNow cae a la hora local del device si no hay TZ.
+  const dateStr = tenantNow(timezone ?? undefined, now)
+  // timestamp = epoch real (instante absoluto), independiente de la TZ de display.
   const timestamp = Math.floor(now.getTime() / 1000)
 
   return {

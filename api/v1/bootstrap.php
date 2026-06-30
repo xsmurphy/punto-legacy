@@ -33,6 +33,7 @@ $row = ncmExecute(
         config->>'settingTaxName'           AS taxname,
         config->>'settingTIN'               AS tinname,
         config->>'settingCountry'           AS country,
+        config->>'settingTimeZone'          AS timezone,
         config->>'settingName'              AS companyname
      FROM company
      WHERE companyId = ?",
@@ -84,6 +85,11 @@ apiOk([
     'tinName'     => $row['tinname'] ?: 'TIN',
     // Código de país (ej. 'PY') — usado para gatear reportes fiscales locales (RG90, Libro Compra).
     'country'     => $row['country'] ?? '',
+    // TZ del tenant (IANA, ej. 'America/Asuncion'). El server ya hace
+    // date_default_timezone_set(settingTimeZone) en data.php, así que los
+    // writes server-side quedan en hora local del tenant; el cliente debe
+    // alinear sus writes a esta misma TZ (convención storage = local naive).
+    'timezone'    => $row['timezone'] ?? '',
     'companyName' => $row['companyname'] ?? '',
     'companyId'   => COMPANY_ID,
     // Base de las pantallas standalone (PUBLIC_URL = <host>/screens) — para links del front.

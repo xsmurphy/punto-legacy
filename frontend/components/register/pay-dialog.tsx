@@ -244,6 +244,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         tags,
         quoteParentId,
         saleDiscount,
+        timezone: config?.timezone,
       })
 
       let result: CreateSaleResult

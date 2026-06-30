@@ -41,6 +41,12 @@ export interface PosConfig {
   tinName: string
   /** Código ISO de país (ej. "PY"). */
   country: string
+  /**
+   * TZ IANA del tenant (ej. "America/Asuncion"). Convención: los writes del
+   * negocio se guardan en hora LOCAL del tenant, naive. Usar con tenantNow()
+   * (lib/format-date.ts) para que un device en otra TZ no desfase la fecha.
+   */
+  timezone: string
   companyName: string
   companyId: string | number
   /** Base URL de screens standalone (impresión, KDS, etc). */

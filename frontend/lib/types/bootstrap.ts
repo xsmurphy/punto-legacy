@@ -15,6 +15,8 @@ export interface Bootstrap {
   tinName: string
   /** Código ISO de país (ej. "PY"). */
   country: string
+  /** TZ IANA del tenant (ej. "America/Asuncion"). Storage = hora local naive. */
+  timezone: string
   companyName: string
   companyId: string | number
   /** Base URL de screens standalone (links de impresión, KDS, etc). */

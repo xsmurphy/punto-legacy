@@ -20,6 +20,7 @@ export const fixtureConfig: PosConfig = {
   taxName: "IVA",
   tinName: "RUC",
   country: "PY",
+  timezone: "America/Asuncion",
   companyName: "Punto Restaurante",
   companyId: "1",
   publicUrl: "http://localhost:3001",

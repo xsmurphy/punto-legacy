@@ -52,3 +52,38 @@ export function formatTime(iso: string): string {
   if (!d) return iso
   return format(d, "HH:mm", { locale: es })
 }
+
+/**
+ * "Ahora" formateado como naive "YYYY-MM-DD HH:MM:SS" en la TZ del TENANT.
+ *
+ * Convención de storage: los timestamps del negocio se guardan en hora LOCAL
+ * del tenant, naive (sin offset). El server ya alinea esto con
+ * date_default_timezone_set(settingTimeZone) (api/data.php); el cliente debe
+ * usar la MISMA TZ del tenant para sus writes, sin importar la TZ del device.
+ * Así una tablet en UTC (o un device que viajó) no desfasa la fecha de la venta.
+ *
+ * `timeZone` es la TZ IANA del tenant (PosConfig.timezone). Si es falsy se cae
+ * a la hora local del device — el comportamiento previo, aceptable cuando
+ * device y tenant comparten TZ.
+ */
+export function tenantNow(timeZone?: string, now: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0")
+  if (!timeZone) {
+    return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`
+  }
+  // en-CA da el formato YYYY-MM-DD; con hour12:false las horas quedan 00-23.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now)
+  const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "00"
+  // Intl puede emitir "24" para medianoche en algunos engines; normalizar a "00".
+  const hour = get("hour") === "24" ? "00" : get("hour")
+  return `${get("year")}-${get("month")}-${get("day")} ${hour}:${get("minute")}:${get("second")}`
+}

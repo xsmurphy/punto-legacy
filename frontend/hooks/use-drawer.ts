@@ -15,6 +15,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
+import { useCatalogStore } from "@/lib/catalog/store"
+import { tenantNow } from "@/lib/format-date"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -115,27 +117,21 @@ export function useDrawerSummary() {
 
 // ── Mutaciones ────────────────────────────────────────────────────────────────
 
-/**
- * "YYYY-MM-DD HH:MM:SS" en hora LOCAL (no UTC). El backend guarda
- * `transactionDate` de las ventas en hora local naive; usar `toISOString()`
- * (UTC) para `drawerOpenDate` lo desalineaba ~offset TZ respecto de las ventas,
- * y el resumen de caja (`transactionDate > drawerOpenDate`) excluía las ventas
- * de la misma sesión. Mantener ambos en la misma convención local.
- */
-function localDateTime(d: Date = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
-
 function useDrawerMutation(action: string) {
   const qc = useQueryClient()
+  // TZ del tenant (PosConfig.timezone). Convención de storage: las fechas de
+  // caja se guardan en hora LOCAL del tenant, naive — la misma que las ventas
+  // (`transactionDate`). Si se usaran toISOString()/hora del device en otra TZ,
+  // `transactionDate > drawerOpenDate` excluiría ventas de la misma sesión.
+  // tenantNow() cae a la hora local del device si la TZ no llegó del bootstrap.
+  const timezone = useCatalogStore((s) => s.config?.timezone)
   return useMutation({
     mutationFn: (vars: { amount?: number; note?: string; date?: string; user?: string }) =>
       postDrawerAction({
         action,
         amount: vars.amount ?? 0,
         note: vars.note ?? "",
-        date: vars.date ?? localDateTime(),
+        date: vars.date ?? tenantNow(timezone),
         user: vars.user ?? "",
       }),
     onSuccess: () => {

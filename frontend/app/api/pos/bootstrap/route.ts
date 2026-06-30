@@ -94,6 +94,7 @@ interface UpstreamBootstrap {
   taxName: string
   tinName: string
   country: string
+  timezone: string
   companyName: string
   companyId: string | number
   publicUrl: string
@@ -223,6 +224,7 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     taxName: bs.taxName ?? "IVA",
     tinName: bs.tinName ?? "TIN",
     country: bs.country ?? "",
+    timezone: bs.timezone ?? "",
     companyName: bs.companyName ?? "",
     companyId: bs.companyId ?? "",
     publicUrl: bs.publicUrl ?? "",
