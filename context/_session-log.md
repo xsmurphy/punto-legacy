@@ -3,6 +3,16 @@
 
 # Bitácora de Sesiones
 
+## 2026-06-30 — Saga CIA/wrapper DB + restructura api/ self-contained + timezone + features POS + observabilidad
+
+Commits `f247a918..aebd1780` (~43). Jornada de incidentes en cascada + hardening arquitectónico.
+
+**Hecho:** Fix raíz CIA: `_flattenJsonb`/`ncmExecute` restaurados a `CaseInsensitiveArray`; CIA canónica = `api/includes/lib/DB.php` (prohibido duplicar); widening de 9 `present`/`shape`/`pick` a `array|\CaseInsensitiveArray`; `GetRow`/`GetOne` agregados al wrapper (causaban 500 silente en pagos crédito + devoluciones). Api/ self-contained: build context `./api`, Dockerfile único, database+entrypoint+router movidos — deployado healthy. Timestamps: convención fijada como **tenant-local naive** (no UTC); helper `tenantNow` + `parseNaive`; `timezone` expuesta en bootstrap. Control de caja: FK `drawerId` en transaction (mig 70), resumen exacto por sesión. Observabilidad: log fatales a stderr + handlers globales + JSON 500 limpio + Sentry gateado por `SENTRY_DSN`. Seed admin: `seed_admin.php` idempotente corre en cada boot. IA: guardrails (scope, anti-cross-tenant, no-destructivo), permiso por-acción, respeta sucursal. POS: categoría/marca/etiqueta inline, ruteo Factura/Recibo, reimpresión con plantillas, QR invite device, gating caja, descuento removible, grids mobile.
+
+**Decisión:** NO migrar a Laravel/Node — hardening en DB.php; timezone = tenant-local naive (no UTC, actualizar docs que digan lo contrario); CIA canónica única.
+
+**Pendiente:** Coolify: setear `ADMIN_EMAIL`/`ADMIN_PASSWORD` + `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN`. Reabrir caja para que `drawerId` aplique a la sesión actual. Asignar impresora tipo "Factura" (bindings viejos de "Recibo" ya no disparan para ventas). Sweep `functions.php` por `GetRow`/`GetOne` latentes.
+
 ## 2026-06-29 — Auth rewrite (JWT→sesiones opacas) + limpieza legacy total + reestructura repo
 
 Commits `7d0c09b2..3ddb96f0` (~50). Sesión estructural máxima — tres bloques mergeados a main.

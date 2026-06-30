@@ -273,15 +273,21 @@ Nunca usar `while(!$rs->EOF)` directo ni castear `(array)$rs` — serializa prop
 
 ---
 
-## §42 — `flattenJsonb` retorna `array` plano; SELECTs usan alias con quotes (2026-06-28)
+## §42 — `flattenJsonb` + `ncmExecute` retornan `CaseInsensitiveArray`; CIA canónica = `api/includes/lib/DB.php` (2026-06-30)
 
-`Query::flattenJsonb` retorna `array` plano (no `CaseInsensitiveArray`). Consecuencia: los services con `shape(array $row)` deben asegurar que los alias de columna preserven camelCase. En tablas legacy (PG almacena en lowercase), usar alias con quotes:
+`Query::flattenJsonb` y `ncmExecute` retornan `CaseInsensitiveArray` — **no** un array plano. Fix arquitectónico 2026-06-30 (`c9964dd6`): el return type de `_flattenJsonb` se corrigió a `CaseInsensitiveArray`; los 9 métodos `present`/`shape`/`pick` se ampliaron a `array|\CaseInsensitiveArray`.
+
+**CIA canónica** = la clase definida en `api/includes/lib/DB.php`. **PROHIBIDO** duplicarla en otro archivo — el sub-agente de 2026-06-30 creó una clase homónima que no satisfacía los typehints existentes → `TypeError` en prod.
+
+**`GetRow` / `GetOne`** — no existían en el wrapper; se agregaron en commit `671d6a41`. Callers que hacían `$db->GetRow(...)` recibían un 500 silente (undefined method). Si un service llama a un método de DB que no existe, verificar `api/includes/lib/DB.php` antes de parchear el caller.
+
+Los SELECTs en tablas legacy deben usar aliases con quotes para preservar camelCase (PG lowercasea sin quotes):
 
 ```sql
 SELECT "itemName" AS "itemName", "priceListId" AS "priceListId" FROM item ...
 ```
 
-Sin quotes, PG devuelve lowercase y `shape()` no encuentra las claves. **Primer caso afectado**: `PriceListService` (fix en commit `223b39ac`). Patrón replicable a cualquier service con `SELECT *` sobre tabla legacy.
+**Primer caso afectado por el patrón sin quotes**: `PriceListService` (commit `223b39ac`).
 
 ---
 
@@ -479,3 +485,15 @@ El sistema de roles vive en la tabla `taxonomy` con `type = 'role'` (metadata de
 - **`hasPermission(user, 'module.action')`** (`frontend/lib/auth/permissions.ts`): helper global para UI; lee `user.permissions[]` expuesto por `/v1/bootstrap`.
 - **3 seed roles por tenant** al crear empresa: `Dueño` (todos los permisos), `Encargado` (sin billing/admin), `Cajero` (pos + operación básica). Custom roles disponibles vía UI `/settings/roles`.
 - **Sidebar filtering**: el sidebar del panel filtra links por `hasPermission()`. Si `user.permissions[]` llega vacío, el sidebar queda en blanco — verificar que bootstrap exponga el array correctamente.
+
+---
+
+## §51 — Convención de timestamps: tenant-local naive, NO UTC (2026-06-30)
+
+Los timestamps se guardan en la TZ del tenant (`America/Asuncion`) pero **sin información de offset** — son "naive" (el servidor no los convierte a UTC). **No** aplica "server siempre UTC".
+
+- **Writes** de venta/caja: usar helper `tenantNow($timezone)` (obtiene la TZ desde bootstrap). La `timezone` se expone en `/v1/bootstrap` desde el commit `39754189`.
+- **Display**: usar helper `parseNaive` en el front — trata el valor como wall-clock sin re-convertir TZ. NO usar `new Date(str)` ni `toLocaleDateString` que asumen UTC o la TZ del navegador.
+- **Consecuencia**: `ORDER BY createdAt` funciona correctamente (naive local es monotónico dentro del tenant). Comparar timestamps entre tenants de distintas TZ requiere normalización explícita.
+
+Bug que originó la decisión: `drawerOpenDate` se guardaba en hora local pero se comparaba contra timestamps UTC → las ventas de la sesión quedaban fuera del resumen de caja (commit `29439221`).

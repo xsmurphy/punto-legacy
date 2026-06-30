@@ -38,12 +38,12 @@ final class PurchasesService
             $params = [$filters['singleRow']];
         } elseif ($filters['supId']) {
             $sql = "SELECT * FROM transaction
-                    WHERE transactionType IN (" . self::TX_TYPES . ") AND supplierId = ?" . $roc . "
+                    WHERE transactionType IN (" . self::TX_TYPES . ") AND transactionStatus <> 6 AND supplierId = ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 2000";
             $params = [$filters['supId']];
         } else {
             $sql = "SELECT * FROM transaction
-                    WHERE transactionType IN (" . self::TX_TYPES . ")
+                    WHERE transactionType IN (" . self::TX_TYPES . ") AND transactionStatus <> 6
                     AND transactionDate BETWEEN ? AND ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 2000";
             $params = [$from, $to];

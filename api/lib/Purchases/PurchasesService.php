@@ -36,7 +36,8 @@ final class PurchasesService
     public function list(string $companyId, string $roc, array $filters = []): array
     {
         $params = [];
-        $where  = "transactionType = 1 {$roc}";
+        // Excluir compras anuladas (transactionStatus=6) del listado de reportes.
+        $where  = "transactionType = 1 AND transactionStatus <> 6 {$roc}";
 
         if (!empty($filters['from'])) {
             $where    .= ' AND t.transactionDate >= ?';
