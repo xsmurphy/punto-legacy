@@ -60,6 +60,16 @@ RUN { \
     echo 'realpath_cache_ttl=600'; \
     } > /usr/local/etc/php/conf.d/opcache.ini
 
+# Observabilidad: logear errores/fatales a stderr (→ docker logs). display_errors
+# queda Off (no filtrar al cliente), pero log_errors On hace visible lo que antes
+# era 100% silente (incidente 2026-06-30: "Call to undefined method" sin rastro).
+RUN { \
+    echo 'log_errors=On'; \
+    echo 'error_log=/proc/self/fd/2'; \
+    echo 'display_errors=Off'; \
+    echo 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_WARNING'; \
+    } > /usr/local/etc/php/conf.d/errors.ini
+
 WORKDIR /var/www
 
 # Composer deps primero (layer cacheado hasta que cambie composer.json/lock).

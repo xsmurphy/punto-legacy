@@ -11,6 +11,35 @@
  * Mismo secret/claims que ya validan /panel (_jwt_panel) y /app (_jwt).
  */
 
+// ── Observabilidad de errores ────────────────────────────────────────────────
+// display_errors sigue en 0 (no filtrar stack traces al cliente), pero los
+// fatales/excepciones DEBEN ser visibles. Incidente 2026-06-30: un
+// "Call to undefined method DB::GetRow()" en pagos a crédito quedó 100% silente
+// (display_errors=0 + log_errors off) y costó horas de diagnóstico. Estos
+// handlers logean a stderr (→ docker logs) y devuelven un JSON 500 limpio en
+// vez de una respuesta vacía/HTML. error_log va a stderr por la config del
+// Dockerfile (log_errors=On, error_log=/proc/self/fd/2).
+set_exception_handler(static function (\Throwable $e): void {
+    error_log('[uncaught] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json');
+    }
+    echo json_encode(['ok' => false, 'error' => ['message' => 'Error interno del servidor', 'code' => 500]]);
+});
+register_shutdown_function(static function (): void {
+    $err = error_get_last();
+    if ($err === null || !in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
+        return;
+    }
+    error_log('[fatal] ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line']);
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => false, 'error' => ['message' => 'Error interno del servidor', 'code' => 500]]);
+    }
+});
+
 session_start();
 
 // API_APP_DIR apunta a api/ (antes apuntaba a api/core; api/core fue disuelto 2026-06-29).
