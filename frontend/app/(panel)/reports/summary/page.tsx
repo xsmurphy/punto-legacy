@@ -49,10 +49,9 @@ import {
 } from "@/components/ui/chart"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { DataTable } from "@/components/data-table/data-table"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
@@ -112,7 +111,7 @@ function shiftRangeBackwards(from: string, to: string): { from: string; to: stri
 
 export default function SummaryReportPage() {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const current = React.useMemo(() => rangeToBackend(range), [range])
   const previous = React.useMemo(
     () => shiftRangeBackwards(current.from, current.to),

@@ -19,10 +19,9 @@ import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type UserReportRow } from "@/hooks/use-reports"
@@ -30,7 +29,7 @@ import { formatMoney } from "@/lib/format"
 
 export default function UsersReportPage() {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const { data, isLoading, error } = useReport<UserReportRow[]>("users", opts)

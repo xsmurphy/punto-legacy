@@ -56,10 +56,9 @@ import {
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { DatePicker } from "@/components/date-picker"
 import { MoneyInput } from "@/components/ui/money-input"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -70,7 +69,7 @@ import { EmptyState } from "@/components/empty-state"
 
 export default function ExpensesReportPage() {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const { data, isLoading, error } = useReport<{ rows: ExpenseRow[]; users: { id: string; name: string }[] }>(

@@ -11,10 +11,9 @@ import { Badge } from "@/components/ui/badge"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePurchases, type PurchaseListRow } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
@@ -36,7 +35,7 @@ import { EmptyState } from "@/components/empty-state"
 export default function PurchasesReportPage() {
   const router = useRouter()
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const purchases = usePurchases({ from: opts.from, to: opts.to, limit: 200 })

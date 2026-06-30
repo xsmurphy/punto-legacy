@@ -26,10 +26,9 @@ import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type DrawerRow, type DrawersReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
@@ -39,7 +38,7 @@ import { EmptyState } from "@/components/empty-state"
 
 export default function DrawersReportPage() {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const [selectedDrawer, setSelectedDrawer] = React.useState<DrawerRow | null>(null)
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 

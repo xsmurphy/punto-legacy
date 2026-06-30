@@ -50,10 +50,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import {
   useDashboardWidget,
   useIncomeChart,
@@ -78,7 +77,7 @@ import { cn } from "@/lib/utils"
  */
 export default function DashboardPage() {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats", opts)

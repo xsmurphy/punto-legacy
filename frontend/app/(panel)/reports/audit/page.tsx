@@ -19,10 +19,9 @@ import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useReport, type AuditRow } from "@/hooks/use-reports"
 
@@ -54,7 +53,7 @@ function humanizeAction(method: string, endpoint: string): string {
 }
 
 export default function AuditReportPage() {
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const { data, isLoading, error } = useReport<{ rows: AuditRow[] }>("audit", opts)

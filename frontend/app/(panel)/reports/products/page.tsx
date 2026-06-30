@@ -22,10 +22,9 @@ import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useReport,
@@ -36,7 +35,7 @@ import { formatMoney } from "@/lib/format"
 
 export default function ProductsReportPage() {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(
     () => ({ ...rangeToBackend(range), params: { view: "general" } }),
     [range],
