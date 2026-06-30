@@ -175,6 +175,25 @@ export default function NewPurchasePage() {
         (Number(l.units) || 0) > 0,
     )
 
+  // Resetea el form para cargar otra factura sin salir de la página. Conserva
+  // outletId (suelen cargar un lote de la misma sucursal). Enfoca la primera
+  // línea para que la carga siga fluida con el teclado.
+  const resetForm = () => {
+    setSupplierId("")
+    setSupplierName("")
+    setInvoiceDate(today())
+    setDueDate(today())
+    setAuthNo("")
+    setInvoicePrefix("")
+    setInvoiceNo("")
+    setPaymentMethod("cash")
+    setDiscount(null)
+    setNote("")
+    const fresh = emptyLine()
+    pendingFocusRef.current = fresh.rowId
+    setLines([fresh])
+  }
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit) {
@@ -207,8 +226,11 @@ export default function NewPurchasePage() {
         note,
         items,
       })
-      toast.success("Compra registrada")
-      router.push("/reports/purchases")
+      // Carga de alto volumen: NO navegamos. Reseteamos el form para cargar la
+      // siguiente factura de inmediato. La sucursal se conserva (suelen cargar
+      // un lote de la misma); el resto vuelve a default.
+      toast.success("Compra registrada — cargá la siguiente")
+      resetForm()
     } catch (err) {
       toast.error("No se pudo registrar la compra", {
         description: err instanceof Error ? err.message : undefined,
