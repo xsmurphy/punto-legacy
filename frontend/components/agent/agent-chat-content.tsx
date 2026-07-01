@@ -116,7 +116,7 @@ export function AgentChatContent({
 
       fullText =
         `[Adjuntos]\n${attachInfo}\n\n` +
-        `Si el usuario pide importar, llamá la tool confirm_action con action="tabular_import" y payload={sessionId, kind:"items"|"contacts", mapping, mode:"insert"|"update"}. ` +
+        `Si el usuario pide importar, llamá la tool register_action con action="tabular_import" y payload={sessionId, kind:"items"|"contacts", mapping, mode:"insert"|"update"} (y luego execute_action con el confirmToken al confirmar). ` +
         `El mapping mapea cada campo canónico a la columna de origen del archivo. ` +
         `Headers canónicos items: ${itemHeaders}. ` +
         `Headers canónicos contactos: ${contactHeaders}. ` +

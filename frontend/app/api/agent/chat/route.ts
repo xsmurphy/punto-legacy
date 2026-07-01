@@ -2,7 +2,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import { streamText, tool, convertToModelMessages, stepCountIs } from "ai"
 import { z } from "zod"
 import type { UIMessage } from "ai"
-import { makeConfirmTool } from "@/lib/agent/confirm-tool"
+import { makeActionTools } from "@/lib/agent/confirm-tool"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -132,10 +132,10 @@ export async function POST(req: Request) {
       : "") +
     (pathname || snapshot ? "\n" : "") +
     `Para acciones que modifican datos (crear contacto, ítem, usuario, categoría, marca, etiqueta, o cambiar precio): ` +
-    `1) Llamá la tool "confirm_action" con action+payload+summary para generar un token de confirmación. ` +
-    `2) Mostrá el resumen al usuario y pedí confirmación explícita. ` +
-    `3) Solo cuando el usuario confirme, llamá "confirm_action" de nuevo con el confirmToken para ejecutar. ` +
-    `Nunca ejecutes una acción mutante sin confirmación explícita del usuario.\n\n` +
+    `1) Llamá la tool "register_action" con action + payload (con los datos) + summary. Devuelve un confirmToken. ` +
+    `2) Mostrá el summary al usuario y pedí confirmación explícita. ` +
+    `3) Solo cuando el usuario confirme, llamá "execute_action" con ese confirmToken para ejecutar. ` +
+    `Nunca ejecutes una acción mutante sin confirmación explícita del usuario. Nunca llames register_action con el payload vacío: siempre completá los campos del dato a crear/editar.\n\n` +
     `CUANDO la acción "create_user" devuelva tempPassword, presentá la respuesta EXACTAMENTE con este formato (sin texto adicional antes ni después, sin "te muestro", sin disculpas):\n\n` +
     `🔐 **{userDisplayName}**\n\n` +
     `**Usuario:** {login}\n` +
@@ -151,9 +151,9 @@ export async function POST(req: Request) {
     `   - Si no está claro, preguntá: "¿Son artículos/productos o contactos (clientes/proveedores)?"\n` +
     `3. Determiná el mapping: si los headers del archivo ya coinciden con los canónicos del importer, mapping=null. Si no, construí el mapping {campoCanónico: columnaDelArchivo}.\n` +
     `4. Determiná el mode: default "insert". Si el usuario dice "actualizar", "modificar precios", "sincronizar" → mode="update".\n` +
-    `5. Llamá confirm_action con action="tabular_import", payload={sessionId, kind, mapping, mode}, summary="Importar N filas a [artículos/contactos] (modo [insert/update])".\n` +
+    `5. Llamá register_action con action="tabular_import", payload={sessionId, kind, mapping, mode}, summary="Importar N filas a [artículos/contactos] (modo [insert/update])".\n` +
     `6. Esperá la confirmación explícita del usuario antes de proceder.\n` +
-    `7. Cuando el usuario confirme, llamá confirm_action con {confirmToken} para ejecutar.\n` +
+    `7. Cuando el usuario confirme, llamá execute_action con {confirmToken} para ejecutar.\n` +
     `8. Reportá el resultado: "Se importaron X artículos/contactos. Y actualizados. Z errores." Si hay errores, listalos.`
 
   const modelMessages = await convertToModelMessages(messages)
@@ -454,7 +454,7 @@ export async function POST(req: Request) {
         },
       }),
 
-      confirm_action: makeConfirmTool(cookie, apiUrl),
+      ...makeActionTools(cookie, apiUrl),
     },
   })
 

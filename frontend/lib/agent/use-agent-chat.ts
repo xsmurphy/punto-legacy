@@ -94,7 +94,7 @@ export function useAgentChat({
       for (const msg of messages) {
         for (const part of msg.parts ?? []) {
           if (!isToolOrDynamicToolUIPart(part)) continue
-          if (part.type !== "tool-confirm_action") continue
+          if (part.type !== "tool-register_action") continue
           if (part.state !== "output-available") continue
           const input = part.input as { action?: string } | undefined
           const output = part.output as { confirmToken?: string } | undefined
@@ -116,11 +116,11 @@ export function useAgentChat({
 
       for (const part of message.parts ?? []) {
         if (!isToolOrDynamicToolUIPart(part)) continue
-        if (part.type !== "tool-confirm_action") continue
+        if (part.type !== "tool-execute_action") continue
         if (part.state !== "output-available") continue
         const input = part.input as { confirmToken?: string } | undefined
         const output = part.output as { error?: string } | undefined
-        if (!input?.confirmToken) continue // register path, no mutó nada
+        if (!input?.confirmToken) continue // sin token, nada que invalidar
         if (output?.error) continue // execute falló
         const action = tokenToAction.get(input.confirmToken)
         const keys = action ? ACTION_TO_QUERY_KEYS[action] : undefined
