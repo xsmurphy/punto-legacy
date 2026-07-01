@@ -183,18 +183,28 @@ final class SettingsService
      */
     private function readSettingObj($companyId)
     {
-        $r = ncmExecute("SELECT config FROM company WHERE companyId = ? LIMIT 1", [$companyId], false, true);
+        // Extraemos settingObj DIRECTO con el operador JSONB ->> (devuelve texto).
+        // Leer la columna `config` entera vía el wrapper DB devolvía un valor NO
+        // usable (ni string ni array) → el json_decode fallaba y readSettingObj
+        // devolvía [] SIEMPRE → cada write de settingObj clobbereaba el resto
+        // (el upload de logo escribía {logo}, el "Guardar" escribía {7 flags} y se
+        // pisaban mutuamente; también borraba currencies). ->> lee confiable.
+        $r = ncmExecute(
+            "SELECT config->>'settingObj' AS so FROM company WHERE companyId = ? LIMIT 1",
+            [$companyId],
+            false,
+            true
+        );
         if (!$r || !is_object($r) || $r->EOF) {
-            return null;   // lectura fallida → no arriesgar clobber de currencies
+            return null;   // lectura fallida → no arriesgar clobber
         }
-        $cfg = $r->fields['config'] ?? null;
-        $cfg = is_array($cfg) ? $cfg : json_decode((string) $cfg, true);
+        $so = $r->fields['so'] ?? null;
         $r->Close();
-        if (is_array($cfg) && !empty($cfg['settingObj'])) {
-            $obj = is_array($cfg['settingObj']) ? $cfg['settingObj'] : json_decode((string) $cfg['settingObj'], true);
-            if (is_array($obj)) { return $obj; }
+        if ($so === null || $so === '') {
+            return [];     // company sin settingObj todavía (nueva) → [] legítimo
         }
-        return [];
+        $obj = json_decode((string) $so, true);
+        return is_array($obj) ? $obj : [];
     }
 
     /** Listas para los selects del form. */

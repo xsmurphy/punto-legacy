@@ -36,9 +36,9 @@ export function ParkedSalesPanel() {
       onSuccess: () => {
         useCartStore.getState().clear()
         useCartStore.setState({
-          lines: sale.data.cart,
-          customer: sale.data.customer ?? null,
-          note: sale.data.notes ?? null,
+          lines: sale.data?.cart ?? [],
+          customer: sale.data?.customer ?? null,
+          note: sale.data?.notes ?? null,
         })
         toast.success("Venta retomada")
         router.push('/pos')
@@ -70,11 +70,11 @@ export function ParkedSalesPanel() {
   return (
     <div className="flex flex-col gap-1 p-2">
       {sales.map((sale) => {
-        const itemCount = sale.data.cart.reduce((sum, l) => sum + l.qty, 0)
-        const total = sale.data.cart.reduce(
-          (sum, l) => sum + lineSubtotal(l, false),
-          0,
-        )
+        // Guard: una venta guardada corrupta (data/cart null) NO debe tumbar toda
+        // la página. Se renderiza con 0 items para que el cajero pueda verla/borrarla.
+        const cart = sale.data?.cart ?? []
+        const itemCount = cart.reduce((sum, l) => sum + l.qty, 0)
+        const total = cart.reduce((sum, l) => sum + lineSubtotal(l, false), 0)
         const timeLabel = formatRelativeTime(sale.createdAt)
 
         return (
