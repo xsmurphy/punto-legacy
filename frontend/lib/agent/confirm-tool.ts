@@ -45,13 +45,16 @@ async function registerConfirmation(
   payload: unknown,
   summary: string,
 ) {
+  console.error("[agent] register_action input", JSON.stringify({ action, payload, summary }))
   try {
     const res = await fetch(`${apiUrl}/v1/ai/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json", cookie },
       body: JSON.stringify({ action, payload, summary }),
     })
-    const json = (await res.json()) as {
+    const bodyText = await res.text()
+    console.error("[agent] /v1/ai/confirm", res.status, bodyText.slice(0, 300))
+    const json = (bodyText ? JSON.parse(bodyText) : {}) as {
       ok?: boolean
       data?: { confirmToken: string; summary: string }
       error?: string
@@ -71,13 +74,16 @@ async function registerConfirmation(
 }
 
 async function executeConfirmation(cookie: string, apiUrl: string, confirmToken: string) {
+  console.error("[agent] execute_action confirmToken", JSON.stringify(confirmToken))
   try {
     const res = await fetch(`${apiUrl}/v1/ai/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json", cookie },
       body: JSON.stringify({ confirmToken }),
     })
-    const json = (await res.json()) as { ok?: boolean; data?: unknown; error?: string }
+    const bodyText = await res.text()
+    console.error("[agent] /v1/ai/execute", res.status, bodyText.slice(0, 300))
+    const json = (bodyText ? JSON.parse(bodyText) : {}) as { ok?: boolean; data?: unknown; error?: string }
     if (!res.ok || !json.ok) {
       return { error: json.error ?? `Error ejecutando (${res.status})` }
     }
