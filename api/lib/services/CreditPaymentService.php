@@ -37,7 +37,8 @@ final class CreditPaymentService
         string  $parentTransactionId,
         float   $amount,
         string  $paymentMethodKey,
-        ?string $note = null
+        ?string $note = null,
+        ?string $identifier = null
     ): array {
         global $db;
 
@@ -110,11 +111,14 @@ final class CreditPaymentService
             'transactionParentId'    => $parentTransactionId,
             'transactionComplete'    => 1,
             'transactionStatus'      => 1,
-            'transactionPaymentType' => json_encode([[
-                'type'  => $paymentMethodKey,
-                'name'  => $paymentMethodName,
-                'total' => $amount,
-            ]]),
+            'transactionPaymentType' => json_encode([array_merge(
+                [
+                    'type'  => $paymentMethodKey,
+                    'name'  => $paymentMethodName,
+                    'total' => $amount,
+                ],
+                ($identifier !== null && $identifier !== '') ? ['identifier' => $identifier] : [],
+            )]),
             'transactionUID'         => $this->generateUID(),
             'invoiceNo'              => getNextDocNumber(0, 5, $companyId, $parentRegisterId),
             'timestamp'              => time(),

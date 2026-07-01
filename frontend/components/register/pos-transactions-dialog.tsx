@@ -603,11 +603,25 @@ function TransactionDetail({
               <h2 className="text-xl font-semibold truncate">
                 {detail.customerName || <span className="text-muted-foreground">Sin cliente</span>}
               </h2>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {txLabel(typeNum)}
-                {docLabel && <> &middot; <span className="tabular-nums">#{docLabel}</span></>}
-                {formattedDate !== "—" && <> &middot; <span className="tabular-nums">{formattedDate}</span></>}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                {isCredit ? (
+                  <Badge
+                    variant="secondary"
+                    className={cn(
+                      "font-medium",
+                      debt <= 0
+                        ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400"
+                        : "bg-amber-500/10 text-amber-700 border-amber-500/20",
+                    )}
+                  >
+                    Crédito
+                  </Badge>
+                ) : (
+                  <span>{txLabel(typeNum)}</span>
+                )}
+                {docLabel && <span className="tabular-nums">#{docLabel}</span>}
+                {formattedDate !== "—" && <span className="tabular-nums">{formattedDate}</span>}
+              </div>
             </div>
             <div className="shrink-0 flex flex-col items-end gap-2">
               <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
@@ -659,38 +673,38 @@ function TransactionDetail({
           {/* ── Hero financiero (solo crédito) ────────────────────────────── */}
           {isCredit && (
             <div className="mt-6">
-              {debt > 0 ? (
-                <>
-                  {/* 2-col stat block — excepcion §4.10: credito con deuda activa */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="border rounded-lg p-4">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Deuda</p>
-                      <p className="text-2xl font-bold tabular-nums text-destructive mt-1">
-                        {formatMoney(debt, config)}
-                      </p>
-                    </div>
-                    <div className="border rounded-lg p-4">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Pagado</p>
-                      <p className="text-2xl font-bold tabular-nums text-muted-foreground mt-1">
-                        {formatMoney(paid, config)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-center gap-3">
-                    <Progress value={total > 0 ? (paid / total) * 100 : 0} className="flex-1 h-2" />
-                    <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-                      {total > 0 ? Math.round((paid / total) * 100) : 0}% &middot; Total {formatMoney(total, config)}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                /* Credito totalmente pagado */
-                <div className="flex items-center">
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400">
-                    Pagado
-                  </Badge>
+              {/* Cards + barra SIEMPRE visibles; al saldar, Deuda=0 verde y barra full verde. */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="border rounded-lg p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Deuda</p>
+                  <p
+                    className={cn(
+                      "text-2xl font-bold tabular-nums mt-1",
+                      debt > 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400",
+                    )}
+                  >
+                    {formatMoney(debt, config)}
+                  </p>
                 </div>
-              )}
+                <div className="border rounded-lg p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Pagado</p>
+                  <p className="text-2xl font-bold tabular-nums text-muted-foreground mt-1">
+                    {formatMoney(paid, config)}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <Progress
+                  value={total > 0 ? (paid / total) * 100 : 0}
+                  className={cn(
+                    "flex-1 h-2",
+                    debt <= 0 && "[&_[data-slot=progress-indicator]]:bg-emerald-500",
+                  )}
+                />
+                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                  {total > 0 ? Math.round((paid / total) * 100) : 0}% &middot; Total {formatMoney(total, config)}
+                </span>
+              </div>
             </div>
           )}
 

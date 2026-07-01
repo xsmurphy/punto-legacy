@@ -24,6 +24,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 
 interface CreditPaymentDialogProps {
   open: boolean
@@ -53,6 +54,7 @@ export function CreditPaymentDialog({
   const [display, setDisplay] = React.useState("")
   const [pmKey, setPmKey] = React.useState<string>(defaultMethod?.id ?? "")
   const [note, setNote] = React.useState("")
+  const [identifierOpen, setIdentifierOpen] = React.useState(false)
 
   const visorRef = React.useRef<HTMLInputElement>(null)
 
@@ -85,7 +87,7 @@ export function CreditPaymentDialog({
     }
   }
 
-  function handleConfirm() {
+  function runPayment(identifier?: string) {
     if (!amountValid || !selectedMethod) return
     mutation.mutate(
       {
@@ -93,6 +95,7 @@ export function CreditPaymentDialog({
         amount,
         paymentMethodKey: selectedMethod.id,
         note: note.trim() || undefined,
+        identifier: identifier || undefined,
       },
       {
         onSuccess: (data) => {
@@ -110,6 +113,16 @@ export function CreditPaymentDialog({
         },
       },
     )
+  }
+
+  function handleConfirm() {
+    if (!amountValid || !selectedMethod) return
+    // Métodos que exigen identificador (tarjeta, etc.): pedirlo antes de cobrar.
+    if (selectedMethod.requiresIdentifier) {
+      setIdentifierOpen(true)
+      return
+    }
+    runPayment()
   }
 
   return (
@@ -189,6 +202,18 @@ export function CreditPaymentDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <PaymentIdentifierDialog
+        open={identifierOpen}
+        method={selectedMethod?.requiresIdentifier ? selectedMethod : null}
+        amount={amount}
+        config={config}
+        onConfirm={(identifier) => {
+          setIdentifierOpen(false)
+          runPayment(identifier)
+        }}
+        onCancel={() => setIdentifierOpen(false)}
+      />
     </Dialog>
   )
 }

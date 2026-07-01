@@ -9,6 +9,8 @@ interface CreateCreditPaymentVars {
   paymentMethodKey: string
   // paymentMethodName resuelto server-side — no enviar al backend
   note?: string
+  // Identificador del pago (nº de operación, voucher) para métodos que lo exigen
+  identifier?: string
 }
 
 interface CreateCreditPaymentResult {
