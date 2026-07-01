@@ -26,10 +26,16 @@ export function useCreateCreditPayment() {
         action: "create",
         ...vars,
       }),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["pos-transactions"] })
-      qc.invalidateQueries({ queryKey: ["pos-transaction", vars.parentTransactionId] })
-      qc.invalidateQueries({ queryKey: ["transactions"] })
+    onSuccess: () => {
+      // refetchType:"all" fuerza el refetch aunque la query esté inactiva: el
+      // diálogo de pago (modal) tapa el detalle, así que la query del detalle
+      // puede no estar "activa" al confirmar → sin esto se marca stale pero NO
+      // refetchea, y la deuda mostrada no baja hasta reabrir.
+      // Usamos el prefijo ["pos-transaction"] (sin id) para pegarle al detalle
+      // sea cual sea el formato de id.
+      qc.invalidateQueries({ queryKey: ["pos-transactions"], refetchType: "all" })
+      qc.invalidateQueries({ queryKey: ["pos-transaction"], refetchType: "all" })
+      qc.invalidateQueries({ queryKey: ["transactions"], refetchType: "all" })
       qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
     },
   })
