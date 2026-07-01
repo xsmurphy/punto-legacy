@@ -264,7 +264,7 @@ final class TransactionService
             $f   = $result->fields;
             $a[] = [
                 'id'        => enc($f['transactionId']),
-                'total'     => abs($f['transactionTotal']),
+                'total'     => abs((float) $f['transactionTotal']),
                 'userid'    => $f['userId'],
                 'date'      => $f['transactionDate'],
                 'methods'   => $f['transactionPaymentType'],
