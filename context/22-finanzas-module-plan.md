@@ -212,6 +212,27 @@ api-client (`api.get/post/put/del`), invalidación al mutar. Agregar el ítem
      movimiento todavía — sobreestiman ingresos una vez que existan returns.
      Backfill sin cap de tiempo (chunk/queue si un tenant crece mucho).
      Dashboard de flujo de caja (cashflow) queda pendiente.
+4. **CRUD de medios de pago** (implementado 2026-07-02, branch `pay-methods-crud`):
+   `PaymentMethodService` (`api/lib/PaymentMethods/`) + endpoint
+   `/v1/payment-methods` (GET/POST/PUT/DELETE), CRUD completo sobre
+   `taxonomy` (`taxonomyType='paymentMethod'`). Flags de comportamiento
+   (code, hasChange, requiresIdentifier, identifierLabel/Placeholder,
+   systemKey) en `taxonomyExtra` JSONB. `accountId` se persiste
+   EXCLUSIVAMENTE vía `ConfigService::update` (nunca escrito directo).
+   Auto-seed idempotente (Efectivo/T.Crédito/T.Débito) si el tenant no tiene
+   ninguno. "Efectivo" no se puede borrar y su `accountId` se ignora siempre
+   (cae fijo en la cuenta Efectivo del sistema).
+   - Tab "Medios de pago" en Settings → Catálogo (`CatalogManager` genérico
+     ahora soporta `type: "switch"|"select"` + `transformPayload`).
+   - `ConfigService::resolveAccountId` es dual-path: UUID (taxonomyId, ventas
+     nuevas) vs slug legacy (backfill histórico, intacto).
+   - POS bootstrap (`/api/pos/bootstrap`) trae medios de pago reales de
+     `/v1/payment-methods` en vez del hardcode; degrada a
+     `FALLBACK_PAYMENT_METHODS` si el fetch falla o el tenant no tiene
+     ninguno — nunca bloquea ni tira 500.
+   - `pay-dialog.tsx` re-keyeado: `systemKey` (cash/giftcard/internal) en vez
+     de comparar contra el `id` (taxonomyId, ahora varía por tenant) para el
+     flujo de giftcard y agrupación de métodos secundarios.
 
 ## 9. Reglas del proyecto (obligatorias)
 
