@@ -122,14 +122,37 @@ final class ConfigService
 
     /**
      * Resuelve la cuenta destino de un método de pago para un movimiento
-     * derivado (Fase 3 — FinanceLedger). Legacy: sigue operando por key
-     * normalizada, TODAVÍA NO tiene callers fuera de este archivo. Cuando
-     * se implemente Fase 3, este método debe resolver por methodId real
-     * (taxonomyId), no por key hardcodeada — ver comentario en update().
+     * derivado (Fase 3 — FinanceLedger). Dual-path según el shape de $key:
+     *
+     *   1. UUID (taxonomyId) → camino de ventas NUEVAS. Las ventas ahora
+     *      guardan el taxonomyId estable del método como clave del pago. Se
+     *      busca directo en finAccountMap[$key]; si el método es cash
+     *      (Efectivo) o no tiene mapeo → cuenta Efectivo.
+     *   2. slug legacy ("efectivo", "tcredito", "creditcard"…) → camino del
+     *      BACKFILL de ventas históricas. normalizeMethodKey + match por
+     *      nombre contra los métodos reales del tenant.
+     *
+     * Fallback final SIEMPRE = cuenta Efectivo: nunca se pierde el movimiento.
      */
     public function resolveAccountId(string $companyId, string $paymentMethodKey): string
     {
         $cashId = (new AccountService())->ensureCashAccountId($companyId);
+
+        // Camino 1 — ventas nuevas: la key es el taxonomyId (UUID) del método.
+        if ($this->isUuid($paymentMethodKey)) {
+            $map = $this->read($companyId);
+            foreach ($map as $entry) {
+                if ((string) $entry['methodId'] === $paymentMethodKey) {
+                    // Cash o sin banco asignado → Efectivo (read() ya resuelve
+                    // isCash → cuenta Efectivo, y null cuando no hay mapeo).
+                    return $entry['accountId'] ?? $cashId;
+                }
+            }
+            // taxonomyId huérfano (método borrado): cae en Efectivo.
+            return $cashId;
+        }
+
+        // Camino 2 — backfill histórico: key es un slug legacy, match por nombre.
         $normalized = $this->normalizeMethodKey($paymentMethodKey);
         if ($normalized === 'efectivo') {
             return $cashId;
@@ -141,6 +164,15 @@ final class ConfigService
             }
         }
         return $cashId;
+    }
+
+    /** true si $key tiene forma de UUID (clave de método = taxonomyId). */
+    private function isUuid(string $key): bool
+    {
+        return (bool) preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
+            $key
+        );
     }
 
     /** Normaliza keys legacy/POS (cash, creditcard, debitcard, tcredito...) al vocabulario de Finanzas. */

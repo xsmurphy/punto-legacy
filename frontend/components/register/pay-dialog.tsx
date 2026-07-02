@@ -52,7 +52,7 @@ import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
 const FALLBACK_METHODS: PaymentMethodConfig[] = [
-  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false, isDefault: true },
+  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false, isDefault: true, systemKey: "cash" },
   {
     id: "tcredito",
     name: "T. Crédito",
@@ -82,11 +82,16 @@ const FALLBACK_METHODS: PaymentMethodConfig[] = [
     identifierLabel: "Código de giftcard",
     identifierPlaceholder: "Ej. GC-1234-5678",
     isDefault: true,
+    systemKey: "giftcard",
   },
 ]
 
 // ── Métodos secundarios — línea separada debajo de la grilla principal ────────
-const SECONDARY_PAYMENT_IDS = ["interno", "giftcard"]
+// Discriminante: systemKey (estable, viene del backend), no el id (taxonomyId
+// que varía por tenant). "interno" no tiene hoy un método real en el backend
+// (es un flag del carrito, no un medio de pago) — se mantiene por si se
+// materializa como taxonomy row con systemKey='internal' a futuro.
+const SECONDARY_SYSTEM_KEYS = ["internal", "giftcard"]
 
 // ── Tipo de pago aplicado ─────────────────────────────────────────────────────
 
@@ -320,7 +325,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       }
 
       // Si hubo pago con giftcard, consumirla (fire-and-forget: la venta ya está confirmada)
-      const gcPayment = appliedPayments.find((r) => r.method.id === "giftcard")
+      const gcPayment = appliedPayments.find((r) => r.method.systemKey === "giftcard")
       if (gcPayment?.identifier && result?.transactionId) {
         void api.post("/v1/giftcards?resource=consume", {
           code: gcPayment.identifier,
@@ -399,7 +404,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   }
 
   function handleMethodClick(method: PaymentMethodConfig) {
-    if (method.id === "giftcard") {
+    if (method.systemKey === "giftcard") {
       setPendingGiftcard(true)
       return
     }
@@ -664,7 +669,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         total={total}
         config={config}
         onApply={(code, amount) => {
-          const gcMethod = paymentMethods.find((m) => m.id === "giftcard")
+          const gcMethod = paymentMethods.find((m) => m.systemKey === "giftcard")
           if (gcMethod) {
             void applyPayment(gcMethod, amount, code)
           }
@@ -727,8 +732,12 @@ function PayPhase({
   onCreditConfirm,
   onCancel,
 }: PayPhaseProps) {
-  const primaryMethods = paymentMethods.filter((m) => !SECONDARY_PAYMENT_IDS.includes(m.id))
-  const secondaryMethods = paymentMethods.filter((m) => SECONDARY_PAYMENT_IDS.includes(m.id))
+  const primaryMethods = paymentMethods.filter(
+    (m) => !m.systemKey || !SECONDARY_SYSTEM_KEYS.includes(m.systemKey),
+  )
+  const secondaryMethods = paymentMethods.filter(
+    (m) => m.systemKey && SECONDARY_SYSTEM_KEYS.includes(m.systemKey),
+  )
   const activeCurrencies = currencies.filter((c) => c.value > 0)
   // El visor muestra lo tipeado si hay algo; si no, muestra el remaining.
   // Esto se logra con placeholder: el input está vacío y el placeholder
