@@ -88,6 +88,13 @@ final class PaymentMethodService
         if ($name === '') {
             throw new \RuntimeException('name requerido');
         }
+        // "Efectivo" es el método cash único del sistema — un segundo row con
+        // ese nombre generaría dos métodos undeletable/accountId-locked (ambos
+        // matchean isCashName) y rompería la detección 1:1 cash. Bloqueado acá
+        // en vez de UNIQUE en `taxonomy` (compartida con otros taxonomyType).
+        if ($this->isCashName($name) && $this->hasCashMethod($companyId)) {
+            throw new \RuntimeException('Ya existe un medio de pago Efectivo');
+        }
         $extra = $this->buildExtra($input, null);
 
         $rs = $this->db->Execute(
@@ -124,6 +131,11 @@ final class PaymentMethodService
             : (string) $current['name'];
         if ($name === '') {
             throw new \RuntimeException('name no puede estar vacío');
+        }
+        // Renombrar OTRO método a "Efectivo" también crearía un segundo cash —
+        // mismo guard que create().
+        if ($this->isCashName($name) && !$this->isCashName((string) $current['name']) && $this->hasCashMethod($companyId)) {
+            throw new \RuntimeException('Ya existe un medio de pago Efectivo');
         }
 
         $extra = $this->buildExtra($input, $current);
@@ -167,8 +179,13 @@ final class PaymentMethodService
 
     /**
      * Auto-seed idempotente: si el tenant no tiene ningún medio de pago, crea
-     * los 3 defaults (mismos que FALLBACK_PAYMENT_METHODS del BFF POS).
+     * los defaults (mismos que FALLBACK_PAYMENT_METHODS del BFF POS).
      * "Efectivo" DEBE llamarse exactamente así (detección isCash).
+     *
+     * Incluye Giftcard (systemKey='giftcard'): su flujo especial en pay-dialog
+     * (validación + settlement) se dispara por systemKey, así que DEBE existir
+     * como método real — si no se seedea, el POS nunca lo vería una vez que
+     * ensureSeed corre (el fallback del bootstrap solo aplica con lista vacía).
      */
     public function ensureSeed(string $companyId): void
     {
@@ -185,6 +202,7 @@ final class PaymentMethodService
             ['Efectivo', ['code' => 'A', 'hasChange' => true,  'requiresIdentifier' => false, 'systemKey' => 'cash']],
             ['T. Crédito', ['code' => 'S', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456']],
             ['T. Débito', ['code' => 'D', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456']],
+            ['Giftcard', ['code' => 'G', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Código de giftcard', 'identifierPlaceholder' => 'Ej. GC-1234-5678', 'systemKey' => 'giftcard']],
         ];
         foreach ($defaults as [$name, $extra]) {
             $this->db->Execute(
@@ -286,6 +304,18 @@ final class PaymentMethodService
     private function isCashName(string $name): bool
     {
         return strcasecmp(trim($name), 'Efectivo') === 0;
+    }
+
+    /** true si el tenant ya tiene un método de pago llamado "Efectivo". */
+    private function hasCashMethod(string $companyId): bool
+    {
+        $rs = $this->db->Execute(
+            "SELECT 1 FROM taxonomy
+              WHERE companyId = ? AND taxonomyType = ? AND taxonomyName ILIKE 'efectivo'
+              LIMIT 1",
+            [$companyId, 'paymentMethod']
+        );
+        return $rs !== false && !$rs->EOF;
     }
 
     private function str($v): string

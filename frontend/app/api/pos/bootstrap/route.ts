@@ -375,11 +375,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         "/v1/users?status=1&limit=200",
         headers,
       ),
+      // .catch() propio: un fallo acá (red/timeout/DNS) NO debe reventar el
+      // Promise.all entero (eso tiraría 502 a TODO el bootstrap, no solo a
+      // payment-methods). Se resuelve a un resultado "vacío" que el código de
+      // abajo ya sabe degradar a FALLBACK_PAYMENT_METHODS.
       fetchUpstream<UpstreamPaymentMethodsList>(
         base,
         "/v1/payment-methods",
         headers,
-      ),
+      ).catch((err) => {
+        console.warn("[bff /api/pos/bootstrap] payment-methods fetch falló (degradando a fallback)", {
+          err: err instanceof Error ? err.message : String(err),
+        })
+        return { status: 0, data: null, rawText: "" }
+      }),
     ])
   } catch (err) {
     console.error("[bff /api/pos/bootstrap] network error", {
@@ -449,6 +458,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // payment-methods: NUNCA debe bloquear ni tirar 500 el bootstrap. Cualquier
   // falla (5xx, red, respuesta vacía) degrada al fallback hardcodeado — el
   // POS siempre necesita al menos Efectivo para poder cobrar.
+  // NOTA (intencional): un 401 acá NO se propaga como en los 5 core — degrada a
+  // fallback. Si los 5 core autenticaron OK, es improbable que solo este 401;
+  // y ante la duda preferimos un POS operable con métodos default que un
+  // bootstrap caído. El re-login lo fuerzan los core, no este endpoint.
   if (paymentMethodsRes.status >= 400) {
     const snippet =
       paymentMethodsRes.rawText.length > 500
