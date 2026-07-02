@@ -56,7 +56,13 @@ define('OUTLET_PHONE', $allOutletData['phone']);
 define('OUTLET_ADDRESS', $allOutletData['address']);
 define('OUTLET_WHATS_APP',$allOutletData['whatsapp']);
 
-date_default_timezone_set($setting['settingTimeZone']);
+// Guard: settingTimeZone puede venir vacío o inválido (tenant sin TZ configurada)
+// → date_default_timezone_set('') tira warning/500. Fallback a la TZ del negocio (PY).
+$__tz = (string) ($setting['settingTimeZone'] ?? '');
+if ($__tz === '' || !in_array($__tz, timezone_identifiers_list(), true)) {
+    $__tz = 'America/Asuncion';
+}
+date_default_timezone_set($__tz);
 define('COUNTRY_CODE', $setting['settingCountry']);
 define('COUNTRY', $setting['settingCountry']);
 define('TODAY', date('Y-m-d H:i:s'));
