@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Wallet } from "lucide-react"
+import { Wallet, History } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -16,8 +16,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useFinanceAccounts } from "@/hooks/use-finance-accounts"
 import { useFinanceConfig, useUpdateFinanceConfig } from "@/hooks/use-finance-config"
+import { useFinanceBackfill } from "@/hooks/use-finance-backfill"
 
 const CASH_ACCOUNT_VALUE = "__efectivo__"
 
@@ -25,8 +36,25 @@ export default function FinanzasAjustesPage() {
   const { data: accounts, isLoading: isLoadingAccounts } = useFinanceAccounts()
   const { data: methods, isLoading: isLoadingConfig } = useFinanceConfig()
   const updateConfig = useUpdateFinanceConfig()
+  const backfill = useFinanceBackfill()
 
   const [localMap, setLocalMap] = React.useState<Record<string, string | null>>({})
+  const [backfillDialogOpen, setBackfillDialogOpen] = React.useState(false)
+
+  const handleBackfill = async () => {
+    try {
+      const result = await backfill.mutateAsync()
+      toast.success("Histórico importado", {
+        description: `${result.movementsCreated} movimiento(s) nuevo(s) generado(s).`,
+      })
+    } catch (e) {
+      toast.error("No se pudo importar el histórico", {
+        description: e instanceof Error ? e.message : undefined,
+      })
+    } finally {
+      setBackfillDialogOpen(false)
+    }
+  }
 
   React.useEffect(() => {
     if (methods) {
@@ -136,6 +164,48 @@ export default function FinanzasAjustesPage() {
           Guardar
         </Button>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold tracking-tight">
+            Importar histórico
+          </CardTitle>
+          <CardDescription>
+            Genera los movimientos de Finanzas a partir de las ventas, pagos de crédito,
+            compras y movimientos de caja que ya existen en el sistema. Se puede ejecutar
+            más de una vez — no duplica movimientos ya importados.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={() => setBackfillDialogOpen(true)}
+            disabled={backfill.isPending}
+          >
+            <History className="size-4" />
+            Importar histórico
+          </Button>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={backfillDialogOpen} onOpenChange={setBackfillDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Importar histórico de Finanzas</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se van a generar movimientos para toda la operación histórica (ventas,
+              pagos de crédito, compras y caja) que todavía no tenga su movimiento en
+              Finanzas. Puede tardar unos segundos según el volumen de datos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleBackfill()} disabled={backfill.isPending}>
+              {backfill.isPending ? "Importando…" : "Importar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

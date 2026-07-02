@@ -68,6 +68,13 @@ if ($method === 'POST') {
         apiError($e->getMessage(), 422);
     }
 
+    // Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe la compra.
+    try {
+        (new \Punto\Api\Finance\FinanceLedger())->recordPurchase((string) COMPANY_ID, $id);
+    } catch (\Throwable $e) {
+        error_log('[FinanceLedger] recordPurchase falló para id=' . $id . ': ' . $e->getMessage());
+    }
+
     apiOk(['id' => $id]);
 }
 
@@ -81,6 +88,14 @@ if ($method === 'DELETE') {
     } catch (\RuntimeException $e) {
         apiError($e->getMessage(), 422);
     }
+
+    // Finanzas Fase 3: revierte el/los movimiento(s) derivados de esta compra.
+    try {
+        (new \Punto\Api\Finance\FinanceLedger())->voidBySource((string) COMPANY_ID, 'purchase', $id);
+    } catch (\Throwable $e) {
+        error_log('[FinanceLedger] voidBySource(purchase) falló para id=' . $id . ': ' . $e->getMessage());
+    }
+
     apiOk($res);
 }
 

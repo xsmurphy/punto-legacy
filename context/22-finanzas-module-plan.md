@@ -190,8 +190,28 @@ api-client (`api.get/post/put/del`), invalidación al mutar. Agregar el ítem
    'adjustment'). Selector de contacto en el form de cheques quedó fuera de
    alcance (no hay combobox de contactos reusable todavía) — `partyName`
    texto libre cubre el caso de uso.
-3. **Fase 3 — Auto-integración**: FinanceLedger + hooks post-commit en
-   Sale/Purchase/Expense/CreditPayment + backfill histórico + dashboard de flujo.
+3. **Fase 3 — Auto-integración** (implementada 2026-07-02): `FinanceLedger`
+   (`api/lib/Finance/FinanceLedger.php`) re-lee la fila de origen por id — el
+   mismo código sirve para el hook en vivo y para el backfill. Hooks
+   post-commit best-effort (try/catch que solo logea) en `sales.php`,
+   `credit-payments.php`, `purchases.php` (create + void) y `transactions.php`
+   (`voidTransaction` → `voidBySource`). `DrawerService::addExpense/addIncome`
+   migrados a `ncmInsert` para recuperar el id y engancharlo al ledger.
+   - **Pago dividido**: mig 73 cambia el UNIQUE a
+     `(companyid, source, sourceid, accountid)`. Una venta con varios métodos
+     que caen en cuentas distintas genera N movimientos (1 por cuenta,
+     sumando líneas); re-correr el backfill es idempotente.
+   - **Idempotencia de saldo ATÓMICA**: `MovementService::recordDerivedMovement()`
+     usa `INSERT ... ON CONFLICT DO NOTHING RETURNING` — el delta de
+     `currentbalance` se aplica una única vez, solo cuando el RETURNING trae
+     fila (sin ventana TOCTOU).
+   - **Backfill**: `api/database/seeds/finance_backfill.php` (CLI) +
+     `POST /v1/finance/backfill` (permiso `finance.manage`, advisory lock por
+     tenant) + botón "Importar histórico" en Finanzas → Ajustes.
+   - **TODO Fase 4**: devoluciones (`transactionType=2/6`) no generan
+     movimiento todavía — sobreestiman ingresos una vez que existan returns.
+     Backfill sin cap de tiempo (chunk/queue si un tenant crece mucho).
+     Dashboard de flujo de caja (cashflow) queda pendiente.
 
 ## 9. Reglas del proyecto (obligatorias)
 

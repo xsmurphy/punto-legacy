@@ -321,6 +321,139 @@ final class MovementService
         return ['id' => $id, 'status' => 0];
     }
 
+    /**
+     * Inserta un movimiento derivado (source != 'manual'/'transfer') de forma
+     * idempotente y aplica el delta de saldo SOLO si la fila se creó de
+     * verdad. Reusado por `FinanceLedger` (hooks en vivo + backfill, Fase 3)
+     * — es la misma primitiva que usan `create()`/`transfer()` acá arriba,
+     * así que el saldo nunca se calcula dos veces con lógica distinta.
+     *
+     * Idempotencia: confía en el UNIQUE (companyid, source, sourceid, accountid)
+     * WHERE sourceid IS NOT NULL (mig 73). `sourceId` es obligatorio acá —
+     * los movimientos manuales/transferencias siguen pasando por
+     * `insertMovement()` (sourceid NULL, no aplica el UNIQUE).
+     *
+     * @param array{accountId:string,categoryId?:string|null,kind:string,amount:float,date?:string,description?:string,paymentMethod?:string,userId?:string,outletId?:string} $fields
+     * @return array{inserted:bool,movementId:?string}
+     */
+    public function recordDerivedMovement(string $companyId, string $source, string $sourceId, array $fields): array
+    {
+        global $db;
+
+        $accountId = (string) ($fields['accountId'] ?? '');
+        if (!preg_match(self::UUID_RE, $accountId)) {
+            throw new \RuntimeException('accountId requerido y debe ser UUID');
+        }
+        $kind = (string) ($fields['kind'] ?? '');
+        if (!in_array($kind, self::KINDS, true)) {
+            throw new \RuntimeException('kind debe ser income o expense');
+        }
+        $amount = (float) ($fields['amount'] ?? 0);
+        if ($amount <= 0) {
+            return ['inserted' => false, 'movementId' => null];
+        }
+        $categoryId = (string) ($fields['categoryId'] ?? '');
+        $categoryId = ($categoryId !== '' && preg_match(self::UUID_RE, $categoryId)) ? $categoryId : null;
+
+        $movementId = $this->uuidV4();
+        $date       = $this->normalizeDate($fields['date'] ?? null);
+        $userId     = (string) ($fields['userId'] ?? '') ?: null;
+        $outletId   = (string) ($fields['outletId'] ?? '') ?: null;
+        $description = (string) ($fields['description'] ?? '') ?: null;
+        $paymentMethod = (string) ($fields['paymentMethod'] ?? '') ?: null;
+
+        $db->StartTrans();
+
+        // Idempotencia ATÓMICA: INSERT ... ON CONFLICT DO NOTHING RETURNING.
+        // El UNIQUE (companyid,source,sourceid,accountid) de mig 73 es el árbitro.
+        // Si otra request/backfill ya insertó esta (venta, cuenta), el ON CONFLICT
+        // no crea fila y el RETURNING viene vacío → NO aplicamos delta de saldo.
+        // Elimina la ventana TOCTOU del patrón SELECT-luego-INSERT: el chequeo de
+        // existencia y la inserción son una sola sentencia atómica.
+        $inserted = ncmExecute(
+            'INSERT INTO fin_movement
+                (movementid, companyid, accountid, categoryid, kind, amount, date,
+                 description, paymentmethod, source, sourceid, userid, outletid, status)
+             VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, 1)
+             ON CONFLICT (companyid, source, sourceid, accountid)
+                 WHERE sourceid IS NOT NULL
+             DO NOTHING
+             RETURNING movementid',
+            [
+                $movementId, $companyId, $accountId, $categoryId, $kind, $amount, $date,
+                $description, $paymentMethod, $source, $sourceId, $userId, $outletId,
+            ]
+        );
+
+        // RETURNING trae fila SOLO si el INSERT creó de verdad → delta una única vez.
+        if ($inserted && !empty($inserted['movementid'])) {
+            $this->applyBalanceDelta($accountId, $companyId, $kind, $amount);
+        }
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException("No se pudo registrar el movimiento derivado ({$source}/{$sourceId})");
+        }
+
+        if ($inserted && !empty($inserted['movementid'])) {
+            return ['inserted' => true, 'movementId' => (string) $inserted['movementid']];
+        }
+
+        // Conflicto: ya existía. Devolvemos el id de la fila ganadora (sin tocar saldo).
+        $winner = ncmExecute(
+            'SELECT movementid FROM fin_movement WHERE companyid = ? AND source = ? AND sourceid = ? AND accountid = ? LIMIT 1',
+            [$companyId, $source, $sourceId, $accountId]
+        );
+        return ['inserted' => false, 'movementId' => $winner ? (string) $winner['movementid'] : null];
+    }
+
+    /**
+     * Anula (soft-void) todos los movimientos activos de un origen derivado
+     * + revierte el saldo. Reusado por `FinanceLedger::voidBySource()`.
+     */
+    public function voidBySource(string $companyId, string $source, string $sourceId): int
+    {
+        global $db;
+
+        $rs = ncmExecute(
+            'SELECT * FROM fin_movement WHERE companyid = ? AND source = ? AND sourceid = ? AND status = 1',
+            [$companyId, $source, $sourceId],
+            false,
+            true
+        );
+        $rows = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $rows[] = $rs->fields;
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        if (empty($rows)) {
+            return 0;
+        }
+
+        $db->StartTrans();
+        foreach ($rows as $row) {
+            $legId       = (string) $row['movementid'];
+            $accountId   = (string) $row['accountid'];
+            $kind        = (string) $row['kind'];
+            $amount      = (float) $row['amount'];
+            $reverseKind = $kind === 'income' ? 'expense' : 'income';
+
+            ncmExecute('UPDATE fin_movement SET status = 0 WHERE movementid = ? AND companyid = ?', [$legId, $companyId]);
+            $this->applyBalanceDelta($accountId, $companyId, $reverseKind, $amount);
+        }
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException("No se pudo anular los movimientos de {$source}/{$sourceId}");
+        }
+
+        return count($rows);
+    }
+
     // ── helpers internos ─────────────────────────────────────────────────
 
     private function insertMovement(string $companyId, array $fields)

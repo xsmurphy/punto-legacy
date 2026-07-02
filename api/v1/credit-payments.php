@@ -53,4 +53,11 @@ require_once __DIR__ . '/../lib/services/CreditPaymentService.php';
 $svc    = new \Punto\Api\Services\CreditPaymentService();
 $result = $svc->create($companyId, $userId, $parentId, $amount, $pmKey, $note ?: null, $identifier ?: null);
 
+// Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe el pago.
+try {
+    (new \Punto\Api\Finance\FinanceLedger())->recordCreditPayment($companyId, (string) ($result['id'] ?? ''));
+} catch (\Throwable $e) {
+    error_log('[FinanceLedger] recordCreditPayment falló para id=' . ($result['id'] ?? '') . ': ' . $e->getMessage());
+}
+
 apiOk($result);

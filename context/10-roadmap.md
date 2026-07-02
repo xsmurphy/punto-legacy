@@ -430,6 +430,13 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 - Cutover `SummaryYearService`/`Categories`/`Brands`/`PaymentMethods` — GATED por `REPORTS_ROLLUP_ENABLED` (default OFF = live; activar tras `?verify=1` con diff vacío)
 - **Procedimiento activación** documentado en `context/18` §"Procedimiento de cutover"
 
+### Finanzas Fase 1-3 ✅ (plan `context/22`)
+
+- Fase 1-2: mig 72 (`fin_account`/`fin_category`/`fin_movement`/`fin_check`/`fin_reconciliation`) + Account/Category/Movement/Check/Reconciliation services + endpoints `/v1/finance/*` + UI (Resumen/Cuentas/Categorías/Movimientos/Cheques/Conciliación/Ajustes) + permiso `finance.manage`
+- **Fase 3 (auto-integración, 2026-07-02)**: mig 73 (UNIQUE por `(companyid,source,sourceid,accountid)` para split-payment) + `FinanceLedger` (re-lee la fila de origen; sirve para hook en vivo Y backfill) + hooks best-effort en sales/credit-payments/purchases/transactions + `DrawerService`→`ncmInsert` + backfill CLI + `POST /v1/finance/backfill` (advisory lock) + botón "Importar histórico"
+- **Idempotencia de saldo atómica**: `recordDerivedMovement` con `INSERT ... ON CONFLICT DO NOTHING RETURNING` — delta a `currentbalance` una única vez, sin TOCTOU
+- **TODO Fase 4**: returns (`transactionType=2/6`) no generan movimiento (sobreestiman ingresos); backfill sin cap de tiempo; dashboard cashflow
+
 ### Agente IA AI-1..AI-3b ✅ (plan `context/17`)
 
 - Mig 43 `ai_model_config` (capability→model+creditsPerKToken, editable desde /admin — UI pendiente AI-4)
