@@ -25,6 +25,13 @@ export interface PaymentMethodConfig {
   identifierPlaceholder?: string
   /** true = método del sistema (Efectivo, T. Crédito, T. Débito). Render destacado. */
   isDefault?: boolean
+  /**
+   * Discriminante estable para comportamiento especial en el POS (cash,
+   * giftcard, internal). Viene de `taxonomyExtra.systemKey` en el backend —
+   * usar esto en vez de comparar contra el `id` (taxonomyId), que varía por
+   * tenant y no es estable entre entornos.
+   */
+  systemKey?: "cash" | "giftcard" | "internal" | null
 }
 
 // ── Config del tenant ─────────────────────────────────────────────────────────

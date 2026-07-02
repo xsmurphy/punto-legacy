@@ -37,10 +37,11 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 // ── Fallback de métodos de pago ───────────────────────────────────────────────
-// Hardcoded hasta que el owner decida exponer taxonomy paymentMethod via /v1.
+// Se usa SOLO cuando GET /v1/payment-methods falla o devuelve vacío (ver
+// handler abajo) — el bootstrap nunca debe dejar el POS sin poder cobrar.
 
 const FALLBACK_PAYMENT_METHODS: PaymentMethodConfig[] = [
-  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false, isDefault: true },
+  { id: "efectivo", name: "Efectivo", code: "A", hasChange: true, requiresIdentifier: false, isDefault: true, systemKey: "cash" },
   {
     id: "tcredito",
     name: "T. Crédito",
@@ -160,6 +161,23 @@ interface UpstreamContactsList {
   total: number
 }
 
+// Shape real de /v1/payment-methods — ver PaymentMethodService::present().
+interface UpstreamPaymentMethodRow {
+  id: string
+  name: string
+  code: string
+  hasChange: boolean
+  requiresIdentifier: boolean
+  identifierLabel: string
+  identifierPlaceholder: string
+  systemKey: "cash" | "giftcard" | "internal" | null
+  accountId: string | null
+}
+
+interface UpstreamPaymentMethodsList {
+  paymentMethods: UpstreamPaymentMethodRow[]
+}
+
 interface UpstreamUserRow {
   id: string
   name: string
@@ -272,6 +290,20 @@ function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
   }
 }
 
+function reshapePaymentMethod(row: UpstreamPaymentMethodRow): PaymentMethodConfig {
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code || undefined,
+    hasChange: row.hasChange,
+    requiresIdentifier: row.requiresIdentifier,
+    identifierLabel: row.identifierLabel || undefined,
+    identifierPlaceholder: row.identifierPlaceholder || undefined,
+    isDefault: row.systemKey != null,
+    systemKey: row.systemKey,
+  }
+}
+
 function reshapeUsers(
   data: UpstreamUsersList | null,
   httpStatus: number,
@@ -319,8 +351,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let customersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamContactsList>>>
   let registersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamRegisterList>>>
   let usersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamUsersList>>>
+  let paymentMethodsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamPaymentMethodsList>>>
   try {
-    ;[bsRes, itemsRes, customersRes, registersRes, usersRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -340,6 +373,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       fetchUpstream<UpstreamUsersList>(
         base,
         "/v1/users?status=1&limit=200",
+        headers,
+      ),
+      fetchUpstream<UpstreamPaymentMethodsList>(
+        base,
+        "/v1/payment-methods",
         headers,
       ),
     ])
@@ -408,6 +446,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     })
   }
 
+  // payment-methods: NUNCA debe bloquear ni tirar 500 el bootstrap. Cualquier
+  // falla (5xx, red, respuesta vacía) degrada al fallback hardcodeado — el
+  // POS siempre necesita al menos Efectivo para poder cobrar.
+  if (paymentMethodsRes.status >= 400) {
+    const snippet =
+      paymentMethodsRes.rawText.length > 500
+        ? paymentMethodsRes.rawText.slice(0, 500) + "…"
+        : paymentMethodsRes.rawText
+    console.warn("[bff /api/pos/bootstrap] upstream error payment-methods (degradando a fallback)", {
+      status: paymentMethodsRes.status,
+      body: snippet,
+    })
+  }
+
   if (
     bsRes.status >= 500 ||
     itemsRes.status >= 500 ||
@@ -470,6 +522,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }),
   )
 
+  // Medios de pago reales del tenant. Si el fetch falló o el tenant todavía
+  // no tiene ninguno (antes del auto-seed, o error transitorio), degradar al
+  // fallback hardcodeado — el bootstrap NUNCA debe dejar el POS sin métodos
+  // de pago para cobrar.
+  const fetchedPaymentMethods = paymentMethodsRes.data?.paymentMethods ?? []
+  const paymentMethods: PaymentMethodConfig[] =
+    fetchedPaymentMethods.length > 0
+      ? fetchedPaymentMethods.map(reshapePaymentMethod)
+      : FALLBACK_PAYMENT_METHODS
+
   const bootstrap: PosBootstrap = {
     config: reshapeConfig(bs),
     user: {
@@ -485,7 +547,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     registers,
     items,
     customers,
-    paymentMethods: FALLBACK_PAYMENT_METHODS,
+    paymentMethods,
     users: reshapeUsers(usersRes.data, usersRes.status),
     activeRegisterId: bs.activeRegisterId ?? "",
   }
