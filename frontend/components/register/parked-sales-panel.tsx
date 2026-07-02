@@ -84,16 +84,16 @@ export function ParkedSalesPanel() {
           >
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground truncate">
-                {sale.data.title?.trim()
+                {sale.data?.title?.trim()
                   ? sale.data.title
                   : `${itemCount} ${itemCount === 1 ? "ítem" : "ítems"}`}
-                {sale.data.customer && (
+                {sale.data?.customer && (
                   <span className="ml-1.5 text-muted-foreground">
                     · {sale.data.customer.name}
                   </span>
                 )}
               </p>
-              {sale.data.title?.trim() && (
+              {sale.data?.title?.trim() && (
                 <p className="text-xs text-muted-foreground">
                   {itemCount} {itemCount === 1 ? "ítem" : "ítems"}
                 </p>
