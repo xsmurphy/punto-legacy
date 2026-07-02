@@ -39,6 +39,7 @@ import { enqueue, getCount } from "@/lib/pos/offline-queue"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import { resolveColorBg } from "@/lib/ui/color-palette"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
 import { api } from "@/lib/api-client"
@@ -147,8 +148,15 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const config = useCatalogStore((s) => s.config)
   const storedMethods = useCatalogStore((s) => s.paymentMethods)
 
-  const paymentMethods =
-    storedMethods.length > 0 ? storedMethods : FALLBACK_METHODS
+  const paymentMethods = React.useMemo(() => {
+    const list = storedMethods.length > 0 ? storedMethods : FALLBACK_METHODS
+    // Orden por sortOrder (drag&drop del panel); sin valor cae al final estable.
+    return [...list].sort((a, b) => {
+      const sa = a.sortOrder ?? Number.MAX_SAFE_INTEGER
+      const sb = b.sortOrder ?? Number.MAX_SAFE_INTEGER
+      return sa - sb
+    })
+  }, [storedMethods])
 
   const { data: currenciesData } = useSettingsCurrencies()
   const currencies = currenciesData?.rows ?? []
@@ -870,11 +878,14 @@ function PayPhase({
 
         {/* Grilla de métodos principal — 3 cols. */}
         <div className="grid grid-cols-3 gap-1.5">
-          {primaryMethods.map((m) => (
+          {primaryMethods.map((m) => {
+            const accent = resolveColorBg(m.color)
+            return (
             <Button
               key={m.id}
               variant={m.isDefault ? "default" : "outline"}
-              className="h-9 justify-center gap-1.5 px-2 text-xs font-medium"
+              className="h-9 justify-center gap-1.5 border-l-4 px-2 text-xs font-medium"
+              style={accent ? { borderLeftColor: accent } : undefined}
               onClick={() => onMethodClick(m)}
               disabled={!credito && remaining <= 0}
             >
@@ -892,7 +903,8 @@ function PayPhase({
                 </kbd>
               )}
             </Button>
-          ))}
+            )
+          })}
         </div>
 
         {/* Métodos secundarios (Crédito Interno, Giftcard). */}
@@ -900,11 +912,14 @@ function PayPhase({
           <>
             <Separator className="my-0.5" />
             <div className="flex flex-wrap gap-1.5">
-              {secondaryMethods.map((m) => (
+              {secondaryMethods.map((m) => {
+                const accent = resolveColorBg(m.color)
+                return (
                 <Button
                   key={m.id}
                   variant="outline"
-                  className="h-8 justify-center gap-1.5 px-3 text-xs font-medium text-muted-foreground"
+                  className="h-8 justify-center gap-1.5 border-l-4 px-3 text-xs font-medium text-muted-foreground"
+                  style={accent ? { borderLeftColor: accent } : undefined}
                   onClick={() => onMethodClick(m)}
                   disabled={!credito && remaining <= 0}
                 >
@@ -915,7 +930,8 @@ function PayPhase({
                     </kbd>
                   )}
                 </Button>
-              ))}
+                )
+              })}
             </div>
           </>
         )}
