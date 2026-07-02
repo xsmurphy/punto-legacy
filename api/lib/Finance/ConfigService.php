@@ -152,14 +152,68 @@ final class ConfigService
             return $cashId;
         }
 
-        // Camino 2 — backfill histórico: key es un slug legacy, match por nombre.
+        // Camino 2 — backfill histórico + POS (slug legacy, ej "tcredito",
+        // "efectivo"). El POS manda el slug/name crudo, NO el taxonomyId — hay
+        // que resolverlo al método REAL del tenant antes de mirar finAccountMap.
+        // Match defensivo, en orden: systemKey → code de taxonomy → nombre
+        // normalizado. Si nada matchea, cae a Efectivo (nunca se pierde el
+        // movimiento).
         $normalized = $this->normalizeMethodKey($paymentMethodKey);
         if ($normalized === 'efectivo') {
             return $cashId;
         }
+
+        $slugToCode = [
+            'efectivo' => 'A',
+            'tarjeta_credito' => 'S',
+            'tarjeta_debito' => 'D',
+            'cheque' => 'F',
+            'giftcard' => 'G',
+        ];
+        $slugToName = [
+            'tarjeta_credito' => 'T. Crédito',
+            'tarjeta_debito' => 'T. Débito',
+            'cheque' => 'Cheque',
+            'transferencia' => 'Transferencia',
+            'giftcard' => 'Gift Card',
+            'billetera' => 'Billetera',
+        ];
+        $wantedCode = $slugToCode[$normalized] ?? null;
+        $wantedName = $slugToName[$normalized] ?? $normalized;
+
+        $methods = $this->paymentMethodsFull($companyId);
+        $methodId = null;
+        foreach ($methods as $method) {
+            if ($method['systemKey'] !== null && $method['systemKey'] === $paymentMethodKey) {
+                $methodId = $method['id'];
+                break;
+            }
+        }
+        if ($methodId === null && $wantedCode !== null) {
+            foreach ($methods as $method) {
+                if ($method['code'] !== null && strcasecmp($method['code'], $wantedCode) === 0) {
+                    $methodId = $method['id'];
+                    break;
+                }
+            }
+        }
+        if ($methodId === null) {
+            foreach ($methods as $method) {
+                if (strcasecmp($method['name'], $wantedName) === 0
+                    || strcasecmp($method['name'], $paymentMethodKey) === 0
+                ) {
+                    $methodId = $method['id'];
+                    break;
+                }
+            }
+        }
+        if ($methodId === null) {
+            return $cashId;
+        }
+
         $map = $this->read($companyId);
         foreach ($map as $entry) {
-            if (strcasecmp($entry['methodName'], $normalized) === 0) {
+            if ((string) $entry['methodId'] === $methodId) {
                 return $entry['accountId'] ?? $cashId;
             }
         }
@@ -207,6 +261,43 @@ final class ConfigService
         if ($res && is_object($res)) {
             while (!$res->EOF) {
                 $out[] = ['id' => (string) $res->fields['taxonomyId'], 'name' => (string) $res->fields['taxonomyName']];
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+        return $out;
+    }
+
+    /**
+     * Métodos de pago reales del tenant, incluyendo `code` y `systemKey`
+     * (viven en el JSONB `taxonomyExtra` — ver PaymentMethodService). Usado
+     * por el camino slug de resolveAccountId para matchear el slug del POS
+     * contra el método real más allá del nombre.
+     *
+     * @return array<int,array{id:string,name:string,code:?string,systemKey:?string}>
+     */
+    private function paymentMethodsFull(string $companyId): array
+    {
+        $res = ncmExecute(
+            "SELECT taxonomyId, taxonomyName,
+                    taxonomyExtra->>'code' AS code,
+                    taxonomyExtra->>'systemKey' AS systemKey
+               FROM taxonomy
+              WHERE taxonomyType = ? AND companyId = ?
+              ORDER BY taxonomyName ASC",
+            ['paymentMethod', $companyId],
+            false,
+            true
+        );
+        $out = [];
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $out[] = [
+                    'id'        => (string) $res->fields['taxonomyid'],
+                    'name'      => (string) $res->fields['taxonomyname'],
+                    'code'      => $res->fields['code'] !== null ? (string) $res->fields['code'] : null,
+                    'systemKey' => $res->fields['systemkey'] !== null ? (string) $res->fields['systemkey'] : null,
+                ];
                 $res->MoveNext();
             }
             $res->Close();
