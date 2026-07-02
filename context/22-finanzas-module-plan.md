@@ -181,8 +181,15 @@ api-client (`api.get/post/put/del`), invalidación al mutar. Agregar el ítem
    MovementService + endpoints accounts/categories/movements/config + seed
    defaults + UI (Resumen, Cuentas, Categorías, Movimientos, Ajustes) + nav +
    permiso `finance.manage`. Todo con carga manual funcionando. `npm run build` + `php -l`.
-2. **Fase 2 — Cheques + Conciliación**: CheckService/ReconciliationService +
-   endpoints + UI (Cheques, Conciliación).
+2. **Fase 2 — Cheques + Conciliación** (implementada 2026-07-02):
+   CheckService/ReconciliationService + endpoints `checks.php`/
+   `reconciliations.php` + UI (tabs Cheques, Conciliación). Cheque→movimiento
+   en `cleared` (idempotente vía UNIQUE source+sourceid); revertir estado
+   anula el movimiento. Conciliación: toggle de `reconciled` no toca
+   `currentbalance`; cierre con diff=0 o ajuste automático (source=
+   'adjustment'). Selector de contacto en el form de cheques quedó fuera de
+   alcance (no hay combobox de contactos reusable todavía) — `partyName`
+   texto libre cubre el caso de uso.
 3. **Fase 3 — Auto-integración**: FinanceLedger + hooks post-commit en
    Sale/Purchase/Expense/CreditPayment + backfill histórico + dashboard de flujo.
 
