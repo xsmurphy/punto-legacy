@@ -58,6 +58,30 @@ import type { SettingsFormValues } from "@/lib/types/settings"
 import { ModulesPanel } from "@/components/modules/modules-panel"
 import { PlanPanel } from "@/components/billing/plan-panel"
 
+// Zonas horarias (IANA) — el usuario elige de una lista en vez de tipear el
+// formato exacto. Foco LatAm + las comunes; el value es el IANA tz real.
+const TIME_ZONES: { value: string; label: string }[] = [
+  { value: "America/Asuncion", label: "Paraguay (Asunción)" },
+  { value: "America/Argentina/Buenos_Aires", label: "Argentina (Buenos Aires)" },
+  { value: "America/Sao_Paulo", label: "Brasil (São Paulo)" },
+  { value: "America/Montevideo", label: "Uruguay (Montevideo)" },
+  { value: "America/Santiago", label: "Chile (Santiago)" },
+  { value: "America/La_Paz", label: "Bolivia (La Paz)" },
+  { value: "America/Lima", label: "Perú (Lima)" },
+  { value: "America/Bogota", label: "Colombia (Bogotá)" },
+  { value: "America/Caracas", label: "Venezuela (Caracas)" },
+  { value: "America/Guayaquil", label: "Ecuador (Guayaquil)" },
+  { value: "America/Mexico_City", label: "México (Ciudad de México)" },
+  { value: "America/Guatemala", label: "Guatemala" },
+  { value: "America/Costa_Rica", label: "Costa Rica" },
+  { value: "America/Panama", label: "Panamá" },
+  { value: "America/Santo_Domingo", label: "Rep. Dominicana (Santo Domingo)" },
+  { value: "America/New_York", label: "EE.UU. (Nueva York)" },
+  { value: "America/Los_Angeles", label: "EE.UU. (Los Ángeles)" },
+  { value: "Europe/Madrid", label: "España (Madrid)" },
+  { value: "UTC", label: "UTC" },
+]
+
 const settingsSchema = z.object({
   name: z.string(),
   address: z.string(),
@@ -481,11 +505,22 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Zona horaria</FormLabel>
-              <FormControl>
-                <Input placeholder="America/Asuncion" {...field} />
-              </FormControl>
+              <Select value={field.value || undefined} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar zona horaria" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {TIME_ZONES.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <FormDescription className="text-xs">
-                Formato IANA tz (ej. <code className="rounded bg-muted px-1">America/Asuncion</code>).
+                Elegí la zona horaria de tu negocio.
               </FormDescription>
               <FormMessage />
             </FormItem>
