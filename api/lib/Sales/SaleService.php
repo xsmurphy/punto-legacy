@@ -198,6 +198,16 @@ final class SaleService
             error_log('[SaleService] rollupMarkDirty: ' . $e->getMessage());
         }
 
+        // Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe la
+        // venta ni el sync offline. Único punto de verdad: antes vivía solo en
+        // api/v1/sales.php, lo que dejaba afuera api/v1/offline-sync.php (la ruta
+        // real del POS) → 0 ingresos en Finanzas. Centralizado acá cubre ambas.
+        try {
+            (new \Punto\Api\Finance\FinanceLedger())->recordSale((string) $this->ctx->companyId, (string) $transId);
+        } catch (\Throwable $e) {
+            error_log('[SaleService] FinanceLedger::recordSale falló para ' . $transId . ': ' . $e->getMessage());
+        }
+
         return SaleResult::created(
             transactionId: (string) $transId,
             uid:           $input->uid,
