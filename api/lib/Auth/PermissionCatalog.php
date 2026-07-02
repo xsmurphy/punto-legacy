@@ -57,6 +57,8 @@ final class PermissionCatalog
             ['id' => 'billing.view',             'label' => 'Ver facturación',         'group' => 'Facturación'],
             ['id' => 'billing.manage',           'label' => 'Gestionar plan y pagos',  'group' => 'Facturación'],
 
+            ['id' => 'finance.manage',           'label' => 'Gestionar finanzas',      'group' => 'Finanzas'],
+
             ['id' => 'ai.agent.use',             'label' => 'Usar agente IA',          'group' => 'IA'],
             ['id' => 'ai.agent.elevated',        'label' => 'IA con permisos elevados','group' => 'IA'],
         ];

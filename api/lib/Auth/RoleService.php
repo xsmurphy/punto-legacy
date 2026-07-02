@@ -53,6 +53,7 @@ final class RoleService
             'settings.template.manage','settings.device.pair','settings.device.manage',
             'settings.company.edit',
             'ai.agent.use','ai.agent.elevated',
+            'finance.manage',
         ],
         'cashier' => [
             'pos.sale.create','pos.drawer.open','pos.drawer.close',

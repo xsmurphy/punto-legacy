@@ -1459,6 +1459,45 @@ if (!function_exists('_getTableSchema')) {
                                'customerAddressDefault', 'customerAddressLocation', 'customerAddressCity',
                                'customerId', 'companyId', 'updated_at'],
             ],
+            // Módulo Finanzas (mig 72). Tablas nuevas, columnas físicas lowercase
+            // sin quotes (§40.1/§44) — escritas vía ncmInsert/ncmUpdate.
+            'fin_account' => [
+                'pk'       => 'accountid',
+                'jsonbCol' => 'data',
+                'columns'  => ['accountid', 'companyid', 'name', 'type', 'openingbalance',
+                               'currentbalance', 'bankname', 'accountnumber', 'outletid',
+                               'issystem', 'status', 'created_at', 'data'],
+            ],
+            'fin_category' => [
+                'pk'       => 'categoryid',
+                'jsonbCol' => 'data',
+                'columns'  => ['categoryid', 'companyid', 'name', 'kind', 'parentid',
+                               'sortorder', 'issystem', 'status', 'created_at', 'data'],
+            ],
+            'fin_movement' => [
+                'pk'       => 'movementid',
+                'jsonbCol' => 'data',
+                'columns'  => ['movementid', 'companyid', 'accountid', 'categoryid', 'kind',
+                               'amount', 'date', 'description', 'paymentmethod', 'source',
+                               'sourceid', 'transfergroupid', 'checkid', 'reconciliationid',
+                               'reconciled', 'reconciled_at', 'userid', 'outletid', 'status',
+                               'created_at', 'data'],
+            ],
+            'fin_check' => [
+                'pk'       => 'checkid',
+                'jsonbCol' => 'data',
+                'columns'  => ['checkid', 'companyid', 'direction', 'accountid', 'bankname',
+                               'checknumber', 'amount', 'issuedate', 'duedate', 'contactid',
+                               'partyname', 'categoryid', 'status', 'cleareddate', 'description',
+                               'created_at', 'data'],
+            ],
+            'fin_reconciliation' => [
+                'pk'       => 'reconciliationid',
+                'jsonbCol' => 'data',
+                'columns'  => ['reconciliationid', 'companyid', 'accountid', 'statementdate',
+                               'statementbalance', 'status', 'closed_at', 'userid', 'created_at',
+                               'data'],
+            ],
         ];
         return $schema;
     }
