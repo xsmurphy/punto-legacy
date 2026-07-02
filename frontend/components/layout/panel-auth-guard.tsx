@@ -22,7 +22,6 @@ import {
   Users,
   Truck,
   UserCog,
-  Landmark,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -68,7 +67,6 @@ const panelNav: NavEntry[] = [
     ],
   },
   { title: "Reportes", to: "/reports", icon: ChartPie, requires: "reports.sales.view" },
-  { title: "Finanzas", to: "/finanzas", icon: Landmark, requires: "finance.manage" },
   { title: "Caja", to: "/pos", icon: ScanBarcode }, // Caja = POS dentro del propio panel...
 ]
 

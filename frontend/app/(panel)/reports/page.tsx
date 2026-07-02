@@ -61,6 +61,7 @@ const GROUPS: ReportGroup[] = [
     title: "Administrativos y Financieros",
     description: "Administrá cada aspecto de tu empresa.",
     items: [
+      { title: "Finanzas",              to: "/finanzas",                implemented: true  },
       { title: "Cuentas por cobrar",    to: "/reports/open-invoices",   implemented: true  },
       { title: "Cuentas por pagar",     to: "/reports/open-invoices?state=outcome", implemented: true  },
       { title: "Resumen anual",         to: "/reports/summary-year",    implemented: true  },
