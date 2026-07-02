@@ -30,6 +30,14 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 /**
  * Manager genérico de catálogos (categorías, marcas, impuestos).
@@ -42,13 +50,22 @@ import { Label } from "@/components/ui/label"
  * Tipo `T` es el shape del row (Category/Brand/Tax). `P` es el shape del
  * payload (subset de T sin auto-generados: id, created_at, etc.).
  */
+export interface CatalogFieldOption {
+  value: string
+  label: string
+}
+
 export interface CatalogField<P> {
   name: keyof P & string
   label: string
-  type?: "text" | "number"
+  type?: "text" | "number" | "switch" | "select"
   placeholder?: string
   required?: boolean
   helperText?: string
+  /** Opciones para `type: "select"`. Ignorado en otros tipos. */
+  options?: CatalogFieldOption[]
+  /** Deshabilita el control (ej. cuenta fija de Efectivo). Puede depender del row en edición. */
+  disabled?: boolean | ((values: P) => boolean)
 }
 
 export interface CatalogManagerProps<T, P> {
@@ -335,7 +352,7 @@ function CatalogFormBody<T, P>({
     editing ? toFormValues(editing) : emptyFormValues,
   )
 
-  const setField = (key: keyof P & string, value: string) => {
+  const setField = (key: keyof P & string, value: string | boolean) => {
     setValues((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -353,20 +370,75 @@ function CatalogFormBody<T, P>({
       <div className="space-y-4 py-2">
         {fields.map((f) => {
           const raw = values[f.name]
+          const disabled =
+            typeof f.disabled === "function" ? f.disabled(values) : !!f.disabled
+          const fieldId = `field-${f.name}`
+
+          if (f.type === "switch") {
+            return (
+              <div key={f.name} className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor={fieldId}>{f.label}</Label>
+                  {f.helperText && (
+                    <p className="text-xs text-muted-foreground">{f.helperText}</p>
+                  )}
+                </div>
+                <Switch
+                  id={fieldId}
+                  checked={!!raw}
+                  onCheckedChange={(checked) => setField(f.name, checked)}
+                  disabled={disabled}
+                />
+              </div>
+            )
+          }
+
+          if (f.type === "select") {
+            const current = raw === null || raw === undefined ? "" : String(raw)
+            return (
+              <div key={f.name} className="space-y-1.5">
+                <Label htmlFor={fieldId}>
+                  {f.label}
+                  {f.required && <span className="text-destructive"> *</span>}
+                </Label>
+                <Select
+                  value={current}
+                  onValueChange={(v) => setField(f.name, v)}
+                  disabled={disabled}
+                >
+                  <SelectTrigger id={fieldId} className="w-full">
+                    <SelectValue placeholder={f.placeholder} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(f.options ?? []).map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {f.helperText && (
+                  <p className="text-xs text-muted-foreground">{f.helperText}</p>
+                )}
+              </div>
+            )
+          }
+
           const displayValue =
             raw === null || raw === undefined ? "" : String(raw)
           return (
             <div key={f.name} className="space-y-1.5">
-              <Label htmlFor={`field-${f.name}`}>
+              <Label htmlFor={fieldId}>
                 {f.label}
                 {f.required && <span className="text-destructive"> *</span>}
               </Label>
               <Input
-                id={`field-${f.name}`}
+                id={fieldId}
                 type={f.type ?? "text"}
                 value={displayValue}
                 onChange={(e) => setField(f.name, e.target.value)}
                 placeholder={f.placeholder}
+                disabled={disabled}
               />
               {f.helperText && (
                 <p className="text-xs text-muted-foreground">{f.helperText}</p>
