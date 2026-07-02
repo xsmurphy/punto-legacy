@@ -105,6 +105,13 @@ $service = new SaleService(
 
 try {
     $result = $service->save($input);
+
+    // Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe la venta.
+    try {
+        (new \Punto\Api\Finance\FinanceLedger())->recordSale((string) COMPANY_ID, $result->transactionId);
+    } catch (\Throwable $e) {
+        error_log('[FinanceLedger] recordSale falló para transactionId=' . $result->transactionId . ': ' . $e->getMessage());
+    }
 } catch (DuplicateSaleException $e) {
     // 200 con duplicated=true — el front debe marcar el UID como sincronizado.
     apiOk([

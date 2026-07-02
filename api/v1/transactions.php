@@ -252,6 +252,18 @@ if ($method === 'PUT' && $resource === 'void') {
         apiError('No se pudo anular la transacción', 500);
     }
 
+    // Finanzas Fase 3: revierte el/los movimiento(s) derivados de esta transacción.
+    // voidTransaction() ya pisó transactionType→7, así que no sabemos acá si era
+    // una venta (source='sale') o un pago de crédito (source='credit_payment') —
+    // probamos ambos sources, best-effort; el que no matchee no encuentra filas.
+    try {
+        $ledger = new \Punto\Api\Finance\FinanceLedger();
+        $ledger->voidBySource($companyId, 'sale', $transactionId);
+        $ledger->voidBySource($companyId, 'credit_payment', $transactionId);
+    } catch (\Throwable $e) {
+        error_log('[FinanceLedger] voidBySource falló para transactionId=' . $transactionId . ': ' . $e->getMessage());
+    }
+
     // Side-effects post-void (best-effort — la anulación ya está committeada).
     try {
         updateLastTimeEdit($companyId, 'item');

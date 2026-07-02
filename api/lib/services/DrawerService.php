@@ -222,8 +222,6 @@ final class DrawerService
      */
     public function addExpense(float $amount, string $note, string $date): string|true
     {
-        global $db;
-
         $exists = ncmExecute(
             'SELECT expensesId FROM expenses WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? LIMIT 1',
             [$amount, $date, $this->ctx->registerId]
@@ -234,19 +232,38 @@ final class DrawerService
 
         // expensesNameId es NULL para movimientos de caja (mig 33 hace la columna nullable).
         // type IS NULL = extracción (según DrawerService::getExpenses).
-        $ok = $db->Execute(
-            'INSERT INTO expenses
-                (expensesNameId, expensesAmount, expensesDate, expensesDescription,
-                 userId, registerId, outletId, companyId)
-             VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)',
-            [$amount, $date, $note,
-             $this->ctx->userId, $this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId]
-        );
-        if ($ok === false) {
-            throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar extracción');
+        // ncmInsert (no $db->Execute raw): necesitamos el id insertado para
+        // engancharlo al ledger de Finanzas (FinanceLedger::recordDrawerExpense,
+        // Fase 3) de forma idempotente vía sourceId.
+        $expensesId = ncmInsert([
+            'records' => [
+                'expensesNameId'      => null,
+                'expensesAmount'      => $amount,
+                'expensesDate'        => $date,
+                'expensesDescription' => $note,
+                'userId'              => $this->ctx->userId,
+                'registerId'          => $this->ctx->registerId,
+                'outletId'            => $this->ctx->outletId,
+                'companyId'           => $this->ctx->companyId,
+            ],
+            'table' => 'expenses',
+        ]);
+        if (!$expensesId) {
+            global $db;
+            $err = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+            error_log('[DrawerService] addExpense INSERT falló: ' . ($err ?: 'sin detalle'));
+            throw new \RuntimeException('Error al registrar extracción' . ($err !== '' ? ": {$err}" : ''));
         }
 
         \rollupMarkDirty($this->ctx->companyId, ['drawer_expenses'], $date);
+
+        // Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe la extracción.
+        try {
+            (new \Punto\Api\Finance\FinanceLedger())->recordDrawerExpense($this->ctx->companyId, (string) $expensesId);
+        } catch (\Throwable $e) {
+            error_log('[FinanceLedger] recordDrawerExpense falló para expensesId=' . $expensesId . ': ' . $e->getMessage());
+        }
+
         return true;
     }
 
@@ -259,8 +276,6 @@ final class DrawerService
      */
     public function addIncome(float $amount, string $note, string $date): string|true
     {
-        global $db;
-
         $exists = ncmExecute(
             'SELECT expensesId FROM expenses WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? LIMIT 1',
             [(float) $amount, $date, $this->ctx->registerId]
@@ -269,20 +284,39 @@ final class DrawerService
             return 'Income Already Exists';
         }
 
-        // type = 1 = ingreso (según DrawerService::getIncome).
-        $ok = $db->Execute(
-            'INSERT INTO expenses
-                (expensesNameId, expensesAmount, expensesDate, expensesDescription,
-                 type, userId, registerId, outletId, companyId)
-             VALUES (NULL, ?, ?, ?, 1, ?, ?, ?, ?)',
-            [(float) $amount, $date, $note,
-             $this->ctx->userId, $this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId]
-        );
-        if ($ok === false) {
-            throw new \RuntimeException($db->ErrorMsg() ?: 'Error al registrar ingreso');
+        // type = 1 = ingreso (según DrawerService::getIncome). ncmInsert (no
+        // $db->Execute raw): necesitamos el id insertado para engancharlo al
+        // ledger de Finanzas (FinanceLedger::recordDrawerIncome, Fase 3).
+        $expensesId = ncmInsert([
+            'records' => [
+                'expensesNameId'      => null,
+                'expensesAmount'      => (float) $amount,
+                'expensesDate'        => $date,
+                'expensesDescription' => $note,
+                'type'                => 1,
+                'userId'              => $this->ctx->userId,
+                'registerId'          => $this->ctx->registerId,
+                'outletId'            => $this->ctx->outletId,
+                'companyId'           => $this->ctx->companyId,
+            ],
+            'table' => 'expenses',
+        ]);
+        if (!$expensesId) {
+            global $db;
+            $err = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+            error_log('[DrawerService] addIncome INSERT falló: ' . ($err ?: 'sin detalle'));
+            throw new \RuntimeException('Error al registrar ingreso' . ($err !== '' ? ": {$err}" : ''));
         }
 
         \rollupMarkDirty($this->ctx->companyId, ['drawer_expenses'], $date);
+
+        // Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe el ingreso.
+        try {
+            (new \Punto\Api\Finance\FinanceLedger())->recordDrawerIncome($this->ctx->companyId, (string) $expensesId);
+        } catch (\Throwable $e) {
+            error_log('[FinanceLedger] recordDrawerIncome falló para expensesId=' . $expensesId . ': ' . $e->getMessage());
+        }
+
         return true;
     }
 
