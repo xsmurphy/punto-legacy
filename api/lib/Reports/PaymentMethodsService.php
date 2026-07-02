@@ -96,6 +96,8 @@ final class PaymentMethodsService
                     'type'  => $g['type'] ?? '',
                     'name'  => iftn(getPaymentMethodName($g['type'] ?? '', true), getPaymentMethodName($g['type'] ?? '')),
                     'price' => (float) ($g['price'] ?? 0),
+                    'total' => (float) ($g['price'] ?? 0),
+                    'count' => (int) ($g['count'] ?? 0),
                 ];
             }
         } else {
@@ -107,6 +109,8 @@ final class PaymentMethodsService
                     'type'  => $pr['type'],
                     'name'  => iftn(getPaymentMethodName($pr['type'], true), getPaymentMethodName($pr['type'])),
                     'price' => $pr['price'],
+                    'total' => (float) $pr['price'],
+                    'count' => (int) ($pr['count'] ?? 0),
                 ];
             }
         }

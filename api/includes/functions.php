@@ -908,6 +908,7 @@ function groupByPaymentMethod($new,$old){
 	    foreach($old as $index => $ol){
 	        if($nuType === $ol['type']){
 	            $old[$index]['price'] = (float)$ol['price'] + (float)$nuPrice;
+	            $old[$index]['count'] = (int)($ol['count'] ?? 0) + 1;
 	            $match = true;
 	        }
 	    }
@@ -916,6 +917,7 @@ function groupByPaymentMethod($new,$old){
     if(!$match){
     	unset($nu['extra']);
     	unset($nu['total']);
+    	$nu['count'] = 1;
       array_push($old,$nu);
     }
 	}
