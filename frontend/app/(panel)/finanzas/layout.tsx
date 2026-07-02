@@ -11,6 +11,8 @@ const TABS = [
   { href: "/finanzas/movimientos", label: "Movimientos" },
   { href: "/finanzas/cuentas", label: "Cuentas" },
   { href: "/finanzas/categorias", label: "Categorías" },
+  { href: "/finanzas/cheques", label: "Cheques" },
+  { href: "/finanzas/conciliacion", label: "Conciliación" },
   { href: "/finanzas/ajustes", label: "Ajustes" },
 ] as const
 
