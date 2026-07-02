@@ -355,61 +355,57 @@ final class MovementService
         $categoryId = (string) ($fields['categoryId'] ?? '');
         $categoryId = ($categoryId !== '' && preg_match(self::UUID_RE, $categoryId)) ? $categoryId : null;
 
+        $movementId = $this->uuidV4();
+        $date       = $this->normalizeDate($fields['date'] ?? null);
+        $userId     = (string) ($fields['userId'] ?? '') ?: null;
+        $outletId   = (string) ($fields['outletId'] ?? '') ?: null;
+        $description = (string) ($fields['description'] ?? '') ?: null;
+        $paymentMethod = (string) ($fields['paymentMethod'] ?? '') ?: null;
+
         $db->StartTrans();
 
-        // Chequeo previo dentro de la TX: evita aplicar el delta de saldo dos
-        // veces si el movimiento ya existe (re-correr backfill, doble hook).
-        $existing = ncmExecute(
-            'SELECT movementid FROM fin_movement WHERE companyid = ? AND source = ? AND sourceid = ? AND accountid = ? LIMIT 1',
-            [$companyId, $source, $sourceId, $accountId]
+        // Idempotencia ATÓMICA: INSERT ... ON CONFLICT DO NOTHING RETURNING.
+        // El UNIQUE (companyid,source,sourceid,accountid) de mig 73 es el árbitro.
+        // Si otra request/backfill ya insertó esta (venta, cuenta), el ON CONFLICT
+        // no crea fila y el RETURNING viene vacío → NO aplicamos delta de saldo.
+        // Elimina la ventana TOCTOU del patrón SELECT-luego-INSERT: el chequeo de
+        // existencia y la inserción son una sola sentencia atómica.
+        $inserted = ncmExecute(
+            'INSERT INTO fin_movement
+                (movementid, companyid, accountid, categoryid, kind, amount, date,
+                 description, paymentmethod, source, sourceid, userid, outletid, status)
+             VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, 1)
+             ON CONFLICT (companyid, source, sourceid, accountid)
+                 WHERE sourceid IS NOT NULL
+             DO NOTHING
+             RETURNING movementid',
+            [
+                $movementId, $companyId, $accountId, $categoryId, $kind, $amount, $date,
+                $description, $paymentMethod, $source, $sourceId, $userId, $outletId,
+            ]
         );
-        if ($existing) {
-            $db->CompleteTrans();
-            return ['inserted' => false, 'movementId' => (string) $existing['movementid']];
-        }
 
-        $movementId = $this->insertMovement($companyId, [
-            'accountid'     => $accountId,
-            'categoryid'    => $categoryId,
-            'kind'          => $kind,
-            'amount'        => $amount,
-            'date'          => $this->normalizeDate($fields['date'] ?? null),
-            'description'   => (string) ($fields['description'] ?? '') ?: null,
-            'paymentmethod' => (string) ($fields['paymentMethod'] ?? '') ?: null,
-            'source'        => $source,
-            'sourceid'      => $sourceId,
-            'userid'        => (string) ($fields['userId'] ?? '') ?: null,
-            'outletid'      => (string) ($fields['outletId'] ?? '') ?: null,
-        ]);
-
-        if ($movementId) {
+        // RETURNING trae fila SOLO si el INSERT creó de verdad → delta una única vez.
+        if ($inserted && !empty($inserted['movementid'])) {
             $this->applyBalanceDelta($accountId, $companyId, $kind, $amount);
         }
 
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
-
-        if ($movementId && !$failed) {
-            return ['inserted' => true, 'movementId' => (string) $movementId];
+        if ($failed) {
+            throw new \RuntimeException("No se pudo registrar el movimiento derivado ({$source}/{$sourceId})");
         }
 
-        // TOCTOU: bajo READ COMMITTED dos requests concurrentes para el mismo
-        // (source, sourceId, accountId) pueden pasar ambos el SELECT previo; el
-        // perdedor viola el UNIQUE (mig 73) → insertMovement devuelve false y la
-        // TX aborta. NO es una duplicación (el saldo no se aplicó dos veces: el
-        // INSERT fallido revierte su propio delta al abortar la TX). Re-leemos la
-        // fila ganadora fuera de la TX abortada: el movimiento existe, así que
-        // devolvemos inserted=false en vez de tirar excepción y perder el leg.
+        if ($inserted && !empty($inserted['movementid'])) {
+            return ['inserted' => true, 'movementId' => (string) $inserted['movementid']];
+        }
+
+        // Conflicto: ya existía. Devolvemos el id de la fila ganadora (sin tocar saldo).
         $winner = ncmExecute(
             'SELECT movementid FROM fin_movement WHERE companyid = ? AND source = ? AND sourceid = ? AND accountid = ? LIMIT 1',
             [$companyId, $source, $sourceId, $accountId]
         );
-        if ($winner) {
-            return ['inserted' => false, 'movementId' => (string) $winner['movementid']];
-        }
-
-        // No existe ni se insertó → error real (no una carrera): propagamos.
-        throw new \RuntimeException("No se pudo registrar el movimiento derivado ({$source}/{$sourceId})");
+        return ['inserted' => false, 'movementId' => $winner ? (string) $winner['movementid'] : null];
     }
 
     /**

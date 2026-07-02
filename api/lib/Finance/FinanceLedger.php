@@ -123,6 +123,14 @@ final class FinanceLedger
             if ($total <= 0) {
                 return;
             }
+            // Auditoría: si HABÍA un transactionPaymentType pero no se pudo
+            // decodificar (JSON malformado), el dinero cae en Efectivo por
+            // fallback — logueamos para que un backfill sea auditable y no
+            // atribuya silenciosamente a la cuenta equivocada.
+            $rawPay = $row['transactionPaymentType'] ?? null;
+            if (is_string($rawPay) && trim($rawPay) !== '') {
+                error_log("[FinanceLedger] recordPurchase: transactionPaymentType no decodificable para transactionId={$transactionId} — fallback a Efectivo por total={$total}");
+            }
             $accountId = $this->accounts->ensureCashAccountId($companyId);
             $this->movements->recordDerivedMovement($companyId, 'purchase', $transactionId, [
                 'accountId'     => $accountId,

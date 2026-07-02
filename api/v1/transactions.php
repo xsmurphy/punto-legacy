@@ -256,12 +256,16 @@ if ($method === 'PUT' && $resource === 'void') {
     // voidTransaction() ya pisó transactionType→7, así que no sabemos acá si era
     // una venta (source='sale') o un pago de crédito (source='credit_payment') —
     // probamos ambos sources, best-effort; el que no matchee no encuentra filas.
-    try {
-        $ledger = new \Punto\Api\Finance\FinanceLedger();
-        $ledger->voidBySource($companyId, 'sale', $transactionId);
-        $ledger->voidBySource($companyId, 'credit_payment', $transactionId);
-    } catch (\Throwable $e) {
-        error_log('[FinanceLedger] voidBySource falló para transactionId=' . $transactionId . ': ' . $e->getMessage());
+    // Cada source en su propio try/catch: si el revert de uno falla, el otro
+    // igual corre (no queremos dejar un movimiento sin revertir por un error
+    // transitorio al probar el source equivocado).
+    $ledger = new \Punto\Api\Finance\FinanceLedger();
+    foreach (['sale', 'credit_payment'] as $ledgerSource) {
+        try {
+            $ledger->voidBySource($companyId, $ledgerSource, $transactionId);
+        } catch (\Throwable $e) {
+            error_log("[FinanceLedger] voidBySource({$ledgerSource}) falló para transactionId={$transactionId}: " . $e->getMessage());
+        }
     }
 
     // Side-effects post-void (best-effort — la anulación ya está committeada).
