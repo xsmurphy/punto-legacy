@@ -25,15 +25,8 @@ $id        = $_GET['id'] ?? null;
 global $db;
 $svc = new \Punto\Api\PaymentMethods\PaymentMethodService($db);
 
-/** Lee body JSON o form-encoded (compat con api-client que manda JSON). */
-function pm_input(): array
-{
-    if (!empty($_POST)) return $_POST;
-    $raw = file_get_contents('php://input');
-    if ($raw === false || $raw === '') return [];
-    $decoded = json_decode($raw, true);
-    return is_array($decoded) ? $decoded : [];
-}
+// bootstrap.php ya normaliza el body JSON/form-encoded → $_POST para todos los
+// verbos, igual que categories.php.
 
 switch ($method) {
     case 'GET':
@@ -47,7 +40,7 @@ switch ($method) {
 
     case 'POST':
         try {
-            $newId = $svc->create($companyId, pm_input());
+            $newId = $svc->create($companyId, $_POST);
             $pm    = $svc->find($companyId, $newId);
             apiOk($pm, 201);
         } catch (\Throwable $e) {
@@ -58,7 +51,7 @@ switch ($method) {
     case 'PUT':
         if ($id === null) apiError('id requerido', 422);
         try {
-            $svc->update($companyId, (string) $id, pm_input());
+            $svc->update($companyId, (string) $id, $_POST);
             $pm = $svc->find($companyId, (string) $id);
             apiOk($pm);
         } catch (\Throwable $e) {
