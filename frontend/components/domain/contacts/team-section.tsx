@@ -9,9 +9,9 @@ import { z } from "zod"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 
-import { cn } from "@/lib/utils"
 import { formatPhone } from "@/lib/phone"
-import { HOTKEY_COLORS } from "@/lib/hotkeys/store"
+import { resolveColorBg } from "@/lib/ui/color-palette"
+import { ColorPicker } from "@/components/ui/color-picker"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { Button } from "@/components/ui/button"
@@ -137,8 +137,10 @@ function initials(name: string) {
 }
 
 function avatarStyle(color: string | null) {
-  if (!color) return {}
-  const hex = color.startsWith("#") ? color : `#${color}`
+  // resolveColorBg cubre tanto la convención nueva (key: "amber") como los
+  // valores legacy que guardaban el hex directo.
+  const hex = resolveColorBg(color)
+  if (!hex) return {}
   return { backgroundColor: hex + "33", color: hex }
 }
 
@@ -314,23 +316,11 @@ function TeamForm({
                 <FormLabel>Color</FormLabel>
                 <div className="flex items-center gap-3">
                   <FormControl>
-                    <div className="flex items-center gap-2">
-                      {HOTKEY_COLORS.map((c) => (
-                        <button
-                          key={c.key}
-                          type="button"
-                          onClick={() => field.onChange(c.bg)}
-                          className={cn(
-                            "size-7 rounded-full transition-all",
-                            field.value === c.bg
-                              ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
-                              : "hover:scale-110",
-                          )}
-                          style={{ backgroundColor: c.bg }}
-                          aria-label={`Color ${c.key}`}
-                        />
-                      ))}
-                    </div>
+                    <ColorPicker
+                      value={field.value}
+                      onChange={field.onChange}
+                      allowNone
+                    />
                   </FormControl>
                   <span className="text-xs text-muted-foreground">
                     Aparece en la agenda y en el avatar.

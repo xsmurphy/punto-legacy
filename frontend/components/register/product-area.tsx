@@ -20,7 +20,8 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
-import { useHotkeysStore, hotkeyColorBg, HOTKEY_COLORS, type Hotkey } from "@/lib/hotkeys/store"
+import { useHotkeysStore, hotkeyColorBg, type Hotkey } from "@/lib/hotkeys/store"
+import { ColorPicker } from "@/components/ui/color-picker"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { HotkeyAssignDialog } from "@/components/register/hotkey-assign-dialog"
 import { GroupItemsDialog } from "@/components/register/group-items-dialog"
@@ -403,20 +404,13 @@ function HotkeyTile({
           </button>
           {/* Selector de color: pill centrado con fondo oscuro (no pisa el título) */}
           <div className="pointer-events-auto absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
-            <div className="flex gap-1 rounded-full bg-black/70 px-2 py-1.5 shadow-lg">
-              {HOTKEY_COLORS.map((c) => (
-                <button
-                  key={c.key}
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onColorChange(c.key) }}
-                  aria-label={`Color ${c.key}`}
-                  className={cn(
-                    "size-3.5 rounded-full transition-transform hover:scale-125",
-                    hotkey.color === c.key && "ring-2 ring-white ring-offset-1 ring-offset-black/60",
-                  )}
-                  style={{ backgroundColor: c.bg }}
-                />
-              ))}
+            <div className="rounded-full bg-black/70 px-2 py-1.5 shadow-lg">
+              <ColorPicker
+                value={hotkey.color}
+                onChange={onColorChange}
+                variant="overlay"
+                stopPropagation
+              />
             </div>
           </div>
         </div>

@@ -23,29 +23,54 @@ export interface ColorPickerProps {
   onChange: (key: string) => void
   /** Incluye una opción "sin color" (emite ""). */
   allowNone?: boolean
-  /** Tamaño del swatch. Default 7 (size-7). */
   className?: string
+  /**
+   * Variante visual. "default" = swatches size-7 con ring-foreground (forms del
+   * panel). "overlay" = swatches size-3.5 con ring blanco, para el pill flotante
+   * sobre un tile oscuro en el modo edición de Hotkeys.
+   */
+  variant?: "default" | "overlay"
+  /** Se propaga el stopPropagation del click (útil dentro de tiles clickeables). */
+  stopPropagation?: boolean
 }
 
-export function ColorPicker({ value, onChange, allowNone, className }: ColorPickerProps) {
+export function ColorPicker({
+  value,
+  onChange,
+  allowNone,
+  className,
+  variant = "default",
+  stopPropagation,
+}: ColorPickerProps) {
   const selectedHex = resolveColorBg(value)
   const noneSelected = !selectedHex
+  const overlay = variant === "overlay"
+
+  const swatch = overlay ? "size-3.5" : "size-7"
+  const selectedRing = overlay
+    ? "ring-2 ring-white ring-offset-1 ring-offset-black/60"
+    : "ring-2 ring-foreground ring-offset-2 ring-offset-background"
+  const hover = overlay ? "hover:scale-125" : "hover:scale-110"
+
+  const handle = (key: string) => (e: React.MouseEvent) => {
+    if (stopPropagation) e.stopPropagation()
+    onChange(key)
+  }
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex items-center", overlay ? "gap-1" : "gap-2", className)}>
       {allowNone && (
         <button
           type="button"
-          onClick={() => onChange("")}
+          onClick={handle("")}
           aria-label="Sin color"
           className={cn(
-            "flex size-7 items-center justify-center rounded-full border border-input text-muted-foreground transition-all",
-            noneSelected
-              ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
-              : "hover:scale-110",
+            "flex items-center justify-center rounded-full border border-input text-muted-foreground transition-all",
+            swatch,
+            noneSelected ? selectedRing : hover,
           )}
         >
-          <Ban className="size-3.5" />
+          <Ban className={overlay ? "size-2.5" : "size-3.5"} />
         </button>
       )}
       {PALETTE_COLORS.map((c) => {
@@ -54,14 +79,13 @@ export function ColorPicker({ value, onChange, allowNone, className }: ColorPick
           <button
             key={c.key}
             type="button"
-            onClick={() => onChange(c.key)}
+            onClick={handle(c.key)}
             aria-label={`Color ${c.key}`}
             aria-pressed={selected}
             className={cn(
-              "size-7 rounded-full transition-all",
-              selected
-                ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
-                : "hover:scale-110",
+              "rounded-full transition-all",
+              swatch,
+              selected ? selectedRing : hover,
             )}
             style={{ backgroundColor: c.bg }}
           />

@@ -47,6 +47,8 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { EmptyState } from "@/components/empty-state"
+import { ColorPicker } from "@/components/ui/color-picker"
+import { PALETTE_COLORS, resolveColorBg } from "@/lib/ui/color-palette"
 import { cn } from "@/lib/utils"
 
 import { useDocumentTemplates } from "@/hooks/use-document-templates"
@@ -214,7 +216,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
   const { data: categoriesData } = useCategories()
 
   const [name, setName] = React.useState("")
-  const [color, setColor] = React.useState("#7bd148")
+  const [color, setColor] = React.useState<string>(PALETTE_COLORS[0].key)
   const [printerMode, setPrinterMode] = React.useState<PrinterMode>("escpos")
   const [templateId, setTemplateId] = React.useState<string>("")
   const [paperWidthMm, setPaperWidthMm] = React.useState<58 | 80>(80)
@@ -241,7 +243,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
     setError(null)
     if (mode.type === "new") {
       setName("Impresora")
-      setColor("#7bd148")
+      setColor(PALETTE_COLORS[0].key)
       setPrinterMode("escpos")
       setTemplateId("")
       setPaperWidthMm(80)
@@ -350,17 +352,8 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="printer-color">Color identificador</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  id="printer-color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="size-9 cursor-pointer rounded-md border border-input bg-transparent p-1"
-                />
-                <span className="text-sm text-muted-foreground tabular-nums">{color}</span>
-              </div>
+              <Label>Color identificador</Label>
+              <ColorPicker value={color} onChange={setColor} />
             </div>
 
             <div className="space-y-1.5">
@@ -861,7 +854,7 @@ function PrinterCard({
         <div className="flex items-center gap-2 min-w-0">
           <span
             className="inline-block size-3 rounded-full shrink-0"
-            style={{ backgroundColor: b.color }}
+            style={{ backgroundColor: resolveColorBg(b.color) ?? undefined }}
             aria-hidden
           />
           <span className="font-semibold truncate">{b.name}</span>
