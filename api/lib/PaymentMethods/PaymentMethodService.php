@@ -232,19 +232,53 @@ final class PaymentMethodService
      */
     public function reorder(string $companyId, array $orderedIds): void
     {
+        // Normalizar entrada: strings no vacíos, sin duplicados.
+        $ids = [];
+        foreach ($orderedIds as $id) {
+            $id = (string) $id;
+            if ($id !== '' && !in_array($id, $ids, true)) $ids[] = $id;
+        }
+        if ($ids === []) {
+            throw new \RuntimeException('orderedIds vacío');
+        }
+
+        // Set actual de métodos del tenant. Validamos que orderedIds sea una
+        // permutación EXACTA de este set — así un cliente no puede reordenar
+        // parcialmente (dejaría métodos con sortOrder viejo mezclado) ni colar
+        // ids de otro tenant (el set de referencia ya está scopeado a companyId).
+        $existing = [];
+        foreach ($this->list($companyId) as $m) {
+            $existing[(string) $m['id']] = true;
+        }
+        foreach ($ids as $id) {
+            if (!isset($existing[$id])) {
+                throw new \RuntimeException('orderedIds contiene un método inexistente o de otro comercio');
+            }
+        }
+        if (count($ids) !== count($existing)) {
+            throw new \RuntimeException('orderedIds debe incluir todos los medios de pago del comercio');
+        }
+
         $this->db->StartTrans();
         try {
             $pos = 0;
-            foreach ($orderedIds as $id) {
-                $id = (string) $id;
-                if ($id === '') continue;
+            foreach ($ids as $id) {
                 // jsonb `||` mergea la clave sortOrder sin pisar el resto del extra.
-                $this->db->Execute(
+                // El WHERE va scopeado por companyId+type (defensa en profundidad,
+                // ya validado arriba). affected=0 ⇒ el row desapareció entre el
+                // list() y el update (race) — lo señalamos.
+                $affected = $this->db->Execute(
                     "UPDATE taxonomy
                         SET taxonomyExtra = COALESCE(taxonomyExtra, '{}'::jsonb) || jsonb_build_object('sortOrder', ?::int)
                       WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?",
                     [$pos, $id, $companyId, 'paymentMethod']
                 );
+                if ($affected === false) {
+                    throw new \RuntimeException('Fallo el UPDATE de reorder');
+                }
+                if ((int) $this->db->Affected_Rows() === 0) {
+                    error_log("[payment-methods:reorder] companyId={$companyId} id={$id} no matcheó ninguna fila (race?)");
+                }
                 $pos++;
             }
         } catch (\Throwable $e) {

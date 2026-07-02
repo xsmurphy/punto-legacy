@@ -368,6 +368,14 @@ Patron comun para UserPicker, CustomerPicker, ItemPicker:
 
 Copy neutral: "Asignar usuario", "Seleccionar cliente" (no "Asignar vendedor").
 
+### 4.8.1 ColorPicker
+
+`components/ui/color-picker.tsx` es el picker canonico de color, sobre la paleta unica `lib/ui/color-palette.ts` (`PALETTE_COLORS` = amber/slate/sky/rose/emerald/violet). Usado en Hotkeys, Usuarios (avatar), Impresoras y Medios de pago — no duplicar filas de swatches inline en ningun modulo nuevo.
+
+- **Convencion de valor:** se persiste el `key` del color (ej. `"amber"`), NUNCA el hex. El hex vive solo en `PALETTE_COLORS`, asi se puede re-tunear la paleta sin migracion de datos.
+- **Compat legacy:** `resolveColorBg(value)` pasa hex `#rrggbb` tal cual (datos viejos de usuarios/impresoras) y resuelve keys nuevas. Usarlo siempre al consumir un color guardado antes de aplicarlo a un estilo.
+- **Props:** `value` (key o hex), `onChange(key)`, `allowNone` (agrega "sin color" → emite `""`), `variant="default|overlay"` (overlay = swatches chicos + ring blanco, para pills flotantes sobre tiles oscuros, ej. Hotkeys).
+
 ### 4.9 Cards
 
 **Cuando SI usar `<Card>`:**
@@ -677,6 +685,7 @@ Cookie `_jwt` (10 años). Separado del panel (`_jwt_panel`, 24h). No mezclar las
 | 2026-06-25 | NumericPadDialog unificado al pattern legacy: title + mode label en header, unidad inline en display, Aceptar full-width en footer. `subtitle` deprecado | 532b36f | 3 iteraciones para llegar al pattern correcto |
 | 2026-06-25 | Rename "vendedor" → "usuario" / terminologia vertical-neutral en strings de UI | 8b69da1 | Punto sirve multiples verticales |
 | 2026-06-25 | Escape hatch global para atajos POS cuando hay dialog shadcn abierto | 9ff3885 | Atajos disparaban mientras el usuario completaba un form en un modal |
+| 2026-07-02 | Paleta de colores unificada (`lib/ui/color-palette.ts`) + ColorPicker canonico; se persiste el key del color no el hex, `resolveColorBg` cubre hex legacy | — | Swatches duplicados inline en Hotkeys/Usuarios/Impresoras; unificado + reusable |
 | 2026-06-24 | Redesign invoice-style de detalle de transacciones: NO stat cards, tabla de items canonica, totals right-aligned, status final al pie, sin badge de tipo arriba | 5c30c2a | 3 iteraciones: stat cards → stat cards restyle → invoice pattern correcto |
 | 2026-06-24 | Sin stat cards arriba de listados en paginas de reportes | — | Simplificacion post-planning; el DataTable tiene toda la info |
 | 2026-06-24 | Roles seed = 3 (Dueno/Encargado/Cajero) | — | Simplificacion post-planning; el modelo de 5 roles era demasiado granular |
