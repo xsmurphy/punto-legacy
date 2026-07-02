@@ -48,10 +48,10 @@ final class PaymentMethodService
         $accountMap = $this->accountIdByMethod($companyId);
 
         $rs = $this->db->Execute(
-            'SELECT taxonomyId, taxonomyName, taxonomyExtra
+            "SELECT taxonomyId, taxonomyName, taxonomyExtra
                FROM taxonomy
               WHERE companyId = ? AND taxonomyType = ?
-              ORDER BY taxonomyName ASC',
+              ORDER BY (taxonomyExtra->>'sortOrder')::int NULLS LAST, taxonomyName ASC",
             [$companyId, 'paymentMethod']
         );
         if ($rs === false) return [];
@@ -204,19 +204,54 @@ final class PaymentMethodService
         $n = (int) ($rows[0]['n'] ?? 0);
         if ($n > 0) return;
 
+        // Color default por método (keys de la paleta unificada del panel —
+        // frontend/lib/ui/color-palette.ts). sortOrder incremental por orden.
         $defaults = [
-            ['Efectivo', ['code' => 'A', 'hasChange' => true,  'requiresIdentifier' => false, 'systemKey' => 'cash']],
-            ['T. Crédito', ['code' => 'S', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456']],
-            ['T. Débito', ['code' => 'D', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456']],
-            ['Giftcard', ['code' => 'G', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Código de giftcard', 'identifierPlaceholder' => 'Ej. GC-1234-5678', 'systemKey' => 'giftcard']],
+            ['Efectivo', ['code' => 'A', 'hasChange' => true,  'requiresIdentifier' => false, 'systemKey' => 'cash', 'color' => 'emerald']],
+            ['T. Crédito', ['code' => 'S', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456', 'color' => 'sky']],
+            ['T. Débito', ['code' => 'D', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456', 'color' => 'violet']],
+            ['Giftcard', ['code' => 'G', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Código de giftcard', 'identifierPlaceholder' => 'Ej. GC-1234-5678', 'systemKey' => 'giftcard', 'color' => 'amber']],
         ];
-        foreach ($defaults as [$name, $extra]) {
+        foreach ($defaults as $i => [$name, $extra]) {
+            $extra['sortOrder'] = $i;
             $this->db->Execute(
                 'INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, taxonomyName, taxonomyExtra)
                  VALUES (gen_random_uuid(), ?, ?, ?, ?::jsonb)',
                 [$companyId, 'paymentMethod', $name, json_encode($this->normalizeExtra($extra))]
             );
         }
+    }
+
+    /**
+     * Reordena los medios de pago del tenant: setea sortOrder = índice en cada
+     * taxonomyExtra según el orden de $orderedIds. Scopeado por companyId +
+     * taxonomyType (NUNCA toca rows de otro tenant ni de otro taxonomyType) y
+     * envuelto en transacción.
+     *
+     * @param string[] $orderedIds taxonomyIds en el orden deseado
+     */
+    public function reorder(string $companyId, array $orderedIds): void
+    {
+        $this->db->StartTrans();
+        try {
+            $pos = 0;
+            foreach ($orderedIds as $id) {
+                $id = (string) $id;
+                if ($id === '') continue;
+                // jsonb `||` mergea la clave sortOrder sin pisar el resto del extra.
+                $this->db->Execute(
+                    "UPDATE taxonomy
+                        SET taxonomyExtra = COALESCE(taxonomyExtra, '{}'::jsonb) || jsonb_build_object('sortOrder', ?::int)
+                      WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?",
+                    [$pos, $id, $companyId, 'paymentMethod']
+                );
+                $pos++;
+            }
+        } catch (\Throwable $e) {
+            $this->db->FailTrans();
+            throw new \RuntimeException('No se pudo reordenar los medios de pago');
+        }
+        $this->db->CompleteTrans();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -239,7 +274,14 @@ final class PaymentMethodService
             'requiresIdentifier'    => $this->bool($get('requiresIdentifier', false)),
             'identifierLabel'       => $this->str($get('identifierLabel', '')),
             'identifierPlaceholder' => $this->str($get('identifierPlaceholder', '')),
+            'color'                 => $this->str($get('color', '')),
         ];
+        // sortOrder: NO editable en el form del método — lo maneja el endpoint
+        // reorder y el seed. Se preserva el valor actual en updates parciales.
+        $sortOrder = $current !== null ? $current['sortOrder'] ?? null : null;
+        if ($sortOrder !== null) {
+            $extra['sortOrder'] = (int) $sortOrder;
+        }
         // systemKey: inmutable desde el seed; nunca editable por el cliente.
         $systemKey = $current !== null ? ($current['systemKey'] ?? null) : null;
         if ($systemKey !== null && $systemKey !== '') {
@@ -250,15 +292,21 @@ final class PaymentMethodService
 
     private function normalizeExtra(array $extra): array
     {
-        return [
+        $out = [
             'code'                  => (string) ($extra['code'] ?? ''),
             'hasChange'             => (bool) ($extra['hasChange'] ?? false),
             'requiresIdentifier'    => (bool) ($extra['requiresIdentifier'] ?? false),
             'identifierLabel'       => (string) ($extra['identifierLabel'] ?? ''),
             'identifierPlaceholder' => (string) ($extra['identifierPlaceholder'] ?? ''),
-        ] + (isset($extra['systemKey']) && $extra['systemKey'] !== ''
-            ? ['systemKey' => (string) $extra['systemKey']]
-            : []);
+            'color'                 => (string) ($extra['color'] ?? ''),
+        ];
+        if (isset($extra['sortOrder']) && $extra['sortOrder'] !== '') {
+            $out['sortOrder'] = (int) $extra['sortOrder'];
+        }
+        if (isset($extra['systemKey']) && $extra['systemKey'] !== '') {
+            $out['systemKey'] = (string) $extra['systemKey'];
+        }
+        return $out;
     }
 
     /**
@@ -279,6 +327,8 @@ final class PaymentMethodService
             'requiresIdentifier'    => (bool) ($extra['requiresIdentifier'] ?? false),
             'identifierLabel'       => (string) ($extra['identifierLabel'] ?? ''),
             'identifierPlaceholder' => (string) ($extra['identifierPlaceholder'] ?? ''),
+            'color'                 => (string) ($extra['color'] ?? ''),
+            'sortOrder'             => isset($extra['sortOrder']) && $extra['sortOrder'] !== '' ? (int) $extra['sortOrder'] : null,
             'systemKey'             => isset($extra['systemKey']) && $extra['systemKey'] !== '' ? (string) $extra['systemKey'] : null,
             'accountId'             => $accountMap[$id] ?? null,
         ];

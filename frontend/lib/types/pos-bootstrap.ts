@@ -32,6 +32,10 @@ export interface PaymentMethodConfig {
    * tenant y no es estable entre entornos.
    */
   systemKey?: "cash" | "giftcard" | "internal" | null
+  /** Key de color de la paleta unificada (lib/ui/color-palette.ts). Acento en el pill. */
+  color?: string
+  /** Orden de aparición en el pay-dialog (drag&drop del panel). */
+  sortOrder?: number | null
 }
 
 // ── Config del tenant ─────────────────────────────────────────────────────────
