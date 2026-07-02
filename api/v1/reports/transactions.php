@@ -105,7 +105,19 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
             [COMPANY_ID, $txId],
             false, true
         );
-        $items = $fetchAll($rawItems);
+        // GetRowAssoc devuelve keys en minúscula (PG); el front lee camelCase.
+        $items = array_map(static function ($r) {
+            $r = array_change_key_case((array) $r, CASE_LOWER);
+            return [
+                'itemSoldId'    => (string) ($r['itemsoldid'] ?? ''),
+                'itemId'        => (string) ($r['itemid'] ?? ''),
+                'itemName'      => (string) ($r['itemname'] ?? ''),
+                'itemSoldUnits' => (float) ($r['itemsoldunits'] ?? 0),
+                'itemSoldTotal' => (float) ($r['itemsoldtotal'] ?? 0),
+                'itemSoldTax'   => (float) ($r['itemsoldtax'] ?? 0),
+                'userId'        => (string) ($r['userid'] ?? ''),
+            ];
+        }, $fetchAll($rawItems));
     } elseif (!empty($tx['transactionDetails'])) {
         $decoded = json_decode($tx['transactionDetails'], true);
         if (is_array($decoded)) {
@@ -188,22 +200,41 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         }
     }
 
-    // Construir respuesta: convertir a array plano para json_encode (CaseInsensitiveArray
-    // implementa ArrayAccess pero no JsonSerializable → json_encode daría {}).
-    $txData = $tx instanceof \CaseInsensitiveArray ? $tx->toArray() : (array) $tx;
+    // Construir la respuesta con keys camelCase. NO se puede volcar $tx->toArray()
+    // crudo: PG devuelve las columnas en minúscula (transactiontype, transactiontotal…)
+    // y el front lee camelCase → todo quedaba undefined ("Tipo undefined", totales en 0,
+    // ítems vacíos). $tx es CaseInsensitiveArray → el acceso camelCase de abajo resuelve.
     $rawPayments = json_decode($tx['transactionPaymentType'] ?? '[]', true) ?? [];
-    // Resolver nombre legible de cada método de pago (igual que TransactionsService::paymentsFromJson)
-    $txData['transactionPaymentType'] = array_map(function ($p) {
-        return [
-            'type'  => (string) ($p['type']  ?? ''),
-            'name'  => getPaymentMethodName($p['type'] ?? ''),
-            'total' => (float) ($p['total'] ?? 0),
-            'price' => (float) ($p['price'] ?? 0),
-            'extra' => (string) ($p['extra'] ?? ''),
-        ];
-    }, is_array($rawPayments) ? $rawPayments : []);
-    $txData['meta']                   = json_decode($tx['meta'] ?? '{}', true) ?? [];
-    unset($txData['transactionDetails']);
+    $txData = [
+        'transactionId'          => (string) $tx['transactionId'],
+        'transactionDate'        => $tx['transactionDate'] !== null ? (string) $tx['transactionDate'] : null,
+        'transactionDueDate'     => $tx['transactionDueDate'] !== null ? (string) $tx['transactionDueDate'] : null,
+        'transactionNote'        => $tx['transactionNote'] !== null ? (string) $tx['transactionNote'] : null,
+        'transactionType'        => (int) $tx['transactionType'],
+        'transactionComplete'    => (int) ($tx['transactionComplete'] ?? 0),
+        'transactionTotal'       => (float) ($tx['transactionTotal'] ?? 0),
+        'transactionDiscount'    => (float) ($tx['transactionDiscount'] ?? 0),
+        'transactionTax'         => (float) ($tx['transactionTax'] ?? 0),
+        // Resolver nombre legible de cada método de pago.
+        'transactionPaymentType' => array_map(static function ($p) {
+            return [
+                'type'  => (string) ($p['type']  ?? ''),
+                'name'  => getPaymentMethodName($p['type'] ?? ''),
+                'total' => (float) ($p['total'] ?? 0),
+                'price' => (float) ($p['price'] ?? 0),
+                'extra' => (string) ($p['extra'] ?? ''),
+            ];
+        }, is_array($rawPayments) ? $rawPayments : []),
+        'invoiceNo'      => $tx['invoiceNo'] !== null ? (string) $tx['invoiceNo'] : null,
+        'customerId'     => $tx['customerId'] !== null ? (string) $tx['customerId'] : null,
+        'customerName'   => $tx['customerName'] !== null ? (string) $tx['customerName'] : null,
+        'userId'         => $tx['userId'] !== null ? (string) $tx['userId'] : null,
+        'userName'       => $tx['userName'] !== null ? (string) $tx['userName'] : null,
+        'responsibleId'  => $tx['responsibleId'] !== null ? (string) $tx['responsibleId'] : null,
+        'outletId'       => $tx['outletId'] !== null ? (string) $tx['outletId'] : null,
+        'outletName'     => $tx['outletName'] !== null ? (string) $tx['outletName'] : null,
+        'meta'           => json_decode($tx['meta'] ?? '{}', true) ?? [],
+    ];
 
     apiOk([
         'transaction'      => $txData,
