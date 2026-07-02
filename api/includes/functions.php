@@ -877,16 +877,30 @@ function groupByPaymentMethod($new,$old){
 		// PHP 8.5: abs() ya no acepta strings/null silenciosamente → castear a float.
 		$nuPrice 	= iftn(abs((float)($nu['price'] ?? 0)), 0); // lo que se ingresa en el visor de pago
 		$nuTotal 	= iftn(abs((float)($nu['total'] ?? 0)), 0); // saldo a pagar
-		$nuType 	= $nu['type'];
+
+		// Fallback: muchos writes guardan el pago como {name,total} SIN 'price' ni
+		// 'type' → sin esto el reporte de medios de pago sumaba 0. Si no hay price
+		// usamos total como monto, y agrupamos por name cuando falta type.
+		if($nuPrice <= 0 && $nuTotal > 0){
+			$nuPrice = $nuTotal;
+		}
+		$nuType 	= $nu['type'] ?? ($nu['name'] ?? '');
+		$nu['type'] = $nuType;
 
 		if(!isset($nu['name']) || !$nu['name']){
 			$nu['name'] = getPaymentMethodName($nu['type']);
 		}
 
-		if($nuPrice > $nuTotal){
+		// Clamp de pago parcial solo cuando total es significativo (no zerar un
+		// método que trae price pero no total).
+		if($nuPrice > $nuTotal && $nuTotal > 0){
 			$nu['price'] 	= $nuTotal;
 			$nuPrice 			= abs((float)$nu['price']);
 		}
+
+		// Persistir el monto resuelto en 'price' para que tanto la suma del match
+		// como el push del método nuevo usen el valor correcto.
+		$nu['price'] = $nuPrice;
 
     $match 					= false;
 
