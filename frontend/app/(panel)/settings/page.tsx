@@ -82,6 +82,27 @@ const TIME_ZONES: { value: string; label: string }[] = [
   { value: "UTC", label: "UTC" },
 ]
 
+// Al elegir País se autocompletan moneda/zona horaria/impuesto/decimales/separador
+// con los defaults de ese país (el usuario puede ajustarlos después).
+const COUNTRY_LOCALE: Record<
+  string,
+  { currency: string; timeZone: string; taxName: string; decimal: boolean; thousandSeparator: string; language: string }
+> = {
+  PY: { currency: "Gs", timeZone: "America/Asuncion", taxName: "IVA", decimal: false, thousandSeparator: ".", language: "es" },
+  AR: { currency: "$", timeZone: "America/Argentina/Buenos_Aires", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
+  UY: { currency: "$", timeZone: "America/Montevideo", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
+  BR: { currency: "R$", timeZone: "America/Sao_Paulo", taxName: "ICMS", decimal: true, thousandSeparator: ".", language: "es" },
+  CL: { currency: "$", timeZone: "America/Santiago", taxName: "IVA", decimal: false, thousandSeparator: ".", language: "es" },
+  BO: { currency: "Bs", timeZone: "America/La_Paz", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
+  PE: { currency: "S/", timeZone: "America/Lima", taxName: "IGV", decimal: true, thousandSeparator: ".", language: "es" },
+  CO: { currency: "$", timeZone: "America/Bogota", taxName: "IVA", decimal: false, thousandSeparator: ".", language: "es" },
+  EC: { currency: "$", timeZone: "America/Guayaquil", taxName: "IVA", decimal: true, thousandSeparator: ",", language: "es" },
+  VE: { currency: "Bs", timeZone: "America/Caracas", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
+  MX: { currency: "$", timeZone: "America/Mexico_City", taxName: "IVA", decimal: true, thousandSeparator: ",", language: "es" },
+  ES: { currency: "€", timeZone: "Europe/Madrid", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
+  US: { currency: "$", timeZone: "America/New_York", taxName: "Sales Tax", decimal: true, thousandSeparator: ",", language: "es" },
+}
+
 const settingsSchema = z.object({
   name: z.string(),
   address: z.string(),
@@ -538,7 +559,19 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
                 <FormLabel>País</FormLabel>
                 <Select
                   value={value}
-                  onValueChange={(v) => field.onChange(v)}
+                  onValueChange={(v) => {
+                    field.onChange(v)
+                    // Autocompletar locale del país elegido.
+                    const loc = COUNTRY_LOCALE[v.toUpperCase()]
+                    if (loc) {
+                      form.setValue("currency", loc.currency, { shouldDirty: true })
+                      form.setValue("timeZone", loc.timeZone, { shouldDirty: true })
+                      form.setValue("taxName", loc.taxName, { shouldDirty: true })
+                      form.setValue("decimal", loc.decimal, { shouldDirty: true })
+                      form.setValue("thousandSeparator", loc.thousandSeparator, { shouldDirty: true })
+                      form.setValue("language", loc.language, { shouldDirty: true })
+                    }
+                  }}
                 >
                   <FormControl>
                     <SelectTrigger className="w-full">
