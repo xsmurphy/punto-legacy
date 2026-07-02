@@ -8,30 +8,33 @@ namespace Punto\Api\Finance;
  * (`company.config.settingObj.finAccountMap`).
  *
  * Reglas de negocio (owner, 2026-07-02 — ver context/22 §3/§7):
- *   - "efectivo" SIEMPRE mapea a la cuenta Efectivo (issystem=true). Fijo,
- *     no editable desde la UI — no se persiste en el map (se resuelve en
- *     read()).
- *   - Los demás métodos (tarjeta débito/crédito, transferencia, billetera,
- *     cheque, etc.) son asignables por el usuario a cualquier cuenta type=
- *     'bank' que haya creado. Si un método no tiene banco asignado, cae a
- *     Efectivo como fallback (nunca se pierde el movimiento).
+ *   - Los métodos de pago son los reales del tenant, definidos en su CRUD
+ *     de medios de pago (tabla `taxonomy`, taxonomyType='paymentMethod',
+ *     scoped por companyId) — NO una lista hardcodeada.
+ *   - El método cuyo taxonomyName sea "Efectivo" (case-insensitive) SIEMPRE
+ *     mapea a la cuenta Efectivo del sistema (issystem=true). Fijo, no
+ *     editable desde la UI — no se persiste en finAccountMap.
+ *   - Los demás métodos son asignables por el usuario a cualquier cuenta
+ *     type='bank' que haya creado. Si un método no tiene banco asignado,
+ *     cae a Efectivo como fallback (nunca se pierde el movimiento).
  *   - El auto-seed NO crea ningún banco placeholder — el usuario crea sus
  *     propias cuentas bancarias.
  *
  * Persistencia: MERGE no-destructivo sobre settingObj (mismo patrón que
  * SettingsService::readSettingObj — lee con `config->>'settingObj'`, nunca
- * pisa el blob completo).
+ * pisa el blob completo). finAccountMap se keyea por el taxonomyId (UUID)
+ * real del método, no por una key fija.
  */
 final class ConfigService
 {
-    private const MANAGED_METHODS = [
-        'tarjeta_debito', 'tarjeta_credito', 'transferencia', 'billetera', 'cheque', 'otro',
-    ];
-
     /**
-     * Devuelve el mapa completo resuelto: 'efectivo' siempre → cuenta
-     * Efectivo (fijo); los demás métodos → accountId asignado o null si no
-     * se asignó todavía (el caller/UI debe tratar null como "cae en Efectivo").
+     * Devuelve la lista de métodos de pago reales del tenant, cada uno con
+     * el accountId resuelto: el método "Efectivo" siempre trae la cuenta
+     * Efectivo del sistema (isCash=true, no editable); los demás traen el
+     * accountId asignado en finAccountMap o null si no se asignó todavía
+     * (el caller/UI debe tratar null como "cae en Efectivo").
+     *
+     * @return array<int,array{methodId:string,methodName:string,accountId:?string,isCash:bool}>
      */
     public function read(string $companyId): array
     {
@@ -39,19 +42,31 @@ final class ConfigService
         $obj = $this->readSettingObj($companyId) ?? [];
         $map = is_array($obj['finAccountMap'] ?? null) ? $obj['finAccountMap'] : [];
 
-        $resolved = ['efectivo' => $cashId];
-        foreach (self::MANAGED_METHODS as $method) {
-            $resolved[$method] = isset($map[$method]) ? (string) $map[$method] : null;
+        $methods = $this->paymentMethods($companyId);
+        $out = [];
+        foreach ($methods as $method) {
+            $isCash = strcasecmp($method['name'], 'Efectivo') === 0;
+            $out[] = [
+                'methodId'   => $method['id'],
+                'methodName' => $method['name'],
+                'accountId'  => $isCash ? $cashId : (isset($map[$method['id']]) ? (string) $map[$method['id']] : null),
+                'isCash'     => $isCash,
+            ];
         }
-        return $resolved;
+        return $out;
     }
 
     /**
-     * Actualiza el mapa (solo métodos gestionables — 'efectivo' se ignora
+     * Actualiza el mapa (solo métodos no-cash — "Efectivo" se ignora
      * silenciosamente si viene en el payload, es fijo). MERGE no-destructivo:
      * preserva otras keys de settingObj (currencies, logo, etc.).
      *
-     * @param array<string,string|null> $map method => accountId|null
+     * Fase 3 (FinanceLedger): las ventas guardan el método de pago por NAME
+     * en transactionPaymentType (ej [{name:'efectivo',...}]); ese código
+     * deberá resolver name→methodId vía la taxonomía paymentMethod para
+     * aplicar este finAccountMap.
+     *
+     * @param array<string,string|null> $map methodId (taxonomyId) => accountId|null
      */
     public function update(string $companyId, array $map): array
     {
@@ -61,19 +76,36 @@ final class ConfigService
         }
         $current = is_array($obj['finAccountMap'] ?? null) ? $obj['finAccountMap'] : [];
 
-        foreach (self::MANAGED_METHODS as $method) {
-            if (!array_key_exists($method, $map)) {
+        $methods = $this->paymentMethods($companyId);
+        $validIds = [];
+        $cashIds = [];
+        foreach ($methods as $method) {
+            $validIds[$method['id']] = true;
+            if (strcasecmp($method['name'], 'Efectivo') === 0) {
+                $cashIds[$method['id']] = true;
+            }
+        }
+
+        foreach ($map as $methodId => $accountId) {
+            $methodId = (string) $methodId;
+            if (!isset($validIds[$methodId])) {
+                throw new \RuntimeException("Método de pago inválido: {$methodId}");
+            }
+            if (isset($cashIds[$methodId])) {
+                // Efectivo es fijo — se ignora silenciosamente.
                 continue;
             }
-            $accountId = $map[$method];
             if ($accountId === null || $accountId === '') {
-                $current[$method] = null;
+                $current[$methodId] = null;
                 continue;
             }
             if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', (string) $accountId)) {
-                throw new \RuntimeException("accountId inválido para {$method}");
+                throw new \RuntimeException("accountId inválido para {$methodId}");
             }
-            $current[$method] = (string) $accountId;
+            if (!$this->isBankAccountOfCompany($companyId, (string) $accountId)) {
+                throw new \RuntimeException("La cuenta {$accountId} no existe o no es una cuenta bancaria de este comercio");
+            }
+            $current[$methodId] = (string) $accountId;
         }
 
         $obj['finAccountMap'] = $current;
@@ -90,8 +122,10 @@ final class ConfigService
 
     /**
      * Resuelve la cuenta destino de un método de pago para un movimiento
-     * derivado (Fase 3 — FinanceLedger). 'efectivo' (y aliases legacy 'cash')
-     * → siempre Efectivo. Otro método sin banco asignado → fallback Efectivo.
+     * derivado (Fase 3 — FinanceLedger). Legacy: sigue operando por key
+     * normalizada, TODAVÍA NO tiene callers fuera de este archivo. Cuando
+     * se implemente Fase 3, este método debe resolver por methodId real
+     * (taxonomyId), no por key hardcodeada — ver comentario en update().
      */
     public function resolveAccountId(string $companyId, string $paymentMethodKey): string
     {
@@ -101,8 +135,12 @@ final class ConfigService
             return $cashId;
         }
         $map = $this->read($companyId);
-        $accountId = $map[$normalized] ?? null;
-        return $accountId !== null && $accountId !== '' ? $accountId : $cashId;
+        foreach ($map as $entry) {
+            if (strcasecmp($entry['methodName'], $normalized) === 0) {
+                return $entry['accountId'] ?? $cashId;
+            }
+        }
+        return $cashId;
     }
 
     /** Normaliza keys legacy/POS (cash, creditcard, debitcard, tcredito...) al vocabulario de Finanzas. */
@@ -117,6 +155,48 @@ final class ConfigService
             'storeCredit' => 'billetera', 'inCredit' => 'billetera', 'billetera' => 'billetera',
         ];
         return $aliases[$key] ?? 'otro';
+    }
+
+    /**
+     * Métodos de pago reales del tenant (taxonomía paymentMethod).
+     * Mismo patrón que SettingsService::taxonomies().
+     *
+     * @return array<int,array{id:string,name:string}>
+     */
+    private function paymentMethods(string $companyId): array
+    {
+        $res = ncmExecute(
+            "SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = ? AND companyId = ? ORDER BY taxonomyName ASC",
+            ['paymentMethod', $companyId],
+            false,
+            true
+        );
+        $out = [];
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $out[] = ['id' => (string) $res->fields['taxonomyId'], 'name' => (string) $res->fields['taxonomyName']];
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+        return $out;
+    }
+
+    /** Valida que $accountId sea una fin_account de tipo 'bank' perteneciente a $companyId. */
+    private function isBankAccountOfCompany(string $companyId, string $accountId): bool
+    {
+        $res = ncmExecute(
+            "SELECT 1 FROM fin_account WHERE accountid = ? AND companyid = ? AND type = 'bank' LIMIT 1",
+            [$accountId, $companyId],
+            false,
+            true
+        );
+        if (!$res || !is_object($res)) {
+            return false;
+        }
+        $ok = !$res->EOF;
+        $res->Close();
+        return $ok;
     }
 
     /**

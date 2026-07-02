@@ -2,11 +2,13 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { Wallet } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { EmptyState } from "@/components/empty-state"
 import {
   Select,
   SelectContent,
@@ -15,36 +17,36 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useFinanceAccounts } from "@/hooks/use-finance-accounts"
-import {
-  MANAGED_PAYMENT_METHODS,
-  PAYMENT_METHOD_LABELS,
-  useFinanceConfig,
-  useUpdateFinanceConfig,
-  type ManagedPaymentMethod,
-} from "@/hooks/use-finance-config"
+import { useFinanceConfig, useUpdateFinanceConfig } from "@/hooks/use-finance-config"
 
 const CASH_ACCOUNT_VALUE = "__efectivo__"
 
 export default function FinanzasAjustesPage() {
   const { data: accounts, isLoading: isLoadingAccounts } = useFinanceAccounts()
-  const { data: config, isLoading: isLoadingConfig } = useFinanceConfig()
+  const { data: methods, isLoading: isLoadingConfig } = useFinanceConfig()
   const updateConfig = useUpdateFinanceConfig()
 
-  const [localMap, setLocalMap] = React.useState<Partial<Record<ManagedPaymentMethod, string | null>>>({})
+  const [localMap, setLocalMap] = React.useState<Record<string, string | null>>({})
 
   React.useEffect(() => {
-    if (config) {
-      const next: Partial<Record<ManagedPaymentMethod, string | null>> = {}
-      for (const key of MANAGED_PAYMENT_METHODS) {
-        next[key] = config[key] ?? null
+    if (methods) {
+      const next: Record<string, string | null> = {}
+      for (const m of methods) {
+        if (!m.isCash) {
+          next[m.methodId] = m.accountId ?? null
+        }
       }
       setLocalMap(next)
     }
-  }, [config])
+  }, [methods])
 
+  // Mantiene 'wallet' junto a 'bank' (comportamiento previo de la page, no achicar alcance).
   const eligibleAccounts = (accounts ?? []).filter(
     (a) => a.type === "bank" || a.type === "wallet",
   )
+
+  const editableMethods = (methods ?? []).filter((m) => !m.isCash)
+  const cashMethod = (methods ?? []).find((m) => m.isCash)
 
   const handleSave = async () => {
     try {
@@ -59,6 +61,16 @@ export default function FinanzasAjustesPage() {
 
   if (isLoadingAccounts || isLoadingConfig) {
     return <Skeleton className="h-96 w-full" />
+  }
+
+  if (!methods || methods.length === 0) {
+    return (
+      <EmptyState
+        icon={Wallet}
+        title="Sin medios de pago configurados"
+        description="Creá tus medios de pago en la configuración del comercio para poder asignarles una cuenta acá."
+      />
+    )
   }
 
   return (
@@ -83,18 +95,23 @@ export default function FinanzasAjustesPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-4 rounded-md border px-4 py-3">
-            <span className="text-sm font-medium">Efectivo</span>
-            <span className="text-sm text-muted-foreground">Efectivo (fijo)</span>
-          </div>
+          {cashMethod && (
+            <div className="flex items-center justify-between gap-4 rounded-md border px-4 py-3">
+              <span className="text-sm font-medium">{cashMethod.methodName}</span>
+              <span className="text-sm text-muted-foreground">Efectivo (fijo)</span>
+            </div>
+          )}
 
-          {MANAGED_PAYMENT_METHODS.map((key) => (
-            <div key={key} className="flex items-center justify-between gap-4 rounded-md border px-4 py-3">
-              <span className="text-sm font-medium">{PAYMENT_METHOD_LABELS[key]}</span>
+          {editableMethods.map((method) => (
+            <div key={method.methodId} className="flex items-center justify-between gap-4 rounded-md border px-4 py-3">
+              <span className="text-sm font-medium">{method.methodName}</span>
               <Select
-                value={localMap[key] ?? CASH_ACCOUNT_VALUE}
+                value={localMap[method.methodId] ?? CASH_ACCOUNT_VALUE}
                 onValueChange={(v) =>
-                  setLocalMap((prev) => ({ ...prev, [key]: v === CASH_ACCOUNT_VALUE ? null : v }))
+                  setLocalMap((prev) => ({
+                    ...prev,
+                    [method.methodId]: v === CASH_ACCOUNT_VALUE ? null : v,
+                  }))
                 }
               >
                 <SelectTrigger className="w-[240px]">

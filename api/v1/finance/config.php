@@ -2,10 +2,14 @@
 /**
  * REST — Config de Finanzas (mapa método de pago → cuenta).
  *
- *   GET  /v1/finance/config → mapa resuelto (efectivo fijo a la cuenta Efectivo,
- *                             demás métodos con el accountId asignado o null)
- *   POST /v1/finance/config { tarjeta_debito?, tarjeta_credito?, transferencia?,
- *                             billetera?, cheque?, otro? } → MERGE no-destructivo
+ *   GET  /v1/finance/config → array de métodos de pago reales del tenant
+ *                             (taxonomía paymentMethod), cada uno:
+ *                             { methodId, methodName, accountId, isCash }.
+ *                             El método "Efectivo" trae isCash=true y
+ *                             accountId fijo a la cuenta Efectivo del sistema.
+ *   POST /v1/finance/config { [methodId]: accountId|null, ... } → MERGE
+ *                             no-destructivo. methodId es el taxonomyId real
+ *                             (UUID) del método; "Efectivo" se ignora si viene.
  *
  * Auth realm `panel`. Requiere permiso `finance.manage`.
  */

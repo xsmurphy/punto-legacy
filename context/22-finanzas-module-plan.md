@@ -64,27 +64,31 @@ ver [[project_autoload_services_lowercase]] / mig 71). `data jsonb` para extras.
 
 ## 3. Config mínima: método de pago → cuenta
 
-Única config real. Un mapa `paymentMethodKey → accountId` (guardado en
+Única config real. Un mapa `methodId → accountId` (guardado en
 `company.config.settingObj.finAccountMap` JSONB, MERGE no-destructivo como el
 resto de settingObj — ojo [[project_autoload_services_lowercase]] y el bug de
-`readSettingObj` ya arreglado). Editable en Ajustes del módulo. Con esto cada
-venta/pago cae sola en la cuenta correcta sin que el usuario haga nada.
+`readSettingObj` ya arreglado). `methodId` es el `taxonomyId` real del método
+de pago (tabla `taxonomy`, `taxonomyType='paymentMethod'`, scoped por
+`companyId`) — los métodos son los que el tenant creó en su propio CRUD de
+medios de pago, no una lista fija de keys. Editable en Ajustes del módulo. Con
+esto cada venta/pago cae sola en la cuenta correcta sin que el usuario haga
+nada.
 
-**Regla de negocio (cerrada por el owner):**
+**Regla de negocio (cerrada por el owner, actualizada 2026-07-02):**
 - **"Efectivo" es una cuenta del sistema, SIEMPRE presente** (`type='cash'`,
-  `issystem=true`, no se puede borrar; se auto-crea en el seed). **Todo pago
-  recibido en efectivo va SIEMPRE a "Efectivo"** — el mapeo del método `efectivo`
-  a la cuenta Efectivo es fijo (no editable).
-- **Los demás métodos** (tarjeta de débito, tarjeta de crédito, transferencia,
-  billetera, cheque, etc.) tienen un **selector de banco/cuenta**: el usuario
-  elige a qué cuenta bancaria van sus operaciones. Ej.: tarjeta de débito → Banco
-  X → todas las ventas con tarjeta de débito entran en Banco X. Default de un
-  método no-efectivo sin banco asignado: cae en Efectivo hasta que el usuario le
+  `issystem=true`, no se puede borrar; se auto-crea en el seed). El método de
+  pago del tenant cuyo `taxonomyName` sea "Efectivo" (case-insensitive) SIEMPRE
+  mapea a esa cuenta — fijo, no editable, no se persiste en `finAccountMap`.
+- **Los demás métodos** (los que el tenant haya creado: tarjeta de débito,
+  transferencia, billetera, cheque, etc.) tienen un **selector de banco/cuenta**:
+  el usuario elige a qué cuenta bancaria van sus operaciones. Default de un
+  método no-cash sin banco asignado: cae en Efectivo hasta que el usuario le
   asigne un banco (nunca se pierde el movimiento).
 - **El usuario puede crear todas las cuentas bancarias que quiera** (`type='bank'`),
   y asignar cada método a la que corresponda. La UI de Ajustes muestra la lista de
-  métodos de pago con un dropdown "¿A qué cuenta va?" por método (efectivo fijo en
-  Efectivo, los demás elegibles entre las cuentas bancarias creadas).
+  métodos de pago reales del tenant con un dropdown "¿A qué cuenta va?" por
+  método (el que resuelva a "Efectivo" queda fijo, los demás elegibles entre las
+  cuentas bancarias creadas).
 
 ## 4. Integración automática (movimientos derivados)
 
