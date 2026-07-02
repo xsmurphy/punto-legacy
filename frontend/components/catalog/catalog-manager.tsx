@@ -95,6 +95,8 @@ export interface CatalogManagerProps<T, P> {
   emptyFormValues: P
   /** Nombre del archivo de export XLSX (sin extension). */
   exportFileName: string
+  /** Normaliza el payload antes de enviarlo (ej. sentinel de select → null). */
+  transformPayload?: (values: P) => P
 }
 
 export function CatalogManager<T, P>({
@@ -112,6 +114,7 @@ export function CatalogManager<T, P>({
   getLabel,
   emptyFormValues,
   exportFileName,
+  transformPayload,
 }: CatalogManagerProps<T, P>) {
   const create = useCreate()
   const update = useUpdate()
@@ -223,7 +226,8 @@ export function CatalogManager<T, P>({
         emptyFormValues={emptyFormValues}
         toFormValues={toFormValues}
         getLabel={getLabel}
-        onSubmit={async (values) => {
+        onSubmit={async (rawValues) => {
+          const values = transformPayload ? transformPayload(rawValues) : rawValues
           try {
             if (editing) {
               await update.mutateAsync({ id: getId(editing), values })

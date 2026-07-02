@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Tag, Building2, Receipt, Tags } from "lucide-react"
+import { ArrowLeft, Tag, Building2, Receipt, Tags, CreditCard } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -35,11 +35,19 @@ import {
   useUpdateTag,
   useDeleteTag,
 } from "@/hooks/use-tags"
+import {
+  usePaymentMethods,
+  useCreatePaymentMethod,
+  useUpdatePaymentMethod,
+  useDeletePaymentMethod,
+} from "@/hooks/use-payment-methods"
+import { useFinanceAccounts } from "@/hooks/use-finance-accounts"
 
 import type { Category, CategoryPayload } from "@/lib/types/category"
 import type { Brand, BrandPayload } from "@/lib/types/brand"
 import type { Tax, TaxPayload } from "@/lib/types/tax"
 import type { Tag as TagItem, TagPayload } from "@/lib/types/tag"
+import type { PaymentMethod, PaymentMethodPayload } from "@/lib/types/payment-method"
 
 // Suprimir warning de unused — exportado por completitud del módulo.
 void useCategory
@@ -49,9 +57,9 @@ void useCategory
  * componente genérico CatalogManager con su configuración (hooks, columns,
  * fields).
  */
-type CatalogTabValue = "categories" | "brands" | "tags" | "taxes"
+type CatalogTabValue = "categories" | "brands" | "tags" | "taxes" | "payment-methods"
 
-const VALID_TABS: CatalogTabValue[] = ["categories", "brands", "tags", "taxes"]
+const VALID_TABS: CatalogTabValue[] = ["categories", "brands", "tags", "taxes", "payment-methods"]
 
 function parseTab(raw: string | null): CatalogTabValue {
   return raw && (VALID_TABS as string[]).includes(raw) ? (raw as CatalogTabValue) : "categories"
@@ -93,7 +101,7 @@ export default function CatalogPage() {
       <Tabs value={tab} onValueChange={onTabChange}>
         {/* TabsList full-width 3-col — antes era ancho-contenido y dejaba la
             mitad derecha vacía. grid-cols-3 + w-full estira cada tab. */}
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="categories" className="gap-1.5">
             <Tag className="size-3.5" />
             Categorías
@@ -110,6 +118,10 @@ export default function CatalogPage() {
             <Receipt className="size-3.5" />
             Impuestos
           </TabsTrigger>
+          <TabsTrigger value="payment-methods" className="gap-1.5">
+            <CreditCard className="size-3.5" />
+            Medios de pago
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="categories" className="mt-6">
@@ -123,6 +135,9 @@ export default function CatalogPage() {
         </TabsContent>
         <TabsContent value="taxes" className="mt-6">
           <TaxesTab />
+        </TabsContent>
+        <TabsContent value="payment-methods" className="mt-6">
+          <PaymentMethodsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -303,3 +318,145 @@ function TaxesTab() {
     />
   )
 }
+
+// ── Payment methods ──────────────────────────────────────────────────────────
+
+/** Sentinel del Select de cuenta ('' no es válido en Radix): sin banco → Efectivo. */
+const NO_ACCOUNT = "__none__"
+
+function isEfectivoName(name: string): boolean {
+  return name.trim().toLowerCase() === "efectivo"
+}
+
+function PaymentMethodsTab() {
+  const { data, isLoading } = usePaymentMethods()
+  const { data: accountsData } = useFinanceAccounts()
+
+  // Solo cuentas type='bank' son asignables — ConfigService::update valida ese
+  // type (wallet/cash se rechazan con 422). El método Efectivo cae fijo en la
+  // cuenta Efectivo del sistema; el resto sin banco también (sentinel NO_ACCOUNT).
+  const accountOptions = React.useMemo(() => {
+    const banks = (accountsData ?? []).filter((a) => a.type === "bank" && a.status === 1)
+    return [
+      { value: NO_ACCOUNT, label: "Efectivo (sin banco asignado)" },
+      ...banks.map((a) => ({ value: a.id, label: a.name })),
+    ]
+  }, [accountsData])
+
+  const columns: ColumnDef<PaymentMethod, unknown>[] = React.useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Nombre",
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+        meta: { label: "Nombre" },
+      },
+      {
+        accessorKey: "code",
+        header: "Atajo",
+        cell: ({ row }) =>
+          row.original.code ? (
+            <span className="font-mono text-xs text-muted-foreground">{row.original.code}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+        meta: { label: "Atajo" },
+      },
+      {
+        id: "requiresIdentifier",
+        header: "Pide identificador",
+        cell: ({ row }) => (row.original.requiresIdentifier ? "Sí" : "No"),
+        meta: { label: "Pide identificador" },
+      },
+    ],
+    [],
+  )
+
+  const fields: CatalogField<PaymentMethodPayload>[] = React.useMemo(
+    () => [
+      { name: "name", label: "Nombre", required: true, placeholder: "Ej: Transferencia" },
+      {
+        name: "code",
+        label: "Atajo de teclado",
+        placeholder: "Ej: T",
+        helperText: "Una letra para disparar este medio con el teclado en el POS.",
+      },
+      {
+        name: "hasChange",
+        label: "Acepta vuelto",
+        type: "switch",
+        helperText: "Permite entregar vuelto cuando el monto supera el total.",
+      },
+      {
+        name: "requiresIdentifier",
+        label: "Pide identificador",
+        type: "switch",
+        helperText: "Solicita un dato (nro de operación, voucher…) antes de aplicar el pago.",
+      },
+      {
+        name: "identifierLabel",
+        label: "Etiqueta del identificador",
+        placeholder: "Ej: Nro de operación",
+      },
+      {
+        name: "identifierPlaceholder",
+        label: "Placeholder del identificador",
+        placeholder: "Ej: 123456",
+      },
+      {
+        name: "accountId",
+        label: "Cuenta de Finanzas",
+        type: "select",
+        options: accountOptions,
+        placeholder: "Elegí una cuenta",
+        helperText: "Banco al que se acredita este medio. Sin banco, cae en Efectivo.",
+        // Efectivo es fijo: su cuenta no se edita.
+        disabled: (values) => isEfectivoName(values.name),
+      },
+    ],
+    [accountOptions],
+  )
+
+  return (
+    <CatalogManager<PaymentMethod, PaymentMethodPayload>
+      entitySingular="medio de pago"
+      entityPlural="medios de pago"
+      rows={data?.paymentMethods ?? []}
+      isLoading={isLoading}
+      useCreate={useCreatePaymentMethod}
+      useUpdate={useUpdatePaymentMethod}
+      useDelete={useDeletePaymentMethod}
+      columns={columns}
+      fields={fields}
+      toFormValues={(row) => ({
+        name: row.name,
+        code: row.code,
+        hasChange: row.hasChange,
+        requiresIdentifier: row.requiresIdentifier,
+        identifierLabel: row.identifierLabel,
+        identifierPlaceholder: row.identifierPlaceholder,
+        // accountId string para el Select: sentinel cuando no hay banco / es Efectivo.
+        accountId:
+          row.accountId && !isEfectivoName(row.name) ? row.accountId : NO_ACCOUNT,
+      })}
+      getId={(row) => row.id}
+      getLabel={(row) => row.name}
+      emptyFormValues={{
+        name: "",
+        code: "",
+        hasChange: false,
+        requiresIdentifier: false,
+        identifierLabel: "",
+        identifierPlaceholder: "",
+        accountId: NO_ACCOUNT,
+      }}
+      exportFileName="medios-de-pago"
+      transformPayload={(v) => ({
+        ...v,
+        // Sentinel → null; Efectivo nunca manda accountId (el backend lo ignora).
+        accountId: isEfectivoName(v.name) || v.accountId === NO_ACCOUNT ? null : v.accountId,
+      })}
+    />
+  )
+}
+
