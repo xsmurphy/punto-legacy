@@ -34,7 +34,7 @@ export default function FinanzasLayout({ children }: { children: React.ReactNode
       </div>
 
       <Tabs value={activeTab}>
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-7">
           {TABS.map((tab) => (
             <TabsTrigger key={tab.href} value={tab.href} asChild>
               <Link href={tab.href}>{tab.label}</Link>
