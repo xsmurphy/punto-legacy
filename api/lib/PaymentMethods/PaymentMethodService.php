@@ -165,9 +165,15 @@ final class PaymentMethodService
         if ($this->isCashName((string) $existing['name']) || ($existing['systemKey'] ?? null) === 'cash') {
             throw new \RuntimeException('El medio de pago Efectivo no se puede eliminar');
         }
+        // El guard de cash va TAMBIÉN en el WHERE (no solo en el pre-check) para
+        // cerrar el TOCTOU: si otra request renombra este row a "Efectivo" o le
+        // setea systemKey='cash' entre el find() y el DELETE, el WHERE lo excluye
+        // atómicamente y no se borra nunca la caja del sistema.
         $ok = $this->db->Execute(
-            'DELETE FROM taxonomy
-              WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?',
+            "DELETE FROM taxonomy
+              WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?
+                AND taxonomyName NOT ILIKE 'efectivo'
+                AND COALESCE(taxonomyExtra->>'systemKey', '') <> 'cash'",
             [$id, $companyId, 'paymentMethod']
         );
         if ($ok === false) {
