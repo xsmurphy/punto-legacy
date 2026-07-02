@@ -454,6 +454,169 @@ export async function POST(req: Request) {
         },
       }),
 
+      get_report: tool({
+        description:
+          "Devuelve CUALQUIER reporte del negocio por su nombre. Usalo para consultas de reportes " +
+          "(ventas, clientes, medios de pago, flujo de caja, compras y gastos, inventario, etc.). " +
+          "Pasá el rango de fechas cuando aplique (from/to en YYYY-MM-DD).",
+        inputSchema: z.object({
+          report: z
+            .enum([
+              "ventas_resumen",
+              "transacciones",
+              "productos",
+              "clientes",
+              "categorias",
+              "marcas",
+              "medios_de_pago",
+              "ordenes",
+              "cuentas_por_cobrar",
+              "cuentas_por_pagar",
+              "flujo_de_caja",
+              "compras_y_gastos",
+              "movimientos_de_caja",
+              "control_de_cajas",
+              "pagos_epos",
+              "inventario",
+              "stock",
+              "produccion",
+              "calificacion_clientes",
+              "staff_usuarios",
+            ])
+            .describe("Nombre del reporte a consultar"),
+          from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
+          to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
+        }),
+        execute: async ({ report, from, to }) => {
+          const routes: Record<string, string> = {
+            ventas_resumen: "/v1/reports/summary",
+            transacciones: "/v1/reports/transactions",
+            productos: "/v1/reports/products",
+            clientes: "/v1/reports/customers",
+            categorias: "/v1/reports/categories",
+            marcas: "/v1/reports/brands",
+            medios_de_pago: "/v1/reports/payment-methods",
+            ordenes: "/v1/reports/orders",
+            cuentas_por_cobrar: "/v1/reports/open-invoices",
+            cuentas_por_pagar: "/v1/reports/open-invoices?state=outcome",
+            flujo_de_caja: "/v1/reports/cashflow",
+            compras_y_gastos: "/v1/reports/purchases",
+            movimientos_de_caja: "/v1/reports/expenses",
+            control_de_cajas: "/v1/reports/drawers",
+            pagos_epos: "/v1/reports/vpayments",
+            inventario: "/v1/reports/inventory",
+            stock: "/v1/reports/stock",
+            produccion: "/v1/reports/production",
+            calificacion_clientes: "/v1/reports/satisfaction",
+            staff_usuarios: "/v1/reports/users",
+          }
+          const base = routes[report]
+          if (!base) return { error: `Reporte desconocido: ${report}` }
+          try {
+            const qs = new URLSearchParams()
+            if (from) qs.set("from", from)
+            if (to) qs.set("to", to)
+            const sep = base.includes("?") ? "&" : "?"
+            const q = qs.toString()
+            const res = await fetch(`${apiUrl}${base}${q ? sep + q : ""}`, { headers: dataHeaders })
+            if (!res.ok) return { error: `Error ${res.status}` }
+            const json = (await res.json()) as { data?: unknown }
+            return json?.data ?? json
+          } catch (err) {
+            return { error: String(err) }
+          }
+        },
+      }),
+
+      get_finance_accounts: tool({
+        description:
+          "Cuentas de Finanzas con su SALDO actual (Efectivo, bancos, billeteras). Usar para 'cuánto tengo en el banco', 'saldo de caja', etc.",
+        inputSchema: z.object({}),
+        execute: async () => {
+          try {
+            const res = await fetch(`${apiUrl}/v1/finance/accounts`, { headers: dataHeaders })
+            if (!res.ok) return { error: `Error ${res.status}` }
+            const json = (await res.json()) as { data?: unknown }
+            return json?.data ?? json
+          } catch (err) {
+            return { error: String(err) }
+          }
+        },
+      }),
+
+      get_finance_summary: tool({
+        description:
+          "Resumen financiero: total en cuentas, ingresos y egresos del período. Usar para '¿cómo va mi caja?', '¿cuánto ingresó/gasté?'.",
+        inputSchema: z.object({
+          from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
+          to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
+        }),
+        execute: async ({ from, to }) => {
+          try {
+            const qs = new URLSearchParams()
+            if (from) qs.set("from", from)
+            if (to) qs.set("to", to)
+            const q = qs.toString()
+            const res = await fetch(`${apiUrl}/v1/finance/summary${q ? "?" + q : ""}`, { headers: dataHeaders })
+            if (!res.ok) return { error: `Error ${res.status}` }
+            const json = (await res.json()) as { data?: unknown }
+            return json?.data ?? json
+          } catch (err) {
+            return { error: String(err) }
+          }
+        },
+      }),
+
+      get_finance_movements: tool({
+        description:
+          "Movimientos de Finanzas (entradas y salidas de dinero) del período, con cuenta y categoría. Filtros opcionales.",
+        inputSchema: z.object({
+          from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
+          to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
+          kind: z.enum(["income", "expense"]).optional().describe("income = entradas, expense = salidas"),
+        }),
+        execute: async ({ from, to, kind }) => {
+          try {
+            const qs = new URLSearchParams({ limit: "100" })
+            if (from) qs.set("from", from)
+            if (to) qs.set("to", to)
+            if (kind) qs.set("kind", kind)
+            const res = await fetch(`${apiUrl}/v1/finance/movements?${qs}`, { headers: dataHeaders })
+            if (!res.ok) return { error: `Error ${res.status}` }
+            const json = (await res.json()) as { data?: unknown }
+            return json?.data ?? json
+          } catch (err) {
+            return { error: String(err) }
+          }
+        },
+      }),
+
+      get_finance_checks: tool({
+        description:
+          "Cheques (emitidos y recibidos) con su estado. Usar para 'cheques pendientes', 'cheques por cobrar', etc.",
+        inputSchema: z.object({
+          direction: z.enum(["issued", "received"]).optional().describe("issued = emitidos, received = recibidos"),
+          status: z
+            .enum(["pending", "deposited", "cleared", "bounced", "cancelled"])
+            .optional()
+            .describe("Estado del cheque"),
+        }),
+        execute: async ({ direction, status }) => {
+          try {
+            const qs = new URLSearchParams()
+            if (direction) qs.set("direction", direction)
+            if (status) qs.set("status", status)
+            const q = qs.toString()
+            const res = await fetch(`${apiUrl}/v1/finance/checks${q ? "?" + q : ""}`, { headers: dataHeaders })
+            if (!res.ok) return { error: `Error ${res.status}` }
+            const json = (await res.json()) as { data?: unknown }
+            return json?.data ?? json
+          } catch (err) {
+            return { error: String(err) }
+          }
+        },
+      }),
+
       ...makeActionTools(cookie, apiUrl),
     },
   })
