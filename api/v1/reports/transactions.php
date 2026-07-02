@@ -93,9 +93,9 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
 
     $type = (int) $tx['transactionType'];
 
-    // 2. Ítems: itemSold para type 0/3; transactionDetails JSONB para el resto
+    // 2. Ítems: itemSold para type 0/3/9 (cotización); transactionDetails JSONB para el resto
     $items = [];
-    if (in_array($type, [0, 3], true)) {
+    if (in_array($type, [0, 3, 9], true)) {
         $rawItems = ncmExecute(
             "SELECT is2.itemSoldId, is2.itemId, i.itemName, is2.itemSoldUnits,
                     is2.itemSoldTotal, is2.itemSoldTax, is2.userId
@@ -270,11 +270,14 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
     }
 
     // Gate de editabilidad enforzado en el BACKEND (no se confía en el front):
-    // solo contado (0) y crédito (3) son editables. El tipo se lee de la BD, no
-    // del body — así un PUT a un documento read-only (2/6/7/9/10/12/13) es rechazado.
-    if (!in_array((int) $existing['transactionType'], [0, 3], true)) {
+    // contado (0), crédito (3) y cotización (9) son editables. El tipo se lee de
+    // la BD, no del body — así un PUT a un documento read-only (2/6/7/10/12/13)
+    // es rechazado.
+    $editableTypes = [0, 3, 9];
+    if (!in_array((int) $existing['transactionType'], $editableTypes, true)) {
         apiError('Este tipo de documento no es editable', 422);
     }
+    $isQuote = (int) $existing['transactionType'] === 9;
 
     global $db;
     $record = [];
@@ -310,8 +313,9 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
         $record['invoiceNo'] = (string) $body['invoiceNo'];
     }
 
-    // Tipo de transacción (solo 0 o 3 son editables)
-    if (isset($body['transactionType'])) {
+    // Tipo de transacción (solo 0 o 3 son editables destino; una cotización no
+    // puede "convertirse" de tipo vía este PUT — eso es un flujo aparte).
+    if (!$isQuote && isset($body['transactionType'])) {
         $newType = (int) $body['transactionType'];
         if (in_array($newType, [0, 3], true)) {
             $record['transactionType'] = $newType;
@@ -321,8 +325,8 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
         }
     }
 
-    // Métodos de pago
-    if (isset($body['payments']) && is_array($body['payments'])) {
+    // Métodos de pago — no aplican a cotizaciones (no afectan caja/crédito).
+    if (!$isQuote && isset($body['payments']) && is_array($body['payments'])) {
         $pmethod = [];
         foreach ($body['payments'] as $p) {
             $pamount = (float) ($p['total'] ?? 0);
@@ -349,7 +353,9 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
         );
     }
 
-    // Ítems de itemSold (solo para type 0/3)
+    // Ítems de itemSold (para type 0/3/9). Para cotización (9) esto NO dispara
+    // movimiento de stock ni comisión — itemSold es solo el detalle de líneas;
+    // manageStock/comisión se generan en otro flujo (venta), nunca desde este PUT.
     if (isset($body['items']) && is_array($body['items'])) {
         foreach ($body['items'] as $itm) {
             $itemSoldId = (string) ($itm['itemSoldId'] ?? '');
@@ -387,12 +393,15 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
                 AND transactionId IN (SELECT transactionId FROM transaction WHERE companyId = ?)",
             [$body['date'], $txId, COMPANY_ID]
         );
-        $db->Execute(
-            "UPDATE comission SET comissionDate = ?
-              WHERE transactionId = ?
-                AND transactionId IN (SELECT transactionId FROM transaction WHERE companyId = ?)",
-            [$body['date'], $txId, COMPANY_ID]
-        );
+        // Cotización (9) no genera comisión — guard defensivo, no tocar esa tabla.
+        if (!$isQuote) {
+            $db->Execute(
+                "UPDATE comission SET comissionDate = ?
+                  WHERE transactionId = ?
+                    AND transactionId IN (SELECT transactionId FROM transaction WHERE companyId = ?)",
+                [$body['date'], $txId, COMPANY_ID]
+            );
+        }
     }
 
     // Auto-completar crédito si la deuda llegó a 0

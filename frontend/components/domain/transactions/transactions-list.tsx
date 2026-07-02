@@ -329,7 +329,9 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
         userId: editForm.userId || null,
         responsibleId: editForm.responsibleId || null,
         transactionType: editForm.transactionType,
-        payments: editForm.payments.map((p) => ({ type: p.type, total: p.total })),
+        payments: editForm.transactionType === 9
+          ? []
+          : editForm.payments.map((p) => ({ type: p.type, total: p.total })),
         items: editForm.items.map((i) => ({
           itemSoldId: i.itemSoldId,
           itemSoldUnits: Number(i.itemSoldUnits),
@@ -935,7 +937,7 @@ function PanelDetailView({
     return p.type.slice(0, 8)
   }
 
-  const canEdit = tx.transactionType === 0 || tx.transactionType === 3
+  const canEdit = tx.transactionType === 0 || tx.transactionType === 3 || tx.transactionType === 9
 
   return (
     <>
@@ -1129,8 +1131,9 @@ function PanelEditView({
 }) {
   const tx = detail.transaction
   const isCredit = form.transactionType === 3
+  const isQuote = tx.transactionType === 9
   const canEditType = tx.transactionType === 0 || tx.transactionType === 3
-  const canEditItems = tx.transactionType === 0 || tx.transactionType === 3
+  const canEditItems = tx.transactionType === 0 || tx.transactionType === 3 || isQuote
 
   function updatePayment(index: number, field: "type" | "name" | "total", value: string | number | null) {
     setForm((prev) => {
@@ -1376,7 +1379,8 @@ function PanelEditView({
           </section>
         )}
 
-        {/* Pagos */}
+        {/* Pagos — no aplica a cotizaciones (no afectan caja/crédito) */}
+        {!isQuote && (
         <section>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pagos</p>
           <div className="flex flex-col gap-2">
@@ -1439,6 +1443,7 @@ function PanelEditView({
             </Button>
           </div>
         </section>
+        )}
       </div>
 
       <DialogFooter>
