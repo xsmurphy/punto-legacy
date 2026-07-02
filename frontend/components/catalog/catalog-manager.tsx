@@ -2,10 +2,28 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { Plus, Pencil, Trash2, Loader2, Inbox } from "lucide-react"
+import { Plus, Pencil, Trash2, Loader2, Inbox, GripVertical } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import type { ColumnDef } from "@tanstack/react-table"
 import type { UseMutationResult } from "@tanstack/react-query"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+import { ColorPicker } from "@/components/ui/color-picker"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -58,7 +76,7 @@ export interface CatalogFieldOption {
 export interface CatalogField<P> {
   name: keyof P & string
   label: string
-  type?: "text" | "number" | "switch" | "select"
+  type?: "text" | "number" | "switch" | "select" | "color"
   placeholder?: string
   required?: boolean
   helperText?: string
@@ -97,6 +115,16 @@ export interface CatalogManagerProps<T, P> {
   exportFileName: string
   /** Normaliza el payload antes de enviarlo (ej. sentinel de select → null). */
   transformPayload?: (values: P) => P
+  /**
+   * Opta-in a orden por drag&drop. Cuando se pasa, el listado deja de usar el
+   * DataTable compartido y renderiza una lista sortable dedicada (dnd-kit). Los
+   * demás tabs del catálogo (sin este prop) siguen con el DataTable intacto.
+   */
+  reorderable?: {
+    onReorder: (orderedIds: string[]) => void
+    /** Render del contenido de cada fila (a la derecha del handle). */
+    renderRow: (row: T) => React.ReactNode
+  }
 }
 
 export function CatalogManager<T, P>({
@@ -115,6 +143,7 @@ export function CatalogManager<T, P>({
   emptyFormValues,
   exportFileName,
   transformPayload,
+  reorderable,
 }: CatalogManagerProps<T, P>) {
   const create = useCreate()
   const update = useUpdate()
@@ -191,29 +220,43 @@ export function CatalogManager<T, P>({
 
       <Card>
         <CardContent className="p-4">
-          <DataTable
-            tableId={`catalog-${entityPlural}`}
-            data={rows}
-            columns={augmentedColumns}
-            getRowId={getId}
-            onRowClick={openEdit}
-            isLoading={isLoading}
-            searchPlaceholder={`Buscar ${entityPlural}…`}
-            exportFileName={exportFileName}
-            emptyMessage={
-              <EmptyState
-                icon={Inbox}
-                title={`Sin ${entityPlural} todavía`}
-                description={
-                  <>
-                    Creá la primera con el botón <strong>Nueva {entitySingular}</strong>.
-                  </>
-                }
-                showMarquee={false}
-                className="border-0 py-6"
-              />
-            }
-          />
+          {reorderable ? (
+            <SortableCatalogList
+              rows={rows}
+              isLoading={isLoading}
+              getId={getId}
+              onReorder={reorderable.onReorder}
+              renderRow={reorderable.renderRow}
+              onEdit={openEdit}
+              onDelete={setDeleteTarget}
+              entitySingular={entitySingular}
+              entityPlural={entityPlural}
+            />
+          ) : (
+            <DataTable
+              tableId={`catalog-${entityPlural}`}
+              data={rows}
+              columns={augmentedColumns}
+              getRowId={getId}
+              onRowClick={openEdit}
+              isLoading={isLoading}
+              searchPlaceholder={`Buscar ${entityPlural}…`}
+              exportFileName={exportFileName}
+              emptyMessage={
+                <EmptyState
+                  icon={Inbox}
+                  title={`Sin ${entityPlural} todavía`}
+                  description={
+                    <>
+                      Creá la primera con el botón <strong>Nueva {entitySingular}</strong>.
+                    </>
+                  }
+                  showMarquee={false}
+                  className="border-0 py-6"
+                />
+              }
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -428,6 +471,22 @@ function CatalogFormBody<T, P>({
             )
           }
 
+          if (f.type === "color") {
+            return (
+              <div key={f.name} className="space-y-1.5">
+                <Label>{f.label}</Label>
+                <ColorPicker
+                  value={raw === null || raw === undefined ? "" : String(raw)}
+                  onChange={(key) => setField(f.name, key)}
+                  allowNone
+                />
+                {f.helperText && (
+                  <p className="text-xs text-muted-foreground">{f.helperText}</p>
+                )}
+              </div>
+            )
+          }
+
           const displayValue =
             raw === null || raw === undefined ? "" : String(raw)
           return (
@@ -462,6 +521,159 @@ function CatalogFormBody<T, P>({
         </Button>
       </DialogFooter>
     </>
+  )
+}
+
+// ── Lista sortable (opt-in vía prop `reorderable`) ────────────────────────────
+// Solo se usa cuando el tab opta al reorder. Los demás tabs siguen con DataTable.
+
+function SortableCatalogList<T, P>({
+  rows,
+  isLoading,
+  getId,
+  onReorder,
+  renderRow,
+  onEdit,
+  onDelete,
+  entitySingular,
+  entityPlural,
+}: {
+  rows: T[]
+  isLoading: boolean
+  getId: (row: T) => string
+  onReorder: (orderedIds: string[]) => void
+  renderRow: (row: T) => React.ReactNode
+  onEdit: (row: T) => void
+  onDelete: (row: T) => void
+  entitySingular: string
+  entityPlural: string
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const ids = React.useMemo(() => rows.map(getId), [rows, getId])
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = ids.indexOf(String(active.id))
+    const newIndex = ids.indexOf(String(over.id))
+    if (oldIndex < 0 || newIndex < 0) return
+    onReorder(arrayMove(ids, oldIndex, newIndex))
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={Inbox}
+        title={`Sin ${entityPlural} todavía`}
+        description={
+          <>
+            Creá la primera con el botón <strong>Nueva {entitySingular}</strong>.
+          </>
+        }
+        showMarquee={false}
+        className="border-0 py-6"
+      />
+    )
+  }
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <ul className="flex flex-col gap-1.5">
+          {rows.map((row) => (
+            <SortableRow
+              key={getId(row)}
+              id={getId(row)}
+              entitySingular={entitySingular}
+              onEdit={() => onEdit(row)}
+              onDelete={() => onDelete(row)}
+            >
+              {renderRow(row)}
+            </SortableRow>
+          ))}
+        </ul>
+      </SortableContext>
+    </DndContext>
+  )
+}
+
+function SortableRow({
+  id,
+  children,
+  entitySingular,
+  onEdit,
+  onDelete,
+}: {
+  id: string
+  children: React.ReactNode
+  entitySingular: string
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  }
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 rounded-md border bg-card px-2 py-2"
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-7 cursor-grab text-muted-foreground active:cursor-grabbing"
+        aria-label="Reordenar"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-4" />
+      </Button>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        {children}
+      </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        onClick={onEdit}
+        aria-label={`Editar ${entitySingular}`}
+      >
+        <Pencil className="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 text-destructive"
+        onClick={onDelete}
+        aria-label={`Eliminar ${entitySingular}`}
+      >
+        <Trash2 className="size-3.5" />
+      </Button>
+    </li>
   )
 }
 
