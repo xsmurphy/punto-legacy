@@ -83,7 +83,10 @@ function aiConfirmStoreCmd(string ...$args): mixed
 /**
  * Crea un token de confirmación y lo persiste en Redis.
  *
- * @param array  $payload    Datos de la acción a confirmar.
+ * @param array  $payload    Datos del LOTE a confirmar. Shape: ['actions' =>
+ *                            [payload1, payload2, ...]], donde cada payloadN
+ *                            trae su propia key 'action'. Este store no
+ *                            interpreta la forma — solo la serializa.
  * @param string $companyId  ID del tenant (para validación en consume).
  * @param string $userId     ID del usuario que generó la acción.
  * @return string|null Token de 32 hex chars, o null si Redis no responde.
@@ -111,7 +114,9 @@ function aiConfirmStoreCreate(array $payload, string $companyId, string $userId)
  *
  * Valida que el token pertenezca al companyId del caller.
  *
- * @return array|null Payload con keys [action, payload, companyId, userId], o null si inválido/expirado.
+ * @return array|null Payload con keys [payload, companyId, userId, createdAt], donde
+ *                     payload = ['actions' => [...]] (el lote completo), o null si
+ *                     inválido/expirado.
  */
 function aiConfirmStoreConsume(string $token, string $companyId): ?array
 {

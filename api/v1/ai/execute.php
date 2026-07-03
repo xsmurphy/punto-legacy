@@ -2,12 +2,15 @@
 /**
  * POST /v1/ai/execute
  *
- * Ejecuta una acción previamente confirmada mediante un token.
+ * Ejecuta el LOTE de acciones previamente confirmado mediante un token.
  * El token se consume (se elimina de Redis) en el proceso — no puede reutilizarse.
  *
  * Body JSON: { confirmToken }
  *
- * Response: { ok: true, data: { action, result } }
+ * Response: { ok: true, data: { results: [{action, ok, error?, data?}], okCount, failCount } }
+ *
+ * Un fallo en una acción del lote NO aborta las demás — cada acción se ejecuta
+ * de forma independiente y su resultado (éxito o error) se reporta por separado.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
@@ -37,8 +40,12 @@ if ($stored === null) {
     apiError('Token expirado, inválido o ya utilizado', 410);
 }
 
-$payload = $stored['payload'] ?? [];
-$action  = (string) ($payload['action'] ?? '');
+$storedPayload = $stored['payload'] ?? [];
+$actions       = $storedPayload['actions'] ?? null;
+
+if (!is_array($actions) || count($actions) < 1) {
+    apiError('El token no contiene acciones ejecutables', 422);
+}
 
 /**
  * Permiso ESPECÍFICO por acción (defense in depth — `ai.agent.use` solo habilita
@@ -52,36 +59,40 @@ $action  = (string) ($payload['action'] ?? '');
  * No existe permiso propio para taxonomías (category/brand/tag): se gatean con
  * inventory.item.edit (gestión de catálogo), el más restrictivo razonable.
  * tabular_import (operación masiva) exige el permiso de CREAR de la entidad
- * importada — gate fuerte, resuelto abajo por $payload['kind'].
+ * importada — gate fuerte, resuelto por $payload['kind'].
  */
-$actionPermission = [
-    'create_contact'    => 'contacts.customer.create',
-    'update_contact'    => 'contacts.customer.edit',
-    'create_item'       => 'inventory.item.create',
-    'update_item_price' => 'inventory.item.edit',
-    'create_user'       => 'contacts.user.manage',
-    'create_category'   => 'inventory.item.edit',
-    'create_brand'      => 'inventory.item.edit',
-    'create_tag'        => 'inventory.item.edit',
-];
+function aiExecuteRequiredPermission(string $action, array $payload): ?string
+{
+    $actionPermission = [
+        'create_contact'    => 'contacts.customer.create',
+        'update_contact'    => 'contacts.customer.edit',
+        'create_item'       => 'inventory.item.create',
+        'update_item_price' => 'inventory.item.edit',
+        'create_user'       => 'contacts.user.manage',
+        'create_category'   => 'inventory.item.edit',
+        'create_brand'      => 'inventory.item.edit',
+        'create_tag'        => 'inventory.item.edit',
+    ];
 
-if ($action === 'tabular_import') {
-    // Import masivo: el permiso depende de la entidad. Gate fuerte (crear).
-    $importKind   = (string) ($payload['kind'] ?? '');
-    $requiredPerm = $importKind === 'contacts'
-        ? 'contacts.customer.create'
-        : 'inventory.item.create';
-} else {
-    $requiredPerm = $actionPermission[$action] ?? null;
+    if ($action === 'tabular_import') {
+        $importKind = (string) ($payload['kind'] ?? '');
+        return $importKind === 'contacts'
+            ? 'contacts.customer.create'
+            : 'inventory.item.create';
+    }
+
+    return $actionPermission[$action] ?? null;
 }
 
-if ($requiredPerm !== null && !hasPermission($requiredPerm)) {
-    apiError('No tenés permiso para esta acción (requiere: ' . $requiredPerm . ')', 403);
-}
-
-global $db;
-
-try {
+/**
+ * Ejecuta UNA acción ya confirmada y devuelve su resultado de dominio.
+ * Lanza InvalidArgumentException/RuntimeException en error — el caller
+ * (loop del lote) las captura para no abortar las acciones restantes.
+ *
+ * @return array Resultado de dominio (shape depende de $action).
+ */
+function aiExecuteRunAction(string $action, array $payload, string $companyId, string $userId, $db): array
+{
     switch ($action) {
 
         case 'create_contact': {
@@ -96,8 +107,7 @@ try {
                 'note'  => $payload['note']  ?? null,
             ]);
             realtimePublish('contact', 'create', (string) $newId);
-            apiOk(['action' => $action, 'result' => ['id' => $newId]]);
-            break;
+            return ['id' => $newId];
         }
 
         case 'update_contact': {
@@ -111,8 +121,7 @@ try {
             if (isset($payload['note']))  $patch['note']  = $payload['note'];
             $svc->update((string) $payload['id'], $companyId, $patch);
             realtimePublish('contact', 'update', (string) $payload['id']);
-            apiOk(['action' => $action, 'result' => ['id' => $payload['id']]]);
-            break;
+            return ['id' => $payload['id']];
         }
 
         case 'create_item': {
@@ -151,7 +160,7 @@ try {
             );
             $newId = $svc->createBlank($companyId, $itemTypeLegacy, $kind);
             if ($newId === false) {
-                apiError('No se pudo crear el ítem', 500);
+                throw new \RuntimeException('No se pudo crear el ítem');
             }
 
             $patch = ['itemName' => $payload['name'] ?? ''];
@@ -163,8 +172,7 @@ try {
 
             $svc->update((string) $newId, $companyId, $patch);
             realtimePublish('item', 'create', (string) $newId);
-            apiOk(['action' => $action, 'result' => ['id' => (string) $newId]]);
-            break;
+            return ['id' => (string) $newId];
         }
 
         case 'update_item_price': {
@@ -175,20 +183,19 @@ try {
                 'itemPrice' => (float) $payload['newPrice'],
             ]);
             realtimePublish('item', 'update', (string) $payload['id']);
-            apiOk(['action' => $action, 'result' => ['id' => $payload['id']]]);
-            break;
+            return ['id' => $payload['id']];
         }
 
         case 'create_user': {
             $roleName = trim((string) ($payload['roleName'] ?? ''));
             if ($roleName === '') {
-                apiError('roleName requerido', 422);
+                throw new \InvalidArgumentException('roleName requerido');
             }
             $roleNameLower = strtolower($roleName);
             // Bloqueo de roles admin desde el agente (defense in depth — el
             // alcance del agente es operativo, ver [[ai-agent-scope-limits]]).
             if (in_array($roleNameLower, ['super admin', 'admin', 'administrador'], true)) {
-                apiError('Role admin no permitido desde el agente', 403);
+                throw new \InvalidArgumentException('Role admin no permitido desde el agente');
             }
 
             $svc    = new \Punto\Api\Users\UsersService();
@@ -202,7 +209,7 @@ try {
             if ($roleId === null) {
                 // No crear usuarios huérfanos sin rol — error explícito para
                 // que el agente pueda informar y reintentar con un role válido.
-                apiError("Role '$roleName' no existe en el tenant", 422);
+                throw new \InvalidArgumentException("Role '$roleName' no existe en el tenant");
             }
 
             // Contraseña temporal server-side: 16 chars hex = 64 bits de entropy.
@@ -224,41 +231,34 @@ try {
             // El client implementa autoexpiración real a los 60s editando el
             // mensaje + redactando el password antes de persistir en localStorage.
             realtimePublish('user', 'create', (string) $newId);
-            apiOk([
-                'action' => $action,
-                'result' => [
-                    'id'              => $newId,
-                    'tempPassword'    => $tempPass,
-                    'userDisplayName' => $payload['name'],
-                    'login'           => $payload['phone'] ?? $payload['name'],
-                    'roleName'        => $roleName,
-                ],
-            ]);
-            break;
+            return [
+                'id'              => $newId,
+                'tempPassword'    => $tempPass,
+                'userDisplayName' => $payload['name'],
+                'login'           => $payload['phone'] ?? $payload['name'],
+                'roleName'        => $roleName,
+            ];
         }
 
         case 'create_category': {
             $svc   = new \Punto\Api\Categories\CategoryService($db);
             $newId = $svc->create($companyId, ['name' => $payload['name']]);
             realtimePublish('category', 'create', (string) $newId);
-            apiOk(['action' => $action, 'result' => ['id' => $newId]]);
-            break;
+            return ['id' => $newId];
         }
 
         case 'create_brand': {
             $svc   = new \Punto\Api\Brands\BrandService($db);
             $newId = $svc->create($companyId, ['name' => $payload['name']]);
             realtimePublish('brand', 'create', (string) $newId);
-            apiOk(['action' => $action, 'result' => ['id' => $newId]]);
-            break;
+            return ['id' => $newId];
         }
 
         case 'create_tag': {
             $svc   = new \Punto\Api\Tags\TagService($db);
             $newId = $svc->create($companyId, ['name' => $payload['name']]);
             realtimePublish('tag', 'create', (string) $newId);
-            apiOk(['action' => $action, 'result' => ['id' => $newId]]);
-            break;
+            return ['id' => $newId];
         }
 
         case 'tabular_import': {
@@ -274,7 +274,7 @@ try {
             );
 
             if (!($result['ok'] ?? false)) {
-                apiError($result['error'] ?? 'Error en importación', 422);
+                throw new \InvalidArgumentException($result['error'] ?? 'Error en importación');
             }
 
             if ($kind === 'contacts') {
@@ -283,17 +283,52 @@ try {
                 realtimePublish('item', 'import', 'batch');
             }
 
-            apiOk(['action' => $action, 'result' => $result['report'] ?? []]);
-            break;
+            return $result['report'] ?? [];
         }
 
         default:
-            apiError('Acción no reconocida: ' . $action, 400);
+            throw new \InvalidArgumentException('Acción no reconocida: ' . $action);
+    }
+}
+
+global $db;
+
+$results  = [];
+$okCount  = 0;
+$failCount = 0;
+
+foreach ($actions as $payload) {
+    if (!is_array($payload)) {
+        $results[] = ['action' => null, 'ok' => false, 'error' => 'Acción del lote inválida'];
+        $failCount++;
+        continue;
     }
 
-} catch (\InvalidArgumentException $e) {
-    apiError($e->getMessage(), 422);
-} catch (\RuntimeException $e) {
-    error_log('[ai/execute] RuntimeException: ' . $e->getMessage());
-    apiError('Error ejecutando la acción', 500);
+    $action = (string) ($payload['action'] ?? '');
+
+    $requiredPerm = aiExecuteRequiredPermission($action, $payload);
+    if ($requiredPerm !== null && !hasPermission($requiredPerm)) {
+        $results[] = [
+            'action' => $action,
+            'ok'     => false,
+            'error'  => 'No tenés permiso para esta acción (requiere: ' . $requiredPerm . ')',
+        ];
+        $failCount++;
+        continue;
+    }
+
+    try {
+        $data = aiExecuteRunAction($action, $payload, $companyId, $userId, $db);
+        $results[] = ['action' => $action, 'ok' => true, 'data' => $data];
+        $okCount++;
+    } catch (\InvalidArgumentException $e) {
+        $results[] = ['action' => $action, 'ok' => false, 'error' => $e->getMessage()];
+        $failCount++;
+    } catch (\RuntimeException $e) {
+        error_log('[ai/execute] RuntimeException (' . $action . '): ' . $e->getMessage());
+        $results[] = ['action' => $action, 'ok' => false, 'error' => 'Error ejecutando la acción'];
+        $failCount++;
+    }
 }
+
+apiOk(['results' => $results, 'okCount' => $okCount, 'failCount' => $failCount]);
