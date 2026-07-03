@@ -36,33 +36,24 @@ if ($to === '') {
     $to = date('Y-m-d 23:59:59');
 }
 
-// Totales del período: reusamos MovementService::list con límite alto (no hay
-// agregación dedicada todavía — Fase 1 alcanza con esto para el dashboard).
-$period = $movementSvc->list($companyId, ['from' => $from, 'to' => $to, 'limit' => 500]);
-
-$totalIncome = 0.0;
-$totalExpense = 0.0;
-foreach ($period['rows'] as $row) {
-    if ($row['kind'] === 'income') {
-        $totalIncome += $row['amount'];
-    } else {
-        $totalExpense += $row['amount'];
-    }
-}
+// Totales del período: agregación SQL real (SUM ... FILTER), no trunca con
+// tenants de alto volumen como hacía sumar en PHP sobre list(limit=500).
+$totals = $movementSvc->totalsByKind($companyId, $from, $to);
 
 $totalBalance = 0.0;
 foreach ($accounts as $acc) {
     $totalBalance += $acc['currentBalance'];
 }
 
-$recent = $movementSvc->list($companyId, ['limit' => 10]);
+// Últimos movimientos del rango consultado (consistente con from/to del período).
+$recent = $movementSvc->list($companyId, ['from' => $from, 'to' => $to, 'limit' => 10]);
 
 apiOk([
     'accounts'      => $accounts,
     'totalBalance'  => $totalBalance,
     'period'        => ['from' => $from, 'to' => $to],
-    'totalIncome'   => $totalIncome,
-    'totalExpense'  => $totalExpense,
-    'netFlow'       => $totalIncome - $totalExpense,
+    'totalIncome'   => $totals['income'],
+    'totalExpense'  => $totals['expense'],
+    'netFlow'       => $totals['netFlow'],
     'recentMovements' => $recent['rows'],
 ]);

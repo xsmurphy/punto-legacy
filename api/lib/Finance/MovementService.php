@@ -79,6 +79,26 @@ final class MovementService
         return ['rows' => $rows, 'total' => $total];
     }
 
+    /**
+     * Totales de ingresos/egresos del período vía agregación SQL — evita
+     * truncar en tenants de alto volumen (list() cappea en 500 filas).
+     *
+     * @return array{income:float,expense:float,netFlow:float}
+     */
+    public function totalsByKind(string $companyId, string $from, string $to): array
+    {
+        $row = ncmExecute(
+            "SELECT COALESCE(SUM(amount) FILTER (WHERE kind = 'income'), 0) AS income,
+                    COALESCE(SUM(amount) FILTER (WHERE kind = 'expense'), 0) AS expense
+               FROM fin_movement
+              WHERE companyid = ? AND status = 1 AND date BETWEEN ? AND ?",
+            [$companyId, $from, $to]
+        );
+        $income  = (float) ($row['income'] ?? 0);
+        $expense = (float) ($row['expense'] ?? 0);
+        return ['income' => $income, 'expense' => $expense, 'netFlow' => $income - $expense];
+    }
+
     public function find(string $id, string $companyId): ?array
     {
         if (!preg_match(self::UUID_RE, $id)) {
