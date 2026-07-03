@@ -355,7 +355,7 @@ function CatalogFormDialog<T, P>({
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         {open && (
           <CatalogFormBody<T, P>
             entitySingular={entitySingular}
