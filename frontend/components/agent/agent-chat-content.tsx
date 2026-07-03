@@ -1,13 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { isTextUIPart } from "ai"
+import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
 import { MessageCircle, Upload } from "lucide-react"
 import Link from "next/link"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
+import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
@@ -116,7 +117,7 @@ export function AgentChatContent({
 
       fullText =
         `[Adjuntos]\n${attachInfo}\n\n` +
-        `Si el usuario pide importar, llamá la tool register_action con action="tabular_import" y payload={sessionId, kind:"items"|"contacts", mapping, mode:"insert"|"update"} (y luego execute_action con el confirmToken al confirmar). ` +
+        `Si el usuario pide importar, llamá la tool register_action con actions=[{action:"tabular_import", payload:{sessionId, kind:"items"|"contacts", mapping, mode:"insert"|"update"}}] (y luego execute_action con el confirmToken al confirmar). ` +
         `El mapping mapea cada campo canónico a la columna de origen del archivo. ` +
         `Headers canónicos items: ${itemHeaders}. ` +
         `Headers canónicos contactos: ${contactHeaders}. ` +
@@ -221,6 +222,12 @@ export function AgentChatContent({
           const isUser = message.role === "user"
           const ts = (message as StoredMessage).createdAt
 
+          // Defensa: el modelo (DeepSeek) a veces degenera y repite el mismo
+          // texto en parts consecutivas, o emite fences de código vacíos
+          // (```{}```). Ver agent-action-card.tsx para el detalle. Acá
+          // filtramos ANTES de renderizar para no duplicar visualmente.
+          let lastRenderedText: string | null = null
+
           return (
             <div
               key={message.id}
@@ -228,6 +235,16 @@ export function AgentChatContent({
             >
               {message.parts.map((part, idx) => {
                 if (isTextUIPart(part)) {
+                  const trimmed = part.text.trim()
+                  if (trimmed === "" || isEmptyCodeFence(trimmed)) return null
+                  if (
+                    lastRenderedText !== null &&
+                    (lastRenderedText === trimmed || lastRenderedText.includes(trimmed))
+                  ) {
+                    return null
+                  }
+                  lastRenderedText = trimmed
+
                   // User: plano (lo que escribió). Assistant: markdown +
                   // acciones (copiar/leer). Mismo tratamiento que la página
                   // /chat — la pieza visual es idéntica para que la UX no
@@ -264,6 +281,26 @@ export function AgentChatContent({
                       </div>
                     </div>
                   )
+                }
+
+                if (isToolOrDynamicToolUIPart(part)) {
+                  if (part.type === "tool-register_action" && part.state === "output-available") {
+                    const isLatest = idx === message.parts.length - 1
+                    return (
+                      <RegisterActionCard
+                        key={idx}
+                        input={part.input as never}
+                        output={part.output as never}
+                        disabled={isStreaming || !isLatest}
+                        onConfirm={() => sendMessage({ text: "Sí, confirmo" })}
+                        onCancel={() => sendMessage({ text: "No, cancelá" })}
+                      />
+                    )
+                  }
+                  if (part.type === "tool-execute_action" && part.state === "output-available") {
+                    return <ExecuteActionSummary key={idx} output={part.output as never} />
+                  }
+                  return null
                 }
 
                 return null

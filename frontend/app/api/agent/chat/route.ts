@@ -132,10 +132,12 @@ export async function POST(req: Request) {
       : "") +
     (pathname || snapshot ? "\n" : "") +
     `Para acciones que modifican datos (crear contacto, ítem, usuario, categoría, marca, etiqueta, o cambiar precio): ` +
-    `1) Llamá la tool "register_action" con action + payload (con los datos) + summary. Devuelve un confirmToken. ` +
-    `2) Mostrá el summary al usuario y pedí confirmación explícita. ` +
-    `3) Solo cuando el usuario confirme, llamá "execute_action" con ese confirmToken para ejecutar. ` +
-    `Nunca ejecutes una acción mutante sin confirmación explícita del usuario. Nunca llames register_action con el payload vacío: siempre completá los campos del dato a crear/editar.\n\n` +
+    `1) Llamá la tool "register_action" con actions=[{action, payload}, ...] (SIEMPRE un array, incluso para una sola acción) + summary. Si el usuario pidió VARIOS ítems en el mismo pedido (ej. "creá Sprite, Coca Zero y Coca Cola"), agrupá TODAS las acciones en ESE MISMO array y llamá register_action UNA sola vez — nunca la llames varias veces para un mismo pedido. Devuelve un confirmToken. ` +
+    `2) La interfaz ya muestra el resumen del lote como tarjeta visual con botones de confirmar/cancelar — NO narres, repitas ni reformules ese resumen en texto. Tu respuesta después de llamar register_action debe ser mínima (una frase corta o nada). ` +
+    `3) Solo cuando el usuario confirme, llamá "execute_action" con ese confirmToken para ejecutar (ejecuta TODO el lote). ` +
+    `Nunca ejecutes una acción mutante sin confirmación explícita del usuario. Nunca llames register_action con actions vacío o payloads vacíos: siempre completá los campos del dato a crear/editar.\n\n` +
+    `## Formato de salida — nunca degenerar\n` +
+    `NUNCA emitas bloques de código vacíos (\`\`\` sin contenido o con solo "{}"). NUNCA repitas el mismo párrafo o resumen dos veces en la misma respuesta. NUNCA digas frases como "si el sistema falla te guiaré manualmente" ni inventes pasos alternativos — si una tool falla, reportá el error real que devolvió.\n\n` +
     `CUANDO la acción "create_user" devuelva tempPassword, presentá la respuesta EXACTAMENTE con este formato (sin texto adicional antes ni después, sin "te muestro", sin disculpas):\n\n` +
     `🔐 **{userDisplayName}**\n\n` +
     `**Usuario:** {login}\n` +
@@ -151,7 +153,7 @@ export async function POST(req: Request) {
     `   - Si no está claro, preguntá: "¿Son artículos/productos o contactos (clientes/proveedores)?"\n` +
     `3. Determiná el mapping: si los headers del archivo ya coinciden con los canónicos del importer, mapping=null. Si no, construí el mapping {campoCanónico: columnaDelArchivo}.\n` +
     `4. Determiná el mode: default "insert". Si el usuario dice "actualizar", "modificar precios", "sincronizar" → mode="update".\n` +
-    `5. Llamá register_action con action="tabular_import", payload={sessionId, kind, mapping, mode}, summary="Importar N filas a [artículos/contactos] (modo [insert/update])".\n` +
+    `5. Llamá register_action con actions=[{action:"tabular_import", payload:{sessionId, kind, mapping, mode}}], summary="Importar N filas a [artículos/contactos] (modo [insert/update])".\n` +
     `6. Esperá la confirmación explícita del usuario antes de proceder.\n` +
     `7. Cuando el usuario confirme, llamá execute_action con {confirmToken} para ejecutar.\n` +
     `8. Reportá el resultado: "Se importaron X artículos/contactos. Y actualizados. Z errores." Si hay errores, listalos.`

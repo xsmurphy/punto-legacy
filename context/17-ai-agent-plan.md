@@ -114,17 +114,50 @@ Decisión cerrada (2026-06-21): el agente NO hace todo lo que un humano hace. Al
 | `create_brand({name})` | `POST /v1/brands` | idem |
 | `create_tag({name})` | `POST /v1/tags` | idem |
 
-### Patrón confirmToken (server-side)
+### Patrón confirmToken (server-side) — BATCH desde 2026-07-02
 
-Endpoint nuevo `api/v1/ai/confirm.php` (POST, auth panel):
-- Body: `{action, payload}`. `action` ∈ las 8 acciones de escritura. `payload` es el objeto que la tool armó.
-- Genera `confirmToken` UUID, guarda en Redis `agent:confirm:<token>` valor `JSON.stringify({action, payload, companyId, userId})` con TTL 300s.
-- Devuelve `{confirmToken, summary}` donde `summary` es un string breve generado server-side ("Crear cliente 'Juan Pérez' con teléfono +595 981 123456").
+**Actualizado (2026-07-02)**: el shape pasó de "una acción por token" a "un LOTE
+de 1+ acciones por token". Motivo: pedir varios ítems en un mismo mensaje
+("creá Sprite, Coca Zero y Coca Cola") generaba una llamada a `register_action`
+por ítem → 3 confirmaciones separadas en la UI. Ahora el modelo agrupa TODO el
+pedido en un solo array `actions` → un solo `confirmToken` → una sola
+confirmación → `execute_action` ejecuta el lote completo.
+
+Endpoint `api/v1/ai/confirm.php` (POST, auth panel):
+- Body (preferido): `{actions: [{action, payload}, ...], summary}`. Cada
+  `action` ∈ las 9 acciones de escritura (agregado `tabular_import`).
+  Compat: el shape legacy `{action, payload, summary}` se envuelve
+  automáticamente en `actions:[{action,payload}]`.
+- Valida CADA elemento del array con `aiConfirmValidateAction()` (función
+  reusable, ya no un switch inline de un solo uso).
+- Genera `confirmToken`, guarda en Redis `ai:confirm:<token>` el lote completo
+  `{actions: [...]}` con TTL 300s.
+- Devuelve `{confirmToken, summary, count}`.
 
 Endpoint `api/v1/ai/execute.php` (POST, auth panel):
 - Body: `{confirmToken}`.
-- Lee Redis `agent:confirm:<token>`, valida `companyId === ctx['companyId']` (anti-replay cross-tenant), borra el token (uso único), invoca el action correspondiente (mismo path interno que el endpoint real — reusá los Services existentes vía require).
-- Devuelve el resultado del action.
+- Consume el token (GET+DEL atómico, uso único — sin cambios ahí), valida
+  `companyId === ctx['companyId']`, itera las acciones del lote y ejecuta
+  CADA una vía `aiExecuteRunAction()` (permiso específico por-acción +
+  ejecución, refactorizados del switch monolítico que existía antes).
+- **Fallo parcial no aborta el resto**: cada acción se ejecuta en su propio
+  try/catch: si una falla, las siguientes del lote igual se ejecutan.
+- Devuelve `{results: [{action, ok, error?, data?}], okCount, failCount}`.
+
+El front (`frontend/lib/agent/confirm-tool.ts`) refleja el mismo cambio:
+`register_action` recibe `actions: z.array({action, payload}).min(1)` en vez
+de `action`/`payload` sueltos. `use-agent-chat.ts` adapta la invalidación de
+queries (`tokenToActions` como array, invalida por cada acción del lote).
+
+**Render determinístico** (`frontend/components/agent/agent-action-card.tsx`,
+nuevo): el front dejó de descartar (`return null`) las tool-parts de
+`register_action`/`execute_action` — se renderizan como tarjetas shadcn
+(lista de acciones + botones Confirmar/Cancelar; resumen de creados/fallidos).
+Antes, el resumen de confirmación dependía 100% de que el modelo lo narrara en
+texto libre — con DeepSeek eso degeneraba (texto repetido, fences de código
+vacíos `{}` alucinados). La UI ahora es la fuente de verdad del resumen; el
+system prompt le pide al modelo no narrarlo. Incluye dedupe de text-parts
+consecutivos + strip de fences vacíos como defensa adicional.
 
 **Comportamiento del agente** (en el route handler chat):
 1. Tool de escritura → llama `/v1/ai/confirm` con el payload, devuelve `{requiresConfirmation:true, summary, confirmToken}` al modelo.

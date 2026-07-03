@@ -86,20 +86,23 @@ export function useAgentChat({
       body: { companyName, viewOutletId, viewOutletName, pathname, snapshot: snapshot ?? undefined },
     }),
     onFinish: ({ message, messages }) => {
-      // Recolectar (confirmToken → action) de TODOS los registers previos del
-      // thread. El register devuelve `confirmToken` en su output; el execute
-      // posterior pasa solo ese token (sin la action). Sin este lookup no
-      // sabríamos qué entidad invalidar.
-      const tokenToAction = new Map<string, string>()
+      // Recolectar (confirmToken → actions[]) de TODOS los registers previos del
+      // thread. El register recibe `actions:[{action,payload},...]` y devuelve
+      // `confirmToken` en su output; el execute posterior pasa solo ese token
+      // (sin las actions). Sin este lookup no sabríamos qué entidades invalidar.
+      const tokenToActions = new Map<string, string[]>()
       for (const msg of messages) {
         for (const part of msg.parts ?? []) {
           if (!isToolOrDynamicToolUIPart(part)) continue
           if (part.type !== "tool-register_action") continue
           if (part.state !== "output-available") continue
-          const input = part.input as { action?: string } | undefined
+          const input = part.input as { actions?: Array<{ action?: string }> } | undefined
           const output = part.output as { confirmToken?: string } | undefined
-          if (input?.action && output?.confirmToken) {
-            tokenToAction.set(output.confirmToken, input.action)
+          const actionNames = (input?.actions ?? [])
+            .map((a) => a.action)
+            .filter((a): a is string => !!a)
+          if (actionNames.length > 0 && output?.confirmToken) {
+            tokenToActions.set(output.confirmToken, actionNames)
           }
         }
       }
@@ -119,12 +122,18 @@ export function useAgentChat({
         if (part.type !== "tool-execute_action") continue
         if (part.state !== "output-available") continue
         const input = part.input as { confirmToken?: string } | undefined
-        const output = part.output as { error?: string } | undefined
+        const output = part.output as { error?: string; okCount?: number } | undefined
         if (!input?.confirmToken) continue // sin token, nada que invalidar
-        if (output?.error) continue // execute falló
-        const action = tokenToAction.get(input.confirmToken)
-        const keys = action ? ACTION_TO_QUERY_KEYS[action] : undefined
-        invalidate(keys ?? ALL_AGENT_KEYS)
+        if (output?.error) continue // execute abortó (token inválido/expirado)
+        if ((output?.okCount ?? 0) === 0) continue // ninguna acción del lote tuvo éxito
+        const actions = tokenToActions.get(input.confirmToken)
+        if (!actions || actions.length === 0) {
+          invalidate(ALL_AGENT_KEYS)
+          continue
+        }
+        for (const action of actions) {
+          invalidate(ACTION_TO_QUERY_KEYS[action] ?? ALL_AGENT_KEYS)
+        }
       }
     },
   })
