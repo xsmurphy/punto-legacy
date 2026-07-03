@@ -202,24 +202,17 @@ export function ExecuteActionSummary({ output }: { output: ExecuteActionOutput |
  * modelo lo hace igual.
  */
 
-/** true si el texto es un fence de código vacío o con solo `{}`/whitespace. */
+/**
+ * true si el texto es un fence de código vacío o con solo `{}`/whitespace.
+ * Usado inline por ambos renderers (agent-chat-content.tsx y chat/page.tsx)
+ * junto con un chequeo de "texto igual/contenido en el anterior" para el
+ * dedupe de parts consecutivas — la lógica de dedupe en sí queda en cada
+ * call-site porque necesita el `idx` del `.map()` para la key de React.
+ */
 export function isEmptyCodeFence(text: string): boolean {
   const trimmed = text.trim()
   const fenceMatch = trimmed.match(/^```[a-zA-Z]*\n?([\s\S]*?)\n?```$/)
   if (!fenceMatch) return false
   const inner = fenceMatch[1].trim()
   return inner === "" || inner === "{}"
-}
-
-/** Dedupe de textos consecutivos idénticos (o el segundo contenido en el primero). */
-export function dedupeConsecutiveText(parts: string[]): string[] {
-  const out: string[] = []
-  for (const raw of parts) {
-    const text = raw.trim()
-    if (text === "" || isEmptyCodeFence(text)) continue
-    const prev = out[out.length - 1]
-    if (prev !== undefined && (prev === text || prev.includes(text))) continue
-    out.push(raw)
-  }
-  return out
 }
