@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { isTextUIPart } from "ai"
+import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
 import Link from "next/link"
 import {
   TrendingUp,
@@ -18,6 +18,7 @@ import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
+import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
@@ -209,6 +210,12 @@ export default function ChatPage() {
                 // createdAt viaja embebido en el mensaje desde la primera vez
                 // que se persistió; sobrevive reloads sin races de hidratación.
                 const ts = (message as StoredMessage).createdAt
+
+                // Defensa: el modelo (DeepSeek) a veces degenera y repite el
+                // mismo texto en parts consecutivas, o emite fences de código
+                // vacíos (```{}```). Ver agent-action-card.tsx para el detalle.
+                let lastRenderedText: string | null = null
+
                 return (
                   <div
                     key={message.id}
@@ -216,6 +223,16 @@ export default function ChatPage() {
                   >
                     {message.parts.map((part, idx) => {
                       if (isTextUIPart(part)) {
+                        const trimmed = part.text.trim()
+                        if (trimmed === "" || isEmptyCodeFence(trimmed)) return null
+                        if (
+                          lastRenderedText !== null &&
+                          (lastRenderedText === trimmed || lastRenderedText.includes(trimmed))
+                        ) {
+                          return null
+                        }
+                        lastRenderedText = trimmed
+
                         // User: texto plano (lo que escribió). Assistant:
                         // markdown formateado + acciones (copiar/leer).
                         if (isUser) {
@@ -251,6 +268,27 @@ export default function ChatPage() {
                           </div>
                         )
                       }
+
+                      if (isToolOrDynamicToolUIPart(part)) {
+                        if (part.type === "tool-register_action" && part.state === "output-available") {
+                          const isLatest = idx === message.parts.length - 1
+                          return (
+                            <RegisterActionCard
+                              key={idx}
+                              input={part.input as never}
+                              output={part.output as never}
+                              disabled={isStreaming || !isLatest}
+                              onConfirm={() => sendMessage({ text: "Sí, confirmo" })}
+                              onCancel={() => sendMessage({ text: "No, cancelá" })}
+                            />
+                          )
+                        }
+                        if (part.type === "tool-execute_action" && part.state === "output-available") {
+                          return <ExecuteActionSummary key={idx} output={part.output as never} />
+                        }
+                        return null
+                      }
+
                       return null
                     })}
                   </div>
