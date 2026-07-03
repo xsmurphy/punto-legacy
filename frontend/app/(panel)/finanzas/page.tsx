@@ -1,5 +1,7 @@
 "use client"
 
+import * as React from "react"
+import Link from "next/link"
 import { Landmark } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +15,8 @@ import {
 } from "@/components/ui/table"
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
+import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -20,51 +24,58 @@ import { useFinanceSummary } from "@/hooks/use-finance-summary"
 
 export default function FinanzasResumenPage() {
   const { data: bootstrap } = useBootstrap()
-  const { data: summary, isLoading } = useFinanceSummary()
-
-  if (isLoading) {
-    return (
-      <div className="flex flex-col gap-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 w-full" />
-          ))}
-        </div>
-        <Skeleton className="h-64 w-full" />
-      </div>
-    )
-  }
+  const { range, setRange } = useDateRange()
+  const opts = React.useMemo(() => rangeToBackend(range), [range])
+  const { data: summary, isLoading } = useFinanceSummary(opts)
 
   const accounts = summary?.accounts ?? []
   const recentMovements = summary?.recentMovements ?? []
 
-  if (accounts.length === 0) {
-    return (
-      <EmptyState
-        icon={Landmark}
-        title="Todavía no cargaste movimientos"
-        description="Registrá tu primera entrada o salida desde Movimientos."
-      />
-    )
-  }
-
   return (
     <div className="flex flex-col gap-6">
-      {/* Saldos por cuenta */}
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Resumen</h1>
+          <p className="text-sm text-muted-foreground">
+            Saldos por cuenta y flujo de caja del período.
+          </p>
+        </div>
+        <DateRangePicker value={range} onChange={setRange} />
+      </header>
+
+      {isLoading ? (
+        <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 w-full" />
+            ))}
+          </div>
+          <Skeleton className="h-64 w-full" />
+        </div>
+      ) : accounts.length === 0 ? (
+        <EmptyState
+          icon={Landmark}
+          title="Todavía no cargaste movimientos"
+          description="Registrá tu primera entrada o salida desde Movimientos."
+        />
+      ) : (
+        <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {accounts.map((account) => (
-          <Card key={account.id}>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {account.name}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-semibold tabular-nums">
-                {formatMoney(account.currentBalance, bootstrap)}
-              </p>
-            </CardContent>
-          </Card>
+          <Link key={account.id} href={`/finanzas/movimientos?accountId=${account.id}`}>
+            <Card className="cursor-pointer transition-colors hover:border-primary/40">
+              <CardHeader>
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {account.name}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-semibold tabular-nums">
+                  {formatMoney(account.currentBalance, bootstrap)}
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 
@@ -153,6 +164,8 @@ export default function FinanzasResumenPage() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   )
 }
