@@ -5,16 +5,24 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Separator } from "@/components/ui/separator"
 
+// 3 grupos por naturaleza: Operación (día a día) · Reportes (montos
+// agregados) · Configuración (ABM/setup). El separador vertical entre
+// grupos es solo visual — TABS sigue siendo una lista plana para el
+// grid/scroll responsive existente.
 const TABS = [
   { href: "/finanzas", label: "Resumen" },
   { href: "/finanzas/movimientos", label: "Movimientos" },
   { href: "/finanzas/cuentas", label: "Cuentas" },
-  { href: "/finanzas/categorias", label: "Categorías" },
   { href: "/finanzas/cheques", label: "Cheques" },
   { href: "/finanzas/conciliacion", label: "Conciliación" },
-  { href: "/finanzas/ajustes", label: "Ajustes" },
+  { href: "/finanzas/reportes", label: "Reportes" },
+  { href: "/finanzas/configuracion", label: "Configuración" },
 ] as const
+
+// Índice donde empieza el segundo grupo (Reportes) — divide Operación del resto.
+const GROUP_BREAK_INDEX = 5
 
 export default function FinanzasLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -34,11 +42,16 @@ export default function FinanzasLayout({ children }: { children: React.ReactNode
       </div>
 
       <Tabs value={activeTab}>
-        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto md:grid md:grid-cols-7 md:overflow-visible">
-          {TABS.map((tab) => (
-            <TabsTrigger key={tab.href} value={tab.href} asChild className="shrink-0 md:shrink">
-              <Link href={tab.href}>{tab.label}</Link>
-            </TabsTrigger>
+        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto md:grid md:grid-cols-8 md:overflow-visible">
+          {TABS.map((tab, i) => (
+            <React.Fragment key={tab.href}>
+              {i === GROUP_BREAK_INDEX && (
+                <Separator orientation="vertical" className="mx-1 h-5 self-center" />
+              )}
+              <TabsTrigger value={tab.href} asChild className="shrink-0 md:shrink">
+                <Link href={tab.href}>{tab.label}</Link>
+              </TabsTrigger>
+            </React.Fragment>
           ))}
         </TabsList>
       </Tabs>
