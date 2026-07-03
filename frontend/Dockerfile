@@ -42,7 +42,7 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 # SIGKILL no le da tiempo a escribir el error). El build con `--webpack`
 # (script de package.json) ya usa menos RAM que Turbopack — este cap es
 # defensa adicional.
-ENV NODE_OPTIONS="--max-old-space-size=1536"
+ENV NODE_OPTIONS="--max-old-space-size=3072"
 
 RUN npm run build
 
