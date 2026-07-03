@@ -28,12 +28,22 @@ if ($method !== 'GET') {
 
 $companyId = (string) COMPANY_ID;
 
+// Valida fecha real (no solo el formato) — "2026-99-99" matchea el regex
+// pero rompe en Postgres como bind param; checkdate() lo degrada al default
+// en vez de devolver 500.
+$isValidDate = static function (string $val): bool {
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $val, $m)) {
+        return false;
+    }
+    return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
+};
+
 $from = trim((string) ($_GET['from'] ?? ''));
 $to   = trim((string) ($_GET['to'] ?? ''));
-if ($from === '' || !preg_match('/^\d{4}-\d{2}-\d{2}/', $from)) {
+if ($from === '' || !$isValidDate($from)) {
     $from = date('Y-m-01 00:00:00');
 }
-if ($to === '' || !preg_match('/^\d{4}-\d{2}-\d{2}/', $to)) {
+if ($to === '' || !$isValidDate($to)) {
     $to = date('Y-m-d 23:59:59');
 }
 
