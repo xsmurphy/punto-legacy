@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Landmark, Loader2, MoreVertical, Plus } from "lucide-react"
+import { Landmark, Loader2, MoreVertical, Plus, Receipt } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -63,6 +65,7 @@ const TYPE_LABELS: Record<FinanceAccount["type"], string> = {
 }
 
 export default function FinanzasCuentasPage() {
+  const router = useRouter()
   const { data: bootstrap } = useBootstrap()
   const { data: accounts, isLoading } = useFinanceAccounts()
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -114,7 +117,11 @@ export default function FinanzasCuentasPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((account) => (
-            <Card key={account.id}>
+            <Card
+              key={account.id}
+              className="cursor-pointer transition-colors hover:border-primary/40"
+              onClick={() => router.push(`/finanzas/movimientos?accountId=${account.id}`)}
+            >
               <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
                 <div className="flex flex-col gap-1.5">
                   <CardTitle className="text-base font-semibold tracking-tight">
@@ -125,26 +132,39 @@ export default function FinanzasCuentasPage() {
                     {account.isSystem && <Badge variant="secondary">Sistema</Badge>}
                   </div>
                 </div>
-                {!account.isSystem && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" aria-label="Acciones de la cuenta">
-                        <MoreVertical className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => setEditTarget(account)}>
-                        Editar
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => setArchiveTarget(account)}
-                      >
-                        Archivar
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Acciones de la cuenta"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreVertical className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/finanzas/movimientos?accountId=${account.id}`}>
+                        <Receipt className="size-4" />
+                        Ver movimientos
+                      </Link>
+                    </DropdownMenuItem>
+                    {!account.isSystem && (
+                      <>
+                        <DropdownMenuItem onSelect={() => setEditTarget(account)}>
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setArchiveTarget(account)}
+                        >
+                          Archivar
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
                 <p className="text-2xl font-semibold tabular-nums">
