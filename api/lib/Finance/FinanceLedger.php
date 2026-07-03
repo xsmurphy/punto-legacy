@@ -225,7 +225,7 @@ final class FinanceLedger
         string $companyId,
         string $source,
         string $sourceId,
-        array $row,
+        array|\CaseInsensitiveArray $row,
         string $kind,
         ?string $categoryId,
         string $description
@@ -274,7 +274,7 @@ final class FinanceLedger
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function decodePaymentLines(array $row): array
+    private function decodePaymentLines(array|\CaseInsensitiveArray $row): array
     {
         $raw = $row['transactionPaymentType'] ?? null;
         if (!is_string($raw) || $raw === '') {
