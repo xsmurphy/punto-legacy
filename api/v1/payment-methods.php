@@ -7,8 +7,9 @@
  *   POST   /v1/payment-methods            → crea  (body: { name, code?, hasChange?,
  *                                            requiresIdentifier?, identifierLabel?,
  *                                            identifierPlaceholder?, accountId? })
- *   PUT    /v1/payment-methods?id=<uuid>  → actualiza (partial)
- *   DELETE /v1/payment-methods?id=<uuid>  → elimina (Efectivo no borrable)
+ *   PUT    /v1/payment-methods?id=<uuid>       → actualiza (partial)
+ *   PUT    /v1/payment-methods?resource=reorder → reordena (body: { orderedIds: [...] })
+ *   DELETE /v1/payment-methods?id=<uuid>       → elimina (Efectivo no borrable)
  *
  * Auth: panel. Identidad estable: el taxonomyId (UUID) es la clave del método
  * que las ventas nuevas guardan y que finAccountMap referencia. El BFF del POS
@@ -49,6 +50,19 @@ switch ($method) {
         break;
 
     case 'PUT':
+        // Reorder: ?resource=reorder con body { orderedIds: [...] }. Scopeado a
+        // companyId dentro del service; nunca confía un companyId del cliente.
+        if (($_GET['resource'] ?? '') === 'reorder') {
+            $orderedIds = $_POST['orderedIds'] ?? [];
+            if (!is_array($orderedIds)) apiError('orderedIds debe ser un array', 422);
+            try {
+                $svc->reorder($companyId, $orderedIds);
+                apiOk(['paymentMethods' => $svc->list($companyId)]);
+            } catch (\Throwable $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
         if ($id === null) apiError('id requerido', 422);
         try {
             $svc->update($companyId, (string) $id, $_POST);

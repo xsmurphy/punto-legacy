@@ -170,6 +170,8 @@ interface UpstreamPaymentMethodRow {
   requiresIdentifier: boolean
   identifierLabel: string
   identifierPlaceholder: string
+  color: string
+  sortOrder: number | null
   systemKey: "cash" | "giftcard" | "internal" | null
   accountId: string | null
 }
@@ -301,6 +303,8 @@ function reshapePaymentMethod(row: UpstreamPaymentMethodRow): PaymentMethodConfi
     identifierPlaceholder: row.identifierPlaceholder || undefined,
     isDefault: row.systemKey != null,
     systemKey: row.systemKey,
+    color: row.color || undefined,
+    sortOrder: row.sortOrder,
   }
 }
 

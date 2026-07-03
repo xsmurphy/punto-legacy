@@ -49,6 +49,24 @@ export function useUpdatePaymentMethod() {
   })
 }
 
+/**
+ * Reordena los medios de pago (drag&drop). PUT ?resource=reorder con
+ * { orderedIds }. El backend setea sortOrder=índice, scopeado por companyId.
+ */
+export function useReorderPaymentMethods() {
+  const qc = useQueryClient()
+  return useMutation<{ paymentMethods: PaymentMethod[] }, Error, string[]>({
+    mutationFn: (orderedIds) =>
+      api.put<{ paymentMethods: PaymentMethod[] }>(
+        "/v1/payment-methods?resource=reorder",
+        { orderedIds } as unknown as Record<string, unknown>,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payment-methods"] })
+    },
+  })
+}
+
 export function useDeletePaymentMethod() {
   const qc = useQueryClient()
   return useMutation<{ deleted: boolean }, Error, string>({

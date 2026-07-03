@@ -40,8 +40,10 @@ import {
   useCreatePaymentMethod,
   useUpdatePaymentMethod,
   useDeletePaymentMethod,
+  useReorderPaymentMethods,
 } from "@/hooks/use-payment-methods"
 import { useFinanceAccounts } from "@/hooks/use-finance-accounts"
+import { resolveColorBg } from "@/lib/ui/color-palette"
 
 import type { Category, CategoryPayload } from "@/lib/types/category"
 import type { Brand, BrandPayload } from "@/lib/types/brand"
@@ -331,6 +333,7 @@ function isEfectivoName(name: string): boolean {
 function PaymentMethodsTab() {
   const { data, isLoading } = usePaymentMethods()
   const { data: accountsData } = useFinanceAccounts()
+  const reorder = useReorderPaymentMethods()
 
   // Solo cuentas type='bank' son asignables — ConfigService::update valida ese
   // type (wallet/cash se rechazan con 422). El método Efectivo cae fijo en la
@@ -404,6 +407,12 @@ function PaymentMethodsTab() {
         placeholder: "Ej: 123456",
       },
       {
+        name: "color",
+        label: "Color",
+        type: "color",
+        helperText: "Acento del método en el cobro del POS.",
+      },
+      {
         name: "accountId",
         label: "Cuenta de Finanzas",
         type: "select",
@@ -435,6 +444,7 @@ function PaymentMethodsTab() {
         requiresIdentifier: row.requiresIdentifier,
         identifierLabel: row.identifierLabel,
         identifierPlaceholder: row.identifierPlaceholder,
+        color: row.color,
         // accountId string para el Select: sentinel cuando no hay banco / es Efectivo.
         accountId:
           row.accountId && !isEfectivoName(row.name) ? row.accountId : NO_ACCOUNT,
@@ -448,6 +458,7 @@ function PaymentMethodsTab() {
         requiresIdentifier: false,
         identifierLabel: "",
         identifierPlaceholder: "",
+        color: "",
         accountId: NO_ACCOUNT,
       }}
       exportFileName="medios-de-pago"
@@ -456,6 +467,27 @@ function PaymentMethodsTab() {
         // Sentinel → null; Efectivo nunca manda accountId (el backend lo ignora).
         accountId: isEfectivoName(v.name) || v.accountId === NO_ACCOUNT ? null : v.accountId,
       })}
+      reorderable={{
+        onReorder: (orderedIds) => reorder.mutate(orderedIds),
+        renderRow: (row) => (
+          <>
+            <span
+              className="inline-block size-3 shrink-0 rounded-full border"
+              style={{ backgroundColor: resolveColorBg(row.color) ?? "transparent" }}
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1 truncate font-medium">{row.name}</span>
+            {row.code && (
+              <kbd className="pointer-events-none inline-flex h-5 select-none items-center rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
+                {row.code}
+              </kbd>
+            )}
+            {row.requiresIdentifier && (
+              <span className="shrink-0 text-xs text-muted-foreground">Pide identificador</span>
+            )}
+          </>
+        ),
+      }}
     />
   )
 }

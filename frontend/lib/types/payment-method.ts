@@ -17,6 +17,10 @@ export interface PaymentMethod {
   identifierLabel: string
   identifierPlaceholder: string
   systemKey: "cash" | "giftcard" | "internal" | null
+  /** Key de color de la paleta unificada (lib/ui/color-palette.ts). "" = sin color. */
+  color: string
+  /** Orden de aparición (drag&drop). Null = sin orden explícito. */
+  sortOrder: number | null
   /** Cuenta de Finanzas asignada. Null = cae en Efectivo (fallback). */
   accountId: string | null
 }
@@ -28,5 +32,6 @@ export interface PaymentMethodPayload {
   requiresIdentifier?: boolean
   identifierLabel?: string
   identifierPlaceholder?: string
+  color?: string
   accountId?: string | null
 }

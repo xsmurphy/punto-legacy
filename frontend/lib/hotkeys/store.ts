@@ -30,19 +30,14 @@ export interface Hotkey {
 }
 
 // ── Paleta de colores (selector del modo edición) ────────────────────────────
+// La paleta canónica del panel vive en lib/ui/color-palette.ts (compartida con
+// Usuarios, Impresoras y Medios de pago). Se re-exporta acá con los nombres
+// históricos para no romper los importadores existentes del POS.
 
-export const HOTKEY_COLORS: { key: string; bg: string }[] = [
-  { key: "amber", bg: "#f59e0b" },
-  { key: "slate", bg: "#64748b" },
-  { key: "sky", bg: "#38bdf8" },
-  { key: "rose", bg: "#f43f5e" },
-  { key: "emerald", bg: "#10b981" },
-  { key: "violet", bg: "#8b5cf6" },
-]
+import { PALETTE_COLORS, resolveColorBg } from "@/lib/ui/color-palette"
 
-export function hotkeyColorBg(color: string): string | null {
-  return HOTKEY_COLORS.find((c) => c.key === color)?.bg ?? null
-}
+export const HOTKEY_COLORS = PALETTE_COLORS
+export const hotkeyColorBg = resolveColorBg
 
 // ── Store ────────────────────────────────────────────────────────────────────
 

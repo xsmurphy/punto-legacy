@@ -432,11 +432,12 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 
 ### Finanzas Fase 1-3 ✅ (plan `context/22`)
 
-- Fase 1-2: mig 72 (`fin_account`/`fin_category`/`fin_movement`/`fin_check`/`fin_reconciliation`) + Account/Category/Movement/Check/Reconciliation services + endpoints `/v1/finance/*` + UI (Resumen/Cuentas/Categorías/Movimientos/Cheques/Conciliación/Ajustes) + permiso `finance.manage`
+- Fase 1-2: mig 72 (`fin_account`/`fin_category`/`fin_movement`/`fin_check`/`fin_reconciliation`) + Account/Category/Movement/Check/Reconciliation services + endpoints `/v1/finance/*` + UI (Resumen/Cuentas/Categorías/Movimientos/Cheques/Conciliación/Ajustes) + permiso `finance.manage`. Cuenta "Efectivo" del sistema (issystem, mapeo fijo); Ajustes lee medios de pago REALES del tenant (taxonomía `paymentMethod`).
 - **Fase 3 (auto-integración, 2026-07-02)**: mig 73 (UNIQUE por `(companyid,source,sourceid,accountid)` para split-payment) + `FinanceLedger` (re-lee la fila de origen; sirve para hook en vivo Y backfill) + hooks best-effort en sales/credit-payments/purchases/transactions + `DrawerService`→`ncmInsert` + backfill CLI + `POST /v1/finance/backfill` (advisory lock) + botón "Importar histórico"
 - **Idempotencia de saldo atómica**: `recordDerivedMovement` con `INSERT ... ON CONFLICT DO NOTHING RETURNING` — delta a `currentbalance` una única vez, sin TOCTOU
 - **TODO Fase 4**: returns (`transactionType=2/6`) no generan movimiento (sobreestiman ingresos); backfill sin cap de tiempo; dashboard cashflow
 - **CRUD de medios de pago ✅ (2026-07-02, branch `pay-methods-crud`)**: `PaymentMethodService` + `/v1/payment-methods` (CRUD sobre `taxonomy` paymentMethod, auto-seed Efectivo/T.Crédito/T.Débito). Tab "Medios de pago" en Settings → Catálogo (`CatalogManager` genérico con `switch`/`select`). `ConfigService::resolveAccountId` dual-path (UUID nuevo vs slug legacy backfill). POS bootstrap trae métodos reales con fallback seguro. `pay-dialog.tsx` re-keyeado a `systemKey` en vez de `id` literal para giftcard/interno
+- **Color + orden de medios de pago ✅ (2026-07-02, branch `pay-methods-color-order`)**: medios de pago ganaron color y orden por drag&drop (`dnd-kit`). Paleta unificada (`lib/ui/color-palette.ts`) + `ColorPicker` canonico aplicada tambien a Hotkeys/Usuarios/Impresoras (ver `context/20` §4.8.1)
 
 ### Agente IA AI-1..AI-3b ✅ (plan `context/17`)
 
