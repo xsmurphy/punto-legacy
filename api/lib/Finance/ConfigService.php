@@ -278,13 +278,14 @@ final class ConfigService
      */
     private function paymentMethodsFull(string $companyId): array
     {
+        // taxonomyExtra es TEXT (no jsonb): ->> no existe sobre esa columna y
+        // rompe la query (mismo bug que PaymentMethodService::list()). code y
+        // systemKey se extraen en PHP tras decodificar el JSON crudo.
         $res = ncmExecute(
-            "SELECT taxonomyId, taxonomyName,
-                    taxonomyExtra->>'code' AS code,
-                    taxonomyExtra->>'systemKey' AS systemKey
+            'SELECT taxonomyId, taxonomyName, taxonomyExtra
                FROM taxonomy
               WHERE taxonomyType = ? AND companyId = ?
-              ORDER BY taxonomyName ASC",
+              ORDER BY taxonomyName ASC',
             ['paymentMethod', $companyId],
             false,
             true
@@ -292,11 +293,13 @@ final class ConfigService
         $out = [];
         if ($res && is_object($res)) {
             while (!$res->EOF) {
+                $extraRaw = $res->fields['taxonomyextra'] ?? null;
+                $extra = is_string($extraRaw) ? (json_decode($extraRaw, true) ?: []) : (is_array($extraRaw) ? $extraRaw : []);
                 $out[] = [
                     'id'        => (string) $res->fields['taxonomyid'],
                     'name'      => (string) $res->fields['taxonomyname'],
-                    'code'      => $res->fields['code'] !== null ? (string) $res->fields['code'] : null,
-                    'systemKey' => $res->fields['systemkey'] !== null ? (string) $res->fields['systemkey'] : null,
+                    'code'      => isset($extra['code']) && $extra['code'] !== '' ? (string) $extra['code'] : null,
+                    'systemKey' => isset($extra['systemKey']) && $extra['systemKey'] !== '' ? (string) $extra['systemKey'] : null,
                 ];
                 $res->MoveNext();
             }

@@ -47,11 +47,15 @@ final class PaymentMethodService
         $this->ensureSeed($companyId);
         $accountMap = $this->accountIdByMethod($companyId);
 
+        // taxonomyExtra es TEXT (no jsonb): el operador ->> no existe sobre esa
+        // columna y Postgres tira "operator does not exist: text ->> unknown",
+        // devolviendo $rs===false y vaciando el catálogo entero. El sort por
+        // sortOrder se hace en PHP (present() ya decodifica el JSON).
         $rs = $this->db->Execute(
-            "SELECT taxonomyId, taxonomyName, taxonomyExtra
+            'SELECT taxonomyId, taxonomyName, taxonomyExtra
                FROM taxonomy
               WHERE companyId = ? AND taxonomyType = ?
-              ORDER BY (taxonomyExtra->>'sortOrder')::int NULLS LAST, taxonomyName ASC",
+              ORDER BY taxonomyName ASC',
             [$companyId, 'paymentMethod']
         );
         if ($rs === false) return [];
@@ -59,6 +63,11 @@ final class PaymentMethodService
         foreach ($rs->GetRows() as $row) {
             $out[] = $this->present($row, $accountMap);
         }
+        usort($out, function (array $a, array $b): int {
+            $sa = $a['sortOrder'] ?? PHP_INT_MAX;
+            $sb = $b['sortOrder'] ?? PHP_INT_MAX;
+            return $sa <=> $sb ?: strcasecmp((string) $a['name'], (string) $b['name']);
+        });
         return $out;
     }
 
@@ -168,12 +177,15 @@ final class PaymentMethodService
         // El guard de cash va TAMBIÉN en el WHERE (no solo en el pre-check) para
         // cerrar el TOCTOU: si otra request renombra este row a "Efectivo" o le
         // setea systemKey='cash' entre el find() y el DELETE, el WHERE lo excluye
-        // atómicamente y no se borra nunca la caja del sistema.
+        // atómicamente y no se borra nunca la caja del sistema. taxonomyExtra es
+        // TEXT (no jsonb) — ->> no existe sobre esa columna y rompe el DELETE
+        // (mismo bug que list()/paymentMethodsFull()); el guard systemKey se
+        // hace con LIKE sobre el texto crudo, sin castear a jsonb.
         $ok = $this->db->Execute(
             "DELETE FROM taxonomy
               WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?
                 AND taxonomyName NOT ILIKE 'efectivo'
-                AND COALESCE(taxonomyExtra->>'systemKey', '') <> 'cash'",
+                AND COALESCE(taxonomyExtra, '') NOT LIKE '%\"systemKey\":\"cash\"%'",
             [$id, $companyId, 'paymentMethod']
         );
         if ($ok === false) {
