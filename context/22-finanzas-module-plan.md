@@ -130,6 +130,8 @@ Endpoints REST bajo `api/v1/finance/` (realm `panel`, `hasPermission` nuevo
 - `GET/POST /v1/finance/reconciliations` (+ tildar movimientos)
 - `GET/POST /v1/finance/config` (finAccountMap)
 - `GET /v1/finance/summary` (dashboard: saldos por cuenta, ingresos/egresos del período, flujo)
+- `GET /v1/finance/reports?by=category|account&from=&to=` (montos agregados —
+  2026-07-02)
 
 ## 6. Frontend (`frontend/app/(panel)/finanzas/`)
 
@@ -139,23 +141,38 @@ listados, `<MoneyInput>` para montos, `formatMoney` para mostrar, sin hex, sin
 emojis, tipografía canónica, sin `<table>`/`<input>` nativos.
 
 Layout: página raíz `/finanzas` = **Dashboard** (tarjetas de saldo por cuenta +
-ingresos/egresos del período + mini flujo). Tabs/sub-rutas (patrón de unificación
-ya acordado):
+ingresos/egresos del período + mini flujo). **IA de tabs (rediseñada 2026-07-02,
+decisión cerrada del owner)**: 3 grupos por naturaleza (Operación / Reportes /
+Configuración), separador vertical sutil entre grupos en el mismo `TabsList`
+(`frontend/app/(panel)/finanzas/layout.tsx`):
+
+**Operación** (día a día):
 - **Resumen** (`/finanzas`) — saldos + KPIs + últimos movimientos.
 - **Movimientos** (`/finanzas/movimientos`) — DataTable con filtros; botón
   "Registrar entrada/salida" y "Transferencia entre cuentas" (MoneyInput, cuenta,
   categoría, fecha, nota). Fila → detalle/editar.
 - **Cuentas** (`/finanzas/cuentas`) — lista de cuentas con saldo; alta/edición
   (nombre, tipo, saldo inicial, banco). Click → movimientos filtrados por cuenta.
-- **Categorías** (`/finanzas/categorias`) — árbol simple Ingresos/Egresos, editable.
 - **Cheques** (`/finanzas/cheques`) — DataTable (dirección, banco, nº, monto,
   vencimiento, estado con chip). Acciones: marcar cobrado/depositado/rechazado.
   Vista "próximos a vencer".
 - **Conciliación** (`/finanzas/conciliacion`) — elegir cuenta + fecha extracto +
   saldo extracto → lista de movimientos con checkbox "coincide"; footer con
   saldo sistema / saldo extracto / **diferencia** (verde si 0). Cerrar sesión.
-- **Ajustes** (`/finanzas/ajustes`) — mapa método de pago→cuenta + botón
-  "Importar histórico" (backfill).
+
+**Reportes** (`/finanzas/reportes`, nuevo): DateRangePicker + sub-tabs
+"Por categoría" (default) / "Por cuenta", cada uno un `<DataTable>` con
+nombre + ingresos + egresos + neto. Consume
+`GET /v1/finance/reports?by=category|account&from=&to=` →
+`MovementService::totalsByCategory()/totalsByAccount()` (agregación SQL,
+fila "Sin categoría"/"Sin cuenta" para `categoryid`/`accountid` NULL).
+
+**Configuración** (`/finanzas/configuracion`, ex-"Ajustes"): sub-tabs
+"Categorías" (CRUD completo, movido tal cual desde `/finanzas/categorias` —
+antes vivía suelto al tope y se confundía con un reporte) y "Medios de pago"
+(mapa método de pago→cuenta + botón "Importar histórico"/backfill, movido
+desde `/finanzas/ajustes`). `/finanzas/categorias` y `/finanzas/ajustes`
+quedan como redirect a `/finanzas/configuracion` (no rompen bookmarks).
 
 Hooks react-query en `frontend/hooks/use-finance-*.ts` (o `use-finance.ts`),
 api-client (`api.get/post/put/del`), invalidación al mutar. Agregar el ítem
@@ -233,6 +250,13 @@ api-client (`api.get/post/put/del`), invalidación al mutar. Agregar el ítem
    - `pay-dialog.tsx` re-keyeado: `systemKey` (cash/giftcard/internal) en vez
      de comparar contra el `id` (taxonomyId, ahora varía por tenant) para el
      flujo de giftcard y agrupación de métodos secundarios.
+
+5. **Reagrupación de IA + Reportes** (implementado 2026-07-02): tabs de
+   `/finanzas` reorganizados en 3 grupos por naturaleza (ver §6). Categorías
+   dejó de estar al tope (se confundía con un reporte) y se movió a
+   Configuración junto con Medios de pago (ex-Ajustes). Nueva página Reportes
+   con sub-reportes "Por categoría"/"Por cuenta" (`totalsByCategory()`/
+   `totalsByAccount()` en `MovementService`, endpoint `reports.php`).
 
 ## 9. Reglas del proyecto (obligatorias)
 
