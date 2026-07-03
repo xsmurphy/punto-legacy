@@ -1,5 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
-import { streamText, tool, convertToModelMessages, stepCountIs } from "ai"
+import { streamText, tool, convertToModelMessages, stepCountIs, hasToolCall } from "ai"
 import { z } from "zod"
 import type { UIMessage } from "ai"
 import { makeActionTools } from "@/lib/agent/confirm-tool"
@@ -138,6 +138,8 @@ export async function POST(req: Request) {
     `Nunca ejecutes una acción mutante sin confirmación explícita del usuario. Nunca llames register_action con actions vacío o payloads vacíos: siempre completá los campos del dato a crear/editar.\n\n` +
     `## Formato de salida — nunca degenerar\n` +
     `NUNCA emitas bloques de código vacíos (\`\`\` sin contenido o con solo "{}"). NUNCA repitas el mismo párrafo o resumen dos veces en la misma respuesta. NUNCA digas frases como "si el sistema falla te guiaré manualmente" ni inventes pasos alternativos — si una tool falla, reportá el error real que devolvió.\n\n` +
+    `## Errores y reintentos — nunca narrarlos\n` +
+    `Nunca le expliques al usuario errores internos, problemas de formato, validaciones de schema ni reintentos de herramientas. Si una llamada a una tool falla (ej. el payload no cumple el schema), corregila y reintentá en silencio, sin comentar nada al respecto — el usuario nunca debe ver frases como "hubo un error en el formato, voy a corregirlo". Después de llamar register_action, no escribas nada más: ni resumen, ni confirmación, ni texto de relleno — la interfaz ya muestra la tarjeta de confirmación.\n\n` +
     `CUANDO la acción "create_user" devuelva tempPassword, presentá la respuesta EXACTAMENTE con este formato (sin texto adicional antes ni después, sin "te muestro", sin disculpas):\n\n` +
     `🔐 **{userDisplayName}**\n\n` +
     `**Usuario:** {login}\n` +
@@ -164,7 +166,12 @@ export async function POST(req: Request) {
     model,
     system,
     messages: modelMessages,
-    stopWhen: stepCountIs(10),
+    // stopWhen es un array: se corta apenas se cumple CUALQUIERA de las
+    // condiciones. hasToolCall("register_action") es el gate real de
+    // confirmación — sin esto, el modelo podía llamar register_action y
+    // execute_action en el MISMO turno (auto-ejecutaba sin esperar el click
+    // del usuario en RegisterActionCard).
+    stopWhen: [stepCountIs(10), hasToolCall("register_action")],
     // Tope de seguridad: acota el gasto de créditos si el modelo se degenera
     // en un loop de repetición (síntoma conocido de deepseek-chat con tools).
     // Una respuesta del asistente POS no necesita más que esto.
