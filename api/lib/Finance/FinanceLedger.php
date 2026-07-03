@@ -117,32 +117,15 @@ final class FinanceLedger
 
         $lines = $this->decodePaymentLines($row);
         if (empty($lines)) {
-            // Sin líneas de pago detalladas: 1 movimiento por transactionTotal,
-            // cuenta Efectivo (fallback seguro — nunca perder el movimiento).
-            $total = abs((float) ($row['transactionTotal'] ?? 0));
-            if ($total <= 0) {
-                return;
-            }
-            // Auditoría: si HABÍA un transactionPaymentType pero no se pudo
-            // decodificar (JSON malformado), el dinero cae en Efectivo por
-            // fallback — logueamos para que un backfill sea auditable y no
-            // atribuya silenciosamente a la cuenta equivocada.
-            $rawPay = $row['transactionPaymentType'] ?? null;
-            if (is_string($rawPay) && trim($rawPay) !== '') {
-                error_log("[FinanceLedger] recordPurchase: transactionPaymentType no decodificable para transactionId={$transactionId} — fallback a Efectivo por total={$total}");
-            }
-            $accountId = $this->accounts->ensureCashAccountId($companyId);
-            $this->movements->recordDerivedMovement($companyId, 'purchase', $transactionId, [
-                'accountId'     => $accountId,
-                'categoryId'    => $categoryId,
-                'kind'          => 'expense',
-                'amount'        => $total,
-                'date'          => (string) ($row['transactionDate'] ?? ''),
-                'description'   => $description,
-                'paymentMethod' => 'efectivo',
-                'userId'        => $this->nullableUuid($row['userId'] ?? null),
-                'outletId'      => $this->nullableUuid($row['outletId'] ?? null),
-            ]);
+            // Sin líneas de pago detalladas: el flujo de compras hoy no
+            // captura con qué cuenta se pagó (transactionPaymentType vacío
+            // en type=1). NO hay una cuenta real a la que imputar — el
+            // fallback anterior (debitar Efectivo por el total) contaminó
+            // la caja con débitos que nunca salieron de ahí (incidente
+            // 2026-07: 198 compras, ~737M debitados erróneamente de
+            // Efectivo). Se salta el movimiento derivado hasta que el flujo
+            // de compras capture la cuenta de pago real (Parte 2, pendiente).
+            error_log("[FinanceLedger] recordPurchase: compra sin cuenta de pago, no se genera movimiento — transactionId={$transactionId}");
             return;
         }
 
