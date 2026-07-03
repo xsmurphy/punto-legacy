@@ -99,6 +99,97 @@ final class MovementService
         return ['income' => $income, 'expense' => $expense, 'netFlow' => $income - $expense];
     }
 
+    /**
+     * Reporte "Por categoría": ingresos/egresos/neto del período agrupados
+     * por categoría (agregación SQL, no trunca como list()). Incluye una fila
+     * "Sin categoría" (id null) para movimientos con categoryid NULL.
+     *
+     * @return list<array{id:?string,name:string,income:float,expense:float,net:float}>
+     */
+    public function totalsByCategory(string $companyId, string $from, string $to): array
+    {
+        $rs = ncmExecute(
+            "SELECT c.categoryid, c.name, m.kind, COALESCE(SUM(m.amount), 0) AS total
+               FROM fin_movement m
+               LEFT JOIN fin_category c ON c.categoryid = m.categoryid
+              WHERE m.companyid = ? AND m.status = 1 AND m.date BETWEEN ? AND ?
+              GROUP BY c.categoryid, c.name, m.kind",
+            [$companyId, $from, $to],
+            false,
+            true
+        );
+        return $this->pivotByKind($rs, 'categoryid', 'Sin categoría');
+    }
+
+    /**
+     * Reporte "Por cuenta": ingresos/egresos/neto del período agrupados por
+     * cuenta. Análogo a totalsByCategory().
+     *
+     * @return list<array{id:?string,name:string,income:float,expense:float,net:float}>
+     */
+    public function totalsByAccount(string $companyId, string $from, string $to): array
+    {
+        $rs = ncmExecute(
+            "SELECT a.accountid, a.name, m.kind, COALESCE(SUM(m.amount), 0) AS total
+               FROM fin_movement m
+               LEFT JOIN fin_account a ON a.accountid = m.accountid
+              WHERE m.companyid = ? AND m.status = 1 AND m.date BETWEEN ? AND ?
+              GROUP BY a.accountid, a.name, m.kind",
+            [$companyId, $from, $to],
+            false,
+            true
+        );
+        return $this->pivotByKind($rs, 'accountid', 'Sin cuenta');
+    }
+
+    /**
+     * Pivotea filas {idcol, name, kind, total} en {id, name, income, expense, net}
+     * agrupando por id. Reusado por totalsByCategory()/totalsByAccount().
+     */
+    private function pivotByKind($rs, string $idCol, string $nullLabel): array
+    {
+        $byId = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $id = $f[$idCol] !== null ? (string) $f[$idCol] : null;
+                $key = $id ?? '__null__';
+                if (!isset($byId[$key])) {
+                    $byId[$key] = [
+                        'id'      => $id,
+                        'name'    => $id !== null ? (string) $f['name'] : $nullLabel,
+                        'income'  => 0.0,
+                        'expense' => 0.0,
+                    ];
+                }
+                $kind = (string) $f['kind'];
+                if ($kind === 'income' || $kind === 'expense') {
+                    $byId[$key][$kind] += (float) $f['total'];
+                }
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        $rows = [];
+        foreach ($byId as $row) {
+            $rows[] = [
+                'id'      => $row['id'],
+                'name'    => $row['name'],
+                'income'  => $row['income'],
+                'expense' => $row['expense'],
+                'net'     => $row['income'] - $row['expense'],
+            ];
+        }
+        // Sin categoría/cuenta al final, resto alfabético.
+        usort($rows, function ($a, $b) {
+            if ($a['id'] === null) return 1;
+            if ($b['id'] === null) return -1;
+            return strcasecmp($a['name'], $b['name']);
+        });
+        return $rows;
+    }
+
     public function find(string $id, string $companyId): ?array
     {
         if (!preg_match(self::UUID_RE, $id)) {
