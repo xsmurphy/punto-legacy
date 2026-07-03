@@ -1,10 +1,20 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeftRight, Loader2, MoreVertical, Plus, Receipt } from "lucide-react"
+import {
+  ArrowLeftRight,
+  BadgeCheck,
+  Loader2,
+  MoreVertical,
+  Plus,
+  Receipt,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -47,6 +57,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
+import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -61,8 +73,40 @@ import {
 } from "@/hooks/use-finance-movements"
 
 export default function FinanzasMovimientosPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <FinanzasMovimientosPageInner />
+    </React.Suspense>
+  )
+}
+
+function FinanzasMovimientosPageInner() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { data: bootstrap } = useBootstrap()
-  const { data, isLoading } = useFinanceMovements()
+  const { data: accounts } = useFinanceAccounts()
+
+  const accountIdParam = searchParams.get("accountId") ?? ""
+  const [accountId, setAccountId] = React.useState(accountIdParam)
+  const [kind, setKind] = React.useState<"income" | "expense" | "all">("all")
+  const { range, setRange } = useDateRange()
+
+  // Sincroniza el filtro con la URL cuando cambia externamente (ej. click desde /finanzas/cuentas).
+  React.useEffect(() => {
+    setAccountId(accountIdParam)
+  }, [accountIdParam])
+
+  const rangeOpts = React.useMemo(() => rangeToBackend(range), [range])
+  const filters = React.useMemo(
+    () => ({
+      accountId: accountId || undefined,
+      kind: kind === "all" ? undefined : kind,
+      ...rangeOpts,
+    }),
+    [accountId, kind, rangeOpts],
+  )
+
+  const { data, isLoading } = useFinanceMovements(filters)
   const [movementDialogOpen, setMovementDialogOpen] = React.useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = React.useState(false)
   const [voidTarget, setVoidTarget] = React.useState<FinanceMovement | null>(null)
@@ -70,6 +114,13 @@ export default function FinanzasMovimientosPage() {
   const voidMovement = useVoidFinanceMovement()
 
   const rows = data?.rows ?? []
+  const activeAccount = (accounts ?? []).find((a) => a.id === accountIdParam)
+
+  function handleAccountFilterChange(value: string) {
+    const next = value === "all" ? "" : value
+    setAccountId(next)
+    router.push(next ? `/finanzas/movimientos?accountId=${next}` : "/finanzas/movimientos")
+  }
 
   async function handleVoidConfirm() {
     if (!voidTarget) return
@@ -149,6 +200,17 @@ export default function FinanzasMovimientosPage() {
         meta: { label: "Origen", className: "w-28" },
       },
       {
+        accessorKey: "reconciled",
+        header: "Conciliado",
+        cell: ({ getValue }) =>
+          getValue() ? (
+            <BadgeCheck className="size-4 text-muted-foreground" aria-label="Conciliado" />
+          ) : (
+            <span className="opacity-40">—</span>
+          ),
+        meta: { label: "Conciliado", className: "w-24 text-center" },
+      },
+      {
         id: "actions",
         header: "",
         cell: ({ row }) => {
@@ -186,9 +248,28 @@ export default function FinanzasMovimientosPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <p className="text-sm text-muted-foreground">
-          Entradas y salidas de dinero de todas las cuentas.
-        </p>
+        <div className="flex flex-col gap-1">
+          {activeAccount ? (
+            <>
+              <h1 className="text-2xl font-semibold">Movimientos — {activeAccount.name}</h1>
+              <Button
+                asChild
+                variant="link"
+                size="sm"
+                className="h-auto w-fit p-0 text-xs text-muted-foreground"
+              >
+                <Link href="/finanzas/movimientos">
+                  <X className="size-3.5" />
+                  Ver todas las cuentas
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Entradas y salidas de dinero de todas las cuentas.
+            </p>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
             <ArrowLeftRight className="size-4" />
@@ -200,6 +281,35 @@ export default function FinanzasMovimientosPage() {
           </Button>
         </div>
       </header>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={accountId || "all"} onValueChange={handleAccountFilterChange}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Todas las cuentas" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las cuentas</SelectItem>
+            {(accounts ?? []).map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={kind} onValueChange={(v) => setKind(v as typeof kind)}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Todos" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tipos</SelectItem>
+            <SelectItem value="income">Ingreso</SelectItem>
+            <SelectItem value="expense">Egreso</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <DateRangePicker value={range} onChange={setRange} />
+      </div>
 
       <DataTable
         tableId="finanzas-movimientos"
