@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
+import { DatePicker } from "@/components/date-picker"
 import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { formatMoney } from "@/lib/format"
@@ -551,8 +552,13 @@ function MovementDialog({
 
             <div className="space-y-1.5">
               <Label htmlFor="movement-date">Fecha</Label>
-              {/* input nativo date — razón: fecha simple, Calendar+Popover es para date RANGE según context/14 */}
-              <Input id="movement-date" type="date" {...register("date")} aria-invalid={!!errors.date} />
+              <Controller
+                name="date"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker id="movement-date" value={field.value} onChange={field.onChange} />
+                )}
+              />
               {errors.date && <p className="text-xs text-destructive">{errors.date.message}</p>}
             </div>
 
@@ -750,8 +756,13 @@ function TransferDialog({
 
             <div className="space-y-1.5">
               <Label htmlFor="transfer-date">Fecha</Label>
-              {/* input nativo date — razón: fecha simple, Calendar+Popover es para date RANGE según context/14 */}
-              <Input id="transfer-date" type="date" {...register("date")} aria-invalid={!!errors.date} />
+              <Controller
+                name="date"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker id="transfer-date" value={field.value} onChange={field.onChange} />
+                )}
+              />
               {errors.date && <p className="text-xs text-destructive">{errors.date.message}</p>}
             </div>
 

@@ -13,7 +13,6 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
 import { MoneyInput } from "@/components/ui/money-input"
 import {
   Select,
@@ -41,6 +40,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { EmptyState } from "@/components/empty-state"
+import { DatePicker } from "@/components/date-picker"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
@@ -163,7 +163,6 @@ function CreateReconciliationDialog({
   const {
     handleSubmit,
     control,
-    register,
     reset,
     formState: { errors, isSubmitting },
   } = useForm<CreateFormValues>({
@@ -224,7 +223,13 @@ function CreateReconciliationDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="recon-date">Fecha del extracto</Label>
-            <Input id="recon-date" type="date" {...register("statementDate")} aria-invalid={!!errors.statementDate} />
+            <Controller
+              name="statementDate"
+              control={control}
+              render={({ field }) => (
+                <DatePicker id="recon-date" value={field.value} onChange={field.onChange} />
+              )}
+            />
             {errors.statementDate && (
               <p className="text-xs text-destructive">{errors.statementDate.message}</p>
             )}
@@ -368,27 +373,33 @@ function ReconciliationDetailView({ id, onBack }: { id: string; onBack: () => vo
       ) : (
         <div className="flex flex-col divide-y rounded-md border">
           {movements.map((m) => (
-            <label
+            <div
               key={m.id}
-              className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50"
+              className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50"
             >
               <Checkbox
+                id={`recon-movement-${m.id}`}
                 checked={m.reconciled}
                 disabled={!isOpen || toggleMovement.isPending}
                 onCheckedChange={() => handleToggle(m)}
               />
-              <span className="w-24 shrink-0 tabular-nums text-muted-foreground">{formatDate(m.date)}</span>
-              <span className="flex-1 truncate">{m.description || m.categoryName || "—"}</span>
-              <span
-                className={cn(
-                  "w-32 shrink-0 text-right tabular-nums",
-                  m.kind === "expense" ? "text-destructive" : "text-green-600 dark:text-green-500",
-                )}
+              <Label
+                htmlFor={`recon-movement-${m.id}`}
+                className="flex flex-1 cursor-pointer items-center gap-3 font-normal"
               >
-                {m.kind === "expense" ? "-" : ""}
-                {formatMoney(m.amount, bootstrap)}
-              </span>
-            </label>
+                <span className="w-24 shrink-0 tabular-nums text-muted-foreground">{formatDate(m.date)}</span>
+                <span className="flex-1 truncate">{m.description || m.categoryName || "—"}</span>
+                <span
+                  className={cn(
+                    "w-32 shrink-0 text-right tabular-nums",
+                    m.kind === "expense" ? "text-destructive" : "text-green-600 dark:text-green-500",
+                  )}
+                >
+                  {m.kind === "expense" ? "-" : ""}
+                  {formatMoney(m.amount, bootstrap)}
+                </span>
+              </Label>
+            </div>
           ))}
         </div>
       )}

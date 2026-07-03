@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
+import { DatePicker } from "@/components/date-picker"
 import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -475,13 +476,25 @@ function CheckFormDialog({
 
             <div className="space-y-1.5">
               <Label htmlFor="check-issue-date">Fecha de emisión</Label>
-              <Input id="check-issue-date" type="date" {...register("issueDate")} aria-invalid={!!errors.issueDate} />
+              <Controller
+                name="issueDate"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker id="check-issue-date" value={field.value} onChange={field.onChange} />
+                )}
+              />
               {errors.issueDate && <p className="text-xs text-destructive">{errors.issueDate.message}</p>}
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="check-due-date">Fecha de vencimiento</Label>
-              <Input id="check-due-date" type="date" {...register("dueDate")} />
+              <Controller
+                name="dueDate"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker id="check-due-date" value={field.value ?? ""} onChange={field.onChange} />
+                )}
+              />
             </div>
 
             <div className="space-y-1.5">
