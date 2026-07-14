@@ -148,10 +148,17 @@ class PrinterBindingService {
         }
 
         if (isset($data['color']) || $requireAll) {
-            $color = (string)($data['color'] ?? '#7bd148');
-            if (!preg_match('/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/', $color))
+            // Acepta un key de la paleta unificada (color-palette.ts) O un hex
+            // legacy. La UI hoy manda el key (ej. "amber"); resolveColorBg() lo
+            // resuelve en lectura. Antes solo validaba hex → "color inválido"
+            // con cualquier método nuevo. Mantené sincronizada la lista con
+            // frontend/lib/ui/color-palette.ts si crece.
+            $color = (string)($data['color'] ?? '');
+            $paletteKeys = ['amber', 'slate', 'sky', 'rose', 'emerald', 'violet'];
+            $isHex = (bool) preg_match('/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/', $color);
+            if ($color !== '' && !$isHex && !in_array($color, $paletteKeys, true))
                 throw new \RuntimeException('color inválido', 422);
-            $out['color'] = $color;
+            $out['color'] = $color !== '' ? $color : '#7bd148';
         }
 
         if (isset($data['transport']) || $requireAll) {
