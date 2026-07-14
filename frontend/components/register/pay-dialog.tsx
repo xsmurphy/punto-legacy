@@ -46,6 +46,7 @@ import { api } from "@/lib/api-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
 import { printSale } from "@/lib/hardware/printers"
 import { getBindingsForSale } from "@/lib/hardware/printers/binding"
+import type { PrinterDocType } from "@/lib/hardware/printers/binding"
 import { buildTicketData } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
@@ -319,11 +320,22 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setChange(changeAmount)
       setSaleResult(result)
 
-      // Auto-print ESC/POS si hay bindings con autoPrint=true
-      const autoBindings = getBindingsForSale(allBindings, "factura", []).filter((b) => b.autoPrint)
+      // Auto-print ESC/POS si hay bindings con autoPrint=true.
+      // docType real: probamos "factura" primero y si el tenant no tiene
+      // ninguna impresora bindeada a "factura" (con o sin categorías),
+      // probamos "receipt" — así una impresora configurada solo con
+      // "Recibo" también dispara el auto-print.
+      const ticketData = buildTicketData({ payload, result, config })
+      const saleCategoryIds = [
+        ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
+      ]
+      const autoDocType: PrinterDocType =
+        getBindingsForSale(allBindings, "factura", saleCategoryIds).length > 0 ? "factura" : "receipt"
+      const autoBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds).filter(
+        (b) => b.autoPrint,
+      )
       if (autoBindings.length > 0) {
-        const ticketData = buildTicketData({ payload, result, config })
-        printSale({ docType: "factura", data: ticketData, bindings: allBindings })
+        printSale({ docType: autoDocType, data: ticketData, bindings: allBindings })
           .then((r) => {
             if (r.failed > 0) {
               toast.warning(`${r.failed} impresora(s) fallaron al imprimir`)
