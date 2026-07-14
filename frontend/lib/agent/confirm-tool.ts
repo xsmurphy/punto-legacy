@@ -44,13 +44,18 @@ const payloadSchema = z.object({
   mapping: z.record(z.string(), z.string()).nullish().describe("tabular_import: mapeo campo→columna, o null para auto"),
 })
 
-// Una acción individual del lote — mismo shape que aceptaba antes la tool
-// (action + payload), ahora anidado dentro del array `actions`.
-const actionItemSchema = z.object({
+// Una acción individual del lote — schema PLANO: `action` + los campos de
+// payload al MISMO nivel (sin objeto `payload` anidado). Motivo (2026-07-07):
+// el nesting `{action, payload:{...}}` dentro de `actions[]` hacía que el modelo
+// (vía OpenRouter) emitiera mal el primer tool-call → el AI SDK lo rechazaba por
+// validación → el modelo narraba "problema técnico, ajuste en el formato" + `{}`
+// y recién el 2do intento validaba. Aplanando, el primer intento valida.
+// El wire format al backend (`/v1/ai/confirm`) sigue siendo {action, payload}:
+// se re-anida en el `execute` de register_action (ver abajo).
+const actionItemSchema = payloadSchema.extend({
   action: z.string().describe(
     "create_contact | update_contact | create_item | update_item_price | create_user | create_category | create_brand | create_tag | tabular_import"
   ),
-  payload: payloadSchema.describe("Datos de la acción — llená los campos que aplican al action"),
 })
 
 async function registerConfirmation(
@@ -117,8 +122,11 @@ export function makeActionTools(cookie: string, apiUrl: string) {
         actions: z.array(actionItemSchema).min(1).describe("Lote de acciones a confirmar juntas (mínimo 1)"),
         summary: z.string().describe("Resumen legible del LOTE completo para mostrar al usuario (ej. 'Crear 3 productos: Sprite, Coca Zero, Coca Cola')"),
       }),
-      execute: async ({ actions, summary }) =>
-        registerConfirmation(cookie, apiUrl, actions, summary),
+      execute: async ({ actions, summary }) => {
+        // Re-anidar plano → {action, payload} que espera el backend, intacto.
+        const nested = actions.map(({ action, ...fields }) => ({ action, payload: fields }))
+        return registerConfirmation(cookie, apiUrl, nested, summary)
+      },
     }),
 
     execute_action: tool({
