@@ -761,7 +761,7 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
       ) : (
         // Grid de cards — el POS rara vez tiene más de 3 impresoras, una
         // tabla con 7+ columnas era excesiva para tan pocas filas.
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {bindings.map((b) => (
             <PrinterCard
               key={b.id}
