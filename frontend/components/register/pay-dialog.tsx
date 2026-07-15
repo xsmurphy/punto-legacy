@@ -338,7 +338,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         printSale({ docType: autoDocType, data: ticketData, bindings: allBindings })
           .then((r) => {
             if (r.failed > 0) {
-              toast.warning(`${r.failed} impresora(s) fallaron al imprimir`)
+              toast.warning(
+                `${r.failed} impresora(s) fallaron al imprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`,
+              )
+            } else if (r.printed > 0) {
+              toast.success(`${r.printed} impresora(s) imprimieron`)
             }
           })
           .catch((err) => console.error("[auto-print] Error:", err))
@@ -562,41 +566,54 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   async function handlePrint() {
     if (!saleResult) return
-    const receiptBindings = getBindingsForSale(allBindings, "factura", [])
-    if (receiptBindings.length > 0) {
-      // Rebuild minimal payload for reprint — real payload is local to handleConfirm
-      const reprPayload = {
-        uid: "",
-        type: credito ? 3 : 0,
-        sale: lines.map((line) => ({
-          itemId: line.itemId,
-          name: line.name,
-          count: line.qty,
-          price: line.unitPrice,
-          total: line.qty * line.unitPrice,
-          discount: 0,
-          note: line.note ?? null,
-        })),
-        payment: [] as import("@/lib/commands/create-sale").SalePaymentMethod[],
-        subtotal: saleResult.total,
-        tax: 0,
+    // Rebuild minimal payload for reprint — real payload is local to handleConfirm
+    const reprPayload = {
+      uid: "",
+      type: credito ? 3 : 0,
+      sale: lines.map((line) => ({
+        itemId: line.itemId,
+        name: line.name,
+        count: line.qty,
+        price: line.unitPrice,
+        total: line.qty * line.unitPrice,
         discount: 0,
-        client: customer?.id ?? null,
-        user: null,
-        note: null,
-        interno: false,
-        tags: [] as string[],
-        date: new Date().toISOString(),
-        timestamp: Math.floor(Date.now() / 1000),
-      } satisfies import("@/lib/commands/create-sale").CreateSalePayload
-      const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
-      const r = await printSale({ docType: "factura", data: ticketData, bindings: allBindings })
-      if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron al reimprimir`)
+        note: line.note ?? null,
+      })),
+      payment: [] as import("@/lib/commands/create-sale").SalePaymentMethod[],
+      subtotal: saleResult.total,
+      tax: 0,
+      discount: 0,
+      client: customer?.id ?? null,
+      user: null,
+      note: null,
+      interno: false,
+      tags: [] as string[],
+      date: new Date().toISOString(),
+      timestamp: Math.floor(Date.now() / 1000),
+    } satisfies import("@/lib/commands/create-sale").CreateSalePayload
+    const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
+    // Misma derivación de docType que el auto-print (commit ed5a1318): probamos
+    // "factura" y si ninguna impresora está bindeada a ese tipo (con o sin
+    // categorías), caemos a "receipt" — así una impresora solo-Recibo imprime.
+    const printCategoryIds = [
+      ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
+    ]
+    const printDocType: PrinterDocType =
+      getBindingsForSale(allBindings, "factura", printCategoryIds).length > 0 ? "factura" : "receipt"
+    const receiptBindings = getBindingsForSale(allBindings, printDocType, printCategoryIds)
+    if (receiptBindings.length > 0) {
+      const r = await printSale({ docType: printDocType, data: ticketData, bindings: allBindings })
+      if (r.failed > 0) {
+        toast.warning(
+          `${r.failed} impresora(s) fallaron al reimprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`,
+        )
+      } else if (r.printed > 0) {
+        toast.success(`${r.printed} impresora(s) reimprimieron`)
+      } else {
+        toast.warning("Ninguna impresora coincide con este documento — revisá tipo de documento y categorías en Impresoras")
+      }
     } else {
-      // window.print() acá imprimía la página del POS entera (contenido del
-      // sitio, no la plantilla del recibo) y abría el diálogo del sistema con
-      // el HTML del dialog encima. Sin impresora configurada no imprimimos.
-      toast.warning("Configurá una impresora en Ajustes → Impresoras")
+      toast.warning("Ninguna impresora coincide con este documento — revisá tipo de documento y categorías en Impresoras")
     }
   }
 
