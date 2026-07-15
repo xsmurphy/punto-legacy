@@ -321,16 +321,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setSaleResult(result)
 
       // Auto-print ESC/POS si hay bindings con autoPrint=true.
-      // docType real: probamos "factura" primero y si el tenant no tiene
-      // ninguna impresora bindeada a "factura" (con o sin categorías),
-      // probamos "receipt" — así una impresora configurada solo con
-      // "Recibo" también dispara el auto-print.
+      // Venta al contado/crédito SIEMPRE emite Factura — el recibo es el
+      // documento del pago de una factura a crédito (regla fiscal), NO un
+      // fallback cuando falta el binding "factura".
       const ticketData = buildTicketData({ payload, result, config })
       const saleCategoryIds = [
         ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
       ]
-      const autoDocType: PrinterDocType =
-        getBindingsForSale(allBindings, "factura", saleCategoryIds).length > 0 ? "factura" : "receipt"
+      const autoDocType: PrinterDocType = "factura"
       const autoBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds).filter(
         (b) => b.autoPrint,
       )
@@ -592,14 +590,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       timestamp: Math.floor(Date.now() / 1000),
     } satisfies import("@/lib/commands/create-sale").CreateSalePayload
     const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
-    // Misma derivación de docType que el auto-print (commit ed5a1318): probamos
-    // "factura" y si ninguna impresora está bindeada a ese tipo (con o sin
-    // categorías), caemos a "receipt" — así una impresora solo-Recibo imprime.
+    // Venta al contado/crédito SIEMPRE emite Factura — el recibo es el
+    // documento del pago de una factura a crédito (regla fiscal), NO un
+    // fallback cuando falta el binding "factura".
     const printCategoryIds = [
       ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
     ]
-    const printDocType: PrinterDocType =
-      getBindingsForSale(allBindings, "factura", printCategoryIds).length > 0 ? "factura" : "receipt"
+    const printDocType: PrinterDocType = "factura"
     const receiptBindings = getBindingsForSale(allBindings, printDocType, printCategoryIds)
     if (receiptBindings.length > 0) {
       const r = await printSale({ docType: printDocType, data: ticketData, bindings: allBindings })
@@ -610,10 +607,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       } else if (r.printed > 0) {
         toast.success(`${r.printed} impresora(s) reimprimieron`)
       } else {
-        toast.warning("Ninguna impresora coincide con este documento — revisá tipo de documento y categorías en Impresoras")
+        toast.warning("Ninguna impresora tiene asignado el documento Factura — asignáselo en Impresoras")
       }
     } else {
-      toast.warning("Ninguna impresora coincide con este documento — revisá tipo de documento y categorías en Impresoras")
+      toast.warning("Ninguna impresora tiene asignado el documento Factura — asignáselo en Impresoras")
     }
   }
 
