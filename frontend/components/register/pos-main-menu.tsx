@@ -580,10 +580,6 @@ function ControlDeCajaPanel() {
     income:  "Ingreso de efectivo",
   }
 
-  function niceDate(iso: string) {
-    if (!iso) return ""
-    return formatDateTime(iso, "EEEE d MMM yyyy, HH:mm")
-  }
 
   // ── Modals de monto — NumericPadDialog para open/close, CashMovementDialog para expense/income ──
   const isSimpleMode = modalMode === "open" || modalMode === "close"
@@ -611,7 +607,7 @@ function ControlDeCajaPanel() {
         {/* Fecha de apertura */}
         {summary?.date && (
           <p className="mb-6 text-center text-sm font-medium capitalize text-muted-foreground">
-            {niceDate(summary.date)}
+            {formatDateTime(summary.date)}
           </p>
         )}
 
