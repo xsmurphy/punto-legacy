@@ -14,13 +14,18 @@
  * service en namespace `Punto\Api\Outlets`. El contrato (acciones, shape, status codes) es
  * idéntico — el JS de a_outlets.js depende de él (createOutlet/removeOutlet usan action=create
  * y action=delete contra este endpoint vía /bff/outlets.php).
+ *
+ * MULTI-REALM (GET únicamente): el POS (realm `pos-app`) necesita listar sucursales para el
+ * selector de Ajustes → Sucursal (device sin sesión de panel, mismo patrón que /v1/price_list y
+ * /v1/register?resource=listAll). Los writes (POST create/update/delete) siguen panel-only —
+ * gateados abajo por método, no por el auth inicial.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel']);
-$svc    = new \Punto\Api\Outlets\OutletsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$ctx    = apiAuthTenant($method === 'GET' ? ['panel', 'pos-app'] : ['panel']);
+$svc    = new \Punto\Api\Outlets\OutletsService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 // ── JSON body → $_POST (el front manda JSON, PHP no lo parsea automáticamente) ──

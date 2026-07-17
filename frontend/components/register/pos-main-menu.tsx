@@ -91,8 +91,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
-import { useOutlets } from "@/hooks/use-outlets"
-import { useRegistersAdmin } from "@/hooks/use-registers-admin"
+import { usePosOutlets, usePosRegisters } from "@/hooks/use-pos-outlets"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
 import { posFetch } from "@/lib/api/pos-fetch"
 import { getDeviceClaims } from "@/lib/auth/device-claims"
@@ -1162,8 +1161,8 @@ function DeviceContextSelectors() {
   const activeOutletId = useCatalogStore((s) => s.outlet?.id ?? "")
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
 
-  const { data: outletsData } = useOutlets()
-  const { data: registersData } = useRegistersAdmin()
+  const { data: outletsData } = usePosOutlets()
+  const { data: registersData } = usePosRegisters()
   const updateContext = useUpdateDeviceContext()
 
   const [pendingOutletId, setPendingOutletId] = React.useState<string>("")
