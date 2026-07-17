@@ -1053,10 +1053,10 @@ function getSalesByPayment($from,$to,$regId,$drawerId=null){
 		// companyId SIEMPRE en el WHERE (aislamiento multi-tenant) — bind al final.
 		if($drawerId !== null && $drawerId !== ''){
 			if($to){
-				$date 	= '("drawerId" = ? OR ("drawerId" IS NULL AND transactionDate BETWEEN ? AND ?))';
+				$date 	= '(drawerid = ? OR (drawerid IS NULL AND transactionDate BETWEEN ? AND ?))';
 				$params = [$drawerId, $from, $to, $regId, COMPANY_ID];
 			}else{
-				$date 	= '("drawerId" = ? OR ("drawerId" IS NULL AND transactionDate > ?))';
+				$date 	= '(drawerid = ? OR (drawerid IS NULL AND transactionDate > ?))';
 				$params = [$drawerId, $from, $regId, COMPANY_ID];
 			}
 		}else{

@@ -420,7 +420,7 @@ final class DrawerService
 
         foreach ($payments as $p) {
             $price = (float) $p['price'];
-            if ($p['type'] === 'cash') {
+            if (in_array(strtolower((string) $p['type']), ['cash', 'efectivo'], true)) {
                 $cashPrice = $price;
             }
             if ($p['type'] === 'return') {
