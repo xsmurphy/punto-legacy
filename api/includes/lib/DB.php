@@ -154,6 +154,7 @@ class DB
     private ?PDO   $pdo          = null;
     private string $lastError    = '';
     private int    $lastErrNo    = 0;
+    private bool   $lastWasDml   = false;
     private bool   $transOk      = true;
     private int    $lastRowCount = 0;
 
@@ -267,6 +268,7 @@ class DB
             $trimmed      = ltrim($sql);
             $isSelect     = stripos($trimmed, 'SELECT') === 0 || stripos($trimmed, 'WITH') === 0;
             $hasReturning = (bool) preg_match('/\bRETURNING\b/i', $sql);
+            $this->lastWasDml   = !($isSelect || $hasReturning);
             $this->lastRowCount = $stmt->rowCount();
             return new DBResult(($isSelect || $hasReturning) ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
         } catch (PDOException $e) {
@@ -526,6 +528,18 @@ class DB
     public function Affected_Rows(): int
     {
         return $this->lastRowCount;
+    }
+
+    /**
+     * true si la última Execute() fue un DML (INSERT/UPDATE/DELETE) SIN
+     * cláusula RETURNING — es decir, una query que no devuelve filas aunque
+     * haya aplicado cambios. Usado por Query::execute (ncmExecute) para
+     * distinguir "DML exitoso con 0 filas retornadas" (no es error) de
+     * "SELECT con 0 resultados" (semánticas de retorno distintas).
+     */
+    public function WasLastDml(): bool
+    {
+        return $this->lastWasDml;
     }
 
     public function ErrorMsg(): string { return $this->lastError; }

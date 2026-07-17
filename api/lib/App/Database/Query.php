@@ -69,16 +69,21 @@ final class Query
      * Equivalente legacy: `ncmExecute($sql, $array, $cache, $forceObj, $getAssoc)`.
      *
      * Retorno:
+     *   - DML sin RETURNING (INSERT/UPDATE/DELETE) → int de filas afectadas
+     *     (0 incluido — la query corrió OK, simplemente no tocó filas).
      *   - $getAssoc=true  → array asociativo con flattenJsonb en cada fila (valores son CIA), o false.
      *   - $forceObj=true  → RecordsetIterator (iterable, fields devuelve CIA via flattenJsonb), o false.
      *   - count=1         → CaseInsensitiveArray (propia) de la primera fila, o false.
      *   - count>1         → RecordsetIterator (el flatten se aplica al iterar via fields).
-     *   - count=0         → 0 (sin forceObj), o false.
+     *   - count=0 (SELECT)→ 0 (sin forceObj), o false.
+     *   - false           → error real de DB (PDOException) o SELECT/RETURNING inválido.
      *
      * El CIA (de DB.php) restaura el lookup case-insensitive: $row['outletId']
      * funciona aunque PG devuelva la key como 'outletid'.
      *
-     * SEMÁNTICA VERBATIM — no modificar sin regression suite completo.
+     * SEMÁNTICA CASI-VERBATIM — único cambio intencional: DML exitoso ya no
+     * devuelve `false` (bug corregido, ver bloque WasLastDml() abajo). No
+     * modificar más allá de esto sin regression suite completo.
      */
     public static function execute(
         string $sql,
@@ -108,6 +113,18 @@ final class Query
             } else {
                 $result = $db->cacheExecute($cachTime, $sql, $array);
             }
+        }
+
+        // DML sin RETURNING (UPDATE/DELETE/INSERT) no devuelve filas — RecordCount()
+        // es SIEMPRE 0 aunque la query haya aplicado cambios. La validación de abajo
+        // (RecordCount() > 0) trataba eso como fallo → un UPDATE exitoso de 0 filas
+        // devueltas (el caso normal) reportaba `false` como si hubiera sido un error
+        // real de DB, produciendo 500 fantasma en endpoints que chequean el retorno
+        // (ej. active-register.php). `false` queda reservado para errores reales
+        // (PDOException, ver DB::Execute). Detección vía DB::WasLastDml() — misma
+        // regex que ya corre en DB.php:267-269, no se duplica acá.
+        if (!$getAssoc && $result !== false && $db->WasLastDml()) {
+            return $db->Affected_Rows();
         }
 
         if ($getAssoc) {
