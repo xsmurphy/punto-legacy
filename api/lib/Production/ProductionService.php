@@ -127,28 +127,58 @@ final class ProductionService
         $inventory   = [];
         $waste       = [];
         $ingredients = [];
+        $trackedRecipe = [];
 
         foreach ($recipe as $ing) {
             $childId = $ing['compoundId'];
-            $stock   = Inventory::getItemStock($childId, $outletId);
-            $onHand  = ($stock && isset($stock['stockOnHand']) && is_numeric($stock['stockOnHand'])) ? (float) $stock['stockOnHand'] : 0.0;
-            $inventory[$childId] = ['onHand' => $onHand];
 
-            $wasteRow = ncmExecute('SELECT itemwaste FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$childId, $companyId]);
-            $wasteP   = $wasteRow ? (float) ($wasteRow['itemwaste'] ?? 0) : 0.0;
-            $waste[$childId] = $wasteP;
+            $childRow = ncmExecute(
+                'SELECT itemwaste, itemtrackinventory FROM item WHERE itemid = ? AND companyid = ? LIMIT 1',
+                [$childId, $companyId]
+            );
+            $wasteP  = $childRow ? (float) ($childRow['itemwaste'] ?? 0) : 0.0;
+            $tracked = $childRow ? !empty($childRow['itemtrackinventory']) : false;
+
+            // Insumo sin control de stock (insumo_sin_stock: agua, sal,
+            // condimentos) NO limita la capacidad — su "stock" es infinito a
+            // efectos de producción. Se excluye del cálculo (si entrara con
+            // onHand=0 forzaría capacidad 0 para toda la receta).
+            if (!$tracked) {
+                $ingredients[] = [
+                    'itemId'       => $childId,
+                    'qtyPerUnit'   => (float) $ing['toCompoundQty'],
+                    'onHand'       => null,
+                    'wastePercent' => $wasteP,
+                    'tracked'      => false,
+                ];
+                continue;
+            }
+
+            $stock  = Inventory::getItemStock($childId, $outletId);
+            $onHand = ($stock && isset($stock['stockOnHand']) && is_numeric($stock['stockOnHand'])) ? (float) $stock['stockOnHand'] : 0.0;
+            $inventory[$childId] = ['onHand' => $onHand];
+            $waste[$childId]     = $wasteP;
+            $trackedRecipe[]     = $ing;
 
             $ingredients[] = [
                 'itemId'       => $childId,
                 'qtyPerUnit'   => (float) $ing['toCompoundQty'],
                 'onHand'       => $onHand,
                 'wastePercent' => $wasteP,
+                'tracked'      => true,
             ];
+        }
+
+        // Receta compuesta SOLO por insumos no-stockeables → capacidad
+        // ilimitada en la práctica; devolvemos null (el front decide cómo
+        // presentarlo) en vez de 0 (que significaría "no se puede producir").
+        if ($trackedRecipe === []) {
+            return ['capacity' => null, 'ingredients' => $ingredients];
         }
 
         // Inventory::getProductionCapacity ya divide con Math::divide (0 si el
         // denominador es 0) — no hay riesgo de división por cero acá.
-        $capacity = Inventory::getProductionCapacity($recipe, $inventory, $waste);
+        $capacity = Inventory::getProductionCapacity($trackedRecipe, $inventory, $waste);
 
         return ['capacity' => $capacity, 'ingredients' => $ingredients];
     }
@@ -352,12 +382,18 @@ final class ProductionService
             $childId    = (string) $ing['compoundId'];
             $qtyPerUnit = (float) $ing['toCompoundQty'];
 
+            // Un solo SELECT por insumo: waste %, ubicación, control de stock
+            // y costo de catálogo (fallback).
+            $childRow = ncmExecute(
+                'SELECT itemwaste, locationid, itemtrackinventory, itemcost FROM item WHERE itemid = ? AND companyid = ? LIMIT 1',
+                [$childId, $companyId]
+            );
+
             if (array_key_exists($childId, $adjustments)) {
                 $need = $adjustments[$childId];
             } else {
-                $need     = $qtyPerUnit * $basisQty;
-                $wasteRow = ncmExecute('SELECT itemwaste FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$childId, $companyId]);
-                $wasteP   = $wasteRow ? (float) ($wasteRow['itemwaste'] ?? 0) : 0.0;
+                $need   = $qtyPerUnit * $basisQty;
+                $wasteP = $childRow ? (float) ($childRow['itemwaste'] ?? 0) : 0.0;
                 if ($wasteP > 0) {
                     $need = Inventory::getNeedWithWaste($need, $wasteP);
                 }
@@ -367,8 +403,8 @@ final class ProductionService
                 continue;
             }
 
-            $childItemRow  = ncmExecute('SELECT locationid FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$childId, $companyId]);
-            $childLocation = $inLocation ?: ($childItemRow['locationid'] ?? null);
+            $childLocation = $inLocation ?: ($childRow['locationid'] ?? null);
+            $tracked       = $childRow ? !empty($childRow['itemtrackinventory']) : false;
 
             // Costo real del insumo al momento de consumir (promedio ponderado
             // del ledger de stock), fallback itemCost si nunca tuvo stock —
@@ -378,27 +414,36 @@ final class ProductionService
                 ? (float) $stock['stockOnHandCOGS']
                 : null;
             if ($cost === null) {
-                $itemCostRow = ncmExecute('SELECT itemcost FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$childId, $companyId]);
-                $cost        = (float) ($itemCostRow['itemcost'] ?? 0);
+                $cost = (float) ($childRow['itemcost'] ?? 0);
             }
 
-            $result = Inventory::manageStock([
-                'itemId'        => $childId,
-                'source'        => 'production',
-                'count'         => $need,
-                'type'          => '-',
-                'userId'        => $userId,
-                'transactionId' => null,
-                'outletId'      => $outletId,
-                'locationId'    => $childLocation,
-                'note'          => 'Producción #' . $id,
-                'date'          => $now,
-                'companyId'     => $companyId,
-            ]);
-            if ($result === false) {
-                $db->FailTrans();
-                $db->CompleteTrans();
-                throw new \RuntimeException('No se pudo descontar stock del insumo ' . $childId);
+            // Insumo sin control de stock (insumo_sin_stock: agua, sal,
+            // condimentos): manageStock devolvería false como NO-OP legítimo
+            // (guard interno itemTrackInventory < 1), indistinguible de un
+            // error real de DB. No llamamos manageStock (no hay movimiento de
+            // stock que registrar) pero SÍ contamos su costo en ingredientCost
+            // — el costo de la receta incluye todos los insumos, tengan o no
+            // ledger de stock. `false` de manageStock queda reservado como
+            // fatal SOLO para insumos stockeables.
+            if ($tracked) {
+                $result = Inventory::manageStock([
+                    'itemId'        => $childId,
+                    'source'        => 'production',
+                    'count'         => $need,
+                    'type'          => '-',
+                    'userId'        => $userId,
+                    'transactionId' => null,
+                    'outletId'      => $outletId,
+                    'locationId'    => $childLocation,
+                    'note'          => 'Producción #' . $id,
+                    'date'          => $now,
+                    'companyId'     => $companyId,
+                ]);
+                if ($result === false) {
+                    $db->FailTrans();
+                    $db->CompleteTrans();
+                    throw new \RuntimeException('No se pudo descontar stock del insumo ' . $childId);
+                }
             }
 
             $lineCost        = $cost * $need;
@@ -409,6 +454,7 @@ final class ProductionService
                 'qty'      => $need,
                 'unitCost' => $cost,
                 'lineCost' => $lineCost,
+                'tracked'  => $tracked,
             ];
         }
 
