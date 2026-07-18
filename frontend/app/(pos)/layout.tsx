@@ -4,6 +4,7 @@ import { PosSidebarProvider } from "@/components/layout/pos-sidebar-provider"
 import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
 import { PosSidebar } from "@/components/layout/pos-sidebar"
 import { InstallPrompt } from "@/components/pos/install-prompt"
+import { ChunkErrorListener } from "@/components/pos/chunk-error-listener"
 import { PosConfigSync } from "@/lib/pos/config-sync"
 
 /**
@@ -19,6 +20,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
     <PosSidebarProvider>
       <PosAuthGuard>
+        <ChunkErrorListener />
         <PosConfigSync />
         <PosSidebar />
         {/* `pos-scope`: globals.css aplica typography táctil (font-size,
