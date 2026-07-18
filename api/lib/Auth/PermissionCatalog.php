@@ -15,6 +15,7 @@ final class PermissionCatalog
             ['id' => 'pos.sale.create',        'label' => 'Crear ventas',              'group' => 'POS'],
             ['id' => 'pos.sale.void',           'label' => 'Anular ventas',             'group' => 'POS'],
             ['id' => 'pos.sale.refund',         'label' => 'Devoluciones',              'group' => 'POS'],
+            ['id' => 'pos.sale.creditPayment',  'label' => 'Cobrar crédito',            'group' => 'POS'],
             ['id' => 'pos.drawer.open',         'label' => 'Abrir caja',               'group' => 'POS'],
             ['id' => 'pos.drawer.close',        'label' => 'Cerrar caja',              'group' => 'POS'],
             ['id' => 'pos.discount.apply',      'label' => 'Aplicar descuentos',       'group' => 'POS'],

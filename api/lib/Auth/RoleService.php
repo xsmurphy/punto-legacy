@@ -39,7 +39,7 @@ final class RoleService
     private const SEED_PERMISSIONS = [
         'owner' => null, // null = TODOS (computed en seedCompanyRoles)
         'manager' => [
-            'pos.sale.create','pos.sale.void','pos.sale.refund',
+            'pos.sale.create','pos.sale.void','pos.sale.refund','pos.sale.creditPayment',
             'pos.drawer.open','pos.drawer.close','pos.discount.apply',
             'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
             'inventory.stock.adjust','inventory.transfer',
@@ -56,7 +56,7 @@ final class RoleService
             'finance.manage',
         ],
         'cashier' => [
-            'pos.sale.create','pos.drawer.open','pos.drawer.close',
+            'pos.sale.create','pos.sale.creditPayment','pos.drawer.open','pos.drawer.close',
             'inventory.item.view',
             'contacts.customer.view','contacts.customer.create',
         ],
