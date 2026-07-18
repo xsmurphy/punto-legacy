@@ -60,6 +60,8 @@ export interface PosConfig {
   timezone: string
   companyName: string
   companyId: string | number
+  /** URL del logo del tenant (S3, público). null/undefined si no hay logo cargado. */
+  companyLogo?: string | null
   /** Base URL de screens standalone (impresión, KDS, etc). */
   publicUrl: string
 }

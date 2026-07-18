@@ -19,6 +19,8 @@ export interface Bootstrap {
   timezone: string
   companyName: string
   companyId: string | number
+  /** URL del logo del tenant (S3, público). '' si no hay logo cargado. */
+  logoUrl: string
   /** Base URL de screens standalone (links de impresión, KDS, etc). */
   publicUrl: string
   user: {

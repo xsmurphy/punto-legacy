@@ -58,6 +58,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
@@ -145,6 +146,32 @@ function useMenuCtx() {
   const ctx = React.useContext(MenuContentCtx)
   if (!ctx) throw new Error("useMenuCtx debe usarse dentro de PosMainMenu")
   return ctx
+}
+
+// ── Logo del tenant ──────────────────────────────────────────────────────────
+
+/**
+ * Logo de la empresa (config.companyLogo del bootstrap). Fallback: inicial
+ * del nombre de la empresa, o la marca Punto si tampoco hay companyName.
+ * Reusado en el header del sidebar y en la card EMPRESA del panel derecho.
+ */
+function TenantLogo({ className }: { className?: string }) {
+  const companyLogo = useCatalogStore((s) => s.config?.companyLogo)
+  const companyName = useCatalogStore((s) => s.config?.companyName)
+  const initial = companyName?.trim()?.[0]?.toUpperCase()
+
+  return (
+    <Avatar className={cn("rounded-md", className)}>
+      {companyLogo ? <AvatarImage src={companyLogo} alt={companyName || "Logo"} className="object-contain" /> : null}
+      <AvatarFallback className="rounded-md bg-transparent">
+        {initial ? (
+          <span className="text-sm font-semibold text-muted-foreground">{initial}</span>
+        ) : (
+          <PuntoLogo variant="mark" className="size-full" />
+        )}
+      </AvatarFallback>
+    </Avatar>
+  )
 }
 
 // ── Secciones ────────────────────────────────────────────────────────────────
@@ -244,6 +271,7 @@ export function PosMainMenu() {
 
   // Stores de dominio para los handlers de secciones.
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const companyName = useCatalogStore((s) => s.config?.companyName)
   const setHotkeysEditing = useHotkeysStore((s) => s.setEditing)
 
   // Estado para el Dialog de transacciones
@@ -317,11 +345,20 @@ export function PosMainMenu() {
 
             {/* Sidebar: vertical en desktop, horizontal scrolleable en mobile.
                 pr-12 en mobile deja lugar al botón X absolute del DialogContent. */}
-            <nav
-              aria-label="Secciones del menú del POS"
-              className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:border-r sm:p-3 sm:pr-3"
-            >
-              {sectionsWithState.map(({ key, label, icon: Icon, onSelect, disabled }) => {
+            <div className="flex shrink-0 flex-col sm:border-r">
+              {/* Logo del tenant — solo en desktop, arriba del listado de secciones */}
+              <div className="hidden items-center gap-2 border-b px-3 py-3 sm:flex">
+                <TenantLogo className="size-8 shrink-0" />
+                <span className="truncate text-sm font-semibold leading-tight">
+                  {companyName || "Punto"}
+                </span>
+              </div>
+
+              <nav
+                aria-label="Secciones del menú del POS"
+                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:p-3 sm:pr-3"
+              >
+                {sectionsWithState.map(({ key, label, icon: Icon, onSelect, disabled }) => {
                 const active = activeKey === key
                 // Items con onSelect (ej. HotKeys) no muestran content area:
                 // ejecutan la acción directo al click. Si están disabled
@@ -357,8 +394,9 @@ export function PosMainMenu() {
                     <span>{label}</span>
                   </button>
                 )
-              })}
-            </nav>
+                })}
+              </nav>
+            </div>
 
             {/* Content area */}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -449,7 +487,7 @@ function AccountOverview() {
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-6 sm:p-8">
       {/* Header: logo + empresa */}
       <div className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
-        <PuntoLogo variant="mark" className="size-9 shrink-0" />
+        <TenantLogo className="size-9 shrink-0" />
         <div className="flex min-w-0 flex-col">
           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Empresa

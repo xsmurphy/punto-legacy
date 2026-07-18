@@ -23,6 +23,7 @@ export const fixtureConfig: PosConfig = {
   timezone: "America/Asuncion",
   companyName: "Punto Restaurante",
   companyId: "1",
+  companyLogo: null,
   publicUrl: "http://localhost:3001",
 }
 

@@ -34,7 +34,10 @@ $row = ncmExecute(
         config->>'settingTIN'               AS tinname,
         config->>'settingCountry'           AS country,
         config->>'settingTimeZone'          AS timezone,
-        config->>'settingName'              AS companyname
+        config->>'settingName'              AS companyname,
+        config->>'hasLogo'                  AS haslogo,
+        config->>'logoUrl'                  AS logourl,
+        config->>'logoUploadedAt'           AS logouploadedat
      FROM company
      WHERE companyId = ?",
     [COMPANY_ID]
@@ -92,6 +95,12 @@ apiOk([
     'timezone'    => $row['timezone'] ?? '',
     'companyName' => $row['companyname'] ?? '',
     'companyId'   => COMPANY_ID,
+    // Logo del tenant (S3, público). '' si no hay logo cargado — el front
+    // hace fallback a la marca Punto. `?v=` cache-bust con logoUploadedAt.
+    'logoUrl'     => (($row['haslogo'] ?? '') === '1' || ($row['haslogo'] ?? '') === 'true')
+        && !empty($row['logourl'])
+        ? $row['logourl'] . (!empty($row['logouploadedat']) ? '?v=' . $row['logouploadedat'] : '')
+        : '',
     // Base de las pantallas standalone (PUBLIC_URL = <host>/screens) — para links del front.
     'publicUrl'   => defined('PUBLIC_URL') ? PUBLIC_URL : '',
     'user'        => [

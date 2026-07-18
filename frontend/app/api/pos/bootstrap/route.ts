@@ -98,6 +98,7 @@ interface UpstreamBootstrap {
   timezone: string
   companyName: string
   companyId: string | number
+  logoUrl?: string
   publicUrl: string
   user: { id: string | number; role: number }
   activeOutletId: string
@@ -249,6 +250,7 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     timezone: bs.timezone ?? "",
     companyName: bs.companyName ?? "",
     companyId: bs.companyId ?? "",
+    companyLogo: bs.logoUrl || null,
     publicUrl: bs.publicUrl ?? "",
   }
 }
