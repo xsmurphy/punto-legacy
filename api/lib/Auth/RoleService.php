@@ -54,6 +54,7 @@ final class RoleService
             'settings.company.edit',
             'ai.agent.use','ai.agent.elevated',
             'finance.manage',
+            'production.manage',
         ],
         'cashier' => [
             'pos.sale.create','pos.sale.creditPayment','pos.drawer.open','pos.drawer.close',

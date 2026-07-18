@@ -60,6 +60,8 @@ final class PermissionCatalog
 
             ['id' => 'finance.manage',           'label' => 'Gestionar finanzas',      'group' => 'Finanzas'],
 
+            ['id' => 'production.manage',        'label' => 'Gestionar producción y merma', 'group' => 'Producción'],
+
             ['id' => 'ai.agent.use',             'label' => 'Usar agente IA',          'group' => 'IA'],
             ['id' => 'ai.agent.elevated',        'label' => 'IA con permisos elevados','group' => 'IA'],
         ];

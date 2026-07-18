@@ -21,7 +21,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 $dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
 
 $view = (string) (validateHttp('view') ?: 'general');
-if (!in_array($view, ['general', 'detail', 'compound'], true)) {
+if (!in_array($view, ['general', 'detail', 'compound', 'waste'], true)) {
     apiError('Vista no soportada', 422);
 }
 
@@ -45,6 +45,8 @@ if ($view === 'detail') {
     apiOk($svc->detail($from, $to, $roc, $companyId));
 } elseif ($view === 'compound') {
     apiOk($svc->compound($from, $to, $roc, $companyId, (bool) validateHttp('byDay')));
+} elseif ($view === 'waste') {
+    apiOk($svc->waste($from, $to, $roc, $companyId));
 } else {
     apiOk($svc->general($from, $to, $roc, $companyId));
 }
