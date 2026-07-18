@@ -27,11 +27,30 @@ final class Inventory
     /**
      * Compuestos de un ítem (receta/ingredientes). Usa $getAssoc=true.
      * Equivalente legacy: `getCompoundsArray($itemId, $cache)`.
+     *
+     * Producción F0 (context/23): fuente canónica pasó de `toCompound` a
+     * `item_compound` (mig 19/75). Los callers (SaleService, TransactionService,
+     * functions.php, getProductionCapacity/COGS/displayableCompounds acá mismo)
+     * esperan el shape plano legacy — se alias-ea childItemId→compoundId y
+     * quantity→toCompoundQty para no tocar ~20 call-sites. `toCompoundPreselected`
+     * no existe en item_compound (esa semántica de combo-picker quedó en
+     * toCompound y no se migró — ver mig 75) así que siempre viaja NULL.
+     *
+     * CRÍTICO — la PRIMERA columna del SELECT debe ser ÚNICA por fila:
+     * $getAssoc=true keyea el resultado por la primera columna
+     * (DB::GetAssoc → $key = reset($row)) y los duplicados se PISAN. El
+     * SELECT * legacy tenía toCompoundId (PK) primero; acá va el PK de
+     * item_compound (compoundId) aliased a toCompoundId. Con una columna
+     * no-única primero (ej. parentItemId), una receta multi-ingrediente
+     * colapsaría a UNA fila y la venta consumiría solo un ingrediente.
      */
     public static function getCompoundsArray(mixed $itemId, mixed $cache = false): mixed
     {
         return ncmExecute(
-            'SELECT * FROM toCompound WHERE itemId = ? ORDER BY toCompoundOrder LIMIT 1000',
+            'SELECT ic.compoundId AS toCompoundId, ic.parentItemId AS itemId,
+                    ic.childItemId AS compoundId, ic.quantity AS toCompoundQty,
+                    ic.sort AS toCompoundOrder, NULL::uuid AS toCompoundPreselected
+               FROM item_compound ic WHERE ic.parentItemId = ? ORDER BY ic.sort LIMIT 1000',
             [$itemId],
             $cache,
             true,
@@ -137,8 +156,14 @@ final class Inventory
     }
 
     /**
-     * COGS de un combo: suma precio×unidades de cada componente.
+     * COGS de un combo: suma costo real×unidades de cada componente.
      * Equivalente legacy: `getComboCOGS($parent)`.
+     *
+     * Fix Producción F0 (context/23): antes usaba `itemPrice` (precio de
+     * VENTA) del ingrediente como "costo" — sobreestimaba el COGS de combos.
+     * Ahora usa el costo real: `stockOnHandCOGS` (promedio ponderado del
+     * ledger de stock), con fallback a `itemCost` si el ingrediente no
+     * trackea inventario (sin filas en `stock`).
      */
     public static function getComboCOGS(mixed $parent): int|float
     {
@@ -148,12 +173,24 @@ final class Inventory
         if (validity($result, 'array')) {
             foreach ($result as $resulta) {
                 $id    = $resulta['compoundId'];
-                $units = number_format($resulta['toCompoundQty'], 2);
+                // (float), no number_format(): number_format() devuelve string con
+                // separador de miles ("1,500.50") — PHP 8 lo trata como numeric-string
+                // NO bien formado y $cost * $units trunca al primer segmento antes de
+                // la coma, corrompiendo el COGS para qty >= 1000. Bug preexistente,
+                // corregido acá porque esta misma función es la que fixeamos (F0).
+                $units = (float) $resulta['toCompoundQty'];
 
-                $compData  = ncmExecute('SELECT itemPrice FROM item WHERE itemId = ? LIMIT 1', [$id]);
-                $price     = $compData['itemPrice'] ?? 0;
+                $stock = self::getItemStock($id);
+                $cost  = ($stock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS']) && (float) $stock['stockOnHandCOGS'] > 0)
+                    ? (float) $stock['stockOnHandCOGS']
+                    : null;
 
-                $comboCOGS += $price * $units;
+                if ($cost === null) {
+                    $compData = ncmExecute('SELECT itemCost FROM item WHERE itemId = ? LIMIT 1', [$id]);
+                    $cost     = (float) ($compData['itemCost'] ?? 0);
+                }
+
+                $comboCOGS += $cost * $units;
             }
         }
 
