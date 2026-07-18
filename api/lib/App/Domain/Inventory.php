@@ -35,14 +35,22 @@ final class Inventory
      * quantity→toCompoundQty para no tocar ~20 call-sites. `toCompoundPreselected`
      * no existe en item_compound (esa semántica de combo-picker quedó en
      * toCompound y no se migró — ver mig 75) así que siempre viaja NULL.
+     *
+     * CRÍTICO — la PRIMERA columna del SELECT debe ser ÚNICA por fila:
+     * $getAssoc=true keyea el resultado por la primera columna
+     * (DB::GetAssoc → $key = reset($row)) y los duplicados se PISAN. El
+     * SELECT * legacy tenía toCompoundId (PK) primero; acá va el PK de
+     * item_compound (compoundId) aliased a toCompoundId. Con una columna
+     * no-única primero (ej. parentItemId), una receta multi-ingrediente
+     * colapsaría a UNA fila y la venta consumiría solo un ingrediente.
      */
     public static function getCompoundsArray(mixed $itemId, mixed $cache = false): mixed
     {
         return ncmExecute(
-            'SELECT parentItemId AS itemId, childItemId AS compoundId,
-                    quantity AS toCompoundQty, sort AS toCompoundOrder,
-                    NULL::uuid AS toCompoundPreselected
-               FROM item_compound WHERE parentItemId = ? ORDER BY sort LIMIT 1000',
+            'SELECT ic.compoundId AS toCompoundId, ic.parentItemId AS itemId,
+                    ic.childItemId AS compoundId, ic.quantity AS toCompoundQty,
+                    ic.sort AS toCompoundOrder, NULL::uuid AS toCompoundPreselected
+               FROM item_compound ic WHERE ic.parentItemId = ? ORDER BY ic.sort LIMIT 1000',
             [$itemId],
             $cache,
             true,
