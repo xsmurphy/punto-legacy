@@ -17,6 +17,7 @@ import {
   Boxes,
   ClipboardEdit,
   ArrowLeftRight,
+  Factory,
   LayoutTemplate,
   RotateCcw,
   Users,
@@ -55,6 +56,7 @@ const panelNav: NavEntry[] = [
       { title: "Inventario", to: "/inventory-count", icon: Boxes, requires: "inventory.stock.adjust" },
       { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit, requires: "inventory.stock.adjust" },
       { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight, requires: "inventory.transfer" },
+      { title: "Producción", to: "/produccion", icon: Factory, requires: "production.manage" },
     ],
   },
   {

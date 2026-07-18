@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -1060,6 +1060,12 @@ function CatalogTab({ onNavigate }: { onNavigate?: (href: string) => void }) {
       description: "Tasas de IVA y otros impuestos para facturación.",
       Icon: FileText,
       href: "/settings/catalog?tab=taxes",
+    },
+    {
+      title: "Motivos de merma",
+      description: "Motivos para registrar merma de producción y ajustes.",
+      Icon: Trash2,
+      href: "/settings/catalog?tab=waste-reasons",
     },
   ]
   // Si nos pasan onNavigate (modal context), cerramos el modal antes de navegar
