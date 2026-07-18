@@ -178,6 +178,20 @@ Además de los 24 Reports (ver arriba), F2 portó 5 módulos CRUD/funcionales a 
 
 **Services** (uno por tipo de reporte): `BrandsService`, `CashflowService`, `CategoriesService`, `CustomersService`, `DashboardService`, `DrawersService`, `ExpensesService`, `GiftcardsService`, `InventoryService`, `OpenInvoicesService`, `PaymentMethodsService`, `ProductionService`, `ProductsService`, `PurchasesService`, `RecurringService`, `SalesService`, `SatisfactionService`, `ScheduleService`, `StockDayService`, `StockService`, `SummaryYearService`, `TransactionsService`, `UsersService`.
 
+**Gift cards (F2 giftcard-issue-flow, 2026-07-18)**: unificadas sobre la tabla
+`giftcard` (mig 44 + 78: `beneficiaryContactId`, `beneficiaryName`, `note`,
+`issuedByTransactionId`, `outletId`, `status`, columnas QUOTED mixed-case —
+a diferencia de `contact`/`transaction`, que son lowercase-folded sin
+comillas). Vender un item de catálogo `itemType='giftcard'` con metadata del
+dialog (`SaleService::issueGiftCard()`, llamado desde `persistItemsAndStock`)
+crea la fila; código único por `(companyId, code)`, qty forzada a 1. Fiscal
+PY: la venta es un ADELANTO → doc **Recibo** (`pay-dialog.tsx`), no Factura —
+el CANJE (pagar con gift card, `/v1/giftcards?resource=consume`) sigue
+emitiendo Factura, sin cambios. `GiftcardsService`/`api/v1/reports/giftcards.php`
+repuntados a la tabla nueva (columnas quoted, sin `Roc::build` — su fragmento
+sin comillas no matchea). Legacy `giftCardSold`/`SaleService::sellGiftCard()`
+(`@deprecated`) NO se borran (histórico), pero el POS nuevo ya no los dispara.
+
 **Helpers compartidos**:
 - `Roc.php` — `Roc::build($cid, $oid, $alias='')`: construye el ROC scoped por company/outlet con guard UUID y prefijo de alias para JOINs.
 - `NonAddingSales.php` — `compute()`, `salesByPayment()`, `lessInternalTotals()`, `previousPeriod()`: la cadena `getNonAddingToSales` del panel. Las versiones del legacy de /app están rotas en PG (USE INDEX MySQL, columna `tags` literal, sin discount).
