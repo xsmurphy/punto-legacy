@@ -1,7 +1,20 @@
 "use client"
 
+/**
+ * Config del POS por caja (toggles Ajustes → controlCaja, tecladoVirtual, etc).
+ *
+ * El device POS corre con Bearer del device (realm `pos-app`), no con la
+ * cookie `_jwt_panel` del panel. Antes este hook pegaba con `api-client`
+ * (cookie `_jwt_panel`) — en un device sin sesión de panel abierta el GET
+ * fallaba silencioso, `registerConfigData` quedaba undefined y
+ * `controlCaja ?? true` mostraba siempre la sección de caja aunque el
+ * switch estuviera OFF. Va por `posFetch` (Bearer device) contra el BFF
+ * `/api/pos/register-config`, que proxea a `/v1/register?resource=config`
+ * (mismo patrón que `use-pos-outlets.ts` / `use-drawer.ts`).
+ */
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { posFetch } from "@/lib/api/pos-fetch"
 import { useCatalogStore } from "@/lib/catalog/store"
 
 export type PosRegisterConfig = {
@@ -38,10 +51,19 @@ interface PosRegisterConfigResponse {
   config: PosRegisterConfig
 }
 
+async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await posFetch(url, init)
+  const json = await res.json().catch(() => null)
+  if (!res.ok || !json?.ok) {
+    throw new Error(json?.error?.message ?? `Error ${res.status}`)
+  }
+  return json.data as T
+}
+
 export function usePosRegisterConfig(registerId: string) {
   return useQuery<PosRegisterConfigResponse>({
     queryKey: ["pos-config", registerId],
-    queryFn: () => api.get<PosRegisterConfigResponse>("/v1/register?resource=config"),
+    queryFn: () => posJson<PosRegisterConfigResponse>("/api/pos/register-config"),
     enabled: registerId !== "",
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
@@ -54,7 +76,11 @@ export function useUpdatePosRegisterConfig() {
 
   return useMutation<PosRegisterConfigResponse, Error, Partial<PosRegisterConfig>, { prev: PosRegisterConfigResponse | undefined }>({
     mutationFn: (patch) =>
-      api.put<PosRegisterConfigResponse>("/v1/register?resource=config", { config: patch }),
+      posJson<PosRegisterConfigResponse>("/api/pos/register-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: patch }),
+      }),
     onMutate: async (patch) => {
       const key = ["pos-config", activeRegisterId]
       await qc.cancelQueries({ queryKey: key })
