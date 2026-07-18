@@ -1,7 +1,9 @@
 # Módulo de Producción — plan (F0/F1/F2)
 
 Plan cerrado por el owner 2026-07-17. Decisiones abajo NO se relitigan; solo
-se ejecutan. Fase actual: **F0** (consolidación de recetas).
+se ejecutan. Fase actual: **F1 completa** (backend de producción — branch
+`production-f1`, no mergeada aún). F0 (consolidación de recetas) y F1 hechas;
+F2 (UI `/produccion`) no arrancada.
 
 ## Contexto — el bug que motiva F0
 
@@ -74,7 +76,35 @@ Objetivo: un solo lugar de verdad. El negocio (venta/COGS/void) pasa a leer
   en F0 (FK ya tiene `ON DELETE CASCADE`/`RESTRICT` propios) — queda anotado
   como posible gap si el hard-delete de company falla por FK RESTRICT.
 
-## F1 — backend de producción (siguiente fase, no arrancada)
+## F1 — backend de producción (HECHA, branch `production-f1`)
+
+Implementado tal cual el plan de abajo. Entregables:
+- Mig 76 (`production_order`, `waste_event`) + mig 77 (backfill permiso
+  `production.manage`, patrón mig 74).
+- `WasteReasonService` (taxonomy `wasteReason`, ensureSeed idempotente) +
+  `GET/POST/PUT/DELETE /v1/waste-reasons`.
+- `ProductionService` (`api/lib/Production/`): create (draft/immediate)
+  /start/complete/cancel/capacity/registerWaste/listWaste. Semántica de
+  completado: consumo de insumos basado en `qtyplanned` (v1 sin completado
+  parcial), % de merma planificada del INSUMO independiente de `wasteUnits`
+  (merma del producto terminado), `unitcogs = ingredientcost/qtyProduced`,
+  unidades falladas NO entran a stock (solo `waste_event`). TX atómica con
+  `SELECT ... FOR UPDATE` (no doble-completado).
+- Endpoints `api/v1/production.php`, `api/v1/waste.php`, realm panel,
+  gateados por `production.manage`.
+- Reporte extendido: `Reports\ProductionService::general()` suma
+  `production_order` completed (UNION con tabla legacy `production` +
+  ventas direct_production); vista nueva `waste` con breakdown por motivo.
+
+Zona gris documentada (no bug): en modo `immediate`, create()+complete()
+NO son una única transacción de punta a punta (el DB wrapper del proyecto
+no soporta transacciones anidadas) — si complete() falla, queda un row
+`draft` huérfano pero recuperable (nunca stock a medias). code-reviewer
+(bloqueante) encontró y se corrigió: 2 gaps de aislamiento multi-tenant
+(wasteReasonId/reasonId sin validar ownership + JOIN de taxonomy sin scope
+en listWaste()) — ver commit `fix(production): valida ownership...`.
+
+## F1 (plan original)
 
 - Tabla `production_order` — estados `draft → in_progress →
   completed|cancelled`. Dos flujos: producir-ahora (1 paso, atómico) y
