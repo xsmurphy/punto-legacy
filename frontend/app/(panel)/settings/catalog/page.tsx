@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Tag, Building2, Receipt, Tags, CreditCard } from "lucide-react"
+import { ArrowLeft, Tag, Building2, Receipt, Tags, CreditCard, Trash2 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -50,6 +50,13 @@ import type { Brand, BrandPayload } from "@/lib/types/brand"
 import type { Tax, TaxPayload } from "@/lib/types/tax"
 import type { Tag as TagItem, TagPayload } from "@/lib/types/tag"
 import type { PaymentMethod, PaymentMethodPayload } from "@/lib/types/payment-method"
+import {
+  useWasteReasons,
+  useCreateWasteReason,
+  useUpdateWasteReason,
+  useDeleteWasteReason,
+} from "@/hooks/use-waste-reasons"
+import type { WasteReason, WasteReasonPayload } from "@/lib/types/production"
 
 // Suprimir warning de unused — exportado por completitud del módulo.
 void useCategory
@@ -59,9 +66,16 @@ void useCategory
  * componente genérico CatalogManager con su configuración (hooks, columns,
  * fields).
  */
-type CatalogTabValue = "categories" | "brands" | "tags" | "taxes" | "payment-methods"
+type CatalogTabValue = "categories" | "brands" | "tags" | "taxes" | "payment-methods" | "waste-reasons"
 
-const VALID_TABS: CatalogTabValue[] = ["categories", "brands", "tags", "taxes", "payment-methods"]
+const VALID_TABS: CatalogTabValue[] = [
+  "categories",
+  "brands",
+  "tags",
+  "taxes",
+  "payment-methods",
+  "waste-reasons",
+]
 
 function parseTab(raw: string | null): CatalogTabValue {
   return raw && (VALID_TABS as string[]).includes(raw) ? (raw as CatalogTabValue) : "categories"
@@ -103,7 +117,7 @@ export default function CatalogPage() {
       <Tabs value={tab} onValueChange={onTabChange}>
         {/* TabsList full-width 3-col — antes era ancho-contenido y dejaba la
             mitad derecha vacía. grid-cols-3 + w-full estira cada tab. */}
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="categories" className="gap-1.5">
             <Tag className="size-3.5" />
             Categorías
@@ -124,6 +138,10 @@ export default function CatalogPage() {
             <CreditCard className="size-3.5" />
             Medios de pago
           </TabsTrigger>
+          <TabsTrigger value="waste-reasons" className="gap-1.5">
+            <Trash2 className="size-3.5" />
+            Motivos de merma
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="categories" className="mt-6">
@@ -140,6 +158,9 @@ export default function CatalogPage() {
         </TabsContent>
         <TabsContent value="payment-methods" className="mt-6">
           <PaymentMethodsTab />
+        </TabsContent>
+        <TabsContent value="waste-reasons" className="mt-6">
+          <WasteReasonsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -488,6 +509,47 @@ function PaymentMethodsTab() {
           </>
         ),
       }}
+    />
+  )
+}
+
+// ── Waste reasons (Motivos de merma) ──────────────────────────────────────────
+
+function WasteReasonsTab() {
+  const columns: ColumnDef<WasteReason, unknown>[] = React.useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Nombre",
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+        meta: { label: "Nombre" },
+      },
+    ],
+    [],
+  )
+
+  const fields: CatalogField<WasteReasonPayload>[] = [
+    { name: "name", label: "Nombre", required: true, placeholder: "Ej: Vencimiento" },
+  ]
+
+  const { data, isLoading } = useWasteReasons()
+
+  return (
+    <CatalogManager<WasteReason, WasteReasonPayload>
+      entitySingular="motivo de merma"
+      entityPlural="motivos de merma"
+      rows={data?.wasteReasons ?? []}
+      isLoading={isLoading}
+      useCreate={useCreateWasteReason}
+      useUpdate={useUpdateWasteReason}
+      useDelete={useDeleteWasteReason}
+      columns={columns}
+      fields={fields}
+      toFormValues={(row) => ({ name: row.name })}
+      getId={(row) => row.id}
+      getLabel={(row) => row.name}
+      emptyFormValues={{ name: "" }}
+      exportFileName="motivos-de-merma"
     />
   )
 }
