@@ -133,6 +133,74 @@ final class DrawerService
         return $out;
     }
 
+    /**
+     * Productos vendidos en la SESIÓN de caja actual, agrupados por item.
+     *
+     * `itemSold` no tiene registerId/companyId propios (línea de detalle) →
+     * JOIN a `transaction` para el filtro de sesión + companyId. Ventas
+     * (type 0/3) suman, devoluciones (type 6) restan: `itemSold` YA guarda
+     * esas líneas con signo invertido (`flipOnReturn` en
+     * `SaleService::persistItemsAndStock`) → un SUM directo por item netea
+     * sin lógica extra. Mismo filtro belt-and-suspenders (drawerid exacto +
+     * fallback por fecha, mig 70) y exclusión de internas que
+     * `getSalesByPayment` (functions.php:1033) / `getPaymentBreakdown`.
+     *
+     * @return array<int,array{name:string,qty:float,total:float}> ordenado por total desc.
+     */
+    public function getSoldProducts(string $registerId, string $since, ?string $drawerId = null): array
+    {
+        if ($drawerId !== null && $drawerId !== '') {
+            $dateSql    = '(t.drawerid = ? OR (t.drawerid IS NULL AND t.transactionDate > ?))';
+            $dateParams = [$drawerId, $since];
+        } else {
+            $dateSql    = 't.transactionDate > ?';
+            $dateParams = [$since];
+        }
+
+        $sql = 'SELECT a.itemId, a.itemSoldUnits, a.itemSoldTotal, a.itemSoldDescription,
+                       i.itemName, t.transactionType, t.transactionParentId, t.meta->>\'tags\' AS tags
+                FROM itemSold a
+                JOIN transaction t ON t.transactionId = a.transactionId
+                LEFT JOIN item i ON i.itemId = a.itemId AND i.companyId = ?
+                WHERE ' . $dateSql . '
+                  AND t.transactionType IN (0,3,6)
+                  AND t.registerId = ?
+                  AND t.companyId = ?';
+        $params = array_merge([COMPANY_ID], $dateParams, [$registerId, COMPANY_ID]);
+
+        $result = ncmExecute($sql, $params, false, true);
+        $group  = [];
+        if ($result) {
+            while (!$result->EOF) {
+                $f = $result->fields;
+
+                $ignore = ((int) $f['transactionType'] === 6)
+                    ? isParentInternalSale($f['transactionParentId'])
+                    : isInternalSale(json_decode((string) $f['tags'], true));
+                if ($ignore) {
+                    $result->MoveNext();
+                    continue;
+                }
+
+                $itemId = (string) $f['itemId'];
+                $name   = (string) ($f['itemName'] ?: ($f['itemSoldDescription'] ?: 'Producto eliminado'));
+
+                if (!isset($group[$itemId])) {
+                    $group[$itemId] = ['name' => $name, 'qty' => 0.0, 'total' => 0.0];
+                }
+                $group[$itemId]['qty']   += (float) $f['itemSoldUnits'];
+                $group[$itemId]['total'] += (float) $f['itemSoldTotal'];
+
+                $result->MoveNext();
+            }
+            $result->Close();
+        }
+
+        $out = array_values($group);
+        usort($out, static fn(array $a, array $b) => $b['total'] <=> $a['total']);
+        return $out;
+    }
+
     // ========================================================================
     // MUTACIONES — porteadas de app/action.php (handlers openCloseDrawer,
     // expense, drwrIncome). Antes estas acciones iban a /action.php (monolito
@@ -426,8 +494,9 @@ final class DrawerService
         $expenses = $this->getExpenses($registerId, $since);
         $income   = $this->getIncome($registerId, $since);
         $payments = $this->getPaymentBreakdown($registerId, $since, $drawerId);
+        $products = $this->getSoldProducts($registerId, $since, $drawerId);
 
-        return self::composeSummary($open, $expenses, $income, $payments);
+        return self::composeSummary($open, $expenses, $income, $payments, $products);
     }
 
     /**
@@ -439,8 +508,9 @@ final class DrawerService
      * @param array{amount:float} $expenses
      * @param array{total:float,tips:float} $income
      * @param array<int,array{name:string,type:string,price:float}> $payments
+     * @param array<int,array{name:string,qty:float,total:float}> $products
      */
-    public static function composeSummary(array $open, array $expenses, array $income, array $payments): array
+    public static function composeSummary(array $open, array $expenses, array $income, array $payments, array $products = []): array
     {
         $cajaInicial   = (float) $open['drawerOpenAmount'];
         $expenseAmount = (float) $expenses['amount'];
@@ -471,10 +541,11 @@ final class DrawerService
         return [
             'list'     => $list,
             'date'     => $open['drawerOpenDate'],
-            'subtotal' => ($cajaInicial + $cashPrice + $totalIncome) - $expenseAmount,
-            'total'    => ($cajaInicial + $total + $totalIncome) - $expenseAmount - $return,
-            'tips'     => $totalTips,
-            'returns'  => -$return,
+            'subtotal'     => ($cajaInicial + $cashPrice + $totalIncome) - $expenseAmount,
+            'total'        => ($cajaInicial + $total + $totalIncome) - $expenseAmount - $return,
+            'tips'         => $totalTips,
+            'returns'      => -$return,
+            'soldProducts' => $products,
         ];
     }
 }
