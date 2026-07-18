@@ -25,6 +25,12 @@ export interface DrawerSummaryRow {
   amount: number
 }
 
+export interface DrawerSoldProduct {
+  name: string
+  qty: number
+  total: number
+}
+
 export interface DrawerSummary {
   /** Filas de detalle: Caja Inicial + métodos de pago + Extracciones + Ingresos */
   list: DrawerSummaryRow[]
@@ -38,6 +44,8 @@ export interface DrawerSummary {
   tips: number
   /** Devoluciones (negativo) */
   returns: number
+  /** Productos vendidos en la sesión, agrupados por item, ordenado por monto desc (devoluciones restan) */
+  soldProducts: DrawerSoldProduct[]
 }
 
 export interface DrawerStatus {

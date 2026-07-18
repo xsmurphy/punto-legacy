@@ -66,7 +66,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
-import type { TicketData } from "@/lib/hardware/printers"
+import type { TicketData, TicketItem } from "@/lib/hardware/printers"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
@@ -635,6 +635,30 @@ function ControlDeCajaPanel() {
               </div>
             )}
 
+            {/* Productos vendidos en el turno (devoluciones ya restan) */}
+            {summary.soldProducts.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Productos vendidos
+                </p>
+                <div className="divide-y divide-border">
+                  {summary.soldProducts.map(({ name, qty, total }) => (
+                    <div
+                      key={name}
+                      className="flex items-center justify-between px-1 py-2 text-sm"
+                    >
+                      <span className="text-muted-foreground">
+                        {qty} × {name}
+                      </span>
+                      <span className="tabular-nums font-medium">
+                        {formatMoney(total, fmtConfig)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Total de efectivo */}
             <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2.5">
               <span className="text-sm font-bold uppercase">Total efectivo</span>
@@ -691,8 +715,6 @@ function ControlDeCajaPanel() {
                   return
                 }
                 // Construir TicketData con los datos del summary del turno.
-                // items va vacío — el cierre no es una venta de productos sino un
-                // resumen de pagos. Los totales/breakdown vienen de summary.list.
                 // FLAG: summary.list trae filas (name, amount) pero no hay campo
                 // separado de "apertura" vs "ventas por método" — se mapean como
                 // payments usando las filas de list tal como vienen del backend.
@@ -700,12 +722,26 @@ function ControlDeCajaPanel() {
                   method: row.name,
                   amount: row.amount,
                 }))
+                // items: reusa la tabla de productos del renderer genérico
+                // (renderFallbackTicketHtml en print-in-browser.ts) — closeReg
+                // no tiene concepto de plantilla propia, así que la tabla
+                // Ítem/Cant./P.Unit/Total ya existente es el lugar correcto
+                // para el resumen de productos vendidos del turno (devoluciones
+                // ya vienen restadas desde el backend, ver DrawerService::getSoldProducts).
+                const soldItems: TicketItem[] = summary.soldProducts.map((p) => ({
+                  name: p.name,
+                  qty: p.qty,
+                  unitPrice: p.qty !== 0 ? p.total / p.qty : p.total,
+                  discount: 0,
+                  total: p.total,
+                  categoryId: null,
+                }))
                 const ticketData: TicketData = {
                   companyName: (config as { companyName?: string } | null)?.companyName ?? "",
                   docType: "closeReg",
                   transactionId: "",
                   date: summary.date ?? new Date().toISOString(),
-                  items: [],
+                  items: soldItems,
                   subtotal: summary.subtotal,
                   discount: 0,
                   taxTotal: 0,
