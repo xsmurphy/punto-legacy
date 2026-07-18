@@ -74,6 +74,7 @@ final class ItemCompoundService
         }
         $this->assertItemOwnedByCompany($childItemId, $companyId, 'child');
         $this->assertItemOwnedByCompany($parentItemId, $companyId, 'parent');
+        $this->assertNoCycle($parentItemId, $childItemId, $companyId);
 
         // Si ya existe, sumamos cantidad en vez de fallar.
         $existing = $this->db->Execute(
@@ -136,6 +137,55 @@ final class ItemCompoundService
     }
 
     // ── Internals ─────────────────────────────────────────────────────────
+
+    /**
+     * Rechaza si agregar $childItemId como ingrediente de $parentItemId
+     * crearía un ciclo (ej. A usa B, B usa A; o A usa B, B usa C, C usa A).
+     * Recorre children del candidato childItemId recursivamente: si en algún
+     * punto llegamos a $parentItemId, agregarlo lo convertiría en su propio
+     * ancestro. Scoped a companyId, con límite de profundidad como cinturón
+     * de seguridad ante datos corruptos preexistentes.
+     */
+    private function assertNoCycle(string $parentItemId, string $childItemId, string $companyId, int $maxDepth = 50): void
+    {
+        if ($childItemId === $parentItemId) {
+            // Ya cubierto por el chequeo de arriba en add(), pero defensivo acá también.
+            throw new \RuntimeException('Un item no puede ser ingrediente de sí mismo');
+        }
+
+        $visited = [];
+        $queue   = [$childItemId];
+        $depth   = 0;
+
+        while ($queue !== [] && $depth < $maxDepth) {
+            $next = [];
+            foreach ($queue as $current) {
+                if (isset($visited[$current])) {
+                    continue;
+                }
+                $visited[$current] = true;
+
+                if ($current === $parentItemId) {
+                    throw new \RuntimeException('Esta receta crearía un ciclo: el ingrediente ya depende de este item');
+                }
+
+                $rs = $this->db->Execute(
+                    'SELECT childItemId FROM item_compound WHERE parentItemId = ? AND companyId = ?',
+                    [$current, $companyId]
+                );
+                if ($rs !== false) {
+                    foreach ($rs->GetRows() as $r) {
+                        $grandchild = $r['childitemid'] ?? $r['childItemId'] ?? null;
+                        if ($grandchild !== null && !isset($visited[$grandchild])) {
+                            $next[] = $grandchild;
+                        }
+                    }
+                }
+            }
+            $queue = $next;
+            $depth++;
+        }
+    }
 
     private function assertItemOwnedByCompany(string $itemId, string $companyId, string $role): void
     {

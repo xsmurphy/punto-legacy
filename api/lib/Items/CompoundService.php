@@ -4,6 +4,11 @@ declare(strict_types=1);
 namespace Punto\Api\Items;
 
 /**
+ * @deprecated Producción F0 (context/23-production-module-plan.md). `toCompound`
+ * dejó de ser la fuente canónica de recetas — usar `ItemCompoundService`
+ * (tabla `item_compound`, mig 19). Sin callers activos en el repo (confirmado
+ * por grep); se conserva como referencia histórica, NO usar en código nuevo.
+ *
  * CompoundService — gestiona la tabla `toCompound` (componentes de combos/producciones).
  *
  * Un item tipo combo/precombo/comboAddons/production/direct_production
