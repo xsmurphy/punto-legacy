@@ -4,14 +4,15 @@
  * Diálogo para editar la cantidad de una línea del carrito.
  *
  * Usa NumericPadDialog (wrapper único) para soporte touch + teclado físico.
- * Shift alterna entre modo entero y decimal (persiste en usePosUIStore).
- * Si la cantidad inicial tiene decimales, fuerza modo decimal al abrir.
+ * El pad SIEMPRE abre en modo decimal (el punto nunca debe estar bloqueado
+ * acá — items fraccionables como kg/litros lo necesitan desde el primer
+ * dígito). Shift sigue permitiendo forzar modo entero si el usuario lo
+ * prefiere para esa edición puntual.
  * Enter confirma, ESC cierra. Confirmar con 0 elimina la línea.
  */
 
 import * as React from "react"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
-import { usePosUIStore } from "@/lib/ui/store"
 
 interface QtyEditDialogProps {
   open: boolean
@@ -28,30 +29,21 @@ export function QtyEditDialog({
   onConfirm,
   onClose,
 }: QtyEditDialogProps) {
-  const storedMode = usePosUIStore((s) => s.qtyPadMode)
-  const setQtyPadMode = usePosUIStore((s) => s.setQtyPadMode)
-
   const [draft, setDraft] = React.useState<string>("0")
-  // El modo local puede diferir del store si initialQty tiene decimales
-  const [localMode, setLocalMode] = React.useState<"int" | "decimal">(storedMode)
+  // Siempre arranca en decimal — el punto no debe estar bloqueado al editar
+  // cantidad (ver comentario de módulo). Shift permite pasar a int si hace falta.
+  const [localMode, setLocalMode] = React.useState<"int" | "decimal">("decimal")
 
   React.useEffect(() => {
     if (open) {
-      // Si el ítem ya tiene decimales, forzar decimal para no perder precisión
-      const hasDecimals = initialQty % 1 !== 0
-      const mode = hasDecimals ? "decimal" : storedMode
-      setLocalMode(mode)
+      setLocalMode("decimal")
       setDraft(String(initialQty))
     }
-    // storedMode INTENCIONALMENTE excluido: solo inicializamos al abrir el dialog,
-    // no en cada cambio de modo (SHIFT toggle persiste a storedMode → resetearía draft).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialQty])
 
   function handleShiftToggle() {
     const next = localMode === "int" ? "decimal" : "int"
     setLocalMode(next)
-    setQtyPadMode(next)
     // Truncar el draft si pasamos a int y tenía parte decimal
     if (next === "int" && draft.includes(".")) {
       setDraft(String(Math.round(Number(draft))))
