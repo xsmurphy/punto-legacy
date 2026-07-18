@@ -497,13 +497,37 @@ final class Inventory
     }
 
     /**
-     * Cantidad necesaria de un insumo contando su porcentaje de merma.
+     * Cantidad de insumo CRUDO a consumir para obtener `$need` de producto
+     * ÚTIL, dado un porcentaje de merma de RENDIMIENTO (`wasteP`).
      * Equivalente legacy: `getNeedWithWaste($need, $wasteP)`.
+     *
+     * Semántica: `wasteP` es la fracción del insumo que se PIERDE al
+     * procesarlo (no un recargo aditivo sobre `$need`). Ej.: carne con 30%
+     * de merma → 1kg crudo rinde 700g útiles. Para obtener 700g útiles hace
+     * falta consumir `700 / (1 - 0.30) = 1000g` de insumo crudo. Fórmula:
+     * `need / (1 - wasteP/100)`.
+     *
+     * Guards:
+     * - `wasteP <= 0`: sin merma, devuelve `$need` sin cambios.
+     * - `wasteP >= 100`: rendimiento 0 → consumo infinito, físicamente
+     *   imposible. Se clampea a 99 (el máximo consumo finito representable)
+     *   y se loguea la advertencia — evita división por cero sin ocultar el
+     *   dato inválido en el ledger de `item.itemWaste`.
      */
     public static function getNeedWithWaste(mixed $need, mixed $wasteP): int|float
     {
-        $wasteFactor = $wasteP / 100;
-        $wasteValue  = $need * $wasteFactor;
-        return $need + $wasteValue;
+        $need   = (float) $need;
+        $wasteP = (float) $wasteP;
+
+        if ($wasteP <= 0) {
+            return $need;
+        }
+
+        if ($wasteP >= 100) {
+            error_log("Inventory::getNeedWithWaste: wasteP={$wasteP} >= 100 (rendimiento 0, consumo infinito) — clampeado a 99");
+            $wasteP = 99;
+        }
+
+        return $need / (1 - $wasteP / 100);
     }
 }

@@ -151,7 +151,7 @@ const itemSchema = z.object({
   status: z.boolean(),
   outletId: z.string(),
   supplierId: z.string(),
-  waste: z.number().min(0).max(100).nullable(),
+  waste: z.number().min(0).max(99).nullable(),
   sort: z.number().int().nullable(),
   commission: z.number().min(0).nullable(),
   commissionType: z.enum(["percent", "fixed"]),
@@ -1333,7 +1333,7 @@ function ConfigTab({
                       inputMode="decimal"
                       step="0.01"
                       min={0}
-                      max={100}
+                      max={99}
                       placeholder="0"
                       value={field.value ?? ""}
                       onChange={(e) => {
@@ -1344,7 +1344,8 @@ function ConfigTab({
                     />
                   </FormControl>
                   <FormDescription className="text-xs">
-                    % de pérdida estimada en producción o manipulación.
+                    % de rendimiento perdido al producir o manipular (ej.: carne
+                    con 30% de merma → 1kg crudo rinde 700g útiles).
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

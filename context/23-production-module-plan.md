@@ -116,6 +116,14 @@ en listWaste()) — ver commit `fix(production): valida ownership...`.
   default. El % de merma de receta (`itemWaste`) sigue siendo el costo
   PLANIFICADO (afecta `getNeedWithWaste` en COGS); los `waste_event` son el
   registro REAL, separado, vía `manageStock(source='waste')`.
+- **Semántica de `itemWaste` (2026-07-18, corregido):** es merma de
+  RENDIMIENTO, no un recargo aditivo. `getNeedWithWaste($need, $wasteP)` =
+  `need / (1 - wasteP/100)`. Ej.: carne con 30% de merma → 1kg crudo rinde
+  700g útiles; para obtener 700g útiles hay que consumir `700/(1-0.30) =
+  1000g` crudos. La fórmula aditiva anterior (`need + need*wasteP/100`)
+  subestimaba el consumo real y el COGS. Guard: `wasteP >= 100` (rendimiento
+  0, consumo infinito) se clampea a 99 con `error_log`; frontend valida
+  `waste.max(99)` en `items/[id]/page.tsx`.
 - COGS real: promedio ponderado del insumo al momento de consumir
   (`stockOnHandCOGS`, ya lo calcula `manageStock`); costo unitario de lo
   producido = total consumido / unidades producidas.
