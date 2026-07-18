@@ -43,6 +43,29 @@ final class ProductionService
             }
         }
 
+        // (1b) Órdenes de producción F1 (context/23) completadas — production_order.
+        // Mismo shape que (1): se suma a lo ya acumulado por itemId. type='2'
+        // mapea a typeLabel "Orden" en buildRows() (convención ya existente en
+        // el legacy — ver typeLabel abajo). Columnas físicas lowercase (mig 76);
+        // Postgres normaliza los identificadores unquoted del SELECT igual, así
+        // que $roc (que referencia outletId/registerId/companyId) matchea sin
+        // cambios contra production_order.
+        $sql = "SELECT itemId, qtyProduced, ingredientCost
+                FROM production_order
+                WHERE status = 'completed' AND completed_at BETWEEN ? AND ?" . $roc;
+        $res = ncmExecute($sql, [$from, $to], false, false, true);
+        foreach (is_array($res) ? $res : [] as $f) {
+            $id = (string) $f['itemId'];
+            $units = (float) $f['qtyProduced'];
+            $cogs  = (float) $f['ingredientCost'];
+            if (isset($items[$id])) {
+                $items[$id]['units'] += $units;
+                $items[$id]['cogs']  += $cogs;
+            } else {
+                $items[$id] = ['units' => $units, 'cogs' => $cogs, 'type' => '2'];
+            }
+        }
+
         // (2) Producción "directa": ventas de ítems itemType='direct_production'.
         $rocB = $this->rocAlias($roc, 'b');
         $sql = "SELECT a.itemId as id, SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldCOGS) as cogs,
@@ -140,6 +163,60 @@ final class ProductionService
             }
         }
         return ['rows' => $rows];
+    }
+
+    /**
+     * Merma (F1, context/23): eventos de waste_event en el rango, con nombre
+     * de ítem y motivo resueltos. Incluye tanto merma manual (source='manual')
+     * como la generada al completar una orden (source='production').
+     */
+    public function waste($from, $to, string $roc, string $companyId): array
+    {
+        $rocW = $this->rocAlias($roc, 'we');
+        $sql = "SELECT we.itemId as itemId, we.reasonId as reasonId, we.qty as qty, we.cost as cost,
+                       we.source as source, we.created_at as createdAt, we.outletId as outletId,
+                       we.userId as userId
+                FROM waste_event we
+                WHERE we.created_at BETWEEN ? AND ?" . $rocW . "
+                ORDER BY we.created_at DESC";
+        $res  = ncmExecute($sql, [$from, $to], false, false, true);
+        $rows = is_array($res) ? $res : [];
+
+        $itemIds   = array_values(array_unique(array_filter(array_map(fn ($r) => (string) ($r['itemId'] ?? ''), $rows))));
+        $names     = $this->itemNameSku($itemIds, $companyId);
+        $reasonIds = array_values(array_unique(array_filter(array_map(fn ($r) => (string) ($r['reasonId'] ?? ''), $rows))));
+        $reasons   = $this->reasonNames($reasonIds, $companyId);
+
+        $out = [];
+        $byReason = [];
+        $tQty = $tCost = 0.0;
+        foreach ($rows as $r) {
+            $itemId     = (string) ($r['itemId'] ?? '');
+            $reasonId   = (string) ($r['reasonId'] ?? '');
+            $qty        = (float) ($r['qty'] ?? 0);
+            $cost       = (float) ($r['cost'] ?? 0);
+            $meta       = $names[$itemId] ?? ['name' => '', 'sku' => ''];
+            $reasonName = $reasons[$reasonId] ?? '';
+
+            $out[] = [
+                'itemId'     => $itemId,
+                'name'       => $meta['name'],
+                'sku'        => $meta['sku'],
+                'reasonId'   => $reasonId,
+                'reasonName' => $reasonName,
+                'qty'        => $qty,
+                'cost'       => $cost,
+                'source'     => (string) ($r['source'] ?? ''),
+                'outletName' => isset($r['outletId']) ? (string) getCurrentOutletName($r['outletId']) : '',
+                'userName'   => isset($r['userId']) ? (string) (getContactData($r['userId'])['name'] ?? '') : '',
+                'date'       => (string) ($r['createdAt'] ?? ''),
+            ];
+            $tQty  += $qty;
+            $tCost += $cost;
+            $byReason[$reasonName] = ($byReason[$reasonName] ?? 0.0) + $cost;
+        }
+
+        return ['rows' => $out, 'totals' => ['qty' => $tQty, 'cost' => $tCost], 'byReason' => $byReason];
     }
 
     /* ───────────── helpers ───────────── */
@@ -240,6 +317,26 @@ final class ProductionService
         $map = [];
         foreach ($res as $r) {
             $map[(string) $r['itemId']] = ['name' => (string) ($r['itemName'] ?? ''), 'sku' => (string) ($r['itemSKU'] ?? '')];
+        }
+        return $map;
+    }
+
+    /** Lookup batch reasonId → nombre, scopeado por companyId (taxonomyType='wasteReason'). */
+    private function reasonNames(array $ids, string $companyId): array
+    {
+        $ids = array_values(array_unique(array_filter($ids)));
+        if (!$ids) {
+            return [];
+        }
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $res = ncmExecute(
+            "SELECT taxonomyId, taxonomyName FROM taxonomy WHERE companyId = ? AND taxonomyType = 'wasteReason' AND taxonomyId IN ($ph)",
+            array_merge([$companyId], $ids), false, false, true
+        );
+        $res = is_array($res) ? $res : [];
+        $map = [];
+        foreach ($res as $r) {
+            $map[(string) $r['taxonomyId']] = (string) ($r['taxonomyName'] ?? '');
         }
         return $map;
     }
