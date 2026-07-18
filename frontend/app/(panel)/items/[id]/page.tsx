@@ -1443,14 +1443,10 @@ function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
             usá el editor del panel legacy.
           </p>
           <Button asChild variant="outline" size="sm" className="w-fit">
-            <a
-              href={`https://panel-legacy.punto.la/@#items/edit/${id}`}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <Link href="/stock-adjustment">
               <ExternalLink className="size-3.5" />
-              Editar stock en panel legacy
-            </a>
+              Ajustar stock
+            </Link>
           </Button>
         </CardContent>
       </Card>
