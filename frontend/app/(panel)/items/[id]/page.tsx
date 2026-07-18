@@ -462,6 +462,14 @@ export default function ItemEditPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            {!isNew && kind === "produccion_previa" && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/produccion?newItemId=${id}`}>
+                  <ChefHat className="size-4" />
+                  Producir
+                </Link>
+              </Button>
+            )}
             {!isNew && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
