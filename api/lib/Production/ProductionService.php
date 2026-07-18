@@ -155,10 +155,14 @@ final class ProductionService
 
     /**
      * Crea una orden. mode='draft' (default) la deja en status draft;
-     * mode='immediate' crea y completa en la misma operación (atómico —
-     * complete() abre su propia transacción, que envuelve también el
-     * create si algo falla a mitad de camino no queda una orden huérfana
-     * en draft: ver manejo de excepción abajo).
+     * mode='immediate' crea y llama a complete() en la misma llamada a
+     * create(). NO es una única transacción de punta a punta — el INSERT
+     * de la orden (draft) corre en autocommit y complete() abre su propia
+     * TX aparte (este DB wrapper no soporta transacciones anidadas). Si
+     * complete() falla, la orden NO queda a medio completar ni con stock
+     * a medias (complete() hace rollback de la suya), pero SÍ queda un
+     * row en status='draft' huérfano — recuperable (reintentar complete()
+     * o cancel()), nunca corrupto. Trade-off documentado, no un bug.
      *
      * @return string orderId
      */
@@ -305,6 +309,21 @@ final class ProductionService
             $db->CompleteTrans();
             throw new \InvalidArgumentException('wasteReasonId requerido cuando wasteUnits > 0');
         }
+        // Ownership: el reasonId es un taxonomyId que viaja del cliente — sin
+        // este check, un caller podría colar el UUID de un motivo de OTRO
+        // tenant (cross-tenant leak: quedaría guardado en waste_event.reasonid
+        // y listWaste()/reportes resolverían el nombre de un motivo ajeno).
+        if ($wasteReasonId !== null) {
+            $reasonRow = ncmExecute(
+                "SELECT taxonomyid FROM taxonomy WHERE taxonomyid = ? AND companyid = ? AND taxonomytype = 'wasteReason' LIMIT 1",
+                [$wasteReasonId, $companyId]
+            );
+            if (!$reasonRow) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                throw new \InvalidArgumentException('wasteReasonId inválido para este tenant');
+            }
+        }
 
         $adjustments = [];
         foreach ((array) ($data['ingredientAdjustments'] ?? []) as $adj) {
@@ -359,7 +378,7 @@ final class ProductionService
                 ? (float) $stock['stockOnHandCOGS']
                 : null;
             if ($cost === null) {
-                $itemCostRow = ncmExecute('SELECT itemcost FROM item WHERE itemid = ? LIMIT 1', [$childId]);
+                $itemCostRow = ncmExecute('SELECT itemcost FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$childId, $companyId]);
                 $cost        = (float) ($itemCostRow['itemcost'] ?? 0);
             }
 
@@ -514,6 +533,16 @@ final class ProductionService
         if (!$outlet) {
             throw new \InvalidArgumentException('outletId inválido para este tenant');
         }
+        // Ownership del motivo — mismo razonamiento que en complete(): reasonId
+        // es un taxonomyId que viaja del cliente, sin este check se podría
+        // colar el motivo de OTRO tenant.
+        $reasonRow = ncmExecute(
+            "SELECT taxonomyid FROM taxonomy WHERE taxonomyid = ? AND companyid = ? AND taxonomytype = 'wasteReason' LIMIT 1",
+            [$reasonId, $companyId]
+        );
+        if (!$reasonRow) {
+            throw new \InvalidArgumentException('reasonId inválido para este tenant');
+        }
         $item = ncmExecute(
             'SELECT itemid, itemtrackinventory, locationid FROM item WHERE itemid = ? AND companyid = ? AND itemstatus = 1 LIMIT 1',
             [$itemId, $companyId]
@@ -597,10 +626,18 @@ final class ProductionService
             $params[] = (string) $filters['outletId'];
         }
 
+        // t.companyid = we.companyid en el JOIN (no solo en el WHERE de we):
+        // reasonid es un taxonomyId que en teoría solo debería apuntar a un
+        // motivo del mismo tenant (ya validado al escribir, ver
+        // complete()/registerWaste()), pero si algún row viejo/corrupto
+        // tuviera un reasonid de otro tenant, el JOIN sin scope resolvería
+        // (y filtraría) el taxonomyName de ESE otro tenant. Defensa en
+        // profundidad — nunca confiar el aislamiento multi-tenant a un solo
+        // punto de validación.
         $sql = 'SELECT we.*, i.itemname AS itemname, t.taxonomyname AS reasonname, c.contactname AS username
                   FROM waste_event we
                   JOIN item i ON i.itemid = we.itemid
-             LEFT JOIN taxonomy t ON t.taxonomyid = we.reasonid
+             LEFT JOIN taxonomy t ON t.taxonomyid = we.reasonid AND t.companyid = we.companyid
              LEFT JOIN contact c ON c.contactid = we.userid
                  WHERE ' . implode(' AND ', $where) . '
                  ORDER BY we.created_at DESC
