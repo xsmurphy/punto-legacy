@@ -165,7 +165,12 @@ final class Inventory
         if (validity($result, 'array')) {
             foreach ($result as $resulta) {
                 $id    = $resulta['compoundId'];
-                $units = number_format($resulta['toCompoundQty'], 2);
+                // (float), no number_format(): number_format() devuelve string con
+                // separador de miles ("1,500.50") — PHP 8 lo trata como numeric-string
+                // NO bien formado y $cost * $units trunca al primer segmento antes de
+                // la coma, corrompiendo el COGS para qty >= 1000. Bug preexistente,
+                // corregido acá porque esta misma función es la que fixeamos (F0).
+                $units = (float) $resulta['toCompoundQty'];
 
                 $stock = self::getItemStock($id);
                 $cost  = ($stock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS']) && (float) $stock['stockOnHandCOGS'] > 0)
