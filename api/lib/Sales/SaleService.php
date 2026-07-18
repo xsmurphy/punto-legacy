@@ -891,6 +891,134 @@ final class SaleService
     }
 
     /**
+     * Emisión de gift card (F2 giftcard-issue-flow) — crea la fila en la tabla
+     * NUEVA `giftcard` (mig 44 + 78) cuando se vende un item de catálogo con
+     * itemType='giftcard' y el front mandó metadata (`sD['giftcard']`: code,
+     * beneficiaryContactId?, expiresAt?, note?). Corre DENTRO de la transacción
+     * de save() (rollback con la venta si algo falla) — llamada desde
+     * persistItemsAndStock ANTES del itemSold/manageStock normal del item (que
+     * sigue corriendo igual: la gift card es un producto vendible más).
+     *
+     * Idempotencia: la dedup real es a nivel TRANSACCIÓN (UNIQUE transactionUID,
+     * chequeado al inicio de save() — ver DuplicateSaleException). Si esta línea
+     * corre, es una venta nueva: no hace falta dedup propio acá.
+     *
+     * Código único: pre-check + el INSERT vuelve a chocar con la UNIQUE
+     * ("companyId", code) de la mig 78 si hay carrera entre dos devices — en
+     * ambos casos se lanza InvalidSaleInputException (422, mensaje claro para
+     * que el cajero regenere el código), NUNCA un 500 silencioso.
+     *
+     * beneficiaryContactId: validado contra contact del tenant → null si no
+     * existe/no es UUID (decorativo, no aborta la venta — mismo criterio que
+     * sellGiftCard() de abajo).
+     */
+    private function issueGiftCard(array $sD, string $itemId, string $transId, string $companyId): void
+    {
+        $gc   = is_array($sD['giftcard'] ?? null) ? $sD['giftcard'] : [];
+        $code = trim((string) ($gc['code'] ?? ''));
+        if ($code === '') {
+            throw new InvalidSaleInputException('Falta el código de la gift card');
+        }
+
+        // Backstop server-side: UNA línea de gift card = UNA card, código y
+        // saldo únicos. El front bloquea el stepper de qty en estas líneas
+        // (cart-panel.tsx CartRowExpanded::qtyLocked), pero acá lo re-chequeamos
+        // — sin esto, count=2 emitiría UNA fila con el doble de saldo bajo un
+        // único código (itemSold/stock sí reflejarían count=2 → plata inconsistente).
+        $count = (float) ($sD['count'] ?? 1);
+        if (abs($count - 1.0) > 0.0001) {
+            throw new InvalidSaleInputException('Una gift card se emite de a una — cantidad debe ser 1');
+        }
+
+        $amount = (float) ($sD['total'] ?? 0);
+        if ($amount <= 0) {
+            throw new InvalidSaleInputException('La gift card debe tener un monto mayor a 0');
+        }
+
+        // Pre-check de unicidad (companyId, code) — mensaje claro y rápido.
+        // La UNIQUE INDEX (mig 78) es la garantía real ante carrera concurrente.
+        $dup = $this->db->Execute(
+            'SELECT id FROM giftcard WHERE "companyId" = ? AND code = ? LIMIT 1',
+            [$companyId, $code]
+        );
+        if ($dup && !$dup->EOF) {
+            throw new InvalidSaleInputException("El código de gift card '{$code}' ya existe — generá uno nuevo");
+        }
+
+        // beneficiaryContactId: solo si tiene forma de UUID y pertenece al tenant.
+        $beneficiaryId   = null;
+        $beneficiaryName = null;
+        $benef = trim((string) ($gc['beneficiaryContactId'] ?? ''));
+        if ($benef !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $benef)) {
+            $bRow = $this->db->Execute(
+                'SELECT contactId, contactName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                [$benef, $companyId]
+            );
+            if ($bRow && !$bRow->EOF) {
+                $beneficiaryId   = $benef;
+                $beneficiaryName = trim((string) ($bRow->fields['contactname'] ?? '')) ?: null;
+            }
+        }
+
+        // expiresAt: '' / fecha inválida → null (PG rechaza '' en TIMESTAMPTZ).
+        $expiresAt = null;
+        $expRaw    = trim((string) ($gc['expiresAt'] ?? ''));
+        if ($expRaw !== '') {
+            $ts = strtotime($expRaw);
+            if ($ts !== false) {
+                $expiresAt = date('Y-m-d 23:59:59', $ts);
+            }
+        }
+
+        $note = trim((string) ($gc['note'] ?? ''));
+
+        // INSERT RAW con columnas QUOTED camelCase. NO AutoExecute: éste arma
+        // `INSERT INTO giftcard (companyId, initialBalance, ...)` con implode
+        // SIN comillas (DB.php) → PG pliega a lowercase → `companyid` no existe
+        // en `giftcard` (mig 44, columnas quoted) → el INSERT falla SIEMPRE.
+        // `id` se omite: la columna tiene DEFAULT gen_random_uuid() (mig 44).
+        // Mismo patrón quoted que api/v1/giftcards.php (validate/consume).
+        $ok = $this->db->Execute(
+            'INSERT INTO giftcard
+                (id, "companyId", code, "initialBalance", "currentBalance", "expiresAt",
+                 "beneficiaryContactId", "beneficiaryName", note, "issuedByTransactionId",
+                 "outletId", status)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $companyId,
+                $code,
+                $amount,
+                $amount,
+                $expiresAt,
+                $beneficiaryId,
+                $beneficiaryName,
+                $note !== '' ? $note : null,
+                $transId,
+                $this->ctx->outletId,
+                1,
+            ]
+        );
+        if ($ok === false) {
+            // Carrera concurrente contra la UNIQUE ("companyId", code): PG
+            // devuelve SQLSTATE 23505 (unique_violation) en el ErrorMsg.
+            $err = $this->db->ErrorMsg();
+            if (stripos($err, '23505') !== false
+                || stripos($err, 'unique') !== false
+                || stripos($err, 'duplicate') !== false) {
+                throw new InvalidSaleInputException("El código de gift card '{$code}' ya existe — generá uno nuevo");
+            }
+            throw new InvalidSaleInputException('No se pudo emitir la gift card: ' . $err);
+        }
+    }
+
+    /**
+     * @deprecated F2 giftcard-issue-flow (2026-07-18) — el POS nuevo nunca dispara
+     *             este path (nunca manda `sD['type']==='giftcard'` sin itemId).
+     *             Reemplazado por issueGiftCard() sobre la tabla `giftcard`
+     *             (mig 44+78). Se mantiene sin borrar por compat de código legacy
+     *             que aún pudiera invocar processData con el shape viejo — NO usar
+     *             en código nuevo. `giftCardSold` NO se borra (histórico).
+     *
      * B8 (35c.2) — venta de gift card: crea el registro giftCardSold con el saldo
      * inicial. Port de insertNewGiftCard (functions.php:336). Corre DENTRO de la
      * transacción de save() (rollback con la venta si algo falla).
@@ -1130,6 +1258,18 @@ final class SaleService
             );
             $itemType  = ($itmData && !$itmData->EOF) ? (string) ($itmData->fields['itemtype'] ?? '') : '';
             $itemPrice = ($itmData && !$itmData->EOF) ? (float) ($itmData->fields['itemprice'] ?? 0) : 0.0;
+
+            // ── EMISIÓN de gift card (item de catálogo kind=giftcard) ───────
+            // Distinta de sellGiftCard() (rama legacy `sD['type']==='giftcard'`,
+            // sin itemId, @deprecated) — acá el item SÍ es un item de catálogo
+            // real (itemType='giftcard'), genera itemSold/stock normal COMO
+            // CUALQUIER OTRO ítem (ver abajo) y ADEMÁS crea la fila en
+            // `giftcard` si el front mandó metadata (sD['giftcard']). Sin
+            // metadata (front viejo / venta sin dialog) el item se vende
+            // igual mas no emite gift card — evita romper ventas existentes.
+            if ($itemType === 'giftcard' && !empty($sD['giftcard']) && is_array($sD['giftcard'])) {
+                $this->issueGiftCard($sD, $itemId, $transId, $companyId);
+            }
 
             // ── comisión del usuario asignado a la línea (si tiene fija > 0) ──
             // contactFixedComission está DEMOTED a `data` JSONB → ncmExecute (flatten),

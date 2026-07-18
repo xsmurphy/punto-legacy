@@ -54,6 +54,19 @@ export interface SaleItem {
   total: number
   discount: number
   note: string | null
+  /**
+   * Metadata de EMISIÓN de gift card (F2 giftcard-issue-flow) — presente solo
+   * cuando la línea viene de `GiftcardIssueDialog` (item kind="giftcard").
+   * El backend (Money::sanitizeSaleArray → SaleService::issueGiftCard) la usa
+   * para crear la fila en la tabla `giftcard`. Espejo de
+   * `CartLine.giftcard` (lib/cart/store.ts).
+   */
+  giftcard?: {
+    code: string
+    beneficiaryContactId?: string | null
+    expiresAt?: string | null
+    note?: string | null
+  }
 }
 
 /**
@@ -210,6 +223,16 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     // discount por línea: porcentaje aplicado a esa línea (independiente del saleDiscount)
     discount: line.discount ?? 0,
     note: line.note ?? null,
+    ...(line.giftcard
+      ? {
+          giftcard: {
+            code: line.giftcard.code,
+            beneficiaryContactId: line.giftcard.beneficiaryContactId ?? null,
+            expiresAt: line.giftcard.expiresAt ?? null,
+            note: line.giftcard.note ?? null,
+          },
+        }
+      : {}),
   }))
 
   const subtotal = saleItems.reduce((s, i) => s + i.total, 0)

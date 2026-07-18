@@ -342,11 +342,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // Venta al contado/crédito SIEMPRE emite Factura — el recibo es el
       // documento del pago de una factura a crédito (regla fiscal), NO un
       // fallback cuando falta el binding "factura".
+      //
+      // EXCEPCIÓN fiscal (F2 giftcard-issue-flow, Paraguay): vender una gift
+      // card es un ADELANTO, no una venta de bienes/servicios → Recibo, no
+      // Factura. v1: si el carrito mezcla gift card(s) + productos normales,
+      // igual emitimos Recibo para TODA la venta (no partimos el documento) —
+      // TODO: partir el documento en mixto (Factura para productos + Recibo
+      // para la gift card) cuando el owner lo priorice.
+      const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
       const ticketData = buildTicketData({ payload, result, config })
       const saleCategoryIds = [
         ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
       ]
-      const autoDocType: PrinterDocType = "factura"
+      const autoDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
       const autoBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds).filter(
         (b) => b.autoPrint,
       )
@@ -610,11 +618,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
     // Venta al contado/crédito SIEMPRE emite Factura — el recibo es el
     // documento del pago de una factura a crédito (regla fiscal), NO un
-    // fallback cuando falta el binding "factura".
+    // fallback cuando falta el binding "factura". EXCEPCIÓN: emisión de gift
+    // card = adelanto → Recibo (ver comentario espejo en handleConfirm arriba).
+    const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
     const printCategoryIds = [
       ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
     ]
-    const printDocType: PrinterDocType = "factura"
+    const printDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
+    const docLabel = hasGiftcardIssuance ? "Recibo" : "Factura"
     const receiptBindings = getBindingsForSale(allBindings, printDocType, printCategoryIds)
     if (receiptBindings.length > 0) {
       const r = await printSale({ docType: printDocType, data: ticketData, bindings: allBindings })
@@ -625,10 +636,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       } else if (r.printed > 0) {
         toast.success(`${r.printed} impresora(s) reimprimieron`)
       } else {
-        toast.warning("Ninguna impresora tiene asignado el documento Factura — asignáselo en Impresoras")
+        toast.warning(`Ninguna impresora tiene asignado el documento ${docLabel} — asignáselo en Impresoras`)
       }
     } else {
-      toast.warning("Ninguna impresora tiene asignado el documento Factura — asignáselo en Impresoras")
+      toast.warning(`Ninguna impresora tiene asignado el documento ${docLabel} — asignáselo en Impresoras`)
     }
   }
 

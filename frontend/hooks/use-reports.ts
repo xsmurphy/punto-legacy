@@ -326,22 +326,25 @@ export interface ProductionReportResponse {
 }
 
 // ── Gift cards ────────────────────────────────────────────────────────────────
+// F2 giftcard-issue-flow (2026-07-18): repuntado a la tabla `giftcard` (mig
+// 44+78) — antes leía `giftCardSold` (legacy, no borrado pero ya no reportado).
 
 export interface GiftCardRow {
-  giftCardSoldId: string
+  id: string
   transactionId: string
   doc: string
   beneficiaryId: string
   beneficiary: string
   expires: string
-  code: number
-  ucode: string
+  /** Código alfanumérico (antes int en el legacy). */
+  code: string
   note: string
   lastUsed: string
-  sendDate: string
   outletName: string
+  /** Saldo disponible (currentBalance). */
   value: number
-  color: string
+  /** Monto emitido originalmente (initialBalance). */
+  initialValue: number
 }
 
 export interface GiftcardsReportResponse {

@@ -72,6 +72,7 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
+import { GiftcardIssueDialog } from "@/components/register/giftcard-issue-dialog"
 import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
 import { PosMainMenu } from "@/components/register/pos-main-menu"
 import { PuntoLogo } from "@/components/layout/punto-logo"
@@ -226,6 +227,7 @@ export function CartPanel() {
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
+      <GiftcardIssueDialog />
       <SyncQueueDialog open={syncQueueOpen} onOpenChange={setSyncQueueOpen} />
       <DrawerOpenDialog
         open={drawerOpenDialogOpen}
@@ -615,6 +617,13 @@ function CartRowExpanded({
   const [moreOpen, setMoreOpen] = React.useState(false)
   const [sellerOpen, setSellerOpen] = React.useState(false)
 
+  // Líneas de emisión de gift card SIEMPRE qty=1 — el código/beneficiario/
+  // monto son de UNA sola card. Subir qty crearía itemSold/stock con count=2
+  // pero SaleService::issueGiftCard() solo lee sD['total'] (una fila con el
+  // doble de saldo bajo un único código) — inconsistencia de plata. Bloqueado
+  // acá (UI) y con backstop server-side (SaleService rechaza count != 1).
+  const qtyLocked = !!line.giftcard
+
   return (
     <div className="bg-accent/40 px-3 py-3">
       {/* Header — nombre del item en negrita. */}
@@ -628,22 +637,25 @@ function CartRowExpanded({
           Botones cuadrados con fondo levemente más oscuro que el panel. */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <LineToolButton onClick={onDec} aria-label="Disminuir cantidad">
+          <LineToolButton onClick={onDec} aria-label="Disminuir cantidad" disabled={qtyLocked}>
             <Minus className="size-4" />
           </LineToolButton>
-          {/* Cantidad clickable → numpad para tipear cantidades grandes. */}
+          {/* Cantidad clickable → numpad para tipear cantidades grandes.
+              Gift card: fija en 1, no clickable (ver qtyLocked arriba). */}
           <button
             type="button"
-            onClick={() => setQtyOpen(true)}
+            onClick={() => { if (!qtyLocked) setQtyOpen(true) }}
+            disabled={qtyLocked}
             aria-label="Editar cantidad"
             className={cn(
               "min-w-[2.5rem] rounded-md border border-border bg-muted px-2 py-0.5 text-center text-lg font-semibold tabular-nums",
               "transition-colors hover:bg-muted/70 active:bg-muted/60",
+              "disabled:pointer-events-none disabled:opacity-50",
             )}
           >
             {line.qty}
           </button>
-          <LineToolButton onClick={onInc} aria-label="Aumentar cantidad">
+          <LineToolButton onClick={onInc} aria-label="Aumentar cantidad" disabled={qtyLocked}>
             <Plus className="size-4" />
           </LineToolButton>
         </div>
