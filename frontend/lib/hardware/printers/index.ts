@@ -2,6 +2,7 @@ export * from "./binding"
 export * from "./encoder"
 export * from "./transports/usb"
 export type { TicketData, TicketItem, TicketPayment } from "./build-ticket-data"
+export { printTicketInBrowser } from "./print-in-browser"
 
 import type { PrinterBinding, PrinterDocType } from "./binding"
 import { getBindingsForSale } from "./binding"
@@ -12,8 +13,8 @@ import { sendBytesViaNetwork } from "./transports/network"
 import { triggerWindowPrint } from "./transports/window-print"
 import { renderTemplateToEscPos } from "./render-template"
 import { renderTemplateToHtml } from "./html-renderer"
+import { fetchTemplateConfig } from "./print-in-browser"
 import type { TicketData } from "./build-ticket-data"
-import type { PrintTemplateConfig } from "@/lib/types/print-template"
 
 async function dispatchBytes(binding: PrinterBinding, bytes: Uint8Array): Promise<void> {
   switch (binding.transport) {
@@ -87,11 +88,9 @@ export async function printSale(opts: {
           errors.push(`${binding.name}: sin plantilla asignada`)
           continue
         }
-        const res = await fetch(`/api/v1/document-templates?id=${binding.templateId}`)
-        if (!res.ok) throw new Error(`Template fetch failed: ${res.status}`)
-        const json = (await res.json()) as { data?: { config: PrintTemplateConfig } } | { config: PrintTemplateConfig }
-        const templateRow = (json as { data?: { config: PrintTemplateConfig } }).data ?? (json as { config: PrintTemplateConfig })
-        const html = renderTemplateToHtml(templateRow.config, dataForPrinter)
+        const config = await fetchTemplateConfig(binding.templateId)
+        if (!config) throw new Error(`Template fetch failed`)
+        const html = renderTemplateToHtml(config, dataForPrinter, { paperWidthMm: binding.paperWidthMm })
         triggerWindowPrint(html)
         printed++
         continue
@@ -102,12 +101,10 @@ export async function printSale(opts: {
           errors.push(`${binding.name}: sin plantilla`)
           continue
         }
-        const res = await fetch(`/api/v1/document-templates?id=${binding.templateId}`)
-        if (!res.ok) throw new Error(`Template fetch failed: ${res.status}`)
-        const json = (await res.json()) as { data?: { config: PrintTemplateConfig } } | { config: PrintTemplateConfig }
-        const templateRow = (json as { data?: { config: PrintTemplateConfig } }).data ?? (json as { config: PrintTemplateConfig })
+        const config = await fetchTemplateConfig(binding.templateId)
+        if (!config) throw new Error(`Template fetch failed`)
         const bytes = renderTemplateToEscPos({
-          template: templateRow.config as Parameters<typeof renderTemplateToEscPos>[0]["template"],
+          template: config as Parameters<typeof renderTemplateToEscPos>[0]["template"],
           data: dataForPrinter,
           paperWidthMm: binding.paperWidthMm,
           openDrawer: binding.openDrawer,
