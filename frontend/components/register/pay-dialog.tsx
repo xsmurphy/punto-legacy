@@ -347,7 +347,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // card es un ADELANTO, no una venta de bienes/servicios → Recibo, no
       // Factura. v1: si el carrito mezcla gift card(s) + productos normales,
       // igual emitimos Recibo para TODA la venta (no partimos el documento) —
-      // ver context/22-giftcards.md para el detalle de esta decisión y su TODO.
+      // TODO: partir el documento en mixto (Factura para productos + Recibo
+      // para la gift card) cuando el owner lo priorice.
       const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
       const ticketData = buildTicketData({ payload, result, config })
       const saleCategoryIds = [

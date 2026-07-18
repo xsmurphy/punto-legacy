@@ -920,6 +920,16 @@ final class SaleService
             throw new InvalidSaleInputException('Falta el código de la gift card');
         }
 
+        // Backstop server-side: UNA línea de gift card = UNA card, código y
+        // saldo únicos. El front bloquea el stepper de qty en estas líneas
+        // (cart-panel.tsx CartRowExpanded::qtyLocked), pero acá lo re-chequeamos
+        // — sin esto, count=2 emitiría UNA fila con el doble de saldo bajo un
+        // único código (itemSold/stock sí reflejarían count=2 → plata inconsistente).
+        $count = (float) ($sD['count'] ?? 1);
+        if (abs($count - 1.0) > 0.0001) {
+            throw new InvalidSaleInputException('Una gift card se emite de a una — cantidad debe ser 1');
+        }
+
         $amount = (float) ($sD['total'] ?? 0);
         if ($amount <= 0) {
             throw new InvalidSaleInputException('La gift card debe tener un monto mayor a 0');

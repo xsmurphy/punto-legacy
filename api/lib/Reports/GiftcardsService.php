@@ -108,6 +108,10 @@ final class GiftcardsService
     {
         global $db;
 
+        // beneficiaryContactId SOLO se persiste si el lookup scopeado por
+        // companyId lo confirma — si el UUID no existe o pertenece a OTRO
+        // tenant, tanto el id como el nombre quedan null (nunca guardamos un
+        // contactId ajeno/inexistente, aunque el front lo haya mandado).
         $benefId = (string) ($data['beneficiaryId'] ?? '');
         $beneficiaryName = null;
         if ($benefId !== '') {
@@ -117,6 +121,8 @@ final class GiftcardsService
             );
             if ($c && !$c->EOF) {
                 $beneficiaryName = trim((string) ($c->fields['contactname'] ?? '')) ?: null;
+            } else {
+                $benefId = ''; // no resuelto/foráneo → no persistir el id crudo
             }
         }
 
