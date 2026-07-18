@@ -27,11 +27,22 @@ final class Inventory
     /**
      * Compuestos de un ítem (receta/ingredientes). Usa $getAssoc=true.
      * Equivalente legacy: `getCompoundsArray($itemId, $cache)`.
+     *
+     * Producción F0 (context/23): fuente canónica pasó de `toCompound` a
+     * `item_compound` (mig 19/75). Los callers (SaleService, TransactionService,
+     * functions.php, getProductionCapacity/COGS/displayableCompounds acá mismo)
+     * esperan el shape plano legacy — se alias-ea childItemId→compoundId y
+     * quantity→toCompoundQty para no tocar ~20 call-sites. `toCompoundPreselected`
+     * no existe en item_compound (esa semántica de combo-picker quedó en
+     * toCompound y no se migró — ver mig 75) así que siempre viaja NULL.
      */
     public static function getCompoundsArray(mixed $itemId, mixed $cache = false): mixed
     {
         return ncmExecute(
-            'SELECT * FROM toCompound WHERE itemId = ? ORDER BY toCompoundOrder LIMIT 1000',
+            'SELECT parentItemId AS itemId, childItemId AS compoundId,
+                    quantity AS toCompoundQty, sort AS toCompoundOrder,
+                    NULL::uuid AS toCompoundPreselected
+               FROM item_compound WHERE parentItemId = ? ORDER BY sort LIMIT 1000',
             [$itemId],
             $cache,
             true,
@@ -137,8 +148,14 @@ final class Inventory
     }
 
     /**
-     * COGS de un combo: suma precio×unidades de cada componente.
+     * COGS de un combo: suma costo real×unidades de cada componente.
      * Equivalente legacy: `getComboCOGS($parent)`.
+     *
+     * Fix Producción F0 (context/23): antes usaba `itemPrice` (precio de
+     * VENTA) del ingrediente como "costo" — sobreestimaba el COGS de combos.
+     * Ahora usa el costo real: `stockOnHandCOGS` (promedio ponderado del
+     * ledger de stock), con fallback a `itemCost` si el ingrediente no
+     * trackea inventario (sin filas en `stock`).
      */
     public static function getComboCOGS(mixed $parent): int|float
     {
@@ -150,10 +167,17 @@ final class Inventory
                 $id    = $resulta['compoundId'];
                 $units = number_format($resulta['toCompoundQty'], 2);
 
-                $compData  = ncmExecute('SELECT itemPrice FROM item WHERE itemId = ? LIMIT 1', [$id]);
-                $price     = $compData['itemPrice'] ?? 0;
+                $stock = self::getItemStock($id);
+                $cost  = ($stock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS']) && (float) $stock['stockOnHandCOGS'] > 0)
+                    ? (float) $stock['stockOnHandCOGS']
+                    : null;
 
-                $comboCOGS += $price * $units;
+                if ($cost === null) {
+                    $compData = ncmExecute('SELECT itemCost FROM item WHERE itemId = ? LIMIT 1', [$id]);
+                    $cost     = (float) ($compData['itemCost'] ?? 0);
+                }
+
+                $comboCOGS += $cost * $units;
             }
         }
 
