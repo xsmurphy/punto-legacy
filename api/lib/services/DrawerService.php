@@ -200,13 +200,47 @@ final class DrawerService
             return 'Invalid Close Date';
         }
 
-        $ok = ncmExecute(
-            'UPDATE drawer SET drawerCloseDate = ?, drawerCloseAmount = ?, drawerUserClose = ? WHERE drawerId = ?',
-            [$date, $amount, $userId, $row['drawerId']]
-        );
+        // Guard FK drawerUserClose → contact(contactId): si el userId de la sesión
+        // (JWT) no existe como contact de este company (identidad huérfana — contact
+        // borrado o de otro realm), el UPDATE de abajo violaría la FK y el cierre de
+        // caja tiraba 500 opaco. drawerUserClose es NULLABLE (db-schema-postgres.sql
+        // ~L869, "NULL while open") → degradamos a NULL en vez de romper el cierre.
+        $userIdForClose = $userId !== '' ? $userId : null;
+        if ($userIdForClose !== null) {
+            $contactExists = ncmExecute(
+                'SELECT contactId FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                [$userIdForClose, $this->ctx->companyId]
+            );
+            if (!$contactExists) {
+                error_log("[DrawerService::close] userId={$userId} no existe como contact (companyId={$this->ctx->companyId}, drawerId={$row['drawerId']}) — drawerUserClose se guarda NULL para no bloquear el cierre.");
+                $userIdForClose = null;
+            }
+        }
+
+        try {
+            $ok = ncmExecute(
+                'UPDATE drawer SET drawerCloseDate = ?, drawerCloseAmount = ?, drawerUserClose = ? WHERE drawerId = ?',
+                [$date, $amount, $userIdForClose, $row['drawerId']]
+            );
+        } catch (\Throwable $e) {
+            error_log("[DrawerService::close] UPDATE excepción drawerId={$row['drawerId']} userId={$userId}: " . $e->getMessage());
+            throw new \RuntimeException($e->getMessage());
+        }
 
         if ($ok === false) {
-            throw new \RuntimeException('Error al cerrar caja');
+            global $db;
+            $err = $db->ErrorMsg() ?: 'Error al cerrar caja';
+            error_log("[DrawerService::close] UPDATE falló drawerId={$row['drawerId']} userId={$userId}: {$err}");
+            throw new \RuntimeException($err);
+        }
+
+        // Post-fix ncmExecute (commit 32431817): DML exitoso devuelve Affected_Rows()
+        // (int, false = error real de DB, ya manejado arriba). 0 filas = la caja ya
+        // no matcheaba el WHERE (race entre el findOpenRow de arriba y este UPDATE —
+        // otro request cerró la misma caja primero) → tratarlo como éxito idempotente,
+        // no como 500.
+        if ($ok === 0) {
+            return 'Already Closed';
         }
 
         return true;
