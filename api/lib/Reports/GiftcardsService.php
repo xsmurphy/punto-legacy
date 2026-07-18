@@ -6,30 +6,43 @@ namespace Punto\Api\Reports;
 /**
  * Dominio de Reportes — Gift Cards (API compartida, motor ERP).
  *
- * Port FIEL de panel/lib/reports/ReportGiftcardsService.php (Fase 2 batch 5). Cambios vs original:
- *  - namespace + `final`
- *  - el ROC se recibe por PARÁMETRO (el original llamaba `getROC(1)` adentro)
- *  - los lookups batch reciben `$companyId` por parámetro en vez de leerlo de la constante
- *    global (mejor higiene multi-tenant, mismo patrón que OpenInvoicesService).
- *  - F3 Oleada A: se agregan `delete()` y `update()` + `beneficiaryId` en el detalle.
+ * F2 giftcard-issue-flow (2026-07-18): repuntado de la tabla legacy
+ * `giftCardSold` a la tabla NUEVA `giftcard` (mig 44 + 78 — emisión desde la
+ * venta). `giftCardSold` NO se borra (histórico legado), pero este reporte ya
+ * no la lee — las gift cards emitidas antes del cutover no aparecen acá
+ * (deuda conocida, no hay migración de datos histórica planeada).
  *
- * Tenant: $roc por query principal; companyId bound en cada lookup.
+ * Cambios vs la versión anterior (que leía `giftCardSold`):
+ *  - Columnas quoted mixed-case (la tabla `giftcard` NO es legacy lowercase-folded).
+ *  - `beneficiary` resuelve el nombre ACTUAL del contact; si fue borrado, cae al
+ *    snapshot `beneficiaryName` guardado al emitir.
+ *  - `code` es string (antes int) — el código ahora es alfanumérico, generado
+ *    client-side.
+ *  - Sin `color`/`sendDate`/`ucode` (no existen en el nuevo schema; el legacy
+ *    los usaba para el flujo de envío por mail, que no se portó).
+ *  - `note` es texto plano (la tabla vieja lo guardaba base64; la nueva no).
+ *
+ * Tenant: companyId + outletId (VIEW_OUTLET_ID override) por parámetro,
+ * bindeados con columnas QUOTED (`"companyId"`, `"outletId"`) — la tabla
+ * `giftcard` usa identificadores mixed-case, a diferencia de `contact`/
+ * `transaction`/`outlet` (legacy, lowercase-folded, sin comillas).
  */
 final class GiftcardsService
 {
-    /** Gift cards activadas. $filters: ['singleRow'=>uuid]. */
-    public function detail(array $filters, string $roc, string $companyId)
+    /** Gift cards emitidas. $filters: ['singleRow'=>uuid]. */
+    public function detail(array $filters, string $companyId, string $outletId = ''): array
     {
-        if ($filters['singleRow']) {
-            $sql = "SELECT * FROM giftCardSold
-                    WHERE transactionId IS NOT NULL AND giftCardSoldId = ?" . $roc;
-            $params = [$filters['singleRow']];
-        } else {
-            $sql = "SELECT * FROM giftCardSold
-                    WHERE transactionId IS NOT NULL" . $roc . "
-                    ORDER BY giftCardSoldExpires DESC LIMIT 5000";
-            $params = [];
+        $params = [$companyId];
+        $sql    = 'SELECT * FROM giftcard WHERE "companyId" = ?';
+        if ($outletId !== '') {
+            $sql .= ' AND "outletId" = ?';
+            $params[] = $outletId;
         }
+        if (!empty($filters['singleRow'])) {
+            $sql .= ' AND id = ?';
+            $params[] = $filters['singleRow'];
+        }
+        $sql .= ' ORDER BY "createdAt" DESC LIMIT 5000';
 
         $res = ncmExecute($sql, $params, false, false, true);
         $res = is_array($res) ? $res : [];
@@ -39,9 +52,9 @@ final class GiftcardsService
 
         $benefIds = $outletIds = $txIds = [];
         foreach ($res as $f) {
-            $benefIds[]  = (string) $f['giftCardSoldBeneficiaryId'];
-            $outletIds[] = (string) $f['outletId'];
-            $txIds[]     = (string) $f['transactionId'];
+            $benefIds[]  = (string) ($f['beneficiaryContactId'] ?? '');
+            $outletIds[] = (string) ($f['outletId'] ?? '');
+            $txIds[]     = (string) ($f['issuedByTransactionId'] ?? '');
         }
         $benefs  = $this->contactNames($benefIds, $companyId);
         $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
@@ -49,23 +62,23 @@ final class GiftcardsService
 
         $rows = [];
         foreach ($res as $f) {
-            $tid    = (string) $f['transactionId'];
-            $benefId = (string) ($f['giftCardSoldBeneficiaryId'] ?? '');
-            $rows[] = [
-                'giftCardSoldId' => (string) $f['giftCardSoldId'],
-                'transactionId'  => $tid,
-                'doc'            => $docs[$tid] ?? '-',
-                'beneficiaryId'  => $benefId,
-                'beneficiary'    => $benefs[$benefId] ?? '',
-                'expires'        => (string) ($f['giftCardSoldExpires'] ?? ''),
-                'code'           => (int) ($f['giftCardSoldCode'] ?? 0),
-                'ucode'          => (string) ($f['timestamp'] ?? ''),
-                'note'           => $this->decodeNote($f['giftCardSoldNote'] ?? ''),
-                'lastUsed'       => (string) ($f['giftCardSoldLastUsed'] ?? ''),
-                'sendDate'       => (string) ($f['giftCardSoldSendDate'] ?? ''),
-                'outletName'     => $outlets[(string) $f['outletId']] ?? '',
-                'value'          => (float) $f['giftCardSoldValue'],
-                'color'          => (string) ($f['giftCardSoldColor'] ?? ''),
+            $tid     = (string) ($f['issuedByTransactionId'] ?? '');
+            $benefId = (string) ($f['beneficiaryContactId'] ?? '');
+            $rows[]  = [
+                'id'            => (string) $f['id'],
+                'transactionId' => $tid,
+                'doc'           => $tid !== '' ? ($docs[$tid] ?? '-') : '-',
+                'beneficiaryId' => $benefId,
+                // Preferimos el nombre ACTUAL del contact; si fue borrado o no
+                // hay beneficiario, caemos al snapshot guardado al emitir.
+                'beneficiary'   => $benefs[$benefId] ?? (string) ($f['beneficiaryName'] ?? ''),
+                'expires'       => (string) ($f['expiresAt'] ?? ''),
+                'code'          => (string) ($f['code'] ?? ''),
+                'note'          => (string) ($f['note'] ?? ''),
+                'lastUsed'      => (string) ($f['usedAt'] ?? ''),
+                'outletName'    => $outlets[(string) ($f['outletId'] ?? '')] ?? '',
+                'value'         => (float) ($f['currentBalance'] ?? 0),
+                'initialValue'  => (float) ($f['initialBalance'] ?? 0),
             ];
         }
 
@@ -77,7 +90,7 @@ final class GiftcardsService
     {
         global $db;
         $r = $db->Execute(
-            'DELETE FROM giftCardSold WHERE giftCardSoldId = ? AND companyId = ?',
+            'DELETE FROM giftcard WHERE id = ? AND "companyId" = ?',
             [$id, $companyId]
         );
         return $r !== false;
@@ -85,41 +98,48 @@ final class GiftcardsService
 
     /**
      * Actualiza campos editables de una gift card.
-     * $data: [code(int), value(float), expires(string|null), note(string),
-     *         sendDate(string|null), beneficiaryId(string|null)]
+     * $data: [code(string), value(float, → currentBalance), expires(string|null),
+     *         note(string), beneficiaryId(string|null)]
+     *
+     * `value` edita SOLO currentBalance (saldo disponible) — initialBalance
+     * queda intacto como registro histórico de lo emitido/vendido.
      */
     public function update(string $id, array $data, string $companyId): bool
     {
         global $db;
-        $note = isset($data['note']) ? base64_encode((string) $data['note']) : '';
+
+        $benefId = (string) ($data['beneficiaryId'] ?? '');
+        $beneficiaryName = null;
+        if ($benefId !== '') {
+            $c = $db->Execute(
+                'SELECT contactName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                [$benefId, $companyId]
+            );
+            if ($c && !$c->EOF) {
+                $beneficiaryName = trim((string) ($c->fields['contactname'] ?? '')) ?: null;
+            }
+        }
+
+        $note = (string) ($data['note'] ?? '');
+        $expires = (string) ($data['expires'] ?? '');
+
         $r = $db->Execute(
-            "UPDATE giftCardSold
-             SET giftCardSoldCode = ?, giftCardSoldValue = ?, giftCardSoldExpires = ?,
-                 giftCardSoldNote = ?, giftCardSoldSendDate = ?, giftCardSoldBeneficiaryId = ?
-             WHERE giftCardSoldId = ? AND companyId = ?",
+            'UPDATE giftcard
+                SET code = ?, "currentBalance" = ?, "expiresAt" = ?, note = ?,
+                    "beneficiaryContactId" = ?, "beneficiaryName" = ?
+              WHERE id = ? AND "companyId" = ?',
             [
-                (int) ($data['code'] ?? 0),
+                (string) ($data['code'] ?? ''),
                 (float) ($data['value'] ?? 0),
-                ($data['expires'] !== '' ? ($data['expires'] ?: null) : null),
-                $note,
-                ($data['sendDate'] !== '' ? ($data['sendDate'] ?: null) : null),
-                ($data['beneficiaryId'] !== '' ? ($data['beneficiaryId'] ?: null) : null),
+                ($expires !== '' ? $expires : null),
+                ($note !== '' ? $note : null),
+                ($benefId !== '' ? $benefId : null),
+                $beneficiaryName,
                 $id,
                 $companyId,
             ]
         );
         return $r !== false;
-    }
-
-    /** Decodifica la nota (base64 con fallback a texto plano), como isBase64Decode del legacy. */
-    private function decodeNote($raw)
-    {
-        $raw = (string) $raw;
-        if ($raw === '') {
-            return '';
-        }
-        $decoded = base64_decode($raw, true);
-        return ($decoded !== false && base64_encode($decoded) === $raw) ? $decoded : $raw;
     }
 
     /** Lookup batch contactId → nombre, scopeado por companyId. */

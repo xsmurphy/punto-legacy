@@ -45,6 +45,24 @@ export interface CartLine {
    * UI de modificación: TODO Slice posterior (drawer con autocomplete).
    */
   tags?: string[]
+  /**
+   * Metadata de EMISIÓN de gift card (F2 giftcard-issue-flow) — presente solo
+   * en líneas de un item de catálogo kind="giftcard" agregado vía
+   * `GiftcardIssueDialog` (ver lib/cart/giftcard-issue-store.ts). El backend
+   * (SaleService::issueGiftCard) usa esto para crear la fila en la tabla
+   * `giftcard`; su sola presencia también le dice a `pay-dialog.tsx` que el
+   * documento fiscal de la venta debe ser Recibo (adelanto), no Factura.
+   * NO confundir con el CANJE de una gift card existente como método de pago
+   * (`giftcard-validation-dialog.tsx` / payment.type==="giftcard") — eso
+   * sigue emitiendo Factura normalmente.
+   */
+  giftcard?: {
+    code: string
+    beneficiaryContactId?: string | null
+    beneficiaryName?: string | null
+    expiresAt?: string | null
+    note?: string | null
+  }
 }
 
 /**
@@ -531,7 +549,12 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       let current = [...state.lines]
       for (const line of lines) {
         const last = current.at(-1)
-        if (last && last.itemId === line.itemId) {
+        // Líneas de emisión de gift card NUNCA se mergean: cada una tiene un
+        // código/beneficiario/monto propios — sumar qty perdería esa
+        // distinción (dos gift cards con códigos distintos colapsarían en
+        // una sola línea con qty=2 y un solo código).
+        const canMerge = last && last.itemId === line.itemId && !last.giftcard && !line.giftcard
+        if (canMerge) {
           current = current.map((l) =>
             l === last ? { ...l, qty: l.qty + line.qty } : l,
           )

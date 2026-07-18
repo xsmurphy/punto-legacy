@@ -4,7 +4,7 @@
  * Reporte Gift Cards — espejo de panel/reports/giftcards.html.
  *
  * Backend: GET /v1/reports/giftcards?view=detail
- * → { rows: [{ giftCardSoldId, doc, beneficiary, expires, code, value,
+ * → { rows: [{ id, doc, beneficiary, expires, code, value,
  *             lastUsed, sendDate, outletName, note, ... }] }
  *
  * Reporte SNAPSHOT — NO date-scoped (muestra todas las gift cards activadas).
@@ -98,11 +98,9 @@ export default function GiftcardsReportPage() {
         accessorKey: "code",
         header: "Código",
         cell: ({ getValue }) => (
-          <span className="tabular-nums font-mono text-sm">
-            {String(getValue() as number).padStart(6, "0")}
-          </span>
+          <span className="font-mono text-sm">{(getValue() as string) || "—"}</span>
         ),
-        meta: { label: "Código", className: "tabular-nums" },
+        meta: { label: "Código" },
       },
       {
         accessorKey: "value",
@@ -162,7 +160,7 @@ export default function GiftcardsReportPage() {
     [bootstrap],
   )
 
-  const initialColumnVisibility = React.useMemo(() => ({ note: false, sendDate: false }), [])
+  const initialColumnVisibility = React.useMemo(() => ({ note: false }), [])
 
   return (
     <div className="flex flex-col gap-6">
@@ -202,7 +200,7 @@ export default function GiftcardsReportPage() {
         data={rows}
         columns={columns}
         initialColumnVisibility={initialColumnVisibility}
-        getRowId={(r) => r.giftCardSoldId}
+        getRowId={(r) => r.id}
         isLoading={isLoading}
         searchPlaceholder="Buscar por beneficiario, código, factura…"
         exportFileName="gift_cards"

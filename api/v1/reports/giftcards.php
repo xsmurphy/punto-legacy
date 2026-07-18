@@ -37,7 +37,8 @@ if ($method === 'POST') {
     }
     // action === 'update'
     $dateRe   = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
-    $codeRaw  = validateHttp('code', 'post');
+    // code: string alfanumérico (F2 giftcard-issue-flow) — antes era int.
+    $codeRaw  = (string) (validateHttp('code', 'post') ?: '');
     $valueRaw = validateHttp('value', 'post');
     if (!is_numeric($valueRaw)) {
         apiError('value inválido', 422);
@@ -47,15 +48,14 @@ if ($method === 'POST') {
         apiError('beneficiaryId inválido', 422);
     }
     $expires  = (string) (validateHttp('expires', 'post')  ?: '');
-    $sendDate = (string) (validateHttp('sendDate', 'post') ?: '');
-    if ($expires  !== '' && !preg_match($dateRe, $expires))  { apiError('expires inválido', 422); }
-    if ($sendDate !== '' && !preg_match($dateRe, $sendDate)) { apiError('sendDate inválido', 422); }
+    if ($expires !== '' && !preg_match($dateRe, $expires)) {
+        apiError('expires inválido', 422);
+    }
     $data = [
-        'code'          => (int) ($codeRaw ?? 0),
+        'code'          => $codeRaw,
         'value'         => (float) $valueRaw,
         'expires'       => $expires,
         'note'          => (string) (validateHttp('note', 'post') ?: ''),
-        'sendDate'      => $sendDate,
         'beneficiaryId' => $benefId,
     ];
     if (!$svc->update($id, $data, (string) COMPANY_ID)) {
@@ -78,10 +78,17 @@ if ($singleRow !== '' && !preg_match($uuidRe, $singleRow)) {
     $singleRow = '';
 }
 
-try {
-    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
-} catch (\RuntimeException $e) {
-    apiError($e->getMessage(), 500);
+// La tabla `giftcard` usa columnas QUOTED mixed-case — no puede usar el
+// fragmento sin comillas de Roc::build() (pensado para las tablas legacy
+// lowercase-folded). Replicamos acá su MISMA precedencia de outlet (incluido
+// el override VIEW_OUTLET_ID del selector de sucursal del frontend) pero el
+// filtro se aplica parametrizado dentro de GiftcardsService::detail().
+if (!preg_match($uuidRe, (string) COMPANY_ID)) {
+    apiError('Contexto de empresa inválido (companyId no es UUID)', 500);
+}
+$outletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+if (!preg_match($uuidRe, $outletId)) {
+    $outletId = '';
 }
 
-apiOk($svc->detail(['singleRow' => $singleRow], $roc, (string) COMPANY_ID));
+apiOk($svc->detail(['singleRow' => $singleRow], (string) COMPANY_ID, $outletId));

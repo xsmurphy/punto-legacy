@@ -248,6 +248,22 @@ final class Money
                     'currency'      => markupt2HTML(['text' => $value['currency'], 'type' => 'HtM']),
                 ];
             } else {
+                // Emisión de gift card (item kind=giftcard vendido desde el POS nuevo,
+                // NO la rama legacy `type==='giftcard'` de arriba). El item SÍ tiene
+                // itemId (es un item de catálogo real) — la metadata opcional viaja en
+                // `giftcard` y SaleService la usa para crear la fila en `giftcard`.
+                // Whitelist explícita: nunca pasar el objeto crudo del front.
+                $giftcardMeta = null;
+                if (array_key_exists('giftcard', $value) && is_array($value['giftcard'])) {
+                    $gc = $value['giftcard'];
+                    $giftcardMeta = [
+                        'code'                 => markupt2HTML(['text' => (string) ($gc['code'] ?? ''), 'type' => 'HtM']),
+                        'beneficiaryContactId' => markupt2HTML(['text' => (string) ($gc['beneficiaryContactId'] ?? ''), 'type' => 'HtM']),
+                        'expiresAt'            => markupt2HTML(['text' => (string) ($gc['expiresAt'] ?? ''), 'type' => 'HtM']),
+                        'note'                 => markupt2HTML(['text' => (string) ($gc['note'] ?? ''), 'type' => 'HtM']),
+                    ];
+                }
+
                 $out[] = [
                     'itemId'        => markupt2HTML(['text' => $value['itemId'], 'type' => 'HtM']),
                     'count'         => floatval($value['count']),
@@ -268,6 +284,7 @@ final class Money
                     'uId'           => (int) array_key_exists('uId', $value) ? $value['uId'] : 0,
                     'parent'        => array_key_exists('parent', $value) ? ($value['parent'] ? (int) $value['parent'] : null) : null,
                     'isParent'      => array_key_exists('isParent', $value) ? ($value['isParent'] ? (int) $value['isParent'] : null) : null,
+                    'giftcard'      => $giftcardMeta,
                 ];
             }
 

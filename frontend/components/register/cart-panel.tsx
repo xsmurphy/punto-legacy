@@ -72,6 +72,7 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
+import { GiftcardIssueDialog } from "@/components/register/giftcard-issue-dialog"
 import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
 import { PosMainMenu } from "@/components/register/pos-main-menu"
 import { PuntoLogo } from "@/components/layout/punto-logo"
@@ -226,6 +227,7 @@ export function CartPanel() {
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
+      <GiftcardIssueDialog />
       <SyncQueueDialog open={syncQueueOpen} onOpenChange={setSyncQueueOpen} />
       <DrawerOpenDialog
         open={drawerOpenDialogOpen}
