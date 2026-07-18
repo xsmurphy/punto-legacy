@@ -171,9 +171,20 @@ function renderItemsBlock(block: PrintBlock, data: TicketData): string {
   return rows
 }
 
+export interface RenderTemplateToHtmlOptions {
+  /** Ancho físico del rollo (58/80mm) — solo aplica a impresión de TICKET vía
+   *  navegador (`printTicketInBrowser`). Constriñe el body a ese ancho y setea
+   *  `@page` para que el diálogo nativo del browser lo centre en la hoja real
+   *  (A4/carta/lo que tenga el usuario) como una columna angosta, igual que
+   *  saldría de una impresora térmica. Sin esto el fallback imprimía a lo
+   *  ancho de A4 completo — inconsistente con lo que sale por ESC/POS. */
+  paperWidthMm?: 58 | 80
+}
+
 export function renderTemplateToHtml(
   template: PrintTemplateConfig,
   data: TicketData,
+  options: RenderTemplateToHtmlOptions = {},
 ): string {
   const blocks = template.data ?? []
   const parts: string[] = []
@@ -201,13 +212,17 @@ export function renderTemplateToHtml(
   const body = parts.join("\n")
   const fontFamily = template.page_font_family ?? "monospace"
   const fontSize = template.page_font_size ?? "8pt"
+  const widthMm = options.paperWidthMm
+  const widthCss = widthMm ? `width: ${widthMm}mm; margin: 0 auto;` : "margin: 20px;"
+  const pageCss = widthMm ? `@page { size: ${widthMm}mm auto; margin: 0; }` : ""
 
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <style>
-  body { font-family: '${fontFamily}', monospace; font-size: ${fontSize}; margin: 20px; }
+  ${pageCss}
+  body { font-family: '${fontFamily}', monospace; font-size: ${fontSize}; ${widthCss} }
   @media print { body { margin: 0; } }
   hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
   table { width: 100%; border-collapse: collapse; }

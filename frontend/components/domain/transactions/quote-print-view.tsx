@@ -8,10 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
 import { formatAmount } from "@/lib/format-money"
 import { formatDateTime } from "@/lib/format-date"
-import { toast } from "sonner"
-import { printSale } from "@/lib/hardware/printers"
-import { getBindingsForSale } from "@/lib/hardware/printers/binding"
-import type { TicketData } from "@/lib/hardware/printers"
+import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
+import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { useCatalogStore } from "@/lib/catalog/store"
 
@@ -27,45 +25,18 @@ export function QuotePrintViewDialog({ tx, config, open, onOpenChange, isLoading
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
   const allBindings = bindingsData?.bindings ?? []
+  const { requestPrint, pickerDialog } = usePrintWithPicker()
 
   function handlePrint() {
     if (!tx) return
-    const bindings = getBindingsForSale(allBindings, "quote", [])
-    if (bindings.length > 0) {
-      const items = (tx.transactionDatas ?? [])
-        .filter((i) => i.status !== 0)
-        .map((i) => ({
-          name: i.name,
-          qty: i.count,
-          unitPrice: i.price,
-          discount: i.discount,
-          total: i.total,
-          categoryId: null as string | null,
-        }))
-      const ticketData: TicketData = {
-        companyName: (config as { companyName?: string } | null)?.companyName ?? "",
-        customerName: tx.customerName?.trim() || undefined,
-        docType: "quote",
-        documentNumber: tx.documentNo || undefined,
-        documentPrefix: tx.invoicePrefix || undefined,
-        transactionId: tx.transactionId,
-        date: tx.date ?? new Date().toISOString(),
-        items,
-        subtotal: items.reduce((s, i) => s + i.total, 0),
-        discount: parseFloat(tx.discount) || 0,
-        taxTotal: 0,
-        total: parseFloat(tx.total) || 0,
-        payments: [],
-        note: tx.note || undefined,
-      }
-      printSale({ docType: "quote", data: ticketData, bindings: allBindings })
-        .then((r) => {
-          if (r.failed > 0) toast.warning(`${r.failed} impresora(s) fallaron`)
-        })
-        .catch(console.error)
-    } else {
-      window.print()
-    }
+    // Wrapper compartido: arma TicketData con categoryId real por item (antes
+    // hardcodeado a null, rompía el filtrado por categoría de las bindings).
+    const ticketData = buildTicketDataFromTransaction(tx, config, "quote")
+    // Sin binding para "quote" → printTicketInBrowser (plantilla del docType
+    // o fallback genérico) en vez del window.print() del DOM crudo de antes,
+    // que quedaba en blanco por el containing block del Dialog (shadcn usa
+    // `transform` en DialogContent → rompe el hack de visibility:hidden).
+    requestPrint("quote", ticketData, allBindings)
   }
 
   if (isLoading || !tx) {
@@ -81,20 +52,23 @@ export function QuotePrintViewDialog({ tx, config, open, onOpenChange, isLoading
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-end gap-2 print:hidden">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cerrar
-          </Button>
-          <Button onClick={handlePrint} className="gap-1.5">
-            <Printer className="size-4" />
-            Imprimir / PDF
-          </Button>
-        </div>
-        <QuotePrintView tx={tx} config={config} />
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cerrar
+            </Button>
+            <Button onClick={handlePrint} className="gap-1.5">
+              <Printer className="size-4" />
+              Imprimir / PDF
+            </Button>
+          </div>
+          <QuotePrintView tx={tx} config={config} />
+        </DialogContent>
+      </Dialog>
+      {pickerDialog}
+    </>
   )
 }
 
@@ -112,16 +86,15 @@ export function QuotePrintView({ tx, config }: QuotePrintViewProps) {
   return (
     <>
       <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          .quote-print-view, .quote-print-view * { visibility: visible !important; }
-          .quote-print-view { position: absolute; inset: 0; padding: 24mm 20mm; box-shadow: none; border-radius: 0; }
-          .print-hidden { display: none !important; }
-        }
+        /* Este preview es solo VISUAL en pantalla — representa cómo se ve la
+           cotización antes de imprimir. La impresión real (botón "Imprimir /
+           PDF") NO usa window.print() sobre este DOM: pasa por
+           printTicketInBrowser (plantilla del docType renderizada a HTML de
+           ticket, vía iframe oculto) o por printSale si hay binding físico.
+           Por eso no hay reglas @media print acá — no aplica. */
         /* En pantalla el preview es una HOJA DE PAPEL blanca — representa el
            documento impreso. Esto es intencional y consistente en light/dark
-           mode (igual que invoice previews de Stripe/QuickBooks). El @media print
-           le quita sombra/bordes para el papel real. */
+           mode (igual que invoice previews de Stripe/QuickBooks). */
         .quote-print-view {
           font-family: system-ui, -apple-system, sans-serif;
           font-size: 14px;
