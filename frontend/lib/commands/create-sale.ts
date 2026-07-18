@@ -122,6 +122,12 @@ export interface CreateSalePayload {
    * Permite al backend vincular la transacción hija con la cotización padre.
    */
   parentTransactionId?: string | null
+  /**
+   * Fecha de vencimiento de la venta a crédito, formato "YYYY-MM-DD".
+   * Solo aplica a type=3 (crédito); opcional — SaleInput.php la tolera null.
+   * Maps to SaleInput::$dueDate → columna `transactionDueDate`.
+   */
+  dueDate?: string | null
 }
 
 export interface CreateSaleResult {
@@ -179,6 +185,11 @@ export interface BuildSaleInput {
    * cae a la hora local del device (ver tenantNow en lib/format-date.ts).
    */
   timezone?: string | null
+  /**
+   * Fecha de vencimiento (solo venta a crédito), "YYYY-MM-DD" u opcional.
+   * Ver CreateSalePayload.dueDate.
+   */
+  dueDate?: string | null
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -188,7 +199,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate } = input
 
   const saleItems: SaleItem[] = lines.map((line) => ({
     itemId: line.itemId,
@@ -242,6 +253,9 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     interno,
     tags,
     parentTransactionId: quoteParentId ?? null,
+    // Solo se manda en venta a crédito — en contado el backend la ignoraría
+    // igual (SaleInput no valida por type) pero no tiene sentido persistirla.
+    dueDate: credito ? (dueDate || null) : null,
   }
 }
 

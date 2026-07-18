@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { DatePicker } from "@/components/date-picker"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useCartStore, selectCartTotal } from "@/lib/cart/store"
@@ -122,6 +123,20 @@ function formatDisplayInput(raw: string): string {
   return Number(digits).toLocaleString("es-PY")
 }
 
+/**
+ * Default de vencimiento para venta a crédito: hoy + 30 días, "YYYY-MM-DD".
+ * 30 días es el plazo de crédito más común del rubro (razonable como default
+ * editable, no una regla de negocio — el cajero lo puede cambiar o vaciar).
+ */
+function defaultDueDate(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 30)
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface PayDialogProps {
@@ -184,6 +199,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     changeOverride?: number
   } | null>(null)
   const [pendingGiftcard, setPendingGiftcard] = React.useState(false)
+  const [dueDate, setDueDate] = React.useState(defaultDueDate())
   const [phase, setPhase] = React.useState<DialogPhase>("pay")
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
@@ -198,6 +214,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setApplied([])
       setChange(0)
       setPendingIdentifier(null)
+      setDueDate(defaultDueDate())
       setPhase("pay")
       setSaleResult(null)
       setErrorMsg(null)
@@ -259,6 +276,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         quoteParentId,
         saleDiscount,
         timezone: config?.timezone,
+        dueDate: credito ? (dueDate || null) : null,
       })
 
       let result: CreateSaleResult
@@ -656,6 +674,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               config={config}
               paymentMethods={paymentMethods}
               currencies={currencies}
+              dueDate={dueDate}
+              onDueDateChange={setDueDate}
               onDisplayChange={handleDisplayChange}
               onKeyDown={handleKeyDown}
               onMethodClick={handleMethodClick}
@@ -734,6 +754,8 @@ interface PayPhaseProps {
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   paymentMethods: PaymentMethodConfig[]
   currencies: Array<{ ccode: string; code: string; value: number }>
+  dueDate: string
+  onDueDateChange: (value: string) => void
   onDisplayChange: (raw: string) => void
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
   onMethodClick: (method: PaymentMethodConfig) => void
@@ -759,6 +781,8 @@ function PayPhase({
   config,
   paymentMethods,
   currencies,
+  dueDate,
+  onDueDateChange,
   onDisplayChange,
   onKeyDown,
   onMethodClick,
@@ -801,6 +825,20 @@ function PayPhase({
             {customer.tin && (
               <span className="ml-1.5 text-muted-foreground">{customer.tin}</span>
             )}
+          </div>
+        )}
+
+        {credito && (
+          <div className="mt-2">
+            <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+              Vencimiento (opcional)
+            </span>
+            <DatePicker
+              value={dueDate}
+              onChange={onDueDateChange}
+              placeholder="Sin vencimiento"
+              className="h-9"
+            />
           </div>
         )}
 
