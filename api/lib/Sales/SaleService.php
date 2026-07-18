@@ -972,24 +972,39 @@ final class SaleService
 
         $note = trim((string) ($gc['note'] ?? ''));
 
-        $record = [
-            'companyId'             => $companyId,
-            'code'                  => $code,
-            'initialBalance'        => $amount,
-            'currentBalance'        => $amount,
-            'expiresAt'             => $expiresAt,
-            'beneficiaryContactId'  => $beneficiaryId,
-            'beneficiaryName'       => $beneficiaryName,
-            'note'                  => $note !== '' ? $note : null,
-            'issuedByTransactionId' => $transId,
-            'outletId'              => $this->ctx->outletId,
-            'status'                => 1,
-        ];
-
-        $ok = $this->db->AutoExecute('giftcard', $record, 'INSERT');
+        // INSERT RAW con columnas QUOTED camelCase. NO AutoExecute: éste arma
+        // `INSERT INTO giftcard (companyId, initialBalance, ...)` con implode
+        // SIN comillas (DB.php) → PG pliega a lowercase → `companyid` no existe
+        // en `giftcard` (mig 44, columnas quoted) → el INSERT falla SIEMPRE.
+        // `id` se omite: la columna tiene DEFAULT gen_random_uuid() (mig 44).
+        // Mismo patrón quoted que api/v1/giftcards.php (validate/consume).
+        $ok = $this->db->Execute(
+            'INSERT INTO giftcard
+                (id, "companyId", code, "initialBalance", "currentBalance", "expiresAt",
+                 "beneficiaryContactId", "beneficiaryName", note, "issuedByTransactionId",
+                 "outletId", status)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $companyId,
+                $code,
+                $amount,
+                $amount,
+                $expiresAt,
+                $beneficiaryId,
+                $beneficiaryName,
+                $note !== '' ? $note : null,
+                $transId,
+                $this->ctx->outletId,
+                1,
+            ]
+        );
         if ($ok === false) {
+            // Carrera concurrente contra la UNIQUE ("companyId", code): PG
+            // devuelve SQLSTATE 23505 (unique_violation) en el ErrorMsg.
             $err = $this->db->ErrorMsg();
-            if (stripos($err, 'unique') !== false || stripos($err, 'duplicate') !== false) {
+            if (stripos($err, '23505') !== false
+                || stripos($err, 'unique') !== false
+                || stripos($err, 'duplicate') !== false) {
                 throw new InvalidSaleInputException("El código de gift card '{$code}' ya existe — generá uno nuevo");
             }
             throw new InvalidSaleInputException('No se pudo emitir la gift card: ' . $err);
