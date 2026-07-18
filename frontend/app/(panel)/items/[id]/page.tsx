@@ -1701,20 +1701,11 @@ function ProduccionTab({
     )
   }
 
-  if (!visibility.showCompounds) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Este tipo de artículo no tiene ingredientes ni componentes. Si querés
-          agregar una receta o un combo, cambialo a un tipo &quot;Producción&quot;
-          o &quot;Combo&quot; en la pestaña Perfil.
-        </CardContent>
-      </Card>
-    )
-  }
-
   // Combo dinámico: grupos de selección (items específicos o por categoría),
   // min/max por grupo, extraPrice + preselected por item del grupo.
+  // NOTA: este branch va ANTES del gate de showCompounds — combo_dinamico
+  // tiene showCompounds:false en KIND_META (no usa CompoundsEditor), pero sí
+  // necesita su propio editor de grupos.
   if (kind === "combo_dinamico") {
     return (
       <Card>
@@ -1731,6 +1722,18 @@ function ProduccionTab({
             cualquier item de una categoría.
           </p>
           <ComboGroupsEditor itemId={id} />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!visibility.showCompounds) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          Este tipo de artículo no tiene ingredientes ni componentes. Si querés
+          agregar una receta o un combo, cambialo a un tipo &quot;Producción&quot;
+          o &quot;Combo&quot; en la pestaña Perfil.
         </CardContent>
       </Card>
     )
