@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { useCartStore } from "@/lib/cart/store"
+import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { usePosUIStore } from "@/lib/ui/store"
 import { searchItems } from "@/lib/catalog/search"
 import { formatMoney } from "@/lib/format-money"
@@ -51,7 +51,6 @@ export function ProductSearchDialog({
 
   const items = useCatalogStore((s) => s.items)
   const config = useCatalogStore((s) => s.config)
-  const addItem = useCartStore((s) => s.addItem)
   // Query en el store para que persista al cerrar y reabrir el modal.
   const query = usePosUIStore((s) => s.itemSearchQuery)
   const setQuery = usePosUIStore((s) => s.setItemSearchQuery)
@@ -85,7 +84,7 @@ export function ProductSearchDialog({
       setViewingGroup(item)
       return
     }
-    addItem({ id: item.id, name: item.name, price: item.price })
+    addCatalogItem(item)
     // No cerramos el modal ni reseteamos la búsqueda: el cajero puede seguir
     // agregando varios productos de la misma lista de resultados. Mantenemos el
     // foco en el input por si quiere refinar o escanear el siguiente.

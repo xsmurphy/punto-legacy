@@ -63,6 +63,7 @@ import {
   type CartLine,
 } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
@@ -103,7 +104,6 @@ export function CartPanel() {
   const incQty = useCartStore((s) => s.incQty)
   const decQty = useCartStore((s) => s.decQty)
   const setQty = useCartStore((s) => s.setQty)
-  const addItem = useCartStore((s) => s.addItem)
   useCartPublisher()
 
   const config = useCatalogStore((s) => s.config)
@@ -149,7 +149,7 @@ export function CartPanel() {
         (item) => item.sku === code || item.id === code,
       )
       if (match) {
-        addItem({ id: match.id, name: match.name, price: match.price })
+        addCatalogItem(match)
       } else {
         // Sin match: abrir búsqueda con el código pre-cargado no está disponible
         // en la API actual del ProductSearchDialog, así que mostramos el toast.

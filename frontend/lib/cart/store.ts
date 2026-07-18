@@ -194,8 +194,26 @@ interface CartState {
    * - true: suma cantidad si el ítem coincide con el ÚLTIMO del array; si no,
    *   crea línea nueva.
    * - false: siempre crea una línea nueva.
+   *
+   * Caso especial `kind === "descuento"` (item POS que representa un
+   * descuento del ticket, ver ITEM_KIND_CONFIG.descuento en
+   * lib/types/item.ts): NO entra como línea de carrito — aplica su
+   * `discountPercent` (itemDiscount del catálogo, %) como descuento de
+   * venta (saleDiscount), el mismo mecanismo que ya usa
+   * sale-options-drawer.tsx. Devuelve un discriminador para que el caller
+   * decida el toast:
+   * - "added": item normal, se agregó una línea.
+   * - "discount-applied": item descuento con % configurado, se aplicó.
+   * - "discount-missing": item descuento SIN % configurado en catálogo —
+   *   el caller debe avisar al cajero (no hay línea ni descuento aplicado).
    */
-  addItem: (item: { id: string; name: string; price: number }) => void
+  addItem: (item: {
+    id: string
+    name: string
+    price: number
+    kind?: string
+    discountPercent?: number | null
+  }) => "added" | "discount-applied" | "discount-missing"
 
   /** Elimina una línea del carrito. */
   removeLine: (lineId: string) => void
@@ -305,6 +323,26 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   ...initialState,
 
   addItem: (item) => {
+    if (item.kind === "descuento") {
+      // Item "descuento": no es una línea vendible — aplica su % de catálogo
+      // como descuento de venta. Sin % configurado no hay nada que aplicar;
+      // el caller (product-area/product-search/cart-panel) avisa al cajero.
+      // Defense-in-depth: un discountPercent no-finito (NaN por dato corrupto
+      // en catálogo, aunque el BFF ya lo filtra a null) nunca debe llegar a
+      // saleDiscount — contaminaría selectSaleDiscountAmount/selectCartTotal.
+      if (
+        item.discountPercent == null ||
+        !Number.isFinite(item.discountPercent) ||
+        item.discountPercent <= 0
+      ) {
+        return "discount-missing"
+      }
+      set({
+        saleDiscount: { value: Math.min(100, item.discountPercent), mode: "percent" },
+      })
+      return "discount-applied"
+    }
+
     // Agregar NO selecciona la línea: por defecto la lista se ve compacta (solo
     // info del producto). Los controles/tools aparecen solo al click en la línea
     // (selectLine) y se ocultan al click afuera. Ver CartPanel.
@@ -335,6 +373,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
       return { lines: [...state.lines, newLine()] }
     })
+    return "added"
   },
 
   removeLine: (lineId) => {

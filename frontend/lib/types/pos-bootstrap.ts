@@ -97,6 +97,14 @@ export interface PosItem {
   uom: string | null
   /** kind canónico del item (ver ItemKind en frontend). */
   kind: string
+  /**
+   * % de descuento del catálogo (`itemDiscount`, JSONB flattened, 0-100).
+   * Solo tiene semántica especial para `kind === "descuento"`: al agregarse
+   * al carrito, se aplica como descuento de venta (no como línea). Para el
+   * resto de los kinds es informativo (default % de descuento del producto,
+   * no se usa hoy en el flujo de venta). Null = sin descuento configurado.
+   */
+  discountPercent: number | null
   /** Si trackea stock — para mostrar alerta de stock bajo. */
   trackInventory: boolean
   /**

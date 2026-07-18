@@ -19,7 +19,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { useCartStore } from "@/lib/cart/store"
+import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { useHotkeysStore, hotkeyColorBg, type Hotkey } from "@/lib/hotkeys/store"
 import { ColorPicker } from "@/components/ui/color-picker"
 import { useHotkeys } from "@/hooks/use-hotkeys"
@@ -51,7 +51,6 @@ export function ProductArea() {
   const setColor = useHotkeysStore((s) => s.setColor)
   const moveHotkey = useHotkeysStore((s) => s.moveHotkey)
   const clearAll = useHotkeysStore((s) => s.clearAll)
-  const addItem = useCartStore((s) => s.addItem)
 
   const { saveHotkeys, isSaving } = useHotkeys()
 
@@ -129,7 +128,7 @@ export function ProductArea() {
         setGroupPicker(item)
         return
       }
-      addItem({ id: item.id, name: item.name, price: item.price })
+      addCatalogItem(item)
     }
   }
 
@@ -138,7 +137,7 @@ export function ProductArea() {
       setGroupPicker(item)
       return
     }
-    addItem({ id: item.id, name: item.name, price: item.price })
+    addCatalogItem(item)
   }
 
   /** Guardar y salir del modo edición. */
@@ -312,7 +311,7 @@ export function ProductArea() {
         group={groupPicker}
         items={groupChildren}
         onClose={() => setGroupPicker(null)}
-        onPick={(it) => addItem({ id: it.id, name: it.name, price: it.price })}
+        onPick={(it) => addCatalogItem(it)}
       />
     </div>
   )

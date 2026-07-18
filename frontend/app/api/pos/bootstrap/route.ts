@@ -138,6 +138,8 @@ interface UpstreamItemRow {
   brandName?: string | null
   coverImageUrl?: string | null
   kind?: string
+  /** % de descuento de catálogo (JSONB flattened). Ver PosItem.discountPercent. */
+  itemDiscount?: number | string | null
 }
 
 interface UpstreamItemsList {
@@ -266,6 +268,15 @@ function reshapeItem(row: UpstreamItemRow): PosItem {
     imageUrl: row.coverImageUrl ?? null,
     uom: row.itemUOM ?? null,
     kind: row.kind ?? "producto",
+    discountPercent: (() => {
+      if (row.itemDiscount === null || row.itemDiscount === undefined || row.itemDiscount === "") {
+        return null
+      }
+      const n = Number(row.itemDiscount)
+      // Backend corrupto/valor no numérico → null, nunca NaN (contaminaría
+      // saleDiscount y el total del carrito, ver lib/cart/store.ts::addItem).
+      return Number.isFinite(n) ? n : null
+    })(),
     trackInventory: row.itemTrackInventory ?? false,
     // TODO (A6+): pedir stock real al depósito del outlet activo. El LIST de
     // /v1/items no incluye stock — habría que componer con /v1/items?resource=inventory
