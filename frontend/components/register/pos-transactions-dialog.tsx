@@ -52,7 +52,7 @@ import {
 import { useCartStore } from "@/lib/cart/store"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
-import type { TicketData } from "@/lib/hardware/printers"
+import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 
@@ -545,37 +545,12 @@ function TransactionDetail({
 
   function handleReprint() {
     if (!detail) return
-    const txItems = (detail.transactionDatas ?? [])
-      .filter((i) => i.status !== 0)
-      .map((i) => ({
-        name: i.name,
-        qty: i.count,
-        unitPrice: i.price,
-        discount: i.discount,
-        total: i.total,
-        categoryId: null as string | null,
-      }))
-    const txPayments = (detail.pMethods ?? []).map((p) => ({
-      method: p.name || p.type || "—",
-      amount: p.amount,
-    }))
-    const ticketData: TicketData = {
-      companyName: (config as { companyName?: string } | null)?.companyName ?? "",
-      customerName: detail.customerName?.trim() || undefined,
-      docType: String(detail.type),
-      documentNumber: detail.documentNo || undefined,
-      documentPrefix: detail.invoicePrefix || undefined,
-      transactionId: detail.transactionId,
-      date: detail.date ?? new Date().toISOString(),
-      items: txItems,
-      subtotal: Number(detail.total ?? 0) + Number(detail.discount ?? 0),
-      discount: Number(detail.discount ?? 0),
-      taxTotal: 0,
-      total: Number(detail.total ?? 0),
-      payments: txPayments,
-      note: detail.note || undefined,
-    }
-    requestPrint(Number(detail.type) === 5 ? "receipt" : "factura", ticketData, allBindings)
+    const docType = Number(detail.type) === 5 ? "receipt" : "factura"
+    // Wrapper compartido (build-ticket-data.ts) — mismo mapeo que
+    // transactions-list.tsx:onReprint y quote-print-view.tsx, con categoryId
+    // real resuelto contra el catálogo.
+    const ticketData = buildTicketDataFromTransaction(detail, config, docType)
+    requestPrint(docType, ticketData, allBindings)
   }
 
   // Formato de fecha para la cabecera (compacto pero con día)

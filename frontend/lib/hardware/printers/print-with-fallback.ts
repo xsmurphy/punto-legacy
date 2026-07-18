@@ -4,14 +4,18 @@
  * Hook que encapsula la lógica de impresión con fallback a picker de impresora.
  *
  * - Si hay bindings para el docType → printSale directo.
- * - Si no hay match pero sí impresoras → abre PrinterPickerDialog; al elegir,
- *   inyecta el docType en el binding clonado y llama printSale.
- * - Si no hay ninguna impresora → toast informativo.
+ * - Si no hay match pero sí impresoras configuradas → abre PrinterPickerDialog
+ *   (el operador puede tener una impresora física sin bindear a este docType
+ *   todavía y prefiere usarla igual); al elegir, inyecta el docType en el
+ *   binding clonado y llama printSale.
+ * - Si NO hay ninguna impresora configurada (caso más común — tenant sin
+ *   hardware térmico) → `printTicketInBrowser`: diálogo nativo del browser
+ *   con la plantilla del docType, en vez del toast/no-op de antes.
  */
 
 import * as React from "react"
 import { toast } from "sonner"
-import { printSale } from "@/lib/hardware/printers/index"
+import { printSale, printTicketInBrowser } from "@/lib/hardware/printers/index"
 import { getBindingsForSale } from "@/lib/hardware/printers/binding"
 import { PrinterPickerDialog } from "@/components/register/printer-picker-dialog"
 import type { PrinterBinding, PrinterDocType } from "@/lib/hardware/printers/binding"
@@ -57,8 +61,13 @@ export function usePrintWithPicker() {
       return
     }
 
-    // Sin impresoras configuradas.
-    toast.info("No hay impresoras creadas. Configurá una en Ajustes del POS, sección Impresoras.")
+    // Sin impresoras configuradas: fallback a diálogo nativo del browser con
+    // la plantilla del docType (o el genérico si el tenant no configuró
+    // ninguna todavía).
+    printTicketInBrowser({ docType, data }).catch((err) => {
+      console.error("[printTicketInBrowser]", err)
+      toast.error("No se pudo generar el documento para imprimir")
+    })
   }
 
   function handlePickerSelect(chosen: PrinterBinding) {
