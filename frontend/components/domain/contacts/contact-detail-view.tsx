@@ -28,7 +28,7 @@ import {
   Loader2, Archive, BarChart3, Wallet,
   ShoppingBag, Layers,
   CalendarDays, MapPin, Sparkles, Inbox, X,
-  ClipboardList as OrdersIcon,
+  ClipboardList as OrdersIcon, Receipt,
 } from "lucide-react"
 import { EmptyState as EmptyStateBlock } from "@/components/empty-state"
 import { toast } from "sonner"
@@ -111,6 +111,7 @@ import { OrdersList } from "@/components/domain/orders/orders-list"
 import { ScheduleList } from "@/components/domain/schedule/schedule-list"
 import { ContactOrdersCompact } from "@/components/domain/contacts/contact-orders-compact"
 import { ContactScheduleCompact } from "@/components/domain/contacts/contact-schedule-compact"
+import { ContactTransactionsTab } from "@/components/domain/contacts/contact-transactions-tab"
 
 // ── Zod schema (igual que el de la page original) ────────────────────────────
 
@@ -135,7 +136,7 @@ const contactSchema = z
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type TabKey = "summary" | "behavior" | "financial" | "data" | "addresses" | "packs" | "orders" | "schedule"
+type TabKey = "summary" | "behavior" | "financial" | "data" | "addresses" | "packs" | "orders" | "schedule" | "transactions"
 
 export interface ContactDetailViewProps {
   customerId: string
@@ -240,11 +241,18 @@ export function ContactDetailView({
     )
   }
 
-  // Secciones para la navegación (tabs o sidebar)
+  // Secciones para la navegación (tabs o sidebar).
+  // "transactions" es panel-only: pega contra /v1/reports/transactions, que
+  // solo acepta realm `panel` (apiAuthTenant(['panel'])). El customer-dialog
+  // del POS (variant="pos") corre con el Bearer del device (realm pos-app) —
+  // si se mostrara ahí, el fetch devolvería 401 "Token de otro realm".
   const sections: { key: TabKey; label: string; icon: React.ReactNode }[] = [
     { key: "summary",  label: "Resumen",      icon: <BarChart3 className="size-3.5" /> },
     { key: "behavior", label: "Comportamiento", icon: <Sparkles className="size-3.5" /> },
     { key: "financial",label: "Financiero",    icon: <Wallet className="size-3.5" /> },
+    ...(variant === "panel"
+      ? [{ key: "transactions" as const, label: "Transacciones", icon: <Receipt className="size-3.5" /> }]
+      : []),
     { key: "packs",    label: "Packs",         icon: <Layers className="size-3.5" /> },
     { key: "addresses",label: "Direcciones",   icon: <MapPin className="size-3.5" /> },
     { key: "orders",   label: "Órdenes",       icon: <OrdersIcon className="size-3.5" /> },
@@ -277,6 +285,7 @@ export function ContactDetailView({
           bootstrap={bootstrap}
         />
       )}
+      {tab === "transactions" && <ContactTransactionsTab customerId={customerId} />}
       {tab === "packs" && <PacksTab contactId={customerId} />}
       {tab === "addresses" && <AddressesTab contactId={customerId} />}
       {tab === "orders" && <ContactOrdersCompact customerId={customerId} />}

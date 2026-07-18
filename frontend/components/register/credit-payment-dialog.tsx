@@ -2,10 +2,10 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { useCatalogStore } from "@/lib/catalog/store"
 import { useCreateCreditPayment } from "@/hooks/use-credit-payment"
 import { formatAmount, formatMoney } from "@/lib/format-money"
 import { MoneyVisor, parseDisplay, formatDisplayInput } from "@/components/register/money-visor"
+import type { PaymentMethodConfig, PosConfig } from "@/lib/types/pos-bootstrap"
 import {
   Dialog,
   DialogContent,
@@ -32,7 +32,20 @@ interface CreditPaymentDialogProps {
   parentTransactionId: string
   debt: number
   customerName: string
-  onSuccess?: (result: { parentComplete: boolean; debtRemaining: number }) => void
+  /**
+   * Métodos de pago del tenant y config de formato de moneda — inyectados
+   * por el caller (no leídos de un store global) para que el dialog sea
+   * reusable fuera del POS: el llamador POS pasa `useCatalogStore` (bootstrap
+   * del device), el llamador panel pasa `usePaymentMethods()` + `useBootstrap()`
+   * (`Bootstrap` es estructuralmente compatible con `PosConfig` — mismos campos
+   * de currency/thousand/decimal). Antes leía de `useCatalogStore` directo,
+   * que solo se hidrata con el bootstrap del POS — en panel quedaba vacío y
+   * el selector de método de pago no renderizaba nada (botón "Confirmar pago"
+   * deshabilitado para siempre).
+   */
+  paymentMethods: PaymentMethodConfig[]
+  config: PosConfig | null
+  onSuccess?: (result: { id: string; parentComplete: boolean; paid: number; debtRemaining: number }) => void
 }
 
 export function CreditPaymentDialog({
@@ -41,10 +54,10 @@ export function CreditPaymentDialog({
   parentTransactionId,
   debt,
   customerName,
+  paymentMethods,
+  config,
   onSuccess,
 }: CreditPaymentDialogProps) {
-  const paymentMethods = useCatalogStore((s) => s.paymentMethods)
-  const config = useCatalogStore((s) => s.config)
   const mutation = useCreateCreditPayment()
 
   const defaultMethod = paymentMethods.find((m) => m.isDefault) ?? paymentMethods[0]

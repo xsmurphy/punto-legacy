@@ -437,6 +437,7 @@ function TransactionDetail({
 }) {
   const { data: detail, isLoading } = usePosTransactionDetail(encId)
   const config = useCatalogStore((s) => s.config)
+  const paymentMethods = useCatalogStore((s) => s.paymentMethods)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
   const allBindings = bindingsData?.bindings ?? []
@@ -793,6 +794,8 @@ function TransactionDetail({
           parentTransactionId={encId}
           debt={debt}
           customerName={detail.customerName ?? ""}
+          paymentMethods={paymentMethods}
+          config={config}
           onSuccess={() => {
             setCreditPayOpen(false)
           }}

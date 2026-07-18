@@ -99,9 +99,12 @@ import { formatDateTime } from "@/lib/format-date"
 import { formatAmount } from "@/lib/format-money"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
+import { buildTicketDataFromTransaction, buildTicketDataFromTxDetail } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
+import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { usePaymentMethods } from "@/hooks/use-payment-methods"
+import { usePermission } from "@/hooks/use-permissions"
 import { useVoidTransaction } from "@/hooks/use-void-transaction"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
@@ -110,7 +113,7 @@ import { cn } from "@/lib/utils"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const TX_TYPE_LABELS: Record<string, string> = {
+export const TX_TYPE_LABELS: Record<string, string> = {
   "0": "Contado",
   "3": "Crédito",
   "6": "Devolución",
@@ -121,7 +124,7 @@ const TX_TYPE_LABELS: Record<string, string> = {
   "13": "Cita",
 }
 
-function txTypeLabel(type: string): string {
+export function txTypeLabel(type: string): string {
   return TX_TYPE_LABELS[type] ?? `Tipo ${type}`
 }
 
@@ -883,7 +886,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
 
 // ── Panel: Vista detalle ──────────────────────────────────────────────────────
 
-function PanelDetailView({
+export function PanelDetailView({
   detail,
   bootstrap,
   onEdit,
@@ -891,7 +894,9 @@ function PanelDetailView({
 }: {
   detail: TxDetailFull
   bootstrap: ReturnType<typeof useBootstrap>["data"]
-  onEdit: () => void
+  /** Omitido → oculta el botón "Editar" (ej. tab embebido de Contactos, que
+   *  no implementa PanelEditView y solo ofrece ver/pagar/reimprimir). */
+  onEdit?: () => void
   onClose: () => void
 }) {
   const tx = detail.transaction
@@ -909,7 +914,51 @@ function PanelDetailView({
     return p.type.slice(0, 8)
   }
 
-  const canEdit = tx.transactionType === 0 || tx.transactionType === 3 || tx.transactionType === 9
+  const canEdit = !!onEdit && (tx.transactionType === 0 || tx.transactionType === 3 || tx.transactionType === 9)
+  // Gate cliente — espejo del hasPermission('pos.sale.creditPayment') que
+  // enforce api/v1/credit-payments.php. No es el boundary de seguridad (eso
+  // es el backend), pero evita mostrar un botón que va a 403.
+  const canRegisterPayment = usePermission("pos.sale.creditPayment")
+  const canPay = tx.transactionType === 3 && (detail.creditPayments?.debt ?? 0) > 0 && canRegisterPayment
+
+  // Métodos de pago del tenant (realm panel — /v1/payment-methods). El panel
+  // no tiene el bootstrap del POS hidratado en useCatalogStore, así que
+  // CreditPaymentDialog recibe esta fuente en vez de la del device.
+  const { data: pmData } = usePaymentMethods()
+  const panelPaymentMethods = pmData?.paymentMethods ?? []
+
+  const [payDialogOpen, setPayDialogOpen] = React.useState(false)
+  const [receiptPrompt, setReceiptPrompt] = React.useState<{ paymentId: string } | null>(null)
+  const [printingReceipt, setPrintingReceipt] = React.useState(false)
+
+  // Reimprimir el documento actual — el panel no tiene bindings de hardware
+  // (impresoras de red/USB configuradas por register), así que va directo a
+  // printTicketInBrowser (plantilla del docType, diálogo nativo del browser),
+  // sin pasar por usePrintWithPicker (que intenta resolver un binding físico
+  // primero — solo tiene sentido en el POS).
+  async function handleReprint() {
+    const docType = tx.transactionType === 9 ? "quote" : "factura"
+    const data = buildTicketDataFromTxDetail(detail, bootstrap?.companyName ?? "", docType)
+    try {
+      await printTicketInBrowser({ docType, data })
+    } catch {
+      toast.error("No se pudo imprimir")
+    }
+  }
+
+  async function handlePrintReceipt(paymentId: string) {
+    setPrintingReceipt(true)
+    try {
+      const paymentDetail = await api.get<TxDetailFull>(`/v1/reports/transactions?id=${paymentId}`)
+      const data = buildTicketDataFromTxDetail(paymentDetail, bootstrap?.companyName ?? "", "receipt")
+      await printTicketInBrowser({ docType: "receipt", data })
+    } catch {
+      toast.error("No se pudo imprimir el recibo")
+    } finally {
+      setPrintingReceipt(false)
+      setReceiptPrompt(null)
+    }
+  }
 
   return (
     <>
@@ -1063,6 +1112,16 @@ function PanelDetailView({
       </div>
 
       <DialogFooter>
+        <Button variant="outline" onClick={handleReprint} className="gap-1.5">
+          <Printer className="size-4" />
+          Reimprimir
+        </Button>
+        {canPay && (
+          <Button variant="outline" onClick={() => setPayDialogOpen(true)} className="gap-1.5">
+            <Banknote className="size-4" />
+            Registrar pago
+          </Button>
+        )}
         {canEdit && (
           <Button variant="outline" onClick={onEdit}>
             Editar
@@ -1070,6 +1129,44 @@ function PanelDetailView({
         )}
         <Button onClick={onClose}>Cerrar</Button>
       </DialogFooter>
+
+      {canPay && (
+        <CreditPaymentDialog
+          open={payDialogOpen}
+          onOpenChange={setPayDialogOpen}
+          parentTransactionId={tx.transactionId}
+          debt={detail.creditPayments!.debt}
+          customerName={tx.customerName || "Cliente"}
+          paymentMethods={panelPaymentMethods}
+          config={bootstrap ?? null}
+          onSuccess={(result) => {
+            setPayDialogOpen(false)
+            setReceiptPrompt({ paymentId: result.id })
+          }}
+        />
+      )}
+
+      {/* Post-pago: ofrecer Recibo (docType receipt — regla fiscal: pago de
+          crédito es SIEMPRE Recibo, nunca Factura). */}
+      <AlertDialog open={receiptPrompt !== null} onOpenChange={(open) => !open && setReceiptPrompt(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Pago registrado</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Querés imprimir el recibo del pago?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cerrar</AlertDialogCancel>
+            <Button
+              disabled={printingReceipt}
+              onClick={() => receiptPrompt && handlePrintReceipt(receiptPrompt.paymentId)}
+            >
+              {printingReceipt ? "Imprimiendo..." : "Imprimir recibo"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -1457,6 +1554,7 @@ export function TransactionDetailContent({
   const clearCart = useCartStore((s) => s.clear)
   const addLines = useCartStore((s) => s.addLines)
   const cartLines = useCartStore((s) => s.lines)
+  const paymentMethods = useCatalogStore((s) => s.paymentMethods)
 
   const [voidDialogOpen, setVoidDialogOpen] = React.useState(false)
   const [voidMotive, setVoidMotive] = React.useState("")
@@ -1852,6 +1950,8 @@ export function TransactionDetailContent({
           parentTransactionId={tx.transactionId}
           debt={tx.creditPayments!.debt}
           customerName={tx.name || "Cliente"}
+          paymentMethods={paymentMethods}
+          config={config}
           onSuccess={(result) => {
             if (result.parentComplete) {
               onClose?.()

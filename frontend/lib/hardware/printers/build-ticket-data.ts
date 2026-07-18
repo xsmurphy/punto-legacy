@@ -194,3 +194,72 @@ export function buildTicketDataFromTransaction(
     note: tx.note || undefined,
   }
 }
+
+// ── Reconstrucción de TicketData desde TxDetailFull (panel) ────────────────
+// Segundo adapter del mismo wrapper compartido: el panel usa `useTransactionDetail`
+// (/v1/reports/transactions?id=), que devuelve un shape distinto al POS
+// (`TxDetailFull`: transaction.{transactionPaymentType,...} + items[] con
+// itemSoldId/itemSoldUnits/itemSoldTotal, sin `transactionDatas`/`pMethods`).
+// El panel tampoco tiene el catálogo POS hidratado en `useCatalogStore`
+// (categoryId quedaría siempre null igual — no filtra bindings de hardware,
+// que el panel no usa: printTicketInBrowser es la única vía ahí), así que
+// este adapter no depende de `useCatalogStore.items`.
+
+/** Shape mínimo de TxDetailFull (hooks/use-reports.ts) que este adapter necesita. */
+export interface TicketableTxDetail {
+  transaction: {
+    transactionId: string
+    transactionDate: string
+    transactionNote: string | null
+    transactionTotal: number
+    transactionDiscount: number
+    transactionPaymentType: Array<{ type: string; name: string; total: number }>
+    invoiceNo: string | null
+    customerName: string | null
+  }
+  items: Array<{
+    itemName: string
+    itemSoldUnits: number
+    itemSoldTotal: number
+  }>
+}
+
+export function buildTicketDataFromTxDetail(
+  detail: TicketableTxDetail,
+  companyName: string,
+  docType: string,
+): TicketData {
+  const tx = detail.transaction
+  const items: TicketItem[] = detail.items.map((i) => ({
+    name: i.itemName,
+    qty: i.itemSoldUnits,
+    unitPrice: i.itemSoldUnits > 0 ? i.itemSoldTotal / i.itemSoldUnits : i.itemSoldTotal,
+    discount: 0,
+    total: i.itemSoldTotal,
+    // Sin catálogo POS hidratado en el panel — printTicketInBrowser no filtra
+    // por categoría (solo lo hace el matching de bindings de hardware, que
+    // el panel no usa), así que null acá es inocuo.
+    categoryId: null,
+  }))
+  const payments: TicketPayment[] = tx.transactionPaymentType.map((p) => ({
+    method: p.name || p.type || "—",
+    amount: p.total,
+  }))
+  const itemsTotal = items.reduce((s, i) => s + i.total, 0)
+
+  return {
+    companyName,
+    customerName: tx.customerName?.trim() || undefined,
+    docType,
+    documentNumber: tx.invoiceNo || undefined,
+    transactionId: tx.transactionId,
+    date: tx.transactionDate,
+    items,
+    subtotal: itemsTotal > 0 ? itemsTotal : tx.transactionTotal + tx.transactionDiscount,
+    discount: tx.transactionDiscount,
+    taxTotal: 0,
+    total: tx.transactionTotal,
+    payments,
+    note: tx.transactionNote || undefined,
+  }
+}
