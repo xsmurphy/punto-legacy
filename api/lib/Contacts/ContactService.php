@@ -242,6 +242,20 @@ final class ContactService
         return $this->presentRow($row, $companyId);
     }
 
+    /**
+     * Detalle por id, SIN filtrar por type. El detalle por id es una vista de
+     * "este registro", no de "este registro si es cliente/proveedor" — filtrar
+     * por type acá causaba que proveedores (type=2) devolvieran 404 cuando el
+     * caller no pasaba `?type=2` explícito (ej. tab detalle post-creación),
+     * dando la falsa impresión de que el alta no se había guardado.
+     */
+    public function getById(string $id, string $companyId): ?array
+    {
+        $row = $this->repo->find($id, $companyId, null);
+        if ($row === null) return null;
+        return $this->presentRow($row, $companyId);
+    }
+
     /** @deprecated usar getByType(id, TYPE_CUSTOMER, companyId). */
     public function getCustomer(string $id, string $companyId): ?array
     {
@@ -329,6 +343,10 @@ final class ContactService
             'lng'         => $address['customerAddressLng'] ?? null,
             // priceListId desde data JSONB — null si el contacto no tiene lista asignada.
             'priceListId' => $row['priceListId'] ?? null,
+            // Rol del registro en la tabla `contact`: 1=cliente, 2=proveedor.
+            // Expuesto para que el detalle por id (que ya no filtra por type)
+            // pueda derivar el label "cliente"/"proveedor" del propio dato.
+            'type'        => isset($row['type']) ? (int) $row['type'] : self::TYPE_CUSTOMER,
         ];
     }
 }

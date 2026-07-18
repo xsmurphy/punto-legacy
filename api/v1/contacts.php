@@ -89,7 +89,12 @@ switch ($method) {
         }
 
         if ($id !== null) {
-            $contact = $service->getByType($id, $type, COMPANY_ID);
+            // Detalle por id NO filtra por type: es "este contacto", no "este
+            // contacto si matchea el tab actual". Filtrar acá hacía que un
+            // proveedor recién creado devolviera 404 al abrir su detalle
+            // (el front no siempre manda ?type=2), dando la falsa impresión
+            // de que el alta no se había guardado.
+            $contact = $service->getById($id, COMPANY_ID);
             if ($contact === null) apiError('Contacto no encontrado', 404);
             apiOk($contact);
         }
@@ -111,9 +116,7 @@ switch ($method) {
             apiError($e->getMessage(), 500);
         }
 
-        // Type del row recién creado: sin filtrar acepta cualquier tipo.
-        $newType = (int) ($_POST['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
-        $contact = $service->getByType($newId, $newType, COMPANY_ID);
+        $contact = $service->getById($newId, COMPANY_ID);
         apiOk($contact ?? ['id' => $newId, 'UID' => $newId], 201);
         break;
 
@@ -128,7 +131,7 @@ switch ($method) {
             apiError('Update falló', 500);
         }
 
-        $contact = $service->getCustomer($id, COMPANY_ID);
+        $contact = $service->getById($id, COMPANY_ID);
         apiOk($contact ?? ['id' => $id, 'UID' => $id]);
         break;
 

@@ -47,6 +47,10 @@ export interface ContactListItem {
   lng: number | null
   /** UUID de la lista de precios asignada a este contacto (desde data JSONB). */
   priceListId: string | null
+  /** Rol del registro en `contact`: 1=cliente, 2=proveedor. El detalle por id
+   *  ya no filtra por type — este campo permite derivar el label sin depender
+   *  del query param `?type=` de la URL. */
+  type: number
 }
 
 /** El detalle (GET ?id=) y el item de listado tienen exactamente el mismo shape

@@ -80,6 +80,7 @@ import {
 } from "@/components/ui/select"
 import { ContactDetailView } from "@/components/domain/contacts/contact-detail-view"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
+import { ApiError } from "@/lib/api-client"
 
 const contactSchema = z
   .object({
@@ -168,7 +169,7 @@ export default function ContactEditPage() {
       if (isNew) {
         const created = await create.mutateAsync({ values, type: contactType as 1 | 2 })
         toast.success(contactType === 2 ? "Proveedor creado" : "Cliente creado")
-        router.push(`/contacts/${created.id}`)
+        router.push(`/contacts/${created.id}?type=${contactType}`)
       } else {
         await update.mutateAsync({ id, values })
         toast.success("Contacto actualizado")
@@ -203,12 +204,13 @@ export default function ContactEditPage() {
   const { data: bootstrap } = useBootstrap()
 
   if (error) {
+    const isNotFound = error instanceof ApiError && error.status === 404
     return (
       <div className="flex flex-col gap-4">
         <BackLink />
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            No se pudo cargar el contacto. {error.message}
+            {isNotFound ? "Contacto no encontrado." : `No se pudo cargar el contacto. ${error.message}`}
           </CardContent>
         </Card>
       </div>
