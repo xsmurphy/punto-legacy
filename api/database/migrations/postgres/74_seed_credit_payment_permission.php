@@ -26,14 +26,16 @@ if (!$pdo) {
     return;
 }
 
-// El operador `?` (existencia de elemento top-level) solo existe para jsonb,
-// no para json — taxonomyextra es text/json, cast explícito a jsonb acá.
+// Usamos jsonb_exists(...) — la FUNCIÓN equivalente al operador `?` — porque
+// el carácter `?` colisiona con el placeholder de PDO/pgsql (el driver lo
+// reescribe a `$1` aunque sea query() directo) → syntax error en el boot.
+// taxonomyextra es text/json → cast explícito a jsonb.
 $rows = $pdo->query(
     "SELECT taxonomyid, taxonomyextra
        FROM taxonomy
       WHERE taxonomytype = 'roleData'
-        AND taxonomyextra::jsonb->'permissions' ? 'pos.sale.create'
-        AND NOT (taxonomyextra::jsonb->'permissions' ? 'pos.sale.creditPayment')"
+        AND jsonb_exists(taxonomyextra::jsonb->'permissions', 'pos.sale.create')
+        AND NOT jsonb_exists(taxonomyextra::jsonb->'permissions', 'pos.sale.creditPayment')"
 )->fetchAll(PDO::FETCH_ASSOC);
 
 $updated = 0;

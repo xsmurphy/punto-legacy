@@ -25,12 +25,14 @@ if (!$pdo) {
     return;
 }
 
+// jsonb_exists(...) en vez del operador `?` — el carácter `?` colisiona con
+// el placeholder de PDO/pgsql y rompe el boot (ver mig 74).
 $rows = $pdo->query(
     "SELECT taxonomyid, taxonomyextra
        FROM taxonomy
       WHERE taxonomytype = 'roleData'
-        AND taxonomyextra::jsonb->'permissions' ? 'inventory.stock.adjust'
-        AND NOT (taxonomyextra::jsonb->'permissions' ? 'production.manage')"
+        AND jsonb_exists(taxonomyextra::jsonb->'permissions', 'inventory.stock.adjust')
+        AND NOT jsonb_exists(taxonomyextra::jsonb->'permissions', 'production.manage')"
 )->fetchAll(PDO::FETCH_ASSOC);
 
 $updated = 0;
