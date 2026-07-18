@@ -790,4 +790,41 @@ system/
 
 ---
 
+## Backlog testing 2026-07-07 — Panel + POS (feedback testers)
+
+**Fiscal/Reportes:**
+- Export RG90 / Libro de ventas (pedido 2x)
+- Filtros en transacciones (contado/crédito/internas, cajero, cliente, documento) + columnas tipo doc/método/caja
+- Detalle de documento enriquecido (tipo, número, emisión, vencimiento, sucursal, cliente, responsable, IVA desglosado, descuentos)
+- Reporte productos detallado (usuario/cliente/documento/fecha por venta)
+- Export + imprimir en todos los reportes
+- Notificación de facturas crédito por cobrar
+- Reporte de transferencias de stock (usuario, sucursal, receptor, productos, fecha) formato nota de remisión
+- Medios de pago vista detallada (documento, cliente, RUC, método, sucursal, total)
+
+**Catálogo/Inventario:**
+- Crear categoría inline desde el form de artículo
+- Sesiones configurables para servicios tipo paquete
+- Stock mínimo con notificación automática
+- Columnas stock actual + costo de stock en listado de artículos
+- Historial de movimientos por artículo
+- Imprimir listado de artículos
+- Conteo de stock filtrado por categorías
+- Producción generable desde producción previa
+- Movimiento de inventario → link al documento origen + columna ingresos
+
+**Compras/Gastos:**
+- Packs de compra (1 caja = N unidades)
+- Categorías de gastos con subcategorías
+- Recordar último costo de compra por producto
+- Factura de compra contado vs crédito
+
+**Otros:**
+- Comisiones por usuario (Gs o %)
+- Control de cajas imprimir/PDF + edición por rol admin/jefe
+- Timbrado y prefijos en config de caja registradora desde el panel
+- Posicionamiento fino de bloques en editor de plantillas (arriba/abajo/ancho/alto)
+
+---
+
 > Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
