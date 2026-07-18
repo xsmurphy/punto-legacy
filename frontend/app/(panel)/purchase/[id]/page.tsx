@@ -122,6 +122,11 @@ export default function PurchaseDetailPage() {
           {invoiceLabel && (
             <InfoRow label="Factura" value={invoiceLabel} mono />
           )}
+          <InfoRow label="Usuario" value={purchase.userName ?? "—"} />
+          <InfoRow
+            label="Método de pago"
+            value={paymentMethodLabel(purchase.paymentType)}
+          />
         </InfoCard>
 
         <InfoCard title="Totales">
@@ -337,6 +342,27 @@ function InfoRow({
       </span>
     </div>
   )
+}
+
+/**
+ * Mapea la key guardada por el form de creación (purchase/page.tsx, Select
+ * "Método de pago") a un label legible. Mismo set hardcodeado que el form —
+ * si se migra a taxonomy paymentMethod (PaymentMethodConfig), reemplazar acá.
+ */
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: "Efectivo",
+  card: "Tarjeta",
+  transfer: "Transferencia",
+  check: "Cheque",
+  credit: "A crédito",
+}
+
+function paymentMethodLabel(
+  paymentType: Array<{ type: string; price: number }> | null,
+): string {
+  const key = paymentType?.[0]?.type
+  if (!key) return "—"
+  return PAYMENT_METHOD_LABELS[key] ?? key
 }
 
 function formatDate(s: string): string {

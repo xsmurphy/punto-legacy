@@ -49,7 +49,9 @@ export interface PurchaseDetail {
   supplierName: string | null
   outletId: string
   outletName: string | null
-  paymentType: unknown
+  userId: string | null
+  userName: string | null
+  paymentType: Array<{ type: string; price: number }> | null
   details: PurchaseDetailItem[]
 }
 

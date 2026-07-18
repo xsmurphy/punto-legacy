@@ -112,11 +112,15 @@ final class PurchasesService
         if (!preg_match(self::UUID_RE, $id)) {
             return null;
         }
+        // userId en `transaction` es en realidad un contactId (mismo patrón que
+        // Reports/UsersService.php) — de ahí el segundo LEFT JOIN a contact.
         $row = ncmExecute(
-            "SELECT t.*, c.contactName AS supplierName, o.outletName
+            "SELECT t.*, c.contactName AS supplierName, o.outletName,
+                    u.contactName AS userName
                FROM transaction t
                LEFT JOIN contact c ON c.contactId = t.supplierId
                LEFT JOIN outlet  o ON o.outletId  = t.outletId
+               LEFT JOIN contact u ON u.contactId = t.userId
               WHERE t.transactionId = ? AND t.companyId = ? AND t.transactionType = 1
               LIMIT 1",
             [$id, $companyId]
@@ -131,10 +135,53 @@ final class PurchasesService
             $meta = json_decode($meta, true) ?: [];
         }
         $details = is_array($meta['details'] ?? null) ? $meta['details'] : [];
-        $paymentType = $row['transactionpaymenttype'] ?? null;
+
+        // transactionPaymentType NO es columna real de `transaction` (ver
+        // _getTableSchema() en api/includes/functions.php) → ncmInsert la
+        // enruta al JSONB `meta`. Además create() la guarda ya como string
+        // json_encode'ada, así que dentro de meta queda doble-encodeada
+        // (string que contiene JSON) — hay que decodificarla una vez más acá.
+        $paymentType = $meta['transactionPaymentType'] ?? null;
         if (is_string($paymentType) && $paymentType !== '') {
             $paymentType = json_decode($paymentType, true) ?: null;
         }
+
+        // Resolver nombres de producto para líneas con itemId pero title vacío
+        // (el form de creación solo manda itemId, ver purchase/page.tsx).
+        $itemIds = [];
+        foreach ($details as $d) {
+            $itemId = (string) ($d['itemId'] ?? '');
+            if ($itemId !== '' && (string) ($d['title'] ?? '') === '') {
+                $itemIds[$itemId] = true;
+            }
+        }
+        if (!empty($itemIds)) {
+            $ids = array_keys($itemIds);
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $res = ncmExecute(
+                "SELECT itemId, itemName FROM item WHERE companyId = ? AND itemId IN ({$placeholders})",
+                array_merge([$companyId], $ids),
+                false,
+                true
+            );
+            $names = [];
+            if ($res) {
+                while (!$res->EOF) {
+                    $f = $res->fields;
+                    $names[(string) $f['itemid']] = (string) $f['itemname'];
+                    $res->MoveNext();
+                }
+                $res->Close();
+            }
+            foreach ($details as &$d) {
+                $itemId = (string) ($d['itemId'] ?? '');
+                if ($itemId !== '' && (string) ($d['title'] ?? '') === '' && isset($names[$itemId])) {
+                    $d['title'] = $names[$itemId];
+                }
+            }
+            unset($d);
+        }
+
         return [
             'id'            => (string) $row['transactionid'],
             'date'          => (string) $row['transactiondate'],
@@ -151,6 +198,8 @@ final class PurchasesService
             'supplierName'  => $row['suppliername'] !== null ? (string) $row['suppliername'] : null,
             'outletId'      => (string) $row['outletid'],
             'outletName'    => $row['outletname'] !== null ? (string) $row['outletname'] : null,
+            'userId'        => $row['userid'] !== null ? (string) $row['userid'] : null,
+            'userName'      => $row['username'] !== null ? (string) $row['username'] : null,
             'paymentType'   => $paymentType,
             'details'       => $details,
         ];
