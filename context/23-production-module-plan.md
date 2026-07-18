@@ -1,9 +1,8 @@
 # Módulo de Producción — plan (F0/F1/F2)
 
 Plan cerrado por el owner 2026-07-17. Decisiones abajo NO se relitigan; solo
-se ejecutan. Fase actual: **F1 completa** (backend de producción — branch
-`production-f1`, no mergeada aún). F0 (consolidación de recetas) y F1 hechas;
-F2 (UI `/produccion`) no arrancada.
+se ejecutan. Fase actual: **F0/F1/F2 completas** — módulo de Producción v1
+cerrado (branch `production-f2`, no mergeada aún).
 
 ## Contexto — el bug que motiva F0
 
@@ -134,10 +133,42 @@ en listWaste()) — ver commit `fix(production): valida ownership...`.
 - Explosión recursiva de sub-recetas (auto-producir insumos faltantes).
 - Cleanup/borrado de `toCompound`.
 
-## F2 — UI `/produccion` (no arrancada)
+## F2 — UI `/produccion` (HECHA, branch `production-f2`)
 
-- Listado de órdenes de producción (`DataTable`, ver `context/14`).
-- Registrar merma (formulario: item, cantidad, motivo desde taxonomy,
-  outlet/location opcional).
-- Botón "Producir" (flujo 1-paso) en el módulo de items o en `/produccion`.
-- Reporte de producción (costo real vs planificado, merma real vs %).
+Entregables (frontend/):
+- `lib/types/production.ts` + hooks `use-production.ts`/`use-waste.ts`/
+  `use-waste-reasons.ts` (patrón `use-payment-methods.ts`, query keys +
+  invalidación post-mutación).
+- Página `app/(panel)/produccion/page.tsx`: tabs Órdenes/Mermas sobre
+  `<DataTable>`, filtro de estado + `<DateRangePicker>` compartido
+  (`use-date-range`).
+- `components/domain/production/`: `new-production-dialog.tsx` (picker de
+  producto con receta — filtra `useItems()` client-side por
+  `kind ∈ {produccion_previa, produccion_directa}`, no hay endpoint de
+  "solo items con receta"; preview de insumos/capacidad vía
+  `/v1/production?resource=capacity`; "Producir ahora" vs "Crear orden"),
+  `production-detail-dialog.tsx` (Iniciar/Cancelar/Completar según estado,
+  snapshot de costos en `completed`), `complete-production-dialog.tsx`
+  (qtyProduced/wasteUnits/motivo + ajuste opcional de consumo real por
+  insumo vía `ingredientAdjustments`), `register-waste-dialog.tsx` (merma
+  manual).
+- Tab "Motivos de merma" en Settings → Catálogo (`CatalogManager`, patrón
+  exacto de Medios de pago).
+- Sidebar: entrada "Producción" en grupo Artículos, gateada por
+  `production.manage`.
+- Botón "Producir" en detalle de item (`items/[id]/page.tsx`), solo
+  `kind === "produccion_previa"` — navega a `/produccion?newItemId=<id>`.
+
+Zonas grises (decisión de UX, no bug):
+- El preview de "costo estimado" por insumo en `new-production-dialog` NO
+  existe como tal — `capacity()` no devuelve costo, solo qty/onHand/waste%.
+  Se muestra "necesario vs disponible" (unidades), no costo — el costo real
+  solo se conoce al completar (`ingredientCost`/`unitCogs` del snapshot).
+- El "consumo real ajustable" en completar usa una fórmula de preview local
+  (`qtyPerUnit × plan × (1 + waste%)`) que aproxima pero NO replica exacto
+  el cálculo del backend (`getNeedWithWaste`) — es solo el placeholder del
+  input, el backend recalcula la verdad al completar.
+- Reporte de producción (costo real vs planificado) ya existe desde F1
+  (`/v1/reports/production`, view `general`/`waste`) — no se tocó una UI de
+  reporte dedicada en F2; el listado de `/produccion` cubre el caso de uso
+  operativo día a día.
