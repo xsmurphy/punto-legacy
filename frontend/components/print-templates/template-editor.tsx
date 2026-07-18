@@ -3,7 +3,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
-import { Loader2, Save, ChevronLeft, ChevronDown, Eye } from "lucide-react"
+import { Loader2, Save, ChevronLeft, ChevronDown, Eye, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,12 +20,24 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { PaletteSidebar } from "@/components/print-templates/palette-sidebar"
 import { BlockInspector } from "@/components/print-templates/block-inspector"
 import { CanvasBlock } from "@/components/print-templates/canvas-block"
 import { PreviewDialog } from "@/components/print-templates/preview-dialog"
 import {
   useCreateDocumentTemplate,
+  useDeleteDocumentTemplate,
   useUpdateDocumentTemplate,
 } from "@/hooks/use-document-templates"
 import type { PaletteItem } from "@/lib/print-template-palette"
@@ -74,6 +86,7 @@ export function TemplateEditor({ existing }: Props) {
   const router = useRouter()
   const create = useCreateDocumentTemplate()
   const update = useUpdateDocumentTemplate()
+  const del = useDeleteDocumentTemplate()
 
   const initialConfig: PrintTemplateConfig = React.useMemo(() => {
     return parseStoredConfig(existing?.config)
@@ -193,6 +206,19 @@ export function TemplateEditor({ existing }: Props) {
     }
   }
 
+  const handleDelete = async () => {
+    if (!existing) return
+    try {
+      await del.mutateAsync(existing.templateId)
+      toast.success("Plantilla eliminada")
+      router.push("/settings")
+    } catch (e) {
+      toast.error("No se pudo eliminar", {
+        description: e instanceof Error ? e.message : undefined,
+      })
+    }
+  }
+
   const saving = create.isPending || update.isPending
   const selected = selectedIdx !== null ? config.data[selectedIdx] ?? null : null
 
@@ -237,7 +263,35 @@ export function TemplateEditor({ existing }: Props) {
           </SelectContent>
         </Select>
 
-        <div className="ml-auto flex items-center">
+        <div className="ml-auto flex items-center gap-2">
+          {existing && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="icon"
+                  className="size-9"
+                  disabled={saving || del.isPending}
+                  aria-label="Eliminar plantilla"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Eliminar plantilla</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    ¿Eliminar la plantilla <strong>{existing.name}</strong>? Esta acción no se puede deshacer.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete}>Eliminar</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           {/* Split button: izq → guardar; der (chevron) → dropdown con Vista Previa. */}
           <Button
             onClick={handleSave}
