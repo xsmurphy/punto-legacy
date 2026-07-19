@@ -300,14 +300,21 @@ armar la tabla + dialogs desde cero.
 ```tsx
 <EmptyState icon={Receipt} title="Sin transacciones"
   description="Cuando hagas ventas aparecerán acá." />
+
+<EmptyState ghost icon={ClipboardList} title="Sin órdenes activas"
+  description="..." />
 ```
 
 Envuelve `Empty`/`EmptyHeader`/`EmptyTitle`/`EmptyDescription` de
 `components/ui/empty` + un `Marquee` decorativo (repite el ícono 4x en loop
-vertical) — `showMarquee={false}` cae a ícono grande estático (`size-12`
-box con `border bg-muted/30`). Nunca un `<p>"No hay resultados"</p>` pelado.
-Único lugar (junto al sidebar) donde los íconos van fuera de botones
-icon-only.
+vertical, degradado de opacidad hacia arriba) — prop `ghost` (`boolean |
+number`, default 4 filas) controla esto explícitamente; `ghost={false}` cae
+a ícono grande estático (`size-12` box con `border bg-muted/30`).
+`showMarquee` es el nombre viejo de la misma prop, deprecado pero vigente
+por compat (sin `ghost` ni `showMarquee`, el default sigue siendo 4 filas).
+Nunca un `<p>"No hay resultados"</p>` pelado ni un `<Empty>` armado a mano
+call-site — siempre `<EmptyState>`. Único lugar (junto al sidebar) donde los
+íconos van fuera de botones icon-only.
 
 ### Select con sentinel
 
@@ -627,6 +634,7 @@ del sistema):
 
 | Fecha | Decisión | Commit | Razón |
 |---|---|---|---|
+| 2026-07-19 | `EmptyState` unificado: prop `ghost` (boolean\|number) reemplaza `showMarquee` (deprecado, no removido) como forma explícita de pedir el patrón de ghost cards. `/pos/ordenes` migrado del `<Empty>` hand-rolled a `<EmptyState ghost>` | — | Había 2-3 empty states distintos en páginas del POS (Guardadas con ghosts, Órdenes con ícono en círculo sin ghosts); unificado a un solo modelo |
 | 2026-07-18 | Reescritura completa de `context/20` como design system definitivo: tokens reales extraídos de `globals.css`/`components.json`, paleta de acentos, formatos, patrones POS, guía de bootstrap para apps externas | — | El doc anterior documentaba solo patrones de componentes sin los tokens crudos ni una guía standalone; se necesitaba una referencia autocontenida para compartir UI/UX fuera del repo |
 | 2026-07-18 | Inter declarada canónica en `globals.css` y `context/20`. Eliminada declaración residual de Poppins | — | Owner decidió Inter como fuente; unificada la capa CSS/doc |
 | 2026-07-18 | Inconsistencia detectada, NO corregida: dos implementaciones de `formatMoney` con firmas distintas (`lib/format-money.ts` sobre `PosConfig`, `lib/format.ts` sobre `Bootstrap`) — ambas en uso activo en contextos distintos (POS vs panel) | — | Documentado en §8 en vez de unificarse; unificar requeriría normalizar `PosConfig`/`Bootstrap` a una sola shape de config de tenant — fuera de scope de este doc |

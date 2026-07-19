@@ -16,13 +16,7 @@ import { ClipboardList, Clock, DollarSign, Printer, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-} from "@/components/ui/empty"
+import { EmptyState } from "@/components/empty-state"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -91,17 +85,12 @@ export default function PosOrdenesPage() {
   if (orders.length === 0) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
-        <Empty className="border-0">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <ClipboardList className="size-5" />
-            </EmptyMedia>
-            <EmptyTitle>Sin órdenes activas</EmptyTitle>
-            <EmptyDescription>
-              Las órdenes enviadas a cocina desde el carrito (modo Orden) van a aparecer acá.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <EmptyState
+          ghost
+          icon={ClipboardList}
+          title="Sin órdenes activas"
+          description="Las órdenes enviadas a cocina desde el carrito (modo Orden) van a aparecer acá."
+        />
       </div>
     )
   }

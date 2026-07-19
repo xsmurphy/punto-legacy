@@ -60,6 +60,7 @@ export function ParkedSalesPanel() {
   if (!sales || sales.length === 0) {
     return (
       <EmptyState
+        ghost
         icon={ShoppingCart}
         title="Sin ventas guardadas"
         description="Las ventas que pongas en espera desde el POS van a aparecer acá para retomarlas más tarde."

@@ -21,13 +21,25 @@ import { cn } from "@/lib/utils"
  *     description='Decile a Alfred "guarda una nota: …"'
  *     actions={<Button onClick={...}>Crear nota</Button>}
  *   />
+ *
+ * `ghost` es el mismo look (card con ícono fantasma + barra + círculo,
+ * fila x N, degradado hacia arriba) — prop explícita recomendada para
+ * empties nuevos. `showMarquee` sigue existiendo por compat con los usos
+ * existentes; si no se pasa ninguna de las dos, el default es "ghost" (4
+ * filas), igual que el comportamiento histórico de `showMarquee=true`.
  */
 interface EmptyStateProps {
   icon: ComponentType<{ className?: string }>
   title: string
   description?: ReactNode
   actions?: ReactNode
-  /** Si false, oculta el Marquee y muestra solo el ícono grande. */
+  /**
+   * Ghost cards decorativas arriba del título/descripción. `true` = 4 filas
+   * (default), un número = esa cantidad de filas, `false` = sin ghosts
+   * (ícono grande estático). Equivalente moderno de `showMarquee`.
+   */
+  ghost?: boolean | number
+  /** @deprecated Usá `ghost`. Se mantiene por compat con call sites existentes. */
   showMarquee?: boolean
   className?: string
 }
@@ -37,16 +49,28 @@ export function EmptyState({
   title,
   description,
   actions,
-  showMarquee = true,
+  ghost,
+  showMarquee,
   className,
 }: EmptyStateProps) {
+  const ghostRows =
+    ghost !== undefined
+      ? ghost === true
+        ? 4
+        : ghost === false
+          ? 0
+          : ghost
+      : showMarquee === false
+        ? 0
+        : 4
+
   return (
     <Empty className={cn("px-6 py-10", className)}>
       <EmptyHeader>
-        {showMarquee ? (
+        {ghostRows > 0 ? (
           <div className="mask-y-from-60% mask-x-from-95% mb-3 w-full max-w-xs space-y-2">
             <Marquee className="h-56 [--duration:8s]" repeat={5} vertical>
-              {Array.from({ length: 4 }).map((_, i) => (
+              {Array.from({ length: ghostRows }).map((_, i) => (
                 <div
                   key={i}
                   className="flex w-full items-center gap-3 rounded-lg border px-4 py-3"
