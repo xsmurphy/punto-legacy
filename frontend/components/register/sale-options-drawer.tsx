@@ -91,6 +91,9 @@ export function SaleOptionsDrawer({
   const setOpen = usePosUIStore((s) => s.setOptionsOpen)
   const discountPadMode = usePosUIStore((s) => s.discountPadMode)
   const setDiscountPadMode = usePosUIStore((s) => s.setDiscountPadMode)
+  // Expuesto en el store de UI (no local) — CartPanel lo lee para pintar
+  // CTA + banda amber mientras la cotización se guarda (context/20).
+  const setSavingQuote = usePosUIStore((s) => s.setSavingQuote)
 
   const [activeDialog, setActiveDialog] = React.useState<ActiveDialog>(null)
   // El preview de cotización se construye desde el snapshot del carrito (no se
@@ -143,6 +146,7 @@ export function SaleOptionsDrawer({
     }
     setOpen(false)
     setIsSavingQuote(true)
+    setSavingQuote(true)
     try {
       const result = await createQuote({ lines, customer, userId: null, note: cartNote, tags })
 
@@ -189,6 +193,7 @@ export function SaleOptionsDrawer({
       })
     } finally {
       setIsSavingQuote(false)
+      setSavingQuote(false)
     }
   }
 

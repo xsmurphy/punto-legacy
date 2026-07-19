@@ -32,6 +32,14 @@ interface PosUIState {
   setDiscountPadMode: (v: "money" | "percent") => void
   showSoftKeyboard: boolean
   setShowSoftKeyboard: (v: boolean) => void
+  /**
+   * Guardado de cotización en vuelo (sale-options-drawer.tsx → createQuote()).
+   * Cotización NO es un posMode sticky (lib/cart/store.ts) — esta es la única
+   * ventana de tiempo en la que existe un "modo cotización" real, y CartPanel
+   * la usa para pintar CTA + banda amber (context/20 "Colores de modo del POS").
+   */
+  savingQuote: boolean
+  setSavingQuote: (v: boolean) => void
 }
 
 export const usePosUIStore = create<PosUIState>()((set) => ({
@@ -55,4 +63,6 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   setDiscountPadMode: (v) => set({ discountPadMode: v }),
   showSoftKeyboard: false,
   setShowSoftKeyboard: (v) => set({ showSoftKeyboard: v }),
+  savingQuote: false,
+  setSavingQuote: (v) => set({ savingQuote: v }),
 }))
