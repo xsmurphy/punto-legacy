@@ -10,11 +10,12 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState } from "@/components/empty-state"
 import { Badge } from "@/components/ui/badge"
 
-import { CanvasSpaceBlock, defaultSize, decorLabel } from "@/components/spaces/canvas-space-block"
+import { CanvasSpaceBlock, defaultSize, isDecorShape } from "@/components/spaces/canvas-space-block"
 import { useSpaceSectors } from "@/hooks/use-space-sectors"
 import {
   useSpaces,
   useCreateSpace,
+  useDeleteSpace,
   useSaveSpaceLayout,
   type Space,
   type SpaceShape,
@@ -59,6 +60,7 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
   const allTables = React.useMemo(() => tablesData?.spaces ?? [], [tablesData])
 
   const createTable = useCreateSpace()
+  const deleteSpace = useDeleteSpace()
   const saveLayout = useSaveSpaceLayout()
 
   // Copia local editable — el canvas no muta el server hasta "Guardar".
@@ -84,7 +86,26 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
     scopeRef.current = scopeKey
     setDraft((prev) => {
       const next: Record<string, Space> = {}
-      for (const t of allTables) next[t.id] = scopeChanged ? t : prev[t.id] ?? t
+      // Decorativos huérfanos (posX null, creados antes del fix "nacen
+      // posicionados" o des-ubicados por la versión vieja del tacho): se
+      // auto-colocan en cascada para que sean visibles y borrables — un decor
+      // nunca vive en "Sin ubicar" (esa lista es solo de espacios reales).
+      let orphan = 0
+      for (const t of allTables) {
+        let row = scopeChanged ? t : prev[t.id] ?? t
+        if (isDecorShape(row.shape) && (row.posX === null || row.posY === null)) {
+          const size = defaultSize(row.shape)
+          const off = (orphan++ % 6) * 24
+          row = {
+            ...row,
+            posX: 60 + off,
+            posY: 60 + off,
+            width: row.width ?? size.width,
+            height: row.height ?? size.height,
+          }
+        }
+        next[t.id] = row
+      }
       return next
     })
     if (scopeChanged) {
@@ -95,7 +116,11 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
 
   const draftList = Object.values(draft)
   const placed = draftList.filter((t) => t.posX !== null && t.posY !== null)
-  const unplaced = draftList.filter((t) => t.posX === null || t.posY === null)
+  // Solo espacios reales — los decorativos o están en el plano o no existen
+  // (quitarlos del canvas los elimina), nunca esperan en esta lista.
+  const unplaced = draftList.filter(
+    (t) => (t.posX === null || t.posY === null) && !isDecorShape(t.shape),
+  )
 
   function patchTable(id: string, patch: Partial<Space>) {
     setDraft((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], ...patch } } : prev))
@@ -116,8 +141,27 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
   }
 
   function removeFromLayout(id: string) {
-    patchTable(id, { posX: null, posY: null })
+    const t = draft[id]
     setSelectedId(null)
+    // Decorativo: quitarlo del plano = eliminarlo de verdad (no tiene identidad
+    // que preservar). Sin AlertDialog a propósito — es idioma de editor de
+    // dibujo, re-crear el bloque cuesta un click; en error el refetch de la
+    // invalidación lo restaura solo.
+    if (t && isDecorShape(t.shape)) {
+      setDraft((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      deleteSpace.mutate(id, {
+        onError: (e) =>
+          toast.error("No se pudo eliminar el bloque", {
+            description: e instanceof Error ? e.message : undefined,
+          }),
+      })
+      return
+    }
+    patchTable(id, { posX: null, posY: null })
   }
 
   function rotateTable(id: string) {
@@ -282,9 +326,6 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
             {unplaced.length === 0 ? (
               <p className="text-xs text-muted-foreground">Todos los espacios del sector están en el layout.</p>
             ) : (
-              // Incluye decorativos sin posición (seats 0): así un decor quitado
-              // del layout — o creado antes de este fix, apilado en el POS — se
-              // puede volver a colocar en vez de quedar huérfano/invisible.
               <div className="flex flex-col gap-1.5">
                 {unplaced.map((t) => (
                   <button
@@ -294,11 +335,7 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
                     className="flex items-center justify-between rounded-md border px-2.5 py-1.5 text-sm hover:bg-accent"
                   >
                     <span>{t.name}</span>
-                    {t.seats > 0 ? (
-                      <Badge variant="secondary">{t.seats}p</Badge>
-                    ) : (
-                      <Badge variant="outline">{decorLabel(t.shape)}</Badge>
-                    )}
+                    <Badge variant="secondary">{t.seats}p</Badge>
                   </button>
                 ))}
               </div>
@@ -316,7 +353,7 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
  * `sort`/nombre, wrap automático en columnas fijas.
  */
 function GridPreview({ tables }: { tables: Space[] }) {
-  const real = tables.filter((t) => t.seats > 0 || !["bar", "decor_wall", "decor_plant"].includes(t.shape))
+  const real = tables.filter((t) => !isDecorShape(t.shape))
   if (real.length === 0) {
     return (
       <EmptyState

@@ -20,6 +20,15 @@ const GRID = 10 // px de snap del canvas — salón/local real, no impresión (s
 const DECOR_SHAPES: SpaceShape[] = ["decor_wall", "decor_plant", "bar"]
 
 /**
+ * Un decorativo es escenografía pura: sin asientos ni identidad operativa.
+ * Fuera del plano no significa nada — por eso quitarlo del canvas lo ELIMINA
+ * (no va a "Sin ubicar", que es solo para espacios reales por colocar).
+ */
+export function isDecorShape(shape: SpaceShape): boolean {
+  return DECOR_SHAPES.includes(shape)
+}
+
+/**
  * Bloque individual del editor de layout — drag + resize con react-rnd
  * (mismo patrón que `components/print-templates/canvas-block.tsx`, único
  * precedente in-repo de canvas con posicionamiento absoluto). Diferencias
@@ -107,7 +116,7 @@ export function CanvasSpaceBlock({ table, selected, onSelect, onChange, onRotate
           </button>
           <button
             type="button"
-            title="Quitar del layout"
+            title={isDecor ? "Eliminar" : "Quitar del layout"}
             onClick={onRemoveFromLayout}
             className="flex size-6 items-center justify-center rounded text-destructive hover:bg-destructive/10"
           >
