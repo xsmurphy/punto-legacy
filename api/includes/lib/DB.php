@@ -460,19 +460,42 @@ class DB
     }
 
     // ─── Transacciones ─────────────────────────────────────────────────────
+    //
+    // Smart transactions con contador de anidamiento (semántica ADOdb, que
+    // los services ya asumen): un service que abre TX puede llamar a otro
+    // service que también abre TX — solo el StartTrans más externo hace
+    // beginTransaction real y solo su CompleteTrans commitea/rollbackea.
+    // FailTrans en cualquier nivel marca TODA la transacción como fallida.
+    // Sin esto, el beginTransaction anidado tira PDOException "There is
+    // already an active transaction" (P0 cascada cancel espacios 2026-07-19).
 
-    /** Inicia una transacción. */
+    /** Profundidad de anidamiento de StartTrans (0 = sin TX activa). */
+    private int $transDepth = 0;
+
+    /** Inicia una transacción (o suma un nivel si ya hay una activa). */
     public function StartTrans(): void
     {
-        $this->transOk = true;
-        $this->pdo->beginTransaction();
+        if ($this->transDepth === 0) {
+            $this->transOk = true;
+            $this->pdo->beginTransaction();
+        }
+        $this->transDepth++;
     }
 
     /**
-     * Confirma o revierte la transacción según FailTrans().
+     * Cierra un nivel de transacción. Solo el nivel más externo confirma o
+     * revierte (según FailTrans acumulado); los niveles anidados solo
+     * decrementan y devuelven el estado actual.
      */
     public function CompleteTrans(): bool
     {
+        if ($this->transDepth === 0) {
+            return $this->transOk; // CompleteTrans sin StartTrans — no-op defensivo
+        }
+        $this->transDepth--;
+        if ($this->transDepth > 0) {
+            return $this->transOk;
+        }
         if ($this->transOk) {
             $this->pdo->commit();
             return true;
@@ -481,7 +504,7 @@ class DB
         return false;
     }
 
-    /** Marca la transacción actual como fallida. */
+    /** Marca la transacción actual (todos los niveles) como fallida. */
     public function FailTrans(): void
     {
         $this->transOk = false;
@@ -491,6 +514,16 @@ class DB
     public function HasFailedTrans(): bool
     {
         return !$this->transOk;
+    }
+
+    /**
+     * True si hay una transacción abierta (cualquier profundidad). Usado por
+     * services para decidir si un side-effect (publish WS) corre ahora o
+     * debe diferirse a después del commit del orquestador externo.
+     */
+    public function InTrans(): bool
+    {
+        return $this->transDepth > 0;
     }
 
     /**

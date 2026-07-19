@@ -119,8 +119,9 @@ final class SpaceSessionService
             // orden enviada. updateStatus() valida la transición, protege
             // órdenes ya cobradas (saletransactionid presente) y publica a
             // KDS/realtime por cada orden — no duplicar esa lógica acá.
-            $orders   = new \Punto\Api\Orders\OrderCoreService($this->db);
-            $rsActive = $this->db->Execute(
+            $orders       = new \Punto\Api\Orders\OrderCoreService($this->db);
+            $cancelledIds = [];
+            $rsActive     = $this->db->Execute(
                 "SELECT orderid FROM pos_order
                   WHERE spacesessionid = ? AND companyid = ?
                     AND status NOT IN ('closed','cancelled')",
@@ -128,7 +129,11 @@ final class SpaceSessionService
             );
             if ($rsActive !== false) {
                 foreach ($rsActive->GetRows() as $row) {
-                    $orders->updateStatus($companyId, (string) $row['orderid'], 'cancelled');
+                    $orderId = (string) $row['orderid'];
+                    // updateStatus difiere su publish (InTrans) — se emite
+                    // abajo, después del commit real de ESTA transacción.
+                    $orders->updateStatus($companyId, $orderId, 'cancelled');
+                    $cancelledIds[] = $orderId;
                 }
             }
 
@@ -149,6 +154,12 @@ final class SpaceSessionService
         $db->CompleteTrans();
         if ($failed) {
             throw new \RuntimeException('No se pudo cancelar la sesión (transacción abortada)');
+        }
+
+        // Publishes diferidos de la cascada — recién ahora que la TX commiteó
+        // de verdad (sin phantom notify al KDS si algo hubiera abortado).
+        foreach ($cancelledIds as $orderId) {
+            $orders->publishOrderStatus($companyId, $orderId);
         }
         $result = $this->find($companyId, $sessionId);
         if ($result !== null) {

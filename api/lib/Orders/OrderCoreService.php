@@ -347,11 +347,29 @@ final class OrderCoreService
         }
 
         $order = $this->find($companyId, $id);
-        if ($order !== null) {
+        // Si seguimos dentro de una TX externa (cascada — ej. SpaceSessionService::
+        // cancel), el publish se DIFIERE: notificar al KDS un cambio que la TX
+        // externa puede rollbackear sería un phantom notify. El orquestador
+        // llama publishOrderStatus() tras SU commit.
+        if ($order !== null && !$db->InTrans()) {
             $this->publish($companyId, $order['outletId'], 'order:status', $order);
             realtimePublish('order', 'update', $id);
         }
         return $order ?? [];
+    }
+
+    /**
+     * Publica el estado actual de una orden a KDS/realtime. Para orquestadores
+     * que mutan órdenes dentro de su propia TX (updateStatus difiere el publish
+     * cuando InTrans()) y notifican recién después del commit.
+     */
+    public function publishOrderStatus(string $companyId, string $orderId): void
+    {
+        $order = $this->find($companyId, $orderId);
+        if ($order !== null) {
+            $this->publish($companyId, $order['outletId'], 'order:status', $order);
+            realtimePublish('order', 'update', $orderId);
+        }
     }
 
     /**
