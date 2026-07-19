@@ -1158,10 +1158,16 @@ function CartBottom({
   const isOrderMode = cartMode === "orden-mostrador" || cartMode === "orden-espacio"
   const visual = MODE_VISUALS[cartMode]
 
-  // Label + acción del CTA por modo. Cotización NO dispara nada desde acá —
-  // el guardado ya arrancó desde el drawer de Opciones; el botón solo
-  // refleja el estado "en vuelo" (ver mode-visuals.ts). Espacio seleccionado
-  // → el nombre del espacio reemplaza "Ordenar" (mismo color, mismo lugar).
+  // Label + acción del CTA por modo. Venta: el monto formateado ES el label
+  // (comportamiento histórico — el cajero mira el botón para saber cuánto
+  // cobrar). Modos con color: label de la acción + total en secundario (más
+  // chico, misma línea — no achica el touch target). Cotización NO dispara
+  // nada desde acá — el guardado ya arrancó desde el drawer de Opciones; el
+  // botón solo refleja el estado "en vuelo" (ver mode-visuals.ts). Espacio
+  // seleccionado → el nombre del espacio reemplaza "Ordenar".
+  const secondaryTotal = lineCount > 0 && (
+    <span className="text-xl font-semibold opacity-80">{totalFormatted}</span>
+  )
   let ctaLabel: React.ReactNode
   let ctaAction: (() => void) | undefined
   let ctaAriaLabel: string
@@ -1175,16 +1181,20 @@ function CartBottom({
       "Enviando..."
     ) : cartMode === "orden-espacio" && spaceName ? (
       <span className="flex items-center justify-center gap-2">
-        {SpaceIcon && <SpaceIcon className="size-6" aria-hidden />}
-        {spaceName}
+        {SpaceIcon && <SpaceIcon className="size-6 shrink-0" aria-hidden />}
+        <span className="truncate">{spaceName}</span>
+        {secondaryTotal}
       </span>
     ) : (
-      "Ordenar"
+      <span className="flex items-center justify-center gap-2">
+        Ordenar
+        {secondaryTotal}
+      </span>
     )
     ctaAction = onOrderClick
     ctaAriaLabel = cartMode === "orden-espacio" && spaceName ? `Ordenar — ${spaceName}` : "Ordenar"
   } else {
-    ctaLabel = "Pagar"
+    ctaLabel = totalFormatted
     ctaAction = onPayClick
     ctaAriaLabel = `Cobrar ${totalFormatted}`
   }
