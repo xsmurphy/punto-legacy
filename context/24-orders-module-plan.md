@@ -82,14 +82,50 @@ screen (`{companyId}:checkout:{registerId}` → `wsPublish` en `screens.php`):
   (`order_station`, `pos_order`, `pos_order_item`), `OrderCoreService.php`
   + `StationService`, endpoints `orders-core.php` / `order-stations.php`,
   realtime. Sin UI.
-- **O1 — POS modal**. Modo orden en `/pos` (botón Pagar→Ordenar), envío a
-  cocina, `/pos/ordenes` (listado real reemplazando cualquier placeholder),
-  comandas impresas por estación (integra con la Estación de Impresión
-  planificada), cobro por volcado al carrito. Conecta los toggles hoy
-  huecos en Settings: `ordenEnVenta` / `ordenAImpresion` /
-  `modoSoloOrdenes` — hoy no hacen nada, O1 los cablea al comportamiento
-  real (habilitar modo orden en el POS / enviar automáticamente a impresión
-  al enviar orden / forzar el POS a arrancar siempre en modo orden).
+- **O1 — POS modal. ✅ DONE (2026-07-18).** Modo orden en `/pos` (botón
+  Pagar→Ordenar), envío a cocina, `/pos/ordenes` (listado real reemplazando
+  el placeholder), comandas impresas por estación, cobro por volcado al
+  carrito. Toggles `ordenEnVenta` / `ordenAImpresion` / `modoSoloOrdenes`
+  cableados al comportamiento real.
+
+  **Archivos**: `lib/cart/store.ts` (posMode, orderParentId, loadFromOrder),
+  `hooks/use-orders.ts` + `app/api/pos/orders/route.ts` (BFF), `lib/orders/
+  print-comandas.ts`, `hooks/use-clear-cart.ts`, `components/register/
+  sale-options-drawer.tsx` (toggle modo orden), `components/register/
+  cart-panel.tsx` (botón Ordenar), `components/register/pay-dialog.tsx`
+  (mark-paid + ordenEnVenta), `app/(pos)/pos/ordenes/page.tsx`,
+  `hooks/use-realtime-sync.ts` (entity `order` → `["orders"]`).
+
+  **Decisiones/deviations de esta fase** (no relitigar, documentadas para
+  contexto de O2/O3):
+  1. **Impresión de comandas reusa el pipeline existente por `categoryId`**,
+     NO un segundo mecanismo basado en `pos_order_item.stationid`. La orden
+     ya resuelve `stationId` server-side, pero el pipeline de impresión
+     (`printSale`/`getBindingsForSale`) parte tickets por `categoryId` de
+     ítem — es el único mecanismo de ruteo de impresión que ya usa todo el
+     POS (factura/recibo/cotización). Se resuelve el `categoryId` real de
+     cada ítem de orden (vía `itemId` → catálogo) y se deja que el pipeline
+     existente arme el ticket con `docType="order"`. Un solo lugar de verdad
+     para "qué impresora recibe qué ítems" en vez de dos paralelos. Ver
+     comentario en `lib/orders/print-comandas.ts`.
+  2. **Toggle "Orden" en el menú de Opciones**: NO stub. Setea `posMode`
+     directo (no abre dialog). Cuando `posMode==="orden"` aparece un ítem
+     companion "Volver a venta" — oculto si `modoSoloOrdenes` está activo
+     (el owner pidió explícitamente ocultar la vuelta a venta en ese caso).
+  3. **"Activa" en `/pos/ordenes`**: `ACTIVE_ORDER_STATUSES` = todo excepto
+     `closed`/`cancelled` (open, sent, in_progress, ready, delivered) —
+     espeja `ORDER_TRANSITIONS` de `OrderCoreService.php`.
+  4. **`clear()` respeta `modoSoloOrdenes`** vía un hook dedicado
+     (`useClearCart`), NO metiendo el flag en el store del carrito — el
+     store se mantiene config-agnóstico a propósito (ver comentario en
+     `lib/cart/store.ts`). Todo call-site de `clear()` en el flujo de venta
+     pasa por este hook (cart-panel Vaciar/Cancelar, pay-dialog success,
+     Ordenar exitoso).
+  5. **Detalle de orden por card** (`/pos/ordenes`): `list()` no trae ítems
+     (ver `OrderCoreService::list()`), así que cada card pide su propio
+     detalle vía `useOrder(order.id)` (N+1 liviano — el volumen de órdenes
+     activas simultáneas en un turno es bajo; si O2/O3 revela volumen alto,
+     se resuelve trayendo ítems en `list()`).
 - **O2 — KDS + pantalla mozos**. Pantallas de cocina (device pairing module
   KDS) consumiendo `{companyId}:kds:{outletId}`; pantalla de mozos para ver
   estado de sus órdenes/mesas.

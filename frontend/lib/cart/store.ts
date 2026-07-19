@@ -20,6 +20,8 @@
 
 import { create } from "zustand"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
+import { useCatalogStore } from "@/lib/catalog/store"
+import type { Order } from "@/hooks/use-orders"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -187,6 +189,25 @@ interface CartState {
   quoteParentId: string | null
 
   /**
+   * Modo del carrito (context/24-orders-module-plan.md). "venta" (default) es
+   * el flujo actual de cobro directo. "orden" arma una orden operativa (envía
+   * a cocina, NO cobra) — el botón principal cambia de "Pagar" a "Ordenar".
+   * La cotización sigue siendo una acción de guardado inmediato aparte, NO
+   * un modo — no se toca su mecanismo acá.
+   */
+  posMode: "venta" | "orden"
+
+  /**
+   * ID de la orden padre (`pos_order`). Se setea vía `loadFromOrder()` cuando
+   * el cajero elige "Cobrar" desde `/pos/ordenes` — el carrito se llena en
+   * modo venta con el contenido de la orden y, al confirmar el cobro,
+   * `pay-dialog.tsx` llama `OrderCoreService::markPaid()` con este id y el
+   * transactionId resultante. Se resetea en clear() (mismo mecanismo que
+   * quoteParentId).
+   */
+  orderParentId: string | null
+
+  /**
    * Controla cómo se agrupan los ítems repetidos al agregar al carrito.
    *
    * - true (default): suma cantidad solo si el ítem nuevo coincide con el
@@ -297,6 +318,24 @@ interface CartState {
   setQuoteParent: (id: string | null) => void
 
   /**
+   * Cambia el modo del carrito. El store es config-agnóstico: NO sabe de
+   * `modoSoloOrdenes` — el runtime (cart-panel / página del POS) decide si
+   * debe re-lockear a "orden" después de un clear() cuando ese flag está
+   * activo (ver context/24-orders-module-plan.md, decisión O1 punto 1).
+   */
+  setPosMode: (mode: "venta" | "orden") => void
+
+  /**
+   * Vuelca el contenido de una orden (`pos_order` + `pos_order_item`) al
+   * carrito en modo venta — "cobrar una orden" es copiar su contenido al
+   * carrito y facturar con el flujo normal (context/24, "UX — decisión clave
+   * del owner"). Resuelve el cliente completo desde el catálogo (la orden
+   * solo trae `customerId`). Ítems cancelados de la orden se excluyen.
+   * Reemplaza el carrito entero (no hace merge con líneas existentes).
+   */
+  loadFromOrder: (order: Order) => void
+
+  /**
    * Setea el descuento de venta (transactionDiscount). No toca las líneas.
    * El monto en plata se resuelve via selectSaleDiscountAmount y se resta
    * en selectCartTotal. Siempre removible con clearSaleDiscount().
@@ -335,6 +374,8 @@ const initialState = {
   tags: [] as string[],
   quoteParentId: null as string | null,
   saleDiscount: null as { value: number; mode: "percent" | "money" } | null,
+  posMode: "venta" as "venta" | "orden",
+  orderParentId: null as string | null,
 }
 
 export const useCartStore = create<CartState>()((set, _get) => ({
@@ -529,6 +570,37 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   setQuoteParent: (id) => {
     set({ quoteParentId: id })
+  },
+
+  setPosMode: (mode) => {
+    set({ posMode: mode })
+  },
+
+  loadFromOrder: (order) => {
+    const { customers } = useCatalogStore.getState()
+    const customer = order.customerId
+      ? (customers.find((c) => c.id === order.customerId) ?? null)
+      : null
+
+    const newLines: CartLine[] = (order.items ?? [])
+      .filter((oi) => oi.status !== "cancelled")
+      .map((oi) => ({
+        lineId: crypto.randomUUID(),
+        itemId: oi.itemId ?? "",
+        name: oi.name,
+        qty: oi.qty,
+        unitPrice: oi.price ?? 0,
+        note: oi.note ?? undefined,
+      }))
+
+    set({
+      ...initialState,
+      lines: newLines,
+      customer,
+      note: order.note ?? null,
+      posMode: "venta",
+      orderParentId: order.id,
+    })
   },
 
   setSaleDiscount: (value, mode) => {

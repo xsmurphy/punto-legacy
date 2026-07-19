@@ -51,6 +51,8 @@ import type { PrinterDocType } from "@/lib/hardware/printers/binding"
 import { buildTicketData } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
+import { useCreateOrder, useMarkOrderPaid } from "@/hooks/use-orders"
+import { useClearCart } from "@/hooks/use-clear-cart"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -157,9 +159,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const interno = useCartStore((s) => s.interno)
   const tags = useCartStore((s) => s.tags)
   const quoteParentId = useCartStore((s) => s.quoteParentId)
+  const orderParentId = useCartStore((s) => s.orderParentId)
   const saleDiscount = useCartStore((s) => s.saleDiscount)
   const setQuoteParent = useCartStore((s) => s.setQuoteParent)
-  const clear = useCartStore((s) => s.clear)
+  const clearCart = useClearCart()
   const total = useCartStore(selectCartTotal)
   const config = useCatalogStore((s) => s.config)
   const storedMethods = useCatalogStore((s) => s.paymentMethods)
@@ -185,7 +188,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const { data: drawerStatus } = useDrawerStatus()
   const { data: configData } = usePosRegisterConfig(activeRegisterId)
   const controlCaja = configData?.config?.controlCaja ?? true
+  const ordenEnVenta = configData?.config?.ordenEnVenta ?? false
   const drawerClosed = controlCaja ? (drawerStatus !== undefined && !drawerStatus.isOpen) : false
+
+  const createOrder = useCreateOrder()
+  const markOrderPaid = useMarkOrderPaid()
 
   const qc = useQueryClient()
 
@@ -330,7 +337,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         const count = await getCount()
         useOfflineSyncStore.getState().setPendingCount(count)
 
-        clear()
+        clearCart()
         toast.success('Venta guardada — se enviará al volver online')
         return
       }
@@ -381,6 +388,43 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         }).catch(() => {
           toast.error("Venta confirmada — giftcard pendiente de sincronización. Avisá al soporte.")
         })
+      }
+
+      // Módulo de Órdenes (O1, context/24-orders-module-plan.md) — dos casos,
+      // mutuamente excluyentes, ninguno bloquea el éxito de la venta ya confirmada:
+      //
+      // 1) orderParentId presente: esta venta viene de "Cobrar" una orden
+      //    existente (loadFromOrder en /pos/ordenes) — cerrar el rastro con
+      //    markPaid usando el transactionId recién creado.
+      // 2) Sin orderParentId, con ordenEnVenta=true: venta normal en modo
+      //    venta — generar una orden espejo (sendNow=true) y cobrarla
+      //    inmediatamente, para que quede el mismo registro operativo que si
+      //    el mozo la hubiera tomado como orden primero.
+      if (orderParentId && result?.transactionId) {
+        void markOrderPaid.mutateAsync({ orderId: orderParentId, transactionId: result.transactionId })
+          .catch(() => {
+            toast.error("Venta confirmada — no se pudo cerrar la orden vinculada. Avisá al soporte.")
+          })
+      } else if (ordenEnVenta && result?.transactionId) {
+        void (async () => {
+          try {
+            const created = await createOrder.mutateAsync({
+              source: "counter",
+              items: lines.map((l) => ({
+                itemId: l.itemId,
+                qty: l.qty,
+                price: l.unitPrice,
+                note: l.note,
+              })),
+              customerId: customer?.id,
+              note: payload.note ?? undefined,
+              sendNow: true,
+            })
+            await markOrderPaid.mutateAsync({ orderId: created.id, transactionId: result.transactionId })
+          } catch {
+            toast.warning("Venta confirmada — no se pudo generar la orden vinculada (ordenEnVenta)")
+          }
+        })()
       }
 
       setPhase("success")
@@ -645,7 +689,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   function handleClose() {
     if (phase === "success") {
-      clear() // clear() ya resetea quoteParentId via initialState
+      clearCart() // clear() ya resetea quoteParentId/orderParentId via initialState (+ relock modoSoloOrdenes)
       void api.post("/v1/screens?resource=publish", {
         type: "cart-cleared",
         data: {},

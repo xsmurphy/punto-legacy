@@ -84,6 +84,10 @@ import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
 import { OfflineBanner } from "@/components/pos/offline-banner"
+import { useCreateOrder } from "@/hooks/use-orders"
+import { useClearCart } from "@/hooks/use-clear-cart"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { printOrderComandas } from "@/lib/orders/print-comandas"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -91,12 +95,15 @@ export function CartPanel() {
   const lines = useCartStore((s) => s.lines)
   const selectedLineId = useCartStore((s) => s.selectedLineId)
   const customer = useCartStore((s) => s.customer)
+  const note = useCartStore((s) => s.note)
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
   const ivaRemoved = useCartStore((s) => s.ivaRemoved)
   const total = useCartStore(selectCartTotal)
   const iva = useCartStore(selectCartIva)
-  const clear = useCartStore((s) => s.clear)
+  const posMode = useCartStore((s) => s.posMode)
+  const setPosMode = useCartStore((s) => s.setPosMode)
+  const clearCart = useClearCart()
   const toggleCredito = useCartStore((s) => s.toggleCredito)
   const toggleInterno = useCartStore((s) => s.toggleInterno)
   const toggleIva = useCartStore((s) => s.toggleIva)
@@ -115,7 +122,23 @@ export function CartPanel() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: configData } = usePosRegisterConfig(activeRegisterId)
   const controlCaja = configData?.config?.controlCaja ?? true
+  const modoSoloOrdenes = configData?.config?.modoSoloOrdenes ?? false
+  const ordenAImpresion = configData?.config?.ordenAImpresion ?? false
   const [drawerOpenDialogOpen, setDrawerOpenDialogOpen] = React.useState(false)
+
+  // modoSoloOrdenes: el POS arranca y queda lockeado en modo orden — si el
+  // toggle está prendido y el carrito no está ya en "orden" (arranque, o el
+  // toggle se activó mid-shift), lo forzamos. clear() con el toggle activo ya
+  // re-lockea vía useClearCart — este effect cubre el caso inicial/reactivo.
+  React.useEffect(() => {
+    if (modoSoloOrdenes && posMode !== "orden") {
+      setPosMode("orden")
+    }
+  }, [modoSoloOrdenes, posMode, setPosMode])
+
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const allBindings = bindingsData?.bindings ?? []
+  const createOrder = useCreateOrder()
 
   // Modo edición de hotkeys: el panel de venta muestra una guía en su lugar.
   const editingHotkeys = useHotkeysStore((s) => s.editing)
@@ -176,9 +199,9 @@ export function CartPanel() {
     setConfirmClearOpen(true)
   }, [lines.length])
   const doClear = React.useCallback(() => {
-    clear()
+    clearCart()
     setConfirmClearOpen(false)
-  }, [clear])
+  }, [clearCart])
 
   // Quitar IVA modifica el total de la venta. Confirmamos antes de quitarlo.
   // Reactivar (devolver el IVA) es no-destructivo → directo.
@@ -206,6 +229,51 @@ export function CartPanel() {
       setPayOpen(true)
     }
   }, [controlCaja, drawerStatus, setPayOpen])
+
+  // Modo orden (O1): "Ordenar" envía a cocina — sin caja/stock, sin gate de
+  // drawer. Crea la orden con sendNow=true (status "sent" directo) y, si
+  // ordenAImpresion está activo, imprime las comandas por estación
+  // best-effort (falla de impresión NUNCA bloquea el éxito del envío).
+  const [submittingOrder, setSubmittingOrder] = React.useState(false)
+  const handleOrderClick = React.useCallback(async () => {
+    if (lines.length === 0 || submittingOrder) return
+    setSubmittingOrder(true)
+    try {
+      const created = await createOrder.mutateAsync({
+        source: "counter",
+        items: lines.map((l) => ({
+          itemId: l.itemId,
+          qty: l.qty,
+          price: l.unitPrice,
+          note: l.note,
+        })),
+        customerId: customer?.id,
+        note: note ?? undefined,
+        sendNow: true,
+      })
+
+      toast.success(`Orden #${created.orderNumber} enviada a cocina`)
+      clearCart()
+
+      if (ordenAImpresion) {
+        printOrderComandas(created, allBindings, config)
+          .then((r) => {
+            if (r.failed > 0) {
+              toast.warning(
+                `${r.failed} impresora(s) fallaron al imprimir la comanda${r.errors[0] ? `: ${r.errors[0]}` : ""}`,
+              )
+            }
+          })
+          .catch((err) => console.error("[printOrderComandas]", err))
+      }
+    } catch (err) {
+      toast.error("No se pudo enviar la orden", {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setSubmittingOrder(false)
+    }
+  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config])
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
@@ -361,7 +429,7 @@ export function CartPanel() {
       {/* ── Extras de la venta (nota / descuento / usuario) ── */}
       <CartExtras />
 
-      {/* ── Bottom: toggles + botón cobrar ── */}
+      {/* ── Bottom: toggles + botón cobrar/ordenar ── */}
       <CartBottom
         credito={credito}
         interno={interno}
@@ -374,7 +442,10 @@ export function CartPanel() {
         total={totalValue}
         lineCount={lines.length}
         config={config}
+        posMode={posMode}
         onPayClick={handlePayClick}
+        onOrderClick={handleOrderClick}
+        orderSubmitting={submittingOrder}
       />
         </>
       )}
@@ -938,7 +1009,10 @@ function CartBottom({
   total,
   lineCount,
   config,
+  posMode,
   onPayClick,
+  onOrderClick,
+  orderSubmitting,
 }: {
   credito: boolean
   interno: boolean
@@ -951,10 +1025,14 @@ function CartBottom({
   total: number
   lineCount: number
   config: ReturnType<typeof useCatalogStore.getState>["config"]
+  posMode: "venta" | "orden"
   onPayClick: () => void
+  onOrderClick: () => void
+  orderSubmitting: boolean
 }) {
   const totalFormatted = formatMoney(total, config)
   const ivaFormatted = formatMoney(iva, config)
+  const isOrderMode = posMode === "orden"
 
   return (
     <div className="shrink-0 bg-background p-2 pt-2">
@@ -993,15 +1071,16 @@ function CartBottom({
         )}
       </div>
 
-      {/* Botón cobrar — pill neutro del design system (Button default, --primary).
-          `rounded-full` 100% corner radius; solo override de tamaño. */}
+      {/* Botón cobrar/ordenar — mismo slot y estilo (pill, Button default,
+          --primary). Modo orden (O1): "Ordenar" envía a cocina, no cobra —
+          sin gate de caja/stock, mismo lugar que Pagar en modo venta. */}
       <Button
-        disabled={lineCount === 0}
-        onClick={lineCount > 0 ? onPayClick : undefined}
+        disabled={lineCount === 0 || (isOrderMode && orderSubmitting)}
+        onClick={lineCount > 0 ? (isOrderMode ? onOrderClick : onPayClick) : undefined}
         className="h-auto w-full rounded-full px-4 py-3 text-3xl font-bold active:scale-[0.98]"
-        aria-label={`Cobrar ${totalFormatted}`}
+        aria-label={isOrderMode ? "Ordenar" : `Cobrar ${totalFormatted}`}
       >
-        {totalFormatted}
+        {isOrderMode ? (orderSubmitting ? "Enviando..." : "Ordenar") : totalFormatted}
       </Button>
     </div>
   )
