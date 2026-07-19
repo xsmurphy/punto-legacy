@@ -19,8 +19,8 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { LayoutGrid } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { LayoutGrid, Map } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { PosSpaceTile } from "@/components/spaces/pos-space-tile"
 import { OpenSpaceDialog } from "@/components/spaces/open-space-dialog"
@@ -43,6 +43,16 @@ const CANVAS_HEIGHT = 600
 const ALL_SECTORS = "__all__"
 const DECOR_SHAPES = ["decor_wall", "decor_plant", "bar"]
 
+type SpaceView = "grid" | "map"
+const VIEW_STORAGE_KEY = "punto.pos.espacios.view"
+
+// Config local por dispositivo (patrón KdsConfig, pero inline): la vista
+// elegida persiste en localStorage y se restaura al volver. Default: grilla.
+function readStoredView(): SpaceView {
+  if (typeof window === "undefined") return "grid"
+  return window.localStorage.getItem(VIEW_STORAGE_KEY) === "map" ? "map" : "grid"
+}
+
 export default function EspaciosPage() {
   const router = useRouter()
   const { data: tablesData } = usePosSpacesState()
@@ -51,18 +61,32 @@ export default function EspaciosPage() {
   const sectors = sectorsData?.sectors ?? []
 
   const [activeSector, setActiveSector] = React.useState<string>(ALL_SECTORS)
+  // SSR guard: arranca en 'grid' y se hidrata desde localStorage tras montar.
+  const [view, setView] = React.useState<SpaceView>("grid")
+  React.useEffect(() => {
+    setView(readStoredView())
+  }, [])
+  const selectView = React.useCallback((v: SpaceView) => {
+    setView(v)
+    if (typeof window !== "undefined") window.localStorage.setItem(VIEW_STORAGE_KEY, v)
+  }, [])
+
   const sectorTables = React.useMemo(
     () => (activeSector === ALL_SECTORS ? tables : tables.filter((t) => t.sectorId === activeSector)),
     [tables, activeSector],
   )
-  // Los decorativos (barra/pared/planta) solo aportan al plano si tienen
-  // posición custom del editor de layout. Sin posición se apilaban en el origen
-  // del canvas (posX ?? 0) o ensuciaban la grilla numerada — mejor ocultarlos.
-  const visibleTables = React.useMemo(
+  // Grilla: SOLO espacios reales (los decorativos —barra/pared/planta— nunca
+  // aportan a la grilla numerada aunque tengan posición custom).
+  const gridTables = React.useMemo(
+    () => sectorTables.filter((t) => !DECOR_SHAPES.includes(t.shape)),
+    [sectorTables],
+  )
+  // Mapa: espacios reales + decorativos que tengan posición custom del editor.
+  const mapTables = React.useMemo(
     () => sectorTables.filter((t) => !DECOR_SHAPES.includes(t.shape) || (t.posX !== null && t.posY !== null)),
     [sectorTables],
   )
-  const hasCustomLayout = visibleTables.some((t) => t.posX !== null && t.posY !== null)
+  const hasCustomLayout = mapTables.some((t) => t.posX !== null && t.posY !== null)
 
   const [openingTable, setOpeningTable] = React.useState<SpaceWithState | null>(null)
   const [sessionTable, setSessionTable] = React.useState<SpaceWithState | null>(null)
@@ -176,52 +200,47 @@ export default function EspaciosPage() {
         chargePending={chargingSessionId === sessionTable?.session?.id}
       />
 
-      {sectors.length > 0 && (
-        <div className="shrink-0 border-b border-border px-3 py-2">
-          <Tabs value={activeSector} onValueChange={setActiveSector}>
-            <TabsList>
-              <TabsTrigger value={ALL_SECTORS}>Todos</TabsTrigger>
-              {sectors.map((s) => (
-                <TabsTrigger key={s.id} value={s.id}>
-                  {s.name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-auto p-3">
-        {visibleTables.length === 0 ? (
+      {/* pb-16: deja espacio para que la barra flotante no tape los tiles. */}
+      <div className="flex-1 overflow-auto p-3 pb-16">
+        {view === "map" ? (
+          hasCustomLayout ? (
+            <ScaledCanvas>
+              {mapTables.map((table) => {
+                const size = defaultSize(table.shape)
+                return (
+                  <PosSpaceTile
+                    key={table.id}
+                    table={table}
+                    onClick={() => handleTileClick(table)}
+                    position={{
+                      x: table.posX ?? 0,
+                      y: table.posY ?? 0,
+                      width: table.width ?? size.width,
+                      height: table.height ?? size.height,
+                      rotation: table.rotation,
+                    }}
+                  />
+                )
+              })}
+            </ScaledCanvas>
+          ) : (
+            <EmptyState
+              icon={Map}
+              title="Sin plano configurado"
+              description="Armá el plano en Ajustes → Espacios, o usá la vista grilla."
+              className="h-full"
+            />
+          )
+        ) : gridTables.length === 0 ? (
           <EmptyState
             icon={LayoutGrid}
             title="Sin espacios configurados en este sector"
             description="Configuralos desde Ajustes → Espacios."
             className="h-full"
           />
-        ) : hasCustomLayout ? (
-          <ScaledCanvas>
-            {visibleTables.map((table) => {
-              const size = defaultSize(table.shape)
-              return (
-                <PosSpaceTile
-                  key={table.id}
-                  table={table}
-                  onClick={() => handleTileClick(table)}
-                  position={{
-                    x: table.posX ?? 0,
-                    y: table.posY ?? 0,
-                    width: table.width ?? size.width,
-                    height: table.height ?? size.height,
-                    rotation: table.rotation,
-                  }}
-                />
-              )
-            })}
-          </ScaledCanvas>
         ) : (
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-            {visibleTables.map((table) => (
+            {gridTables.map((table) => (
               <div key={table.id} className="aspect-square">
                 <PosSpaceTile table={table} onClick={() => handleTileClick(table)} />
               </div>
@@ -229,7 +248,102 @@ export default function EspaciosPage() {
           </div>
         )}
       </div>
+
+      {/* Barra flotante — misma visual/posición que la barra de categorías del
+          modo venta (product-area.tsx): pill oscura #22252A (excepción documentada
+          del design system). Existe SIEMPRE (Regla #10): switch de vista +
+          sectores. Con 0 sectores quedan el switch y el pill "Todos". */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex px-3">
+        <div className="pointer-events-auto flex w-full items-center gap-2 rounded-full bg-[#22252A] py-1.5 pl-1.5 pr-3 shadow-lg">
+          {/* Switch de vista Grilla / Mapa (segmented). */}
+          <div className="flex shrink-0 items-center gap-1">
+            <ViewButton
+              icon={LayoutGrid}
+              label="Grilla"
+              active={view === "grid"}
+              onClick={() => selectView("grid")}
+            />
+            <ViewButton
+              icon={Map}
+              label="Mapa"
+              active={view === "map"}
+              onClick={() => selectView("map")}
+            />
+          </div>
+          <div className="h-6 w-px shrink-0 bg-white/15" />
+          {/* Pills de sectores — scroll horizontal (igual que categorías). */}
+          <div
+            className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap"
+            style={{ scrollbarWidth: "none" }}
+          >
+            <SectorPill
+              label="Todos"
+              active={activeSector === ALL_SECTORS}
+              onClick={() => setActiveSector(ALL_SECTORS)}
+            />
+            {sectors.map((s) => (
+              <SectorPill
+                key={s.id}
+                label={s.name}
+                active={activeSector === s.id}
+                onClick={() => setActiveSector(s.id)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
+  )
+}
+
+function ViewButton({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: typeof LayoutGrid
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Vista ${label.toLowerCase()}`}
+      aria-pressed={active}
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold transition-colors",
+        active ? "bg-white text-neutral-900" : "text-white/80 hover:text-white",
+      )}
+    >
+      <Icon className="size-4" />
+      {label}
+    </button>
+  )
+}
+
+function SectorPill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-colors",
+        active ? "bg-white text-neutral-900" : "text-white/80 hover:text-white",
+      )}
+    >
+      {label}
+    </button>
   )
 }
 
