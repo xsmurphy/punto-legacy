@@ -159,8 +159,15 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
             $sawWrongRealm = true;
             continue;
         }
-        $session = $s;
-        break;
+        if ($session === null) {
+            $session = $s;
+        }
+        // NO break: seguimos inspeccionando los candidatos restantes SOLO para
+        // poblar $seenRealms (el diagnóstico de credenciales cruzadas de abajo).
+        // Sin esto, el primer match corta el loop y el log jamás ve el segundo
+        // realm — exactamente el caso que queremos cazar (blind-spot, P1 del
+        // code review). El costo extra es ≤2 lookups cacheables por request
+        // y solo cuando hay múltiples credenciales.
     }
     if (count($seenRealms) > 1) {
         error_log(sprintf(
