@@ -24,6 +24,7 @@ import {
   X,
   XCircle,
   MoreVertical,
+  Undo2,
   type LucideIcon,
 } from "lucide-react"
 
@@ -66,6 +67,7 @@ import { createQuote } from "@/lib/commands/create-quote"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import type { TransactionDetail } from "@/hooks/use-transactions"
 import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
+import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -100,6 +102,13 @@ export function SaleOptionsDrawer({
   const [saveTitle, setSaveTitle] = React.useState("")
 
   const config = useCatalogStore((s) => s.config)
+
+  // Modo orden (O1) — el toggle vive acá; modoSoloOrdenes bloquea la vuelta a venta.
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
+  const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
+  const posMode = useCartStore((s) => s.posMode)
+  const setPosMode = useCartStore((s) => s.setPosMode)
 
   // Selectors for icon active state.
   const note = useCartStore((s) => s.note)
@@ -270,8 +279,26 @@ export function SaleOptionsDrawer({
       key: "order",
       label: "Orden",
       icon: ClipboardList,
-      stub: true,
+      active: posMode === "orden",
+      action: () => {
+        if (posMode === "orden") return // ya activo — usar "Volver a venta" para salir
+        setPosMode("orden")
+        setOpen(false)
+        toast.success("Modo orden activado — el botón principal ahora envía a cocina")
+      },
     },
+    ...(posMode === "orden" && !modoSoloOrdenes
+      ? [{
+          key: "back-to-venta",
+          label: "Volver a venta",
+          icon: Undo2 as LucideIcon,
+          action: () => {
+            setPosMode("venta")
+            setOpen(false)
+            toast.success("Modo venta activado")
+          },
+        }]
+      : []),
     {
       key: "priceList",
       label: "Lista de precios",

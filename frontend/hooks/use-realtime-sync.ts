@@ -37,6 +37,10 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // El PUT ?resource=hotkeys dispara este evento → refetch de pos-hotkeys es benigno
   // (el servidor ya escribió antes del emit, no hay race).
   register:          [["pos-hotkeys"], ["pos-bootstrap"], ["registers"]],
+  // Módulo de Órdenes (O1, context/24-orders-module-plan.md). Invalidación
+  // genérica de queryKeys — NO es el canal KDS ({companyId}:kds:{outletId},
+  // scope O2), ese lo consumen pantallas de cocina/mozos dedicadas.
+  order:             [["orders"]],
   // pack, payment-method, giftcard, table, schedule: no hay hooks con queryKeys
   // propios en frontend aún — se agregan cuando existan sus hooks.
 }
