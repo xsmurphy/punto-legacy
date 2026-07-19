@@ -514,6 +514,31 @@ Cookie `_jwt` (10 años, device pairing) separada de `_jwt_panel` (24h,
 operador). El logout del sidebar del panel NO cierra la sesión del POS —
 solo se cierra desde Ajustes → "Eliminar dispositivo del comercio".
 
+### Colores de modo del POS (2026-07-19)
+
+Los cajeros operan sin leer — el color, no el texto, es el canal principal
+para saber en qué modo está la caja y qué hace el botón principal. Mapeo
+único en `lib/pos/mode-visuals.ts` (`MODE_VISUALS` + `resolveCartMode()`) —
+**nunca duplicar el mapping inline** en otro componente.
+
+**Regla fija: un color por modo, siempre en los mismos 2 lugares** — (1) el
+CTA principal del carrito (`CartBottom` en `components/register/cart-panel.tsx`),
+(2) la banda superior del panel (`ModeBanner`, mismo archivo).
+
+| Modo | Color (`PALETTE_COLORS`) | CTA | Notas |
+|---|---|---|---|
+| Venta | ninguno — baseline oscuro actual | el TOTAL formateado (histórico — el cajero mira el botón para saber cuánto cobrar) | Cualquier color = "no estás cobrando"; por eso venta queda sin tinte |
+| Orden (mostrador) | `emerald` | "Ordenar" + total en secundario | |
+| Orden (espacio seleccionado) | `emerald` (mismo color) | nombre del espacio (ej. "Mesa 4") + ícono `Armchair` + total en secundario | Reemplaza al `SpaceChip` — la banda ya trae la X de deseleccionar |
+| Cotización | `amber` | refleja el guardado en vuelo, no dispara acción | Cotización es una acción de guardado inmediato, NO un `posMode` sticky (`lib/cart/store.ts`) — el color solo vive mientras la promesa de `createQuote()` está en curso (`usePosUIStore.savingQuote`) |
+| Agenda | `violet` | — | Reservado — "Modo reserva" (context/24, O4, fuera de alcance). Sin estado real hoy; queda definido en el mapping para que agenda lo consuma directo |
+
+**Contraste**: blanco sobre `amber`/`emerald`/`violet` no llega a AA (medido
+~2.1:1 / ~2.5:1 / ~4.2:1 contra el mínimo 3:1 de texto grande) — CTA y banda
+usan `text-black` sobre los 3 acentos (>4.9:1, AA holgado en cualquier
+tamaño). Los 3 hex son fijos (no tokens de tema) — se ven igual en light y
+dark.
+
 ---
 
 ## 8. Formatos

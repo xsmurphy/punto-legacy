@@ -34,6 +34,7 @@ import {
   StickyNote,
   UserCircle2,
 } from "lucide-react"
+import { MODE_VISUALS, resolveCartMode, type CartModeKey } from "@/lib/pos/mode-visuals"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -158,6 +159,11 @@ export function CartPanel() {
   const setCustomerOpen = usePosUIStore((s) => s.setCustomerOpen)
   const payOpen = usePosUIStore((s) => s.payOpen)
   const setPayOpen = usePosUIStore((s) => s.setPayOpen)
+  // Cotización en vuelo — única ventana en la que ese "modo" existe (no es un
+  // posMode sticky, ver lib/pos/mode-visuals.ts). Pinta CTA + banda amber.
+  const savingQuote = usePosUIStore((s) => s.savingQuote)
+
+  const cartMode: CartModeKey = resolveCartMode(posMode, spaceName, savingQuote)
 
   const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
   const [syncQueueOpen, setSyncQueueOpen] = React.useState(false)
@@ -306,6 +312,13 @@ export function CartPanel() {
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
+      {/* Banda de modo — canal principal de "en qué modo está la caja"
+          (context/20 "Colores de modo del POS"). Oculta en venta (baseline). */}
+      <ModeBanner
+        mode={cartMode}
+        spaceSessionId={spaceSessionId}
+        onClearSpace={clearSelectedSpace}
+      />
       <OfflineBanner />
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
@@ -406,7 +419,13 @@ export function CartPanel() {
       />
 
       {/* ── Chip de espacio seleccionado (context/15 F2) ── */}
-      <SpaceChip spaceName={spaceName} onClear={clearSelectedSpace} />
+      {/* Cuando el modo es "orden-espacio" la ModeBanner ya muestra el nombre
+          del espacio + su X para deseleccionar — no duplicar la señal. Este
+          chip sigue existiendo para el caso "venta" (loadFromSession: cobrar
+          el espacio completo), que no tiene banda de color propia. */}
+      {cartMode !== "orden-espacio" && (
+        <SpaceChip spaceName={spaceName} onClear={clearSelectedSpace} />
+      )}
 
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
@@ -461,7 +480,9 @@ export function CartPanel() {
         total={totalValue}
         lineCount={lines.length}
         config={config}
-        posMode={posMode}
+        cartMode={cartMode}
+        spaceName={spaceName}
+        savingQuote={savingQuote}
         onPayClick={handlePayClick}
         onOrderClick={handleOrderClick}
         orderSubmitting={submittingOrder}
@@ -564,6 +585,48 @@ function CartToolbar({
       <div className="flex flex-1 justify-center">
         <SaleOptionsDrawer onCancelSale={onCancelSale} />
       </div>
+    </div>
+  )
+}
+
+// ── Banda de modo ─────────────────────────────────────────────────────────────
+//
+// Canal principal de "en qué modo está la caja" (context/20 "Colores de modo
+// del POS"): color fijo por modo, siempre acá + en el CTA de CartBottom.
+// Oculta en "venta" (color null = baseline, sin tinte). Para "orden-espacio"
+// incluye la X de deseleccionar el espacio — reemplaza al SpaceChip para no
+// duplicar la señal de qué espacio está tomando la orden.
+
+function ModeBanner({
+  mode,
+  spaceSessionId,
+  onClearSpace,
+}: {
+  mode: CartModeKey
+  spaceSessionId: string | null
+  onClearSpace: () => void
+}) {
+  const visual = MODE_VISUALS[mode]
+  if (!visual.color) return null
+  const Icon = visual.icon
+
+  return (
+    <div
+      className="flex h-7 shrink-0 items-center gap-1.5 px-3 text-black"
+      style={{ backgroundColor: visual.color }}
+    >
+      {Icon && <Icon className="size-3.5 shrink-0" aria-hidden />}
+      <span className="text-xs font-semibold tracking-wide">{visual.label}</span>
+      {mode === "orden-espacio" && spaceSessionId && (
+        <button
+          type="button"
+          onClick={onClearSpace}
+          aria-label="Quitar espacio seleccionado"
+          className="ml-auto flex size-5 items-center justify-center rounded-full transition-colors hover:bg-black/10"
+        >
+          <X className="size-3" />
+        </button>
+      )}
     </div>
   )
 }
@@ -1065,7 +1128,9 @@ function CartBottom({
   total,
   lineCount,
   config,
-  posMode,
+  cartMode,
+  spaceName,
+  savingQuote,
   onPayClick,
   onOrderClick,
   orderSubmitting,
@@ -1081,14 +1146,58 @@ function CartBottom({
   total: number
   lineCount: number
   config: ReturnType<typeof useCatalogStore.getState>["config"]
-  posMode: "venta" | "orden"
+  cartMode: CartModeKey
+  spaceName: string | null
+  savingQuote: boolean
   onPayClick: () => void
   onOrderClick: () => void
   orderSubmitting: boolean
 }) {
   const totalFormatted = formatMoney(total, config)
   const ivaFormatted = formatMoney(iva, config)
-  const isOrderMode = posMode === "orden"
+  const isOrderMode = cartMode === "orden-mostrador" || cartMode === "orden-espacio"
+  const visual = MODE_VISUALS[cartMode]
+
+  // Label + acción del CTA por modo. Venta: el monto formateado ES el label
+  // (comportamiento histórico — el cajero mira el botón para saber cuánto
+  // cobrar). Modos con color: label de la acción + total en secundario (más
+  // chico, misma línea — no achica el touch target). Cotización NO dispara
+  // nada desde acá — el guardado ya arrancó desde el drawer de Opciones; el
+  // botón solo refleja el estado "en vuelo" (ver mode-visuals.ts). Espacio
+  // seleccionado → el nombre del espacio reemplaza "Ordenar".
+  const secondaryTotal = lineCount > 0 && (
+    <span className="text-xl font-semibold opacity-80">{totalFormatted}</span>
+  )
+  let ctaLabel: React.ReactNode
+  let ctaAction: (() => void) | undefined
+  let ctaAriaLabel: string
+  if (savingQuote) {
+    ctaLabel = "Guardando cotización..."
+    ctaAction = undefined
+    ctaAriaLabel = "Guardando cotización"
+  } else if (isOrderMode) {
+    const SpaceIcon = MODE_VISUALS["orden-espacio"].icon
+    ctaLabel = orderSubmitting ? (
+      "Enviando..."
+    ) : cartMode === "orden-espacio" && spaceName ? (
+      <span className="flex items-center justify-center gap-2">
+        {SpaceIcon && <SpaceIcon className="size-6 shrink-0" aria-hidden />}
+        <span className="truncate">{spaceName}</span>
+        {secondaryTotal}
+      </span>
+    ) : (
+      <span className="flex items-center justify-center gap-2">
+        Ordenar
+        {secondaryTotal}
+      </span>
+    )
+    ctaAction = onOrderClick
+    ctaAriaLabel = cartMode === "orden-espacio" && spaceName ? `Ordenar — ${spaceName}` : "Ordenar"
+  } else {
+    ctaLabel = totalFormatted
+    ctaAction = onPayClick
+    ctaAriaLabel = `Cobrar ${totalFormatted}`
+  }
 
   return (
     <div className="shrink-0 bg-background p-2 pt-2">
@@ -1127,16 +1236,22 @@ function CartBottom({
         )}
       </div>
 
-      {/* Botón cobrar/ordenar — mismo slot y estilo (pill, Button default,
-          --primary). Modo orden (O1): "Ordenar" envía a cocina, no cobra —
-          sin gate de caja/stock, mismo lugar que Pagar en modo venta. */}
+      {/* Botón cobrar/ordenar — mismo slot, mismo color que la ModeBanner
+          (context/20 "Colores de modo del POS"): venta = --primary sin
+          tinte, orden = emerald, cotización (en vuelo) = amber. Modo orden
+          (O1): "Ordenar" envía a cocina, no cobra — sin gate de caja/stock,
+          mismo lugar que Pagar en modo venta. */}
       <Button
-        disabled={lineCount === 0 || (isOrderMode && orderSubmitting)}
-        onClick={lineCount > 0 ? (isOrderMode ? onOrderClick : onPayClick) : undefined}
-        className="h-auto w-full rounded-full px-4 py-3 text-3xl font-bold active:scale-[0.98]"
-        aria-label={isOrderMode ? "Ordenar" : `Cobrar ${totalFormatted}`}
+        disabled={lineCount === 0 || (isOrderMode && orderSubmitting) || savingQuote}
+        onClick={lineCount > 0 ? ctaAction : undefined}
+        className={cn(
+          "h-auto w-full rounded-full px-4 py-3 text-3xl font-bold active:scale-[0.98]",
+          visual.color && "text-black hover:text-black",
+        )}
+        style={visual.color ? { backgroundColor: visual.color } : undefined}
+        aria-label={ctaAriaLabel}
       >
-        {isOrderMode ? (orderSubmitting ? "Enviando..." : "Ordenar") : totalFormatted}
+        {ctaLabel}
       </Button>
     </div>
   )
