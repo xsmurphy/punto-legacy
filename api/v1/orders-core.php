@@ -101,12 +101,13 @@ switch ($method) {
             break;
         }
         $filters = [
-            'outletId' => $outletScope ?? ($_GET['outletId'] ?? null),
-            'status'   => $_GET['status'] ?? null,
-            'source'   => $_GET['source'] ?? null,
-            'from'     => $_GET['from'] ?? null,
-            'to'       => $_GET['to'] ?? null,
-            'q'        => $_GET['q'] ?? null,
+            'outletId'       => $outletScope ?? ($_GET['outletId'] ?? null),
+            'status'         => $_GET['status'] ?? null,
+            'source'         => $_GET['source'] ?? null,
+            'from'           => $_GET['from'] ?? null,
+            'to'             => $_GET['to'] ?? null,
+            'q'              => $_GET['q'] ?? null,
+            'tableSessionId' => $_GET['tableSessionId'] ?? null,
         ];
         apiOk(['orders' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''))]);
         break;

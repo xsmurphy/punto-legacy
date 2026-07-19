@@ -15,6 +15,7 @@
  */
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import {
   User,
   X,
@@ -92,10 +93,14 @@ import { printOrderComandas } from "@/lib/orders/print-comandas"
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
 export function CartPanel() {
+  const router = useRouter()
   const lines = useCartStore((s) => s.lines)
   const selectedLineId = useCartStore((s) => s.selectedLineId)
   const customer = useCartStore((s) => s.customer)
   const note = useCartStore((s) => s.note)
+  const tableSessionId = useCartStore((s) => s.tableSessionId)
+  const tableName = useCartStore((s) => s.tableName)
+  const clearSelectedTable = useCartStore((s) => s.clearSelectedTable)
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
   const ivaRemoved = useCartStore((s) => s.ivaRemoved)
@@ -240,7 +245,8 @@ export function CartPanel() {
     setSubmittingOrder(true)
     try {
       const created = await createOrder.mutateAsync({
-        source: "counter",
+        source: tableSessionId ? "table" : "counter",
+        tableSessionId: tableSessionId ?? undefined,
         items: lines.map((l) => ({
           itemId: l.itemId,
           qty: l.qty,
@@ -252,8 +258,18 @@ export function CartPanel() {
         sendNow: true,
       })
 
-      toast.success(`Orden #${created.orderNumber} enviada a cocina`)
+      toast.success(
+        tableName
+          ? `Orden #${created.orderNumber} enviada a cocina — Mesa ${tableName}`
+          : `Orden #${created.orderNumber} enviada a cocina`,
+      )
+      const wasTableOrder = tableSessionId !== null
       clearCart()
+      // Mesa F2 (context/15): al ordenar con éxito, volvés al mapa y la
+      // selección se limpia — la mesa queda ocupada con su orden nueva.
+      if (wasTableOrder) {
+        router.push("/pos/mesas")
+      }
 
       if (ordenAImpresion) {
         printOrderComandas(created, allBindings, config)
@@ -273,7 +289,7 @@ export function CartPanel() {
     } finally {
       setSubmittingOrder(false)
     }
-  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config])
+  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, tableSessionId, tableName, router])
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
@@ -388,6 +404,9 @@ export function CartPanel() {
         onCustomer={() => setCustomerOpen(true)}
         onCancelSale={askClear}
       />
+
+      {/* ── Chip de mesa seleccionada (context/15 F2) ── */}
+      <TableChip tableName={tableName} onClear={clearSelectedTable} />
 
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
@@ -545,6 +564,43 @@ function CartToolbar({
       <div className="flex flex-1 justify-center">
         <SaleOptionsDrawer onCancelSale={onCancelSale} />
       </div>
+    </div>
+  )
+}
+
+// ── Chip de mesa seleccionada ─────────────────────────────────────────────────
+//
+// Visible en dos casos (context/15 F2): (1) el carrito está armando una
+// orden para una mesa (`tableSessionId` set, con X para deseleccionar); (2)
+// el carrito viene de "Cobrar" una mesa completa (`loadFromSession`, solo
+// `tableName` — sin X, cambiar de opinión implica cancelar la venta entera
+// desde el menú de Opciones, mismo mecanismo que cualquier otra venta armada).
+
+function TableChip({
+  tableName,
+  onClear,
+}: {
+  tableName: string | null
+  onClear: () => void
+}) {
+  const tableSessionId = useCartStore((s) => s.tableSessionId)
+  if (!tableName) return null
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5">
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-xs font-medium text-foreground">Mesa {tableName}</p>
+      </div>
+      {tableSessionId && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onClear}
+          aria-label="Quitar mesa seleccionada"
+        >
+          <X className="size-3" />
+        </Button>
+      )}
     </div>
   )
 }

@@ -78,6 +78,12 @@ export interface CreateOrderItemInput {
 
 export interface CreateOrderInput {
   source?: "counter" | "table" | "ecommerce" | "schedule"
+  /**
+   * Sesión de mesa (table_session) a la que se asocia la orden (context/15
+   * F2). El backend fuerza `source='table'` cuando está presente y valida
+   * que la sesión sea del tenant+outlet y esté `open`.
+   */
+  tableSessionId?: string
   items: CreateOrderItemInput[]
   customerId?: string
   note?: string
@@ -127,6 +133,41 @@ export function useOrder(orderId: string | null) {
     enabled: !!orderId,
     staleTime: 5 * 1000,
   })
+}
+
+/**
+ * Órdenes de una sesión de mesa (todas, cualquier status — el sheet de la
+ * mesa muestra el historial completo de rondas; `loadFromSession` en el
+ * cart store filtra client-side las billable). `list()` no trae ítems, así
+ * que cada card sigue pidiendo su detalle si necesita mostrarlos — acá se
+ * usa `useOrder` por cada id cuando hace falta el contenido para "Cobrar".
+ */
+export function useOrdersBySession(sessionId: string | null) {
+  return useQuery<{ orders: Order[] }>({
+    queryKey: ["orders", "session", sessionId],
+    queryFn: () => posJson<{ orders: Order[] }>(`/api/pos/orders?tableSessionId=${sessionId}`),
+    enabled: !!sessionId,
+    staleTime: 5 * 1000,
+  })
+}
+
+/**
+ * Detalle de una orden fuera del ciclo de hooks — usado por el flujo
+ * "Cobrar la mesa" (context/15 F2) para resolver los ítems de cada orden de
+ * la sesión antes de armar el merge en `loadFromSession` (necesita
+ * `Order.items`, que `list()`/`useOrdersBySession` no traen).
+ */
+export function fetchOrderDetail(orderId: string): Promise<Order> {
+  return posJson<Order>(`/api/pos/orders?id=${orderId}`)
+}
+
+/**
+ * Igual a `useOrdersBySession` pero fuera del ciclo de hooks — usado por el
+ * handler de "Cobrar" en `/pos/mesas` para resolver qué órdenes son
+ * billable (no closed/cancelled) antes de pedir su detalle completo.
+ */
+export function fetchOrdersBySession(sessionId: string): Promise<{ orders: Order[] }> {
+  return posJson<{ orders: Order[] }>(`/api/pos/orders?tableSessionId=${sessionId}`)
 }
 
 // ── Mutaciones ────────────────────────────────────────────────────────────────
