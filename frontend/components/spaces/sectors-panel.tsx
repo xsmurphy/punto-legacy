@@ -19,12 +19,12 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import {
-  useTableSectors,
-  useCreateTableSector,
-  useUpdateTableSector,
-  useDeleteTableSector,
-  type TableSector,
-} from "@/hooks/use-table-sectors"
+  useSpaceSectors,
+  useCreateSpaceSector,
+  useUpdateSpaceSector,
+  useDeleteSpaceSector,
+  type SpaceSector,
+} from "@/hooks/use-space-sectors"
 
 /**
  * CRUD chico de sectores — lista embebida con inline-rename, sin DataTable
@@ -40,16 +40,16 @@ export function SectorsPanel({
   selectedSectorId: string | null
   onSelectSector: (id: string | null) => void
 }) {
-  const { data } = useTableSectors(outletId)
+  const { data } = useSpaceSectors(outletId)
   const sectors = data?.sectors ?? []
-  const createMutation = useCreateTableSector()
-  const updateMutation = useUpdateTableSector()
-  const deleteMutation = useDeleteTableSector()
+  const createMutation = useCreateSpaceSector()
+  const updateMutation = useUpdateSpaceSector()
+  const deleteMutation = useDeleteSpaceSector()
 
   const [newName, setNewName] = React.useState("")
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [editingName, setEditingName] = React.useState("")
-  const [deleteTarget, setDeleteTarget] = React.useState<TableSector | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<SpaceSector | null>(null)
 
   function handleCreate() {
     const name = newName.trim()
@@ -66,7 +66,7 @@ export function SectorsPanel({
     )
   }
 
-  function startEdit(s: TableSector) {
+  function startEdit(s: SpaceSector) {
     setEditingId(s.id)
     setEditingName(s.name)
   }
@@ -156,7 +156,7 @@ export function SectorsPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar sector</AlertDialogTitle>
             <AlertDialogDescription>
-              {`¿Eliminar "${deleteTarget?.name}"? Las mesas existentes conservan el sector como referencia histórica pero dejan de listarlo como destino nuevo.`}
+              {`¿Eliminar "${deleteTarget?.name}"? Los espacios existentes conservan el sector como referencia histórica pero dejan de listarlo como destino nuevo.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -1,16 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace Punto\Api\Tables;
+namespace Punto\Api\Spaces;
 
 /**
- * SectorService — CRUD de sectores del salón (table_sector, mig 80).
+ * SpaceSectorService — CRUD de sectores del salón/local (space_sector, mig 80).
  *
- * Zonas de agrupación de mesas (Terraza, Salón, Barra). Patrón de service
- * calcado de `StationService` (api/lib/Orders/StationService.php) — mismo
- * escalón de complejidad, no requiere estado derivado.
+ * Zonas de agrupación de espacios (Terraza, Salón, Barra — o Planta alta,
+ * Cabinas, según el rubro). Patrón de service calcado de `StationService`
+ * (api/lib/Orders/StationService.php) — mismo escalón de complejidad, no
+ * requiere estado derivado.
  */
-final class SectorService
+final class SpaceSectorService
 {
     /** @var mixed */
     private $db;
@@ -24,7 +25,7 @@ final class SectorService
     public function list(string $companyId, string $outletId): array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM table_sector WHERE companyid = ? AND outletid = ? AND status = 1 ORDER BY sort ASC, name ASC',
+            'SELECT * FROM space_sector WHERE companyid = ? AND outletid = ? AND status = 1 ORDER BY sort ASC, name ASC',
             [$companyId, $outletId]
         );
         if ($rs === false) return [];
@@ -38,7 +39,7 @@ final class SectorService
     public function find(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM table_sector WHERE sectorid = ? AND companyid = ? LIMIT 1',
+            'SELECT * FROM space_sector WHERE sectorid = ? AND companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
@@ -69,7 +70,7 @@ final class SectorService
         }
 
         $rs = $this->db->Execute(
-            'INSERT INTO table_sector (sectorid, companyid, outletid, name, sort)
+            'INSERT INTO space_sector (sectorid, companyid, outletid, name, sort)
              VALUES (gen_random_uuid(), ?, ?, ?, ?)
              RETURNING sectorid',
             [$companyId, $outletId, $name, $sort]
@@ -99,7 +100,7 @@ final class SectorService
         }
 
         $ok = $this->db->Execute(
-            'UPDATE table_sector SET name = ?, sort = ? WHERE sectorid = ? AND companyid = ?',
+            'UPDATE space_sector SET name = ?, sort = ? WHERE sectorid = ? AND companyid = ?',
             [$name, $sort, $id, $companyId]
         );
         if ($ok === false) {
@@ -114,10 +115,10 @@ final class SectorService
         if ($existing === null) {
             throw new \RuntimeException('Sector no encontrado');
         }
-        // Soft-delete: las mesas existentes conservan sectorid (histórico/reportes);
+        // Soft-delete: los espacios existentes conservan sectorid (histórico/reportes);
         // el front debe dejar de listar el sector inactivo como destino nuevo.
         $ok = $this->db->Execute(
-            'UPDATE table_sector SET status = 0 WHERE sectorid = ? AND companyid = ?',
+            'UPDATE space_sector SET status = 0 WHERE sectorid = ? AND companyid = ?',
             [$id, $companyId]
         );
         if ($ok === false) {

@@ -65,7 +65,7 @@ final class OrderCoreService
      * Atómico — TX propia.
      *
      * @param array{outletId:string, registerId?:string, source?:string,
-     *              tableSessionId?:string,
+     *              spaceSessionId?:string,
      *              items:list<array{itemId?:string, qty:float, price?:float,
      *              note?:string, course?:int}>, customerId?:string,
      *              userId?:string, note?:string, channelRef?:string,
@@ -78,12 +78,13 @@ final class OrderCoreService
 
         $outletId       = (string) ($data['outletId'] ?? '');
         $registerId     = !empty($data['registerId']) ? (string) $data['registerId'] : null;
-        $tableSessionId = !empty($data['tableSessionId']) ? (string) $data['tableSessionId'] : null;
-        // Una orden asociada a una mesa siempre tiene source='table' —
+        $spaceSessionId = !empty($data['spaceSessionId']) ? (string) $data['spaceSessionId'] : null;
+        // Una orden asociada a un espacio siempre tiene source='table' —
         // manda sobre el source recibido (context/15 F2, decisión del
-        // owner: "mesa seleccionada → Ordenar genera una orden asociada a
-        // la mesa").
-        $source         = $tableSessionId !== null ? 'table' : (string) ($data['source'] ?? 'counter');
+        // owner: "espacio seleccionado → Ordenar genera una orden asociada al
+        // espacio"). El valor 'table' del enum `source` se conserva —
+        // identifica el origen "asociado a un espacio", no se renombra.
+        $source         = $spaceSessionId !== null ? 'table' : (string) ($data['source'] ?? 'counter');
         $items          = (array) ($data['items'] ?? []);
         $customerId     = !empty($data['customerId']) ? (string) $data['customerId'] : null;
         $userId         = !empty($data['userId']) ? (string) $data['userId'] : null;
@@ -106,7 +107,7 @@ final class OrderCoreService
             throw new \InvalidArgumentException('outletId inválido para este tenant');
         }
 
-        if ($tableSessionId !== null) {
+        if ($spaceSessionId !== null) {
             // Pre-check fuera de la TX — falla rápido (400) sin tomar lock si
             // la sesión ni siquiera existe/pertenece al tenant. La validación
             // que importa (status='open') se REPITE con FOR UPDATE dentro de
@@ -115,14 +116,14 @@ final class OrderCoreService
             // sobre la misma sesión mientras se arma esta orden; hallazgo del
             // code-reviewer).
             $session = ncmExecute(
-                'SELECT sessionid, outletid, status FROM table_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
-                [$tableSessionId, $companyId]
+                'SELECT sessionid, outletid, status FROM space_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
+                [$spaceSessionId, $companyId]
             );
             if (!$session) {
-                throw new \InvalidArgumentException('tableSessionId inválido para este tenant');
+                throw new \InvalidArgumentException('spaceSessionId inválido para este tenant');
             }
             if ((string) $session['outletid'] !== $outletId) {
-                throw new \InvalidArgumentException('tableSessionId no pertenece a este outlet');
+                throw new \InvalidArgumentException('spaceSessionId no pertenece a este outlet');
             }
         }
 
@@ -130,15 +131,15 @@ final class OrderCoreService
 
         $db->StartTrans();
 
-        if ($tableSessionId !== null) {
+        if ($spaceSessionId !== null) {
             // Re-check atómico: FOR UPDATE bloquea la fila hasta el commit de
             // esta TX, así que request-bill/cancel/close (UPDATEs simples sin
-            // lock explícito, ver TableSessionService) quedan bloqueados
+            // lock explícito, ver SpaceSessionService) quedan bloqueados
             // hasta que esta orden termine de crearse — o, si ya corrieron
             // antes de este SELECT, el status ya no es 'open' y abortamos acá.
             $lockedSession = $db->Execute(
-                "SELECT status FROM table_session WHERE sessionid = ? AND companyid = ? FOR UPDATE",
-                [$tableSessionId, $companyId]
+                "SELECT status FROM space_session WHERE sessionid = ? AND companyid = ? FOR UPDATE",
+                [$spaceSessionId, $companyId]
             );
             $lockedStatus = ($lockedSession !== false && !$lockedSession->EOF)
                 ? (string) $lockedSession->fields['status']
@@ -146,7 +147,7 @@ final class OrderCoreService
             if ($lockedStatus !== 'open') {
                 $db->FailTrans();
                 $db->CompleteTrans();
-                throw new \InvalidArgumentException('La mesa no admite nuevas órdenes (status: ' . ($lockedStatus ?? 'desconocido') . ')');
+                throw new \InvalidArgumentException('El espacio no admite nuevas órdenes (status: ' . ($lockedStatus ?? 'desconocido') . ')');
             }
         }
 
@@ -171,10 +172,10 @@ final class OrderCoreService
         $rs = $this->db->Execute(
             "INSERT INTO pos_order
                 (orderid, companyid, outletid, registerid, source, status, ordernumber,
-                 tablesessionid, customerid, userid, note, channelref, sent_at)
+                 spacesessionid, customerid, userid, note, channelref, sent_at)
              VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
              RETURNING orderid",
-            [$companyId, $outletId, $registerId, $source, $status, $orderNumber, $tableSessionId, $customerId, $userId, $note, $channelRef]
+            [$companyId, $outletId, $registerId, $source, $status, $orderNumber, $spaceSessionId, $customerId, $userId, $note, $channelRef]
         );
         if ($rs === false || $rs->EOF) {
             $db->FailTrans();
@@ -515,9 +516,9 @@ final class OrderCoreService
             $where[]  = 'o.source = ?';
             $params[] = (string) $filters['source'];
         }
-        if (!empty($filters['tableSessionId'])) {
-            $where[]  = 'o.tablesessionid = ?';
-            $params[] = (string) $filters['tableSessionId'];
+        if (!empty($filters['spaceSessionId'])) {
+            $where[]  = 'o.spacesessionid = ?';
+            $params[] = (string) $filters['spaceSessionId'];
         }
         if (!empty($filters['from'])) {
             $where[]  = 'o.created_at >= ?';
@@ -675,7 +676,7 @@ final class OrderCoreService
             'source'            => (string) ($row['source'] ?? ''),
             'status'            => (string) ($row['status'] ?? ''),
             'orderNumber'       => isset($row['ordernumber']) ? (int) $row['ordernumber'] : null,
-            'tableSessionId'    => $row['tablesessionid'] ?? null,
+            'spaceSessionId'    => $row['spacesessionid'] ?? null,
             'customerId'        => $row['customerid'] ?? null,
             'userId'            => $row['userid'] ?? null,
             'note'              => $row['note'] ?? null,

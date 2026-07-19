@@ -1,32 +1,32 @@
 "use client"
 
 /**
- * Hooks del módulo de Mesas para el POS operativo (context/15-mesas-module-plan.md
+ * Hooks del módulo de Espacios para el POS operativo (context/15-espacios-module-plan.md
  * F2). Análogo a `use-orders.ts` — el device POS corre con Bearer del device
  * (realm `pos-app`), no la cookie `_jwt_panel` del panel, así que va por
- * `posFetch` contra los BFF `/api/pos/tables` / `/api/pos/table-sessions` /
- * `/api/pos/table-sectors`, que proxean a `/v1/dining-tables.php` /
- * `/v1/table-sessions.php` / `/v1/table-sectors.php` reenviando el query
+ * `posFetch` contra los BFF `/api/pos/spaces` / `/api/pos/space-sessions` /
+ * `/api/pos/space-sectors`, que proxean a `/v1/spaces.php` /
+ * `/v1/space-sessions.php` / `/v1/space-sectors.php` reenviando el query
  * string completo.
  *
- * NO confundir con `hooks/use-dining-tables.ts` / `use-table-sectors.ts`
- * (config del panel, cookie `_jwt_panel`, usados por `/settings/tables`) —
+ * NO confundir con `hooks/use-spaces.ts` / `use-space-sectors.ts`
+ * (config del panel, cookie `_jwt_panel`, usados por `/settings/espacios`) —
  * son dos superficies de auth distintas sobre las mismas entidades.
  *
- * Invalidación: `table` está mapeado en `ENTITY_TO_QUERY_KEYS`
+ * Invalidación: `space` está mapeado en `ENTITY_TO_QUERY_KEYS`
  * (hooks/use-realtime-sync.ts) a los queryKeys de este archivo — cualquier
  * mutación server-side (open/request-bill/cancel/close/layout) publica
- * `realtimePublish('table', ...)` y el socket dispara la invalidación acá.
- * El canal `{companyId}:tables:{outletId}` (wsPublish) es un segundo camino
+ * `realtimePublish('space', ...)` y el socket dispara la invalidación acá.
+ * El canal `{companyId}:spaces:{outletId}` (wsPublish) es un segundo camino
  * best-effort para UIs dedicadas — el POS se apoya en la invalidación
  * genérica, no consume ese canal directo (mismo criterio que O1 con `order`).
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
-import type { DiningTableWithState, TableShape } from "@/hooks/use-dining-tables"
+import type { SpaceWithState, SpaceShape } from "@/hooks/use-spaces"
 
-export interface PosTableSector {
+export interface PosSpaceSector {
   id: string
   companyId: string
   outletId: string
@@ -35,11 +35,11 @@ export interface PosTableSector {
   createdAt: string | null
 }
 
-export interface TableSession {
+export interface SpaceSession {
   id: string
   companyId: string
   outletId: string
-  tableId: string
+  spaceId: string
   status: "open" | "bill_requested" | "closed" | "cancelled"
   guests: number | null
   waiterId: string | null
@@ -61,19 +61,19 @@ async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
 // ── Queries ───────────────────────────────────────────────────────────────────
 
 /** Sectores del outlet del device — tabs de navegación del plano. */
-export function usePosTableSectors() {
-  return useQuery<{ sectors: PosTableSector[] }>({
-    queryKey: ["pos-table-sectors"],
-    queryFn: () => posJson<{ sectors: PosTableSector[] }>("/api/pos/table-sectors"),
+export function usePosSpaceSectors() {
+  return useQuery<{ sectors: PosSpaceSector[] }>({
+    queryKey: ["pos-space-sectors"],
+    queryFn: () => posJson<{ sectors: PosSpaceSector[] }>("/api/pos/space-sectors"),
     staleTime: 30 * 1000,
   })
 }
 
-/** Plano operativo — mesas + estado derivado + sesión activa. Vivo por realtime. */
-export function usePosTablesState() {
-  return useQuery<{ tables: DiningTableWithState[] }>({
-    queryKey: ["pos-tables", "state"],
-    queryFn: () => posJson<{ tables: DiningTableWithState[] }>("/api/pos/tables?resource=state"),
+/** Plano operativo — espacios + estado derivado + sesión activa. Vivo por realtime. */
+export function usePosSpacesState() {
+  return useQuery<{ spaces: SpaceWithState[] }>({
+    queryKey: ["pos-spaces", "state"],
+    queryFn: () => posJson<{ spaces: SpaceWithState[] }>("/api/pos/spaces?resource=state"),
     staleTime: 10 * 1000,
     refetchInterval: 20 * 1000,
   })
@@ -81,61 +81,61 @@ export function usePosTablesState() {
 
 // ── Mutaciones ────────────────────────────────────────────────────────────────
 
-export function useOpenTableSession() {
+export function useOpenSpaceSession() {
   const qc = useQueryClient()
-  return useMutation<TableSession, Error, { tableId: string; guests?: number; waiterId?: string }>({
+  return useMutation<SpaceSession, Error, { tableId: string; guests?: number; waiterId?: string }>({
     mutationFn: (data) =>
-      posJson<TableSession>("/api/pos/table-sessions", {
+      posJson<SpaceSession>("/api/pos/space-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["pos-tables"] })
+      void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
     },
   })
 }
 
 export function useRequestBill() {
   const qc = useQueryClient()
-  return useMutation<TableSession, Error, string>({
+  return useMutation<SpaceSession, Error, string>({
     mutationFn: (sessionId) =>
-      posJson<TableSession>(`/api/pos/table-sessions?id=${sessionId}&action=request-bill`, {
+      posJson<SpaceSession>(`/api/pos/space-sessions?id=${sessionId}&action=request-bill`, {
         method: "POST",
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["pos-tables"] })
+      void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
     },
   })
 }
 
-export function useCancelTableSession() {
+export function useCancelSpaceSession() {
   const qc = useQueryClient()
-  return useMutation<TableSession, Error, string>({
+  return useMutation<SpaceSession, Error, string>({
     mutationFn: (sessionId) =>
-      posJson<TableSession>(`/api/pos/table-sessions?id=${sessionId}&action=cancel`, {
+      posJson<SpaceSession>(`/api/pos/space-sessions?id=${sessionId}&action=cancel`, {
         method: "POST",
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["pos-tables"] })
+      void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
     },
   })
 }
 
 /** Cierra la sesión — llamado al final del flujo de cobro con el transactionId resultante. */
-export function useCloseTableSession() {
+export function useCloseSpaceSession() {
   const qc = useQueryClient()
-  return useMutation<TableSession, Error, { sessionId: string; transactionId?: string }>({
+  return useMutation<SpaceSession, Error, { sessionId: string; transactionId?: string }>({
     mutationFn: ({ sessionId, transactionId }) =>
-      posJson<TableSession>(`/api/pos/table-sessions?id=${sessionId}&action=close`, {
+      posJson<SpaceSession>(`/api/pos/space-sessions?id=${sessionId}&action=close`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transactionId }),
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["pos-tables"] })
+      void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
     },
   })
 }
 
-export type { DiningTableWithState, TableShape }
+export type { SpaceWithState, SpaceShape }

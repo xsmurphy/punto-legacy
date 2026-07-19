@@ -134,8 +134,8 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
   },
   {
     key: "tables",
-    title: "Mesas y Espacios",
-    description: "Gestioná las mesas de tu local.",
+    title: "Espacios",
+    description: "Gestioná los espacios de tu local — mesas, sillas de atención, habitaciones.",
     icon: LayoutGrid,
     category: "Operativos",
     configKind: "tables",

@@ -107,7 +107,7 @@ switch ($method) {
             'from'           => $_GET['from'] ?? null,
             'to'             => $_GET['to'] ?? null,
             'q'              => $_GET['q'] ?? null,
-            'tableSessionId' => $_GET['tableSessionId'] ?? null,
+            'spaceSessionId' => $_GET['spaceSessionId'] ?? null,
         ];
         apiOk(['orders' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''))]);
         break;

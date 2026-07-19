@@ -208,28 +208,28 @@ interface CartState {
   orderParentId: string | null
 
   /**
-   * Mesa seleccionada para tomar una orden (context/15-mesas-module-plan.md
-   * F2). Se setea desde `/pos/mesas` al abrir una mesa libre o elegir
-   * "Agregar orden" en una mesa ocupada — el carrito entra en modo "orden"
+   * Espacio seleccionado para tomar una orden (context/15-espacios-module-plan.md
+   * F2). Se setea desde `/pos/espacios` al abrir un espacio libre o elegir
+   * "Agregar orden" en un espacio ocupado — el carrito entra en modo "orden"
    * con esta sesión. Al Ordenar, `handleOrderClick` incluye
-   * `tableSessionId` en el payload (el backend fuerza `source='table'`).
-   * `tableName` es solo para el chip visual (evita un round-trip extra).
+   * `spaceSessionId` en el payload (el backend fuerza `source='table'`).
+   * `spaceName` es solo para el chip visual (evita un round-trip extra).
    * Se resetea en clear() — tras ordenar con éxito, la selección se limpia
    * y el cajero vuelve al mapa (decisión del owner).
    */
-  tableSessionId: string | null
-  tableName: string | null
+  spaceSessionId: string | null
+  spaceName: string | null
 
   /**
-   * Cobro de una mesa completa (context/15 F2): análogo a `orderParentId`
+   * Cobro de un espacio completo (context/15 F2): análogo a `orderParentId`
    * pero para VARIAS órdenes a la vez. Se setea vía `loadFromSession()`
-   * cuando el cajero toca "Cobrar" en el sheet de una mesa ocupada — el
+   * cuando el cajero toca "Cobrar" en el sheet de un espacio ocupado — el
    * carrito se llena en modo venta con el merge de todas las órdenes no
    * cerradas/canceladas de la sesión. Al confirmar el cobro, `pay-dialog.tsx`
    * llama `markPaid()` por cada orderId de `sessionOrderIds` y luego
-   * `TableSessionService::close()` con el transactionId resultante.
+   * `SpaceSessionService::close()` con el transactionId resultante.
    * Mutuamente excluyente con `orderParentId` (una venta viene de una orden
-   * sola o de una mesa completa, nunca ambas). Se resetea en clear().
+   * sola o de un espacio completo, nunca ambas). Se resetea en clear().
    */
   sessionParentId: string | null
   sessionOrderIds: string[]
@@ -363,18 +363,19 @@ interface CartState {
   loadFromOrder: (order: Order) => void
 
   /**
-   * Selecciona una mesa para tomar una orden (context/15 F2). Fuerza
-   * posMode="orden". `tableId` no se persiste en el store (solo se necesita
-   * `sessionId` para el payload de create) — `tableName` es para el chip.
+   * Selecciona un espacio para tomar una orden (context/15 F2). Fuerza
+   * posMode="orden". El id del espacio no se persiste en el store (solo se
+   * necesita `sessionId` para el payload de create) — `spaceName` es para
+   * el chip.
    */
-  setSelectedTable: (sessionId: string, tableName: string) => void
+  setSelectedSpace: (sessionId: string, spaceName: string) => void
 
-  /** Quita la mesa seleccionada sin tocar el resto del carrito (deshacer selección). */
-  clearSelectedTable: () => void
+  /** Quita el espacio seleccionado sin tocar el resto del carrito (deshacer selección). */
+  clearSelectedSpace: () => void
 
   /**
-   * Vuelca TODAS las órdenes no cerradas/canceladas de una sesión de mesa al
-   * carrito en modo venta — "cobrar la mesa" (context/15 F2). Merge de
+   * Vuelca TODAS las órdenes no cerradas/canceladas de una sesión de espacio
+   * al carrito en modo venta — "cobrar el espacio" (context/15 F2). Merge de
    * líneas de todas las órdenes (mismo criterio de merge que `addLines`:
    * mergea con la última línea si coincide itemId, preservando notas
    * distintas como líneas separadas). Setea `sessionParentId` +
@@ -382,7 +383,7 @@ interface CartState {
    * cobro) — mutuamente excluyente con `orderParentId`. Reemplaza el
    * carrito entero.
    */
-  loadFromSession: (sessionId: string, tableName: string, orders: Order[]) => void
+  loadFromSession: (sessionId: string, spaceName: string, orders: Order[]) => void
 
   /**
    * Setea el descuento de venta (transactionDiscount). No toca las líneas.
@@ -425,8 +426,8 @@ const initialState = {
   saleDiscount: null as { value: number; mode: "percent" | "money" } | null,
   posMode: "venta" as "venta" | "orden",
   orderParentId: null as string | null,
-  tableSessionId: null as string | null,
-  tableName: null as string | null,
+  spaceSessionId: null as string | null,
+  spaceName: null as string | null,
   sessionParentId: null as string | null,
   sessionOrderIds: [] as string[],
 }
@@ -656,15 +657,15 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     })
   },
 
-  setSelectedTable: (sessionId, tableName) => {
-    set({ tableSessionId: sessionId, tableName, posMode: "orden" })
+  setSelectedSpace: (sessionId, spaceName) => {
+    set({ spaceSessionId: sessionId, spaceName, posMode: "orden" })
   },
 
-  clearSelectedTable: () => {
-    set({ tableSessionId: null, tableName: null })
+  clearSelectedSpace: () => {
+    set({ spaceSessionId: null, spaceName: null })
   },
 
-  loadFromSession: (sessionId, tableName, orders) => {
+  loadFromSession: (sessionId, spaceName, orders) => {
     const { customers } = useCatalogStore.getState()
 
     const billable = orders.filter(
@@ -673,7 +674,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
     // Cliente: si todas las órdenes billable comparten el mismo customerId,
     // se hereda; si difiere entre rondas, queda sin cliente (el cajero lo
-    // asigna a mano — no hay "cliente de la mesa" en el modelo de datos).
+    // asigna a mano — no hay "cliente del espacio" en el modelo de datos).
     const customerIds = new Set(billable.map((o) => o.customerId).filter(Boolean))
     const customerId = customerIds.size === 1 ? [...customerIds][0] : null
     const customer = customerId
@@ -713,7 +714,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       posMode: "venta",
       sessionParentId: sessionId,
       sessionOrderIds: billable.map((o) => o.id),
-      tableName,
+      spaceName,
     })
   },
 

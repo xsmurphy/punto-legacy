@@ -33,7 +33,7 @@ const TIER_TEXT: Record<string, string> = {
 
 const SOURCE_LABEL: Record<string, string> = {
   counter: "Mostrador",
-  table: "Mesa",
+  table: "Espacio",
   ecommerce: "E-commerce",
   schedule: "Agenda",
 }

@@ -10,7 +10,7 @@ import {
   LayoutDashboard,
   MessageCircle,
   Flame,
-  SquaresIntersect,
+  LayoutGrid,
   CalendarDays,
   SquareKanban,
   Bookmark,
@@ -131,7 +131,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const posNav: NavEntry[] = [
     { title: "Hotkeys", to: "/pos", icon: Flame },
     ...(moduleEnabled(modules, "tables")
-      ? [{ title: "Espacios", to: "/pos/mesas", icon: SquaresIntersect }]
+      ? [{ title: "Espacios", to: "/pos/espacios", icon: LayoutGrid }]
       : []),
     ...(moduleEnabled(modules, "calendar")
       ? [{ title: "Calendario", to: "/pos/calendario", icon: CalendarDays }]

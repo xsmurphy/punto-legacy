@@ -41,11 +41,11 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // genérica de queryKeys — NO es el canal KDS ({companyId}:kds:{outletId},
   // scope O2), ese lo consumen pantallas de cocina/mozos dedicadas.
   order:             [["orders"]],
-  // Módulo de Mesas (F2, context/15-mesas-module-plan.md). Invalida tanto
-  // el plano operativo del POS (use-pos-tables.ts) como la config del panel
-  // (use-dining-tables.ts/use-table-sectors.ts, /settings/tables) — ambos
+  // Módulo de Espacios (F2, context/15-espacios-module-plan.md). Invalida tanto
+  // el plano operativo del POS (use-pos-spaces.ts) como la config del panel
+  // (use-spaces.ts/use-space-sectors.ts, /settings/espacios) — ambos
   // consumen las mismas entidades bajo distintas auth.
-  table:             [["pos-tables"], ["pos-table-sectors"], ["dining-tables"], ["table-sectors"]],
+  space:             [["pos-spaces"], ["pos-space-sectors"], ["spaces"], ["space-sectors"]],
   // pack, payment-method, giftcard, schedule: no hay hooks con queryKeys
   // propios en frontend aún — se agregan cuando existan sus hooks.
 }

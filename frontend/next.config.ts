@@ -23,6 +23,14 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.amazonaws.com" },
     ],
   },
+  // Rename mesas→espacios (context/15-espacios-module-plan.md): rutas viejas
+  // redirigen a las nuevas para no romper bookmarks/links existentes.
+  async redirects() {
+    return [
+      { source: "/pos/mesas", destination: "/pos/espacios", permanent: true },
+      { source: "/settings/tables", destination: "/settings/espacios", permanent: true },
+    ]
+  },
 }
 
 // withSentryConfig: solo sube sourcemaps si hay SENTRY_AUTH_TOKEN (CI con auth).

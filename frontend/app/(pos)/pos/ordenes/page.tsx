@@ -65,7 +65,7 @@ const STATUS_VARIANT: Record<OrderStatus, "default" | "secondary" | "outline"> =
 
 const SOURCE_LABEL: Record<Order["source"], string> = {
   counter: "Mostrador",
-  table: "Mesa",
+  table: "Espacio",
   ecommerce: "E-commerce",
   schedule: "Agenda",
 }

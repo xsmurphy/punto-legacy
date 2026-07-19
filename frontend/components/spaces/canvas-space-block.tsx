@@ -4,30 +4,31 @@ import * as React from "react"
 import { Rnd } from "react-rnd"
 import { RotateCw, Users, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { DiningTable, TableShape } from "@/hooks/use-dining-tables"
+import type { Space, SpaceShape } from "@/hooks/use-spaces"
 
 interface Props {
-  table: DiningTable
+  table: Space
   selected: boolean
   onSelect: () => void
-  onChange: (patch: Partial<Pick<DiningTable, "posX" | "posY" | "width" | "height" | "rotation">>) => void
+  onChange: (patch: Partial<Pick<Space, "posX" | "posY" | "width" | "height" | "rotation">>) => void
   onRotate: () => void
   onRemoveFromLayout: () => void
 }
 
-const GRID = 10 // px de snap del canvas — salón real, no impresión (sin unidad mm)
+const GRID = 10 // px de snap del canvas — salón/local real, no impresión (sin unidad mm)
 
-const DECOR_SHAPES: TableShape[] = ["decor_wall", "decor_plant", "bar"]
+const DECOR_SHAPES: SpaceShape[] = ["decor_wall", "decor_plant", "bar"]
 
 /**
  * Bloque individual del editor de layout — drag + resize con react-rnd
  * (mismo patrón que `components/print-templates/canvas-block.tsx`, único
  * precedente in-repo de canvas con posicionamiento absoluto). Diferencias
- * con el editor de plantillas: acá se agrega rotación en pasos de 45° (mesas
- * reales del salón, no texto) y la forma determina el render (redonda =
- * círculo, mesa = caja con label, decorativo = bloque neutro sin covers).
+ * con el editor de plantillas: acá se agrega rotación en pasos de 45°
+ * (espacios reales del local, no texto) y la forma determina el render
+ * (redonda = círculo, espacio = caja con label, decorativo = bloque neutro
+ * sin covers).
  */
-export function CanvasTableBlock({ table, selected, onSelect, onChange, onRotate, onRemoveFromLayout }: Props) {
+export function CanvasSpaceBlock({ table, selected, onSelect, onChange, onRotate, onRemoveFromLayout }: Props) {
   const [isMoving, setIsMoving] = React.useState(false)
   const isDecor = DECOR_SHAPES.includes(table.shape)
   const isRound = table.shape === "round"
@@ -118,7 +119,7 @@ export function CanvasTableBlock({ table, selected, onSelect, onChange, onRotate
   )
 }
 
-export function defaultSize(shape: TableShape): { width: number; height: number } {
+export function defaultSize(shape: SpaceShape): { width: number; height: number } {
   switch (shape) {
     case "round":       return { width: 70, height: 70 }
     case "rect":         return { width: 110, height: 70 }
@@ -130,7 +131,7 @@ export function defaultSize(shape: TableShape): { width: number; height: number 
   }
 }
 
-function decorLabel(shape: TableShape): string {
+function decorLabel(shape: SpaceShape): string {
   switch (shape) {
     case "bar":          return "Barra"
     case "decor_wall":  return "Pared"

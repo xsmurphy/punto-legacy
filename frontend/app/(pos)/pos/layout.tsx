@@ -7,7 +7,7 @@
  * así que se mantiene montado (y conserva su estado) mientras el bloque
  * IZQUIERDO cambia según la ruta:
  *   /pos            → grilla de hotkeys (ProductArea)
- *   /pos/mesas      → módulo Mesas
+ *   /pos/espacios   → módulo Espacios
  *   /pos/ordenes    → módulo Órdenes
  *   /pos/calendario → módulo Calendario
  *

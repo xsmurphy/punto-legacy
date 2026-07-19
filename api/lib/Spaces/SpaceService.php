@@ -1,16 +1,18 @@
 <?php
 declare(strict_types=1);
 
-namespace Punto\Api\Tables;
+namespace Punto\Api\Spaces;
 
 /**
- * DiningTableService — CRUD de mesas (dining_table, mig 80) + estado derivado
- * para el plano operativo del POS (context/15-mesas-module-plan.md F0+F1).
+ * SpaceService — CRUD de espacios (space, mig 80) + estado derivado para el
+ * plano operativo del POS (context/15-espacios-module-plan.md F0+F1).
  *
- * El estado de una mesa NUNCA se edita a mano — se deriva de `table_session`
- * (y en el futuro de `reservation`, F4). Ver listWithState().
+ * Un "espacio" es genérico según el rubro: mesa (gastronomía), silla de
+ * atención (peluquería), habitación (hostal/hotel). El estado de un espacio
+ * NUNCA se edita a mano — se deriva de `space_session` (y en el futuro de
+ * `reservation`, F4). Ver listWithState().
  */
-final class DiningTableService
+final class SpaceService
 {
     /** @var mixed */
     private $db;
@@ -34,7 +36,7 @@ final class DiningTableService
             $params[] = $sectorId;
         }
         $rs = $this->db->Execute(
-            'SELECT * FROM dining_table WHERE ' . implode(' AND ', $where) . ' ORDER BY sort ASC, name ASC',
+            'SELECT * FROM space WHERE ' . implode(' AND ', $where) . ' ORDER BY sort ASC, name ASC',
             $params
         );
         if ($rs === false) return [];
@@ -48,7 +50,7 @@ final class DiningTableService
     public function find(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM dining_table WHERE tableid = ? AND companyid = ? LIMIT 1',
+            'SELECT * FROM space WHERE tableid = ? AND companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
@@ -58,77 +60,108 @@ final class DiningTableService
     }
 
     /**
+     * Resuelve el outlet efectivo de una creación: si viene sectorId, el
+     * outlet SIEMPRE sale del sector (no del body) — evita el mismatch
+     * "sectorId de una sucursal + outletId de otra" que rompía
+     * assertSectorBelongs con "sectorId inválido para este outlet/tenant"
+     * (bug reportado en prod: el front no reseteaba el filtro de sector al
+     * cambiar de sucursal). El outletId del body/query solo se usa cuando
+     * NO hay sectorId. Para pos-app, $outletScope acota el resultado al
+     * outlet del device — un sector de otra sucursal es un 404 claro, no un
+     * outlet distinto silencioso.
+     *
+     * @return array{0:string,1:?string} [outletId, sectorId]
+     */
+    private function resolveOutletAndSector(string $companyId, ?string $sectorId, string $bodyOutletId, ?string $outletScope): array
+    {
+        if ($sectorId === null || $sectorId === '') {
+            $outletId = $outletScope ?? $bodyOutletId;
+            if ($outletId === '') {
+                throw new \InvalidArgumentException('outletId requerido');
+            }
+            return [$outletId, null];
+        }
+
+        $sector = ncmExecute(
+            'SELECT sectorid, outletid FROM space_sector WHERE sectorid = ? AND companyid = ? LIMIT 1',
+            [$sectorId, $companyId]
+        );
+        if (!$sector) {
+            throw new \InvalidArgumentException('sectorId inválido para este tenant');
+        }
+        $sectorOutletId = (string) $sector['outletid'];
+        if ($outletScope !== null && $sectorOutletId !== $outletScope) {
+            throw new \InvalidArgumentException('sectorId no pertenece al outlet del device');
+        }
+        return [$sectorOutletId, $sectorId];
+    }
+
+    /**
      * @param array{outletId:string, sectorId?:string, name:string, seats?:int,
      *              shape?:string, sort?:int} $data
      * @return string tableId
      */
-    public function create(string $companyId, array $data): string
+    public function create(string $companyId, array $data, ?string $outletScope = null): string
     {
-        $outletId = (string) ($data['outletId'] ?? '');
         $sectorId = !empty($data['sectorId']) ? (string) $data['sectorId'] : null;
         $name     = trim((string) ($data['name'] ?? ''));
         $seats    = (int) ($data['seats'] ?? 4);
         $shape    = $this->validateShape((string) ($data['shape'] ?? 'square'));
         $sort     = (int) ($data['sort'] ?? 0);
 
-        if ($outletId === '') {
-            throw new \InvalidArgumentException('outletId requerido');
-        }
         if ($name === '') {
             throw new \InvalidArgumentException('name requerido');
         }
+
+        [$outletId, $sectorId] = $this->resolveOutletAndSector($companyId, $sectorId, (string) ($data['outletId'] ?? ''), $outletScope);
+
         $outlet = ncmExecute('SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1', [$outletId, $companyId]);
         if (!$outlet) {
             throw new \InvalidArgumentException('outletId inválido para este tenant');
         }
-        if ($sectorId !== null) {
-            $this->assertSectorBelongs($companyId, $outletId, $sectorId);
-        }
 
         $rs = $this->db->Execute(
-            'INSERT INTO dining_table (tableid, companyid, outletid, sectorid, name, seats, shape, sort)
+            'INSERT INTO space (tableid, companyid, outletid, sectorid, name, seats, shape, sort)
              VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?)
              RETURNING tableid',
             [$companyId, $outletId, $sectorId, $name, $seats, $shape, $sort]
         );
         if ($rs === false || $rs->EOF) {
-            throw new \RuntimeException('No se pudo crear la mesa');
+            throw new \RuntimeException('No se pudo crear el espacio');
         }
         $id = (string) ($rs->fields['tableid'] ?? '');
         if ($id === '') {
-            throw new \RuntimeException('No se pudo crear la mesa');
+            throw new \RuntimeException('No se pudo crear el espacio');
         }
         $this->publish($companyId, $outletId);
         return $id;
     }
 
     /**
-     * Alta rápida de N mesas numeradas para la grilla default. Devuelve los
-     * tableId creados en orden.
+     * Alta rápida de N espacios numerados para la grilla default. Devuelve
+     * los tableId creados en orden.
      *
      * @return list<string>
      */
-    public function bulkCreate(string $companyId, string $outletId, int $count, ?string $sectorId = null): array
+    public function bulkCreate(string $companyId, string $bodyOutletId, int $count, ?string $sectorId = null, ?string $outletScope = null): array
     {
         if ($count < 1 || $count > 200) {
             throw new \InvalidArgumentException('count debe estar entre 1 y 200');
         }
+
+        [$outletId, $sectorId] = $this->resolveOutletAndSector($companyId, $sectorId, $bodyOutletId, $outletScope);
+
         $outlet = ncmExecute('SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1', [$outletId, $companyId]);
         if (!$outlet) {
             throw new \InvalidArgumentException('outletId inválido para este tenant');
         }
-        if ($sectorId !== null && $sectorId !== '') {
-            $this->assertSectorBelongs($companyId, $outletId, $sectorId);
-        } else {
-            $sectorId = null;
-        }
 
         // Arranca la numeración después del máximo nombre numérico existente
         // en el outlet (no del sector) — evita colisiones visuales de número
-        // de mesa entre sectores distintos del mismo salón.
+        // entre sectores distintos del mismo local.
         $maxRow = ncmExecute(
             "SELECT COALESCE(MAX(name::int), 0) AS maxnum
-               FROM dining_table
+               FROM space
               WHERE companyid = ? AND outletid = ? AND name ~ '^[0-9]+$'",
             [$companyId, $outletId]
         );
@@ -139,7 +172,7 @@ final class DiningTableService
         for ($i = 1; $i <= $count; $i++) {
             $name = (string) ($start + $i);
             $rs = $this->db->Execute(
-                'INSERT INTO dining_table (tableid, companyid, outletid, sectorid, name, seats, shape, sort)
+                'INSERT INTO space (tableid, companyid, outletid, sectorid, name, seats, shape, sort)
                  VALUES (gen_random_uuid(), ?, ?, ?, ?, 4, \'square\', ?)
                  RETURNING tableid',
                 [$companyId, $outletId, $sectorId, $name, $start + $i]
@@ -153,7 +186,7 @@ final class DiningTableService
         $failed = $this->db->HasFailedTrans();
         $this->db->CompleteTrans();
         if ($failed) {
-            throw new \RuntimeException('No se pudieron crear las mesas');
+            throw new \RuntimeException('No se pudieron crear los espacios');
         }
         $this->publish($companyId, $outletId);
         return $ids;
@@ -163,7 +196,7 @@ final class DiningTableService
     {
         $existing = $this->find($companyId, $id);
         if ($existing === null) {
-            throw new \RuntimeException('Mesa no encontrada');
+            throw new \RuntimeException('Espacio no encontrado');
         }
 
         $name     = array_key_exists('name', $data) ? trim((string) $data['name']) : $existing['name'];
@@ -183,12 +216,12 @@ final class DiningTableService
         }
 
         $ok = $this->db->Execute(
-            'UPDATE dining_table SET name = ?, seats = ?, shape = ?, sort = ?, status = ?, sectorid = ?
+            'UPDATE space SET name = ?, seats = ?, shape = ?, sort = ?, status = ?, sectorid = ?
               WHERE tableid = ? AND companyid = ?',
             [$name, $seats, $shape, $sort, $status, $sectorId, $id, $companyId]
         );
         if ($ok === false) {
-            throw new \RuntimeException('No se pudo actualizar la mesa');
+            throw new \RuntimeException('No se pudo actualizar el espacio');
         }
         $this->publish($companyId, (string) $existing['outletId']);
         return $this->find($companyId, $id) ?? [];
@@ -198,16 +231,16 @@ final class DiningTableService
     {
         $existing = $this->find($companyId, $id);
         if ($existing === null) {
-            throw new \RuntimeException('Mesa no encontrada');
+            throw new \RuntimeException('Espacio no encontrado');
         }
-        // Deshabilitar (status=0), no hard-delete: table_session y pos_order
-        // referencian históricamente esta mesa (reportes/rotación).
+        // Deshabilitar (status=0), no hard-delete: space_session y pos_order
+        // referencian históricamente este espacio (reportes/rotación).
         $ok = $this->db->Execute(
-            'UPDATE dining_table SET status = 0 WHERE tableid = ? AND companyid = ?',
+            'UPDATE space SET status = 0 WHERE tableid = ? AND companyid = ?',
             [$id, $companyId]
         );
         if ($ok === false) {
-            throw new \RuntimeException('No se pudo deshabilitar la mesa');
+            throw new \RuntimeException('No se pudo deshabilitar el espacio');
         }
         $this->publish($companyId, (string) $existing['outletId']);
     }
@@ -217,7 +250,7 @@ final class DiningTableService
     // ------------------------------------------------------------------
 
     /**
-     * Guarda posición/tamaño/rotación de un batch de mesas del editor de
+     * Guarda posición/tamaño/rotación de un batch de espacios del editor de
      * layout. Atómico (TX) — todo o nada, todas scopeadas a companyId+outletId
      * (defensa contra que el body incluya un tableId de otro tenant).
      *
@@ -260,7 +293,7 @@ final class DiningTableService
             }
 
             $ok = $this->db->Execute(
-                "UPDATE dining_table SET posx = ?, posy = ?, width = ?, height = ?, {$shapeSql}rotation = ?
+                "UPDATE space SET posx = ?, posy = ?, width = ?, height = ?, {$shapeSql}rotation = ?
                   WHERE tableid = ? AND companyid = ? AND outletid = ?",
                 $params
             );
@@ -282,7 +315,7 @@ final class DiningTableService
     // ------------------------------------------------------------------
 
     /**
-     * Mesas del outlet con estado derivado + info de la sesión activa (si
+     * Espacios del outlet con estado derivado + info de la sesión activa (si
      * hay). El estado NUNCA se persiste — se calcula acá:
      *   - status=0                        → 'disabled'
      *   - sesión activa status=open       → 'occupied'
@@ -302,18 +335,18 @@ final class DiningTableService
                     ts.waiterid           AS session_waiterid,
                     ts.opened_at          AS session_opened_at,
                     COALESCE(oc.ordercount, 0) AS order_count
-               FROM dining_table t
-          LEFT JOIN table_session ts
+               FROM space t
+          LEFT JOIN space_session ts
                  ON ts.tableid = t.tableid
                 AND ts.status IN ('open','bill_requested')
           LEFT JOIN (
-                    SELECT po.tablesessionid, COUNT(*) AS ordercount
+                    SELECT po.spacesessionid, COUNT(*) AS ordercount
                       FROM pos_order po
                      WHERE po.companyid = ?
                        AND po.status NOT IN ('closed','cancelled')
-                       AND po.tablesessionid IS NOT NULL
-                  GROUP BY po.tablesessionid
-                 ) oc ON oc.tablesessionid = ts.sessionid
+                       AND po.spacesessionid IS NOT NULL
+                  GROUP BY po.spacesessionid
+                 ) oc ON oc.spacesessionid = ts.sessionid
               WHERE t.companyid = ? AND t.outletid = ?
               ORDER BY t.sort ASC, t.name ASC",
             [$companyId, $companyId, $outletId]
@@ -365,7 +398,7 @@ final class DiningTableService
     private function assertSectorBelongs(string $companyId, string $outletId, string $sectorId): void
     {
         $row = ncmExecute(
-            'SELECT sectorid FROM table_sector WHERE sectorid = ? AND companyid = ? AND outletid = ? LIMIT 1',
+            'SELECT sectorid FROM space_sector WHERE sectorid = ? AND companyid = ? AND outletid = ? LIMIT 1',
             [$sectorId, $companyId, $outletId]
         );
         if (!$row) {
@@ -375,8 +408,8 @@ final class DiningTableService
 
     private function publish(string $companyId, string $outletId): void
     {
-        wsPublish($companyId . ':tables:' . $outletId, 'table:state', ['outletId' => $outletId]);
-        realtimePublish('table', 'update');
+        wsPublish($companyId . ':spaces:' . $outletId, 'space:state', ['outletId' => $outletId]);
+        realtimePublish('space', 'update');
     }
 
     private function present(array $row): array

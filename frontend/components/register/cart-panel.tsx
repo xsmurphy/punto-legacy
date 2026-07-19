@@ -98,9 +98,9 @@ export function CartPanel() {
   const selectedLineId = useCartStore((s) => s.selectedLineId)
   const customer = useCartStore((s) => s.customer)
   const note = useCartStore((s) => s.note)
-  const tableSessionId = useCartStore((s) => s.tableSessionId)
-  const tableName = useCartStore((s) => s.tableName)
-  const clearSelectedTable = useCartStore((s) => s.clearSelectedTable)
+  const spaceSessionId = useCartStore((s) => s.spaceSessionId)
+  const spaceName = useCartStore((s) => s.spaceName)
+  const clearSelectedSpace = useCartStore((s) => s.clearSelectedSpace)
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
   const ivaRemoved = useCartStore((s) => s.ivaRemoved)
@@ -245,8 +245,8 @@ export function CartPanel() {
     setSubmittingOrder(true)
     try {
       const created = await createOrder.mutateAsync({
-        source: tableSessionId ? "table" : "counter",
-        tableSessionId: tableSessionId ?? undefined,
+        source: spaceSessionId ? "table" : "counter",
+        spaceSessionId: spaceSessionId ?? undefined,
         items: lines.map((l) => ({
           itemId: l.itemId,
           qty: l.qty,
@@ -259,16 +259,16 @@ export function CartPanel() {
       })
 
       toast.success(
-        tableName
-          ? `Orden #${created.orderNumber} enviada a cocina — Mesa ${tableName}`
+        spaceName
+          ? `Orden #${created.orderNumber} enviada a cocina — ${spaceName}`
           : `Orden #${created.orderNumber} enviada a cocina`,
       )
-      const wasTableOrder = tableSessionId !== null
+      const wasSpaceOrder = spaceSessionId !== null
       clearCart()
-      // Mesa F2 (context/15): al ordenar con éxito, volvés al mapa y la
-      // selección se limpia — la mesa queda ocupada con su orden nueva.
-      if (wasTableOrder) {
-        router.push("/pos/mesas")
+      // Espacios F2 (context/15): al ordenar con éxito, volvés al mapa y la
+      // selección se limpia — el espacio queda ocupado con su orden nueva.
+      if (wasSpaceOrder) {
+        router.push("/pos/espacios")
       }
 
       if (ordenAImpresion) {
@@ -289,7 +289,7 @@ export function CartPanel() {
     } finally {
       setSubmittingOrder(false)
     }
-  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, tableSessionId, tableName, router])
+  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, spaceSessionId, spaceName, router])
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
@@ -405,8 +405,8 @@ export function CartPanel() {
         onCancelSale={askClear}
       />
 
-      {/* ── Chip de mesa seleccionada (context/15 F2) ── */}
-      <TableChip tableName={tableName} onClear={clearSelectedTable} />
+      {/* ── Chip de espacio seleccionado (context/15 F2) ── */}
+      <SpaceChip spaceName={spaceName} onClear={clearSelectedSpace} />
 
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
@@ -568,35 +568,35 @@ function CartToolbar({
   )
 }
 
-// ── Chip de mesa seleccionada ─────────────────────────────────────────────────
+// ── Chip de espacio seleccionado ──────────────────────────────────────────────
 //
 // Visible en dos casos (context/15 F2): (1) el carrito está armando una
-// orden para una mesa (`tableSessionId` set, con X para deseleccionar); (2)
-// el carrito viene de "Cobrar" una mesa completa (`loadFromSession`, solo
-// `tableName` — sin X, cambiar de opinión implica cancelar la venta entera
+// orden para un espacio (`spaceSessionId` set, con X para deseleccionar); (2)
+// el carrito viene de "Cobrar" un espacio completo (`loadFromSession`, solo
+// `spaceName` — sin X, cambiar de opinión implica cancelar la venta entera
 // desde el menú de Opciones, mismo mecanismo que cualquier otra venta armada).
 
-function TableChip({
-  tableName,
+function SpaceChip({
+  spaceName,
   onClear,
 }: {
-  tableName: string | null
+  spaceName: string | null
   onClear: () => void
 }) {
-  const tableSessionId = useCartStore((s) => s.tableSessionId)
-  if (!tableName) return null
+  const spaceSessionId = useCartStore((s) => s.spaceSessionId)
+  if (!spaceName) return null
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5">
       <div className="flex-1 min-w-0">
-        <p className="truncate text-xs font-medium text-foreground">Mesa {tableName}</p>
+        <p className="truncate text-xs font-medium text-foreground">{spaceName}</p>
       </div>
-      {tableSessionId && (
+      {spaceSessionId && (
         <Button
           variant="ghost"
           size="icon-xs"
           onClick={onClear}
-          aria-label="Quitar mesa seleccionada"
+          aria-label="Quitar espacio seleccionado"
         >
           <X className="size-3" />
         </Button>

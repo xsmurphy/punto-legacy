@@ -10,36 +10,36 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState } from "@/components/empty-state"
 import { Badge } from "@/components/ui/badge"
 
-import { CanvasTableBlock, defaultSize } from "@/components/tables/canvas-table-block"
-import { useTableSectors } from "@/hooks/use-table-sectors"
+import { CanvasSpaceBlock, defaultSize } from "@/components/spaces/canvas-space-block"
+import { useSpaceSectors } from "@/hooks/use-space-sectors"
 import {
-  useDiningTables,
-  useCreateDiningTable,
-  useSaveTableLayout,
-  type DiningTable,
-  type TableShape,
+  useSpaces,
+  useCreateSpace,
+  useSaveSpaceLayout,
+  type Space,
+  type SpaceShape,
   type LayoutPosition,
-} from "@/hooks/use-dining-tables"
+} from "@/hooks/use-spaces"
 
 /**
- * Editor visual del salón — canvas por sector con las mesas como formas
+ * Editor visual del local — canvas por sector con los espacios como formas
  * arrastrables (posicionamiento absoluto + drag nativo vía react-rnd, mismo
  * patrón técnico que el editor de plantillas de impresión,
  * `components/print-templates/template-editor.tsx`; sin librerías nuevas).
  *
  * Unidades del canvas: **píxeles crudos 1:1**, no mm — a diferencia del
  * editor de impresión (que escala a un papel físico), acá el "papel" es un
- * salón sin dimensión real conocida, así que posx/posy/width/height se
+ * local sin dimensión real conocida, así que posx/posy/width/height se
  * guardan y renderizan en la misma unidad arbitraria de canvas (grid snap de
  * 10px). Si más adelante se necesita imprimir el plano a escala real, se
  * puede agregar un factor de conversión sin tocar el modelo.
  *
  * Toggle "Vista grilla / Vista layout": layout = el canvas editable de
- * abajo; grilla = preview read-only de cómo se ve la mesa en el POS cuando
+ * abajo; grilla = preview read-only de cómo se ve el espacio en el POS cuando
  * NO tiene posición custom (grilla numerada por sector, fallback default).
  */
 export function LayoutEditor({ outletId }: { outletId: string }) {
-  const { data: sectorsData } = useTableSectors(outletId)
+  const { data: sectorsData } = useSpaceSectors(outletId)
   const sectors = sectorsData?.sectors ?? []
 
   const [sectorId, setSectorId] = React.useState<string>("")
@@ -47,16 +47,16 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
     if (!sectorId && sectors.length > 0) setSectorId(sectors[0].id)
   }, [sectors, sectorId])
 
-  const { data: tablesData, isLoading } = useDiningTables(outletId, sectorId || undefined)
-  const allTables = React.useMemo(() => tablesData?.tables ?? [], [tablesData])
+  const { data: tablesData, isLoading } = useSpaces(outletId, sectorId || undefined)
+  const allTables = React.useMemo(() => tablesData?.spaces ?? [], [tablesData])
 
-  const createTable = useCreateDiningTable()
-  const saveLayout = useSaveTableLayout()
+  const createTable = useCreateSpace()
+  const saveLayout = useSaveSpaceLayout()
 
   // Copia local editable — el canvas no muta el server hasta "Guardar".
-  const [draft, setDraft] = React.useState<Record<string, DiningTable>>({})
+  const [draft, setDraft] = React.useState<Record<string, Space>>({})
   React.useEffect(() => {
-    const next: Record<string, DiningTable> = {}
+    const next: Record<string, Space> = {}
     for (const t of allTables) next[t.id] = t
     setDraft(next)
   }, [allTables])
@@ -69,14 +69,14 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
   const placed = draftList.filter((t) => t.posX !== null && t.posY !== null)
   const unplaced = draftList.filter((t) => t.posX === null || t.posY === null)
 
-  function patchTable(id: string, patch: Partial<DiningTable>) {
+  function patchTable(id: string, patch: Partial<Space>) {
     setDraft((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], ...patch } } : prev))
     setDirty(true)
   }
 
-  function placeOnCanvas(table: DiningTable) {
+  function placeOnCanvas(table: Space) {
     const size = defaultSize(table.shape)
-    // Cascada simple para que las mesas recién agregadas no se apilen exactamente encima.
+    // Cascada simple para que los espacios recién agregados no se apilen exactamente encima.
     const offset = (placed.length % 6) * 20
     patchTable(table.id, {
       posX: 40 + offset,
@@ -98,7 +98,7 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
     patchTable(id, { rotation: (t.rotation + 45) % 360 })
   }
 
-  async function addDecor(shape: TableShape) {
+  async function addDecor(shape: SpaceShape) {
     if (!sectorId) {
       toast.error("Elegí un sector primero")
       return
@@ -132,7 +132,7 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
       rotation: t.rotation,
       shape: t.shape,
     }))
-    // Mesas quitadas del layout también viajan (posX/posY null) para persistir la remoción.
+    // Espacios quitados del layout también viajan (posX/posY null) para persistir la remoción.
     const removed: LayoutPosition[] = unplaced
       .filter((t) => allTables.find((orig) => orig.id === t.id && orig.posX !== null))
       .map((t) => ({ tableId: t.id, posX: null, posY: null, width: null, height: null }))
@@ -201,11 +201,11 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
         <EmptyState
           icon={LayoutGrid}
           title="Sin sectores"
-          description="Creá un sector arriba para empezar a diseñar el salón."
+          description="Creá un sector arriba para empezar a diseñar el local."
           showMarquee={false}
         />
       ) : isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando mesas…</p>
+        <p className="text-sm text-muted-foreground">Cargando espacios…</p>
       ) : mode === "grid" ? (
         <GridPreview tables={draftList} />
       ) : (
@@ -218,7 +218,7 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
           >
             <div className="relative" style={{ width: canvasWidth, height: canvasHeight }}>
               {placed.map((t) => (
-                <CanvasTableBlock
+                <CanvasSpaceBlock
                   key={t.id}
                   table={t}
                   selected={selectedId === t.id}
@@ -230,19 +230,19 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
               ))}
               {placed.length === 0 && (
                 <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-                  Arrastrá mesas desde la lista para empezar a armar el salón.
+                  Arrastrá espacios desde la lista para empezar a armar el local.
                 </div>
               )}
             </div>
           </div>
 
-          {/* Sidebar de mesas sin posicionar */}
+          {/* Sidebar de espacios sin posicionar */}
           <div className="w-56 shrink-0 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Sin ubicar ({unplaced.filter((t) => t.seats > 0).length})
             </p>
             {unplaced.filter((t) => t.seats > 0).length === 0 ? (
-              <p className="text-xs text-muted-foreground">Todas las mesas del sector están en el layout.</p>
+              <p className="text-xs text-muted-foreground">Todos los espacios del sector están en el layout.</p>
             ) : (
               <div className="flex flex-col gap-1.5">
                 {unplaced.filter((t) => t.seats > 0).map((t) => (
@@ -267,17 +267,17 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
 
 /**
  * Preview read-only de la grilla numerada default — lo que el POS muestra
- * cuando la mesa NO tiene posición custom (posX/posY null). Orden por
+ * cuando el espacio NO tiene posición custom (posX/posY null). Orden por
  * `sort`/nombre, wrap automático en columnas fijas.
  */
-function GridPreview({ tables }: { tables: DiningTable[] }) {
+function GridPreview({ tables }: { tables: Space[] }) {
   const real = tables.filter((t) => t.seats > 0 || !["bar", "decor_wall", "decor_plant"].includes(t.shape))
   if (real.length === 0) {
     return (
       <EmptyState
         icon={LayoutGrid}
-        title="Sin mesas en este sector"
-        description="Creá mesas arriba con el alta rápida para verlas acá."
+        title="Sin espacios en este sector"
+        description="Creá espacios arriba con el alta rápida para verlos acá."
         showMarquee={false}
       />
     )
