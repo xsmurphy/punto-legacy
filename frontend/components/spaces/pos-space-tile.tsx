@@ -49,7 +49,10 @@ function formatOpenedAt(iso: string): string {
 
 export function PosSpaceTile({ table, onClick, position }: Props) {
   const isDecor = DECOR_SHAPES.includes(table.shape)
-  const isRound = table.shape === "round"
+  // La forma física (redonda) solo aplica en el MAPA (position presente) —
+  // en la grilla numerada todos los tiles son uniformes (rounded-lg): la
+  // forma es información espacial del plano, no del listado.
+  const isRound = table.shape === "round" && position !== undefined
   const disabled = table.state === "disabled" || isDecor
 
   const elapsed = useElapsed(table.session?.openedAt ?? null, { warnMin: 45, lateMin: 90 })

@@ -521,9 +521,12 @@ para saber en qué modo está la caja y qué hace el botón principal. Mapeo
 único en `lib/pos/mode-visuals.ts` (`MODE_VISUALS` + `resolveCartMode()`) —
 **nunca duplicar el mapping inline** en otro componente.
 
-**Regla fija: un color por modo, siempre en los mismos 2 lugares** — (1) el
-CTA principal del carrito (`CartBottom` en `components/register/cart-panel.tsx`),
-(2) la banda superior del panel (`ModeBanner`, mismo archivo).
+**Regla fija: un color por modo, en UN solo lugar** — el CTA principal del
+carrito (`CartBottom` en `components/register/cart-panel.tsx`). La banda
+superior (`ModeBanner`) fue removida 2026-07-19 por decisión del owner: la
+identificación del tipo de transacción la da el botón de pago, sin slot
+extra arriba del toolbar. El nombre del espacio + X de deselección viven en
+`SpaceChip`.
 
 | Modo | Color (`PALETTE_COLORS`) | CTA | Notas |
 |---|---|---|---|
@@ -659,6 +662,7 @@ del sistema):
 
 | Fecha | Decisión | Commit | Razón |
 |---|---|---|---|
+| 2026-07-19 | `ModeBanner` removida del carrito: el color de modo vive SOLO en el CTA de cobro. `SpaceChip` recupera nombre+X del espacio. Forma redonda de mesas solo en el mapa (grilla = tiles uniformes) | — | Owner: "la identificación del tipo de transacción se da por el botón de pago, no necesitamos otro ahí arriba" |
 | 2026-07-19 | `EmptyState` unificado: prop `ghost` (boolean\|number) reemplaza `showMarquee` (deprecado, no removido) como forma explícita de pedir el patrón de ghost cards. `/pos/ordenes` migrado del `<Empty>` hand-rolled a `<EmptyState ghost>` | — | Había 2-3 empty states distintos en páginas del POS (Guardadas con ghosts, Órdenes con ícono en círculo sin ghosts); unificado a un solo modelo |
 | 2026-07-18 | Reescritura completa de `context/20` como design system definitivo: tokens reales extraídos de `globals.css`/`components.json`, paleta de acentos, formatos, patrones POS, guía de bootstrap para apps externas | — | El doc anterior documentaba solo patrones de componentes sin los tokens crudos ni una guía standalone; se necesitaba una referencia autocontenida para compartir UI/UX fuera del repo |
 | 2026-07-18 | Inter declarada canónica en `globals.css` y `context/20`. Eliminada declaración residual de Poppins | — | Owner decidió Inter como fuente; unificada la capa CSS/doc |

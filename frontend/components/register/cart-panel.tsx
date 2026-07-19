@@ -326,14 +326,10 @@ export function CartPanel() {
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
-      {/* Banda de modo — canal principal de "en qué modo está la caja"
-          (context/20 "Colores de modo del POS"). SIEMPRE presente con la misma
-          altura (neutral en venta) para no desplazar el toolbar entre modos. */}
-      <ModeBanner
-        mode={cartMode}
-        spaceSessionId={spaceSessionId}
-        onClearSpace={clearSelectedSpace}
-      />
+      {/* Sin banda de modo (removida 2026-07-19 por decisión del owner): la
+          identificación del tipo de transacción la da el CTA de cobro/orden
+          (CartBottom) — un solo canal de color, sin slot extra arriba del
+          toolbar. */}
       <OfflineBanner />
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
@@ -472,13 +468,11 @@ export function CartPanel() {
       />
 
       {/* ── Chip de espacio seleccionado (context/15 F2) ── */}
-      {/* Cuando el modo es "orden-espacio" la ModeBanner ya muestra el nombre
-          del espacio + su X para deseleccionar — no duplicar la señal. Este
-          chip sigue existiendo para el caso "venta" (loadFromSession: cobrar
-          el espacio completo), que no tiene banda de color propia. */}
-      {cartMode !== "orden-espacio" && (
-        <SpaceChip spaceName={spaceName} onClear={clearSelectedSpace} />
-      )}
+      {/* Con la banda de modo removida, este chip vuelve a ser el único lugar
+          con el nombre del espacio + la X para deseleccionarlo (modo
+          orden-espacio) y también cubre el caso "venta" (loadFromSession:
+          cobrar el espacio completo, sin X). */}
+      <SpaceChip spaceName={spaceName} onClear={clearSelectedSpace} />
 
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
@@ -638,57 +632,6 @@ function CartToolbar({
       <div className="flex flex-1 justify-center">
         <SaleOptionsDrawer onCancelSale={onCancelSale} />
       </div>
-    </div>
-  )
-}
-
-// ── Banda de modo ─────────────────────────────────────────────────────────────
-//
-// Canal principal de "en qué modo está la caja" (context/20 "Colores de modo
-// del POS"): color fijo por modo, siempre acá + en el CTA de CartBottom.
-// Oculta en "venta" (color null = baseline, sin tinte). Para "orden-espacio"
-// incluye la X de deseleccionar el espacio — reemplaza al SpaceChip para no
-// duplicar la señal de qué espacio está tomando la orden.
-
-function ModeBanner({
-  mode,
-  spaceSessionId,
-  onClearSpace,
-}: {
-  mode: CartModeKey
-  spaceSessionId: string | null
-  onClearSpace: () => void
-}) {
-  const visual = MODE_VISUALS[mode]
-  const Icon = visual.icon
-  const tinted = visual.color !== null
-
-  // SIEMPRE presente con la MISMA altura (h-7), en cualquier modo — regla de UI
-  // del POS: la señal de modo NO puede agregar/quitar altura condicional o los
-  // botones del toolbar de abajo se desplazan entre venta y orden y rompen la
-  // memoria muscular del cajero. En venta (color null) queda neutral (muted,
-  // label "Venta"); en modos con color toma el tinte. El layout es pixel-
-  // idéntico entre modos. Ver context/14 §POS.
-  return (
-    <div
-      className={cn(
-        "flex h-7 shrink-0 items-center gap-1.5 border-b px-3",
-        tinted ? "border-transparent text-black" : "border-border bg-muted/40 text-muted-foreground",
-      )}
-      style={visual.color ? { backgroundColor: visual.color } : undefined}
-    >
-      {Icon && <Icon className="size-3.5 shrink-0" aria-hidden />}
-      <span className="text-xs font-semibold tracking-wide">{visual.label}</span>
-      {mode === "orden-espacio" && spaceSessionId && (
-        <button
-          type="button"
-          onClick={onClearSpace}
-          aria-label="Quitar espacio seleccionado"
-          className="ml-auto flex size-5 items-center justify-center rounded-full transition-colors hover:bg-black/10"
-        >
-          <X className="size-3" />
-        </button>
-      )}
     </div>
   )
 }
