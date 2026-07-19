@@ -14,7 +14,7 @@
  * cumple AA holgado (>4.9:1) en cualquier tamaño.
  */
 import type { LucideIcon } from "lucide-react"
-import { Armchair, CalendarClock, ClipboardList, FileText } from "lucide-react"
+import { LayoutGrid, CalendarClock, ClipboardList, FileText } from "lucide-react"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 
 export type CartModeKey =
@@ -40,7 +40,9 @@ export interface ModeVisual {
 export const MODE_VISUALS: Record<CartModeKey, ModeVisual> = {
   venta: { color: null, label: "Venta", icon: null },
   "orden-mostrador": { color: paletteHex("emerald"), label: "Orden", icon: ClipboardList },
-  "orden-espacio": { color: paletteHex("emerald"), label: "Orden", icon: Armchair },
+  // LayoutGrid: ícono único del concepto Espacios en todo el sistema (mismo que
+  // el sidebar del POS post-rename Mesas→Espacios). No usar Armchair.
+  "orden-espacio": { color: paletteHex("emerald"), label: "Orden", icon: LayoutGrid },
   cotizacion: { color: paletteHex("amber"), label: "Cotización", icon: FileText },
   // Reservado — "Modo reserva" (context/24-orders-module-plan.md, O4, fuera
   // de alcance). No hay estado real hoy que dispare este modo; queda

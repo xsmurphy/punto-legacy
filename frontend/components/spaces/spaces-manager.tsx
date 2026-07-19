@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import { useOutlets } from "@/hooks/use-outlets"
+import { readViewScope } from "@/hooks/use-view-scope"
 import { useSpaceSectors } from "@/hooks/use-space-sectors"
 import {
   useSpaces,
@@ -64,8 +65,19 @@ export function SpacesManager() {
   const { data: outletsData } = useOutlets()
   const outlets = outletsData?.rows ?? []
   const [outletId, setOutletId] = React.useState("")
+  // Inicializa con la sucursal del selector GLOBAL del panel (view scope del
+  // sidebar): si el scope es una sucursal concreta y existe en la lista, se usa
+  // esa; si es "Todas" (o no hay scope), cae a la primera. `readViewScope()` lee
+  // localStorage síncrono → sin race de hidratación. El Select local sigue
+  // sirviendo de override puntual sin re-elegir al entrar a la página.
   React.useEffect(() => {
-    if (!outletId && outlets.length > 0) setOutletId(outlets[0].id)
+    if (outletId || outlets.length === 0) return
+    const scoped = readViewScope()
+    if (scoped && scoped !== "all" && outlets.some((o) => o.id === scoped)) {
+      setOutletId(scoped)
+    } else {
+      setOutletId(outlets[0].id)
+    }
   }, [outlets, outletId])
 
   // Todo espacio SIEMPRE pertenece a un sector (space.sectorid NOT NULL,

@@ -1,21 +1,26 @@
 "use client"
 
 /**
- * Sheet de detalle de un espacio ocupado/pagando (context/15-espacios-module-plan.md
+ * Dialog de detalle de un espacio ocupado/pagando (context/15-espacios-module-plan.md
  * F2). Lista las órdenes de la sesión (todas, cualquier status — historial
- * completo de rondas) y expone las acciones del espacio: Agregar orden,
- * Pedir cuenta, Cobrar, Cancelar sesión (solo si no hay órdenes activas).
+ * completo de rondas) y expone las acciones del espacio: Agregar orden, Pedir
+ * cuenta, Cobrar, Cancelar sesión (solo si no hay órdenes activas).
+ *
+ * Modal centrado (no Sheet lateral) — convención transversal del owner:
+ * Dialog es el default para paneles contextuales (ver context/14 §2.2). Botones
+ * a ancho completo y size lg porque el POS se opera con el dedo en tablet.
  */
 
 import * as React from "react"
 import { Loader2, Plus, Receipt, Ban, CreditCard, ClipboardList } from "lucide-react"
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-} from "@/components/ui/sheet"
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/empty-state"
@@ -44,7 +49,7 @@ interface Props {
   chargePending: boolean
 }
 
-export function SpaceSessionSheet({
+export function SpaceSessionDialog({
   table,
   onOpenChange,
   onAddOrder,
@@ -62,16 +67,18 @@ export function SpaceSessionSheet({
   const canCancel = !hasActiveOrders
 
   return (
-    <Sheet open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
-      <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>
-            {table?.name}
-            {table?.session?.guests ? ` · ${table.session.guests} comensales` : ""}
-          </SheetTitle>
-        </SheetHeader>
+    <Dialog open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-semibold">{table?.name}</DialogTitle>
+          <DialogDescription>
+            {table?.session?.guests
+              ? `${table.session.guests} comensales`
+              : "Órdenes de la sesión activa"}
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4">
+        <div className="max-h-[45vh] flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -99,13 +106,15 @@ export function SpaceSessionSheet({
           )}
         </div>
 
-        <SheetFooter className="flex-col gap-2 sm:flex-col">
-          <Button onClick={onAddOrder} className="w-full gap-1.5">
+        <DialogFooter className="flex-col gap-2 sm:flex-col">
+          {/* size lg + w-full: touch targets grandes para operar con el dedo. */}
+          <Button size="lg" onClick={onAddOrder} className="w-full gap-1.5">
             <Plus className="size-4" />
             Agregar orden
           </Button>
           {table?.state !== "bill_requested" && (
             <Button
+              size="lg"
               variant="outline"
               onClick={onRequestBill}
               disabled={requestBillPending}
@@ -116,6 +125,7 @@ export function SpaceSessionSheet({
             </Button>
           )}
           <Button
+            size="lg"
             variant="outline"
             onClick={onCharge}
             disabled={chargePending || orders.length === 0}
@@ -125,6 +135,7 @@ export function SpaceSessionSheet({
             {chargePending ? "Preparando cobro..." : "Cobrar"}
           </Button>
           <Button
+            size="lg"
             variant="ghost"
             onClick={onCancelSession}
             disabled={!canCancel || cancelPending}
@@ -134,8 +145,8 @@ export function SpaceSessionSheet({
             <Ban className="size-4" />
             {cancelPending ? "Cancelando..." : "Cancelar sesión"}
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

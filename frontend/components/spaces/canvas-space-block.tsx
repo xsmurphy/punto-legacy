@@ -131,7 +131,7 @@ export function defaultSize(shape: SpaceShape): { width: number; height: number 
   }
 }
 
-function decorLabel(shape: SpaceShape): string {
+export function decorLabel(shape: SpaceShape): string {
   switch (shape) {
     case "bar":          return "Barra"
     case "decor_wall":  return "Pared"

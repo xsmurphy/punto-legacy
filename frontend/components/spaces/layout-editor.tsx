@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState } from "@/components/empty-state"
 import { Badge } from "@/components/ui/badge"
 
-import { CanvasSpaceBlock, defaultSize } from "@/components/spaces/canvas-space-block"
+import { CanvasSpaceBlock, defaultSize, decorLabel } from "@/components/spaces/canvas-space-block"
 import { useSpaceSectors } from "@/hooks/use-space-sectors"
 import {
   useSpaces,
@@ -43,8 +43,16 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
   const sectors = sectorsData?.sectors ?? []
 
   const [sectorId, setSectorId] = React.useState<string>("")
+  // Bug fix (cambiar sucursal no carga el layout): al cambiar de outlet el
+  // `sectorId` viejo pertenece a OTRA sucursal y ya no está en `sectors` → hay
+  // que reseleccionar el primer sector del outlet nuevo. Con el chequeo
+  // anterior (`!sectorId`) el sector viejo persistía y `useSpaces(outletNuevo,
+  // sectorViejo)` devolvía [] → canvas vacío. Mismo criterio que spaces-manager.
   React.useEffect(() => {
-    if (!sectorId && sectors.length > 0) setSectorId(sectors[0].id)
+    if (sectors.length === 0) return
+    if (!sectorId || !sectors.some((s) => s.id === sectorId)) {
+      setSectorId(sectors[0].id)
+    }
   }, [sectors, sectorId])
 
   const { data: tablesData, isLoading } = useSpaces(outletId, sectorId || undefined)
@@ -55,15 +63,35 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
 
   // Copia local editable — el canvas no muta el server hasta "Guardar".
   const [draft, setDraft] = React.useState<Record<string, Space>>({})
-  React.useEffect(() => {
-    const next: Record<string, Space> = {}
-    for (const t of allTables) next[t.id] = t
-    setDraft(next)
-  }, [allTables])
-
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [mode, setMode] = React.useState<"layout" | "grid">("layout")
   const [dirty, setDirty] = React.useState(false)
+
+  // Re-hidratación en dos regímenes (raíz de Bug 1 "se pierde el layout" y de
+  // Bug 2 "cambiar sucursal no carga el layout"):
+  //   - Cambio de scope (outlet o sector) → reset TOTAL desde el server: el
+  //     canvas se re-hidrata completo con el layout de la nueva selección.
+  //   - Refetch del MISMO scope (invalidación al crear un decor, window focus o
+  //     staleTime) → merge NO destructivo: conserva las posiciones locales sin
+  //     guardar (`prev[id]`), incorpora filas nuevas y descarta las eliminadas.
+  //     Antes el efecto pisaba `draft` entero desde el server en cada refetch →
+  //     borraba arrastres sin guardar y devolvía el decor recién creado a
+  //     posX=null (invisible en el editor).
+  const scopeKey = `${outletId}::${sectorId}`
+  const scopeRef = React.useRef<string>("")
+  React.useEffect(() => {
+    const scopeChanged = scopeRef.current !== scopeKey
+    scopeRef.current = scopeKey
+    setDraft((prev) => {
+      const next: Record<string, Space> = {}
+      for (const t of allTables) next[t.id] = scopeChanged ? t : prev[t.id] ?? t
+      return next
+    })
+    if (scopeChanged) {
+      setDirty(false)
+      setSelectedId(null)
+    }
+  }, [allTables, scopeKey])
 
   const draftList = Object.values(draft)
   const placed = draftList.filter((t) => t.posX !== null && t.posY !== null)
@@ -112,9 +140,20 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
         seats: 0,
       })
       const size = defaultSize(shape)
+      // Nace posicionado y en cascada (no apilado): +Barra/+Pared/+Planta ya no
+      // caen todos en el mismo punto. En el POS los decorativos sin posición se
+      // apilaban en el origen — por eso siempre se crean colocados.
+      const offset = (placed.length % 6) * 24
       setDraft((prev) => ({
         ...prev,
-        [created.id]: { ...created, posX: 40, posY: 40, width: size.width, height: size.height },
+        [created.id]: {
+          ...created,
+          posX: 60 + offset,
+          posY: 60 + offset,
+          width: size.width,
+          height: size.height,
+          rotation: 0,
+        },
       }))
       setDirty(true)
     } catch (e) {
@@ -238,13 +277,16 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
           {/* Sidebar de espacios sin posicionar */}
           <div className="w-56 shrink-0 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Sin ubicar ({unplaced.filter((t) => t.seats > 0).length})
+              Sin ubicar ({unplaced.length})
             </p>
-            {unplaced.filter((t) => t.seats > 0).length === 0 ? (
+            {unplaced.length === 0 ? (
               <p className="text-xs text-muted-foreground">Todos los espacios del sector están en el layout.</p>
             ) : (
+              // Incluye decorativos sin posición (seats 0): así un decor quitado
+              // del layout — o creado antes de este fix, apilado en el POS — se
+              // puede volver a colocar en vez de quedar huérfano/invisible.
               <div className="flex flex-col gap-1.5">
-                {unplaced.filter((t) => t.seats > 0).map((t) => (
+                {unplaced.map((t) => (
                   <button
                     key={t.id}
                     type="button"
@@ -252,7 +294,11 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
                     className="flex items-center justify-between rounded-md border px-2.5 py-1.5 text-sm hover:bg-accent"
                   >
                     <span>{t.name}</span>
-                    <Badge variant="secondary">{t.seats}p</Badge>
+                    {t.seats > 0 ? (
+                      <Badge variant="secondary">{t.seats}p</Badge>
+                    ) : (
+                      <Badge variant="outline">{decorLabel(t.shape)}</Badge>
+                    )}
                   </button>
                 ))}
               </div>
