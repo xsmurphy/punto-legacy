@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { posApi as api } from "@/lib/api/pos-client"
 
 /**
  * Cambia sucursal/caja del device actual sin re-emitir JWT ni revocar el pairing.

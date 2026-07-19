@@ -89,6 +89,7 @@ import { OfflineBanner } from "@/components/pos/offline-banner"
 import { useCreateOrder } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { posApi } from "@/lib/api/pos-client"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
@@ -142,7 +143,7 @@ export function CartPanel() {
     }
   }, [modoSoloOrdenes, posMode, setPosMode])
 
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
   const createOrder = useCreateOrder()
 

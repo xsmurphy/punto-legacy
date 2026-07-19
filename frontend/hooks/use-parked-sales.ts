@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 

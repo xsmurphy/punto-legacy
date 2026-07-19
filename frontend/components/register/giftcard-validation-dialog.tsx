@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { formatMoney } from "@/lib/format-money"
-import { api } from "@/lib/api-client"
+import { posApi as api } from "@/lib/api/pos-client"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 
 interface GiftcardInfo {

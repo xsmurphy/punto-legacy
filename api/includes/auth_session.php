@@ -113,6 +113,19 @@ function authSessionLookup(string $raw)
  * Mantiene la robustez multi-candidato (el browser puede llevar cookie _jwt_panel
  * + Bearer device a la vez): un candidato de otro realm/revocado se DESCARTA, no
  * mata el request (incidente 2026-06-26).
+ *
+ * ORDEN Bearer → cookies: correcto para devices puros (POS sin panel) y NO
+ * cambia. INVARIANTE que sostiene ese orden: un cliente NUNCA debe mandar
+ * credenciales de dos realms a la vez — el panel (`lib/api-client.ts`) es
+ * SOLO cookie, el POS (`lib/api/pos-client.ts` / `pos-fetch.ts`) es SOLO
+ * Bearer. Si ambas llegan juntas de un mismo cliente bien configurado, es
+ * el browser del operador (panel cookie) con una caja pareada en el mismo
+ * dispositivo (Bearer del device en localStorage) — dos requests DISTINTAS,
+ * cada una con su propia credencial, nunca ambas en una request. Ver bug
+ * real que motivó esta invariante: el fallback de Bearer automático que
+ * `api-client.ts` tenía (removido) hacía que requests de PANEL viajaran con
+ * Bearer de device → autenticaban como DEVICE → outlet scope equivocado
+ * (espacios creados en la sucursal del device, no la elegida en el panel).
  */
 function authResolve(array $allowedRealms = ['pos-app']): bool
 {
@@ -124,6 +137,7 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
     $session = null;
     $sawWrongRealm = false;
     $sawRevoked    = false;
+    $seenRealms    = [];
     foreach ($candidates as $raw) {
         $s = authSessionLookup($raw);
         if ($s === null) {
@@ -137,12 +151,32 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
         if ($exp !== '' && strtotime($exp) < time()) {
             continue; // expirada
         }
+        // Señal de cliente mal configurado: credenciales VÁLIDAS de dos realms
+        // distintos en la MISMA request (ver invariante arriba). No cambia el
+        // resultado — solo lo logueamos para poder auditar/cazar regresiones.
+        $seenRealms[(string)$s['realm']] = true;
         if (!in_array((string)$s['realm'], $allowedRealms, true)) {
             $sawWrongRealm = true;
             continue;
         }
-        $session = $s;
-        break;
+        if ($session === null) {
+            $session = $s;
+        }
+        // NO break: seguimos inspeccionando los candidatos restantes SOLO para
+        // poblar $seenRealms (el diagnóstico de credenciales cruzadas de abajo).
+        // Sin esto, el primer match corta el loop y el log jamás ve el segundo
+        // realm — exactamente el caso que queremos cazar (blind-spot, P1 del
+        // code review). El costo extra es ≤2 lookups cacheables por request
+        // y solo cuando hay múltiples credenciales.
+    }
+    if (count($seenRealms) > 1) {
+        error_log(sprintf(
+            '[auth_session] request con credenciales válidas de %d realms distintos (%s) — %s %s',
+            count($seenRealms),
+            implode(',', array_keys($seenRealms)),
+            $_SERVER['REQUEST_METHOD'] ?? '?',
+            $_SERVER['REQUEST_URI'] ?? '?',
+        ));
     }
 
     if ($session === null) {

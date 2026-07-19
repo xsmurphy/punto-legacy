@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { api, type HttpClient } from "@/lib/api-client"
 import type { Bootstrap } from "@/lib/types/bootstrap"
 
 /**
@@ -9,14 +9,19 @@ import type { Bootstrap } from "@/lib/types/bootstrap"
  * TanStack Query dedup automáticamente las llamadas concurrentes y
  * el staleTime alto evita refetch innecesarios.
  *
- * Auth: requiere cookie `_jwt_panel` válida (realm `panel`). Si responde
- * 401, los componentes que dependen de `data` se muestran como skeleton
- * y el middleware de frontend redirecta a /login (slice futuro).
+ * Auth: `/v1/bootstrap` es MULTI-REALM (`apiAuthTenant(['panel','pos-app'])`)
+ * — acepta cookie `_jwt_panel` (panel) o Bearer del device (POS). El caller
+ * define el realm inyectando el cliente: panel usa el default `api`
+ * (cookie); el layout del POS pasa `client: posApi` (Bearer) — ver
+ * `lib/api/pos-client.ts` y el invariante de realm en `lib/api-client.ts`.
+ * Si responde 401, los componentes que dependen de `data` se muestran como
+ * skeleton y el middleware de frontend redirecta a /login (slice futuro).
  */
-export function useBootstrap() {
+export function useBootstrap(opts: { client?: HttpClient } = {}) {
+  const client = opts.client ?? api
   return useQuery<Bootstrap>({
-    queryKey: ["bootstrap"],
-    queryFn: () => api.get<Bootstrap>("/v1/bootstrap"),
+    queryKey: ["bootstrap", client === api ? "panel" : "pos"],
+    queryFn: () => client.get<Bootstrap>("/v1/bootstrap"),
     // staleTime alto evita refetch innecesario en navegación normal, pero
     // refetchOnMount: "always" garantiza datos frescos al cargar/recargar
     // la app — antes la cache cliente persistía data vieja sin user.permissions

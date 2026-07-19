@@ -28,6 +28,7 @@ import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { posApi } from "@/lib/api/pos-client"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
@@ -70,7 +71,10 @@ export default function PosWorkspaceLayout({
   // remounts del layout — Next puede invalidar la cache al navegar entre
   // rutas hijas (/pos → /pos/guardadas) y un useRef se resetearía, volviendo
   // a lockear cada vez. Incidente 2026-06-28.
-  const { data: bootstrap } = useBootstrap()
+  // Bootstrap del layout del POS: multi-realm en backend, pero este layout
+  // SIEMPRE corre en contexto de device — inyecta posApi (Bearer) en vez
+  // del default `api` (cookie panel), ver invariante en lib/api-client.ts.
+  const { data: bootstrap } = useBootstrap({ client: posApi })
   if (bootstrap && !useLockStore.getState().autoLockDone) {
     useLockStore.getState().markAutoLockDone()
     const userCount = bootstrap.userCount

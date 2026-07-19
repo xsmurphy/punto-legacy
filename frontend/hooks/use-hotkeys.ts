@@ -17,7 +17,7 @@
 
 import * as React from "react"
 import { useQuery, useMutation } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { posApi as api } from "@/lib/api/pos-client"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore, type Hotkey } from "@/lib/hotkeys/store"
 

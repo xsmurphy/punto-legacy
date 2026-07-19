@@ -10,14 +10,42 @@
  * El client llama por path RELATIVO (`/v1/contacts`) — el `baseUrl()`
  * devuelve `/api` y se concatena → `/api/v1/contacts` que matchea el
  * catch-all del BFF. Same-origin, sin CORS, cookie viaja sola.
+ *
+ * INVARIANTE DE REALM: este cliente es SOLO panel — autentica por cookie
+ * (`credentials: "include"`, `_jwt_panel`), NUNCA por Bearer de device. Un
+ * cliente no debe mandar credenciales de dos realms a la vez: el browser del
+ * operador suele tener cookie de panel Y token de device (caja pareada), y
+ * si este cliente adjuntara el Bearer del device como fallback, el resolver
+ * del server prioriza Bearer → la request de PANEL se autentica como DEVICE
+ * → outlet scope equivocado (bug real: espacios creados en la sucursal del
+ * device, no la elegida en el panel). El POS usa su propio cliente
+ * (`lib/api/pos-client.ts` / `lib/api/pos-fetch.ts`), que adjunta el Bearer
+ * explícitamente. No reintroducir el fallback acá.
  */
 
 import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
-import { getDeviceToken } from "@/lib/auth/device-token"
 import { getSharedQueryClient } from "@/lib/auth/query-client-singleton"
 import { moduleLogout } from "@/lib/auth/module-logout"
 
 type Json = Record<string, unknown> | unknown[]
+
+/**
+ * Contrato mínimo compartido entre `api` (panel, cookie) y `posApi`
+ * (POS, Bearer — `lib/api/pos-client.ts`). Hooks consumidos por AMBOS
+ * realms (bootstrap, price-lists, printer-bindings, tags, settings) reciben
+ * el cliente por parámetro en vez de importar `api` a fuego — así el
+ * call-site del POS inyecta `posApi` y el del panel sigue con el default
+ * `api`, sin duplicar la lógica de la query/mutation. Ver invariante de
+ * realm en el docblock del archivo.
+ */
+export interface HttpClient {
+  get: <T>(path: string) => Promise<T>
+  post: <T>(path: string, body?: Json) => Promise<T>
+  postForm: <T>(path: string, form: FormData) => Promise<T>
+  put: <T>(path: string, body?: Json) => Promise<T>
+  patch: <T>(path: string, body?: Json) => Promise<T>
+  del: <T>(path: string) => Promise<T>
+}
 
 export class ApiError extends Error {
   constructor(
@@ -67,12 +95,6 @@ async function request<T>(
   }
   if (jwt) {
     baseHeaders.Authorization = `Bearer ${jwt}`
-  } else if (typeof window !== "undefined") {
-    // Bearer automático para el device POS (solo en browser; en server no hay localStorage).
-    const deviceToken = getDeviceToken()
-    if (deviceToken) {
-      baseHeaders.Authorization = `Bearer ${deviceToken}`
-    }
   }
 
   // View-scope override del outlet: si el usuario eligió una sucursal o

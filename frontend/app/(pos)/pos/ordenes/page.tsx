@@ -33,6 +33,7 @@ import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { posApi } from "@/lib/api/pos-client"
 import {
   useActiveOrders,
   useOrder,
@@ -110,7 +111,7 @@ function OrderCard({ order }: { order: Order }) {
   const router = useRouter()
   const config = useCatalogStore((s) => s.config)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
   const loadFromOrder = useCartStore((s) => s.loadFromOrder)
   const cancelOrder = useCancelOrder()

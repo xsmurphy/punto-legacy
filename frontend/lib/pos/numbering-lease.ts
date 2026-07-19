@@ -1,4 +1,4 @@
-import { api } from '@/lib/api-client'
+import { posApi as api } from '@/lib/api/pos-client'
 
 interface LeaseState {
   from: number

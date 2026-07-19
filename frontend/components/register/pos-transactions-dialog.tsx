@@ -54,6 +54,7 @@ import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-pri
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
 import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { posApi } from "@/lib/api/pos-client"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -439,7 +440,7 @@ function TransactionDetail({
   const config = useCatalogStore((s) => s.config)
   const paymentMethods = useCatalogStore((s) => s.paymentMethods)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
   const { requestPrint, pickerDialog } = usePrintWithPicker()
   const addLines = useCartStore((s) => s.addLines)
