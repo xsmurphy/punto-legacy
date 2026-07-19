@@ -527,9 +527,9 @@ CTA principal del carrito (`CartBottom` en `components/register/cart-panel.tsx`)
 
 | Modo | Color (`PALETTE_COLORS`) | CTA | Notas |
 |---|---|---|---|
-| Venta | ninguno — baseline oscuro actual | "Pagar" | Cualquier color = "no estás cobrando"; por eso venta queda sin tinte |
-| Orden (mostrador) | `emerald` | "Ordenar" | |
-| Orden (espacio seleccionado) | `emerald` (mismo color) | nombre del espacio (ej. "Mesa 4") + ícono `Armchair` | Reemplaza al `SpaceChip` — la banda ya trae la X de deseleccionar |
+| Venta | ninguno — baseline oscuro actual | el TOTAL formateado (histórico — el cajero mira el botón para saber cuánto cobrar) | Cualquier color = "no estás cobrando"; por eso venta queda sin tinte |
+| Orden (mostrador) | `emerald` | "Ordenar" + total en secundario | |
+| Orden (espacio seleccionado) | `emerald` (mismo color) | nombre del espacio (ej. "Mesa 4") + ícono `Armchair` + total en secundario | Reemplaza al `SpaceChip` — la banda ya trae la X de deseleccionar |
 | Cotización | `amber` | refleja el guardado en vuelo, no dispara acción | Cotización es una acción de guardado inmediato, NO un `posMode` sticky (`lib/cart/store.ts`) — el color solo vive mientras la promesa de `createQuote()` está en curso (`usePosUIStore.savingQuote`) |
 | Agenda | `violet` | — | Reservado — "Modo reserva" (context/24, O4, fuera de alcance). Sin estado real hoy; queda definido en el mapping para que agenda lo consuma directo |
 
