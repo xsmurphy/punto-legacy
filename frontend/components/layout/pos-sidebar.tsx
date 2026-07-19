@@ -4,9 +4,13 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
+  Armchair,
   Blocks,
   Bookmark,
+  CalendarDays,
+  ClipboardList,
   Lock,
+  ReceiptText,
 } from "lucide-react"
 import {
   Sidebar,
@@ -23,6 +27,7 @@ import {
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { useParkedSales } from "@/hooks/use-parked-sales"
+import { useActiveOrders } from "@/hooks/use-orders"
 import { useLockStore } from "@/lib/pos/lock-store"
 
 /**
@@ -35,8 +40,10 @@ import { useLockStore } from "@/lib/pos/lock-store"
 export function PosSidebar() {
   const pathname = usePathname()
   const { data: parkedSales } = useParkedSales()
+  const { data: activeOrders } = useActiveOrders()
   const lock = useLockStore((s) => s.lock)
   const parkedCount = parkedSales?.length ?? 0
+  const activeOrdersCount = activeOrders?.orders.length ?? 0
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -79,6 +86,51 @@ export function PosSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
+                  isActive={pathname.startsWith("/pos/ordenes")}
+                  tooltip="Órdenes"
+                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                >
+                  <Link href="/pos/ordenes">
+                    <ClipboardList />
+                    <span>Órdenes</span>
+                  </Link>
+                </SidebarMenuButton>
+                {activeOrdersCount > 0 && (
+                  <SidebarMenuBadge>{activeOrdersCount}</SidebarMenuBadge>
+                )}
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith("/pos/mesas")}
+                  tooltip="Mesas"
+                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                >
+                  <Link href="/pos/mesas">
+                    <Armchair />
+                    <span>Mesas</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith("/pos/calendario")}
+                  tooltip="Agenda"
+                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                >
+                  <Link href="/pos/calendario">
+                    <CalendarDays />
+                    <span>Agenda</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
                   isActive={pathname.startsWith("/pos/guardadas")}
                   tooltip="Guardadas"
                   className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
@@ -91,6 +143,20 @@ export function PosSidebar() {
                 {parkedCount > 0 && (
                   <SidebarMenuBadge>{parkedCount}</SidebarMenuBadge>
                 )}
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith("/pos/transactions")}
+                  tooltip="Transacciones"
+                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                >
+                  <Link href="/pos/transactions">
+                    <ReceiptText />
+                    <span>Transacciones</span>
+                  </Link>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
