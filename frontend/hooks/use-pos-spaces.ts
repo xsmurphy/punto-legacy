@@ -24,7 +24,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
-import type { SpaceWithState, SpaceShape } from "@/hooks/use-spaces"
+import type { SpaceWithState, SpaceShape, SpaceState } from "@/hooks/use-spaces"
 
 export interface PosSpaceSector {
   id: string
@@ -138,4 +138,4 @@ export function useCloseSpaceSession() {
   })
 }
 
-export type { SpaceWithState, SpaceShape }
+export type { SpaceWithState, SpaceShape, SpaceState }

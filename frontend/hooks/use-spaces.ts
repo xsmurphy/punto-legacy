@@ -16,7 +16,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 
 export type SpaceShape = "square" | "round" | "rect" | "bar" | "decor_wall" | "decor_plant"
-export type SpaceState = "free" | "occupied" | "bill_requested" | "disabled"
+// `reserved` aún NO lo emite el backend (reservas = F4 pendiente,
+// context/15-espacios-module-plan.md). Se define acá para que el mapping de
+// color (lib/pos/space-state-visuals.ts) y el tile queden listos para F4 sin
+// reabrir el union. Fuente única del tipo — `use-pos-spaces.ts` lo re-exporta.
+export type SpaceState = "free" | "occupied" | "bill_requested" | "reserved" | "disabled"
 
 export interface Space {
   id: string
