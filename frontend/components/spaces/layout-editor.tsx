@@ -202,7 +202,6 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
           icon={LayoutGrid}
           title="Sin sectores"
           description="Creá un sector arriba para empezar a diseñar el local."
-          showMarquee={false}
         />
       ) : isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando espacios…</p>
@@ -278,7 +277,6 @@ function GridPreview({ tables }: { tables: Space[] }) {
         icon={LayoutGrid}
         title="Sin espacios en este sector"
         description="Creá espacios arriba con el alta rápida para verlos acá."
-        showMarquee={false}
       />
     )
   }

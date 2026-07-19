@@ -146,7 +146,6 @@ export function SpacesManager() {
           icon={LayoutGrid}
           title="Seleccioná una sucursal"
           description="Elegí una sucursal para ver y administrar sus espacios."
-          showMarquee={false}
         />
       ) : (
         <>
@@ -182,7 +181,6 @@ export function SpacesManager() {
                   icon={LayoutGrid}
                   title="Sin espacios"
                   description='Usá "Crear espacios numerados" arriba para dar de alta la primera tanda.'
-                  showMarquee={false}
                 />
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

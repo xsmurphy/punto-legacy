@@ -189,7 +189,6 @@ export default function EspaciosPage() {
             icon={LayoutGrid}
             title="Sin espacios configurados en este sector"
             description="Configuralos desde Ajustes → Espacios."
-            showMarquee={false}
             className="h-full"
           />
         ) : hasCustomLayout ? (

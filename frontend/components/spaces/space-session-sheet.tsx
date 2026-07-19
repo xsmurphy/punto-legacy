@@ -80,7 +80,6 @@ export function SpaceSessionSheet({
             <EmptyState
               icon={ClipboardList}
               title="Sin órdenes todavía"
-              showMarquee={false}
               className="py-8"
             />
           ) : (
