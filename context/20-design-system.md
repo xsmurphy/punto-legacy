@@ -1,706 +1,648 @@
 <!-- REGLA: Design system canónico de Punto POS. Lectura OBLIGATORIA antes de
      crear o modificar componentes visuales en frontend. Referenciá la sección
-     exacta en el brief del sub-agente. -->
+     exacta en el brief del sub-agente. Este doc es autocontenido: no requiere
+     acceso al repo para bootstrapear el mismo look en otra app (ver §9). -->
 
-# 20 — Design System
+# 20 — Design System de Punto
 
-> Doc vivo. Referencia canónica de patrones UI para frontend.
-> Lee `context/14-ui-conventions.md` para reglas operativas básicas de shadcn;
-> este doc agrega patrones de componentes, anti-patterns explícitos y el changelog
+> Doc vivo. Referencia canónica de patrones UI, tokens reales (extraídos del
+> código) y guía de bootstrap para apps externas que compartan la UI/UX de
+> Punto. Este NO es un rediseño — documenta lo que YA existe en `frontend/`.
+> Lee `context/14-ui-conventions.md` para las reglas operativas base de
+> shadcn (tipografía, tamaños, formatos); este doc las cita, no las duplica,
+> y agrega tokens completos, componentes canon, patrones POS y el changelog
 > de decisiones de diseño.
 
 ## Tabla de contenidos
 
-- [1. Filosofia y principios](#1-filosofia-y-principios)
+- [1. Identidad y principios](#1-identidad-y-principios)
 - [2. Tokens](#2-tokens)
-- [3. Layouts](#3-layouts)
-- [4. Componentes — patrones canonicos](#4-componentes--patrones-canonicos)
-  - [4.1 Botones](#41-botones)
-  - [4.2 Forms](#42-forms)
-  - [4.3 Modales numericos — NumericPadDialog](#43-modales-numericos--numericpaddialog)
-  - [4.4 Modales de formulario](#44-modales-de-formulario)
-  - [4.5 Modales de confirmacion](#45-modales-de-confirmacion)
-  - [4.6 Modales split 2-col](#46-modales-split-2-col)
-  - [4.7 Listados / DataTable](#47-listados--datatable)
-  - [4.8 Pickers](#48-pickers)
-  - [4.9 Cards](#49-cards)
-  - [4.10 KPIs / Stats](#410-kpis--stats)
-  - [4.11 Reportes](#411-reportes)
-  - [4.12 Detalles tipo invoice](#412-detalles-tipo-invoice)
-  - [4.13 Empty states](#413-empty-states)
-  - [4.14 Loading states](#414-loading-states)
-  - [4.15 Banners](#415-banners)
-  - [4.16 Toasts](#416-toasts)
-  - [4.17 Sidebar](#417-sidebar)
-- [5. Patrones POS especificos](#5-patrones-pos-especificos)
-- [6. Anti-patrones](#6-anti-patrones)
-- [7. Changelog de decisiones](#7-changelog-de-decisiones)
-- [8. Como invocar este doc](#8-como-invocar-este-doc)
+- [3. Color](#3-color)
+- [4. Componentes canon](#4-componentes-canon)
+- [5. Prohibiciones](#5-prohibiciones)
+- [6. Patrones de página](#6-patrones-de-página)
+- [7. POS específico](#7-pos-específico)
+- [8. Formatos](#8-formatos)
+- [9. Guía para apps externas](#9-guía-para-apps-externas)
+- [10. Changelog de decisiones](#10-changelog-de-decisiones)
 
 ---
 
-## 1. Filosofia y principios
+## 1. Identidad y principios
 
-**Shadcn-first.** No reinventes primitives que shadcn ya provee. Todo componente UI se compone con shadcn. Prohibido `<table>`, `<button>`, `<input>`, `<label>` nativos cuando existe un primitive shadcn equivalente.
+Punto es un POS + panel de administración multi-vertical (gastronomía, retail,
+servicio técnico). La UI es **shadcn/ui puro** (style `radix-rhea`, base color
+`neutral`) con un único override de marca: verde Punto `#01D7A1` reservado a
+acentos (nunca `--primary`).
 
-**Touch-first en POS, keyboard-first en panel.** El POS opera en tablets con cajas de alto volumen: touch targets minimo 44px (`h-11` + padding). El panel opera con teclado y mouse: densidad media, tamaños shadcn default.
+**Principios:**
 
-**Densidad media por default.** No comprimas espaciado para meter mas info. No agrandes para parecer "moderno". El default de shadcn es correcto.
-
-**Disenar desde cero, no copiar legacy.** El POS y panel legacy son referencia funcional: que campos, que flujos, que edge cases. No son referencia visual. Tamaños, paddings, colores y tipografia vienen del design system shadcn + lo que ya esta en frontend.
-
-El caso del modal de transacciones ilustra el costo de no seguir esta regla: tuvo 3 iteraciones (stat cards → stat cards restyle → invoice pattern) porque se arranco copiando la estructura del legacy en lugar de disenar desde cero con los patrones canónicos.
-
-**Multi-vertical.** El copy debe ser neutral. No usar "vendedor" (usar "usuario" u "operador"), no usar "mozo" (usar "asignado"), no usar "factura" cuando aplica (usar "comprobante"). Los strings de UI pueden vivir en verticales de gastronomia, retail, servicio tecnico, etc.
-
-**Cuando hay duda, mirar legacy SOLO para entender la FUNCION.** Que dato se muestra, que accion se puede tomar, que estados existen. La forma visual siempre sale de frontend.
+1. **Shadcn-first.** No se reinventan primitives. Prohibido `<table>`,
+   `<button>`, `<input>`, `<label>` nativos cuando existe el equivalente
+   shadcn. Ver §5.
+2. **Densidad operativa.** El panel opera con teclado + mouse en densidad
+   media (default de shadcn, sin comprimir ni agrandar). El POS opera con
+   dedo en tablet — touch targets ≥ 44px — y 100% por teclado en el flujo de
+   caja de alto volumen (autofocus, shortcuts, sin depender del mouse).
+3. **Diseñar desde cero, no copiar legacy.** El panel/POS legacy (BS3,
+   `context/11-design-system.md`) es referencia FUNCIONAL — qué campos, qué
+   flujos, qué edge cases — nunca visual. Copiar su estructura con primitives
+   shadcn generó 3 iteraciones de restyle en el modal de transacciones
+   (2026-06-24); la lección quedó como regla dura.
+4. **Sin emojis en UI.** Ni en copy, ni en toasts, ni en placeholders.
+5. **es-PY neutro.** Acentuación correcta, vertical-neutral ("usuario" no
+   "vendedor"/"mozo"; "comprobante" no siempre "factura").
+6. **Multi-vertical.** Ningún string ni componente asume un rubro específico.
 
 ---
 
 ## 2. Tokens
 
-### Colores semanticos
+Fuente: `frontend/app/globals.css` (Tailwind v4, `@theme inline` — no hay
+`tailwind.config.*`, todo vive en CSS). Sistema de color: **OKLCH**. Style de
+`components.json`: `radix-rhea`, `baseColor: neutral`, `cssVariables: true`.
 
-Usa solo tokens del design system. Prohibido hex hardcodeado salvo excepciones documentadas.
+### Tipografía
 
-| Token | Cuando usarlo |
+| Token | Valor | Uso |
+|---|---|---|
+| `--font-sans` | `Poppins, ui-sans-serif, sans-serif, system-ui` (declarado en CSS) | Fuente base declarada en globals.css |
+| Fuente real cargada | `Inter` (next/font/google, var `--font-inter`) + `JetBrains_Mono` (var `--font-jetbrains-mono`) | `app/layout.tsx` — el `<html>` aplica `inter.variable` y `body` usa `font-sans`. **Inconsistencia real**: CSS declara Poppins, el layout carga Inter — ver Changelog. |
+| `--font-mono` | `JetBrains Mono, monospace` | Código, `kbd`, tabular contexts |
+| `--font-serif` | `Source Serif 4, serif` | Sin uso activo detectado |
+| `h1` | `text-2xl font-semibold`, `letter-spacing: -0.04em` global en `<h1>` | Título de página |
+| `h2` | `text-xl font-semibold`, `letter-spacing: -0.03em` global | Título de sección |
+| `h3` | `text-base font-semibold`, `letter-spacing: -0.02em` global | Subsección (§14 usa `tracking-tight` explícito) |
+| Texto principal | `text-sm` sin override | Body default |
+| Texto secundario | `text-sm text-muted-foreground` | Descripciones |
+| Caption | `text-xs text-muted-foreground` | Timestamps, hints |
+| Números | `tabular-nums` siempre | Montos, fechas, cantidades — evita jitter |
+| `font-feature-settings` | `"cv11", "ss01"` en `<html>` | Variantes OpenType globales |
+
+### Radius
+
+| Token | Light | Dark |
+|---|---|---|
+| `--radius` | `0.45rem` | `0.7rem` |
+| `--radius-sm` | `0.375rem` | — |
+| `--radius-md` | `0.5rem` | — |
+| `--radius-lg` | `0.75rem` | — |
+| `--radius-xl` | `1rem` | — |
+| `--radius-2xl` | `1.5rem` | — |
+| `--radius-3xl` | `calc(var(--radius) * 2.2)` | — |
+| `--radius-4xl` | `calc(var(--radius) * 2.6)` | — |
+
+Nota: `--radius` difiere entre light (0.45rem) y dark (0.7rem) — dark queda
+con esquinas más redondeadas (look Linear más suave sobre canvas oscuro).
+
+### Colores — light (`:root`)
+
+Todos los valores son OKLCH tal cual están en `globals.css`.
+
+| Token | Valor OKLCH |
 |---|---|
-| `background` | Fondo de pagina / dialog |
-| `foreground` | Texto principal |
-| `card` / `card-foreground` | Superficie de cards y su texto |
-| `muted` | Fondo de secciones secundarias |
-| `muted-foreground` | Labels, hints, timestamps, metadata |
-| `primary` / `primary-foreground` | Accion principal, boton default |
-| `destructive` / `destructive-foreground` | Eliminar, anular, error |
-| `border` | Divisores, bordes de input |
-| `input` | Borde especifico de inputs |
-| `ring` | Focus ring |
-| `accent` / `accent-foreground` | Hover states, seleccion activa en lista |
+| `--background` | `oklch(1 0 0)` (blanco puro) |
+| `--foreground` | `oklch(0.262 0.010 245.3)` |
+| `--card` / `--popover` | `oklch(1 0 0)` |
+| `--card-foreground` / `--popover-foreground` | `oklch(0.262 0.010 245.3)` |
+| `--primary` | `oklch(0.262 0.010 245.3)` (neutro oscuro, NO verde) |
+| `--primary-foreground` | `oklch(0.967 0.003 264.54)` |
+| `--secondary` / `--muted` / `--accent` | `oklch(0.97 0 0)` |
+| `--secondary-foreground` / `--accent-foreground` | `oklch(0.262 0.010 245.3)` |
+| `--muted-foreground` | `oklch(0.556 0 0)` |
+| `--destructive` | `oklch(0.577 0.245 27.325)` |
+| `--destructive-foreground` | `oklch(1 0 0)` |
+| `--border` / `--input` | `oklch(0.947 0.006 240.4)` |
+| `--ring` | `oklch(0.708 0 0)` |
+| `--brand` | `oklch(0.7800 0.1550 169)` (= verde Punto `#01D7A1`) |
+| `--brand-foreground` | `oklch(0.262 0.010 245.3)` |
+| `--chart-1..5` | `oklch(0.78/0.68/0.58/0.48/0.38 0.155/0.145/0.130/0.110/0.090 169)` — escala monocromática verde, mayor a menor luminosidad |
+| `--sidebar` | `oklch(0.967 0.003 264.54)` |
+| `--sidebar-foreground` | `oklch(0.262 0.010 245.3)` |
 
-**Excepciones documentadas:**
-- `bg-amber-500 text-white` → solo si el owner pide un badge de alerta fuera de la paleta semantica y lo documenta inline
-- `text-emerald-600` → estado "Pagado" en credito (ver §4.12) — no hay token semantico equivalente a "exito positivo"
-- Colores de categoria custom: vienen del JSONB del item, se renderizan como `style={{ backgroundColor: color }}`
+### Colores — dark (`.dark`)
 
-**Prohibido:**
-- Hex hardcodeado (`#22252A`, `#ffffff`, etc.) sin comentario de justificacion
-- `text-white` como alternativa a `text-destructive-foreground` o `text-primary-foreground`
-
-### Tipografia canonica
-
-| Uso | Canon |
+| Token | Valor |
 |---|---|
-| Titulo de pagina | `<h1 className="text-2xl font-semibold">` |
-| Titulo de seccion | `<h2 className="text-xl font-semibold">` |
-| Titulo de subseccion | `<h3 className="text-base font-semibold">` |
-| Texto principal | `text-sm` (default sin override) |
-| Texto secundario | `text-sm text-muted-foreground` |
-| Caption / timestamp | `text-xs text-muted-foreground` |
-| Numeros | `tabular-nums` (siempre en montos, fechas, cantidades) |
+| `--background` | `#060A0E` (hex directo, NO oklch — canvas casi negro) |
+| `--foreground` | `oklch(0.967 0.003 264.54)` |
+| `--card` | `transparent` (el Card se ve solo por `ring-1 ring-foreground/10`; look "panel limpio" sin bloque de color, más Linear-like) |
+| `--card-foreground` | `oklch(0.967 0.003 264.54)` |
+| `--popover` | `oklch(0.262 0.010 245.3)` (sólido — flota sobre cualquier contenido) |
+| `--popover-foreground` | `oklch(0.967 0.003 264.54)` |
+| `--primary` | `oklch(0.947 0.006 240.4)` (gris claro, NO verde — CTAs neutros) |
+| `--primary-foreground` | `oklch(0.262 0.010 245.3)` |
+| `--secondary` / `--muted` / `--accent` | `#1A1D1F` |
+| `--secondary-foreground` / `--accent-foreground` | `oklch(0.967 0.003 264.54)` |
+| `--muted-foreground` | `oklch(0.708 0 0)` |
+| `--destructive` | `oklch(0.704 0.191 22.216)` |
+| `--destructive-foreground` | `oklch(1 0 0)` |
+| `--border` | `oklch(1 0 0 / 10%)` |
+| `--input` | `oklch(1 0 0 / 15%)` |
+| `--ring` | `oklch(0.556 0 0)` |
+| `--brand` | `oklch(0.7800 0.1550 169)` (mismo verde) |
+| `--sidebar` | `oklch(0.262 0.010 245.3)` |
+| `--sidebar-accent` (hover de items) | `#1A1D1F` |
+| `--chart-1..5` | `oklch(0.82/0.70/0.58/0.48/0.38 0.16/0.15/0.13/0.11/0.09 169)` — arranca más claro que light para contraste sobre fondo oscuro |
 
-**Nota sobre titulos de modal:** el titulo de un `<Dialog>` se trata como titulo de pantalla (`text-2xl font-semibold`). Anti-patron: `text-base font-semibold` para titulos de modal (detectado 2026-06-24).
+**Regla de marca (documentada inline en globals.css):** el verde Punto NUNCA
+es `--primary`. En light, `--primary` es neutro oscuro; en dark, gris claro.
+El verde queda reservado a charts y acentos puntuales (badges, CTAs de marca
+específicos, FAB del agente). Charts: escala de grises con jerarquía por
+tamaño en... **no** — charts usan escala verde monocromática en ambos modos
+(no grayscale; ver tabla arriba), la nota del comentario original en el CSS
+sobre "grayscale en light" no refleja el valor actual del token — ver
+Changelog.
 
-### Spacing
+### Sombras
+
+Todas las `--shadow-*` tienen `--shadow-opacity: 0` en ambos modos → **no hay
+sombras visibles** en el sistema actual (superficie flat, separación por
+`border`/`ring` únicamente, no por elevación).
+
+### Animaciones custom
+
+| Token | Uso |
+|---|---|
+| `--animate-marquee` / `--animate-marquee-vertical` | `<EmptyState>` (Marquee decorativo) |
+| `--animate-pin-pop` | LockScreen del POS — bounce al pintar un círculo del PIN |
+| `--animate-pin-shake` | LockScreen — shake en PIN incorrecto |
+| `--animate-pos-loading` | `PosLoadingScreen` — barra indeterminada |
+
+### Tipografía táctil del POS
+
+Scoped a `.pos-scope` (el `SidebarInset` del layout `(pos)/`): inputs/textareas
+suben a `font-size: 1.0625rem` (~17px, un punto sobre `text-sm`), `font-weight:
+600`, `letter-spacing: 0.025em`. Fuera del POS el panel usa el default shadcn
+sin este override.
+
+### Spacing (convención, no CSS var — clases Tailwind)
 
 | Contexto | Clase |
 |---|---|
-| Gap entre bloques de pagina | `gap-6` |
+| Gap entre bloques de página | `gap-6` |
 | Gap entre secciones | `gap-4` |
 | Gap entre elementos de form group | `gap-3` |
-| Gap entre chips / badges inline | `gap-2` |
-| Padding interno por default | `p-4` |
+| Gap entre chips/badges inline | `gap-2` |
+| Padding interno default | `p-4` |
 | Padding en bloques grandes | `p-6` |
-
-### Iconos
-
-`lucide-react`. Tamaños:
-
-| Contexto | Clase |
-|---|---|
-| Inline en body / boton con texto | `size-4` |
-| Header de seccion | `size-5` |
-| Empty state | `size-6` o `size-8` |
-| Badge / chip chico | `size-3.5` |
-
-**REGLA DURA:** los iconos solo van en:
-1. Menu principal (sidebar nav) — caso unico donde son obligatorios
-2. Botones de accion icon-only (`size="icon"`) — ej. close X, search, dropdown trigger
-3. Empty states
-
-**Prohibido:**
-- Iconos en titulos de pagina (h1/h2/h3)
-- Iconos en headers de `<Card>`
-- Iconos en headers de `<Dialog>` / `<DialogHeader>`
-- Iconos decorativos en cards de contenido
-
-### Formato de números/montos/fechas
-
-SIEMPRE via helpers que consumen `config` del tenant:
-
-- `formatMoney(value, config)` — monto con prefix de moneda del tenant (ej. "Gs 1.500.000")
-- `formatAmount(value, config)` — número con separadores del tenant sin prefix de moneda
-- `niceDate(date, config)` — fecha formateada según preferencias del tenant
-
-**Prohibido:**
-- `value.toLocaleString()` sin locale explícito
-- `toFixed(2)` para montos (puede romper si el tenant usa otros decimales)
-- String interpolation directa de números crudos (ej. `` `Gs ${total}` ``)
 
 ---
 
-## 3. Layouts
+## 3. Color
+
+### Semánticos — cuándo usar cada token
+
+| Token | Cuándo |
+|---|---|
+| `background` / `foreground` | Fondo de página o dialog / texto principal |
+| `card` / `card-foreground` | Superficie de cards |
+| `muted` / `muted-foreground` | Secciones secundarias / labels, hints, timestamps |
+| `primary` / `primary-foreground` | Acción principal, botón default |
+| `secondary` / `accent` | Hover states, selección activa en lista |
+| `destructive` / `destructive-foreground` | Eliminar, anular, error |
+| `border` / `input` / `ring` | Divisores y bordes / borde de input / focus ring |
+| `brand` / `brand-foreground` | Acentos de marca puntuales — NUNCA superficies grandes |
+
+### Paleta de acentos unificada (`lib/ui/color-palette.ts`)
+
+`PALETTE_COLORS` — 6 colores fijos, usados en Hotkeys, avatar de Usuarios,
+Impresoras y Medios de pago:
+
+| key | hex |
+|---|---|
+| `amber` | `#f59e0b` |
+| `slate` | `#64748b` |
+| `sky` | `#38bdf8` |
+| `rose` | `#f43f5e` |
+| `emerald` | `#10b981` |
+| `violet` | `#8b5cf6` |
+
+**Convención de storage: se persiste el `key` (`"amber"`), NUNCA el hex.** El
+hex vive solo en `PALETTE_COLORS` — así se puede re-tunear la paleta sin
+migrar datos. `resolveColorBg(value)` resuelve ambos casos: si `value`
+empieza con `#` lo devuelve tal cual (compat con hex legacy en usuarios/
+impresoras viejos), si no lo busca como key. Usar siempre `resolveColorBg`
+al consumir un color guardado antes de aplicarlo a un `style`.
+
+`<ColorPicker>` (`components/ui/color-picker.tsx`) es el picker canónico —
+swatches circulares, `variant="default"` (`size-7`, ring foreground, para
+forms) o `variant="overlay"` (`size-3.5`, ring blanco, para pills flotantes
+sobre tiles oscuros — caso Hotkeys). `allowNone` agrega botón "sin color" que
+emite `""`. No duplicar filas de swatches inline en ningún módulo nuevo.
+
+### Excepciones documentadas a "solo tokens"
+
+- `bg-amber-500 text-white` — badge de alerta fuera de la paleta semántica,
+  solo si el owner lo pide explícito y queda documentado inline.
+- `text-emerald-600` — estado "Pagado" en crédito (no hay token semántico
+  equivalente a "éxito positivo").
+- Colores de categoría custom (JSONB del item) → `style={{ backgroundColor:
+  color }}` directo, porque son datos de usuario, no design tokens.
+- `QuotePrintView` (preview de documento imprimible) — hoja de papel blanca
+  con hex hardcodeado a propósito, ver §4.
+
+### Regla dura
+
+Prohibido hex hardcodeado sin comentario de justificación. Prohibido
+`text-white` como alternativa a `text-destructive-foreground` /
+`text-primary-foreground`.
+
+---
+
+## 4. Componentes canon
+
+Inventario real en `frontend/components/ui/`: `alert`, `alert-dialog`,
+`avatar`, `badge`, `button`, `calendar`, `card`, `chart`, `checkbox`,
+`collapsible`, `color-picker`, `command`, `dialog`, `drawer`, `dropdown-menu`,
+`empty`, `form`, `input`, `input-group`, `input-otp`, `label`, `money-input`,
+`popover`, `progress`, `select`, `separator`, `sheet`, `sidebar`, `skeleton`,
+`sonner`, `switch`, `table`, `tabs`, `textarea`, `toggle`, `tooltip`.
+
+### DataTable — `components/data-table/data-table.tsx`
+
+Obligatorio para todo listado ≥ 10 filas. Construido sobre TanStack Table +
+primitives shadcn (`Table`, `DropdownMenu`, `Select`, `Checkbox`, `Skeleton`).
+Trae: search input, sort por columna, date-range filter, export XLSX,
+column-toggle (persistido en localStorage por `tableId`), paginación, loading
+skeleton. Listados < 10 filas embebidos en un panel de detalle → lista
+vertical `<div className="divide-y">`, no DataTable.
+
+### MoneyInput — `components/ui/money-input.tsx`
+
+Único componente permitido para inputs de monto. As-you-type estilo
+calculadora: el usuario tipea solo dígitos, el separador decimal se inserta
+automáticamente desde la derecha. Lee `bootstrap.thousand` (`"comma"` →
+`,`/`.` anglo; `"dot"` → `.`/`,` es-PY) y `bootstrap.decimal` (`"yes"` = 2
+decimales, `"no"` = 0) vía `useBootstrap()`. Al focus limpia el display para
+tipeo directo; en blur sin input restaura el valor previo. `value: number |
+null`, `onChange(next: number | null)`. Prohibido `<Input type="number">`
+para cualquier campo de dinero.
+
+### DatePicker / DateRangePicker — `components/date-picker.tsx` / `components/date-range-picker.tsx`
+
+`Calendar` shadcn dentro de `Popover`. Reemplazan `<input type="date">`
+nativo (evita el UI del browser, que varía entre sistemas). Trabajan con
+strings ISO `"YYYY-MM-DD"` para compat directa con backend/form submits.
+`DatePicker` soporta `captionLayout` (`"label" | "dropdown" | ...`) y límites
+de navegación (`startMonth`/`endMonth`).
+
+### CatalogManager — `components/catalog/catalog-manager.tsx`
+
+Pattern canónico de CRUD chico (catálogos: taxonomías, hotkeys, etc.):
+`DataTable` + `Dialog` de alta/edición + `AlertDialog` de borrado + drag&drop
+reorder (`@dnd-kit`) + `ColorPicker` cuando el catálogo tiene color. Reusar
+este componente para cualquier CRUD nuevo de catálogo simple en vez de
+armar la tabla + dialogs desde cero.
+
+### EmptyState — `components/empty-state.tsx`
+
+```tsx
+<EmptyState icon={Receipt} title="Sin transacciones"
+  description="Cuando hagas ventas aparecerán acá." />
+```
+
+Envuelve `Empty`/`EmptyHeader`/`EmptyTitle`/`EmptyDescription` de
+`components/ui/empty` + un `Marquee` decorativo (repite el ícono 4x en loop
+vertical) — `showMarquee={false}` cae a ícono grande estático (`size-12`
+box con `border bg-muted/30`). Nunca un `<p>"No hay resultados"</p>` pelado.
+Único lugar (junto al sidebar) donde los íconos van fuera de botones
+icon-only.
+
+### Select con sentinel
+
+`<Select>` de shadcn no acepta `value=""` en un `<SelectItem>` (colisiona con
+el estado "sin selección" interno de Radix). Usar un sentinel explícito
+(`"__none__"`) y traducirlo a `null`/`undefined` al leer el valor — nunca
+`value=""`.
+
+### Toasts — `sonner`
+
+`<Toaster position="top-center" />` (montado en `components/providers.tsx`;
+también en `app/(screen)/layout.tsx` sin position override para esa surface).
+Iconos custom por tipo (`success`/`info` en verde `--chart-1`, `warning` en
+`amber-500`, `error` en `destructive`, `loading` spinner muted). Estilo vía
+CSS vars: `--normal-bg: var(--popover)`, `--normal-text:
+var(--popover-foreground)`, `--normal-border: var(--border))`.
+
+```tsx
+toast.success("Items duplicados al carrito")
+toast.error("La transacción no tiene items para duplicar")
+```
+
+Reglas: sin emojis, menos de 60 caracteres, imperativo cortés o descriptivo
+directo, nunca para errores de validación de form (usar inline error).
 
 ### Modales — escala de tamaños
 
-| Bucket | Clase | Cuando usarlo |
+| Bucket | Clase | Cuándo |
 |---|---|---|
-| `xs` | `sm:max-w-md` | Confirmacion / alert (1-2 lineas + 2 botones). Ej. `<AlertDialog>` de eliminar. NumericPadDialog. |
-| `sm` | `sm:max-w-lg` | shadcn default. Form de un solo campo chico. Casi nunca. |
-| **`m`** | **`sm:max-w-2xl`** | **DEFAULT del proyecto.** Form tipico, dialog con varios campos, edicion simple. Arranca siempre aca. |
+| `xs` | `sm:max-w-md` | Confirmación/alert, `NumericPadDialog` |
+| `sm` | `sm:max-w-lg` | Default shadcn — form de un solo campo, casi nunca |
+| **`m`** | **`sm:max-w-2xl`** | **Default del proyecto** — arrancá siempre acá |
 | `l` | `sm:max-w-4xl` | Listados, tablas, formularios complejos en 2 columnas |
-| `xl` | `sm:max-w-6xl` | Modal split 2-col (lista + detalle), dashboards, vistas amplias |
+| `xl` | `sm:max-w-6xl` | Split 2-col, dashboards, vistas amplias |
 
-**Regla operativa:**
-- Arranca siempre en `m` (`sm:max-w-2xl`). No el `sm:max-w-lg` que viene de shadcn por default.
-- Sube el tamano solo si el contenido lo pide.
-- Baja a `xs` solo para alerts / NumericPadDialog.
-- Alto: deja al contenido. Solo usar `max-h-[Xvh]` con `overflow-y-auto` si el contenido puede exceder el viewport (ej. split 2-col: `max-h-[80vh]`).
+Alto: dejar al contenido; `max-h-[Xvh] overflow-y-auto` solo si puede exceder
+viewport (ej. split 2-col: `max-h-[80vh]`). Prohibido `max-w-[95vw]
+w-[95vw] h-[90vh]` hardcodeado.
 
-Anti-patron: `max-w-[95vw] w-[95vw] h-[90vh]` hardcodeado (detectado 2026-06-24 en modal de transacciones).
+### Otros patrones de componente (detalle completo en §14/§4 legacy)
 
-### Paginas
+Ver `context/14-ui-conventions.md` Regla #2 (botones/badges/tamaños) y el
+`context/20` previo a esta reescritura para snippets extensos de
+`NumericPadDialog`, modal split 2-col, detalle tipo invoice de transacción y
+KPIs — se preservan como referencia de implementación pero no se repiten acá
+línea por línea; los principios ya están cubiertos en §3/§4/§6/§7.
+
+---
+
+## 5. Prohibiciones
+
+| Prohibido | Usar en su lugar |
+|---|---|
+| `<table>`, `<button>`, `<input>`, `<label>` nativos | Primitive shadcn equivalente |
+| `<input type="number">` para dinero | `<MoneyInput>` |
+| `value.toLocaleString()` sin locale / `toFixed(2)` para montos | `formatMoney(value, config)` / `formatAmount(value, config)` |
+| Hex hardcodeado sin comentario de justificación | Tokens semánticos (§3) |
+| `text-white` en botón/badge destructivo | `text-destructive-foreground` |
+| Iconos en h1/h2/h3, headers de `<Card>`, headers de `<Dialog>` | Sin ícono — solo texto |
+| `<Card>` envolviendo cada row de un listado | `divide-y` o `<DataTable>` |
+| `className="h-8 w-8 p-0"` custom en vez de `size="icon"` | `size=` prop de `<Button>` |
+| `max-w-[Xvw] w-[Xvw] h-[Xvh]` hardcodeado en Dialog | Escala xs/sm/m/l/xl |
+| `<Select>` con `value=""` | Sentinel `"__none__"` |
+| `window.print()` sobre DOM arbitrario para comprobantes | Binding de impresora dedicado (`lib/hardware/printers`) — ver `context/05` |
+| Emojis en UI/copy | — |
+| Terminología verticalizada ("vendedor", "mozo") | "usuario", "operador", "asignado" |
+
+Detalle operativo completo (checklist pre-merge, ejemplos de código) en
+`context/14-ui-conventions.md`.
+
+---
+
+## 6. Patrones de página
+
+### Header de página
 
 ```tsx
 <div className="max-w-7xl mx-auto px-4 py-6">
   <div className="flex flex-col gap-6">
     <header>
-      <h1 className="text-2xl font-semibold">Titulo de pagina</h1>
+      <h1 className="text-2xl font-semibold">Título de página</h1>
+      <p className="text-sm text-muted-foreground">Descripción opcional</p>
     </header>
     {/* contenido */}
   </div>
 </div>
 ```
 
-### Sidebars
+### Tabs responsivas (patrón finanzas)
 
-`shadcn Sidebar` primitive. Dos variantes en uso:
-- `PanelSidebar`: navegacion completa del panel (items con icono + label)
-- `PosSidebar`: minimal, 4-5 items, solo visible cuando el POS esta en un layout sin AppSidebar
+Grid en desktop, scroll horizontal en mobile — mismo componente `<Tabs>` de
+shadcn, el contenedor de `<TabsList>` cambia de `grid grid-cols-N` a `flex
+overflow-x-auto` bajo el breakpoint mobile.
 
----
+### Dialogs
 
-## 4. Componentes — patrones canonicos
+`max-h-[85vh] overflow-y-auto` cuando el contenido puede exceder el
+viewport. Footer con `<DialogFooter>` (right-aligned por default): Cancelar
+`variant="outline"` a la izquierda, Confirmar `variant="default"` a la
+derecha. Nunca `flex-1` en ambos botones.
 
-### 4.1 Botones
+### Confirmación destructiva
 
-**Variantes:**
-- `default` — accion primaria
-- `outline` — accion secundaria / cancelar
-- `destructive` — eliminar / accion irreversible
-- `ghost` — accion terciaria, menú contextual
-
-**Tamaños:**
-- `size="default"` — default en paginas
-- `size="sm"` — dentro de cards, rows de listado, headers de modal compact
-- `size="lg"` — accion principal de modal (ej. "Aceptar" en NumericPadDialog)
-- `size="icon"` — boton de accion sin texto (close, more, search)
-
-**Jerarquia en DialogFooter:**
-- Cancelar → `variant="outline"` a la izquierda
-- Confirmar → `variant="default"` a la derecha
-- Para DialogFooter usar el componente `<DialogFooter>` de shadcn (right-aligned por default)
-
-**Para acciones destructivas:** usar `<AlertDialog>` + `<AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90">`
-
-**Anti-pattern:**
-- `text-white` hardcodeado en boton destructivo (usar `text-destructive-foreground`)
-- `flex-1` en ambos botones del footer (splits el ancho — anti-patron visual)
-- `className="h-8 w-8 p-0"` custom en lugar de `size="icon"`
-
-### 4.2 Forms
-
-Tres patrones segun complejidad:
-
-| Caso | Pattern |
-|---|---|
-| 1-2 campos, sin validacion compleja | `<Input>` + `<Label>` sueltos, `gap-3` entre fields |
-| Form con validacion | `shadcn Form` + `react-hook-form` + `zod` |
-| Monto | `<MoneyInput>` (respeta `bootstrap.thousand`/`decimal` del tenant) |
-| Telefono | `<PhoneInput>` con `libphonenumber-js` |
-| Rango de fecha | `<Calendar>` + `<Popover>` |
-
-Field stacking: vertical, `gap-3`.
-
-**Anti-pattern:**
-- `<input type="number">` para montos o precios (usar `<MoneyInput>`)
-- `<table>` como layout de form (usar `flex flex-col gap-3`)
-
-### 4.3 Modales numericos — NumericPadDialog
-
-Ruta: `frontend/components/pos/numeric-pad-dialog.tsx`
-
-Pattern canonico (snippet real):
+`<AlertDialog>` siempre para eliminar/anular/vaciar:
 
 ```tsx
-<Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-  <DialogContent className="sm:max-w-md p-0 gap-0">
-    {/* Header: title izquierda + mode label top-right */}
-    <div className="flex items-center justify-between border-b px-6 py-4">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      {modeLabelTopRight && (
-        <span className="text-sm text-muted-foreground tabular-nums">
-          {modeLabelTopRight}
-        </span>
-      )}
-    </div>
-
-    {/* Body: numpad */}
-    <div className="px-6 py-6">
-      <NumericPad
-        mode={mode}
-        value={value}
-        onChange={onValueChange}
-        onShiftToggle={onShiftToggle}
-        onConfirm={onConfirm}
-        onCancel={onClose}
-      />
-    </div>
-
-    {/* Footer: botón único Aceptar full-width */}
-    <div className="border-t px-6 py-4">
-      <Button onClick={onConfirm} className="w-full" size="lg">
-        {confirmLabel}
-      </Button>
-    </div>
-  </DialogContent>
-</Dialog>
-```
-
-Reglas:
-- Bucket `xs` (`sm:max-w-md`), `p-0 gap-0` — el padding va en cada bloque interno
-- Header: `flex justify-between`, titulo izquierda (`text-lg font-semibold`), mode label top-right (`text-sm muted-foreground tabular-nums`)
-- Mode label top-right: `".00"` para decimal, `"%"` para percent, `null` para int/money
-- Footer: `border-t` + `<Button className="w-full" size="lg">`
-- `subtitle` prop esta DEPRECADO — se mantiene por compat pero no se renderiza
-- Modos soportados: `"int"` | `"decimal"` | `"money"` | `"percent"`
-- Hotkeys internos: numeros, `.`, `Backspace`, `Enter` (confirmar), `ESC` (cerrar), `Shift` (toggle modo)
-
-**Anti-pattern:**
-- Agregar `subtitle` visible (deprecado desde commit 532b36f)
-- Poner el total/valor como "hero" grande centrado en el header
-- Boton footer con ancho parcial
-
-### 4.4 Modales de formulario
-
-| Contenido | Bucket | Footer |
-|---|---|---|
-| 1 input | `xs` | Autofocus en input, Enter = submit, boton "Confirmar" full-width o DialogFooter minimal |
-| Varios inputs | `m` (default) | `<DialogFooter>`: Cancelar outline + Confirmar default, right-aligned |
-
-**Anti-pattern:**
-- `flex-1` en ambos botones del footer
-- Dialog sin `DialogTitle` (accesibilidad)
-
-### 4.5 Modales de confirmacion
-
-- Destructivo (eliminar, anular, vaciar) → `<AlertDialog>`
-- Neutral (info, form corto) → `<Dialog>` normal
-
-```tsx
-// Accion destructiva en AlertDialog
 <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
   Eliminar
 </AlertDialogAction>
 ```
 
-**Anti-pattern:** `text-white` en `AlertDialogAction` (usar `text-destructive-foreground`)
+Neutral (info, form corto) → `<Dialog>` normal.
 
-### 4.6 Modales split 2-col
-
-Bucket `xl` (`sm:max-w-6xl`). Grid `grid-cols-[1fr_1.2fr]`, `max-h-[80vh]`.
-
-Caso canonico: `PosTransactionsDialog` (`frontend/components/register/pos-transactions-dialog.tsx`)
-
-```tsx
-<DialogContent className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
-  <DialogHeader className="px-6 pt-6 pb-3 border-b">
-    <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
-    <DialogDescription className="text-sm text-muted-foreground">
-      Ultimas operaciones del comercio...
-    </DialogDescription>
-  </DialogHeader>
-  <div className="grid grid-cols-[1fr_1.2fr] max-h-[80vh] min-h-0">
-    <ListaIzquierda />  {/* border-r, filtros sticky + lista scrollable */}
-    <DetallesDerecha />  {/* border-l, overflow-y-auto */}
-  </div>
-</DialogContent>
-```
-
-Estructura de la columna izquierda:
-- `flex flex-col h-full min-h-0 border-r overflow-hidden`
-- Filtros sticky: `shrink-0 bg-background border-b px-4 pt-3 pb-3`
-- Lista scrollable: `flex-1 overflow-y-auto`
-
-Estructura de la columna derecha:
-- `flex flex-col h-full min-h-0 border-l overflow-hidden`
-- Contenido: `flex-1 overflow-y-auto p-5`
-
-### 4.7 Listados / DataTable
-
-**Obligatorio para listados >= 10 items:**
-- Usar `<DataTable>` de `@/components/data-table/data-table`
-- Columnas requeridas: search input top, sort por col, date-range filter, export XLSX, column-toggle
-
-**Para listados < 10 items en panel de detalle:**
-- Lista vertical `<div className="divide-y">` — NO usar `<DataTable>`
-
-**Anti-pattern:**
-- `<table>` one-off custom
-- Pagina de listado sin DataTable cuando hay mas de 10 rows
-
-### 4.8 Pickers
-
-Patron comun para UserPicker, CustomerPicker, ItemPicker:
-- Bucket `sm` o `m` segun el contenido
-- Header con `<Input>` de busqueda con `autoFocus`
-- Body: lista vertical con `Avatar`/icono + nombre + descripcion opcional
-- `<EmptyState>` cuando no hay match
-
-Copy neutral: "Asignar usuario", "Seleccionar cliente" (no "Asignar vendedor").
-
-### 4.8.1 ColorPicker
-
-`components/ui/color-picker.tsx` es el picker canonico de color, sobre la paleta unica `lib/ui/color-palette.ts` (`PALETTE_COLORS` = amber/slate/sky/rose/emerald/violet). Usado en Hotkeys, Usuarios (avatar), Impresoras y Medios de pago — no duplicar filas de swatches inline en ningun modulo nuevo.
-
-- **Convencion de valor:** se persiste el `key` del color (ej. `"amber"`), NUNCA el hex. El hex vive solo en `PALETTE_COLORS`, asi se puede re-tunear la paleta sin migracion de datos.
-- **Compat legacy:** `resolveColorBg(value)` pasa hex `#rrggbb` tal cual (datos viejos de usuarios/impresoras) y resuelve keys nuevas. Usarlo siempre al consumir un color guardado antes de aplicarlo a un estilo.
-- **Props:** `value` (key o hex), `onChange(key)`, `allowNone` (agrega "sin color" → emite `""`), `variant="default|overlay"` (overlay = swatches chicos + ring blanco, para pills flotantes sobre tiles oscuros, ej. Hotkeys).
-
-### 4.9 Cards
-
-**Cuando SI usar `<Card>`:**
-- Agrupar secciones de form en settings/team
-- Wrapper de bloques visuales en dashboards
-- Contenedor de subseccion con `<CardHeader>` + `<CardContent>`
-
-**Cuando NO usar `<Card>`:**
-- Stat cards con iconos grandes arriba de listados
-- Envolver cada row de un listado
-- Envolver formularios simples que no necesitan agrupacion visual
-
-**REGLA:** Los cards NO llevan icono en el `<CardHeader>`. Si el card es un "stat" solo mostrá label + valor grande + delta opcional, sin icono.
-
-### 4.10 KPIs / Stats
-
-Para stats inline en headers de pagina:
-
-```tsx
-<h1 className="text-2xl font-semibold">
-  Reportes{" "}
-  <span className="text-muted-foreground">· Gs 2.5M este mes</span>
-</h1>
-```
-
-Para grilla de stats en dashboard:
-- Grid de cards SIN icono
-- Label arriba (`text-xs text-muted-foreground`), valor grande abajo (`text-2xl font-semibold tabular-nums`), delta opcional en `text-sm`
-- NUNCA labels uppercase + `tracking-wider` en stats
-
-**Excepcion valida — detalle de transaccion a credito**: las stats "Deuda" / "Pagado" SI van en 2 cards con border porque son la PRIMARY CONTENT del view (el usuario abre el detalle de un credito especificamente para ver cuanto debe). Pattern: `grid grid-cols-2 gap-4`, label `text-xs uppercase tracking-wide text-muted-foreground`, valor `text-2xl font-bold tabular-nums` con color semantico (`text-destructive` para deuda, `text-muted-foreground` para pagado), `<Progress>` debajo con porcentaje inline. Ver `frontend/components/register/pos-transactions-dialog.tsx` funcion `TransactionDetail`.
-
-### 4.11 Reportes
-
-Estructura de pagina de reporte:
-- Header: titulo + DateRange + filters + export button
-- Body: `<DataTable>`
-- Sin stat cards arriba del DataTable (decision 2026-06-24)
-
-### 4.12 Detalles tipo invoice
-
-Caso canonico: `TransactionDetail` en `frontend/components/register/pos-transactions-dialog.tsx`
-
-Estructura (snippets reales):
-
-```tsx
-{/* Header: cliente HERO */}
-<div className="flex items-start justify-between gap-3">
-  <div className="min-w-0 flex-1">
-    <h2 className="text-xl font-semibold truncate">
-      {detail.customerName || <span className="text-muted-foreground">Sin cliente</span>}
-    </h2>
-    <p className="text-sm text-muted-foreground mt-0.5">
-      {txLabel(typeNum)}
-      {docLabel && <> &middot; <span className="tabular-nums">#{docLabel}</span></>}
-      {formattedDate !== "—" && <> &middot; <span className="tabular-nums">{formattedDate}</span></>}
-    </p>
-  </div>
-  <div className="flex items-center gap-2 shrink-0">
-    {/* botones de accion */}
-  </div>
-</div>
-
-{/* Hero financiero */}
-<div className="mt-6">
-  {isCredit ? (
-    debt > 0 ? (
-      <>
-        {/* credito con deuda — excepcion §4.10 */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="border rounded-lg p-4">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Deuda</p>
-            <p className="text-2xl font-bold tabular-nums text-destructive mt-1">
-              {formatMoney(debt, config)}
-            </p>
-          </div>
-          <div className="border rounded-lg p-4">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Pagado</p>
-            <p className="text-2xl font-bold tabular-nums text-muted-foreground mt-1">
-              {formatMoney(paid, config)}
-            </p>
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-3">
-          <Progress value={total > 0 ? (paid / total) * 100 : 0} className="flex-1 h-2" />
-          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-            {total > 0 ? Math.round((paid / total) * 100) : 0}% &middot; Total {formatMoney(total, config)}
-          </span>
-        </div>
-      </>
-    ) : (
-      /* credito totalmente pagado */
-      <div className="flex items-center justify-between">
-        <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-400">
-          Pagado
-        </Badge>
-        <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
-      </div>
-    )
-  ) : (
-    /* contado / cotizacion: total hero centrado */
-    <p className="text-3xl font-bold tabular-nums text-center">{formatMoney(total, config)}</p>
-  )}
-</div>
-
-{/* Items — lista compacta con divide-y */}
-<Separator className="my-5" />
-<div>
-  <h3 className="text-sm font-medium text-muted-foreground mb-2">
-    Items ({items.filter((i) => i.status !== 0).length})
-  </h3>
-  <div className="divide-y">
-    {items.filter((i) => i.status !== 0).map((item, idx) => (
-      <div key={`${item.itemId}-${idx}`} className="flex items-center justify-between py-2 text-sm gap-3">
-        <span className="truncate flex-1">{item.name}</span>
-        <span className="tabular-nums text-muted-foreground w-12 text-right">{item.count}</span>
-        <span className="tabular-nums w-24 text-right">{formatMoney(item.total, config)}</span>
-      </div>
-    ))}
-  </div>
-  {discount > 0 && (
-    <div className="flex justify-between text-sm mt-3 pt-3 border-t text-muted-foreground">
-      <span>Descuento</span>
-      <span className="tabular-nums text-destructive">-{formatMoney(discount, config)}</span>
-    </div>
-  )}
-</div>
-
-{/* Pagos — lista compacta con divide-y */}
-<Separator className="my-5" />
-<div>
-  <h3 className="text-sm font-medium text-muted-foreground mb-2">Pagos</h3>
-  <div className="divide-y">
-    {payments.map((p, i) => (
-      <div key={i} className="flex justify-between py-2 text-sm">
-        <span>{p.name || p.type || "—"}</span>
-        <span className="tabular-nums">{formatMoney(p.amount, config)}</span>
-      </div>
-    ))}
-  </div>
-</div>
-```
-
-Reglas de invoice detail:
-- Header: cliente como `h2` HERO (`text-xl font-semibold`), sub-line con tipo/numero/fecha muted
-- Numero de comprobante: SOLO mostrar si `docLabel` existe — nunca mostrar UUID raw
-- Hero financiero: credito con deuda = 2 stat cards (excepcion §4.10) + Progress; credito pagado = Badge + total; contado = total centrado `text-3xl`
-- Items: lista `divide-y` (NO `<Table>`), 3 cols: nombre truncado / cantidad muted / importe right
-- Descuento: fila al pie de items con `border-t`, color `text-destructive`
-- Pagos: lista `divide-y` separada por `<Separator>`
-- `formatMoney()` ya incluye el prefijo de moneda — NUNCA escribir `Gs {formatMoney(...)}` (duplica el prefijo)
-- NO iconos en el detalle
-- NO totals block right-aligned separado
-
-**Excepción — preview de documento imprimible (cotización/factura PDF):** el
-preview de un documento que se va a imprimir (`QuotePrintView`) se renderiza como
-una **hoja de papel blanca** (`background: #ffffff`, texto oscuro, sombra) DENTRO
-del dialog oscuro. Esto es intencional y NO viola la regla de hex/tokens: el
-preview representa el papel físico, igual que invoice previews de Stripe/QuickBooks.
-El bloque usa hex hardcoded a propósito (debe verse idéntico en light/dark y en
-papel) y un `@media print` que le quita sombra/bordes. NO "arreglar" esto
-convirtiéndolo a tokens semánticos — quedaría ilegible (texto oscuro sobre dialog
-oscuro). Ver `components/domain/transactions/quote-print-view.tsx`.
-
-### 4.13 Empty states
-
-Usar `<EmptyState>` de `@/components/empty-state`:
-
-```tsx
-<EmptyState
-  icon={Receipt}
-  title="Sin transacciones"
-  description="Cuando hagas ventas aparecerán acá."
-/>
-```
-
-Los empty states son la unica excepcion donde los iconos van fuera del sidebar.
-
-### 4.14 Loading states
+### Loading / skeleton
 
 | Caso | Pattern |
 |---|---|
-| Listado cargando | `<Skeleton>` (NO spinner) |
-| Boton submit | `<Loader2 className="size-4 animate-spin" />` |
-| POS bootstrap | `PosLoadingScreen` dedicada |
+| Listado cargando | `<Skeleton>` (nunca spinner) |
+| Botón submit | `<Loader2 className="size-4 animate-spin" />` junto al label |
+| POS bootstrap | `PosLoadingScreen` dedicada (barra `--animate-pos-loading`) |
 
-```tsx
-// Boton con loading state
-<Button disabled={isLoading}>
-  {isLoading && <Loader2 className="size-4 animate-spin" />}
-  Guardar
-</Button>
-```
+### Invalidación optimista
 
-### 4.15 Banners
-
-Para warnings transversales (offline, configuracion faltante):
-- Sticky top
-- Tonos: `amber` (warning), info (default) — NO destructive para banners transversales
-- Caso canonico: `OfflineBanner` en `frontend/components/pos/offline-banner.tsx`
-
-### 4.16 Toasts
-
-`sonner` (ya configurado en el layout).
-
-```tsx
-toast.success("Items duplicados al carrito")
-toast.error("La transaccion no tiene items para duplicar")
-toast.info("Reimprimir #123 — abriendo vista de impresion...")
-```
-
-Reglas:
-- Sin emojis
-- Menos de 60 caracteres
-- Imperativo cortés o descriptivo directo
-- NO usar para errores de validacion de form (usar inline error)
-
-### 4.17 Sidebar
-
-`shadcn Sidebar` primitive. Items con prop `requires?: string` para permiso — filtrar al renderear.
-
-Iconos SI (caso permitido — el sidebar es el unico lugar donde los iconos van siempre). Active state automatico via pathname.
+React Query (`@tanstack/react-query`) es el estado de servidor en todo el
+frontend. Mutaciones invalidan queries relacionadas al éxito; no hay patrón
+de rollback optimista documentado como default — cada mutación decide según
+el costo de un flash de dato stale.
 
 ---
 
-## 5. Patrones POS especificos
+## 7. POS específico
+
+### Modo oscuro
+
+`ThemeProvider defaultTheme="dark"` — el POS arranca en dark por default
+(`app/layout.tsx`). El panel respeta la preferencia del sistema/usuario vía
+`next-themes`.
 
 ### Touch targets
 
-Minimo 44px de alto. Usar `h-11` + padding en botones principales del carrito y del grid de articulos.
+Mínimo 44px de alto — `h-11` + padding en botones principales del carrito y
+grid de artículos. Overrides de tamaño del default shadcn se documentan
+inline: `<Button className="h-12 w-full" /* h-12: se opera con dedo en
+tablet */>`.
 
-```tsx
-// Documentar inline cuando se sobreescribe el default de shadcn
-<Button className="h-12 w-full" /* h-12 porque boton se opera con dedo en tablet */>
-  Cobrar
-</Button>
-```
+### Tipografía táctil
 
-### Hotkeys globales del POS
+Ver §2 — `.pos-scope` sube inputs/textareas a `1.0625rem` / `font-weight:
+600` / `letter-spacing: 0.025em` para lectura rápida sin esfuerzo del
+cajero.
 
-`frontend/hooks/use-pos-hotkeys.ts`
+### Shortcuts globales (`hooks/use-pos-hotkeys.ts`)
 
-| Tecla | Accion |
+| Tecla | Acción |
 |---|---|
-| `Q` | Menu del POS |
-| `W` | Buscador de articulos |
+| `Q` | Menú del POS |
+| `W` | Buscador de artículos |
 | `E` | Buscador de clientes |
-| `R` | Menu de opciones de venta |
+| `R` | Menú de opciones de venta |
 | `Enter` | Cobrar (si hay items en el carrito) |
-| `ESC` | Lo manejan los overlays shadcn |
+| `ESC` | Lo manejan los overlays shadcn (Dialog/Sheet cierran solos) |
 
-### Escape hatch para dialogs (OBLIGATORIO en nuevos atajos globales)
+Todo atajo global nuevo DEBE chequear que no haya un `Dialog`/`Sheet`/
+`AlertDialog` abierto antes de disparar (`[role="dialog"][data-state="open"],
+[role="alertdialog"][data-state="open"]` via `document.querySelector`) — si
+no, el atajo dispara mientras el cajero completa un form en un modal.
 
-Antes de disparar cualquier atajo global, verificar que no haya un Dialog/AlertDialog de shadcn abierto:
+### Flujo de pago (`components/register/pay-dialog.tsx`)
 
-```ts
-// Escape-hatch general: si HAY cualquier shadcn Dialog/Sheet/AlertDialog
-// abierto (descuento, qty, precio, titulo guardar, etc.), el atajo global
-// NO debe disparar. Detecta via role/state de Radix (data-state="open").
-if (typeof document !== "undefined" &&
-    document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) {
-  return
-}
-```
+Un visor central único que funciona simultáneamente como display del
+`remaining` y como input numérico editable. Al cubrir el total con un pago
+la venta se confirma automáticamente (sin segundo click). Fases: `pay` →
+`success` (pantalla de confirmación con vuelto). Los medios de pago se
+renderizan como **pills** con código de atajo de una letra (ej. `A` =
+Efectivo, `S` = T. Crédito, `D` = T. Débito, `G` = Giftcard) — el `code` viene
+del `PaymentMethodConfig` del tenant. Medios secundarios (discriminados por
+`systemKey`, ej. `"giftcard"`, `"internal"`) se listan en línea separada
+debajo de la grilla principal.
 
-Todo atajo global nuevo debe incluir este check. Omitirlo significa que el atajo dispara mientras el usuario esta completando un form en un modal.
+### NumericPad / NumericPadDialog (`components/pos/`)
+
+Input numérico as-you-type para cantidad, descuento, precio. Modos: `"int"`
+| `"decimal"` | `"money"` | `"percent"`. Mode label top-right (`".00"` para
+decimal, `"%"` para percent). Hotkeys internos: dígitos, `.`, `Backspace`,
+`Enter` (confirmar), `ESC` (cerrar), `Shift` (toggle modo). Bucket `xs`,
+footer con botón único "Aceptar" full-width `size="lg"`.
 
 ### LockScreen
 
-PIN local (SHA-256 via Web Crypto API). Prohibido bcrypt en el browser.
+PIN local de 4 dígitos, hash SHA-256 vía Web Crypto API (prohibido bcrypt en
+browser — no soportado nativamente). Feedback visual: `pin-pop` al pintar un
+círculo, `pin-shake` en PIN incorrecto (tokens de animación, §2).
 
-### Sesion POS
+### Sesión
 
-Cookie `_jwt` (10 años). Separado del panel (`_jwt_panel`, 24h). No mezclar las rutas de login/logout.
-
----
-
-## 6. Anti-patrones
-
-| Anti-pattern | Por que | Alternativa | Caso real |
-|---|---|---|---|
-| Copiar estructura del legacy BS3 con shadcn primitives | Genera 3+ iteraciones de restyling | Disenar desde cero con patrones de frontend | Modal transacciones POS (2026-06-24) |
-| Stat cards con uppercase labels + tracking-wider | Replica el legacy, rompe el design system | `text-xs text-muted-foreground` sin uppercase | Varios — 2026-06-24 |
-| `<table>` one-off custom | Inconsistente con DataTable, no tiene sort/export/search | `<DataTable>` para listas largas, `<Table>` shadcn para tablas cortas embebidas | — |
-| `text-white` hardcodeado en boton destructivo | No respeta dark mode, no usa tokens semanticos | `text-destructive-foreground` | `cart-panel.tsx` — badge amber con `text-white` |
-| Atajos globales sin escape hatch para dialogs | El atajo dispara mientras el usuario llena un form en un modal | Agregar el querySelector check (ver §5) | — |
-| Terminologia verticalizada en strings genericos ("vendedor", "mozo") | Punto sirve multiples verticales | "usuario", "operador", "asignado" | Rename 2026-06-25 (commit 8b69da1) |
-| `<Card>` con icono en header | Va en contra de la regla de iconos del design system | Card sin icono, solo label + valor | Regla owner 2026-06-25 |
-| `<Card>` envolviendo cada row de listado | Peso visual innecesario, fragmenta la lista | `<div className="divide-y">` o DataTable | — |
-| Interpolation sin validar array de pagos | "Pagado en null" en produccion | Validar `payments.length > 0` antes de iterar | POS 2026-06-24 |
-| `flex-1` en ambos botones del DialogFooter | Ocupa todo el ancho — anti-patron visual | `<DialogFooter>` shadcn (right-aligned por default) | — |
-| Iconos en headers de Card / titulos de seccion | Violacion de la regla de iconos | Sin icono, solo texto | Regla owner 2026-06-25 |
-| `subtitle` en NumericPadDialog | Prop deprecada, no se renderiza | Omitir — usar solo `title` | Deprecado en commit 532b36f |
-| PIN con bcrypt en browser | bcrypt es server-side; el browser no lo soporta natively | SHA-256 via Web Crypto API | — |
-| Casting `(array) $rs->fields` en PHP | `$rs->fields` es un `CaseInsensitiveArray`, no un array PHP nativo | Acceder por nombre de columna: `$rs->fields['columna']` | Bug 2026-06-18 |
-| `try/catch` que swallows excepciones en migration scripts | La migracion falla silenciosamente | Re-throw o log + abort | — |
-| `max-w-[Xvw] w-[Xvw] h-[Xvh]` hardcodeado en Dialog | Replica el legacy, no usa la escala canonica | Usar la escala xs/sm/m/l/xl de §3 | Modal transacciones 2026-06-24 |
-| Mostrar números/montos/fechas sin formato del tenant | Cada tenant tiene config propia (thousand sep, decimal sep, fecha format, moneda) | Usar helpers: `formatMoney(x, config)`, `formatAmount(x, config)`, `niceDate(date, config)`. NUNCA `toLocaleString()` sin locale, NUNCA concatenar moneda inline | hydration #418 commit 2fcbc2f |
+Cookie `_jwt` (10 años, device pairing) separada de `_jwt_panel` (24h,
+operador). El logout del sidebar del panel NO cierra la sesión del POS —
+solo se cierra desde Ajustes → "Eliminar dispositivo del comercio".
 
 ---
 
-## 7. Changelog de decisiones
+## 8. Formatos
 
-| Fecha | Decision | Commit | Razon |
+**Regla dura: nunca `toLocaleString()` sin locale explícito, nunca
+`toFixed(2)` para montos, nunca interpolación directa de números crudos.**
+Siempre vía helper.
+
+### Moneda
+
+Dos implementaciones activas en el repo — ambas correctas para su contexto,
+pero son fuentes separadas (inconsistencia real, ver Changelog):
+
+| Helper | Path | Fuente de config | Uso |
 |---|---|---|---|
-| 2026-06-25 | Regla: iconos SOLO en sidebar nav, botones icon-only y empty states. Prohibido en cards, titulos, headers de modal | — | Regla explicitada por owner |
-| 2026-06-25 | NumericPadDialog unificado al pattern legacy: title + mode label en header, unidad inline en display, Aceptar full-width en footer. `subtitle` deprecado | 532b36f | 3 iteraciones para llegar al pattern correcto |
-| 2026-06-25 | Rename "vendedor" → "usuario" / terminologia vertical-neutral en strings de UI | 8b69da1 | Punto sirve multiples verticales |
+| `formatMoney(value, config)` | `lib/format-money.ts` | `PosConfig` (`currency`/`thousand`/`decimal`) | POS — prefijo de moneda ya incluido, nunca escribir `Gs {formatMoney(...)}` |
+| `formatAmount(value, config)` | `lib/format-money.ts` | `PosConfig` | Número sin prefijo (ej. filas de carrito, donde "Gs" solo va en el botón de cobrar) |
+| `formatMoney(amount, bootstrap)` | `lib/format.ts` | `Bootstrap` (`currency`/`decimal`/`thousand`) | Panel — usa `Intl.NumberFormat` con locale `en-US` (thousand=comma) o `es-PY` (thousand=dot) |
+| `formatInt(n, bootstrap)` | `lib/format.ts` | `Bootstrap` | Enteros con separador de miles, panel |
+| `formatCurrencyAmount(amount, code)` | `lib/format-money.ts` | ISO 4217 code | Monedas extranjeras — `Intl.NumberFormat`, 0 decimales para `PYG/CLP/JPY/KRW/VND/IDR`, 2 para el resto |
+
+Convención `thousand`: `"comma"` → separador de miles `,` (locale anglo,
+decimal `.`) — `"dot"` → separador de miles `.` (es-PY/europeo, decimal `,`).
+`decimal: "yes"` = 2 decimales, `"no"` = 0.
+
+### Fecha
+
+`lib/format-date.ts` — timestamps de negocio (ventas, caja, reportes) se
+guardan en BD como hora LOCAL del comercio pero etiquetados como UTC (ej.
+venta de las 22:19 local queda `"2026-06-29 22:19:38+00"`). `parseNaive(iso)`
+strippea el offset y parsea los componentes tal cual en la TZ del browser
+— evita el bug de restar 3h a algo que ya es hora local.
+
+| Helper | Formato | Ejemplo |
+|---|---|---|
+| `formatDateTime(iso, fmt?)` | default `"d MMM HH:mm"` | `"29 jun 22:19"` |
+| `formatDate(iso)` | `"d MMM yyyy"` | `"29 jun 2026"` |
+| `formatTime(iso)` | `"HH:mm"` | `"22:19"` |
+| `tenantNow(timeZone?)` | `"YYYY-MM-DD HH:MM:SS"` naive en TZ del tenant | para writes desde el cliente |
+
+Locale: `date-fns` con `locale: es`. Solo usar `parseNaive`/estos helpers
+para timestamps de negocio local-naive — NO para fechas genuinamente UTC ni
+pickers de input (esos manejan `Date` nativos).
+
+### Teléfono
+
+Frontend captura/muestra en formato nacional sin `+`; el backend recibe/envía
+E.164; `libphonenumber-js` es la única fuente de verdad para parsear/validar/
+convertir. Storage en BD: sin el `+` inicial (ej. `"595991742353"`).
+
+### Números tabulares
+
+`tabular-nums` siempre en montos, fechas, cantidades — evita que los dígitos
+salten de ancho al actualizarse (crítico en el visor de cobro del POS).
+
+---
+
+## 9. Guía para apps externas
+
+Para levantar el mismo look & feel en una app fuera de este repo (sin acceso
+a `frontend/`), sin depender de ningún archivo del monorepo:
+
+**1. Instalar shadcn/ui** con Tailwind v4:
+
+```bash
+npx shadcn@latest init
+```
+
+Configuración equivalente a `components.json` de Punto:
+```json
+{
+  "style": "radix-rhea",
+  "tailwind": { "baseColor": "neutral", "cssVariables": true, "prefix": "" },
+  "iconLibrary": "lucide"
+}
+```
+
+**2. Pegar los tokens CSS** — copiar el bloque `:root { }` y `.dark { }` de
+§2 (Colores light / Colores dark) tal cual, con los mismos nombres de
+variable (`--background`, `--primary`, `--brand`, etc.). Punto usa OKLCH;
+si el proyecto destino usa HSL/hex, convertir manteniendo los mismos
+valores perceptuales — no reinventar la paleta.
+
+**3. Fuente:** cargar `Inter` (Google Fonts) como `--font-sans` vía
+`next/font/google` o `<link>` equivalente, más `JetBrains Mono` como
+`--font-mono`. (El CSS del repo declara `Poppins` como fallback pero el
+layout real carga `Inter` — usar Inter, ver Changelog.)
+
+**4. Radius:** `--radius: 0.45rem` en light, `0.7rem` en dark. Escala
+derivada: `sm 0.375rem / md 0.5rem / lg 0.75rem / xl 1rem / 2xl 1.5rem`.
+
+**5. Sombras:** ninguna — `--shadow-opacity: 0` en todo el sistema.
+Separación de superficies por `border`/`ring`, no por elevación. En dark,
+`--card: transparent` (el card se distingue solo por `ring-1
+ring-foreground/10`).
+
+**6. Verde de marca:** `#01D7A1` (`oklch(0.78 0.155 169)`) — SOLO en
+`--brand`/`--chart-*`, nunca en `--primary`. `--primary` es neutro
+(oscuro en light, gris claro en dark).
+
+**7. Reglas mínimas de consistencia** (aplicar aunque no se copie el resto
+del sistema):
+- Prohibido hex hardcodeado fuera de los tokens.
+- `tabular-nums` en todo número, `text-2xl font-semibold` en h1.
+- Sin emojis en UI.
+- Iconos `lucide-react` solo en: nav, botones icon-only, empty states.
+- Modales arrancan en `max-w-2xl` (no el `max-w-lg` default de shadcn).
+- Toasts `sonner`, `position="top-center"`, sin emojis, <60 caracteres.
+
+**8. NO copiar** sin adaptar: los helpers de formato (dependen de `config`/
+`bootstrap` propios del tenant de Punto), el modelo de auth (`_jwt`/
+`_jwt_panel`), ni los componentes de dominio (`CatalogManager`, `PayDialog`)
+— son específicos del negocio, no del design system.
+
+---
+
+## 10. Changelog de decisiones
+
+| Fecha | Decisión | Commit | Razón |
+|---|---|---|---|
+| 2026-07-18 | Reescritura completa de `context/20` como design system definitivo: tokens reales extraídos de `globals.css`/`components.json`, paleta de acentos, formatos, patrones POS, guía de bootstrap para apps externas | — | El doc anterior documentaba solo patrones de componentes sin los tokens crudos ni una guía standalone; se necesitaba una referencia autocontenida para compartir UI/UX fuera del repo |
+| 2026-07-18 | Inconsistencia detectada, NO corregida en este pase: `globals.css` declara `--font-sans: Poppins...` pero `app/layout.tsx` carga `Inter` vía `next/font/google` y lo aplica en `body.font-sans`. El font-family real renderizado es Inter | — | Ver §2/§9 — flag para el owner, requiere decisión (¿Poppins es aspiracional o Inter reemplazó a Poppins sin actualizar el CSS?) |
+| 2026-07-18 | Inconsistencia detectada, NO corregida: dos implementaciones de `formatMoney` con firmas distintas (`lib/format-money.ts` sobre `PosConfig`, `lib/format.ts` sobre `Bootstrap`) — ambas en uso activo en contextos distintos (POS vs panel) | — | Documentado en §8 en vez de unificarse; unificar requeriría normalizar `PosConfig`/`Bootstrap` a una sola shape de config de tenant — fuera de scope de este doc |
+| 2026-06-25 | Regla: iconos SOLO en sidebar nav, botones icon-only y empty states. Prohibido en cards, títulos, headers de modal | — | Regla explicitada por owner |
+| 2026-06-25 | NumericPadDialog unificado: title + mode label en header, unidad inline en display, Aceptar full-width en footer. `subtitle` deprecado | 532b36f | 3 iteraciones para llegar al pattern correcto |
+| 2026-06-25 | Rename "vendedor" → "usuario" / terminología vertical-neutral en strings de UI | 8b69da1 | Punto sirve múltiples verticales |
 | 2026-06-25 | Escape hatch global para atajos POS cuando hay dialog shadcn abierto | 9ff3885 | Atajos disparaban mientras el usuario completaba un form en un modal |
-| 2026-07-02 | Paleta de colores unificada (`lib/ui/color-palette.ts`) + ColorPicker canonico; se persiste el key del color no el hex, `resolveColorBg` cubre hex legacy | — | Swatches duplicados inline en Hotkeys/Usuarios/Impresoras; unificado + reusable |
-| 2026-06-24 | Redesign invoice-style de detalle de transacciones: NO stat cards, tabla de items canonica, totals right-aligned, status final al pie, sin badge de tipo arriba | 5c30c2a | 3 iteraciones: stat cards → stat cards restyle → invoice pattern correcto |
-| 2026-06-24 | Sin stat cards arriba de listados en paginas de reportes | — | Simplificacion post-planning; el DataTable tiene toda la info |
-| 2026-06-24 | Roles seed = 3 (Dueno/Encargado/Cajero) | — | Simplificacion post-planning; el modelo de 5 roles era demasiado granular |
+| 2026-07-02 | Paleta de colores unificada (`lib/ui/color-palette.ts`) + ColorPicker canónico; se persiste el key del color no el hex, `resolveColorBg` cubre hex legacy | — | Swatches duplicados inline en Hotkeys/Usuarios/Impresoras; unificado + reusable |
+| 2026-06-24 | Redesign invoice-style de detalle de transacciones: sin stat cards, tabla de items canónica, totals right-aligned, status final al pie, sin badge de tipo arriba | 5c30c2a | 3 iteraciones: stat cards → stat cards restyle → invoice pattern correcto |
+| 2026-06-24 | Sin stat cards arriba de listados en páginas de reportes | — | Simplificación post-planning; el DataTable tiene toda la info |
+| 2026-06-24 | Roles seed = 3 (Dueño/Encargado/Cajero) | — | Simplificación post-planning; el modelo de 5 roles era demasiado granular |
 
----
-
-## 8. Como invocar este doc
-
-**En briefs de sub-agentes:**
-
-- Referencia puntual: "Seguí el patron §4.3 (NumericPadDialog)" o "Ver §4.6 para split 2-col"
-- Para cambios cross-cutting (mas de 3 secciones): "Lee `context/20-design-system.md` completo antes de tocar JSX"
-- Los sub-agentes deben FLAGEAR en el reporte si el brief contradice algo de este doc ("el brief decia X pero §N dice Y, opte por Y")
-
-**Relacion con otros docs:**
-- `context/14-ui-conventions.md` — reglas operativas de shadcn (tipografia, spacing, listados, formatos). Lee ese primero si es tu primera vez en el proyecto.
-- `context/11-design-system.md` — manual de marca (colores de marca, logo, tipografia corporativa)
-- Este doc (20) extiende el 14 con patrones de componentes concretos y el historial de decisiones de diseno
+**Cómo invocar este doc en briefs de sub-agentes:** referencia puntual
+("Seguí §7 para patrones POS") o lectura completa para cambios cross-cutting
+(más de 3 secciones tocadas). Los sub-agentes deben FLAGEAR en el reporte si
+el brief contradice algo de este doc. Relación con otros docs: `context/14`
+(reglas operativas base, leer primero), `context/11` (manual de marca legacy
+BS3 — superseded por este doc para todo lo que sea panel/POS en React;
+sigue vigente para las pantallas legacy PHP no migradas).
