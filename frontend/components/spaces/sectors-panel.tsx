@@ -113,7 +113,7 @@ export function SectorsPanel({
               <Badge
                 variant={selectedSectorId === s.id ? "default" : "secondary"}
                 className="cursor-pointer gap-1.5 py-1.5 pl-3 pr-1.5 text-sm font-normal"
-                onClick={() => onSelectSector(selectedSectorId === s.id ? null : s.id)}
+                onClick={() => onSelectSector(s.id)}
               >
                 {s.name}
                 <button

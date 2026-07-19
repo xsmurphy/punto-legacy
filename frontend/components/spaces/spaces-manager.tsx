@@ -68,21 +68,31 @@ export function SpacesManager() {
     if (!outletId && outlets.length > 0) setOutletId(outlets[0].id)
   }, [outlets, outletId])
 
+  // Todo espacio SIEMPRE pertenece a un sector (space.sectorid NOT NULL,
+  // mig 82) — el chip de sector del manager sigue el mismo criterio: uno
+  // SIEMPRE activo, default = el primero de la sucursal (el backend ya
+  // garantiza al menos un sector "Salón" por outlet vía
+  // SpaceSectorService::ensureDefaultSector()).
   const [sectorFilter, setSectorFilter] = React.useState<string | null>(null)
+
+  const { data: sectorsData } = useSpaceSectors(outletId)
+  const sectors = sectorsData?.sectors ?? []
+
   // Bugfix (prod): el filtro de sector NO se reseteaba al cambiar de
   // sucursal → el bulk create mandaba sectorId de la sucursal vieja +
   // outletId de la nueva y `assertSectorBelongs`/`resolveOutletAndSector`
   // (api/lib/Spaces/SpaceService.php) rechazaba con "sectorId inválido para
   // este outlet/tenant". El backend ahora deriva el outlet DESDE el sector
   // cuando hay sectorId (mismatch imposible por construcción), pero acá
-  // además se limpia el filtro para que la UI no ofrezca un sector que ya
-  // no pertenece a la sucursal seleccionada.
+  // además se recalcula el sector activo apenas cambian los sectores
+  // disponibles (outlet nuevo o el sector activo ya no pertenece a este
+  // outlet) — nunca queda un sectorId huérfano de la sucursal anterior.
   React.useEffect(() => {
-    setSectorFilter(null)
-  }, [outletId])
-
-  const { data: sectorsData } = useSpaceSectors(outletId)
-  const sectors = sectorsData?.sectors ?? []
+    if (sectors.length === 0) return
+    if (!sectorFilter || !sectors.some((s) => s.id === sectorFilter)) {
+      setSectorFilter(sectors[0].id)
+    }
+  }, [sectors, sectorFilter])
 
   const { data: tablesData, isLoading } = useSpaces(outletId, sectorFilter ?? undefined)
   const tables = (tablesData?.spaces ?? []).filter((t) => REAL_SHAPES.includes(t.shape))
@@ -140,7 +150,7 @@ export function SpacesManager() {
         />
       ) : (
         <>
-          <SectorsPanel outletId={outletId} selectedSectorId={sectorFilter} onSelectSector={setSectorFilter} />
+          <SectorsPanel outletId={outletId} selectedSectorId={sectorFilter ?? sectors[0]?.id ?? ""} onSelectSector={setSectorFilter} />
 
           <Tabs defaultValue="tables">
             <TabsList>
@@ -158,15 +168,11 @@ export function SpacesManager() {
                   onChange={(e) => setBulkCount(Math.max(1, Math.min(50, Number(e.target.value))))}
                   className="h-9 w-20"
                 />
-                <Button variant="outline" onClick={handleBulkCreate} disabled={bulkCreate.isPending}>
+                <Button variant="outline" onClick={handleBulkCreate} disabled={bulkCreate.isPending || !sectorFilter}>
                   <Plus className="size-4 mr-1.5" />
-                  Crear {bulkCount} espacios numerados{sectorFilter ? " en este sector" : ""}
+                  Crear {bulkCount} espacios numerados
+                  {sectorFilter ? ` en ${sectors.find((s) => s.id === sectorFilter)?.name ?? "este sector"}` : ""}
                 </Button>
-                {!sectorFilter && sectors.length > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    Sin sector seleccionado — se crean sin sector asignado.
-                  </span>
-                )}
               </div>
 
               {isLoading ? (
@@ -290,9 +296,9 @@ function EditSpaceDialog({
   }, [table])
 
   function handleSave() {
-    if (!table) return
+    if (!table || !sectorId) return
     update.mutate(
-      { id: table.id, values: { name: name.trim(), seats, shape, sectorId: sectorId || null } },
+      { id: table.id, values: { name: name.trim(), seats, shape, sectorId } },
       {
         onSuccess: () => { toast.success("Espacio actualizado"); onClose() },
         onError: (e) => toast.error(e.message),
@@ -337,10 +343,9 @@ function EditSpaceDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="table-sector">Sector</Label>
-            <Select value={sectorId || "__none__"} onValueChange={(v) => setSectorId(v === "__none__" ? "" : v)}>
+            <Select value={sectorId} onValueChange={setSectorId}>
               <SelectTrigger id="table-sector"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">Sin sector</SelectItem>
                 {sectors.map((s) => (
                   <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                 ))}
@@ -350,7 +355,7 @@ function EditSpaceDialog({
         </div>
         <DialogFooter className="mt-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={handleSave} disabled={update.isPending || !name.trim()}>Guardar</Button>
+          <Button onClick={handleSave} disabled={update.isPending || !name.trim() || !sectorId}>Guardar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -21,9 +21,13 @@ final class SpaceSectorService
         $this->db = $db;
     }
 
-    /** @return array<int,array<string,mixed>> */
+    /**
+     * @return array<int,array<string,mixed>> siempre no-vacío — ensureDefaultSector()
+     *         garantiza al menos un sector activo por outlet.
+     */
     public function list(string $companyId, string $outletId): array
     {
+        $this->ensureDefaultSector($companyId, $outletId);
         $rs = $this->db->Execute(
             'SELECT * FROM space_sector WHERE companyid = ? AND outletid = ? AND status = 1 ORDER BY sort ASC, name ASC',
             [$companyId, $outletId]
@@ -34,6 +38,39 @@ final class SpaceSectorService
             $out[] = $this->present($row);
         }
         return $out;
+    }
+
+    /**
+     * Todo espacio SIEMPRE pertenece a un sector (space.sectorid NOT NULL,
+     * mig 82) — no existe "espacio sin sector". Si el outlet no tiene NINGÚN
+     * sector activo, crea "Salón" como default. Idempotente: llamado desde
+     * `list()` y antes de cualquier create/bulkCreate sin sectorId explícito
+     * en SpaceService — nunca crea un segundo default si ya hay uno activo.
+     *
+     * @return string sectorId del primer sector activo (existente o recién creado)
+     */
+    public function ensureDefaultSector(string $companyId, string $outletId): string
+    {
+        $existing = ncmExecute(
+            'SELECT sectorid FROM space_sector
+              WHERE companyid = ? AND outletid = ? AND status = 1
+              ORDER BY sort ASC, created_at ASC LIMIT 1',
+            [$companyId, $outletId]
+        );
+        if ($existing) {
+            return (string) $existing['sectorid'];
+        }
+
+        $rs = $this->db->Execute(
+            'INSERT INTO space_sector (sectorid, companyid, outletid, name, sort)
+             VALUES (gen_random_uuid(), ?, ?, ?, 0)
+             RETURNING sectorid',
+            [$companyId, $outletId, 'Salón']
+        );
+        if ($rs === false || $rs->EOF) {
+            throw new \RuntimeException('No se pudo crear el sector default');
+        }
+        return (string) $rs->fields['sectorid'];
     }
 
     public function find(string $companyId, string $id): ?array

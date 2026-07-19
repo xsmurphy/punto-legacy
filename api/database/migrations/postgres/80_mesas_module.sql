@@ -46,7 +46,14 @@ CREATE TABLE IF NOT EXISTS space (
   tableid     UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
   companyid   UUID           NOT NULL REFERENCES company(companyId) ON DELETE CASCADE,
   outletid    UUID           NOT NULL,
-  sectorid    UUID           REFERENCES space_sector(sectorid) ON DELETE SET NULL,
+  -- NOT NULL a propósito: todo espacio SIEMPRE pertenece a un sector — no
+  -- existe "espacio sin sector" (decisión del owner, mig 82). El backend
+  -- garantiza un sector default ("Salón") por outlet vía
+  -- SpaceSectorService::ensureDefaultSector() antes de cualquier create/
+  -- bulkCreate sin sectorId explícito. ON DELETE RESTRICT (no SET NULL,
+  -- incompatible con NOT NULL) — los sectores se soft-deletean
+  -- (status=0), nunca se hard-borran desde la app.
+  sectorid    UUID           NOT NULL REFERENCES space_sector(sectorid) ON DELETE RESTRICT,
   name        VARCHAR(40)    NOT NULL,
   seats       SMALLINT       NOT NULL DEFAULT 4,
   shape       VARCHAR(16)    NOT NULL DEFAULT 'square'

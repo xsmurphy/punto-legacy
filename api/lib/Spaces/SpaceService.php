@@ -16,10 +16,12 @@ final class SpaceService
 {
     /** @var mixed */
     private $db;
+    private SpaceSectorService $sectors;
 
     public function __construct($db)
     {
-        $this->db = $db;
+        $this->db      = $db;
+        $this->sectors = new SpaceSectorService($db);
     }
 
     // ------------------------------------------------------------------
@@ -60,17 +62,24 @@ final class SpaceService
     }
 
     /**
-     * Resuelve el outlet efectivo de una creación: si viene sectorId, el
-     * outlet SIEMPRE sale del sector (no del body) — evita el mismatch
-     * "sectorId de una sucursal + outletId de otra" que rompía
-     * assertSectorBelongs con "sectorId inválido para este outlet/tenant"
-     * (bug reportado en prod: el front no reseteaba el filtro de sector al
-     * cambiar de sucursal). El outletId del body/query solo se usa cuando
-     * NO hay sectorId. Para pos-app, $outletScope acota el resultado al
-     * outlet del device — un sector de otra sucursal es un 404 claro, no un
-     * outlet distinto silencioso.
+     * Resuelve el outlet + sector efectivos de una creación. Todo espacio
+     * SIEMPRE pertenece a un sector (space.sectorid NOT NULL, mig 82) — acá
+     * es donde se garantiza esa invariante para las dos entradas posibles:
      *
-     * @return array{0:string,1:?string} [outletId, sectorId]
+     * - Si viene sectorId, el outlet SIEMPRE sale del sector (no del body)
+     *   — evita el mismatch "sectorId de una sucursal + outletId de otra"
+     *   que rompía con "sectorId inválido para este outlet/tenant" (bug
+     *   reportado en prod: el front no reseteaba el filtro de sector al
+     *   cambiar de sucursal).
+     * - Si NO viene sectorId, el outlet sale de $outletScope/body y se usa
+     *   el sector default del outlet (SpaceSectorService::ensureDefaultSector,
+     *   crea "Salón" si el outlet no tiene ninguno).
+     *
+     * Para pos-app, $outletScope acota el resultado al outlet del device —
+     * un sector de otra sucursal es un 404/422 claro, no un outlet distinto
+     * silencioso.
+     *
+     * @return array{0:string,1:string} [outletId, sectorId] — sectorId NUNCA null
      */
     private function resolveOutletAndSector(string $companyId, ?string $sectorId, string $bodyOutletId, ?string $outletScope): array
     {
@@ -79,7 +88,8 @@ final class SpaceService
             if ($outletId === '') {
                 throw new \InvalidArgumentException('outletId requerido');
             }
-            return [$outletId, null];
+            $defaultSectorId = $this->sectors->ensureDefaultSector($companyId, $outletId);
+            return [$outletId, $defaultSectorId];
         }
 
         $sector = ncmExecute(
@@ -204,16 +214,22 @@ final class SpaceService
         $shape    = array_key_exists('shape', $data) ? $this->validateShape((string) $data['shape']) : $existing['shape'];
         $sort     = array_key_exists('sort', $data) ? (int) $data['sort'] : $existing['sort'];
         $status   = array_key_exists('status', $data) ? (int) $data['status'] : $existing['status'];
-        $sectorId = array_key_exists('sectorId', $data)
-            ? (!empty($data['sectorId']) ? (string) $data['sectorId'] : null)
-            : $existing['sectorId'];
+        // sectorId NUNCA se limpia a null — space.sectorid es NOT NULL (mig
+        // 82). Si el body manda sectorId vacío, es un request malformado, no
+        // "sacale el sector".
+        $sectorId = array_key_exists('sectorId', $data) ? (string) $data['sectorId'] : (string) $existing['sectorId'];
 
         if ($name === '') {
             throw new \InvalidArgumentException('name no puede quedar vacío');
         }
-        if ($sectorId !== null) {
-            $this->assertSectorBelongs($companyId, (string) $existing['outletId'], $sectorId);
+        if ($sectorId === '') {
+            throw new \InvalidArgumentException('sectorId requerido — el espacio siempre pertenece a un sector');
         }
+        // Mismo bug que el mismatch de create/bulkCreate: un sector de otra
+        // sucursal que la del espacio (datos legacy con huérfanos ya
+        // corregidos por la mig 82, pero un sectorId explícito del body
+        // puede seguir siendo de otro outlet). Error claro, no un 422 genérico.
+        $this->assertSectorBelongs($companyId, (string) $existing['outletId'], $sectorId);
 
         $ok = $this->db->Execute(
             'UPDATE space SET name = ?, seats = ?, shape = ?, sort = ?, status = ?, sectorid = ?
@@ -397,12 +413,20 @@ final class SpaceService
 
     private function assertSectorBelongs(string $companyId, string $outletId, string $sectorId): void
     {
-        $row = ncmExecute(
-            'SELECT sectorid FROM space_sector WHERE sectorid = ? AND companyid = ? AND outletid = ? LIMIT 1',
-            [$sectorId, $companyId, $outletId]
+        $sector = ncmExecute(
+            'SELECT sectorid, outletid FROM space_sector WHERE sectorid = ? AND companyid = ? LIMIT 1',
+            [$sectorId, $companyId]
         );
-        if (!$row) {
-            throw new \InvalidArgumentException('sectorId inválido para este outlet/tenant');
+        if (!$sector) {
+            throw new \InvalidArgumentException('sectorId inválido para este tenant');
+        }
+        if ((string) $sector['outletid'] !== $outletId) {
+            // Error específico (no el 422 genérico "inválido para este
+            // outlet/tenant") — datos legacy (mesas creadas sin sector antes
+            // de la mig 82) podían tener un sectorId de OTRA sucursal; con la
+            // invariante NOT NULL esos huérfanos ya se corrigieron, pero un
+            // sectorId explícito del body sigue pudiendo apuntar a otro outlet.
+            throw new \InvalidArgumentException('El sector pertenece a otra sucursal');
         }
     }
 
