@@ -1,4 +1,4 @@
-export type DeviceKind = "pos" | "screen" // extensible: "kds" | "display" en el futuro
+export type DeviceKind = "pos" | "screen" | "kds" | "display"
 
 export interface ConnectedDevice {
   key: string                 // `${kind}:${id}` — id único de fila
@@ -18,4 +18,6 @@ export interface ConnectedDevice {
 export const DEVICE_KIND_LABELS: Record<DeviceKind, string> = {
   pos: "Caja POS",
   screen: "Pantalla cliente",
+  kds: "KDS Cocina",
+  display: "Pantalla de mozos",
 }

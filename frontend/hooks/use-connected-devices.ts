@@ -11,7 +11,8 @@ import type { ConnectedDevice, DeviceKind } from "@/lib/devices/connected-device
  * cliente aparecían etiquetadas como "Caja POS" en la columna Tipo).
  */
 function moduleToKind(module: string | null | undefined): DeviceKind {
-  return module === "screen" ? "screen" : "pos"
+  if (module === "screen" || module === "kds" || module === "display") return module
+  return "pos"
 }
 
 export function useConnectedDevices(opts: { showRevoked?: boolean } = {}) {

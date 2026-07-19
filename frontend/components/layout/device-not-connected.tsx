@@ -14,7 +14,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
  *
  * Reemplaza al viejo /pos-pair (form con contraseña admin, eliminado).
  */
-export type DeviceKind = "pos" | "screen"
+export type DeviceKind = "pos" | "screen" | "kds" | "display"
 
 const COPY: Record<DeviceKind, { title: string; subtitle: string }> = {
   pos: {
@@ -26,6 +26,16 @@ const COPY: Record<DeviceKind, { title: string; subtitle: string }> = {
     title: "Pantalla no conectada",
     subtitle:
       "Pedile al administrador que genere un link de conexión desde Configuración › Dispositivos del panel.",
+  },
+  kds: {
+    title: "KDS no conectado",
+    subtitle:
+      "Pedile al administrador que genere un link de conexión (módulo KDS Cocina) desde Configuración › Dispositivos del panel.",
+  },
+  display: {
+    title: "Pantalla de mozos no conectada",
+    subtitle:
+      "Pedile al administrador que genere un link de conexión (módulo Pantalla de mozos) desde Configuración › Dispositivos del panel.",
   },
 }
 
