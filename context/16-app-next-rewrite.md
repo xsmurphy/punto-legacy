@@ -402,7 +402,7 @@ siquiera Alpine — es React puro).
 
 ## 12. Relación con otros docs
 - `context/14-app-rewrite-analysis.md` — feasibility, subsistemas, numeración (§9).
-- `context/15-mesas-module-plan.md` — el módulo de mesas vive en app-next (Slice C).
+- `context/15-espacios-module-plan.md` — el módulo de mesas vive en app-next (Slice C).
 - `context/12-panel-rewrite.md` — el rewrite hermano (panel); mismo stack y reglas.
 - `context/11-design-system.md` + skill `brand-manual` — colores/clases de marca.
 - Memoria `project_offline_scope` — frontera offline (solo venta simple + cliente).

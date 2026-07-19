@@ -3,7 +3,7 @@
 Plan cerrado por el owner 2026-07-18. Decisiones abajo NO se relitigan; solo
 se ejecutan. O0/O1/O2 completas. **O3 — Mesas F2 (operación en el POS) hecha
 2026-07-19** (branch `mesas-f2`) — ver detalle en
-`context/15-mesas-module-plan.md` §F2. Pendiente: F3 (split de cuenta) y F4
+`context/15-espacios-module-plan.md` §F2. Pendiente: F3 (split de cuenta) y F4
 (reservas) del plan de mesas, y O4 (ecommerce + agenda).
 
 ## Principio de diseño
@@ -16,7 +16,7 @@ La orden es una **entidad propia**, separada de `transaction`:
   `SaleService` existente (contado/crédito/IVA sin duplicar lógica de
   facturación).
 
-**Corte limpio de los types legacy 11/12** (ver `context/15-mesas-module-plan.md`
+**Corte limpio de los types legacy 11/12** (ver `context/15-espacios-module-plan.md`
 decisión D3): el modelo nuevo de Órdenes NO usa `transaction` como storage de
 la orden en curso. `api/v1/orders.php` / `OrderService.php` legacy (pedidos
 online que aceptan/mueven una `transaction` type=12) quedan intactos — son
@@ -178,7 +178,7 @@ screen (`{companyId}:checkout:{registerId}` → `wsPublish` en `screens.php`):
      el campo queda como metadata informativa sin uso funcional para estos
      dos modules).
 - **O3 — Mesas sobre el core. ✅ DONE (F0+F1+F2, 2026-07-19).** Ejecuta
-  `context/15-mesas-module-plan.md` como capa espacial encima de O0:
+  `context/15-espacios-module-plan.md` como capa espacial encima de O0:
   `table_session` = agrupador de una o más `pos_order` (mesa abierta puede
   acumular varias rondas de pedidos). F0+F1 (schema + servicios + config con
   editor de layout, branch `mesas-f0`) y F2 (operación real — abrir mesa →

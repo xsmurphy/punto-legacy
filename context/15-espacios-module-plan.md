@@ -1,13 +1,35 @@
-# 15 — Plan: módulo de gestión de mesas (restaurante)
+# 15 — Plan: módulo de gestión de espacios
 
 > **Creado:** 2026-06-15. **Estado:** F0+F1 (schema + servicios + config con
 > editor de layout) hechas 2026-07-19 en branch `mesas-f0`. **F2 (operación
 > en el POS)** hecha 2026-07-19 en branch `mesas-f2`, sobre el core de
 > Órdenes O0/O1/O2 (`context/24-orders-module-plan.md`). Reemplaza el módulo de
-> "espacios" actual (`ncmSpaces`), que es un grid numérico fijo sin entidad de
-> mesa real. Objetivo: gestión de mesas de nivel restaurante (sectores, mozos,
-> reservas, comensales, split de cuentas, estados). Pendiente: split de
-> cuenta (F3) y reservas (F4).
+> "espacios" legacy (`ncmSpaces`), que es un grid numérico fijo sin entidad de
+> mesa real. Objetivo: gestión de espacios de nivel restaurante/multi-rubro
+> (sectores, mozos, reservas, comensales, split de cuentas, estados).
+> Pendiente: split de cuenta (F3) y reservas (F4).
+>
+> **Rename mesas→espacios (2026-07-19, mig 81/82):** el módulo se generalizó
+> a "Espacios" — un ESPACIO físico con sesión abierta al que se le asocian
+> órdenes hasta cobrar (mesas en gastronomía, sillas de atención en
+> peluquerías, habitaciones en hostales/hoteles). El resto de este documento
+> describe el diseño F0-F2 tal como se construyó, con la terminología de
+> ESE momento (`dining_table`, `table_session`, `tableSessionId`,
+> `/pos/mesas`, etc.) — **no se reescribió retroactivamente**. Mapeo a los
+> nombres actuales:
+>
+> | Entonces | Ahora |
+> |---|---|
+> | `table_sector` / `SectorService` | `space_sector` / `SpaceSectorService` |
+> | `dining_table` / `DiningTableService` | `space` / `SpaceService` |
+> | `table_session` / `TableSessionService` | `space_session` / `SpaceSessionService` |
+> | `pos_order.tablesessionid` / `tableSessionId` | `pos_order.spacesessionid` / `spaceSessionId` |
+> | `api/v1/dining-tables.php`, `table-sectors.php`, `table-sessions.php` | `spaces.php`, `space-sectors.php`, `space-sessions.php` |
+> | `/pos/mesas`, `/settings/tables` | `/pos/espacios`, `/settings/espacios` |
+> | `Punto\Api\Tables\*` | `Punto\Api\Spaces\*` |
+>
+> Mig 82 (2026-07-19) además agregó la invariante `space.sectorid NOT NULL`
+> — todo espacio siempre pertenece a un sector.
 
 ## F2 — operación en el POS (hecho 2026-07-19)
 
