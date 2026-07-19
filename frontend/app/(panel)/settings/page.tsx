@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2 } from "lucide-react"
+import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -181,6 +181,7 @@ const SECTIONS: {
   { id: "devices" as unknown as SettingsSection, label: "Dispositivos", icon: Monitor, href: "/settings/devices" },
   { id: "sessions" as unknown as SettingsSection, label: "Sesiones", icon: KeyRound, href: "/settings/sessions" },
   { id: "printers" as unknown as SettingsSection, label: "Impresoras", icon: Printer, href: "/settings/printers" },
+  { id: "tables" as unknown as SettingsSection, label: "Mesas", icon: LayoutGrid, href: "/settings/tables" },
   { id: "roles" as unknown as SettingsSection, label: "Roles y permisos", icon: ShieldCheck, href: "/settings/roles" },
   // Redes sociales se fusionó a la sección Empresa (al final del tab) en vez
   // de tener una sección propia — el tab solo con 4 inputs estaba subutilizado.

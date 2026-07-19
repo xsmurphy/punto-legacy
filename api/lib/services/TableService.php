@@ -5,6 +5,14 @@ use Punto\Api\Context\TenantContext;
 // DB not needed (uses ncmExecute helpers)
 
 /**
+ * @deprecated Reemplazado por el módulo de Mesas F0+F1
+ * (`Punto\Api\Tables\{SectorService,DiningTableService,TableSessionService}`,
+ * mig 80, context/15-mesas-module-plan.md). El modelo `transaction
+ * type=11/12` (mesa/orden efímera, sin historial, sin sectores) es el corte
+ * limpio D3 del plan — NO se extiende. Dejar intacto por compat mientras el
+ * front legacy (`app.js` `ncmSpaces`) siga vivo; no consumir desde código
+ * nuevo.
+ *
  * TableService — operaciones sobre las mesas/espacios del POS (slice 2 del desacople de /app).
  *
  * Una "mesa" es una fila de `transaction` con transactionType = 11, identificada por

@@ -132,6 +132,12 @@ screen (`{companyId}:checkout:{registerId}` → `wsPublish` en `screens.php`):
 - **O3 — Mesas sobre el core**. Ejecuta `context/15-mesas-module-plan.md`
   como capa espacial encima de O0: `table_session` = agrupador de una o más
   `pos_order` (mesa abierta puede acumular varias rondas de pedidos).
+  **F0+F1 del plan de mesas (schema + servicios + config con editor de
+  layout) ya está hecho** (branch `mesas-f0`, 2026-07-19; mig 80 —
+  `table_sector`/`dining_table`/`table_session`). Falta la operación real
+  (abrir mesa → ordenar → cobrar en `/pos`, que es la F2 de mesas) y el
+  link operativo `pos_order.tablesessionid` (columna ya nullable desde mig
+  79, sin consumidor todavía).
 - **O4 — ecommerce + agenda**. `source='ecommerce'` y `source='schedule'`
   ya están contemplados en el CHECK de `pos_order.source` desde O0 para no
   requerir migración de schema cuando lleguen.
