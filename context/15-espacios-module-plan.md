@@ -103,6 +103,22 @@ ocupa el slot de hotkeys (`/pos/mesas`, misma composición mapa+carrito que
   por producto/partes iguales/monto entregado (F3, `table_settlement`),
   reservas (F4), asignación de mozos a sector/mesa (`table_assignment`).
 
+## F3 — split de cuenta: requisitos del owner (charla 2026-07-19, plan pendiente)
+
+Tres modos de cobro parcial sobre una sesión de espacio, elegibles por el
+mozo/cajero al cobrar:
+
+1. **Por ítems**: seleccionar qué ítems (de las órdenes de la sesión) paga
+   cada persona — cobros sucesivos hasta agotar los ítems.
+2. **Monto libre (adelanto)**: añadir un pago de X Gs. a cuenta de la mesa,
+   sin asociarlo a ítems.
+3. **Partes iguales**: dividir el total en N partes y cobrarlas por separado.
+
+Prerequisito de UI (hecho 2026-07-19): el diálogo de sesión muestra los
+ítems de cada orden — el cajero necesita verlos para poder seleccionarlos.
+El plan técnico de F3 (settlements, estados parciales, interacción con
+`markPaid`/`close`) se diseña en una sesión de planificación dedicada.
+
 ## F0+F1 — hecho (2026-07-19)
 
 **Desviación clave del schema original de este doc**: las tablas nuevas
