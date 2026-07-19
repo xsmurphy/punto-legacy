@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import { useOutlets } from "@/hooks/use-outlets"
-import { readViewScope } from "@/hooks/use-view-scope"
+import { readViewScope, useViewScope, type ViewScope } from "@/hooks/use-view-scope"
 import { useSpaceSectors } from "@/hooks/use-space-sectors"
 import {
   useSpaces,
@@ -79,6 +79,22 @@ export function SpacesManager() {
       setOutletId(outlets[0].id)
     }
   }, [outlets, outletId])
+
+  // Cambio de view-scope EN VIVO (selector de sucursal del sidebar): la página
+  // lo sigue sin refrescar. El ref distingue la hidratación inicial del hook
+  // (null → valor persistido, no es un cambio del operador) de un cambio real;
+  // "all" no mueve la selección local (esta pantalla siempre opera UNA
+  // sucursal concreta).
+  const { scope } = useViewScope()
+  const lastScopeRef = React.useRef<ViewScope | undefined>(undefined)
+  React.useEffect(() => {
+    const prev = lastScopeRef.current
+    lastScopeRef.current = scope
+    if (prev === undefined || prev === scope) return
+    if (scope && scope !== "all" && outlets.some((o) => o.id === scope)) {
+      setOutletId(scope)
+    }
+  }, [scope, outlets])
 
   // Todo espacio SIEMPRE pertenece a un sector (space.sectorid NOT NULL,
   // mig 82) — el chip de sector del manager sigue el mismo criterio: uno
