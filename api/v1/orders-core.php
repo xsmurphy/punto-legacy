@@ -18,6 +18,19 @@
  *
  * Auth: panel + pos-app (las órdenes las opera tanto el POS como el panel).
  * Para pos-app, outletId sale del device ctx (apiAuthTenant ya lo resuelve).
+ *
+ * Auth por module (O2, context/24-orders-module-plan.md): dentro del realm
+ * pos-app, `$ctx['module']` distingue qué TIPO de dispositivo está pegando
+ * (pos|kds|display|screen — screen no llama a este endpoint). GET (lectura)
+ * es libre para cualquier module con outlet scope. Las escrituras se
+ * restringen así:
+ *   - module 'pos' (o panel, sin module): sin restricción — el cajero opera
+ *     el ciclo completo (crear, enviar, cancelar, cobrar).
+ *   - module 'kds': solo transiciones de ítem/orden hacia la cocina
+ *     (preparing, ready, cancelled) — NO crea, envía ni cobra órdenes.
+ *   - module 'display' (pantalla de mozos): SOLO marca `delivered` — de
+ *     ítem o de orden. No puede tocar ningún otro estado.
+ * Ver assertModuleCanSetStatus() abajo.
  */
 
 require_once dirname(__DIR__) . '/bootstrap.php';
@@ -38,6 +51,43 @@ $svc = new \Punto\Api\Orders\OrderCoreService($db);
 // la sucursal A no ve ni opera órdenes de la sucursal B del mismo tenant).
 $isPosApp    = ($ctx['realm'] ?? '') === 'pos-app';
 $outletScope = $isPosApp ? $outletId : null;
+$deviceModule = $isPosApp ? (string) ($ctx['module'] ?? 'pos') : null;
+
+/**
+ * Whitelist de status permitidos por module de device, separada por scope
+ * (ítem vs orden — son dos máquinas de estado distintas en OrderCoreService,
+ * ITEM_TRANSITIONS vs ORDER_TRANSITIONS). `null` (panel o module 'pos') =
+ * sin restricción adicional — el service ya valida la transición en sí; esto
+ * es una capa extra de "quién puede pedir qué transición".
+ *
+ * 'display' (pantalla de mozos) queda deliberadamente SIN order-level status
+ * (`$scope='order'` → set vacío): permitirle `delivered` a nivel orden abriría
+ * un atajo para marcar la orden entera como entregada sin pasar por
+ * item-status, saltándose que haya ítems todavía `preparing`/`pending`
+ * (ORDER_TRANSITIONS permite 'sent'→'delivered' directo — hallazgo del
+ * code-reviewer en la review de este mismo commit). El flujo real de mozos
+ * es SIEMPRE item-status por cada ítem `ready`.
+ */
+function assertModuleCanSetStatus(?string $module, string $scope, string $status): void
+{
+    if ($module === null || $module === 'pos') {
+        return; // panel y caja POS: sin restricción adicional
+    }
+    $allowed = [
+        'item'  => [
+            'kds'     => ['preparing', 'ready', 'cancelled'],
+            'display' => ['delivered'],
+        ],
+        'order' => [
+            'kds'     => ['in_progress', 'ready', 'cancelled'],
+            'display' => [],
+        ],
+    ];
+    $set = $allowed[$scope][$module] ?? [];
+    if (!in_array($status, $set, true)) {
+        apiError("El dispositivo ({$module}) no puede pedir la transición de {$scope} a '{$status}'", 403);
+    }
+}
 
 switch ($method) {
     case 'GET':
@@ -68,6 +118,7 @@ switch ($method) {
             if ($orderItemId === '' || $status === '') {
                 apiError('id (orderItemId) y status son requeridos', 422);
             }
+            assertModuleCanSetStatus($deviceModule, 'item', $status);
             try {
                 apiOk($svc->updateItemStatus($companyId, $orderItemId, $status, $outletScope));
             } catch (\Throwable $e) {
@@ -77,6 +128,9 @@ switch ($method) {
         }
 
         if ($id !== null && $action === 'send') {
+            if ($deviceModule === 'kds' || $deviceModule === 'display') {
+                apiError("El dispositivo ({$deviceModule}) no puede enviar órdenes a cocina", 403);
+            }
             try {
                 apiOk($svc->send($companyId, (string) $id, $outletScope));
             } catch (\Throwable $e) {
@@ -88,6 +142,7 @@ switch ($method) {
         if ($id !== null && $action === 'status') {
             $status = (string) ($_POST['status'] ?? '');
             if ($status === '') apiError('status requerido', 422);
+            assertModuleCanSetStatus($deviceModule, 'order', $status);
             try {
                 apiOk($svc->updateStatus($companyId, (string) $id, $status, $outletScope));
             } catch (\Throwable $e) {
@@ -97,6 +152,9 @@ switch ($method) {
         }
 
         if ($id !== null && $action === 'mark-paid') {
+            if ($deviceModule === 'kds' || $deviceModule === 'display') {
+                apiError("El dispositivo ({$deviceModule}) no puede cobrar órdenes", 403);
+            }
             $transactionId = (string) ($_POST['transactionId'] ?? '');
             if ($transactionId === '') apiError('transactionId requerido', 422);
             try {
@@ -109,6 +167,10 @@ switch ($method) {
 
         if ($id !== null) {
             apiError('action inválida (esperado: send|status|mark-paid, o resource=item-status)', 422);
+        }
+
+        if ($deviceModule === 'kds' || $deviceModule === 'display') {
+            apiError("El dispositivo ({$deviceModule}) no puede crear órdenes", 403);
         }
 
         try {

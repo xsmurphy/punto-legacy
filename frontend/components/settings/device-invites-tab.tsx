@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { EmptyState } from "@/components/empty-state"
+import { DEVICE_KIND_LABELS, type DeviceKind } from "@/lib/devices/connected-device"
 import {
   useDeviceInvitations,
   useDenyDeviceInvitation,
@@ -56,12 +57,10 @@ export function DeviceInvitesTab() {
     {
       accessorKey: "module",
       header: "Módulo",
-      cell: ({ row }) =>
-        row.original.module === "pos" ? (
-          <Badge variant="secondary">POS</Badge>
-        ) : (
-          <span>{row.original.module}</span>
-        ),
+      cell: ({ row }) => {
+        const mod = row.original.module as DeviceKind
+        return <Badge variant="secondary">{DEVICE_KIND_LABELS[mod] ?? row.original.module}</Badge>
+      },
     },
     {
       accessorKey: "status",

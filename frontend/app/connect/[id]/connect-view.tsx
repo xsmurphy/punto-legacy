@@ -5,13 +5,29 @@ import { useRouter } from "next/navigation"
 import { CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { PuntoLogo } from "@/components/layout/punto-logo"
-import { setDeviceToken } from "@/lib/auth/device-token"
+import { setDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
 import { setDeviceClaims } from "@/lib/auth/device-claims"
 
 const POLL_INTERVAL_MS = 3000
 const MAX_POLL_MS      = 30 * 60 * 1000 // 30 minutos
 
 type InvitationStatus = "pending" | "opened" | "approved" | "denied" | "expired"
+
+/** module (string libre del invitation) → namespace tipado de device-token/claims. */
+function toDeviceModule(module: string): DeviceModule {
+  if (module === "screen" || module === "kds" || module === "display") return module
+  return "pos"
+}
+
+/** module → ruta de la pantalla pareada. */
+function moduleRoute(module: string): string {
+  switch (module) {
+    case "screen":  return "/checkout"
+    case "kds":     return "/kds"
+    case "display": return "/display"
+    default:        return "/pos"
+  }
+}
 
 interface ConnectViewProps {
   invitationId:          string
@@ -32,18 +48,13 @@ export function ConnectView({ invitationId, userCode, module, autoApproveToken, 
   // de inmediato sin mostrar el userCode ni iniciar polling.
   React.useEffect(() => {
     if (!autoApproveToken) return
-    const mod = module === "screen" ? "screen" : "pos"
+    const mod = toDeviceModule(module)
     setDeviceToken(autoApproveToken, mod)
     if (autoApproveCompanyId && autoApproveRegisterId && autoApproveDeviceId) {
       setDeviceClaims({ companyId: autoApproveCompanyId, registerId: autoApproveRegisterId, deviceId: autoApproveDeviceId }, mod)
     }
     setStatus("approved")
-    setTimeout(() => {
-      if (module === "pos")         router.replace("/pos")
-      else if (module === "screen") router.replace("/checkout")
-      else if (module === "kds")    router.replace("/kds")
-      else                          router.replace("/pos")
-    }, 800)
+    setTimeout(() => router.replace(moduleRoute(module)), 800)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoApproveToken])
 
@@ -90,18 +101,13 @@ export function ConnectView({ invitationId, userCode, module, autoApproveToken, 
           // token del primero y rompía publish/auth — incidente 2026-06-28.
           const tokenFromBody = data?.token
           if (tokenFromBody) {
-            const mod = module === "screen" ? "screen" : "pos"
+            const mod = toDeviceModule(module)
             setDeviceToken(tokenFromBody, mod)
             if (data.companyId && data.registerId && data.deviceId) {
               setDeviceClaims({ companyId: data.companyId, registerId: data.registerId, deviceId: data.deviceId }, mod)
             }
           }
-          setTimeout(() => {
-            if (module === "pos")         router.replace("/pos")
-            else if (module === "screen") router.replace("/checkout")
-            else if (module === "kds")    router.replace("/kds")
-            else                          router.replace("/pos")
-          }, 800)
+          setTimeout(() => router.replace(moduleRoute(module)), 800)
         }
       } catch {
         // best-effort -- red momentaneamente no disponible

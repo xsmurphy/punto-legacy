@@ -1,7 +1,8 @@
 # Módulo de Órdenes — plan (O0-O4)
 
 Plan cerrado por el owner 2026-07-18. Decisiones abajo NO se relitigan; solo
-se ejecutan. Fase actual: **O0 core backend** (branch `orders-o0`).
+se ejecutan. O0/O1/O2 completas (branches `orders-o0`/O1 mergeadas,
+`orders-o2` en curso). Próxima fase: **O3 — Mesas**.
 
 ## Principio de diseño
 
@@ -126,9 +127,54 @@ screen (`{companyId}:checkout:{registerId}` → `wsPublish` en `screens.php`):
      detalle vía `useOrder(order.id)` (N+1 liviano — el volumen de órdenes
      activas simultáneas en un turno es bajo; si O2/O3 revela volumen alto,
      se resuelve trayendo ítems en `list()`).
-- **O2 — KDS + pantalla mozos**. Pantallas de cocina (device pairing module
-  KDS) consumiendo `{companyId}:kds:{outletId}`; pantalla de mozos para ver
-  estado de sus órdenes/mesas.
+- **O2 — KDS + pantalla mozos. ✅ DONE (2026-07-19).** Pantallas device-paired
+  (mismo Device Authorization Grant que el checkout screen, module='kds'|
+  'display') consumiendo `{companyId}:kds:{outletId}` en vivo por WS, con
+  REST inicial + re-sync en cada reconexión.
+
+  **Archivos**: `app/(screen)/kds/page.tsx` + `order-card.tsx` +
+  `config-sheet.tsx`, `app/(screen)/display/page.tsx` + `ready-card.tsx`,
+  `hooks/use-paired-screen.ts` (pairing+WS+heartbeat genérico, extraído del
+  patrón inline de `checkout/page.tsx` para no triplicarlo), `hooks/
+  use-elapsed.ts` (tiempo transcurrido vivo + tier de alerta), `lib/kds/
+  config.ts` (config local por dispositivo: columnas, densidad, estaciones
+  visibles, umbrales — localStorage, no BD). Backend: `api/v1/screens.php`
+  (heartbeat/context extendido a `DISPLAY_MODULES=['screen','kds','display']`,
+  `resource=context` ahora también devuelve `companyId`/`outletId` crudos —
+  el front los necesita para el canal WS y `DeviceClaims` no los carga),
+  `api/v1/orders-core.php` (`assertModuleCanSetStatus($module,$scope,$status)`
+  — whitelist de transiciones por module, separada item vs order-level: kds
+  → preparing/ready/cancelled (item) o in_progress/ready/cancelled (order);
+  display → SOLO delivered a nivel ítem, con order-level status bloqueado del
+  todo para display — ver comentario inline, hallazgo del code-reviewer:
+  `ORDER_TRANSITIONS` permite sent→delivered directo, así que dejarle
+  `status` a nivel orden a `display` hubiera sido un atajo para saltarse el
+  estado de los ítems).
+
+  **Decisiones de esta fase**:
+  1. Columnas configurables (`KdsConfig` en localStorage): modo `status`
+     (Nuevas/En preparación/Listas, bucketeado por `pos_order.status`) o
+     `stream` (single-stream por antigüedad), densidad, estaciones visibles,
+     umbrales de alerta (verde/ámbar/rojo) — todo por dispositivo, no por
+     tenant.
+  2. Responsive con CSS grid `auto-fill`/`minmax` + tipografía `clamp()` —
+     mismo layout de teléfono vertical a TV 45", sin breakpoints manuales.
+  3. Dark por defecto: `(screen)/layout.tsx` fija `forcedTheme="light"`
+     (visor al cliente, checkout). KDS/display fuerzan `.dark` en su wrapper
+     (Tailwind v4 `@custom-variant dark (&:is(.dark *))` alcanza sin tocar
+     el ThemeProvider global).
+  4. Interacción: tap en tarjeta = bump de todos los ítems bumpeables
+     visibles (paralelo, optimista con rollback); tap en línea = bump de ese
+     ítem. `delivered` es dominio exclusivo de la pantalla de mozos.
+  5. Pairing: extendido `DeviceModule`/`DeviceKind` (device-token.ts,
+     connected-device.ts, device-not-connected.tsx) a kds/display, selector
+     de módulo en `device-invite-create-dialog.tsx`, ruteo post-pairing en
+     `connect/[id]/connect-view.tsx`.
+  6. TODO menor no bloqueante: el dialog de invitación sigue exigiendo elegir
+     una Caja (`registerId`) incluso para module kds/display, que son
+     conceptualmente de sucursal, no de caja — no se tocó (fuera de alcance,
+     el campo queda como metadata informativa sin uso funcional para estos
+     dos modules).
 - **O3 — Mesas sobre el core**. Ejecuta `context/15-mesas-module-plan.md`
   como capa espacial encima de O0: `table_session` = agrupador de una o más
   `pos_order` (mesa abierta puede acumular varias rondas de pedidos).

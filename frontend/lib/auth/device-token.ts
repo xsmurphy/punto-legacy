@@ -12,9 +12,14 @@
  * call-sites son del POS y el cambio queda transparent. Una migración one-shot
  * (al leer) mueve el token legacy `punto.device.token` → `...token.pos` la
  * primera vez que un browser viejo abre la app.
+ *
+ * `kds`/`display` (O2, context/24-orders-module-plan.md): mismo patrón de
+ * namespacing — un browser podría en teoría parear varias pantallas (poco
+ * común, pero el namespace evita la misma clase de bug que causó el
+ * incidente 2026-06-28 con pos/screen).
  */
 
-export type DeviceModule = "pos" | "screen"
+export type DeviceModule = "pos" | "screen" | "kds" | "display"
 
 const KEY_PREFIX = "punto.device.token"
 const LEGACY_KEY = KEY_PREFIX // pre-namespacing — se trata como POS al migrar

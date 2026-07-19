@@ -1,29 +1,37 @@
 <?php
 /**
- * /v1/screens — Pantallas cliente pareadas como device (module='screen').
+ * /v1/screens — Pantallas cliente pareadas como device (module en
+ * DISPLAY_MODULES: 'screen' | 'kds' | 'display').
  *
- *   POST ?resource=heartbeat (auth device Bearer, module=screen) — keep-alive
+ *   POST ?resource=heartbeat (auth device Bearer, module de pantalla) — keep-alive
  *   POST ?resource=publish   (auth device Bearer, module=pos)    — emite evento al canal de la caja
  *   GET  (sin resource)      (auth panel)                        — lista pantallas del tenant
  *   DELETE ?id=<uuid>        (auth panel)                        — revoca (soft-delete) una pantalla
  *
  * El pairing ya NO pasa por este archivo: se hace vía Device Authorization Grant
- * en /v1/device_invitations con module='screen'.
+ * en /v1/device_invitations con module='screen'|'kds'|'display'.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/Auth/DeviceAuth.php';
 require_once __DIR__ . '/../lib/Auth/apiAuthPosContext.php';
 
+// Módulos que son "pantalla" (heartbeat/context genérico, no operan el carrito).
+// KDS y pantalla de mozos (O2, context/24-orders-module-plan.md) comparten el
+// mismo pairing/heartbeat que el checkout screen — solo cambia el canal WS al
+// que se suscriben en el front (`{companyId}:kds:{outletId}` en vez de
+// `{companyId}:checkout:{registerId}`).
+const DISPLAY_MODULES = ['screen', 'kds', 'display'];
+
 $resource = $_GET['resource'] ?? null;
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $id       = $_GET['id'] ?? null;
 
-// ── POST ?resource=heartbeat — auth device Bearer (module=screen) ─────────────
+// ── POST ?resource=heartbeat — auth device Bearer (module pantalla) ───────────
 
 if ($method === 'POST' && $resource === 'heartbeat') {
     $ctx = apiAuthPosContext();
-    if (($ctx['module'] ?? 'pos') !== 'screen') {
+    if (!in_array($ctx['module'] ?? 'pos', DISPLAY_MODULES, true)) {
         apiError('Heartbeat solo para pantallas cliente', 403);
     }
     // apiAuthPosContext ya actualiza lastSeenAt + iplast en la fila device (DeviceAuth::resolveDeviceToken)
@@ -31,13 +39,13 @@ if ($method === 'POST' && $resource === 'heartbeat') {
     exit;
 }
 
-// ── GET ?resource=context — auth device Bearer (module=screen) ───────────────
+// ── GET ?resource=context — auth device Bearer (module pantalla) ─────────────
 // Devuelve datos para que la pantalla cliente arme su UI sin esperar al
 // primer cart-update del POS: companyName, registerName, outletName, logoUrl.
 
 if ($method === 'GET' && $resource === 'context') {
     $ctx = apiAuthPosContext();
-    if (($ctx['module'] ?? 'pos') !== 'screen') {
+    if (!in_array($ctx['module'] ?? 'pos', DISPLAY_MODULES, true)) {
         apiError('Context solo para pantallas cliente', 403);
     }
     // settingName / settingObj viven en `company.config` JSONB y los expone
@@ -65,6 +73,12 @@ if ($method === 'GET' && $resource === 'context') {
         : null;
 
     apiOk([
+        // companyId/outletId: fuente de verdad para que KDS/display armen su
+        // canal WS (`{companyId}:kds:{outletId}`) sin depender de que el
+        // pairing haya persistido esos IDs en localStorage — la fila `device`
+        // ya los tiene, evita duplicar estado (O2, context/24-orders-module-plan.md).
+        'companyId'    => (string) $ctx['companyId'],
+        'outletId'     => (string) $ctx['outletId'],
         'companyName'  => (string) ($company['settingName'] ?? ''),
         'registerName' => (string) ($reg['registername'] ?? ''),
         'outletName'   => (string) ($out['outletname'] ?? ''),
