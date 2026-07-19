@@ -105,26 +105,50 @@ final class SpaceSessionService
      */
     public function cancel(string $companyId, string $sessionId, ?string $outletScope = null): array
     {
-        $session = $this->lockSession($companyId, $sessionId, $outletScope);
-        if (in_array($session['status'], ['closed', 'cancelled'], true)) {
-            throw new \InvalidArgumentException('La sesión ya está ' . $session['status']);
-        }
+        global $db;
+        $db->StartTrans();
+        try {
+            $session = $this->lockSession($companyId, $sessionId, $outletScope);
+            if (in_array($session['status'], ['closed', 'cancelled'], true)) {
+                throw new \InvalidArgumentException('La sesión ya está ' . $session['status']);
+            }
 
-        $activeOrders = ncmExecute(
-            "SELECT COUNT(*) AS c FROM pos_order WHERE spacesessionid = ? AND status NOT IN ('closed','cancelled')",
-            [$sessionId]
-        );
-        if ((int) ($activeOrders['c'] ?? 0) > 0) {
-            throw new \InvalidArgumentException('No se puede cancelar: el espacio tiene órdenes activas');
-        }
+            // Cascada (decisión owner 2026-07-19): cancelar la sesión cancela
+            // sus órdenes activas. El guard anterior ("no se puede cancelar
+            // con órdenes activas") dejaba el botón inutilizable con una sola
+            // orden enviada. updateStatus() valida la transición, protege
+            // órdenes ya cobradas (saletransactionid presente) y publica a
+            // KDS/realtime por cada orden — no duplicar esa lógica acá.
+            $orders   = new \Punto\Api\Orders\OrderCoreService($this->db);
+            $rsActive = $this->db->Execute(
+                "SELECT orderid FROM pos_order
+                  WHERE spacesessionid = ? AND companyid = ?
+                    AND status NOT IN ('closed','cancelled')",
+                [$sessionId, $companyId]
+            );
+            if ($rsActive !== false) {
+                foreach ($rsActive->GetRows() as $row) {
+                    $orders->updateStatus($companyId, (string) $row['orderid'], 'cancelled');
+                }
+            }
 
-        $ok = $this->db->Execute(
-            "UPDATE space_session SET status = 'cancelled', closed_at = now()
-              WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
-            [$sessionId, $companyId]
-        );
-        if ($ok === false) {
-            throw new \RuntimeException('No se pudo cancelar la sesión');
+            $ok = $this->db->Execute(
+                "UPDATE space_session SET status = 'cancelled', closed_at = now()
+                  WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
+                [$sessionId, $companyId]
+            );
+            if ($ok === false) {
+                throw new \RuntimeException('No se pudo cancelar la sesión');
+            }
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
+        }
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException('No se pudo cancelar la sesión (transacción abortada)');
         }
         $result = $this->find($companyId, $sessionId);
         if ($result !== null) {

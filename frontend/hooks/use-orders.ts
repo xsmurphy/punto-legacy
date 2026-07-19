@@ -64,7 +64,11 @@ export interface Order {
   createdAt: string | null
   sentAt: string | null
   closedAt: string | null
-  /** Solo presente en `find()` (detalle) — `list()` no trae ítems. */
+  /**
+   * Presente en `find()` (detalle) siempre, y en `list()` solo si se pidió
+   * `includeItems=1` (ej. `useOrdersBySession` — dialog de sesión de
+   * espacio, context/15 F3). Ausente en `list()` sin ese flag.
+   */
   items?: OrderItem[]
 }
 
@@ -136,16 +140,18 @@ export function useOrder(orderId: string | null) {
 }
 
 /**
- * Órdenes de una sesión de espacio (todas, cualquier status — el sheet del
- * espacio muestra el historial completo de rondas; `loadFromSession` en el
- * cart store filtra client-side las billable). `list()` no trae ítems, así
- * que cada card sigue pidiendo su detalle si necesita mostrarlos — acá se
- * usa `useOrder` por cada id cuando hace falta el contenido para "Cobrar".
+ * Órdenes de una sesión de espacio (todas, cualquier status — el diálogo del
+ * espacio muestra el historial completo de rondas). Pide `includeItems=1`
+ * para que el service adjunte los ítems de cada orden en la misma respuesta
+ * (una sola query batched server-side, sin N+1 de fetches por orden — ver
+ * `OrderCoreService::list()`), consumido por `SpaceSessionDialog` para
+ * mostrar el detalle de ítems y el total de la sesión (context/15 F3).
  */
 export function useOrdersBySession(sessionId: string | null) {
   return useQuery<{ orders: Order[] }>({
     queryKey: ["orders", "session", sessionId],
-    queryFn: () => posJson<{ orders: Order[] }>(`/api/pos/orders?spaceSessionId=${sessionId}`),
+    queryFn: () =>
+      posJson<{ orders: Order[] }>(`/api/pos/orders?spaceSessionId=${sessionId}&includeItems=1`),
     enabled: !!sessionId,
     staleTime: 5 * 1000,
   })
@@ -154,8 +160,7 @@ export function useOrdersBySession(sessionId: string | null) {
 /**
  * Detalle de una orden fuera del ciclo de hooks — usado por el flujo
  * "Cobrar el espacio" (context/15 F2) para resolver los ítems de cada orden de
- * la sesión antes de armar el merge en `loadFromSession` (necesita
- * `Order.items`, que `list()`/`useOrdersBySession` no traen).
+ * la sesión antes de armar el merge en `loadFromSession`.
  */
 export function fetchOrderDetail(orderId: string): Promise<Order> {
   return posJson<Order>(`/api/pos/orders?id=${orderId}`)
@@ -165,9 +170,11 @@ export function fetchOrderDetail(orderId: string): Promise<Order> {
  * Igual a `useOrdersBySession` pero fuera del ciclo de hooks — usado por el
  * handler de "Cobrar" en `/pos/espacios` para resolver qué órdenes son
  * billable (no closed/cancelled) antes de pedir su detalle completo.
+ * `includeItems=1` por consistencia con `useOrdersBySession` — mismo endpoint,
+ * mismo shape esperado.
  */
 export function fetchOrdersBySession(sessionId: string): Promise<{ orders: Order[] }> {
-  return posJson<{ orders: Order[] }>(`/api/pos/orders?spaceSessionId=${sessionId}`)
+  return posJson<{ orders: Order[] }>(`/api/pos/orders?spaceSessionId=${sessionId}&includeItems=1`)
 }
 
 // ── Mutaciones ────────────────────────────────────────────────────────────────

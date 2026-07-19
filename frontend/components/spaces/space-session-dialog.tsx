@@ -3,12 +3,19 @@
 /**
  * Dialog de detalle de un espacio ocupado/pagando (context/15-espacios-module-plan.md
  * F2). Lista las órdenes de la sesión (todas, cualquier status — historial
- * completo de rondas) y expone las acciones del espacio: Agregar orden, Pedir
- * cuenta, Cobrar, Cancelar sesión (solo si no hay órdenes activas).
+ * completo de rondas) CON sus ítems (includeItems=1, base del split F3: el
+ * cajero necesita ver los ítems para poder seleccionarlos) y expone las
+ * acciones del espacio: Agregar orden, Pedir cuenta, Cobrar, Cancelar sesión.
  *
  * Modal centrado (no Sheet lateral) — convención transversal del owner:
- * Dialog es el default para paneles contextuales (ver context/14 §2.2). Botones
- * a ancho completo y size lg porque el POS se opera con el dedo en tablet.
+ * Dialog es el default para paneles contextuales (ver context/14 §2.2).
+ * Botones size lg (touch targets); en desktop los tres principales van en
+ * una fila (sm:grid-cols-3) — decisión owner 2026-07-19, el modal tiene
+ * ancho de sobra para un botón por línea.
+ *
+ * "Cancelar sesión" libera el espacio SIN cobro y cancela EN CASCADA las
+ * órdenes activas (server-side, SpaceSessionService::cancel) — siempre
+ * habilitado con sesión abierta, gated por AlertDialog de confirmación.
  */
 
 import * as React from "react"
@@ -21,10 +28,28 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/empty-state"
-import { useOrdersBySession, ACTIVE_ORDER_STATUSES, type OrderStatus } from "@/hooks/use-orders"
+import { cn } from "@/lib/utils"
+import { formatAmount, formatMoney } from "@/lib/format-money"
+import { useCatalogStore } from "@/lib/catalog/store"
+import {
+  useOrdersBySession,
+  ACTIVE_ORDER_STATUSES,
+  type Order,
+  type OrderStatus,
+} from "@/hooks/use-orders"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
@@ -35,6 +60,13 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   delivered: "Entregada",
   closed: "Cobrada",
   cancelled: "Cancelada",
+}
+
+/** Total de una orden = suma de ítems no cancelados (qty × price). */
+function orderTotal(order: Order): number {
+  return (order.items ?? [])
+    .filter((i) => i.status !== "cancelled")
+    .reduce((s, i) => s + i.qty * (i.price ?? 0), 0)
 }
 
 interface Props {
@@ -60,11 +92,18 @@ export function SpaceSessionDialog({
   cancelPending,
   chargePending,
 }: Props) {
+  const config = useCatalogStore((s) => s.config)
   const sessionId = table?.session?.id ?? null
   const { data, isLoading } = useOrdersBySession(sessionId)
   const orders = data?.orders ?? []
-  const hasActiveOrders = orders.some((o) => ACTIVE_ORDER_STATUSES.includes(o.status))
-  const canCancel = !hasActiveOrders
+  const activeOrderCount = orders.filter((o) => ACTIVE_ORDER_STATUSES.includes(o.status)).length
+  const [confirmCancel, setConfirmCancel] = React.useState(false)
+
+  // Total de la sesión: órdenes no canceladas (las cobradas siguen sumando —
+  // es el consumo total de la mesa, referencia para el cobro/split).
+  const sessionTotal = orders
+    .filter((o) => o.status !== "cancelled")
+    .reduce((s, o) => s + orderTotal(o), 0)
 
   return (
     <Dialog open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
@@ -90,62 +129,131 @@ export function SpaceSessionDialog({
               className="py-8"
             />
           ) : (
-            <ul className="flex flex-col gap-2 py-2">
-              {orders.map((o) => (
-                <li
-                  key={o.id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
-                >
-                  <span className="text-sm font-medium text-foreground">
-                    Orden #{o.orderNumber ?? "—"}
-                  </span>
-                  <Badge variant="outline">{STATUS_LABEL[o.status]}</Badge>
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-col gap-2 py-2">
+              {orders.map((o) => {
+                const cancelled = o.status === "cancelled"
+                return (
+                  <div key={o.id} className="rounded-lg border border-border px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={cn(
+                          "text-sm font-medium text-foreground",
+                          cancelled && "text-muted-foreground line-through",
+                        )}
+                      >
+                        Orden #{o.orderNumber ?? "—"}
+                      </span>
+                      <Badge variant="outline">{STATUS_LABEL[o.status]}</Badge>
+                    </div>
+                    {(o.items?.length ?? 0) > 0 && (
+                      <ul className="mt-1.5 flex flex-col gap-0.5 border-t border-border/60 pt-1.5">
+                        {o.items!.map((it) => {
+                          const itemCancelled = cancelled || it.status === "cancelled"
+                          return (
+                            <li key={it.id} className="flex items-baseline justify-between gap-2 text-sm">
+                              <div className="min-w-0">
+                                <span
+                                  className={cn(
+                                    itemCancelled && "text-muted-foreground line-through",
+                                  )}
+                                >
+                                  <span className="tabular-nums">{it.qty}×</span> {it.name}
+                                </span>
+                                {it.note && (
+                                  <p className="truncate text-xs text-muted-foreground">{it.note}</p>
+                                )}
+                              </div>
+                              <span
+                                className={cn(
+                                  "shrink-0 tabular-nums",
+                                  itemCancelled
+                                    ? "text-muted-foreground line-through"
+                                    : "text-foreground",
+                                )}
+                              >
+                                {formatAmount(it.qty * (it.price ?? 0), config)}
+                              </span>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )
+              })}
+              <div className="flex items-center justify-between border-t border-border pt-2 text-sm">
+                <span className="text-muted-foreground">Total de la sesión</span>
+                <span className="font-semibold tabular-nums">{formatMoney(sessionTotal, config)}</span>
+              </div>
+            </div>
           )}
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col">
-          {/* size lg + w-full: touch targets grandes para operar con el dedo. */}
-          <Button size="lg" onClick={onAddOrder} className="w-full gap-1.5">
-            <Plus className="size-4" />
-            Agregar orden
-          </Button>
-          {table?.state !== "bill_requested" && (
+          {/* size lg: touch targets grandes. En sm+ los tres principales van
+              en una fila — el modal tiene ancho de sobra (decisión owner). */}
+          <div className="grid w-full gap-2 sm:grid-cols-3">
+            <Button size="lg" onClick={onAddOrder} className="w-full gap-1.5">
+              <Plus className="size-4" />
+              Agregar orden
+            </Button>
             <Button
               size="lg"
               variant="outline"
               onClick={onRequestBill}
-              disabled={requestBillPending}
+              disabled={requestBillPending || table?.state === "bill_requested"}
               className="w-full gap-1.5"
             >
               <Receipt className="size-4" />
               {requestBillPending ? "Pidiendo cuenta..." : "Pedir cuenta"}
             </Button>
-          )}
-          <Button
-            size="lg"
-            variant="outline"
-            onClick={onCharge}
-            disabled={chargePending || orders.length === 0}
-            className="w-full gap-1.5"
-          >
-            <CreditCard className="size-4" />
-            {chargePending ? "Preparando cobro..." : "Cobrar"}
-          </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={onCharge}
+              disabled={chargePending || orders.length === 0}
+              className="w-full gap-1.5"
+            >
+              <CreditCard className="size-4" />
+              {chargePending ? "Preparando cobro..." : "Cobrar"}
+            </Button>
+          </div>
           <Button
             size="lg"
             variant="ghost"
-            onClick={onCancelSession}
-            disabled={!canCancel || cancelPending}
-            title={!canCancel ? "No se puede cancelar: el espacio tiene órdenes activas" : undefined}
+            onClick={() => setConfirmCancel(true)}
+            disabled={cancelPending}
             className="w-full gap-1.5 text-destructive hover:text-destructive"
           >
             <Ban className="size-4" />
             {cancelPending ? "Cancelando..." : "Cancelar sesión"}
           </Button>
         </DialogFooter>
+
+        <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Cancelar la sesión?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {activeOrderCount > 0
+                  ? `Se cancelarán ${activeOrderCount} ${activeOrderCount === 1 ? "orden activa" : "órdenes activas"} y el espacio quedará libre, sin cobro.`
+                  : "El espacio quedará libre, sin cobro."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Volver</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  setConfirmCancel(false)
+                  onCancelSession()
+                }}
+              >
+                Cancelar sesión
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )

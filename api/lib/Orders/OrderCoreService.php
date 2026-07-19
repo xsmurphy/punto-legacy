@@ -496,8 +496,15 @@ final class OrderCoreService
         return $order ?? [];
     }
 
-    /** @return array<int,array<string,mixed>> */
-    public function list(string $companyId, array $filters = []): array
+    /**
+     * @param bool $includeItems Si true, adjunta los ítems de cada orden (una
+     *             sola query batched con `orderid IN (...)`, no N+1 — usado
+     *             por el diálogo de sesión de espacio, context/15 F3). Los
+     *             ítems `cancelled` SE INCLUYEN; el consumidor decide qué
+     *             hacer con ellos (tacharlos, excluirlos del total, etc).
+     * @return array<int,array<string,mixed>>
+     */
+    public function list(string $companyId, array $filters = [], bool $includeItems = false): array
     {
         $where  = ['o.companyid = ?'];
         $params = [$companyId];
@@ -546,6 +553,16 @@ final class OrderCoreService
         foreach ($rs->GetRows() as $row) {
             $out[] = $this->presentOrder($row, false);
         }
+
+        if ($includeItems && $out !== []) {
+            $orderIds     = array_map(static fn (array $o) => (string) $o['id'], $out);
+            $itemsByOrder = $this->loadItemsByOrderIds($companyId, $orderIds);
+            foreach ($out as &$order) {
+                $order['items'] = $itemsByOrder[$order['id']] ?? [];
+            }
+            unset($order);
+        }
+
         return $out;
     }
 
@@ -699,26 +716,66 @@ final class OrderCoreService
             $items = [];
             if ($rs !== false) {
                 foreach ($rs->GetRows() as $item) {
-                    $items[] = [
-                        'id'          => (string) ($item['orderitemid'] ?? ''),
-                        'itemId'      => $item['itemid'] ?? null,
-                        'name'        => (string) ($item['name'] ?? ''),
-                        'qty'         => (float) ($item['qty'] ?? 0),
-                        'price'       => isset($item['price']) ? (float) $item['price'] : null,
-                        'note'        => $item['note'] ?? null,
-                        'stationId'   => $item['stationid'] ?? null,
-                        'stationName' => $item['stationname'] ?? null,
-                        'status'      => (string) ($item['status'] ?? ''),
-                        'course'      => (int) ($item['course'] ?? 1),
-                        'createdAt'   => $item['created_at'] ?? null,
-                        'readyAt'     => $item['ready_at'] ?? null,
-                        'deliveredAt' => $item['delivered_at'] ?? null,
-                    ];
+                    $items[] = $this->presentOrderItem($item);
                 }
             }
             $out['items'] = $items;
         }
 
+        return $out;
+    }
+
+    /** Shape único de un ítem de orden — usado por find()/presentOrder() y por loadItemsByOrderIds() (list con includeItems). */
+    private function presentOrderItem(array $item): array
+    {
+        return [
+            'id'          => (string) ($item['orderitemid'] ?? ''),
+            'itemId'      => $item['itemid'] ?? null,
+            'name'        => (string) ($item['name'] ?? ''),
+            'qty'         => (float) ($item['qty'] ?? 0),
+            'price'       => isset($item['price']) ? (float) $item['price'] : null,
+            'note'        => $item['note'] ?? null,
+            'stationId'   => $item['stationid'] ?? null,
+            'stationName' => $item['stationname'] ?? null,
+            'status'      => (string) ($item['status'] ?? ''),
+            'course'      => (int) ($item['course'] ?? 1),
+            'createdAt'   => $item['created_at'] ?? null,
+            'readyAt'     => $item['ready_at'] ?? null,
+            'deliveredAt' => $item['delivered_at'] ?? null,
+        ];
+    }
+
+    /**
+     * Carga ítems de varias órdenes en UNA sola query (`orderid IN (...)`,
+     * placeholders generados dinámicamente — nunca interpolación de valores).
+     * Evita el N+1 de pedir el detalle de cada orden por separado.
+     *
+     * @param list<string> $orderIds
+     * @return array<string,list<array<string,mixed>>> ítems agrupados por orderId
+     */
+    private function loadItemsByOrderIds(string $companyId, array $orderIds): array
+    {
+        if ($orderIds === []) return [];
+
+        $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
+        $params       = $orderIds;
+        $params[]     = $companyId;
+
+        $rs = $this->db->Execute(
+            "SELECT oi.*, s.name AS stationname
+               FROM pos_order_item oi
+          LEFT JOIN order_station s ON s.stationid = oi.stationid AND s.companyid = oi.companyid
+              WHERE oi.orderid IN ($placeholders) AND oi.companyid = ?
+              ORDER BY oi.created_at ASC",
+            $params
+        );
+        if ($rs === false) return [];
+
+        $out = [];
+        foreach ($rs->GetRows() as $item) {
+            $orderId = (string) ($item['orderid'] ?? '');
+            $out[$orderId][] = $this->presentOrderItem($item);
+        }
         return $out;
     }
 }
