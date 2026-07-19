@@ -1,8 +1,10 @@
 # Módulo de Órdenes — plan (O0-O4)
 
 Plan cerrado por el owner 2026-07-18. Decisiones abajo NO se relitigan; solo
-se ejecutan. O0/O1/O2 completas (branches `orders-o0`/O1 mergeadas,
-`orders-o2` en curso). Próxima fase: **O3 — Mesas**.
+se ejecutan. O0/O1/O2 completas. **O3 — Mesas F2 (operación en el POS) hecha
+2026-07-19** (branch `mesas-f2`) — ver detalle en
+`context/15-mesas-module-plan.md` §F2. Pendiente: F3 (split de cuenta) y F4
+(reservas) del plan de mesas, y O4 (ecommerce + agenda).
 
 ## Principio de diseño
 
@@ -175,15 +177,16 @@ screen (`{companyId}:checkout:{registerId}` → `wsPublish` en `screens.php`):
      conceptualmente de sucursal, no de caja — no se tocó (fuera de alcance,
      el campo queda como metadata informativa sin uso funcional para estos
      dos modules).
-- **O3 — Mesas sobre el core**. Ejecuta `context/15-mesas-module-plan.md`
-  como capa espacial encima de O0: `table_session` = agrupador de una o más
-  `pos_order` (mesa abierta puede acumular varias rondas de pedidos).
-  **F0+F1 del plan de mesas (schema + servicios + config con editor de
-  layout) ya está hecho** (branch `mesas-f0`, 2026-07-19; mig 80 —
-  `table_sector`/`dining_table`/`table_session`). Falta la operación real
-  (abrir mesa → ordenar → cobrar en `/pos`, que es la F2 de mesas) y el
-  link operativo `pos_order.tablesessionid` (columna ya nullable desde mig
-  79, sin consumidor todavía).
+- **O3 — Mesas sobre el core. ✅ DONE (F0+F1+F2, 2026-07-19).** Ejecuta
+  `context/15-mesas-module-plan.md` como capa espacial encima de O0:
+  `table_session` = agrupador de una o más `pos_order` (mesa abierta puede
+  acumular varias rondas de pedidos). F0+F1 (schema + servicios + config con
+  editor de layout, branch `mesas-f0`) y F2 (operación real — abrir mesa →
+  ordenar → cobrar en `/pos/mesas`, branch `mesas-f2`) completas. El link
+  operativo `pos_order.tablesessionid` (nullable desde mig 79) ahora tiene
+  consumidor: `OrderCoreService::create()` lo valida y persiste, `list()`
+  lo filtra. Pendiente: F3 (split de cuenta por partes/producto/monto) y F4
+  (reservas) del plan de mesas — fuera de alcance de O3.
 - **O4 — ecommerce + agenda**. `source='ecommerce'` y `source='schedule'`
   ya están contemplados en el CHECK de `pos_order.source` desde O0 para no
   requerir migración de schema cuando lleguen.

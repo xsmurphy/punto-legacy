@@ -65,6 +65,7 @@ final class OrderCoreService
      * Atómico — TX propia.
      *
      * @param array{outletId:string, registerId?:string, source?:string,
+     *              tableSessionId?:string,
      *              items:list<array{itemId?:string, qty:float, price?:float,
      *              note?:string, course?:int}>, customerId?:string,
      *              userId?:string, note?:string, channelRef?:string,
@@ -75,15 +76,20 @@ final class OrderCoreService
     {
         global $db;
 
-        $outletId   = (string) ($data['outletId'] ?? '');
-        $registerId = !empty($data['registerId']) ? (string) $data['registerId'] : null;
-        $source     = (string) ($data['source'] ?? 'counter');
-        $items      = (array) ($data['items'] ?? []);
-        $customerId = !empty($data['customerId']) ? (string) $data['customerId'] : null;
-        $userId     = !empty($data['userId']) ? (string) $data['userId'] : null;
-        $note       = isset($data['note']) && $data['note'] !== '' ? (string) $data['note'] : null;
-        $channelRef = isset($data['channelRef']) && $data['channelRef'] !== '' ? (string) $data['channelRef'] : null;
-        $sendNow    = !empty($data['sendNow']);
+        $outletId       = (string) ($data['outletId'] ?? '');
+        $registerId     = !empty($data['registerId']) ? (string) $data['registerId'] : null;
+        $tableSessionId = !empty($data['tableSessionId']) ? (string) $data['tableSessionId'] : null;
+        // Una orden asociada a una mesa siempre tiene source='table' —
+        // manda sobre el source recibido (context/15 F2, decisión del
+        // owner: "mesa seleccionada → Ordenar genera una orden asociada a
+        // la mesa").
+        $source         = $tableSessionId !== null ? 'table' : (string) ($data['source'] ?? 'counter');
+        $items          = (array) ($data['items'] ?? []);
+        $customerId     = !empty($data['customerId']) ? (string) $data['customerId'] : null;
+        $userId         = !empty($data['userId']) ? (string) $data['userId'] : null;
+        $note           = isset($data['note']) && $data['note'] !== '' ? (string) $data['note'] : null;
+        $channelRef     = isset($data['channelRef']) && $data['channelRef'] !== '' ? (string) $data['channelRef'] : null;
+        $sendNow        = !empty($data['sendNow']);
 
         if ($outletId === '') {
             throw new \InvalidArgumentException('outletId requerido');
@@ -100,9 +106,49 @@ final class OrderCoreService
             throw new \InvalidArgumentException('outletId inválido para este tenant');
         }
 
+        if ($tableSessionId !== null) {
+            // Pre-check fuera de la TX — falla rápido (400) sin tomar lock si
+            // la sesión ni siquiera existe/pertenece al tenant. La validación
+            // que importa (status='open') se REPITE con FOR UPDATE dentro de
+            // la TX, justo abajo — evita la ventana TOCTOU entre este check y
+            // el INSERT (ej. otro request llama request-bill/cancel/close
+            // sobre la misma sesión mientras se arma esta orden; hallazgo del
+            // code-reviewer).
+            $session = ncmExecute(
+                'SELECT sessionid, outletid, status FROM table_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
+                [$tableSessionId, $companyId]
+            );
+            if (!$session) {
+                throw new \InvalidArgumentException('tableSessionId inválido para este tenant');
+            }
+            if ((string) $session['outletid'] !== $outletId) {
+                throw new \InvalidArgumentException('tableSessionId no pertenece a este outlet');
+            }
+        }
+
         $stations = $this->listStationsRaw($companyId, $outletId);
 
         $db->StartTrans();
+
+        if ($tableSessionId !== null) {
+            // Re-check atómico: FOR UPDATE bloquea la fila hasta el commit de
+            // esta TX, así que request-bill/cancel/close (UPDATEs simples sin
+            // lock explícito, ver TableSessionService) quedan bloqueados
+            // hasta que esta orden termine de crearse — o, si ya corrieron
+            // antes de este SELECT, el status ya no es 'open' y abortamos acá.
+            $lockedSession = $db->Execute(
+                "SELECT status FROM table_session WHERE sessionid = ? AND companyid = ? FOR UPDATE",
+                [$tableSessionId, $companyId]
+            );
+            $lockedStatus = ($lockedSession !== false && !$lockedSession->EOF)
+                ? (string) $lockedSession->fields['status']
+                : null;
+            if ($lockedStatus !== 'open') {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                throw new \InvalidArgumentException('La mesa no admite nuevas órdenes (status: ' . ($lockedStatus ?? 'desconocido') . ')');
+            }
+        }
 
         // Correlativo por (companyid, outletid, día local): advisory lock
         // transaction-scoped evita la carrera entre dos creates concurrentes
@@ -125,10 +171,10 @@ final class OrderCoreService
         $rs = $this->db->Execute(
             "INSERT INTO pos_order
                 (orderid, companyid, outletid, registerid, source, status, ordernumber,
-                 customerid, userid, note, channelref, sent_at)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
+                 tablesessionid, customerid, userid, note, channelref, sent_at)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
              RETURNING orderid",
-            [$companyId, $outletId, $registerId, $source, $status, $orderNumber, $customerId, $userId, $note, $channelRef]
+            [$companyId, $outletId, $registerId, $source, $status, $orderNumber, $tableSessionId, $customerId, $userId, $note, $channelRef]
         );
         if ($rs === false || $rs->EOF) {
             $db->FailTrans();
@@ -468,6 +514,10 @@ final class OrderCoreService
         if (!empty($filters['source'])) {
             $where[]  = 'o.source = ?';
             $params[] = (string) $filters['source'];
+        }
+        if (!empty($filters['tableSessionId'])) {
+            $where[]  = 'o.tablesessionid = ?';
+            $params[] = (string) $filters['tableSessionId'];
         }
         if (!empty($filters['from'])) {
             $where[]  = 'o.created_at >= ?';

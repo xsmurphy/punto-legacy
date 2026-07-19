@@ -1,11 +1,85 @@
 # 15 — Plan: módulo de gestión de mesas (restaurante)
 
 > **Creado:** 2026-06-15. **Estado:** F0+F1 (schema + servicios + config con
-> editor de layout) hechas 2026-07-19 en branch `mesas-f0`, sobre el core de
-> Órdenes O0/O1 (`context/24-orders-module-plan.md`). Reemplaza el módulo de
+> editor de layout) hechas 2026-07-19 en branch `mesas-f0`. **F2 (operación
+> en el POS)** hecha 2026-07-19 en branch `mesas-f2`, sobre el core de
+> Órdenes O0/O1/O2 (`context/24-orders-module-plan.md`). Reemplaza el módulo de
 > "espacios" actual (`ncmSpaces`), que es un grid numérico fijo sin entidad de
 > mesa real. Objetivo: gestión de mesas de nivel restaurante (sectores, mozos,
-> reservas, comensales, split de cuentas, estados).
+> reservas, comensales, split de cuentas, estados). Pendiente: split de
+> cuenta (F3) y reservas (F4).
+
+## F2 — operación en el POS (hecho 2026-07-19)
+
+UX cerrada por el owner: al seleccionar el módulo Mesas, el mapa de mesas
+ocupa el slot de hotkeys (`/pos/mesas`, misma composición mapa+carrito que
+`/pos`); el carrito es el mismo `CartPanel` persistente del layout, ahora
+"en modo mesa" cuando hay una `tableSessionId` seleccionada.
+
+- **Backend**: `OrderCoreService::create()` acepta `tableSessionId` — valida
+  que la sesión sea del mismo tenant+outlet y esté `status='open'` (rechaza
+  `bill_requested`/`closed`/`cancelled`), fuerza `source='table'` (manda
+  sobre el `source` recibido) y persiste `pos_order.tablesessionid`.
+  `list()` ganó el filtro `tableSessionId` (usado por "Cobrar la mesa" para
+  traer las órdenes de una sesión). Sin migración nueva — la columna
+  `pos_order.tablesessionid` ya existía desde mig 79 (O0), sin consumidor
+  hasta ahora.
+- **Frontend — BFF nuevos** (mismo patrón Bearer-del-device que
+  `/api/pos/orders`): `/api/pos/tables` → `dining-tables.php`,
+  `/api/pos/table-sessions` → `table-sessions.php`, `/api/pos/table-sectors`
+  (solo GET) → `table-sectors.php`. Hooks dedicados
+  `hooks/use-pos-tables.ts` (posFetch, realm pos-app) — **distintos** de
+  `use-dining-tables.ts`/`use-table-sectors.ts` (cookie `_jwt_panel`, config
+  del panel en `/settings/tables`); mismas entidades, dos superficies de auth.
+- **`/pos/mesas`**: sectores en tabs, plano con dos modos de render — canvas
+  absoluto 900×600 (mismo tamaño que `layout-editor.tsx`) escalado
+  responsive por `transform:scale()` vía `ResizeObserver` cuando el sector
+  tiene layout custom, o grilla CSS fallback si no. Colores por estado
+  (`PosTableTile`): libre=neutro, ocupada=`primary`, pagando=`amber-500`
+  (mismo tono que el chip de sync pendiente en `cart-panel.tsx`),
+  deshabilitada=`muted` no clickeable. Badge con nº de órdenes activas +
+  tiempo transcurrido (`useElapsed`, mismo hook del KDS/O2).
+  - Tap mesa libre → `OpenTableDialog` (comensales opcional) → abre sesión →
+    `cartStore.setSelectedTable(sessionId, tableName)` (fuerza `posMode=
+    "orden"`) → navega a `/pos`.
+  - Tap mesa ocupada/pagando → `TableSessionSheet`: lista de órdenes de la
+    sesión (todas, cualquier status) + Agregar orden (mismo `setSelectedTable`
+    + navegar a `/pos`, reusando la sesión existente) + Pedir cuenta
+    (`requestBill`) + Cobrar + Cancelar sesión (deshabilitado si hay órdenes
+    activas — el backend ya lo valida, el botón solo refleja el guard).
+- **Ordenar con mesa seleccionada**: `cart-panel.tsx::handleOrderClick`
+  incluye `tableSessionId` en el payload de `createOrder`. Al éxito,
+  `clearCart()` (que ya resetea `tableSessionId`/`tableName` vía
+  `initialState`) + `router.push("/pos/mesas")` — vuelve al mapa con la
+  selección limpia, la mesa queda ocupada con su orden nueva.
+- **Cobrar la mesa**: nueva acción del cart store `loadFromSession(sessionId,
+  tableName, orders)` — merge de líneas de TODAS las órdenes no
+  `closed`/`cancelled` de la sesión (mismo criterio de merge que `addLines`,
+  pero comparando itemId+nota para no mezclar rondas/notas distintas en una
+  sola línea), en modo venta, seteando `sessionParentId` + `sessionOrderIds`
+  (paralelo a `orderParentId` pero para N órdenes). El handler de "Cobrar"
+  en `/pos/mesas` resuelve primero qué órdenes son billable
+  (`fetchOrdersBySession`, filtra client-side status), pide el detalle
+  completo de cada una (`fetchOrderDetail`, en paralelo) y arma el merge.
+  `pay-dialog.tsx`, al confirmar el pago: si `sessionParentId` está seteado,
+  llama `markOrderPaid` por cada `sessionOrderIds` y luego
+  `TableSessionService::close(sessionId, transactionId)` — la mesa vuelve a
+  `free`. Es una rama nueva, mutuamente excluyente con `orderParentId` (NO
+  se reusa ese mecanismo — perdería el resto de las órdenes de la sesión).
+- **Realtime**: entidad `table` agregada a `ENTITY_TO_QUERY_KEYS`
+  (`hooks/use-realtime-sync.ts`) — invalida tanto el plano operativo del POS
+  como la config del panel. Ya estaba publicado desde F0+F1
+  (`realtimePublish('table', ...)` en `DiningTableService`/
+  `TableSessionService`), sin consumidor hasta ahora.
+- **code-reviewer**: sin P0 (aislamiento outlet/tenant de `tableSessionId`
+  correcto, forzado server-side). P1 corregido: TOCTOU entre el check de
+  `table_session.status='open'` y el INSERT de la orden — el pre-check
+  original leía fuera de la TX; ahora se repite con `SELECT ... FOR UPDATE`
+  dentro de la TX de `create()` (bloquea `request-bill`/`cancel`/`close`
+  concurrentes sobre la misma fila hasta el commit).
+- **Fuera de alcance de F2** (queda para fases siguientes): split de cuenta
+  por producto/partes iguales/monto entregado (F3, `table_settlement`),
+  reservas (F4), asignación de mozos a sector/mesa (`table_assignment`).
 
 ## F0+F1 — hecho (2026-07-19)
 
