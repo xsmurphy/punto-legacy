@@ -11,7 +11,7 @@ import {
 /**
  * Placeholder de un módulo del POS todavía no implementado.
  *
- * Los módulos de la caja (Hotkeys, Mesas, Calendario, Órdenes) viven en el
+ * Los módulos de la caja (Hotkeys, Espacios, Calendario, Órdenes) viven en el
  * sidebar contextual de /pos. Hasta que cada uno tenga su pantalla real,
  * estas rutas renderizan este placeholder para que la navegación no dé 404.
  */

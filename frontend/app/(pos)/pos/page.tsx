@@ -3,7 +3,7 @@
  *
  * Es el bloque izquierdo del workspace (ver layout.tsx). El carrito vive en
  * el layout y se mantiene; el sidebar del POS intercambia este bloque por
- * los otros módulos (Mesas / Órdenes / Calendario). El icono "Hotkeys" del
+ * los otros módulos (Espacios / Órdenes / Calendario). El icono "Hotkeys" del
  * sidebar vuelve acá.
  */
 

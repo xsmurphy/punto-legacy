@@ -37,19 +37,19 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import { useOutlets } from "@/hooks/use-outlets"
-import { useTableSectors } from "@/hooks/use-table-sectors"
+import { useSpaceSectors } from "@/hooks/use-space-sectors"
 import {
-  useDiningTables,
-  useBulkCreateDiningTables,
-  useUpdateDiningTable,
-  useDeleteDiningTable,
-  type DiningTable,
-  type TableShape,
-} from "@/hooks/use-dining-tables"
-import { LayoutEditor } from "@/components/tables/layout-editor"
-import { SectorsPanel } from "@/components/tables/sectors-panel"
+  useSpaces,
+  useBulkCreateSpaces,
+  useUpdateSpace,
+  useDeleteSpace,
+  type Space,
+  type SpaceShape,
+} from "@/hooks/use-spaces"
+import { LayoutEditor } from "@/components/spaces/layout-editor"
+import { SectorsPanel } from "@/components/spaces/sectors-panel"
 
-const SHAPE_LABELS: Record<TableShape, string> = {
+const SHAPE_LABELS: Record<SpaceShape, string> = {
   square:      "Cuadrada",
   round:       "Redonda",
   rect:        "Rectangular",
@@ -58,9 +58,9 @@ const SHAPE_LABELS: Record<TableShape, string> = {
   decor_plant:"Planta (decorativo)",
 }
 
-const REAL_SHAPES: TableShape[] = ["square", "round", "rect"]
+const REAL_SHAPES: SpaceShape[] = ["square", "round", "rect"]
 
-export function TablesManager() {
+export function SpacesManager() {
   const { data: outletsData } = useOutlets()
   const outlets = outletsData?.rows ?? []
   const [outletId, setOutletId] = React.useState("")
@@ -68,27 +68,48 @@ export function TablesManager() {
     if (!outletId && outlets.length > 0) setOutletId(outlets[0].id)
   }, [outlets, outletId])
 
+  // Todo espacio SIEMPRE pertenece a un sector (space.sectorid NOT NULL,
+  // mig 82) — el chip de sector del manager sigue el mismo criterio: uno
+  // SIEMPRE activo, default = el primero de la sucursal (el backend ya
+  // garantiza al menos un sector "Salón" por outlet vía
+  // SpaceSectorService::ensureDefaultSector()).
   const [sectorFilter, setSectorFilter] = React.useState<string | null>(null)
 
-  const { data: sectorsData } = useTableSectors(outletId)
+  const { data: sectorsData } = useSpaceSectors(outletId)
   const sectors = sectorsData?.sectors ?? []
 
-  const { data: tablesData, isLoading } = useDiningTables(outletId, sectorFilter ?? undefined)
-  const tables = (tablesData?.tables ?? []).filter((t) => REAL_SHAPES.includes(t.shape))
+  // Bugfix (prod): el filtro de sector NO se reseteaba al cambiar de
+  // sucursal → el bulk create mandaba sectorId de la sucursal vieja +
+  // outletId de la nueva y `assertSectorBelongs`/`resolveOutletAndSector`
+  // (api/lib/Spaces/SpaceService.php) rechazaba con "sectorId inválido para
+  // este outlet/tenant". El backend ahora deriva el outlet DESDE el sector
+  // cuando hay sectorId (mismatch imposible por construcción), pero acá
+  // además se recalcula el sector activo apenas cambian los sectores
+  // disponibles (outlet nuevo o el sector activo ya no pertenece a este
+  // outlet) — nunca queda un sectorId huérfano de la sucursal anterior.
+  React.useEffect(() => {
+    if (sectors.length === 0) return
+    if (!sectorFilter || !sectors.some((s) => s.id === sectorFilter)) {
+      setSectorFilter(sectors[0].id)
+    }
+  }, [sectors, sectorFilter])
 
-  const bulkCreate = useBulkCreateDiningTables()
+  const { data: tablesData, isLoading } = useSpaces(outletId, sectorFilter ?? undefined)
+  const tables = (tablesData?.spaces ?? []).filter((t) => REAL_SHAPES.includes(t.shape))
+
+  const bulkCreate = useBulkCreateSpaces()
   const [bulkCount, setBulkCount] = React.useState(4)
 
-  const [editTarget, setEditTarget] = React.useState<DiningTable | null>(null)
-  const [deleteTarget, setDeleteTarget] = React.useState<DiningTable | null>(null)
-  const deleteMutation = useDeleteDiningTable()
+  const [editTarget, setEditTarget] = React.useState<Space | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<Space | null>(null)
+  const deleteMutation = useDeleteSpace()
 
   function handleBulkCreate() {
     if (!outletId || bulkCount < 1) return
     bulkCreate.mutate(
       { outletId, count: bulkCount, sectorId: sectorFilter ?? undefined },
       {
-        onSuccess: (res) => toast.success(`${res.tableIds.length} mesas creadas`),
+        onSuccess: (res) => toast.success(`${res.spaceIds.length} espacios creados`),
         onError: (e) => toast.error(e.message),
       },
     )
@@ -98,10 +119,11 @@ export function TablesManager() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Mesas</h1>
+          <h1 className="text-2xl font-semibold">Espacios</h1>
           <p className="text-sm text-muted-foreground">
-            Sectores, mesas y el plano del salón. Los estados (libre, ocupada, pagando) se calculan
-            solos a partir de las sesiones activas — no se editan a mano.
+            Sectores, espacios y el plano del local — mesas, sillas de atención, habitaciones, según
+            tu rubro. Los estados (libre, ocupado, pagando) se calculan solos a partir de las
+            sesiones activas — no se editan a mano.
           </p>
         </div>
         <div className="flex flex-col gap-1.5 max-w-xs">
@@ -123,16 +145,15 @@ export function TablesManager() {
         <EmptyState
           icon={LayoutGrid}
           title="Seleccioná una sucursal"
-          description="Elegí una sucursal para ver y administrar sus mesas."
-          showMarquee={false}
+          description="Elegí una sucursal para ver y administrar sus espacios."
         />
       ) : (
         <>
-          <SectorsPanel outletId={outletId} selectedSectorId={sectorFilter} onSelectSector={setSectorFilter} />
+          <SectorsPanel outletId={outletId} selectedSectorId={sectorFilter ?? sectors[0]?.id ?? ""} onSelectSector={setSectorFilter} />
 
           <Tabs defaultValue="tables">
             <TabsList>
-              <TabsTrigger value="tables">Mesas</TabsTrigger>
+              <TabsTrigger value="tables">Espacios</TabsTrigger>
               <TabsTrigger value="layout">Editor de layout</TabsTrigger>
             </TabsList>
 
@@ -146,25 +167,20 @@ export function TablesManager() {
                   onChange={(e) => setBulkCount(Math.max(1, Math.min(50, Number(e.target.value))))}
                   className="h-9 w-20"
                 />
-                <Button variant="outline" onClick={handleBulkCreate} disabled={bulkCreate.isPending}>
+                <Button variant="outline" onClick={handleBulkCreate} disabled={bulkCreate.isPending || !sectorFilter}>
                   <Plus className="size-4 mr-1.5" />
-                  Crear {bulkCount} mesas numeradas{sectorFilter ? " en este sector" : ""}
+                  Crear {bulkCount} espacios numerados
+                  {sectorFilter ? ` en ${sectors.find((s) => s.id === sectorFilter)?.name ?? "este sector"}` : ""}
                 </Button>
-                {!sectorFilter && sectors.length > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    Sin sector seleccionado — se crean sin sector asignado.
-                  </span>
-                )}
               </div>
 
               {isLoading ? (
-                <p className="text-sm text-muted-foreground">Cargando mesas…</p>
+                <p className="text-sm text-muted-foreground">Cargando espacios…</p>
               ) : tables.length === 0 ? (
                 <EmptyState
                   icon={LayoutGrid}
-                  title="Sin mesas"
-                  description='Usá "Crear mesas numeradas" arriba para dar de alta la primera tanda.'
-                  showMarquee={false}
+                  title="Sin espacios"
+                  description='Usá "Crear espacios numerados" arriba para dar de alta la primera tanda.'
                 />
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -188,14 +204,14 @@ export function TablesManager() {
         </>
       )}
 
-      <EditTableDialog table={editTarget} sectors={sectors} onClose={() => setEditTarget(null)} />
+      <EditSpaceDialog table={editTarget} sectors={sectors} onClose={() => setEditTarget(null)} />
 
       <AlertDialog open={deleteTarget !== null} onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Deshabilitar mesa</AlertDialogTitle>
+            <AlertDialogTitle>Deshabilitar espacio</AlertDialogTitle>
             <AlertDialogDescription>
-              {`¿Deshabilitar la mesa "${deleteTarget?.name}"? Deja de aparecer en el plano operativo del POS. El historial de sesiones se conserva.`}
+              {`¿Deshabilitar "${deleteTarget?.name}"? Deja de aparecer en el plano operativo del POS. El historial de sesiones se conserva.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -206,7 +222,7 @@ export function TablesManager() {
                 if (!deleteTarget) return
                 deleteMutation.mutate(deleteTarget.id, {
                   onSuccess: () => {
-                    toast.success("Mesa deshabilitada")
+                    toast.success("Espacio deshabilitado")
                     setDeleteTarget(null)
                   },
                 })
@@ -227,7 +243,7 @@ function TableCard({
   onEdit,
   onDelete,
 }: {
-  table: DiningTable
+  table: Space
   sectorName?: string
   onEdit: () => void
   onDelete: () => void
@@ -254,19 +270,19 @@ function TableCard({
   )
 }
 
-function EditTableDialog({
+function EditSpaceDialog({
   table,
   sectors,
   onClose,
 }: {
-  table: DiningTable | null
+  table: Space | null
   sectors: { id: string; name: string }[]
   onClose: () => void
 }) {
-  const update = useUpdateDiningTable()
+  const update = useUpdateSpace()
   const [name, setName] = React.useState("")
   const [seats, setSeats] = React.useState(4)
-  const [shape, setShape] = React.useState<TableShape>("square")
+  const [shape, setShape] = React.useState<SpaceShape>("square")
   const [sectorId, setSectorId] = React.useState<string>("")
 
   React.useEffect(() => {
@@ -278,11 +294,11 @@ function EditTableDialog({
   }, [table])
 
   function handleSave() {
-    if (!table) return
+    if (!table || !sectorId) return
     update.mutate(
-      { id: table.id, values: { name: name.trim(), seats, shape, sectorId: sectorId || null } },
+      { id: table.id, values: { name: name.trim(), seats, shape, sectorId } },
       {
-        onSuccess: () => { toast.success("Mesa actualizada"); onClose() },
+        onSuccess: () => { toast.success("Espacio actualizado"); onClose() },
         onError: (e) => toast.error(e.message),
       },
     )
@@ -292,7 +308,7 @@ function EditTableDialog({
     <Dialog open={table !== null} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-semibold">Editar mesa</DialogTitle>
+          <DialogTitle className="text-2xl font-semibold">Editar espacio</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <div className="space-y-1.5">
@@ -313,7 +329,7 @@ function EditTableDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="table-shape">Forma</Label>
-              <Select value={shape} onValueChange={(v) => setShape(v as TableShape)}>
+              <Select value={shape} onValueChange={(v) => setShape(v as SpaceShape)}>
                 <SelectTrigger id="table-shape"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {REAL_SHAPES.map((s) => (
@@ -325,10 +341,9 @@ function EditTableDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="table-sector">Sector</Label>
-            <Select value={sectorId || "__none__"} onValueChange={(v) => setSectorId(v === "__none__" ? "" : v)}>
+            <Select value={sectorId} onValueChange={setSectorId}>
               <SelectTrigger id="table-sector"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">Sin sector</SelectItem>
                 {sectors.map((s) => (
                   <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                 ))}
@@ -338,7 +353,7 @@ function EditTableDialog({
         </div>
         <DialogFooter className="mt-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={handleSave} disabled={update.isPending || !name.trim()}>Guardar</Button>
+          <Button onClick={handleSave} disabled={update.isPending || !name.trim() || !sectorId}>Guardar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

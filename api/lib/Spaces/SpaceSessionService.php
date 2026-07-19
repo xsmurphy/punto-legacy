@@ -1,24 +1,24 @@
 <?php
 declare(strict_types=1);
 
-namespace Punto\Api\Tables;
+namespace Punto\Api\Spaces;
 
 /**
- * TableSessionService — ciclo de vida de la ocupación de una mesa
- * (table_session, mig 80, context/15-mesas-module-plan.md F0+F1).
+ * SpaceSessionService — ciclo de vida de la ocupación de un espacio
+ * (space_session, mig 80, context/15-espacios-module-plan.md F0+F1).
  *
  * NO implementa el cobro (F2) — close() solo cierra el registro contable de
  * la sesión; el flujo de facturación real (dividir cuenta, transaction) es
  * F2/F3. open()/requestBill()/cancel()/close() son las únicas transiciones
  * de esta fase.
  *
- * El índice único parcial `uq_table_session_active_per_table` (mig 80) es la
- * fuente de verdad de "una sola sesión activa por mesa" — open() confía en
+ * El índice único parcial `uq_space_session_active_per_space` (mig 80) es la
+ * fuente de verdad de "una sola sesión activa por espacio" — open() confía en
  * la violación 23505 para devolver un error claro ante la carrera de dos
  * aperturas concurrentes (mismo patrón que SaleService, ver
  * api/lib/Sales/SaleService.php:172).
  */
-final class TableSessionService
+final class SpaceSessionService
 {
     /** @var mixed */
     private $db;
@@ -29,40 +29,40 @@ final class TableSessionService
     }
 
     /**
-     * Abre una sesión sobre la mesa. Falla si la mesa ya tiene una sesión
-     * open|bill_requested (índice único) o está deshabilitada.
+     * Abre una sesión sobre el espacio. Falla si el espacio ya tiene una
+     * sesión open|bill_requested (índice único) o está deshabilitado.
      */
     public function open(string $companyId, string $tableId, ?int $guests = null, ?string $waiterId = null, ?string $outletScope = null): array
     {
         $table = ncmExecute(
-            'SELECT tableid, outletid, status FROM dining_table WHERE tableid = ? AND companyid = ? LIMIT 1',
+            'SELECT tableid, outletid, status FROM space WHERE tableid = ? AND companyid = ? LIMIT 1',
             [$tableId, $companyId]
         );
         if (!$table) {
-            throw new \RuntimeException('Mesa no encontrada');
+            throw new \RuntimeException('Espacio no encontrado');
         }
         $outletId = (string) $table['outletid'];
         $this->assertOutletScope($outletId, $outletScope);
         if ((int) $table['status'] === 0) {
-            throw new \InvalidArgumentException('La mesa está deshabilitada');
+            throw new \InvalidArgumentException('El espacio está deshabilitado');
         }
 
         $rs = $this->db->Execute(
-            'INSERT INTO table_session (sessionid, companyid, outletid, tableid, status, guests, waiterid)
+            'INSERT INTO space_session (sessionid, companyid, outletid, tableid, status, guests, waiterid)
              VALUES (gen_random_uuid(), ?, ?, ?, \'open\', ?, ?)
              RETURNING sessionid',
             [$companyId, $outletId, $tableId, $guests, $waiterId]
         );
         if ($rs === false) {
             $err = method_exists($this->db, 'ErrorMsg') ? (string) $this->db->ErrorMsg() : '';
-            if (str_contains($err, '23505') || str_contains($err, 'uq_table_session_active_per_table')) {
-                throw new \RuntimeException('La mesa ya tiene una sesión activa');
+            if (str_contains($err, '23505') || str_contains($err, 'uq_space_session_active_per_space')) {
+                throw new \RuntimeException('El espacio ya tiene una sesión activa');
             }
-            throw new \RuntimeException('No se pudo abrir la mesa');
+            throw new \RuntimeException('No se pudo abrir el espacio');
         }
         $id = (string) ($rs->fields['sessionid'] ?? '');
         if ($id === '') {
-            throw new \RuntimeException('No se pudo abrir la mesa');
+            throw new \RuntimeException('No se pudo abrir el espacio');
         }
 
         $session = $this->find($companyId, $id);
@@ -80,7 +80,7 @@ final class TableSessionService
             throw new \InvalidArgumentException("Solo se puede pedir la cuenta desde open (actual: {$session['status']})");
         }
         $ok = $this->db->Execute(
-            "UPDATE table_session SET status = 'bill_requested' WHERE sessionid = ? AND companyid = ? AND status = 'open'",
+            "UPDATE space_session SET status = 'bill_requested' WHERE sessionid = ? AND companyid = ? AND status = 'open'",
             [$sessionId, $companyId]
         );
         if ($ok === false) {
@@ -95,7 +95,7 @@ final class TableSessionService
 
     /**
      * Cancela la sesión — solo si NO tiene órdenes activas (todas
-     * closed/cancelled o sin órdenes). La mesa vuelve a 'free'.
+     * closed/cancelled o sin órdenes). El espacio vuelve a 'free'.
      */
     public function cancel(string $companyId, string $sessionId, ?string $outletScope = null): array
     {
@@ -105,15 +105,15 @@ final class TableSessionService
         }
 
         $activeOrders = ncmExecute(
-            "SELECT COUNT(*) AS c FROM pos_order WHERE tablesessionid = ? AND status NOT IN ('closed','cancelled')",
+            "SELECT COUNT(*) AS c FROM pos_order WHERE spacesessionid = ? AND status NOT IN ('closed','cancelled')",
             [$sessionId]
         );
         if ((int) ($activeOrders['c'] ?? 0) > 0) {
-            throw new \InvalidArgumentException('No se puede cancelar: la mesa tiene órdenes activas');
+            throw new \InvalidArgumentException('No se puede cancelar: el espacio tiene órdenes activas');
         }
 
         $ok = $this->db->Execute(
-            "UPDATE table_session SET status = 'cancelled', closed_at = now()
+            "UPDATE space_session SET status = 'cancelled', closed_at = now()
               WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
             [$sessionId, $companyId]
         );
@@ -129,8 +129,8 @@ final class TableSessionService
 
     /**
      * Cierra la sesión. `transactionId` opcional (F2 lo pasará al cobrar).
-     * En F0+F1, sin flujo de cobro, se usa para cerrar mesas manualmente
-     * (ej. mesa abierta por error).
+     * En F0+F1, sin flujo de cobro, se usa para cerrar espacios manualmente
+     * (ej. espacio abierto por error).
      */
     public function close(string $companyId, string $sessionId, ?string $transactionId = null, ?string $outletScope = null): array
     {
@@ -140,7 +140,7 @@ final class TableSessionService
         }
 
         $ok = $this->db->Execute(
-            "UPDATE table_session SET status = 'closed', closed_at = now(), saletransactionid = COALESCE(?, saletransactionid)
+            "UPDATE space_session SET status = 'closed', closed_at = now(), saletransactionid = COALESCE(?, saletransactionid)
               WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
             [$transactionId, $sessionId, $companyId]
         );
@@ -164,7 +164,7 @@ final class TableSessionService
             $params[] = $status;
         }
         $rs = $this->db->Execute(
-            'SELECT * FROM table_session WHERE ' . implode(' AND ', $where) . ' ORDER BY opened_at DESC LIMIT 500',
+            'SELECT * FROM space_session WHERE ' . implode(' AND ', $where) . ' ORDER BY opened_at DESC LIMIT 500',
             $params
         );
         if ($rs === false) return [];
@@ -178,7 +178,7 @@ final class TableSessionService
     public function find(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM table_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
+            'SELECT * FROM space_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
@@ -195,7 +195,7 @@ final class TableSessionService
     private function lockSession(string $companyId, string $sessionId, ?string $outletScope): array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM table_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
+            'SELECT * FROM space_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
             [$sessionId, $companyId]
         );
         if ($rs === false || $rs->EOF) {
@@ -211,17 +211,17 @@ final class TableSessionService
     {
         if ($outletScope !== null && $sessionOutletId !== $outletScope) {
             // No revelar existencia cross-outlet (mismo patrón OrderCoreService).
-            throw new \RuntimeException('Mesa/sesión no encontrada');
+            throw new \RuntimeException('Espacio/sesión no encontrado');
         }
     }
 
     private function publish(string $companyId, string $outletId, array $session): void
     {
-        wsPublish($companyId . ':tables:' . $outletId, 'table:state', [
+        wsPublish($companyId . ':spaces:' . $outletId, 'space:state', [
             'outletId' => $outletId,
             'session'  => $session,
         ]);
-        realtimePublish('table', 'update');
+        realtimePublish('space', 'update');
     }
 
     private function present(array $row): array
@@ -230,7 +230,7 @@ final class TableSessionService
             'id'                => (string) ($row['sessionid'] ?? ''),
             'companyId'         => (string) ($row['companyid'] ?? ''),
             'outletId'          => (string) ($row['outletid'] ?? ''),
-            'tableId'           => (string) ($row['tableid'] ?? ''),
+            'spaceId'           => (string) ($row['tableid'] ?? ''),
             'status'            => (string) ($row['status'] ?? ''),
             'guests'            => isset($row['guests']) ? (int) $row['guests'] : null,
             'waiterId'          => $row['waiterid'] ?? null,

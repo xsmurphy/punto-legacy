@@ -33,7 +33,6 @@ import {
   Palette,
   Component,
   Bell,
-  SquaresIntersect,
   MessageCircle,
   type LucideIcon,
 } from "lucide-react"
@@ -239,7 +238,7 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
       if (!activeRegisterId) return
       setOpen(false)
       // El editor de hotkeys vive en /pos (ProductArea). Si el usuario está
-      // en otra ruta del POS (mesas / agenda / ordenes), navegar antes de
+      // en otra ruta del POS (espacios / agenda / ordenes), navegar antes de
       // activar el modo edición para que el panel izquierdo lo muestre.
       router.push("/pos")
       useHotkeysStore.getState().setEditing(true)
@@ -1129,7 +1128,7 @@ function ModulesPanel() {
   // TODO (backend): cargar/guardar desde la config del tenant (GET/PATCH /api/v1/pos/modules)
   const [estados, setEstados] = React.useState({
     agenda: true,
-    mesas: false,
+    espacios: false,
     ordenes: false,
     alertaSolapamiento: true,
   })
@@ -1147,10 +1146,10 @@ function ModulesPanel() {
       descripcion: "Reservas, citas, turnos para servicios",
     },
     {
-      key: "mesas",
-      icono: SquaresIntersect,
-      nombre: "Mesas y Espacios",
-      descripcion: "Gestión de salón con mesas o boxes",
+      key: "espacios",
+      icono: LayoutGrid,
+      nombre: "Espacios",
+      descripcion: "Gestión de mesas, sillas de atención u otros espacios",
     },
     {
       key: "ordenes",

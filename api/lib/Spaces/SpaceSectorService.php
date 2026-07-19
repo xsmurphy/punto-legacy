@@ -1,16 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace Punto\Api\Tables;
+namespace Punto\Api\Spaces;
 
 /**
- * SectorService — CRUD de sectores del salón (table_sector, mig 80).
+ * SpaceSectorService — CRUD de sectores del salón/local (space_sector, mig 80).
  *
- * Zonas de agrupación de mesas (Terraza, Salón, Barra). Patrón de service
- * calcado de `StationService` (api/lib/Orders/StationService.php) — mismo
- * escalón de complejidad, no requiere estado derivado.
+ * Zonas de agrupación de espacios (Terraza, Salón, Barra — o Planta alta,
+ * Cabinas, según el rubro). Patrón de service calcado de `StationService`
+ * (api/lib/Orders/StationService.php) — mismo escalón de complejidad, no
+ * requiere estado derivado.
  */
-final class SectorService
+final class SpaceSectorService
 {
     /** @var mixed */
     private $db;
@@ -20,11 +21,15 @@ final class SectorService
         $this->db = $db;
     }
 
-    /** @return array<int,array<string,mixed>> */
+    /**
+     * @return array<int,array<string,mixed>> siempre no-vacío — ensureDefaultSector()
+     *         garantiza al menos un sector activo por outlet.
+     */
     public function list(string $companyId, string $outletId): array
     {
+        $this->ensureDefaultSector($companyId, $outletId);
         $rs = $this->db->Execute(
-            'SELECT * FROM table_sector WHERE companyid = ? AND outletid = ? AND status = 1 ORDER BY sort ASC, name ASC',
+            'SELECT * FROM space_sector WHERE companyid = ? AND outletid = ? AND status = 1 ORDER BY sort ASC, name ASC',
             [$companyId, $outletId]
         );
         if ($rs === false) return [];
@@ -35,10 +40,43 @@ final class SectorService
         return $out;
     }
 
+    /**
+     * Todo espacio SIEMPRE pertenece a un sector (space.sectorid NOT NULL,
+     * mig 82) — no existe "espacio sin sector". Si el outlet no tiene NINGÚN
+     * sector activo, crea "Salón" como default. Idempotente: llamado desde
+     * `list()` y antes de cualquier create/bulkCreate sin sectorId explícito
+     * en SpaceService — nunca crea un segundo default si ya hay uno activo.
+     *
+     * @return string sectorId del primer sector activo (existente o recién creado)
+     */
+    public function ensureDefaultSector(string $companyId, string $outletId): string
+    {
+        $existing = ncmExecute(
+            'SELECT sectorid FROM space_sector
+              WHERE companyid = ? AND outletid = ? AND status = 1
+              ORDER BY sort ASC, created_at ASC LIMIT 1',
+            [$companyId, $outletId]
+        );
+        if ($existing) {
+            return (string) $existing['sectorid'];
+        }
+
+        $rs = $this->db->Execute(
+            'INSERT INTO space_sector (sectorid, companyid, outletid, name, sort)
+             VALUES (gen_random_uuid(), ?, ?, ?, 0)
+             RETURNING sectorid',
+            [$companyId, $outletId, 'Salón']
+        );
+        if ($rs === false || $rs->EOF) {
+            throw new \RuntimeException('No se pudo crear el sector default');
+        }
+        return (string) $rs->fields['sectorid'];
+    }
+
     public function find(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM table_sector WHERE sectorid = ? AND companyid = ? LIMIT 1',
+            'SELECT * FROM space_sector WHERE sectorid = ? AND companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
@@ -69,7 +107,7 @@ final class SectorService
         }
 
         $rs = $this->db->Execute(
-            'INSERT INTO table_sector (sectorid, companyid, outletid, name, sort)
+            'INSERT INTO space_sector (sectorid, companyid, outletid, name, sort)
              VALUES (gen_random_uuid(), ?, ?, ?, ?)
              RETURNING sectorid',
             [$companyId, $outletId, $name, $sort]
@@ -99,7 +137,7 @@ final class SectorService
         }
 
         $ok = $this->db->Execute(
-            'UPDATE table_sector SET name = ?, sort = ? WHERE sectorid = ? AND companyid = ?',
+            'UPDATE space_sector SET name = ?, sort = ? WHERE sectorid = ? AND companyid = ?',
             [$name, $sort, $id, $companyId]
         );
         if ($ok === false) {
@@ -114,10 +152,10 @@ final class SectorService
         if ($existing === null) {
             throw new \RuntimeException('Sector no encontrado');
         }
-        // Soft-delete: las mesas existentes conservan sectorid (histórico/reportes);
+        // Soft-delete: los espacios existentes conservan sectorid (histórico/reportes);
         // el front debe dejar de listar el sector inactivo como destino nuevo.
         $ok = $this->db->Execute(
-            'UPDATE table_sector SET status = 0 WHERE sectorid = ? AND companyid = ?',
+            'UPDATE space_sector SET status = 0 WHERE sectorid = ? AND companyid = ?',
             [$id, $companyId]
         );
         if ($ok === false) {

@@ -1,17 +1,18 @@
 <?php
 /**
- * /api/v1/dining-tables.php — CRUD de mesas + editor de layout (dining_table,
- * mig 80, context/15-mesas-module-plan.md F0+F1). Nombre nuevo a propósito —
- * NO pisa el legacy `api/v1/tables.php` si existiera.
+ * /api/v1/spaces.php — CRUD de espacios + editor de layout (space, mig 80,
+ * context/15-espacios-module-plan.md F0+F1). Nombre nuevo a propósito — NO
+ * pisa el legacy `api/v1/tables.php` (mesas/transaction type=11, dominio
+ * distinto, ver api/lib/services/TableService.php).
  *
- *   GET    /v1/dining-tables?outletId=<uuid>                     → lista simple (sectorId? filtra)
- *   GET    /v1/dining-tables?outletId=<uuid>&resource=state       → plano operativo (listWithState)
- *   GET    /v1/dining-tables?id=<uuid>                             → detalle
- *   POST   /v1/dining-tables                                      → crea (body: outletId, sectorId?, name, seats?, shape?, sort?)
- *   POST   /v1/dining-tables?action=bulk                          → alta rápida (body: outletId, count, sectorId?)
- *   POST   /v1/dining-tables?action=layout                        → guarda layout batch (body: outletId, positions:[{tableId,posX,posY,width,height,rotation?,shape?}])
- *   PUT    /v1/dining-tables?id=<uuid>                             → actualiza
- *   DELETE /v1/dining-tables?id=<uuid>                             → deshabilita (status=0)
+ *   GET    /v1/spaces?outletId=<uuid>                     → lista simple (sectorId? filtra)
+ *   GET    /v1/spaces?outletId=<uuid>&resource=state       → plano operativo (listWithState)
+ *   GET    /v1/spaces?id=<uuid>                             → detalle
+ *   POST   /v1/spaces                                      → crea (body: outletId, sectorId?, name, seats?, shape?, sort?)
+ *   POST   /v1/spaces?action=bulk                          → alta rápida (body: outletId, count, sectorId?)
+ *   POST   /v1/spaces?action=layout                        → guarda layout batch (body: outletId, positions:[{tableId,posX,posY,width,height,rotation?,shape?}])
+ *   PUT    /v1/spaces?id=<uuid>                             → actualiza
+ *   DELETE /v1/spaces?id=<uuid>                             → deshabilita (status=0)
  *
  * Auth: panel + pos-app. Para pos-app, outletId sale del device ctx (no del
  * query/body) — mismo patrón que orders-core.php.
@@ -31,15 +32,15 @@ $isPosApp    = ($ctx['realm'] ?? '') === 'pos-app';
 $outletScope = $isPosApp ? $outletId : null;
 
 global $db;
-$svc = new \Punto\Api\Tables\DiningTableService($db);
+$svc = new \Punto\Api\Spaces\SpaceService($db);
 
 switch ($method) {
     case 'GET':
         if ($id !== null) {
             $table = $svc->find($companyId, (string) $id);
-            if ($table === null) apiError('Mesa no encontrada', 404);
+            if ($table === null) apiError('Espacio no encontrado', 404);
             if ($outletScope !== null && $table['outletId'] !== $outletScope) {
-                apiError('Mesa no encontrada', 404);
+                apiError('Espacio no encontrado', 404);
             }
             apiOk($table);
             break;
@@ -49,12 +50,12 @@ switch ($method) {
         if ($reqOutletId === '') apiError('outletId requerido', 422);
 
         if ($resource === 'state') {
-            apiOk(['tables' => $svc->listWithState($companyId, $reqOutletId)]);
+            apiOk(['spaces' => $svc->listWithState($companyId, $reqOutletId)]);
             break;
         }
 
         $sectorId = isset($_GET['sectorId']) ? (string) $_GET['sectorId'] : null;
-        apiOk(['tables' => $svc->list($companyId, $reqOutletId, $sectorId)]);
+        apiOk(['spaces' => $svc->list($companyId, $reqOutletId, $sectorId)]);
         break;
 
     case 'POST':
@@ -62,10 +63,9 @@ switch ($method) {
             try {
                 $count    = (int) ($_POST['count'] ?? 0);
                 $sectorId = !empty($_POST['sectorId']) ? (string) $_POST['sectorId'] : null;
-                $reqOutletId = $outletScope ?? (string) ($_POST['outletId'] ?? '');
-                if ($reqOutletId === '') apiError('outletId requerido', 422);
-                $ids = $svc->bulkCreate($companyId, $reqOutletId, $count, $sectorId);
-                apiOk(['tableIds' => $ids], 201);
+                $bodyOutletId = (string) ($_POST['outletId'] ?? '');
+                $ids = $svc->bulkCreate($companyId, $bodyOutletId, $count, $sectorId, $outletScope);
+                apiOk(['spaceIds' => $ids], 201);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -78,7 +78,7 @@ switch ($method) {
                 if ($reqOutletId === '') apiError('outletId requerido', 422);
                 $positions = (array) ($_POST['positions'] ?? []);
                 $svc->saveLayout($companyId, $reqOutletId, $positions);
-                apiOk(['tables' => $svc->listWithState($companyId, $reqOutletId)]);
+                apiOk(['spaces' => $svc->listWithState($companyId, $reqOutletId)]);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -86,11 +86,7 @@ switch ($method) {
         }
 
         try {
-            $data = $_POST;
-            if ($isPosApp) {
-                $data['outletId'] = $outletId;
-            }
-            $newId = $svc->create($companyId, $data);
+            $newId = $svc->create($companyId, $_POST, $outletScope);
             apiOk($svc->find($companyId, $newId), 201);
         } catch (\Throwable $e) {
             apiError($e->getMessage(), 422);
@@ -102,7 +98,7 @@ switch ($method) {
         if ($outletScope !== null) {
             $existing = $svc->find($companyId, (string) $id);
             if ($existing === null || $existing['outletId'] !== $outletScope) {
-                apiError('Mesa no encontrada', 404);
+                apiError('Espacio no encontrado', 404);
             }
         }
         try {
@@ -117,7 +113,7 @@ switch ($method) {
         if ($outletScope !== null) {
             $existing = $svc->find($companyId, (string) $id);
             if ($existing === null || $existing['outletId'] !== $outletScope) {
-                apiError('Mesa no encontrada', 404);
+                apiError('Espacio no encontrado', 404);
             }
         }
         try {

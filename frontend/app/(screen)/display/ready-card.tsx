@@ -8,7 +8,7 @@ import type { Order, OrderItem } from "@/hooks/use-orders"
 
 const SOURCE_LABEL: Record<string, string> = {
   counter: "Mostrador",
-  table: "Mesa",
+  table: "Espacio",
   ecommerce: "E-commerce",
   schedule: "Agenda",
 }
@@ -46,7 +46,7 @@ export function ReadyCard({ order, readyItems, busy, onDeliverAll, onDeliverItem
 
       <div className="flex items-center gap-2 text-muted-foreground">
         <Badge variant="secondary">{SOURCE_LABEL[order.source] ?? order.source}</Badge>
-        {order.tableSessionId && <Badge variant="outline">Mesa</Badge>}
+        {order.spaceSessionId && <Badge variant="outline">Espacio</Badge>}
       </div>
 
       <ul className="flex flex-col gap-1">

@@ -1,13 +1,13 @@
 <?php
 /**
- * /api/v1/table-sectors.php — CRUD de sectores del salón (table_sector,
- * mig 80, context/15-mesas-module-plan.md F0+F1).
+ * /api/v1/space-sectors.php — CRUD de sectores del local (space_sector,
+ * mig 80, context/15-espacios-module-plan.md F0+F1).
  *
- *   GET    /v1/table-sectors?outletId=<uuid>   → lista (panel + pos-app: el editor de layout y el plano operativo necesitan sectores)
- *   GET    /v1/table-sectors?id=<uuid>          → detalle
- *   POST   /v1/table-sectors                    → crea (body: outletId, name, sort?) — panel
- *   PUT    /v1/table-sectors?id=<uuid>           → actualiza — panel
- *   DELETE /v1/table-sectors?id=<uuid>           → soft-delete (status=0) — panel
+ *   GET    /v1/space-sectors?outletId=<uuid>   → lista (panel + pos-app: el editor de layout y el plano operativo necesitan sectores)
+ *   GET    /v1/space-sectors?id=<uuid>          → detalle
+ *   POST   /v1/space-sectors                    → crea (body: outletId, name, sort?) — panel
+ *   PUT    /v1/space-sectors?id=<uuid>           → actualiza — panel
+ *   DELETE /v1/space-sectors?id=<uuid>           → soft-delete (status=0) — panel
  *
  * Auth: GET admite panel + pos-app; escritura exige panel.
  */
@@ -20,7 +20,7 @@ $companyId = $ctx['companyId'];
 $id        = $_GET['id'] ?? null;
 
 global $db;
-$svc = new \Punto\Api\Tables\SectorService($db);
+$svc = new \Punto\Api\Spaces\SpaceSectorService($db);
 
 switch ($method) {
     case 'GET':

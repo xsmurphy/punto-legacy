@@ -32,7 +32,7 @@ proporcional al riesgo de la tarea:
 | Manual de marca | `11-design-system.md` |
 | **Panel rewrite** | `12-panel-rewrite.md` (crítico desde 2026-06-10) |
 | Plan refactor Items | `13-items-refactor-plan.md` |
-| Plan mesas | `15-mesas-module-plan.md` |
+| Plan espacios | `15-espacios-module-plan.md` |
 | Rewrite POS (app-next) | `16-app-next-rewrite.md` |
 | **POS roadmap (sprint 2026-06-21+)** | `19-pos-roadmap.md` |
 | **Auth rewrite (JWT → tokens opacos)** | `21-auth-rewrite.md` (plan cerrado 2026-06-29) |

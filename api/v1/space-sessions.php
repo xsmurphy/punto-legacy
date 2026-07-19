@@ -1,14 +1,14 @@
 <?php
 /**
- * /api/v1/table-sessions.php — ciclo de vida de la ocupación de una mesa
- * (table_session, mig 80, context/15-mesas-module-plan.md F0+F1).
+ * /api/v1/space-sessions.php — ciclo de vida de la ocupación de un espacio
+ * (space_session, mig 80, context/15-espacios-module-plan.md F0+F1).
  *
- *   GET  /v1/table-sessions?outletId=<uuid>&status?=          → lista del outlet
- *   GET  /v1/table-sessions?id=<uuid>                          → detalle
- *   POST /v1/table-sessions                                    → abre sesión (body: tableId, guests?, waiterId?)
- *   POST /v1/table-sessions?id=<uuid>&action=request-bill       → open → bill_requested
- *   POST /v1/table-sessions?id=<uuid>&action=cancel              → cancela (solo sin órdenes activas)
- *   POST /v1/table-sessions?id=<uuid>&action=close {transactionId?} → cierra (F0+F1: sin cobro; F2 lo llamará con transactionId)
+ *   GET  /v1/space-sessions?outletId=<uuid>&status?=          → lista del outlet
+ *   GET  /v1/space-sessions?id=<uuid>                          → detalle
+ *   POST /v1/space-sessions                                    → abre sesión (body: tableId, guests?, waiterId?)
+ *   POST /v1/space-sessions?id=<uuid>&action=request-bill       → open → bill_requested
+ *   POST /v1/space-sessions?id=<uuid>&action=cancel              → cancela (solo sin órdenes activas)
+ *   POST /v1/space-sessions?id=<uuid>&action=close {transactionId?} → cierra (F0+F1: sin cobro; F2 lo llamará con transactionId)
  *
  * Auth: panel + pos-app. pos-app queda scopeado al outlet del device (mismo
  * patrón outletScope de orders-core.php).
@@ -27,7 +27,7 @@ $isPosApp    = ($ctx['realm'] ?? '') === 'pos-app';
 $outletScope = $isPosApp ? $outletId : null;
 
 global $db;
-$svc = new \Punto\Api\Tables\TableSessionService($db);
+$svc = new \Punto\Api\Spaces\SpaceSessionService($db);
 
 switch ($method) {
     case 'GET':

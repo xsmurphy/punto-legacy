@@ -53,7 +53,7 @@ import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCreateOrder, useMarkOrderPaid } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
-import { useCloseTableSession } from "@/hooks/use-pos-tables"
+import { useCloseSpaceSession } from "@/hooks/use-pos-spaces"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -196,7 +196,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   const createOrder = useCreateOrder()
   const markOrderPaid = useMarkOrderPaid()
-  const closeTableSession = useCloseTableSession()
+  const closeSpaceSession = useCloseSpaceSession()
 
   const qc = useQueryClient()
 
@@ -394,14 +394,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         })
       }
 
-      // Módulo de Órdenes/Mesas (O1 + context/15 F2) — tres casos, mutuamente
+      // Módulo de Órdenes/Espacios (O1 + context/15 F2) — tres casos, mutuamente
       // excluyentes, ninguno bloquea el éxito de la venta ya confirmada:
       //
-      // 1) sessionParentId presente: esta venta viene de "Cobrar" una mesa
-      //    completa (loadFromSession en /pos/mesas) — cerrar el rastro de
+      // 1) sessionParentId presente: esta venta viene de "Cobrar" un espacio
+      //    completo (loadFromSession en /pos/espacios) — cerrar el rastro de
       //    CADA orden de la sesión con markPaid y, al terminar, cerrar la
-      //    sesión (TableSessionService::close) con el transactionId — la
-      //    mesa vuelve a 'free'. NO reusa el flujo de orderParentId (una
+      //    sesión (SpaceSessionService::close) con el transactionId — el
+      //    espacio vuelve a 'free'. NO reusa el flujo de orderParentId (una
       //    sola orden) para no perder el resto de las órdenes de la sesión.
       // 2) orderParentId presente: esta venta viene de "Cobrar" una orden
       //    existente (loadFromOrder en /pos/ordenes) — cerrar el rastro con
@@ -415,9 +415,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         void Promise.all(
           sessionOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),
         )
-          .then(() => closeTableSession.mutateAsync({ sessionId: sessionParentId, transactionId: txId }))
+          .then(() => closeSpaceSession.mutateAsync({ sessionId: sessionParentId, transactionId: txId }))
           .catch(() => {
-            toast.error("Venta confirmada — no se pudo cerrar la mesa. Avisá al soporte.")
+            toast.error("Venta confirmada — no se pudo cerrar el espacio. Avisá al soporte.")
           })
       } else if (orderParentId && result?.transactionId) {
         void markOrderPaid.mutateAsync({ orderId: orderParentId, transactionId: result.transactionId })

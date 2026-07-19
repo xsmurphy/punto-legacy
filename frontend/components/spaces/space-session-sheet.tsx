@@ -1,14 +1,14 @@
 "use client"
 
 /**
- * Sheet de detalle de una mesa ocupada/pagando (context/15-mesas-module-plan.md
+ * Sheet de detalle de un espacio ocupado/pagando (context/15-espacios-module-plan.md
  * F2). Lista las órdenes de la sesión (todas, cualquier status — historial
- * completo de rondas) y expone las acciones de mesa: Agregar orden, Pedir
- * cuenta, Cobrar, Cancelar sesión (solo si no hay órdenes activas).
+ * completo de rondas) y expone las acciones del espacio: Agregar orden,
+ * Pedir cuenta, Cobrar, Cancelar sesión (solo si no hay órdenes activas).
  */
 
 import * as React from "react"
-import { Loader2, Plus, Receipt, Ban, CreditCard } from "lucide-react"
+import { Loader2, Plus, Receipt, Ban, CreditCard, ClipboardList } from "lucide-react"
 import {
   Sheet,
   SheetContent,
@@ -18,8 +18,9 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/empty-state"
 import { useOrdersBySession, ACTIVE_ORDER_STATUSES, type OrderStatus } from "@/hooks/use-orders"
-import type { DiningTableWithState } from "@/hooks/use-pos-tables"
+import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   open: "Abierta",
@@ -32,7 +33,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 }
 
 interface Props {
-  table: DiningTableWithState | null
+  table: SpaceWithState | null
   onOpenChange: (open: boolean) => void
   onAddOrder: () => void
   onRequestBill: () => void
@@ -43,7 +44,7 @@ interface Props {
   chargePending: boolean
 }
 
-export function TableSessionSheet({
+export function SpaceSessionSheet({
   table,
   onOpenChange,
   onAddOrder,
@@ -65,7 +66,7 @@ export function TableSessionSheet({
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
         <SheetHeader>
           <SheetTitle>
-            Mesa {table?.name}
+            {table?.name}
             {table?.session?.guests ? ` · ${table.session.guests} comensales` : ""}
           </SheetTitle>
         </SheetHeader>
@@ -76,9 +77,11 @@ export function TableSessionSheet({
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
           ) : orders.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Sin órdenes todavía.
-            </p>
+            <EmptyState
+              icon={ClipboardList}
+              title="Sin órdenes todavía"
+              className="py-8"
+            />
           ) : (
             <ul className="flex flex-col gap-2 py-2">
               {orders.map((o) => (
@@ -125,7 +128,7 @@ export function TableSessionSheet({
             variant="ghost"
             onClick={onCancelSession}
             disabled={!canCancel || cancelPending}
-            title={!canCancel ? "No se puede cancelar: la mesa tiene órdenes activas" : undefined}
+            title={!canCancel ? "No se puede cancelar: el espacio tiene órdenes activas" : undefined}
             className="w-full gap-1.5 text-destructive hover:text-destructive"
           >
             <Ban className="size-4" />

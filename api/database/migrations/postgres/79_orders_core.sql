@@ -4,7 +4,7 @@
 -- Tres tablas nuevas — la orden es entidad PROPIA, separada de `transaction`.
 -- `transaction` se crea SOLO al cobrar (SaleService), no para el ciclo
 -- operativo de la orden. Corte limpio de los types legacy 11/12 (ver
--- context/15-mesas-module-plan.md D3): `api/v1/orders.php`/`OrderService.php`
+-- context/15-espacios-module-plan.md D3): `api/v1/orders.php`/`OrderService.php`
 -- legacy (pedidos online sobre transaction type=12) quedan intactos, es un
 -- dominio distinto — no se tocan.
 --
@@ -12,7 +12,8 @@
 --     outlet. categoryids jsonb enruta ítems, mismo modelo que
 --     printer_binding.categoryIds (comodín [] = atiende todo).
 --   - pos_order: cabecera de la orden. Nombre `pos_order` porque `order` es
---     palabra reservada SQL. tablesessionid queda NULL hasta O3 (mesas).
+--     palabra reservada SQL. spacesessionid queda NULL hasta O3 (espacios).
+--     (renombrada de `tablesessionid` en la mig 81 — rename mesas→espacios)
 --   - pos_order_item: líneas de la orden, snapshot de nombre/precio,
 --     estado individual de preparación, ruteada a una estación.
 --
@@ -41,7 +42,7 @@ CREATE TABLE IF NOT EXISTS pos_order (
   status            VARCHAR(16)    NOT NULL DEFAULT 'open'
                        CHECK (status IN ('open','sent','in_progress','ready','delivered','closed','cancelled')),
   ordernumber       INT,
-  tablesessionid    UUID,
+  spacesessionid    UUID,
   customerid        UUID,
   userid            UUID,
   note              TEXT,

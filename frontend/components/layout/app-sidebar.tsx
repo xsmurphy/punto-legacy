@@ -489,7 +489,7 @@ function PosUserMenuContent() {
 
 function isItemActive(to: string, pathname: string): boolean {
   // `/pos` es índice del workspace de caja: match exacto para que NO quede
-  // activo cuando se está en /pos/mesas, /pos/ordenes, etc.
+  // activo cuando se está en /pos/espacios, /pos/ordenes, etc.
   const isExactRoute = to === "/" || to === "/admin" || to === "/pos"
   return isExactRoute
     ? pathname === to
