@@ -35,7 +35,7 @@ final class SpaceSessionService
     public function open(string $companyId, string $tableId, ?int $guests = null, ?string $waiterId = null, ?string $outletScope = null): array
     {
         $table = ncmExecute(
-            'SELECT tableid, outletid, status FROM space WHERE tableid = ? AND companyid = ? LIMIT 1',
+            'SELECT tableid, outletid, status, shape FROM space WHERE tableid = ? AND companyid = ? LIMIT 1',
             [$tableId, $companyId]
         );
         if (!$table) {
@@ -45,6 +45,12 @@ final class SpaceSessionService
         $this->assertOutletScope($outletId, $outletScope);
         if ((int) $table['status'] === 0) {
             throw new \InvalidArgumentException('El espacio está deshabilitado');
+        }
+        // Invariante que habilita el hard-delete de decorativos en
+        // SpaceService::delete(): un decor JAMÁS tiene sesión — enforcement
+        // acá en el write-path, no solo por convención de UI.
+        if (in_array((string) ($table['shape'] ?? ''), SpaceService::DECOR_SHAPES, true)) {
+            throw new \InvalidArgumentException('Un bloque decorativo no admite sesiones');
         }
 
         $rs = $this->db->Execute(

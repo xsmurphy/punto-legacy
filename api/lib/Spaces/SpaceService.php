@@ -14,6 +14,9 @@ namespace Punto\Api\Spaces;
  */
 final class SpaceService
 {
+    /** Escenografía sin identidad operativa — se eliminan hard, no soft (ver delete()). */
+    public const DECOR_SHAPES = ['bar', 'decor_wall', 'decor_plant'];
+
     /** @var mixed */
     private $db;
     private SpaceSectorService $sectors;
@@ -249,14 +252,30 @@ final class SpaceService
         if ($existing === null) {
             throw new \RuntimeException('Espacio no encontrado');
         }
-        // Deshabilitar (status=0), no hard-delete: space_session y pos_order
-        // referencian históricamente este espacio (reportes/rotación).
-        $ok = $this->db->Execute(
-            'UPDATE space SET status = 0 WHERE tableid = ? AND companyid = ?',
-            [$id, $companyId]
-        );
-        if ($ok === false) {
-            throw new \RuntimeException('No se pudo deshabilitar el espacio');
+        if (in_array((string) $existing['shape'], self::DECOR_SHAPES, true)) {
+            // Decorativo (barra/pared/planta) = escenografía sin identidad
+            // operativa: nunca abre space_session ni recibe pos_order, así que
+            // no hay historia que preservar → hard-delete real. El soft-delete
+            // lo devolvía en cada list() (que no filtra status) y el editor de
+            // layout lo "revivía" tras cada refetch (bug 2026-07-19).
+            $ok = $this->db->Execute(
+                'DELETE FROM space WHERE tableid = ? AND companyid = ?',
+                [$id, $companyId]
+            );
+            if ($ok === false) {
+                throw new \RuntimeException('No se pudo eliminar el bloque decorativo');
+            }
+        } else {
+            // Espacio real: deshabilitar (status=0), no hard-delete —
+            // space_session y pos_order lo referencian históricamente
+            // (reportes/rotación).
+            $ok = $this->db->Execute(
+                'UPDATE space SET status = 0 WHERE tableid = ? AND companyid = ?',
+                [$id, $companyId]
+            );
+            if ($ok === false) {
+                throw new \RuntimeException('No se pudo deshabilitar el espacio');
+            }
         }
         $this->publish($companyId, (string) $existing['outletId']);
     }
