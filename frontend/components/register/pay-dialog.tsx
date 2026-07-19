@@ -43,7 +43,7 @@ import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
-import { api } from "@/lib/api-client"
+import { posApi } from "@/lib/api/pos-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
 import { printSale } from "@/lib/hardware/printers"
 import { getBindingsForSale } from "@/lib/hardware/printers/binding"
@@ -184,7 +184,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const currencies = currenciesData?.rows ?? []
 
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
 
   // Guard de caja
@@ -298,7 +298,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           setTimeout(() => reject(new Error('fetch timeout')), 5000)
         )
         const raw = await Promise.race([
-          api.postLegacy<{ success: boolean; transactionId: string; uid: string; duplicated: boolean }>(
+          posApi.postLegacy<{ success: boolean; transactionId: string; uid: string; duplicated: boolean }>(
             '/v1/sales',
             apiPayload,
           ),
@@ -386,7 +386,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // Si hubo pago con giftcard, consumirla (fire-and-forget: la venta ya está confirmada)
       const gcPayment = appliedPayments.find((r) => r.method.systemKey === "giftcard")
       if (gcPayment?.identifier && result?.transactionId) {
-        void api.post("/v1/giftcards?resource=consume", {
+        void posApi.post("/v1/giftcards?resource=consume", {
           code: gcPayment.identifier,
           transactionId: result.transactionId,
         }).catch(() => {
@@ -447,7 +447,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       }
 
       setPhase("success")
-      void api.post("/v1/screens?resource=publish", {
+      void posApi.post("/v1/screens?resource=publish", {
         type: "sale-confirmed",
         data: { total, change: changeAmount },
       }).catch(() => {})
@@ -709,7 +709,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   function handleClose() {
     if (phase === "success") {
       clearCart() // clear() ya resetea quoteParentId/orderParentId via initialState (+ relock modoSoloOrdenes)
-      void api.post("/v1/screens?resource=publish", {
+      void posApi.post("/v1/screens?resource=publish", {
         type: "cart-cleared",
         data: {},
       }).catch(() => {})

@@ -60,6 +60,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { usePriceLists } from "@/hooks/use-price-lists"
+import { posApi } from "@/lib/api/pos-client"
 import { useTags } from "@/hooks/use-tags"
 import { useSaveParkedSale } from "@/hooks/use-parked-sales"
 import { toast } from "sonner"
@@ -622,7 +623,7 @@ function PriceListDialog({
   open: boolean
   onClose: () => void
 }) {
-  const { data: lists } = usePriceLists()
+  const { data: lists } = usePriceLists({ client: posApi })
   const currentId = useCartStore((s) => s.priceListId)
   const [selected, setSelected] = React.useState<string>(currentId ?? "")
 

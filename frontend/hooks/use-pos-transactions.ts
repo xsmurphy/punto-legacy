@@ -13,7 +13,7 @@
 
 import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { posApi as api } from "@/lib/api/pos-client"
 import type { PosTransactionListItem, PosTransactionsListResponse } from "@/lib/types/pos-transactions"
 import type { TransactionDetail } from "@/hooks/use-transactions"
 
@@ -75,8 +75,11 @@ export function usePosTransactionsList({
         if (q) qs.set("q", q)
         if (date) qs.set("date", date)
         if (type != null) qs.set("type", String(type))
-        // api-client ya prepende `/api` en el browser — pasar `/pos/transactions` directo.
-        // Con doble prefix daba GET /api/api/pos/transactions → 404.
+        // posApi ya prepende `/api` en el browser — pasar `/pos/transactions` directo.
+        // Con doble prefix daba GET /api/api/pos/transactions → 404. Este endpoint
+        // ya es un BFF `/api/pos/*` dedicado con requireBearer — posApi manda el
+        // Bearer del device explícitamente (antes dependía del fallback removido
+        // de api-client, ver invariante en lib/api-client.ts).
         const data = await api.get<PosTransactionsListResponse>(`/pos/transactions?${qs.toString()}`)
 
         if (cancelled || resetRef.current !== generation) return

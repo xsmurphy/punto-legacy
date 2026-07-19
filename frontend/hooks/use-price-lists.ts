@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { api, type HttpClient } from "@/lib/api-client"
 import type {
   PriceList,
   PriceListDetail,
@@ -12,11 +12,19 @@ import type {
   ResolvedPrice,
 } from "@/lib/types/price-list"
 
-/** Lista todas las listas de precios del tenant. */
-export function usePriceLists() {
+/**
+ * Lista todas las listas de precios del tenant.
+ *
+ * Consumida por panel (settings) y por el POS (`sale-options-drawer.tsx`,
+ * para elegir lista de precios en la venta) — `/v1/price_list` es multi-realm
+ * en backend. El POS inyecta `client: posApi` (Bearer); el panel usa el
+ * default `api` (cookie). Ver invariante de realm en `lib/api-client.ts`.
+ */
+export function usePriceLists(opts: { client?: HttpClient } = {}) {
+  const client = opts.client ?? api
   return useQuery<PriceList[]>({
-    queryKey: ["price-lists"],
-    queryFn: () => api.get<PriceList[]>("/v1/price_list"),
+    queryKey: ["price-lists", client === api ? "panel" : "pos"],
+    queryFn: () => client.get<PriceList[]>("/v1/price_list"),
     staleTime: 30 * 1000,
   })
 }

@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { peekAll, discard, markFailed, markSynced } from '@/lib/pos/offline-queue'
 import type { OfflineSaleRow } from '@/lib/pos/offline-queue'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
-import { api } from '@/lib/api-client'
+import { posApi as api } from '@/lib/api/pos-client'
 import { formatMoney } from '@/lib/format-money'
 import { useCatalogStore } from '@/lib/catalog/store'
 

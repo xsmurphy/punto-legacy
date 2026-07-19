@@ -1,6 +1,6 @@
 "use client"
 import * as React from "react"
-import { api } from "@/lib/api-client"
+import { posApi as api } from "@/lib/api/pos-client"
 import { useCartStore, selectCartTotal, lineSubtotal } from "@/lib/cart/store"
 
 export function useCartPublisher() {

@@ -66,6 +66,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { posApi } from "@/lib/api/pos-client"
 import type { TicketData, TicketItem } from "@/lib/hardware/printers"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
@@ -562,7 +563,7 @@ function ControlDeCajaPanel() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: status, isLoading: statusLoading } = useDrawerStatus()
   const { data: summary, isLoading: summaryLoading } = useDrawerSummary()
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined)
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
   const { requestPrint, pickerDialog } = usePrintWithPicker()
 

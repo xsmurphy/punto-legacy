@@ -6,15 +6,17 @@
  * Consulta el BFF `/api/pos/bootstrap` (NOT la /api PHP directa).
  * El BFF compone items + clientes + config + cajas en una sola respuesta.
  *
- * Auth: requiere cookie `_jwt` válida (realm `pos-app`). Si responde 401,
- * el `PosAuthGuard` redirige a /login.
+ * Auth: Bearer del device (realm `pos-app`), vía `posApi`
+ * (`lib/api/pos-client.ts`) — este hook es exclusivo del POS (nunca lo
+ * consume el panel), a diferencia de `useBootstrap` que es multi-realm. Si
+ * responde 401, el `PosAuthGuard` redirige a /login.
  *
  * TODO (Slice A): el stub actual devuelve arrays vacíos. Al conectar el BFF
  * real, este hook dispara la hidratación del `useCatalogStore`.
  */
 
 import { useQuery } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { posApi as api } from "@/lib/api/pos-client"
 import type { PosBootstrap } from "@/lib/types/pos-bootstrap"
 
 export function usePosBootstrap() {

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { peekAll, markSynced, markFailed, markRetry, markSyncing, getCount, type OfflineSaleRow } from '@/lib/pos/offline-queue'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
-import { api } from '@/lib/api-client'
+import { posApi as api } from '@/lib/api/pos-client'
 
 interface SyncResult {
   clientTempId: string
