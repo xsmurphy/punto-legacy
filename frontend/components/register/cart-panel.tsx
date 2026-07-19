@@ -36,6 +36,7 @@ import {
 } from "lucide-react"
 import { MODE_VISUALS, resolveCartMode, type CartModeKey } from "@/lib/pos/mode-visuals"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,6 +77,7 @@ import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
 import { GiftcardIssueDialog } from "@/components/register/giftcard-issue-dialog"
 import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
+import { TransactionSuccessDialog } from "@/components/register/transaction-success-dialog"
 import { PosMainMenu } from "@/components/register/pos-main-menu"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { toast } from "sonner"
@@ -86,7 +88,7 @@ import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
 import { OfflineBanner } from "@/components/pos/offline-banner"
-import { useCreateOrder } from "@/hooks/use-orders"
+import { useCreateOrder, type Order } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
@@ -247,6 +249,15 @@ export function CartPanel() {
   // ordenAImpresion está activo, imprime las comandas por estación
   // best-effort (falla de impresión NUNCA bloquea el éxito del envío).
   const [submittingOrder, setSubmittingOrder] = React.useState(false)
+  // Payload del modal de confirmación unificado (context/20 §7). Estado local
+  // del componente que lo dispara — NO en el cart store. El push a /pos/espacios
+  // (orden de espacio) se difiere al cierre del modal para que se vea primero.
+  const [orderSuccess, setOrderSuccess] = React.useState<{
+    order: Order
+    amount: string
+    spaceName: string | null
+    wasSpaceOrder: boolean
+  } | null>(null)
   const handleOrderClick = React.useCallback(async () => {
     if (lines.length === 0 || submittingOrder) return
     setSubmittingOrder(true)
@@ -265,18 +276,20 @@ export function CartPanel() {
         sendNow: true,
       })
 
-      toast.success(
-        spaceName
-          ? `Orden #${created.orderNumber} enviada a cocina — ${spaceName}`
-          : `Orden #${created.orderNumber} enviada a cocina`,
-      )
       const wasSpaceOrder = spaceSessionId !== null
+      // Total de la orden leído del store (evita closure stale del selector).
+      const orderTotal = selectCartTotal(useCartStore.getState())
+      const capturedSpaceName = spaceName
       clearCart()
-      // Espacios F2 (context/15): al ordenar con éxito, volvés al mapa y la
-      // selección se limpia — el espacio queda ocupado con su orden nueva.
-      if (wasSpaceOrder) {
-        router.push("/pos/espacios")
-      }
+      // Modal de confirmación unificado (reemplaza el toast de éxito). El
+      // clearCart es inmediato; el router.push de órdenes de espacio se difiere
+      // al onClose del modal (Espacios F2, context/15).
+      setOrderSuccess({
+        order: created,
+        amount: formatMoney(orderTotal, config),
+        spaceName: capturedSpaceName,
+        wasSpaceOrder,
+      })
 
       if (ordenAImpresion) {
         printOrderComandas(created, allBindings, config)
@@ -326,6 +339,44 @@ export function CartPanel() {
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
+      {orderSuccess && (
+        <TransactionSuccessDialog
+          open
+          title="¡Orden enviada!"
+          amount={orderSuccess.amount}
+          badge={
+            orderSuccess.order.orderNumber != null ? (
+              <Badge variant="outline" className="border-black/20 text-[10px] opacity-80">
+                #{orderSuccess.order.orderNumber}
+                {orderSuccess.spaceName ? ` — ${orderSuccess.spaceName}` : ""}
+              </Badge>
+            ) : orderSuccess.spaceName ? (
+              <Badge variant="outline" className="border-black/20 text-[10px] opacity-80">
+                {orderSuccess.spaceName}
+              </Badge>
+            ) : undefined
+          }
+          closeLabel="Continuar"
+          onPrint={() => {
+            printOrderComandas(orderSuccess.order, allBindings, config)
+              .then((r) => {
+                if (r.failed > 0) {
+                  toast.warning(
+                    `${r.failed} impresora(s) fallaron al imprimir la comanda${r.errors[0] ? `: ${r.errors[0]}` : ""}`,
+                  )
+                } else if (r.printed > 0) {
+                  toast.success(`${r.printed} impresora(s) imprimieron la comanda`)
+                }
+              })
+              .catch((err) => console.error("[printOrderComandas]", err))
+          }}
+          onClose={() => {
+            const wasSpace = orderSuccess.wasSpaceOrder
+            setOrderSuccess(null)
+            if (wasSpace) router.push("/pos/espacios")
+          }}
+        />
+      )}
       <GiftcardIssueDialog />
       <SyncQueueDialog open={syncQueueOpen} onOpenChange={setSyncQueueOpen} />
       <DrawerOpenDialog

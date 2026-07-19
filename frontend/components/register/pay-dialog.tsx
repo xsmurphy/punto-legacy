@@ -15,7 +15,7 @@
  */
 
 import * as React from "react"
-import { X, Printer, BicepsFlexed } from "lucide-react"
+import { X } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   Dialog,
@@ -52,6 +52,7 @@ import { buildTicketData } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCreateOrder, useMarkOrderPaid } from "@/hooks/use-orders"
+import { TransactionSuccessView } from "./transaction-success-dialog"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { useCloseSpaceSession } from "@/hooks/use-pos-spaces"
 
@@ -760,11 +761,18 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               onCancel={handleClose}
             />
           ) : (
-            <SuccessPhase
-              result={saleResult}
-              total={total}
-              changeAmount={change}
-              config={config}
+            <TransactionSuccessView
+              title="¡Venta confirmada!"
+              amount={formatMoney(total, config)}
+              changeAmount={change > 0 ? formatMoney(change, config) : undefined}
+              badge={
+                saleResult?.duplicated ? (
+                  <Badge variant="outline" className="text-[10px] opacity-70">
+                    ya guardada previamente — uid idempotente
+                  </Badge>
+                ) : undefined
+              }
+              closeLabel="Nueva venta"
               onPrint={handlePrint}
               onClose={handleClose}
             />
@@ -1111,77 +1119,3 @@ function PayPhase({
   )
 }
 
-// ── Fase de éxito ─────────────────────────────────────────────────────────────
-
-interface SuccessPhaseProps {
-  result: CreateSaleResult | null
-  total: number
-  changeAmount: number
-  config: ReturnType<typeof useCatalogStore.getState>["config"]
-  onPrint: () => void | Promise<void>
-  onClose: () => void
-}
-
-function SuccessPhase({ result, total, changeAmount, config, onPrint, onClose }: SuccessPhaseProps) {
-  React.useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Enter") return
-      const target = e.target as HTMLElement
-      const tag = target.tagName.toLowerCase()
-      if (
-        tag === "input" ||
-        tag === "textarea" ||
-        tag === "select" ||
-        target.isContentEditable
-      )
-        return
-      e.preventDefault()
-      onPrint()
-    }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [onPrint])
-
-  return (
-    <div className="flex flex-col items-center gap-5 bg-[#01D7A1] px-6 py-8 text-[#060A0E]">
-      <BicepsFlexed className="size-16" strokeWidth={1.5} />
-
-      <div className="flex flex-col items-center gap-1 text-center">
-        <h2 className="text-xl font-bold">¡Venta confirmada!</h2>
-        <p className="text-3xl font-black tabular-nums">
-          {formatMoney(total, config)}
-        </p>
-        {changeAmount > 0 && (
-          <div className="mt-2 rounded-lg bg-white/15 px-4 py-2 text-center">
-            <p className="text-xs uppercase tracking-wider opacity-80">Vuelto</p>
-            <p className="text-2xl font-bold tabular-nums">
-              {formatMoney(changeAmount, config)}
-            </p>
-          </div>
-        )}
-        {result?.duplicated && (
-          <Badge variant="outline" className="mt-1 text-[10px] opacity-70">
-            ya guardada previamente — uid idempotente
-          </Badge>
-        )}
-      </div>
-
-      <div className="flex w-full gap-3">
-        <Button
-          variant="outline"
-          className="flex-1 gap-2 border-white/30 bg-transparent hover:bg-white/10"
-          onClick={onPrint}
-        >
-          <Printer className="size-4" />
-          Imprimir
-        </Button>
-        <Button
-          className="flex-1 bg-white font-bold text-[#060A0E] hover:bg-white/90"
-          onClick={onClose}
-        >
-          Nueva venta
-        </Button>
-      </div>
-    </div>
-  )
-}

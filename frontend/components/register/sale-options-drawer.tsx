@@ -65,10 +65,14 @@ import { useTags } from "@/hooks/use-tags"
 import { useSaveParkedSale } from "@/hooks/use-parked-sales"
 import { toast } from "sonner"
 import { createQuote } from "@/lib/commands/create-quote"
-import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import type { TransactionDetail } from "@/hooks/use-transactions"
 import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
+import { TransactionSuccessDialog } from "@/components/register/transaction-success-dialog"
+import { formatMoney } from "@/lib/format-money"
+import { usePrinterBindings } from "@/hooks/use-printer-bindings"
+import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
+import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -97,10 +101,14 @@ export function SaleOptionsDrawer({
   const setSavingQuote = usePosUIStore((s) => s.setSavingQuote)
 
   const [activeDialog, setActiveDialog] = React.useState<ActiveDialog>(null)
-  // El preview de cotización se construye desde el snapshot del carrito (no se
-  // re-fetchea por id): acabamos de guardar la cotización con estos datos, así
-  // que no dependemos del round-trip ni de la encriptación del id devuelto.
-  const [quotePrintTx, setQuotePrintTx] = React.useState<TransactionDetail | null>(null)
+  // Modal de confirmación unificado para la cotización (context/20 §7). El
+  // snapshot (`previewTx`) se construye desde el carrito ANTES de limpiarlo —
+  // no se re-fetchea por id — y alimenta el pipeline de impresión de quote.
+  // Estado local del disparador, NO en el cart store.
+  const [quoteSuccess, setQuoteSuccess] = React.useState<{
+    previewTx: TransactionDetail
+    amount: string
+  } | null>(null)
   const [isSavingQuote, setIsSavingQuote] = React.useState(false)
   const [showSaveTitleDialog, setShowSaveTitleDialog] = React.useState(false)
   const [saveTitle, setSaveTitle] = React.useState("")
@@ -111,6 +119,13 @@ export function SaleOptionsDrawer({
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
   const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
+
+  // Impresión de cotización — mismo pipeline que el flujo de quote existente
+  // (docType "quote" vía requestPrint, con fallback a picker/browser). Cliente
+  // posApi (device Bearer) como el resto del POS.
+  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
+  const allBindings = bindingsData?.bindings ?? []
+  const { requestPrint, pickerDialog } = usePrintWithPicker()
   const posMode = useCartStore((s) => s.posMode)
   const setPosMode = useCartStore((s) => s.setPosMode)
 
@@ -186,8 +201,8 @@ export function SaleOptionsDrawer({
       }
 
       useCartStore.getState().clear()
-      toast.success(`Cotización #${result.transactionNo} guardada`)
-      setQuotePrintTx(previewTx)
+      // Modal de confirmación unificado (reemplaza el toast + preview auto-abierto).
+      setQuoteSuccess({ previewTx, amount: formatMoney(previewTotal, config) })
     } catch (e) {
       toast.error("No se pudo guardar la cotización", {
         description: e instanceof Error ? e.message : String(e),
@@ -416,14 +431,30 @@ export function SaleOptionsDrawer({
 
       <TagsDialog open={activeDialog === "tags"} onClose={closeDialog} />
 
-      {quotePrintTx && (
-        <QuotePrintViewDialog
-          tx={quotePrintTx}
-          config={config}
-          open={Boolean(quotePrintTx)}
-          onOpenChange={(v) => { if (!v) setQuotePrintTx(null) }}
+      {quoteSuccess && (
+        <TransactionSuccessDialog
+          open
+          title="¡Cotización guardada!"
+          amount={quoteSuccess.amount}
+          badge={
+            quoteSuccess.previewTx.documentNo ? (
+              <Badge variant="outline" className="border-black/20 text-[10px] opacity-80">
+                #{quoteSuccess.previewTx.documentNo}
+              </Badge>
+            ) : undefined
+          }
+          closeLabel="Continuar"
+          onPrint={() => {
+            requestPrint(
+              "quote",
+              buildTicketDataFromTransaction(quoteSuccess.previewTx, config, "quote"),
+              allBindings,
+            )
+          }}
+          onClose={() => setQuoteSuccess(null)}
         />
       )}
+      {pickerDialog}
 
       <Dialog open={showSaveTitleDialog} onOpenChange={(v) => { if (!v) { setShowSaveTitleDialog(false); setSaveTitle("") } }}>
         <DialogContent className="sm:max-w-md">
