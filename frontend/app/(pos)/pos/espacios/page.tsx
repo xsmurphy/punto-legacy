@@ -126,7 +126,7 @@ export default function EspaciosPage() {
   async function handleCharge() {
     if (!sessionTable?.session) return
     const sessionId = sessionTable.session.id
-    const tableName = sessionTable.name
+    const spaceName = sessionTable.name
     setChargingSessionId(sessionId)
     try {
       const { orders: summaries } = await fetchOrdersBySession(sessionId)
@@ -136,7 +136,7 @@ export default function EspaciosPage() {
         return
       }
       const orders = await Promise.all(billable.map((o) => fetchOrderDetail(o.id)))
-      loadFromSession(sessionId, tableName, orders)
+      loadFromSession(sessionId, spaceName, orders)
       setSessionTable(null)
       setPayOpen(true)
     } catch (err) {
