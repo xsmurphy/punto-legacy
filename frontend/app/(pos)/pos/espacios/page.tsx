@@ -24,7 +24,7 @@ import { LayoutGrid } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { PosSpaceTile } from "@/components/spaces/pos-space-tile"
 import { OpenSpaceDialog } from "@/components/spaces/open-space-dialog"
-import { SpaceSessionSheet } from "@/components/spaces/space-session-sheet"
+import { SpaceSessionDialog } from "@/components/spaces/space-session-dialog"
 import { defaultSize } from "@/components/spaces/canvas-space-block"
 import {
   usePosSpacesState,
@@ -41,6 +41,7 @@ import { usePosUIStore } from "@/lib/ui/store"
 const CANVAS_WIDTH = 900
 const CANVAS_HEIGHT = 600
 const ALL_SECTORS = "__all__"
+const DECOR_SHAPES = ["decor_wall", "decor_plant", "bar"]
 
 export default function EspaciosPage() {
   const router = useRouter()
@@ -54,7 +55,14 @@ export default function EspaciosPage() {
     () => (activeSector === ALL_SECTORS ? tables : tables.filter((t) => t.sectorId === activeSector)),
     [tables, activeSector],
   )
-  const hasCustomLayout = sectorTables.some((t) => t.posX !== null && t.posY !== null)
+  // Los decorativos (barra/pared/planta) solo aportan al plano si tienen
+  // posición custom del editor de layout. Sin posición se apilaban en el origen
+  // del canvas (posX ?? 0) o ensuciaban la grilla numerada — mejor ocultarlos.
+  const visibleTables = React.useMemo(
+    () => sectorTables.filter((t) => !DECOR_SHAPES.includes(t.shape) || (t.posX !== null && t.posY !== null)),
+    [sectorTables],
+  )
+  const hasCustomLayout = visibleTables.some((t) => t.posX !== null && t.posY !== null)
 
   const [openingTable, setOpeningTable] = React.useState<SpaceWithState | null>(null)
   const [sessionTable, setSessionTable] = React.useState<SpaceWithState | null>(null)
@@ -156,7 +164,7 @@ export default function EspaciosPage() {
         onConfirm={confirmOpenTable}
         submitting={openSession.isPending}
       />
-      <SpaceSessionSheet
+      <SpaceSessionDialog
         table={sessionTable}
         onOpenChange={(v) => !v && setSessionTable(null)}
         onAddOrder={handleAddOrder}
@@ -184,7 +192,7 @@ export default function EspaciosPage() {
       )}
 
       <div className="flex-1 overflow-auto p-3">
-        {sectorTables.length === 0 ? (
+        {visibleTables.length === 0 ? (
           <EmptyState
             icon={LayoutGrid}
             title="Sin espacios configurados en este sector"
@@ -193,7 +201,7 @@ export default function EspaciosPage() {
           />
         ) : hasCustomLayout ? (
           <ScaledCanvas>
-            {sectorTables.map((table) => {
+            {visibleTables.map((table) => {
               const size = defaultSize(table.shape)
               return (
                 <PosSpaceTile
@@ -213,7 +221,7 @@ export default function EspaciosPage() {
           </ScaledCanvas>
         ) : (
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-            {sectorTables.map((table) => (
+            {visibleTables.map((table) => (
               <div key={table.id} className="aspect-square">
                 <PosSpaceTile table={table} onClick={() => handleTileClick(table)} />
               </div>
