@@ -88,7 +88,17 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
         </span>
       ) : (
         <>
-          <span className="w-full truncate text-sm leading-tight font-semibold">{table.name}</span>
+          {/* Grilla: el número/nombre es EL identificador — grande para leerse
+              de un vistazo a distancia de cajero. En el mapa los tiles pueden
+              ser chicos (70px) → tamaño contenido. */}
+          <span
+            className={cn(
+              "w-full truncate leading-tight font-semibold",
+              position ? "text-sm" : "text-3xl font-bold tabular-nums",
+            )}
+          >
+            {table.name}
+          </span>
           {session && (
             <span
               style={accent ? { backgroundColor: accent } : undefined}
