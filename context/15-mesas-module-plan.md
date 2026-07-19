@@ -1,9 +1,68 @@
 # 15 — Plan: módulo de gestión de mesas (restaurante)
 
-> **Creado:** 2026-06-15. **Estado:** plan de diseño, no iniciado.
-> Reemplaza el módulo de "espacios" actual (`ncmSpaces`), que es un grid
-> numérico fijo sin entidad de mesa real. Objetivo: gestión de mesas de nivel
-> restaurante (sectores, mozos, reservas, comensales, split de cuentas, estados).
+> **Creado:** 2026-06-15. **Estado:** F0+F1 (schema + servicios + config con
+> editor de layout) hechas 2026-07-19 en branch `mesas-f0`, sobre el core de
+> Órdenes O0/O1 (`context/24-orders-module-plan.md`). Reemplaza el módulo de
+> "espacios" actual (`ncmSpaces`), que es un grid numérico fijo sin entidad de
+> mesa real. Objetivo: gestión de mesas de nivel restaurante (sectores, mozos,
+> reservas, comensales, split de cuentas, estados).
+
+## F0+F1 — hecho (2026-07-19)
+
+**Desviación clave del schema original de este doc**: las tablas nuevas
+(`table_sector`, `dining_table`, `table_session`) usan **lowercase sin
+comillas** (patrón migs 72/76/79 — `sectorid`, `companyid`, `outletid`, ...),
+NO el camelCase (`sectorId`, `companyId`) descripto en §2 más abajo. §2
+queda como referencia conceptual de las columnas/relaciones; el schema real
+está en `api/database/migrations/postgres/80_mesas_module.sql`.
+
+- **Mig 80**: `table_sector` (zonas), `dining_table` (mesa: `posx/posy/
+  width/height` NULL = sin layout custom → grilla numerada default;
+  `shape` incluye `square|round|rect` como mesas reales y `bar|decor_wall|
+  decor_plant` como bloques decorativos del editor), `table_session`
+  (ocupación — índice único parcial `uq_table_session_active_per_table`
+  garantiza una sola sesión `open|bill_requested` por mesa).
+- **Backend** `api/lib/Tables/{SectorService,DiningTableService,
+  TableSessionService}.php` (namespace `Punto\Api\Tables`, patrón
+  `OrderCoreService.php`). `DiningTableService::listWithState()` deriva el
+  estado (nunca editable a mano): `disabled` (status=0) → `bill_requested`
+  (sesión) → `occupied` (sesión open) → `free`. Reservas (F4) sumarán
+  `reserved` entre `free` y `occupied`. `saveLayout()` es batch atómico
+  (TX) scopeado a companyId+outletId. Legacy `api/lib/services/
+  TableService.php` marcado `@deprecated`, sin tocar (compat con front
+  legacy `ncmSpaces`).
+- **Endpoints**: `api/v1/table-sectors.php`, `api/v1/dining-tables.php`
+  (incluye `?action=bulk` y `?action=layout`), `api/v1/table-sessions.php`
+  (`open`/`request-bill`/`cancel`/`close` — **cierre sin cobro real, F2 lo
+  conecta a facturación**). Realm `['panel','pos-app']`, outlet scope del
+  device para pos-app (mismo patrón `orders-core.php`).
+- **Config UI** `frontend/app/(panel)/settings/tables/page.tsx` →
+  `TablesManager`: CRUD de sectores inline (`sectors-panel.tsx`), alta
+  rápida "crear N mesas numeradas", edición individual, y
+  **`components/tables/layout-editor.tsx`** — canvas por sector con
+  drag+resize vía `react-rnd` (mismo patrón técnico que
+  `components/print-templates/template-editor.tsx`, único precedente
+  in-repo de canvas absoluto; sin librerías nuevas). Decisiones del editor:
+  - **Unidades del canvas: píxeles crudos 1:1**, no mm — no hay papel físico
+    de referencia como en impresión. Grid snap de 10px.
+  - Rotación en pasos de 45° (botón, no drag de ángulo libre).
+  - Toggle "Layout / Grilla (preview POS)": la vista grilla es read-only y
+    muestra el fallback numerado que ve el POS cuando la mesa NO tiene
+    posición custom.
+  - Bloques decorativos (barra/pared/planta) son filas `dining_table` con
+    `seats=0` y shape decorativo — mismo modelo de entidad, sin tabla
+    aparte.
+- **code-reviewer**: sin P0. P1 corregido (`saveLayout` valida `is_array`
+  por posición antes de abrir la TX, en vez de fallar silenciosamente el
+  batch). P1 quedó anotado como brecha preexistente (no nueva de este PR):
+  panel sin restricción de outlet-scope al crear/mover mesas — mismo gap
+  que `orders-core.php`, fuera de alcance de F0+F1.
+- **Fuera de alcance de F0+F1** (queda para fases siguientes, ver §10):
+  reservas (F4), `table_assignment` (mozos↔sector), `table_settlement`
+  (dividir cuenta/cobro — F3), y la operación real (abrir mesa → ordenar →
+  cobrar) en `/pos`, que es **F2** y vive en `app/(pos)/pos` — NO se tocó
+  en esta fase (otro agente trabaja en paralelo sobre `screens.php`/
+  `orders-core.php`/`app/(screen)/**`, fuera del alcance de esta sesión).
 
 ---
 
