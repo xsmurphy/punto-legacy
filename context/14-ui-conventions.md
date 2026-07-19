@@ -70,6 +70,22 @@ shadcn `<DialogContent>` viene con `sm:max-w-lg` por default (32rem / 512px). **
 
 **Si el `<Dialog>` no acepta override de tamaño** (componente shadcn que envuelve y fuerza): editá el componente base en `frontend/components/ui/dialog.tsx` para aceptar `size="xs|sm|m|l|xl"` como prop, default `m`. Esa edición vale el cost porque elimina la fricción.
 
+### Regla #2.2 — Dialog (modal) es el default, NO Sheet/Drawer
+
+Para paneles contextuales, formularios y detalles (incluidos los del POS), el
+componente por defecto es **`<Dialog>` centrado**. **`<Sheet>` / `<Drawer>`
+lateral NO se usa salvo pedido explícito del owner** — es una preferencia
+fuerte y transversal (2026-07-19).
+
+- Panel de detalle/acciones (ej. sesión de espacio en `/pos/espacios`) → `Dialog`.
+- Formulario de alta/edición → `Dialog`.
+- Confirmación → `AlertDialog`.
+- En POS (touch-first), dentro del Dialog usá botones `size="lg"` a ancho
+  completo — el modal centrado no releva de los touch targets grandes.
+
+**Anti-patrón detectado (2026-07-19)**: panel de sesión de espacio como `Sheet`
+lateral. **Mal**. Convertido a `Dialog` centrado con el mismo contenido.
+
 ---
 
 ## Regla #3 — Listados
@@ -144,6 +160,29 @@ fila de listado. Siempre pasar por un helper de formato local.
   emojis de relleno)
 - Empty states: 1 línea de título + 1 línea de descripción concreta de qué
   hacer ("Ajustá el rango de fechas y volvé a consultar")
+
+---
+
+## Regla #10 — POS: posiciones estables, sin desplazamiento condicional
+
+La UI del POS **no desplaza elementos interactivos de forma condicional** —
+cada botón vive SIEMPRE en las mismas coordenadas. Los cajeros operan por
+memoria muscular; un elemento que cambia de lugar según el estado (modo de
+caja, espacio seleccionado, etc.) rompe el flujo y genera errores.
+
+- Las **señales de estado se pintan sobre elementos existentes** (tinte, label,
+  borde) — no insertando/quitando bloques que empujan el layout.
+- Si una señal necesita su propio bloque (una banda), ese bloque **existe
+  siempre con la misma altura**: neutral/invisible en el estado baseline pero
+  ocupando su espacio. Nunca `return null` condicional que cambie la altura del
+  contenedor.
+- Verificación: comparar el render de dos estados (ej. venta vs orden) — ningún
+  elemento interactivo debe cambiar de coordenadas.
+
+**Anti-patrón detectado (2026-07-19)**: la banda de modo del carrito (`ModeBanner`)
+hacía `return null` en venta y aparecía (h-7) en orden → el toolbar de abajo se
+desplazaba 28px entre modos. **Mal**. Ahora la banda existe siempre a h-7,
+neutral en venta.
 
 ---
 
