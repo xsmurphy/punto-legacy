@@ -97,7 +97,9 @@ Servicio: `api/lib/Printing/PrintPoolService.php` (namespace
 - **P1 — pantalla estación** `app/(screen)/print/page.tsx`: pairing (reusa
   `use-paired-screen`), wire de conexiones físicas (reusa transports de
   `lib/hardware/printers/`), registro de `station_printer`, consumo WS +
-  claim + dispatch + done/failed, log local con reimprimir.
+  claim + dispatch + done/failed, log local con reimprimir. Incluye agregar
+  `'print'` a `DeviceInvitationService::VALID_MODULES` (hallazgo P0: sin eso
+  el pairing de la estación falla).
 - **P2 — panel + POS**: `/settings/printers` gana `via` + selector de
   impresora de estación en el binding; el pipeline (`printSale`/
   `print-with-fallback`) rama pool → render + enqueue. Selector de módulo de

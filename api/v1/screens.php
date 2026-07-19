@@ -20,8 +20,11 @@ require_once __DIR__ . '/../lib/Auth/apiAuthPosContext.php';
 // KDS y pantalla de mozos (O2, context/24-orders-module-plan.md) comparten el
 // mismo pairing/heartbeat que el checkout screen — solo cambia el canal WS al
 // que se suscriben en el front (`{companyId}:kds:{outletId}` en vez de
-// `{companyId}:checkout:{registerId}`).
-const DISPLAY_MODULES = ['screen', 'kds', 'display'];
+// `{companyId}:checkout:{registerId}`). 'print' (Estación de Impresión, P0,
+// context/26-print-station-plan.md) se suma acá con el mismo criterio: la
+// estación es un device pareado que necesita heartbeat/context genérico —
+// su canal propio es `{companyId}:print:{outletId}` (api/v1/print-jobs.php).
+const DISPLAY_MODULES = ['screen', 'kds', 'display', 'print'];
 
 $resource = $_GET['resource'] ?? null;
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
