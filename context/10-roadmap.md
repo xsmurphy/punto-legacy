@@ -10,7 +10,16 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-06-21 (sync post-sprint catálogo m2m + realtime + checkout screen + reports rollup + agente IA AI-1..AI-3b)
+> **Última actualización:** 2026-07-19 (cierre sesión multi-día: Finanzas F3, Producción v1, Órdenes O0-O2, Espacios v1)
+
+---
+
+## Módulos nuevos ✅ (cierre 2026-07-19)
+
+- **Producción v1** ✅ — plan `context/23-production-module-plan.md`. F0 recetas canónicas en `item_compound` (mig 75), F1 `production_order`+`waste_event` (migs 76/77, permiso `production.manage`), F2 UI `/produccion`. Pendiente: v2 (parcial/co-productos/reversa).
+- **Órdenes** ✅ (O0-O2) — plan `context/24-orders-module-plan.md`. O0 core (`pos_order`/`order_station`, correlativo advisory-lock, canal realtime `kds`), O1 modal POS (Pagar↔Ordenar, comandas), O2 KDS+display device-paired WS. Pendiente: O3 split/reservas, O4 ecommerce/agenda.
+- **Espacios v1** ✅ (ex Mesas, rename migs 81/82) — plan `context/15-espacios-module-plan.md`. F0/F1 schema+editor (react-rnd), F2 operación POS (mapa, sesión, cobro multi-orden).
+- **Estación de Impresión (pool)** — planificada en `context/24`, **sin implementar**.
 
 ---
 
@@ -285,7 +294,7 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 | 4 | **`bootstrap.user.name` y `bootstrap.user.roleName`** | Agregar al SELECT del bootstrap PHP. `roleName` ya disponible en `UsersService`. |
 | 5 | **Persistir `register.data.mergeRepeated`** | Hoy solo en memoria Zustand (default ON). Falta `PUT /v1/register?resource=merge-repeated`. |
 | 6 | ~~**Endpoints reales de Control de Caja**~~ ✓ | Implementado: `DrawerService` + `api/v1/drawer.php`. Migs 33/34. |
-| 7 | ~~**Endpoints reales de Transacciones**~~ ✓ | Detalle, edición, duplicar/reimprimir, cierre desde panel. Agenda/Órdenes pendientes como módulos dedicados. |
+| 7 | ~~**Endpoints reales de Transacciones**~~ ✓ | Detalle, edición, duplicar/reimprimir, cierre desde panel. Órdenes O0-O2 ✅ (2026-07-19, ver abajo); Agenda pendiente. |
 | 8 | **Persistencia de impresoras** | Probable `register.data.printers` JSONB. |
 | 9 | **UI panel para gestión de cajas POS pareadas** (`/settings/devices` tab "Cajas") | Tabla `device` (mig 11) ya existe con CRUD backend; falta tab en `/settings/devices` (hoy solo lista checkout screens). |
 

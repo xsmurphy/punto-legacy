@@ -688,6 +688,33 @@ Asistente de IA integrado en el panel y el POS. Plan completo en `context/17-ai-
 - **Integración POS**: ítem en el menú principal del POS navega a `/chat`.
 - **Pendiente**: AI-4 (UI /admin para `ai_model_config`), AI-5 (OCR + análisis libre).
 
+## Módulo Producción v1 (sprint 2026-07, context/23)
+
+Recetas y producción con stock real. Plan completo en `context/23-production-module-plan.md`.
+
+- **F0 — Recetas canónicas**: `item_compound` (mig 75) es la única fuente de verdad; el editor legacy escribía una tabla que nadie leía. COGS de combos calculado a costo real; guard anti-ciclos.
+- **F1 — Órdenes de producción**: `production_order` + `waste_event` + `wasteReason` (migs 76/77), permiso `production.manage`. Merma = rendimiento ÷ (1 − m).
+- **F2 — UI**: `/produccion` en frontend.
+- **Pendiente**: v2 (parcial, co-productos, reversa).
+
+## Módulo Órdenes (sprint 2026-07, context/24)
+
+Comandas/órdenes de mesa desacopladas del cobro. Plan completo en `context/24-orders-module-plan.md`.
+
+- **O0 — Core**: `pos_order` + `order_station`, estados de 2 niveles con CAS optimista, correlativo vía advisory-lock, canal realtime `kds`.
+- **O1 — Modal POS**: toggle Pagar↔Ordenar en `/pos/ordenes`, comandas, cobro por volcado de la orden al carrito.
+- **O2 — KDS + display**: pantallas device-paired vía WS, responsive teléfono→TV, columnas configurables, whitelist de transiciones de estado por module.
+- **Pendiente**: O3 (split/reservas), O4 (ecommerce/agenda).
+
+## Módulo Espacios (ex Mesas, sprint 2026-07, context/15)
+
+Layout de salón/mesas con editor visual. Plan completo en `context/15-espacios-module-plan.md` (renombrado de `15-mesas-module-plan.md`).
+
+- **F0/F1 — Schema + editor**: layout drag-and-resize con `react-rnd`.
+- **F2 — Operación POS**: mapa de espacios con hotkeys por slot, sesión de mesa, cobro multi-orden.
+- **Rename Mesas→Espacios** (migs 81/82): sector pasa a obligatorio con default `"Salón"` + data-fix de registros huérfanos.
+- **Deuda cosmética**: la PK de la tabla (`space.tableid`) conserva el nombre viejo.
+
 ---
 
 ## /panel/standalone — Pantallas independientes
