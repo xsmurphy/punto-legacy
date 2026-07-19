@@ -195,7 +195,7 @@
 
     --radius: 0.45rem;
 
-    --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
+    --font-sans: var(--font-inter);
 
     --font-serif: Source Serif 4, serif;
 
@@ -299,7 +299,7 @@
     --brand: oklch(0.7800 0.1550 169);
     --brand-foreground: oklch(0.262 0.010 245.3);
     --radius: 0.7rem;
-    --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
+    --font-sans: var(--font-inter);
     --font-serif: Source Serif 4, serif;
     --font-mono: JetBrains Mono, monospace;
     --shadow-color: #212529;

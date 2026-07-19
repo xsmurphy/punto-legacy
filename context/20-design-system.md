@@ -66,8 +66,8 @@ Fuente: `frontend/app/globals.css` (Tailwind v4, `@theme inline` — no hay
 
 | Token | Valor | Uso |
 |---|---|---|
-| `--font-sans` | `Poppins, ui-sans-serif, sans-serif, system-ui` (declarado en CSS) | Fuente base declarada en globals.css |
-| Fuente real cargada | `Inter` (next/font/google, var `--font-inter`) + `JetBrains_Mono` (var `--font-jetbrains-mono`) | `app/layout.tsx` — el `<html>` aplica `inter.variable` y `body` usa `font-sans`. **Inconsistencia real**: CSS declara Poppins, el layout carga Inter — ver Changelog. |
+| `--font-sans` | `var(--font-inter)` (declarado en CSS, fallback en `app/layout.tsx`) | Fuente base canónica Inter |
+| Fuente real cargada | `Inter` (next/font/google, var `--font-inter`) + `JetBrains Mono` (var `--font-jetbrains-mono`) | `app/layout.tsx` — el `<html>` aplica `inter.variable` y `body` usa `font-sans`. |
 | `--font-mono` | `JetBrains Mono, monospace` | Código, `kbd`, tabular contexts |
 | `--font-serif` | `Source Serif 4, serif` | Sin uso activo detectado |
 | `h1` | `text-2xl font-semibold`, `letter-spacing: -0.04em` global en `<h1>` | Título de página |
@@ -628,7 +628,7 @@ del sistema):
 | Fecha | Decisión | Commit | Razón |
 |---|---|---|---|
 | 2026-07-18 | Reescritura completa de `context/20` como design system definitivo: tokens reales extraídos de `globals.css`/`components.json`, paleta de acentos, formatos, patrones POS, guía de bootstrap para apps externas | — | El doc anterior documentaba solo patrones de componentes sin los tokens crudos ni una guía standalone; se necesitaba una referencia autocontenida para compartir UI/UX fuera del repo |
-| 2026-07-18 | Inconsistencia detectada, NO corregida en este pase: `globals.css` declara `--font-sans: Poppins...` pero `app/layout.tsx` carga `Inter` vía `next/font/google` y lo aplica en `body.font-sans`. El font-family real renderizado es Inter | — | Ver §2/§9 — flag para el owner, requiere decisión (¿Poppins es aspiracional o Inter reemplazó a Poppins sin actualizar el CSS?) |
+| 2026-07-18 | Inter declarada canónica en `globals.css` y `context/20`. Eliminada declaración residual de Poppins | — | Owner decidió Inter como fuente; unificada la capa CSS/doc |
 | 2026-07-18 | Inconsistencia detectada, NO corregida: dos implementaciones de `formatMoney` con firmas distintas (`lib/format-money.ts` sobre `PosConfig`, `lib/format.ts` sobre `Bootstrap`) — ambas en uso activo en contextos distintos (POS vs panel) | — | Documentado en §8 en vez de unificarse; unificar requeriría normalizar `PosConfig`/`Bootstrap` a una sola shape de config de tenant — fuera de scope de este doc |
 | 2026-06-25 | Regla: iconos SOLO en sidebar nav, botones icon-only y empty states. Prohibido en cards, títulos, headers de modal | — | Regla explicitada por owner |
 | 2026-06-25 | NumericPadDialog unificado: title + mode label en header, unidad inline en display, Aceptar full-width en footer. `subtitle` deprecado | 532b36f | 3 iteraciones para llegar al pattern correcto |
