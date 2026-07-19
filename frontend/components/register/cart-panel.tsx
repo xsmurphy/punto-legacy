@@ -314,7 +314,8 @@ export function CartPanel() {
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
       {/* Banda de modo — canal principal de "en qué modo está la caja"
-          (context/20 "Colores de modo del POS"). Oculta en venta (baseline). */}
+          (context/20 "Colores de modo del POS"). SIEMPRE presente con la misma
+          altura (neutral en venta) para no desplazar el toolbar entre modos. */}
       <ModeBanner
         mode={cartMode}
         spaceSessionId={spaceSessionId}
@@ -608,13 +609,22 @@ function ModeBanner({
   onClearSpace: () => void
 }) {
   const visual = MODE_VISUALS[mode]
-  if (!visual.color) return null
   const Icon = visual.icon
+  const tinted = visual.color !== null
 
+  // SIEMPRE presente con la MISMA altura (h-7), en cualquier modo — regla de UI
+  // del POS: la señal de modo NO puede agregar/quitar altura condicional o los
+  // botones del toolbar de abajo se desplazan entre venta y orden y rompen la
+  // memoria muscular del cajero. En venta (color null) queda neutral (muted,
+  // label "Venta"); en modos con color toma el tinte. El layout es pixel-
+  // idéntico entre modos. Ver context/14 §POS.
   return (
     <div
-      className="flex h-7 shrink-0 items-center gap-1.5 px-3 text-black"
-      style={{ backgroundColor: visual.color }}
+      className={cn(
+        "flex h-7 shrink-0 items-center gap-1.5 border-b px-3",
+        tinted ? "border-transparent text-black" : "border-border bg-muted/40 text-muted-foreground",
+      )}
+      style={visual.color ? { backgroundColor: visual.color } : undefined}
     >
       {Icon && <Icon className="size-3.5 shrink-0" aria-hidden />}
       <span className="text-xs font-semibold tracking-wide">{visual.label}</span>
@@ -1160,14 +1170,15 @@ function CartBottom({
   const visual = MODE_VISUALS[cartMode]
 
   // Label + acción del CTA por modo. Venta: el monto formateado ES el label
-  // (comportamiento histórico — el cajero mira el botón para saber cuánto
-  // cobrar). Modos con color: label de la acción + total en secundario (más
-  // chico, misma línea — no achica el touch target). Cotización NO dispara
-  // nada desde acá — el guardado ya arrancó desde el drawer de Opciones; el
-  // botón solo refleja el estado "en vuelo" (ver mode-visuals.ts). Espacio
-  // seleccionado → el nombre del espacio reemplaza "Ordenar".
-  const secondaryTotal = lineCount > 0 && (
-    <span className="text-xl font-semibold opacity-80">{totalFormatted}</span>
+  // centrado (comportamiento histórico — el cajero mira el botón para saber
+  // cuánto cobrar). Modos con color (orden/espacio): label de la acción a la
+  // IZQUIERDA + monto a la DERECHA con `justify-between` (patrón de botón POS),
+  // monto en tabular-nums sin opacity para que no quede lavado. En pantallas
+  // angostas el monto baja debajo del label (flex-wrap) — nunca concatenado
+  // inline. Cotización NO dispara nada desde acá — el guardado ya arrancó desde
+  // el drawer de Opciones; el botón solo refleja el estado "en vuelo".
+  const amountRight = lineCount > 0 && (
+    <span className="shrink-0 text-2xl font-semibold tabular-nums">{totalFormatted}</span>
   )
   let ctaLabel: React.ReactNode
   let ctaAction: (() => void) | undefined
@@ -1181,15 +1192,17 @@ function CartBottom({
     ctaLabel = orderSubmitting ? (
       "Enviando..."
     ) : cartMode === "orden-espacio" && spaceName ? (
-      <span className="flex items-center justify-center gap-2">
-        {SpaceIcon && <SpaceIcon className="size-6 shrink-0" aria-hidden />}
-        <span className="truncate">{spaceName}</span>
-        {secondaryTotal}
+      <span className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span className="flex min-w-0 items-center gap-2">
+          {SpaceIcon && <SpaceIcon className="size-6 shrink-0" aria-hidden />}
+          <span className="truncate">{spaceName}</span>
+        </span>
+        {amountRight}
       </span>
     ) : (
-      <span className="flex items-center justify-center gap-2">
-        Ordenar
-        {secondaryTotal}
+      <span className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span>Ordenar</span>
+        {amountRight}
       </span>
     )
     ctaAction = onOrderClick
