@@ -34,16 +34,24 @@ $action    = $_GET['action'] ?? null;
 global $db;
 $svc = new \Punto\Api\Orders\OrderCoreService($db);
 
+// pos-app: TODA operación queda scopeada al outlet del device (un POS/KDS de
+// la sucursal A no ve ni opera órdenes de la sucursal B del mismo tenant).
+$isPosApp    = ($ctx['realm'] ?? '') === 'pos-app';
+$outletScope = $isPosApp ? $outletId : null;
+
 switch ($method) {
     case 'GET':
         if ($id !== null) {
             $order = $svc->find($companyId, (string) $id);
             if ($order === null) apiError('Orden no encontrada', 404);
+            if ($outletScope !== null && $order['outletId'] !== $outletScope) {
+                apiError('Orden no encontrada', 404);
+            }
             apiOk($order);
             break;
         }
         $filters = [
-            'outletId' => $_GET['outletId'] ?? null,
+            'outletId' => $outletScope ?? ($_GET['outletId'] ?? null),
             'status'   => $_GET['status'] ?? null,
             'source'   => $_GET['source'] ?? null,
             'from'     => $_GET['from'] ?? null,
@@ -61,9 +69,7 @@ switch ($method) {
                 apiError('id (orderItemId) y status son requeridos', 422);
             }
             try {
-                apiOk($svc->updateItemStatus($companyId, $orderItemId, $status));
-            } catch (\InvalidArgumentException $e) {
-                apiError($e->getMessage(), 422);
+                apiOk($svc->updateItemStatus($companyId, $orderItemId, $status, $outletScope));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -72,7 +78,7 @@ switch ($method) {
 
         if ($id !== null && $action === 'send') {
             try {
-                apiOk($svc->send($companyId, (string) $id));
+                apiOk($svc->send($companyId, (string) $id, $outletScope));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -83,7 +89,7 @@ switch ($method) {
             $status = (string) ($_POST['status'] ?? '');
             if ($status === '') apiError('status requerido', 422);
             try {
-                apiOk($svc->updateStatus($companyId, (string) $id, $status));
+                apiOk($svc->updateStatus($companyId, (string) $id, $status, $outletScope));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -94,7 +100,7 @@ switch ($method) {
             $transactionId = (string) ($_POST['transactionId'] ?? '');
             if ($transactionId === '') apiError('transactionId requerido', 422);
             try {
-                apiOk($svc->markPaid($companyId, (string) $id, $transactionId));
+                apiOk($svc->markPaid($companyId, (string) $id, $transactionId, $outletScope));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -109,7 +115,7 @@ switch ($method) {
             $data = $_POST;
             // pos-app: outletId siempre sale del device ctx, nunca del body
             // (evita que un device mal configurado cree órdenes en otro outlet).
-            if (($ctx['realm'] ?? '') === 'pos-app') {
+            if ($isPosApp) {
                 $data['outletId']   = $outletId;
                 $data['registerId'] = $ctx['registerId'] ?? null;
             }

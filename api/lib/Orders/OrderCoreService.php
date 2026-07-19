@@ -174,14 +174,14 @@ final class OrderCoreService
             }
 
             $stationId = $this->resolveStationId($stations, $categoryIds);
-            $note      = isset($item['note']) && $item['note'] !== '' ? (string) $item['note'] : null;
+            $itemNote  = isset($item['note']) && $item['note'] !== '' ? (string) $item['note'] : null;
             $course    = isset($item['course']) ? (int) $item['course'] : 1;
 
             $itemOk = $this->db->Execute(
                 'INSERT INTO pos_order_item
                     (orderitemid, orderid, companyid, itemid, name, qty, price, note, stationid, course)
                  VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [$orderId, $companyId, $itemId, $name, $qty, $price, $note, $stationId, $course]
+                [$orderId, $companyId, $itemId, $name, $qty, $price, $itemNote, $stationId, $course]
             );
             if ($itemOk === false) {
                 $db->FailTrans();
@@ -205,13 +205,18 @@ final class OrderCoreService
         return $orderId;
     }
 
-    /** open → sent. */
-    public function send(string $companyId, string $id): array
+    /**
+     * open → sent. $outletScope (realm pos-app): restringe la operación a
+     * órdenes del outlet del device — un POS/KDS de la sucursal A no puede
+     * operar órdenes de la sucursal B del mismo tenant.
+     */
+    public function send(string $companyId, string $id, ?string $outletScope = null): array
     {
         $order = $this->find($companyId, $id);
         if ($order === null) {
             throw new \RuntimeException('Orden no encontrada');
         }
+        $this->assertOutletScope($order['outletId'], $outletScope);
         if ($order['status'] !== 'open') {
             throw new \RuntimeException('Solo se puede enviar una orden en status open (actual: ' . $order['status'] . ')');
         }
@@ -236,32 +241,62 @@ final class OrderCoreService
      * saletransactionid (ya cobrada = no se puede cancelar acá, hay que
      * anular la venta). `closed` está prohibido — solo markPaid() cierra.
      */
-    public function updateStatus(string $companyId, string $id, string $status): array
+    public function updateStatus(string $companyId, string $id, string $status, ?string $outletScope = null): array
     {
+        global $db;
+
         if ($status === 'closed') {
             throw new \InvalidArgumentException('closed solo se setea vía markPaid() (cobro de la orden)');
         }
 
-        $order = $this->find($companyId, $id);
-        if ($order === null) {
+        $db->StartTrans();
+
+        // FOR UPDATE + CAS sobre el status: sin el lock, un markPaid()
+        // concurrente puede cerrar (cobrar) la orden entre nuestro read y
+        // nuestro UPDATE, y este método la pisaría de vuelta a cancelled con
+        // saletransactionid ya seteado (orden cobrada que figura cancelada).
+        $order = ncmExecute(
+            'SELECT * FROM pos_order WHERE orderid = ? AND companyid = ? FOR UPDATE',
+            [$id, $companyId]
+        );
+        if (!$order) {
+            $db->FailTrans();
+            $db->CompleteTrans();
             throw new \RuntimeException('Orden no encontrada');
         }
-        $current = $order['status'];
+        if ($outletScope !== null && (string) $order['outletid'] !== $outletScope) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException('Orden no encontrada'); // no revelar existencia cross-outlet
+        }
+        $current = (string) $order['status'];
         $allowed = self::ORDER_TRANSITIONS[$current] ?? [];
         if (!in_array($status, $allowed, true)) {
+            $db->FailTrans();
+            $db->CompleteTrans();
             throw new \InvalidArgumentException("Transición inválida: {$current} → {$status}");
         }
-        if ($status === 'cancelled' && !empty($order['saleTransactionId'])) {
+        if ($status === 'cancelled' && !empty($order['saletransactionid'])) {
+            $db->FailTrans();
+            $db->CompleteTrans();
             throw new \InvalidArgumentException('No se puede cancelar una orden ya cobrada (saleTransactionId presente)');
         }
 
         $closedAtSql = $status === 'cancelled' ? ', closed_at = now()' : '';
         $ok = $this->db->Execute(
-            "UPDATE pos_order SET status = ?{$closedAtSql} WHERE orderid = ? AND companyid = ?",
-            [$status, $id, $companyId]
+            "UPDATE pos_order SET status = ?{$closedAtSql} WHERE orderid = ? AND companyid = ? AND status = ?",
+            [$status, $id, $companyId, $current]
         );
         if ($ok === false) {
+            $db->FailTrans();
+            $db->CompleteTrans();
             throw new \RuntimeException('No se pudo actualizar el estado de la orden');
+        }
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException('Fallo al actualizar el estado de la orden (transacción abortada)');
         }
 
         $order = $this->find($companyId, $id);
@@ -277,7 +312,7 @@ final class OrderCoreService
      * al carrito → SaleService → acá) con el transactionId ya creado — este
      * método NO crea la transacción, solo deja el rastro.
      */
-    public function markPaid(string $companyId, string $orderId, string $transactionId): array
+    public function markPaid(string $companyId, string $orderId, string $transactionId, ?string $outletScope = null): array
     {
         global $db;
 
@@ -295,6 +330,11 @@ final class OrderCoreService
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \RuntimeException('Orden no encontrada');
+        }
+        if ($outletScope !== null && (string) $order['outletid'] !== $outletScope) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException('Orden no encontrada'); // no revelar existencia cross-outlet
         }
         if (in_array($order['status'], ['closed', 'cancelled'], true)) {
             $db->FailTrans();
@@ -335,7 +375,7 @@ final class OrderCoreService
      * más avanzado → in_progress; si todos siguen pending, no toca el
      * status de la orden.
      */
-    public function updateItemStatus(string $companyId, string $orderItemId, string $status): array
+    public function updateItemStatus(string $companyId, string $orderItemId, string $status, ?string $outletScope = null): array
     {
         global $db;
 
@@ -348,7 +388,7 @@ final class OrderCoreService
         $item = ncmExecute(
             'SELECT oi.*, o.companyid AS ordercompanyid, o.outletid AS orderoutletid
                FROM pos_order_item oi
-               JOIN pos_order o ON o.orderid = oi.orderid
+               JOIN pos_order o ON o.orderid = oi.orderid AND o.companyid = oi.companyid
               WHERE oi.orderitemid = ? AND oi.companyid = ?
               FOR UPDATE OF oi',
             [$orderItemId, $companyId]
@@ -357,6 +397,11 @@ final class OrderCoreService
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \RuntimeException('Ítem de orden no encontrado');
+        }
+        if ($outletScope !== null && (string) ($item['orderoutletid'] ?? '') !== $outletScope) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException('Ítem de orden no encontrado'); // no revelar existencia cross-outlet
         }
 
         $current = (string) $item['status'];
@@ -519,7 +564,22 @@ final class OrderCoreService
         return $out;
     }
 
-    /** @return list<string> */
+    /** Rechaza operar sobre una orden de otro outlet (realm pos-app). */
+    private function assertOutletScope(?string $orderOutletId, ?string $outletScope): void
+    {
+        if ($outletScope !== null && (string) $orderOutletId !== $outletScope) {
+            // Mismo mensaje que "no existe" — no revelar existencia cross-outlet.
+            throw new \RuntimeException('Orden no encontrada');
+        }
+    }
+
+    /**
+     * Sin companyid en el WHERE a propósito: item_category no tiene esa
+     * columna (mig 16, m2m). El invariante es que $itemId YA fue validado
+     * contra companyid aguas arriba (create() lo chequea antes de llamar).
+     *
+     * @return list<string>
+     */
     private function fetchItemCategoryIds(string $itemId): array
     {
         $rs = $this->db->Execute('SELECT categoryId FROM item_category WHERE itemId = ?', [$itemId]);
