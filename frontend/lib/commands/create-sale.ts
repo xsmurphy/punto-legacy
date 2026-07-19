@@ -203,6 +203,14 @@ export interface BuildSaleInput {
    * Ver CreateSalePayload.dueDate.
    */
   dueDate?: string | null
+  /**
+   * uid idempotente provisto por el caller. Un REINTENTO del mismo cobro
+   * (timeout que en realidad llegó al server, doble submit) debe reusar el
+   * MISMO uid para que la dedupe server-side (columna UNIQUE) lo atrape —
+   * generar uno nuevo por intento crea ventas duplicadas. Si es falsy se
+   * genera uno (callers one-shot).
+   */
+  uid?: string | null
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -212,7 +220,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid } = input
 
   const saleItems: SaleItem[] = lines.map((line) => ({
     itemId: line.itemId,
@@ -261,7 +269,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
   const timestamp = Math.floor(now.getTime() / 1000)
 
   return {
-    uid: crypto.randomUUID(),
+    uid: uid || crypto.randomUUID(),
     type: credito ? 3 : 0,
     sale: saleItems,
     subtotal,

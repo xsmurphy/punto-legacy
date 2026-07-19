@@ -219,6 +219,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   const displayRef = React.useRef<HTMLInputElement>(null)
 
+  // uid idempotente ESTABLE por apertura del dialog: un reintento del mismo
+  // cobro (ej. timeout que en realidad sí llegó al server) reusa el mismo uid
+  // y la dedupe server-side (columna UNIQUE) lo atrapa. Generar un uid nuevo
+  // por intento —lo que hacía buildSalePayload solo— duplicaba la venta en
+  // ese escenario.
+  const saleUidRef = React.useRef<string>(crypto.randomUUID())
+
   // Resetear al abrir
   React.useEffect(() => {
     if (open) {
@@ -230,6 +237,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setPhase("pay")
       setSaleResult(null)
       setErrorMsg(null)
+      saleUidRef.current = crypto.randomUUID()
       // autofocus al visor
       setTimeout(() => displayRef.current?.focus(), 50)
     }
@@ -289,6 +297,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         saleDiscount,
         timezone: config?.timezone,
         dueDate: credito ? (dueDate || null) : null,
+        uid: saleUidRef.current,
       })
 
       let result: CreateSaleResult
@@ -326,6 +335,16 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           throw fetchErr
         }
 
+        // Online-only: el cobro de un espacio/orden NO se encola offline —
+        // el scope offline es SOLO ventas simples (memoria/roadmap): encolar
+        // acá dejaría la sesión/orden sin markPaid ni close en el server.
+        // El cajero ve el error y reintenta con conexión.
+        if (sessionParentId || orderParentId) {
+          throw new Error(
+            "Sin conexión con el servidor — el cobro de espacios/órdenes necesita estar online. Reintentá.",
+          )
+        }
+
         // Encolar en IndexedDB
         await enqueue({ clientTempId: payload.uid, leasedInvoiceNo, sale: payload })
 
@@ -342,8 +361,22 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         const count = await getCount()
         useOfflineSyncStore.getState().setPendingCount(count)
 
-        clearCart()
-        toast.success('Venta guardada — se enviará al volver online')
+        // Misma pantalla de confirmación que la venta online (decisión owner:
+        // TODA transacción termina en el modal de éxito, ahí se decide si
+        // imprimir — la impresión es browser-side y no necesita el server).
+        // Antes: clearCart + toast + return dejaban el dialog colgado en fase
+        // "pay" con total Gs. 0 y sin confirmación. El clearCart ahora ocurre
+        // al cerrar (handleClose, fase success), igual que el flujo online.
+        toast.info('Sin conexión — la venta se enviará al volver online')
+        setChange(changeAmount)
+        setSaleResult({
+          transactionId: "",
+          transactionUID: payload.uid,
+          invoiceNumber: null,
+          total: payload.subtotal,
+          duplicated: false,
+        })
+        setPhase("success")
         return
       }
 
