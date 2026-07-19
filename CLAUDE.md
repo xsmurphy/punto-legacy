@@ -36,6 +36,7 @@ proporcional al riesgo de la tarea:
 | Rewrite POS (app-next) | `16-app-next-rewrite.md` |
 | **POS roadmap (sprint 2026-06-21+)** | `19-pos-roadmap.md` |
 | **Auth rewrite (JWT → tokens opacos)** | `21-auth-rewrite.md` (plan cerrado 2026-06-29) |
+| **Sucursales, outlet scope, view-scope** | `25-sucursales-y-scopes.md` |
 | Bitácora de sesiones | `_session-log.md` |
 
 > Items completados / docs superseded archivados en `_archive-*.md` (no se leen en uso normal).

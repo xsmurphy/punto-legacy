@@ -157,6 +157,8 @@ Los tokens POS son **eternos** (device pairing). Si un endpoint de panel no decl
 
 BFF panel → /api: base `'shared'` + `Authorization: Bearer <_jwt_panel>` (no cookie — coexiste con `_jwt` del POS en el mismo browser).
 
+Resolución de outlet por realm (view-scope panel vs `outletScope` device) y qué datos son por-sucursal vs por-tenant: doc canónico `context/25-sucursales-y-scopes.md`.
+
 ### §33.2 — PROHIBIDO `$SQLcompanyId` global en services /api
 
 Services en `api/lib/` NO deben leer `$SQLcompanyId`/`$COMPANY_ID`/`$SQLoutletId` como global. Deben recibir `$companyId` por parámetro (del JWT vía `TenantContext` o argumento explícito). En el contexto de /api esos globals no están inicializados → SQL roto silencioso (`WHERE companyId = AND ...` → null → display silencioso de `'None'`).
