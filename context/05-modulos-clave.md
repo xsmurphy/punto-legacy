@@ -622,6 +622,21 @@ Pre-agregado incremental de reportes de ventas para rendimiento en volumen alto.
 
 ---
 
+## Módulo Finanzas — Fase 1 + Fase 2 (sprint 2026-07-02, plan `context/22`)
+
+Cuentas, categorías, movimientos, cheques y conciliación bancaria. Sin nav propia en sidebar — vive en la landing de Reportes.
+
+- **Schema**: mig 72 — `fin_account`, `fin_category`, `fin_movement`, `fin_check`, `fin_reconciliation`. Cuenta "Efectivo" es del sistema (`issystem=true`, no borrable, mapeo fijo al método de pago cuyo `name` es "Efectivo"); cada método de pago no-efectivo del tenant tiene un banco asociado (`fin_account.type='bank'`), creados libremente por el usuario.
+- **Services**: `Punto\Api\Services\AccountService` / `CategoryService` / `MovementService` / `ConfigService` / `CheckService` / `ReconciliationService` — endpoints `/v1/finance/*`.
+- **Permiso**: `finance.manage`.
+- **Frontend**: `/finanzas` con 7 páginas — Resumen, Movimientos, Cuentas, Categorías, Ajustes, Cheques (emitidos/recibidos), Conciliación bancaria.
+- **Ajustes**: lee los medios de pago REALES del tenant (taxonomía `paymentMethod`), no lista hardcodeada; back valida ownership del `methodId` contra la taxonomía.
+- **Idempotencia**: cheque→movimiento garantizada por `UNIQUE(companyid, source, sourceid)` en `fin_movement`.
+- **Conciliación**: toggle de movimientos contra extracto; cierre solo permitido con diferencia=0 o creando un movimiento de ajuste.
+- **Pendiente — Fase 3**: auto-poblado de `fin_movement` desde ventas/compras/gastos/pagos a crédito + backfill histórico (hoy los saldos no se actualizan solos).
+
+---
+
 ## Módulos retail (sprint 2026-06-23)
 
 ### `Punto\Api\Services\InventoryCountService` — `/v1/inventory_count.php`

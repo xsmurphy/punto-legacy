@@ -3,6 +3,22 @@
 
 # Bitácora de Sesiones
 
+## 2026-07-02 (jueves) — Módulo Finanzas Fase 1+2 + fixes agente y POS
+
+Commits `aebd1780..40fc0187` (47). Sesión larga: módulo nuevo + batería de bugfixes agente/POS/reportes.
+
+**Hecho:** Finanzas Fase 1 (mig 72 `fd36cb90`, backend `65686b6a`, frontend `02874ad3`): tablas `fin_account/category/movement/check/reconciliation`, services `AccountService/CategoryService/MovementService/ConfigService`, endpoints `/v1/finance/*`, permiso `finance.manage`, 5 páginas (`/finanzas` resumen/movimientos/cuentas/categorías/ajustes). Cuenta "Efectivo" es del sistema (issystem, no borrable); bancos = cuentas type='bank' creadas libremente. Fix arquitectónico en Ajustes (`ea614427`): medios de pago reales del tenant (taxonomía `paymentMethod`) reemplazan lista hardcodeada; back valida ownership del methodId. Finanzas Fase 2 (`5a0aff3e`+`3c630ef8`): `CheckService`+`ReconciliationService`, páginas Cheques (emitidos/recibidos) y Conciliación bancaria (toggle movimientos, cierre solo con diferencia=0 o ajuste); idempotencia cheque→movimiento vía UNIQUE(companyid,source,sourceid). Nav: Finanzas salió del sidebar, vive en landing de Reportes (`104ff15a`, reagrupada en 5 categorías por `15b2314f`).
+
+Agente IA: bug crítico de tool-calling (`dd5665a8`) — `confirm_action` con campos todos-optional hacía que DeepSeek/OpenRouter emitiera `{}` vacío y nunca creara nada; partido en `register_action`+`execute_action` con campos REQUERIDOS, verificado con repro real. Guardrails de alcance/permiso por-acción (`c295133f`, `f1084dd7`), cap tokens+temperature (`40fb10d0`), tools de lectura nuevas: `get_report` genérico + `get_finance_*` (`c12dfd09`).
+
+Bugs de reportes: `groupByPaymentMethod` sumaba `price` inexistente → medios de pago daba 0, fallback a `total` (`59955898`); detalle de transacción con keys minúscula vs front camelCase → todo vacío (`b3241f19`); chart Ingresos/Egresos no respetaba sucursal (`efa241fe`); reads sin no-store no refrescaban al cambiar sucursal (`29020a9b`); rango de fecha global persistente (`1af86d4b`).
+
+POS/varios: TZ tenant vacía rompía requests, fallback `America/Asuncion` (`c3574fbc`); editar cotizaciones type=9 (`f132253b`); Settings TZ a dropdown + País autocompleta moneda/TZ/impuesto/decimales (`a66a6e88`, `40fc0187`); crédito saldado con chip (`536a2ae2`); sidebar Caja→HotKeys (`dbea4472`); autoloader Linux lowercase (`33d72498`); `transaction.drawerId` case-sensitive rompía /v1/sales y /v1/credit-payments en prod Linux (`98910d17`); compras: JSONB detail (`9f1c1e7f`), anular con reverse de stock + excluir de listados/chart (`66d904b3`, `258057b9`, `6af0850b`); offline-sync loop infinito por error terminal mal clasificado (`8c4ccab3`); `/pos/guardadas` no crashea con venta corrupta (`74450e49`, `304dc562`); docs: eliminadas referencias confusas a ADOdb, el wrapper es `DB.php` (PDO propio) (`9edcd658`, `01b8f649`).
+
+**Incidente detectado:** el bug de guardado de Settings (ya arreglado en `304dc562`) dejó el perfil del tenant `roquetas` (id `019ead57-13f2-7370-94fc-d158e396662a`) con todos los `setting*` en NULL en prod — ventas intactas (256 transacciones), pero el usuario debe re-cargar los valores desde Ajustes.
+
+**Pendiente:** Finanzas Fase 3 (auto-poblado de movimientos desde ventas/compras/gastos/pagos crédito + backfill histórico) — sin ella los saldos no se actualizan solos. CRUD de "Medios de pago" en Catálogo (hoy hardcodeados en `FALLBACK_PAYMENT_METHODS` del bootstrap POS; falta endpoint + tab + migrar POS a leer la taxonomía real, coordinado con Ajustes de Finanzas). Deploy pendiente de varios commits de backend (`c3574fbc`, `b3241f19`) y frontend para que el usuario vea los fixes. Owner debe restaurar el perfil del tenant `roquetas` desde Ajustes.
+
 ## 2026-06-30 — Saga CIA/wrapper DB + restructura api/ self-contained + timezone + features POS + observabilidad
 
 Commits `f247a918..aebd1780` (~43). Jornada de incidentes en cascada + hardening arquitectónico.
