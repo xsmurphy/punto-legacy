@@ -99,7 +99,11 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
           >
             {table.name}
           </span>
-          {session && (
+          {/* Timer solo en la grilla (position ausente): la señal completa
+              vive en el HoverCard al pasar el mouse — el mapa queda visualmente
+              limpio y el número/estado ya son suficiente identificación.
+              Decisión owner 2026-07-19. */}
+          {session && !position && (
             <span
               style={accent ? { backgroundColor: accent } : undefined}
               className={cn(
