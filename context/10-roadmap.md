@@ -232,7 +232,7 @@ de plataforma para los demás.
 
 | Aspecto | Estado |
 |---------|--------|
-| Backend | PHP 8.4, sin framework, wrapper PDO propio (`app/includes/lib/DB.php` — NO ADOdb) ✅ |
+| Backend | PHP 8.4, sin framework, wrapper PDO propio (`api/includes/lib/DB.php`, sin ORM ni librería externa) ✅ |
 | DB | PostgreSQL 16 + Docker, migrations runner automático ✅ |
 | Frontend (panel) | **frontend** (Next.js 15 + React 19 + shadcn/ui + TanStack Query). Legacy panel eliminado. ✅ |
 | Frontend (POS) | **fusionado dentro de frontend** en `app/(pos)/pos` desde 2026-06-16. ✅ |
@@ -461,7 +461,7 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 
 ### Bug fixes notables del sprint
 
-- Wrapper PDO: agregados `Affected_Rows`, `BeginTrans/CommitTrans/RollbackTrans` (Services del API los llamaban pensando que era ADOdb — memoria [[project_db_wrapper_not_adodb]])
+- Wrapper PDO: agregados `Affected_Rows`, `BeginTrans/CommitTrans/RollbackTrans` (services del API los llamaban con esos nombres del wrapper legacy que la clase actual todavía no exponía)
 - `Taxonomy::getIdOrInsert` usaba `$SQLcompanyId` global vacío en /api → duplicados en imports (commit `6ec65bb`)
 - `transactions.php` detalle: `CaseInsensitiveArray` no es `JsonSerializable` → frontend recibía `{}` (fix con `GetRowAssoc()`)
 - Cookies JWT mezcladas tras cambio de dominio frontend-dev → app.punto.la: nuevo `/v1/logout` para borrar solo `_jwt_panel`
@@ -783,8 +783,8 @@ system/
 │   ├── includes/
 │   │   ├── simple.config.php      # Constantes globales
 │   │   ├── jwt.php                # JWT HS256 puro PHP
-│   │   ├── db.postgres.php        # Conexión PG (ADOdb postgres9)
-│   │   ├── db.pdo.php             # Conexión PG (PDO drop-in)
+│   │   ├── db.postgres.php        # Conexión PG (legacy)
+│   │   ├── db.pdo.php             # Conexión PG (PDO — actual)
 │   │   └── ws_publish.php         # Publica eventos a Redis
 │   └── standalone/
 │       └── scripts/

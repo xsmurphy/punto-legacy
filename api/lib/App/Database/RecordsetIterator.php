@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace Punto\App\Database;
 
 /**
- * Adapter sobre el recordset `DBResult` (capa de DB propia, api/includes/lib/DB.php
- * sobre PDO — el proyecto NO usa ADOdb) que GARANTIZA `$rs->fields` con lookup
+ * Adapter sobre el recordset `DBResult` del wrapper PDO propio del proyecto
+ * (`api/includes/lib/DB.php`) que GARANTIZA `$rs->fields` con lookup
  * case-insensitive vía la `CaseInsensitiveArray` de DB.php.
  *
  * `$rs->fields` puede venir como array plano (keys lowercase de PG); este wrapper

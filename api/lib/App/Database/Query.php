@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace Punto\App\Database;
 
 /**
- * Capa de acceso a DB del POS. Envuelve la capa de DB propia (api/includes/lib/DB.php,
- * sobre PDO — el proyecto NO usa ADOdb) + JSONB demoting.
+ * Capa de acceso a DB del POS. Envuelve el wrapper PDO propio del proyecto
+ * (`api/includes/lib/DB.php`, ÚNICA capa de DB) + JSONB demoting.
  *
  * Reemplaza las funciones globales (Slice 10 del plan PSR-4):
  *   - _flattenJsonb($row)                         → Query::flattenJsonb($row)

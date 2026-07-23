@@ -8,7 +8,7 @@
 --     que el brief pide en camelCase se crean con comillas para preservar la
 --     convención; sin embargo, dado que company usa smsCredit SIN comillas
 --     (lowercase en wire), usamos la misma convención: sin comillas.
---     aiCreditsBalance → sin comillas (ADOdb devuelve lowercase: "aicreditsbalance").
+--     aiCreditsBalance → sin comillas (PG folds a lowercase: "aicreditsbalance").
 -- (3) ai_credit_ledger — registro de débitos/créditos de IA por tenant.
 -- (4) billing_request — solicitudes de cambio de plan (tenant → admin aprueba).
 --
@@ -21,7 +21,7 @@ ALTER TABLE plans
   ADD COLUMN IF NOT EXISTS ai_credits_monthly INT NOT NULL DEFAULT 0;
 
 -- ── (2) company: saldo de créditos IA ────────────────────────────────────
--- Sin comillas para que el wire (ADOdb lowercase) sea predecible.
+-- Sin comillas para que el wire (PG lowercase) sea predecible.
 ALTER TABLE company
   ADD COLUMN IF NOT EXISTS aiCreditsBalance INT NOT NULL DEFAULT 0;
 

@@ -78,7 +78,7 @@ Cuando un `update()` hace UPDATE parcial sobre tabla con columna `data` JSONB co
 `ncmExecute` single-row aplana via `_flattenJsonb` Y hace `unset($row['data'])` → `$cur['data']` queda `null` → si re-escribís sin mergear, **wipeás el blob completo**.
 
 ```php
-// BIEN — forceObj devuelve objeto ADOdb sin aplanar
+// BIEN — forceObj devuelve el recordset del wrapper sin aplanar
 $res = ncmExecute($db, "SELECT data FROM outlet WHERE outletId=?", [$id], forceObj: true);
 $existingData = json_decode($res->fields['data'] ?? '{}', true) ?: [];
 // merge: $newData = array_merge($existingData, $formFields)
@@ -321,9 +321,15 @@ Incorrecto (PG lo lowercasea silenciosamente):
 CREATE UNIQUE INDEX uidx_drawer_register_open ON drawer (registerId) WHERE status = 'open';
 ```
 
-### §40.2 — NO usamos ADOdb — solo wrapper PDO propio
+### §40.2 — Capa de DB: wrapper PDO propio, sin librerías externas
 
-El proyecto usa `class DB` en `app/includes/lib/DB.php` (wrapper PDO con API inspirada en ADOdb). **No es ADOdb**. No atribuirle comportamiento de ADOdb ni parchear ADOdb.
+El proyecto tiene UNA sola capa de acceso a DB: `class DB` en
+`api/includes/lib/DB.php`, wrapper PDO propio sobre PostgreSQL. **No hay
+ORM, no hay librería externa** — la API pública (Execute/AutoExecute/
+GetAssoc/StartTrans/...) son nombres heredados del wrapper legacy que
+precedió a esta clase, no de ninguna dependencia. Cualquier comportamiento
+raro de la DB se diagnostica y se arregla en este wrapper, no atribuyéndolo
+a una librería que no está.
 
 La única superficie de DB válida es:
 - `ncmExecute` / `ncmInsert` / `ncmUpdate` (helpers globales del legacy)

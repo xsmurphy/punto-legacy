@@ -268,7 +268,7 @@ God nodes del repo por tamaño + responsabilidad medida (2555 nodos / 4058 edges
 | `simple_html_dom_node` | 49 | vendor | Parser HTML |
 | `iftn()` | 46 | `functions.php` | Helper if-then-null |
 | `toUTF8()` | 40 | `functions.php` | Normalización de encoding |
-| `DB` | 26 | clase global | Wrapper de ADOdb |
+| `DB` | 26 | clase global | Wrapper PDO propio (`api/includes/lib/DB.php` — ÚNICA capa de DB) |
 | `getROC()` | 23 | `functions.php` | Cálculo de ROC (retorno sobre capital) |
 
 ### Archivos críticos (por tamaño + responsabilidad)
@@ -435,7 +435,7 @@ Ver §22.12 en `08-convenciones.md` para la receta completa y los casos de uso v
 ## Decisiones arquitectónicas vigentes
 
 - **No microservicios** (excepto ws-server) — el monolito funciona y se moderniza in-place
-- **No ORM moderno** — ADOdb es legacy pero funcional; las queries son explícitas
+- **No ORM** — wrapper PDO propio (`api/includes/lib/DB.php` + `api/lib/App/Database/Query.php`), queries explícitas
 - **API compartida en `/api` top-level (2026-05-28)** — hermano de /panel y /app; destinada a correr en un server dedicado que /panel y /app consuman remotamente. Los endpoints nuevos del desacople van en `/api/v1/` + `/api/lib/services/`. `panel/API/*` (~93 endpoints) migra gradualmente a /api.
 - **Agente IA como microservicio Python separado** — no toca el monolito PHP
 

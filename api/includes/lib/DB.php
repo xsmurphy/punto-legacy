@@ -1,17 +1,17 @@
 <?php
 
 /**
- * DB — Wrapper PDO sobre PostgreSQL que emula la API de ADOdb usada
- * históricamente en este proyecto. Cargado desde `includes/db.php`.
+ * DB — Wrapper PDO propio sobre PostgreSQL. ÚNICA capa de acceso a DB del
+ * proyecto (no hay ORM ni librería externa). Cargado desde `includes/db.php`.
  *
- * Métodos emulados:
+ * API pública (nombres heredados del wrapper legacy que precedió a esta clase):
  *   Execute, execute, AutoExecute, Insert, GetAssoc, CacheGetAssoc,
  *   cacheExecute, SelectLimit, qstr, Prepare, Param, StartTrans,
  *   CompleteTrans, FailTrans, HasFailedTrans, BeginTrans, CommitTrans,
  *   RollbackTrans, Affected_Rows, ErrorMsg, ErrorNo,
  *   SetFetchMode, cacheFlush, Close, selectDb, Connect, NConnect
  *
- * Propiedades emuladas: debug, databaseType, cacheSecs, fetchMode, port
+ * Propiedades: debug, databaseType, cacheSecs, fetchMode, port
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -461,8 +461,8 @@ class DB
 
     // ─── Transacciones ─────────────────────────────────────────────────────
     //
-    // Smart transactions con contador de anidamiento (semántica ADOdb, que
-    // los services ya asumen): un service que abre TX puede llamar a otro
+    // Smart transactions con contador de anidamiento: un service que abre TX
+    // puede llamar a otro
     // service que también abre TX — solo el StartTrans más externo hace
     // beginTransaction real y solo su CompleteTrans commitea/rollbackea.
     // FailTrans en cualquier nivel marca TODA la transacción como fallida.

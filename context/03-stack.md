@@ -11,7 +11,7 @@
 | PostgreSQL | 16 (Alpine, Docker) | Motor principal. UUID PKs, JSONB. |
 | Redis | 7 (Alpine, Docker) | Cache + Pub/Sub para WebSocket bridge |
 | Node.js | 20 (Alpine, Docker) | Solo para ws-server |
-| ADOdb | 5.x (vendored) | ORM/abstracción de BD |
+| DB layer | Wrapper PDO propio (`api/includes/lib/DB.php` + `api/lib/App/Database/Query.php`) | ÚNICA capa de acceso a BD. Sin ORM. Sin librerías externas. |
 
 ## Frontend
 
