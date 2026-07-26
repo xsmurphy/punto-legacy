@@ -104,6 +104,20 @@ Servicio: `api/lib/Printing/PrintPoolService.php` (namespace
   impresora de estación en el binding; el pipeline (`printSale`/
   `print-with-fallback`) rama pool → render + enqueue. Selector de módulo de
   invitación (`device-invite-create-dialog`) suma "Estación de impresión".
+- **HALLAZGO P1 (2026-07-19) — impresoras de RED no funcionan desde la
+  estación.** Un browser no puede abrir sockets TCP crudos, así que
+  `sendBytesViaNetwork` proxea por `/v1/print.php` — que corre en el server
+  cloud y (a) bloquea RFC-1918/loopback a propósito (anti-SSRF) y (b) aunque
+  no lo bloqueara, no puede rutear a la LAN del comercio. **No se resuelve
+  aflojando el guard** (sería regresión de seguridad sobre un endpoint
+  público, y seguiría sin rutear). La estación cubre USB y Bluetooth
+  (prácticamente todas las térmicas); para impresoras de red haría falta un
+  agente local en la PC de la estación (Node/Tauri) que abra el socket —
+  decisión de producto pendiente, NO asumir que P2/P3 lo resuelven solo.
+- **Limitación aceptada**: `print_job` no trackea progreso parcial de
+  `copies`. Si falla la copia 2 de N, el reintento reimprime desde la 1
+  (ticket duplicado). Resolverlo requiere contador de copias emitidas en el
+  backend.
 - **P3 — formatos extra** (fast-follow): raster/ESC-P para inkjet y
   matriciales. P0-P2 shippean `escpos` + `html` + `raw`.
 
