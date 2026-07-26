@@ -191,7 +191,8 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 | **F-D-1** | Dirección/coords snapshot, `courierid`, UI de despacho, mapa filtrado | F-D-0 |
 | **F-SLA-1** | `prepMinutes` por ítem + agregación max-por-estación | F-SLA-0 |
 | **F-D-2** | Tracking del repartidor en vivo (reusa `contactTrackLocation`) | F-D-1 |
-| **F-SLA-2** | Target sugerido desde el histórico (p75 de `sent_at→ready_at`) | F-SLA-0 + volumen de datos |
+| **F-EVT-0** | `pos_order_event` (historial de transiciones, orden e ítem) + `recordEvent()` en los 5 puntos de escritura — ver PARTE C | — (independiente, ejecutable ya) |
+| **F-SLA-2** | Target sugerido desde el histórico (p75 de `sent_at→ready_at`) | F-SLA-0 + **F-EVT-0** + volumen de datos |
 
 ## B.6 Decisiones pendientes del owner
 
@@ -200,3 +201,108 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 2. **¿El repartidor tiene app propia?** Si sí, `out_for_delivery` y
    `delivered` los marca él y hace falta un realm/module nuevo (patrón
    device pairing). Si no, los marca el POS y F-D-2 se simplifica mucho.
+
+---
+
+# PARTE C — Historial de transiciones (`pos_order_event`)
+
+Requisito del owner (2026-07-19): cada orden guarda **cuándo pasó por cada
+estado**, para medir tiempos promedio y encontrar cuellos de botella en las
+líneas de producción.
+
+## C.1 Por qué NO alcanzan las columnas de timestamp
+
+`ready_at`/`dispatched_at`/`delivered_at` (§A.3) son un **cache**, no la
+historia. Pierden:
+
+- **Las repeticiones.** Una orden que va `ready → in_progress → ready`
+  (salió mal, se rehízo) pisa el timestamp: la columna dice que tardó 8 min
+  cuando en realidad tardó 25 y hubo re-trabajo. **El re-trabajo es
+  justamente lo que hay que detectar.**
+- **Quién lo marcó.** No es lo mismo que la cocina marque `ready` desde el
+  KDS a que el cajero lo fuerce desde el POS para sacarse el pedido de
+  encima. Sin el actor, el promedio miente.
+- **El nivel de ítem.** Una columna en `pos_order` no puede decir cuánto
+  tardó *la parrilla* — y ahí está el cuello de botella.
+
+## C.2 El insight: el cuello de botella es de ESTACIÓN, no de orden
+
+El evento a nivel **orden** da el lead time total. El que encuentra el
+cuello de botella es el de **ítem**, porque cada ítem ya está ruteado a su
+estación (`pos_order_item.stationid`, O0):
+
+> "La parrilla promedia 18 min por ítem y la barra 4" → la parrilla es el
+> cuello. Sin eventos por ítem solo sabés que "las órdenes tardan", no dónde.
+
+Por eso la tabla cubre **los dos scopes** (`order` e `item`) en un solo
+log — misma partición por estación que ya usan KDS y comandas.
+
+## C.3 Schema
+
+```sql
+CREATE TABLE pos_order_event (
+  eventid      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  companyid    UUID NOT NULL REFERENCES company(companyId) ON DELETE CASCADE,
+  outletid     UUID NOT NULL,          -- denormalizado: las queries analíticas
+                                        -- escanean por outlet sin JOIN
+  orderid      UUID NOT NULL REFERENCES pos_order(orderid) ON DELETE CASCADE,
+  orderitemid  UUID,                   -- NULL = evento de orden
+  stationid    UUID,                   -- snapshot de la estación del ítem
+  scope        VARCHAR(8)  NOT NULL CHECK (scope IN ('order','item')),
+  from_status  VARCHAR(16),            -- NULL en el evento de creación
+  to_status    VARCHAR(16) NOT NULL,
+  actor_kind   VARCHAR(12) NOT NULL CHECK (actor_kind IN ('user','device','system')),
+  actor_id     UUID,                   -- userid o deviceid
+  actor_module VARCHAR(12),            -- pos | kds | display | panel | print
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+Índices: `(companyid, orderid, created_at)` para el timeline de una orden;
+`(companyid, outletid, created_at DESC)` para reportes; `(companyid,
+stationid, to_status, created_at)` para el análisis por estación.
+
+`stationid` se **snapshotea** en el evento: si mañana se re-rutea la
+categoría a otra estación, la historia debe seguir diciendo quién lo hizo
+esa noche.
+
+## C.4 Invariante: mismo TX que el cambio de estado
+
+**El evento se escribe en la MISMA transacción que el UPDATE de status.** Si
+se escriben por separado, cualquier fallo parcial deja la historia mintiendo
+—y una historia en la que no confiás no sirve para decidir nada—.
+
+Punto único de escritura: un `recordEvent()` privado en `OrderCoreService`,
+llamado desde `create()`, `send()`, `updateStatus()`, `updateItemStatus()` y
+`markPaid()`. **No debe existir ningún camino que cambie status sin emitir
+evento** — si aparece uno, es un bug, no una excepción.
+
+El actor sale de lo que el endpoint ya conoce: `AUTHED_USER_ID`,
+`AUTHED_DEVICE_ID` y el `module` que `assertModuleCanSetStatus()` ya valida.
+
+## C.5 Derivados
+
+- Los timestamps de §A.3 pasan a ser **cache derivado** del log (se siguen
+  escribiendo en el mismo UPDATE, para no pagar un subquery en el camino
+  caliente del KDS).
+- **F-SLA-2 (target sugerido desde el histórico) depende de esta tabla.** Es
+  su prerequisito: sin eventos no hay p75 que calcular.
+- **Backfill opcional**: las órdenes existentes tienen `created_at`/
+  `sent_at`/`closed_at` → se pueden sembrar eventos sintéticos
+  (`actor_kind='system'`) para que los reportes no arranquen vacíos.
+- **Crecimiento**: ~6 eventos por orden. Alimenta los rollups de
+  `context/18` (día/mes por outlet y por estación) y el raw se poda pasados
+  N meses. No construir el rollup en esta fase — solo no bloquearlo.
+
+## C.6 Fuera de alcance (registrado)
+
+`space_session` (mesa abierta → cuenta pedida → cerrada) merece el mismo
+tratamiento para medir rotación de mesas, pero es otro dominio: se decide
+aparte, con el mismo patrón.
+
+## C.7 Fase
+
+**F-EVT-0** — tabla + `recordEvent()` en los 5 puntos de escritura +
+exposición del timeline en el detalle de la orden. Sin UI de reportes.
+Prerequisito de F-SLA-2. No depende de delivery ni de las decisiones
+pendientes de §B.6, así que puede ejecutarse ya.
