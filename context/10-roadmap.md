@@ -19,7 +19,8 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 - **Producción v1** ✅ — plan `context/23-production-module-plan.md`. F0 recetas canónicas en `item_compound` (mig 75), F1 `production_order`+`waste_event` (migs 76/77, permiso `production.manage`), F2 UI `/produccion`. Pendiente: v2 (parcial/co-productos/reversa).
 - **Órdenes** ✅ (O0-O2) — plan `context/24-orders-module-plan.md`. O0 core (`pos_order`/`order_station`, correlativo advisory-lock, canal realtime `kds`), O1 modal POS (Pagar↔Ordenar, comandas), O2 KDS+display device-paired WS. Pendiente: O3 split/reservas, O4 ecommerce/agenda.
 - **Espacios v1** ✅ (ex Mesas, rename migs 81/82) — plan `context/15-espacios-module-plan.md`. F0/F1 schema+editor (react-rnd), F2 operación POS (mapa, sesión, cobro multi-orden).
-- **Estación de Impresión (pool)** — plan propio `context/26-print-station-plan.md` (cerrado 2026-07-19: estación router tonto device-paired + cola durable `print_job` + opt-in por binding). P0 backend en ejecución.
+- **Estación de Impresión (pool)** — plan propio `context/26-print-station-plan.md` (cerrado 2026-07-19: estación router tonto device-paired + cola durable `print_job` + opt-in por binding). P0 backend + P1 pantalla ✅. Pendiente P2 (panel + rama pool del pipeline) y P3 (formatos inkjet/matricial). ⚠ Impresoras de RED no alcanzables desde el browser — ver hallazgo en el doc.
+- **SLA de tiempo por orden + Delivery (O4)** — plan `context/27-delivery-sla-plan.md` (2026-07-19). SLA transversal (KDS/órdenes/espacios/display) con target snapshoteado y tiers de color; delivery con `fulfillment` ortogonal a `source` y estado `out_for_delivery`. Sin implementar — 2 decisiones del owner pendientes (fiscalidad del `deliveryfee`, app del repartidor).
 
 ---
 
