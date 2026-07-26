@@ -104,9 +104,12 @@ export default function PrintStationPage() {
       if (!mountedRef.current) return
       setPrinters(mine)
       setLinked(linkedIds)
-    } catch {
+    } catch (err) {
       // Red caída o permisos WebUSB/BT no disponibles: seguimos con el último
-      // estado conocido en vez de dejar la estación sin impresoras.
+      // estado conocido en vez de dejar la estación sin impresoras. Se loguea
+      // porque esta pantalla corre desatendida días — sin rastro, una estación
+      // trabada enumerando hardware es indiagnosticable.
+      console.warn("[print-station] no se pudo refrescar las impresoras:", err)
     }
   }, [])
 

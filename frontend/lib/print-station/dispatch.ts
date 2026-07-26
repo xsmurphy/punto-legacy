@@ -120,6 +120,12 @@ export async function sendToPrinter(
  * Despacha un job completo. `copies > 1` repite el envío N veces de forma
  * SERIALIZADA (no paralela: dos transferOut simultáneos sobre el mismo
  * endpoint USB se pisan).
+ *
+ * LIMITACIÓN CONOCIDA (aceptada, no hay tracking de progreso parcial en
+ * `print_job`): si falla la copia 2 de N, la copia 1 YA salió por la
+ * impresora y el job queda `failed`; el reintento manual reimprime desde la
+ * copia 1 → ticket duplicado en el mostrador. Resolverlo requiere que el
+ * backend lleve la cuenta de copias emitidas — fuera de alcance de P1.
  */
 export async function dispatchJob(
   job: PrintJob,
@@ -138,7 +144,16 @@ export async function dispatchJob(
   for (let i = 0; i < copies; i++) {
     await sendToPrinter(printer, bytes, usbHandles)
   }
+  // El pulso del cajón NO puede hacer fallar un job cuyo ticket YA se
+  // imprimió: marcarlo `failed` haría que el reintento reimprima el ticket
+  // completo solo para recuperar la apertura del cajón (hallazgo del
+  // code-reviewer). Un cajón que no abrió se resuelve con la tecla física,
+  // no reimprimiendo.
   if (job.openDrawer) {
-    await sendToPrinter(printer, drawerPulse, usbHandles)
+    try {
+      await sendToPrinter(printer, drawerPulse, usbHandles)
+    } catch (err) {
+      console.warn("[print-station] el ticket se imprimió pero falló la apertura del cajón:", err)
+    }
   }
 }
