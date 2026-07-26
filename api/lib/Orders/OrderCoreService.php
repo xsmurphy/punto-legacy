@@ -131,6 +131,7 @@ final class OrderCoreService
 
         $db->StartTrans();
 
+        $lockedStatus = null;
         if ($spaceSessionId !== null) {
             // Re-check atómico: FOR UPDATE bloquea la fila hasta el commit de
             // esta TX, así que request-bill/cancel/close (UPDATEs simples sin
@@ -144,7 +145,14 @@ final class OrderCoreService
             $lockedStatus = ($lockedSession !== false && !$lockedSession->EOF)
                 ? (string) $lockedSession->fields['status']
                 : null;
-            if ($lockedStatus !== 'open') {
+            // `bill_requested` NO bloquea: pedir la cuenta es una señal para
+            // la caja, no un cierre — que la mesa sume "un café más" después
+            // de pedirla es flujo normal de gastronomía. Se acepta la orden y
+            // la sesión VUELVE a 'open' (abajo, tras el INSERT): el pedido de
+            // cuenta valía para el total de ese momento y ese total cambió,
+            // así que hay que volver a pedirla. Solo closed/cancelled cierran
+            // de verdad.
+            if (!in_array($lockedStatus, ['open', 'bill_requested'], true)) {
                 $db->FailTrans();
                 $db->CompleteTrans();
                 throw new \InvalidArgumentException('El espacio no admite nuevas órdenes (status: ' . ($lockedStatus ?? 'desconocido') . ')');
@@ -237,16 +245,38 @@ final class OrderCoreService
             }
         }
 
+        // La sesión vuelve a 'open' si había pedido la cuenta — el total
+        // cambió, ese pedido de cuenta ya no vale. Dentro de la TX (la fila
+        // sigue bloqueada por el FOR UPDATE de arriba); el publish va después
+        // del commit para no notificar un estado que puede rollbackearse.
+        $reopened = false;
+        if ($spaceSessionId !== null && $lockedStatus === 'bill_requested') {
+            $sessions = new \Punto\Api\Spaces\SpaceSessionService($this->db);
+            $sessions->reopenFromBillRequested($companyId, $spaceSessionId);
+            $reopened = true;
+        }
+
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
         if ($failed) {
             throw new \RuntimeException('Fallo al crear la orden (transacción abortada)');
         }
 
-        $order = $this->find($companyId, $orderId);
-        if ($sendNow && $order !== null) {
-            $this->publish($companyId, $outletId, 'order:new', $order);
-            realtimePublish('order', 'create', $orderId);
+        // Side-effects post-commit: best-effort. La orden YA está commiteada —
+        // si un publish falla, propagar la excepción devolvería 500 sobre un
+        // request exitoso y el cliente reintentaría → orden DUPLICADA.
+        try {
+            $order = $this->find($companyId, $orderId);
+            if ($sendNow && $order !== null) {
+                $this->publish($companyId, $outletId, 'order:new', $order);
+                realtimePublish('order', 'create', $orderId);
+            }
+            if ($reopened) {
+                (new \Punto\Api\Spaces\SpaceSessionService($this->db))
+                    ->publishSessionState($companyId, $spaceSessionId);
+            }
+        } catch (\Throwable $e) {
+            error_log('[OrderCoreService::create] publish post-commit falló (orden ' . $orderId . '): ' . $e->getMessage());
         }
 
         return $orderId;

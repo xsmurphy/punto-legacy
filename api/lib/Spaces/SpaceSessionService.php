@@ -256,6 +256,40 @@ final class SpaceSessionService
         }
     }
 
+    /**
+     * Revierte `bill_requested` → `open`. La llama OrderCoreService::create()
+     * cuando se agrega una orden a un espacio que ya había pedido la cuenta:
+     * el pedido de cuenta valía para el total de ESE momento — si entra un
+     * ítem más, ese total cambió y hay que volver a pedirla.
+     *
+     * PRECONDICIÓN DURA: el caller DEBE tener la fila de `space_session`
+     * bloqueada con `SELECT ... FOR UPDATE` en la TX en curso. Este método no
+     * toma lock propio y su CAS (`WHERE status='bill_requested'`) es un no-op
+     * silencioso si el status cambió — sin el lock del caller eso sería una
+     * carrera invisible. El publish lo dispara el caller después del commit
+     * (ver publishSessionState).
+     */
+    public function reopenFromBillRequested(string $companyId, string $sessionId): void
+    {
+        $ok = $this->db->Execute(
+            "UPDATE space_session SET status = 'open'
+              WHERE sessionid = ? AND companyid = ? AND status = 'bill_requested'",
+            [$sessionId, $companyId]
+        );
+        if ($ok === false) {
+            throw new \RuntimeException('No se pudo reabrir la sesión del espacio');
+        }
+    }
+
+    /** Publica el estado actual de una sesión — para orquestadores que la mutan dentro de su propia TX. */
+    public function publishSessionState(string $companyId, string $sessionId): void
+    {
+        $session = $this->find($companyId, $sessionId);
+        if ($session !== null) {
+            $this->publish($companyId, (string) $session['outletId'], $session);
+        }
+    }
+
     private function publish(string $companyId, string $outletId, array $session): void
     {
         wsPublish($companyId . ':spaces:' . $outletId, 'space:state', [
