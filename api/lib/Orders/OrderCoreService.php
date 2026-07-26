@@ -589,8 +589,19 @@ final class OrderCoreService
             $params[] = '%' . $filters['q'] . '%';
         }
 
-        $sql = 'SELECT o.*
+        // Enriquecimiento de cliente (nombre + coords) en el MISMO query — el
+        // shape de una orden es único, venga del listado o del detalle (ver
+        // find()). `contactLatLng` vive en el JSONB `data` (demote de la mig
+        // 06) y se lee con `->>`: el operador jsonb `?` está PROHIBIDO en
+        // queries PDO (colisiona con el placeholder). El LEFT JOIN acarrea
+        // companyid para no filtrar contactos de otro tenant.
+        $sql = 'SELECT o.*,
+                       c.contactname          AS customer_name,
+                       c.data->>\'contactLatLng\' AS customer_latlng
                   FROM pos_order o
+             LEFT JOIN contact c
+                    ON c.contactid = o.customerid
+                   AND c.companyid = o.companyid
                  WHERE ' . implode(' AND ', $where) . '
                  ORDER BY o.created_at DESC
                  LIMIT 500';

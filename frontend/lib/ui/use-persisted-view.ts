@@ -18,18 +18,37 @@
 
 import * as React from "react"
 
-const listeners = new Set<() => void>()
+// Listeners scopeados POR KEY: un Set global notificaba a todos los
+// consumidores del hook ante cualquier cambio, así que dos vistas persistidas
+// montadas a la vez (o una pantalla con dos toggles) se re-renderizarían
+// mutuamente sin motivo. Se arregla en el wrapper, no en el call-site.
+const listenersByKey = new Map<string, Set<() => void>>()
 
-function emit(): void {
+function emit(key: string): void {
+  const listeners = listenersByKey.get(key)
+  if (!listeners) return
   for (const listener of listeners) listener()
 }
 
-function subscribe(callback: () => void): () => void {
+function subscribeTo(key: string, callback: () => void): () => void {
+  let listeners = listenersByKey.get(key)
+  if (!listeners) {
+    listeners = new Set()
+    listenersByKey.set(key, listeners)
+  }
   listeners.add(callback)
-  window.addEventListener("storage", callback)
+
+  // El evento `storage` (otras pestañas del mismo dispositivo) trae la clave
+  // afectada: solo despertamos al consumidor de ESA clave.
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === null || e.key === key) callback()
+  }
+  window.addEventListener("storage", onStorage)
+
   return () => {
     listeners.delete(callback)
-    window.removeEventListener("storage", callback)
+    if (listeners.size === 0) listenersByKey.delete(key)
+    window.removeEventListener("storage", onStorage)
   }
 }
 
@@ -50,12 +69,17 @@ export function usePersistedView<T extends string>(
 
   const getServerSnapshot = React.useCallback((): T => fallback, [fallback])
 
+  const subscribe = React.useCallback(
+    (callback: () => void) => subscribeTo(key, callback),
+    [key],
+  )
+
   const view = React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 
   const setView = React.useCallback(
     (next: T) => {
       window.localStorage.setItem(key, next)
-      emit()
+      emit(key)
     },
     [key],
   )
