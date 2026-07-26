@@ -197,6 +197,11 @@ final class OrderCoreService
             throw new \RuntimeException('No se pudo crear la orden');
         }
 
+        // Un solo evento con el status REAL con el que nació la orden (open o
+        // sent si sendNow) — no se inventa un 'open' que nunca existió cuando
+        // sendNow crea la orden ya 'sent'.
+        $this->recordEvent($companyId, $outletId, $orderId, null, null, 'order', null, $status);
+
         foreach ($items as $item) {
             $itemId = !empty($item['itemId']) ? (string) $item['itemId'] : null;
             $qty    = (float) ($item['qty'] ?? 0);
@@ -289,6 +294,8 @@ final class OrderCoreService
      */
     public function send(string $companyId, string $id, ?string $outletScope = null): array
     {
+        global $db;
+
         $order = $this->find($companyId, $id);
         if ($order === null) {
             throw new \RuntimeException('Orden no encontrada');
@@ -297,14 +304,29 @@ final class OrderCoreService
         if ($order['status'] !== 'open') {
             throw new \RuntimeException('Solo se puede enviar una orden en status open (actual: ' . $order['status'] . ')');
         }
+
+        // TX propia (antes de F-EVT-0 este método hacía un único UPDATE
+        // autocommit) — el evento debe entrar en la MISMA TX que el UPDATE
+        // de status (invariante §C.4).
+        $db->StartTrans();
         $ok = $this->db->Execute(
             "UPDATE pos_order SET status = 'sent', sent_at = now()
               WHERE orderid = ? AND companyid = ? AND status = 'open'",
             [$id, $companyId]
         );
         if ($ok === false) {
+            $db->FailTrans();
+            $db->CompleteTrans();
             throw new \RuntimeException('No se pudo enviar la orden');
         }
+        $this->recordEvent($companyId, $order['outletId'], $id, null, null, 'order', 'open', 'sent');
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException('Fallo al enviar la orden (transacción abortada)');
+        }
+
         $order = $this->find($companyId, $id);
         if ($order !== null) {
             $this->publish($companyId, $order['outletId'], 'order:new', $order);
@@ -369,6 +391,7 @@ final class OrderCoreService
             $db->CompleteTrans();
             throw new \RuntimeException('No se pudo actualizar el estado de la orden');
         }
+        $this->recordEvent($companyId, (string) $order['outletid'], $id, null, null, 'order', $current, $status);
 
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
@@ -448,6 +471,7 @@ final class OrderCoreService
             $db->CompleteTrans();
             throw new \RuntimeException('No se pudo marcar la orden como cobrada');
         }
+        $this->recordEvent($companyId, (string) $order['outletid'], $orderId, null, null, 'order', (string) $order['status'], 'closed');
 
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
@@ -523,6 +547,21 @@ final class OrderCoreService
         }
 
         $orderId = (string) $item['orderid'];
+        $this->recordEvent(
+            $companyId,
+            (string) $item['orderoutletid'],
+            $orderId,
+            $orderItemId,
+            $item['stationid'] ?? null,
+            'item',
+            $current,
+            $status
+        );
+
+        // recomputeOrderStatus() puede pisar pos_order.status como efecto
+        // agregado de este cambio de ítem (ej. último ítem pasa a 'ready' →
+        // la orden entera pasa a 'ready') — emite SU PROPIO evento scope='order'
+        // si eso ocurre, ver ahí.
         $this->recomputeOrderStatus($companyId, $orderId);
 
         $failed = $db->HasFailedTrans();
@@ -672,13 +711,31 @@ final class OrderCoreService
         }
         if ($newStatus === null) return;
 
+        // FLAG (auditoría F-EVT-0): este UPDATE es un SEGUNDO cambio de
+        // pos_order.status disparado por updateItemStatus() — un camino de
+        // escritura fuera de los 5 puntos "oficiales" que NO emitía evento
+        // hasta este commit (ej. sent→in_progress cuando el primer ítem pasa
+        // a preparing, o →ready cuando el último ítem llega a ready). Se
+        // cubre acá en vez de dejarlo silencioso: se snapshotea el status
+        // ANTES del UPDATE (para from_status + outletid, que este método no
+        // conocía) y solo se emite si el UPDATE realmente pisó una fila.
+        $before = ncmExecute(
+            'SELECT outletid, status FROM pos_order WHERE orderid = ? AND companyid = ?',
+            [$orderId, $companyId]
+        );
+        if (!$before || (string) $before['status'] === $newStatus) return; // sin cambio real, sin evento
+
         // Solo avanza el status de la orden si está en un estado operativo
         // activo (no toca closed/cancelled/open — open avanza recién con send()).
-        $this->db->Execute(
+        $rs = $this->db->Execute(
             "UPDATE pos_order SET status = ?
-              WHERE orderid = ? AND companyid = ? AND status IN ('sent','in_progress','ready','delivered')",
+              WHERE orderid = ? AND companyid = ? AND status IN ('sent','in_progress','ready','delivered')
+              RETURNING orderid",
             [$newStatus, $orderId, $companyId]
         );
+        if ($rs !== false && !$rs->EOF) {
+            $this->recordEvent($companyId, (string) $before['outletid'], $orderId, null, null, 'order', (string) $before['status'], $newStatus);
+        }
     }
 
     /** @return list<array{stationId:string, categoryIds:list<string>}> */
@@ -751,6 +808,69 @@ final class OrderCoreService
         wsPublish($companyId . ':kds:' . $outletId, $type, $payload);
     }
 
+    /**
+     * Punto ÚNICO de escritura de pos_order_event (F-EVT-0,
+     * context/27-delivery-sla-plan.md §C.4). Llamado desde create(), send(),
+     * updateStatus(), updateItemStatus(), markPaid() y recomputeOrderStatus()
+     * (el agregado que updateItemStatus dispara) — SIEMPRE dentro de la misma
+     * TX que el UPDATE/INSERT de status que lo origina. No abre TX propia:
+     * corre dentro de la del caller (StartTrans anida con contador, ver
+     * DB::StartTrans) — abrir una acá sería redundante y, si el caller ya
+     * falló la TX (FailTrans), este INSERT igual se revierte con el resto.
+     *
+     * El actor se resuelve del contexto AMBIENTE del request (constantes
+     * AUTHED_USER_ID/AUTHED_DEVICE_ID definidas por jwtAuthenticate en
+     * auth_session.php) en vez de recibirse como parámetro thread-eado por
+     * las 5 firmas de escritura: es contexto DE REQUEST (quién pegó al
+     * endpoint), no un dato de dominio de la orden — mismo criterio que
+     * tenantAudit() en bootstrap.php, que audita mutaciones leyendo AUTHED_*
+     * ambiente en vez de recibir el actor por parámetro. cron/backfill (sin
+     * sesión HTTP) → ninguna constante definida → actor_kind='system'.
+     *
+     * El module del device NO viaja en una constante ambiente en el path de
+     * auth que usa este endpoint (apiAuthTenant/jwtAuthenticate) — a
+     * diferencia de apiAuthPosContext (otro flujo, no usado por
+     * orders-core.php) que sí define DEVICE_MODULE. Se resuelve con un
+     * lookup puntual por PK sobre `device`, barato y dentro de la misma TX.
+     */
+    private function recordEvent(
+        string $companyId,
+        string $outletId,
+        string $orderId,
+        ?string $orderItemId,
+        ?string $stationId,
+        string $scope,
+        ?string $fromStatus,
+        string $toStatus
+    ): void {
+        $userId   = (defined('AUTHED_USER_ID') && AUTHED_USER_ID !== '') ? AUTHED_USER_ID : null;
+        $deviceId = (defined('AUTHED_DEVICE_ID') && AUTHED_DEVICE_ID !== '') ? AUTHED_DEVICE_ID : null;
+
+        $actorKind   = 'system';
+        $actorId     = null;
+        $actorModule = null;
+
+        if ($deviceId !== null) {
+            $actorKind = 'device';
+            $actorId   = $deviceId;
+            $dev = ncmExecute('SELECT module FROM device WHERE deviceid = ? AND companyid = ?', [$deviceId, $companyId]);
+            $mod = $dev ? (string) ($dev['module'] ?? '') : '';
+            $actorModule = $mod !== '' ? $mod : null;
+        } elseif ($userId !== null) {
+            $actorKind = 'user';
+            $actorId   = $userId;
+        }
+
+        $this->db->Execute(
+            'INSERT INTO pos_order_event
+                (eventid, companyid, outletid, orderid, orderitemid, stationid, scope,
+                 from_status, to_status, actor_kind, actor_id, actor_module)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$companyId, $outletId, $orderId, $orderItemId, $stationId, $scope,
+             $fromStatus, $toStatus, $actorKind, $actorId, $actorModule]
+        );
+    }
+
     private function presentOrder(array $row, bool $withItems, ?string $companyId = null): array
     {
         $out = [
@@ -797,6 +917,37 @@ final class OrderCoreService
                 }
             }
             $out['items'] = $items;
+
+            // Timeline de la orden (F-EVT-0) — SOLO en find() (detalle), nunca
+            // en list(): $withItems=true acá es exclusivo del path de find(),
+            // list() siempre llama presentOrder(..., false) y adjunta ítems
+            // aparte vía loadItemsByOrderIds(). Una sola query, LEFT JOIN a
+            // order_station para el nombre — sin N+1.
+            $evRs = $this->db->Execute(
+                'SELECT e.*, s.name AS stationname
+                   FROM pos_order_event e
+              LEFT JOIN order_station s ON s.stationid = e.stationid AND s.companyid = e.companyid
+                  WHERE e.orderid = ? AND e.companyid = ?
+                  ORDER BY e.created_at ASC',
+                [$row['orderid'], $companyId]
+            );
+            $events = [];
+            if ($evRs !== false) {
+                foreach ($evRs->GetRows() as $ev) {
+                    $events[] = [
+                        'scope'       => (string) ($ev['scope'] ?? ''),
+                        'orderItemId' => $ev['orderitemid'] ?? null,
+                        'stationId'   => $ev['stationid'] ?? null,
+                        'stationName' => $ev['stationname'] ?? null,
+                        'fromStatus'  => $ev['from_status'] ?? null,
+                        'toStatus'    => (string) ($ev['to_status'] ?? ''),
+                        'actorKind'   => (string) ($ev['actor_kind'] ?? ''),
+                        'actorModule' => $ev['actor_module'] ?? null,
+                        'createdAt'   => $ev['created_at'] ?? null,
+                    ];
+                }
+            }
+            $out['events'] = $events;
         }
 
         return $out;

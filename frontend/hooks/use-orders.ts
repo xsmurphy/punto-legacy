@@ -47,6 +47,24 @@ export interface OrderItem {
   deliveredAt: string | null
 }
 
+/**
+ * Un renglón del historial de transiciones (F-EVT-0,
+ * context/27-delivery-sla-plan.md PARTE C, `pos_order_event`). Solo viene en
+ * el detalle de la orden (`find()`) — `list()` no lo trae, ver
+ * `OrderCoreService::presentOrder()`.
+ */
+export interface OrderEvent {
+  scope: "order" | "item"
+  orderItemId: string | null
+  stationId: string | null
+  stationName: string | null
+  fromStatus: OrderStatus | OrderItemStatus | null
+  toStatus: OrderStatus | OrderItemStatus
+  actorKind: "user" | "device" | "system"
+  actorModule: string | null
+  createdAt: string | null
+}
+
 export interface Order {
   id: string
   companyId: string
@@ -80,6 +98,8 @@ export interface Order {
    * espacio, context/15 F3). Ausente en `list()` sin ese flag.
    */
   items?: OrderItem[]
+  /** Timeline de transiciones — solo presente en el detalle (`find()`), ver OrderEvent. */
+  events?: OrderEvent[]
 }
 
 export interface CreateOrderItemInput {
