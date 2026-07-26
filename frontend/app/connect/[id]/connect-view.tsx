@@ -15,7 +15,7 @@ type InvitationStatus = "pending" | "opened" | "approved" | "denied" | "expired"
 
 /** module (string libre del invitation) → namespace tipado de device-token/claims. */
 function toDeviceModule(module: string): DeviceModule {
-  if (module === "screen" || module === "kds" || module === "display") return module
+  if (module === "screen" || module === "kds" || module === "display" || module === "print") return module
   return "pos"
 }
 
@@ -25,6 +25,7 @@ function moduleRoute(module: string): string {
     case "screen":  return "/checkout"
     case "kds":     return "/kds"
     case "display": return "/display"
+    case "print":   return "/print"
     default:        return "/pos"
   }
 }

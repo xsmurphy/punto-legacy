@@ -38,7 +38,7 @@ export interface PairedScreenContext {
 export type PairState = "unpaired" | "connecting" | "ready"
 
 interface UseePairedScreenOpts {
-  module: Extract<DeviceModule, "kds" | "display">
+  module: Extract<DeviceModule, "kds" | "display" | "print">
   /** Canales adicionales a suscribir además de `${module}:${deviceId}` (revocación). */
   channels: (ctx: PairedScreenContext) => string[]
   onEvent: (event: string, data: unknown) => void

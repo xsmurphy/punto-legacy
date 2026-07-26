@@ -1,4 +1,4 @@
-import { getDeviceToken } from "@/lib/auth/device-token"
+import { getDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
 
 /**
  * Fetch autenticado para los BFF routes `/api/pos/*`.
@@ -10,10 +10,20 @@ import { getDeviceToken } from "@/lib/auth/device-token"
  *
  * Devuelve el `Response` crudo — cada caller mantiene su propio parsing de
  * envelope. Preserva cualquier header que el caller ya haya seteado.
+ *
+ * `module` (default `"pos"`) elige el slot de token namespaced. La Estación de
+ * Impresión (module `"print"`, context/26) también usa los BFF `/api/pos/*`
+ * (print de red) pero NO tiene token de POS: sin este parámetro el Bearer
+ * salía vacío y el BFF respondía 401. El default mantiene todos los
+ * call-sites del POS sin cambios.
  */
-export function posFetch(input: string, init: RequestInit = {}): Promise<Response> {
+export function posFetch(
+  input: string,
+  init: RequestInit = {},
+  module: DeviceModule = "pos",
+): Promise<Response> {
   const headers = new Headers(init.headers)
-  const token = getDeviceToken()
+  const token = getDeviceToken(module)
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`)
   }

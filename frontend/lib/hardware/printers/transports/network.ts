@@ -1,9 +1,16 @@
 import { posFetch } from "@/lib/api/pos-fetch"
+import type { DeviceModule } from "@/lib/auth/device-token"
 
+/**
+ * `module` identifica con qué token de device se autentica el BFF. Default
+ * `"pos"` (todos los call-sites de caja); la Estación de Impresión pasa
+ * `"print"` — ver comentario en `lib/api/pos-fetch.ts`.
+ */
 export async function sendBytesViaNetwork(
   host: string,
   port: number,
   bytes: Uint8Array,
+  module: DeviceModule = "pos",
 ): Promise<void> {
   let binary = ""
   const len = bytes.length
@@ -16,7 +23,7 @@ export async function sendBytesViaNetwork(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ host, port, bytes: b64 }),
-  })
+  }, module)
 
   if (!res.ok) {
     let msg = `Error ${res.status}`

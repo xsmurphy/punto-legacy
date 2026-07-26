@@ -16,7 +16,7 @@ interface BluetoothGATT {
   connect(): Promise<BluetoothRemoteGATTServer>
 }
 
-interface BTDevice {
+export interface BTDevice {
   id: string
   name?: string
   gatt?: BluetoothGATT
@@ -43,6 +43,23 @@ export async function requestBluetoothPrinter(): Promise<BTDevice> {
     acceptAllDevices: true,
     optionalServices: ["000018f0-0000-1000-8000-00805f9b34fb"],
   })
+}
+
+/**
+ * Dispositivos Bluetooth ya autorizados por el usuario en este browser
+ * (equivalente a `getAuthorizedPrinters()` de WebUSB). La Estación de
+ * Impresión los usa para saber qué `station_printer` está realmente vinculada
+ * al arrancar — Web Bluetooth no permite reabrir un device sin permiso previo.
+ */
+export async function getAuthorizedBluetoothPrinters(): Promise<BTDevice[]> {
+  if (!isWebBluetoothSupported()) return []
+  try {
+    return await (navigator as NavWithBluetooth).bluetooth.getDevices()
+  } catch {
+    // `getDevices()` requiere el flag chrome://flags/#enable-web-bluetooth-new-permissions-backend
+    // en algunas versiones; sin él tira. Tratar como "ninguno autorizado".
+    return []
+  }
 }
 
 export async function sendBytesViaBluetooth(

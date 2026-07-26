@@ -19,7 +19,7 @@
  * incidente 2026-06-28 con pos/screen).
  */
 
-export type DeviceModule = "pos" | "screen" | "kds" | "display"
+export type DeviceModule = "pos" | "screen" | "kds" | "display" | "print"
 
 const KEY_PREFIX = "punto.device.token"
 const LEGACY_KEY = KEY_PREFIX // pre-namespacing — se trata como POS al migrar

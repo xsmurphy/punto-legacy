@@ -5,7 +5,9 @@ use Punto\Api\Auth\DeviceAuth;
 
 class DeviceInvitationService
 {
-    private const VALID_MODULES = ['pos', 'screen', 'kds', 'display'];
+    // 'print' = Estación de Impresión (P1, context/26-print-station-plan.md):
+    // device pareado que corre en la PC con las impresoras físicas.
+    private const VALID_MODULES = ['pos', 'screen', 'kds', 'display', 'print'];
     // Alfabeto sin I ni O para evitar confusión visual
     private const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ';         // 24 chars
     private const ALNUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars

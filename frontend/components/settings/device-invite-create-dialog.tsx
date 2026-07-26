@@ -116,6 +116,7 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
                     <SelectItem value="screen">Pantalla cliente</SelectItem>
                     <SelectItem value="kds">KDS Cocina</SelectItem>
                     <SelectItem value="display">Pantalla de mozos</SelectItem>
+                    <SelectItem value="print">Estación de impresión</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

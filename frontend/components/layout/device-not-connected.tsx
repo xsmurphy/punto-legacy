@@ -3,6 +3,7 @@
 import { ShieldX } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import type { DeviceKind } from "@/lib/devices/connected-device"
 
 /**
  * Pantalla full-page cuando un device no está conectado (Bearer token ausente
@@ -14,7 +15,9 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
  *
  * Reemplaza al viejo /pos-pair (form con contraseña admin, eliminado).
  */
-export type DeviceKind = "pos" | "screen" | "kds" | "display"
+// `DeviceKind` vive en lib/devices/connected-device (fuente única). Antes se
+// redeclaraba acá y las dos listas divergían al sumar un módulo nuevo.
+export type { DeviceKind }
 
 const COPY: Record<DeviceKind, { title: string; subtitle: string }> = {
   pos: {
@@ -36,6 +39,11 @@ const COPY: Record<DeviceKind, { title: string; subtitle: string }> = {
     title: "Pantalla de mozos no conectada",
     subtitle:
       "Pedile al administrador que genere un link de conexión (módulo Pantalla de mozos) desde Configuración › Dispositivos del panel.",
+  },
+  print: {
+    title: "Estación de impresión no conectada",
+    subtitle:
+      "Pedile al administrador que genere un link de conexión (módulo Estación de impresión) desde Configuración › Dispositivos del panel.",
   },
 }
 
