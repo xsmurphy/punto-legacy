@@ -189,18 +189,101 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 | **F-SLA-0** | Mig (targetminutes + timestamps), default por outlet, snapshot, `use-order-sla`, `sla-visuals`, consumo en KDS/ordenes/espacios | — |
 | **F-D-0** | `fulfillment`, `out_for_delivery`, guards, whitelist por module | F-SLA-0 (timestamps) |
 | **F-D-1** | Dirección/coords snapshot, `courierid`, UI de despacho, mapa filtrado | F-D-0 |
+| **F-D-1a** | Costo de envío por bandas de distancia → ítem del catálogo (§B.7) | F-D-1 |
+| **F-D-1b** | Zonas por polígono con editor en el panel (§B.7) | F-D-1a |
 | **F-SLA-1** | `prepMinutes` por ítem + agregación max-por-estación | F-SLA-0 |
 | **F-D-2** | Tracking del repartidor en vivo (reusa `contactTrackLocation`) | F-D-1 |
 | **F-EVT-0** | `pos_order_event` (historial de transiciones, orden e ítem) + `recordEvent()` en los 5 puntos de escritura — ver PARTE C | — (independiente, ejecutable ya) |
 | **F-SLA-2** | Target sugerido desde el histórico (p75 de `sent_at→ready_at`) | F-SLA-0 + **F-EVT-0** + volumen de datos |
 
-## B.6 Decisiones pendientes del owner
+## B.6 Decisiones del owner
 
-1. **`deliveryfee` fiscal**: ¿ítem de la venta o campo informativo? Bloquea
-   F-D-1.
-2. **¿El repartidor tiene app propia?** Si sí, `out_for_delivery` y
-   `delivered` los marca él y hace falta un realm/module nuevo (patrón
-   device pairing). Si no, los marca el POS y F-D-2 se simplifica mucho.
+1. **`deliveryfee` fiscal — RESUELTO (2026-07-19)**: el costo de envío es un
+   **ítem más de la venta**. Es un servicio que se cobra y se factura, así
+   que entra al comprobante como cualquier otra línea. Ver §B.7.
+2. **¿El repartidor tiene app propia?** — PENDIENTE. Si sí,
+   `out_for_delivery` y `delivered` los marca él y hace falta un
+   realm/module nuevo (patrón device pairing). Si no, los marca el POS y
+   F-D-2 se simplifica mucho.
+
+## B.7 Cálculo del costo de envío
+
+### La indirección `regla → ítem` es la pieza correcta
+
+El sistema legacy resolvía `distancia → ítem del catálogo` (`< 2km = Delivery
+10mil`, `< 5km = Delivery 15mil`, …). **Esa indirección se conserva**, sea
+cual sea el método de cálculo, porque resuelve sola tres problemas:
+
+- El envío se **factura** sin tratamiento especial: es una línea más, con su
+  IVA, su precio y su comportamiento fiscal ya definidos por el catálogo.
+- Cambiar el precio del envío es editar un producto, no tocar código.
+- Queda en el histórico de ventas como cualquier ítem.
+
+Lo único que se discute es **cómo se elige el ítem**, no que se elija un
+ítem.
+
+### Los métodos, comparados
+
+| Método | A favor | En contra |
+|---|---|---|
+| **Zonas** (polígonos) | Modela la realidad: ríos, puentes, barrios sin cobertura. Permite decir "acá NO entregamos". Cero dependencia externa, nunca falla | Setup manual, requiere editor de polígonos |
+| **Distancia lineal** (bandas) | Simple, explicable, cero dependencias, funciona el día 1 | Miente donde la geografía interfiere: 2 km cruzando el río pueden ser 9 km de manejo |
+| **Distancia por ruta real** | Justo y automático | **Dependencia externa en el camino del cobro**: costo por pedido, latencia, y si la API de ruteo se cae no podés cotizar un envío. Además la ruta cambia con el tráfico → el mismo cliente paga distinto según la hora |
+
+### Decisión: cascada híbrida, ruteo NO
+
+```
+1. ¿El punto cae en una zona (polígono)?  → ítem de esa zona   (lo más específico gana)
+2. ¿Hay bandas por distancia configuradas? → ítem de la banda
+3. Ninguna de las dos                       → SIN COBERTURA (avisar, no adivinar)
+```
+
+**El paso 3 no cotiza un default silencioso.** "No llegamos hasta ahí" es
+información tan valiosa como el precio, y un envío mal cotizado se paga con
+plata real.
+
+**Ruteo real descartado como base**: mete una dependencia externa en el
+camino crítico del cobro, en un POS que además opera offline. Queda como
+posible verificación asincrónica a futuro (auditar/afinar el factor de
+corrección), nunca bloqueando una venta.
+
+**Factor de corrección**: la distancia lineal se multiplica por un factor
+configurable (~1.3–1.4 en ciudad de trama regular) para aproximar la
+distancia de manejo sin llamar a ninguna API. Convierte el punto débil de las
+bandas en algo tolerable. La haversine ya se calcula en SQL (mig 14).
+
+### Reglas de implementación
+
+- **Cálculo server-side, siempre.** El POS pregunta *"¿cuánto sale enviar a
+  esta coordenada?"* y la API responde. Si el cliente calculara el precio, un
+  cliente modificado mandaría `fee = 0`.
+- **Snapshot en la orden**: qué zona o banda matcheó, qué ítem y a qué
+  precio. Retunear las zonas mañana no puede reescribir lo que cobraste ayer
+  (mismo principio que `targetminutes` y la dirección de entrega).
+- **El ítem de envío necesita una marca** (`isDeliveryFee` o categoría de
+  sistema): sin ella aparece en la grilla normal del POS y contamina el
+  ranking de productos vendidos — el envío no es un producto que se "venda
+  bien".
+- **Sin PostGIS**: polígonos en JSONB + point-in-polygon por ray casting en
+  PHP. Para decenas de zonas sobra; PostGIS es el camino de upgrade recién si
+  crecen a cientos.
+- **Override manual del cajero** (cliente frecuente, promoción, reclamo):
+  permitido, pero queda registrado como override para que el reporte
+  distinga lo cotizado de lo cobrado.
+
+### No construir ahora, pero no impedir
+
+Envío gratis sobre X monto, mínimo de pedido por zona, recargo por horario
+pico. El modelo `regla → ítem` los admite sin rediseño.
+
+### Fases
+
+- **F-D-1a — bandas por distancia**: `delivery_rule` (banda + itemid),
+  resolución server-side, snapshot en la orden, marca del ítem. Cero
+  dependencias nuevas.
+- **F-D-1b — zonas por polígono**: editor en el panel sobre MapLibre
+  (requiere librería de dibujo) + resolución por ray casting con prioridad
+  sobre las bandas.
 
 ---
 
