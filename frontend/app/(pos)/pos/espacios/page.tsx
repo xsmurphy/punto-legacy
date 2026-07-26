@@ -37,6 +37,7 @@ import {
 import { fetchOrderDetail, fetchOrdersBySession } from "@/hooks/use-orders"
 import { useCartStore } from "@/lib/cart/store"
 import { usePosUIStore } from "@/lib/ui/store"
+import { usePersistedView } from "@/lib/ui/use-persisted-view"
 
 const CANVAS_WIDTH = 900
 const CANVAS_HEIGHT = 600
@@ -45,13 +46,7 @@ const DECOR_SHAPES = ["decor_wall", "decor_plant", "bar"]
 
 type SpaceView = "grid" | "map"
 const VIEW_STORAGE_KEY = "punto.pos.espacios.view"
-
-// Config local por dispositivo (patrón KdsConfig, pero inline): la vista
-// elegida persiste en localStorage y se restaura al volver. Default: grilla.
-function readStoredView(): SpaceView {
-  if (typeof window === "undefined") return "grid"
-  return window.localStorage.getItem(VIEW_STORAGE_KEY) === "map" ? "map" : "grid"
-}
+const SPACE_VIEWS = ["grid", "map"] as const
 
 export default function EspaciosPage() {
   const router = useRouter()
@@ -61,15 +56,8 @@ export default function EspaciosPage() {
   const sectors = sectorsData?.sectors ?? []
 
   const [activeSector, setActiveSector] = React.useState<string>(ALL_SECTORS)
-  // SSR guard: arranca en 'grid' y se hidrata desde localStorage tras montar.
-  const [view, setView] = React.useState<SpaceView>("grid")
-  React.useEffect(() => {
-    setView(readStoredView())
-  }, [])
-  const selectView = React.useCallback((v: SpaceView) => {
-    setView(v)
-    if (typeof window !== "undefined") window.localStorage.setItem(VIEW_STORAGE_KEY, v)
-  }, [])
+  // Vista persistida por dispositivo (localStorage). Default: grilla.
+  const [view, selectView] = usePersistedView<SpaceView>(VIEW_STORAGE_KEY, SPACE_VIEWS, "grid")
 
   const sectorTables = React.useMemo(
     () => (activeSector === ALL_SECTORS ? tables : tables.filter((t) => t.sectorId === activeSector)),

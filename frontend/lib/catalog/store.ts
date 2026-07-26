@@ -22,7 +22,7 @@
  */
 
 import { create } from "zustand"
-import type { PosItem, PosCustomer, PosConfig, PosRegister, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "error"
 
@@ -35,7 +35,7 @@ interface CatalogState {
   customers: PosCustomer[]
   config: PosConfig | null
   /** Sucursal activa (outlet). */
-  outlet: { id: string; name: string } | null
+  outlet: PosOutlet | null
   /** Todas las sucursales del tenant (para el selector de setup). */
   outlets: Array<{ id: string; name: string }>
   registers: PosRegister[]
@@ -54,7 +54,7 @@ interface CatalogState {
     items: PosItem[]
     customers: PosCustomer[]
     config: PosConfig
-    outlet: { id: string; name: string }
+    outlet: PosOutlet
     outlets: Array<{ id: string; name: string }>
     registers: PosRegister[]
     paymentMethods: PaymentMethodConfig[]

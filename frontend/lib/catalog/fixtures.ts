@@ -441,7 +441,9 @@ export const fixtureBootstrap = {
   customers: fixtureCustomers,
   paymentMethods: fixturePaymentMethods,
   user: { id: "1", role: 1 },
-  outlet: { id: "out-1", name: "Central" },
+  // lat/lng: coords de Asunción para que la vista mapa de /pos/ordenes tenga
+  // un PIN de local con qué encuadrar cuando se diseña con fixtures.
+  outlet: { id: "out-1", name: "Central", lat: -25.2637, lng: -57.6359 },
   // Lista completa de sucursales (para el selector de setup en fixtures).
   outlets: [{ id: "out-1", name: "Central" }],
 }

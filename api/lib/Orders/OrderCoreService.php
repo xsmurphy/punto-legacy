@@ -617,7 +617,16 @@ final class OrderCoreService
     public function find(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM pos_order WHERE orderid = ? AND companyid = ? LIMIT 1',
+            // Mismo enriquecimiento de cliente que list() — el shape de una
+            // orden es único, venga del listado o del detalle.
+            'SELECT o.*,
+                    c.contactname          AS customer_name,
+                    c.data->>\'contactLatLng\' AS customer_latlng
+               FROM pos_order o
+          LEFT JOIN contact c
+                 ON c.contactid = o.customerid
+                AND c.companyid = o.companyid
+              WHERE o.orderid = ? AND o.companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
@@ -752,6 +761,15 @@ final class OrderCoreService
             'closedAt'          => $row['closed_at'] ?? null,
         ];
 
+        // Datos del cliente para la vista mapa de /pos/ordenes. Vienen del
+        // LEFT JOIN a contact (list()/find()); si la orden no tiene cliente o
+        // la query no los trajo, quedan null.
+        $customerName = $row['customer_name'] ?? null;
+        $out['customerName'] = ($customerName !== null && $customerName !== '')
+            ? (string) $customerName
+            : null;
+        [$out['customerLat'], $out['customerLng']] = self::parseLatLng($row['customer_latlng'] ?? null);
+
         if ($withItems && $companyId !== null) {
             $rs = $this->db->Execute(
                 'SELECT oi.*, s.name AS stationname
@@ -771,6 +789,33 @@ final class OrderCoreService
         }
 
         return $out;
+    }
+
+    /**
+     * Parsea el string legacy "lat,lng" de `contact.data->>'contactLatLng'`.
+     * Devuelve [null, null] ante vacío, formato inesperado, valores no
+     * numéricos o fuera de rango — NUNCA NaN (rompería el mapa del cliente).
+     *
+     * @return array{0: ?float, 1: ?float}
+     */
+    private static function parseLatLng(mixed $raw): array
+    {
+        if (!is_string($raw)) return [null, null];
+        $parts = explode(',', trim($raw));
+        if (count($parts) !== 2) return [null, null];
+
+        $lat = trim($parts[0]);
+        $lng = trim($parts[1]);
+        if (!is_numeric($lat) || !is_numeric($lng)) return [null, null];
+
+        $latF = (float) $lat;
+        $lngF = (float) $lng;
+        if (!is_finite($latF) || !is_finite($lngF)) return [null, null];
+        if ($latF < -90 || $latF > 90 || $lngF < -180 || $lngF > 180) return [null, null];
+        // "0,0" es el valor basura típico de un backfill fallido, no una coord real.
+        if ($latF === 0.0 && $lngF === 0.0) return [null, null];
+
+        return [$latF, $lngF];
     }
 
     /** Shape único de un ítem de orden — usado por find()/presentOrder() y por loadItemsByOrderIds() (list con includeItems). */

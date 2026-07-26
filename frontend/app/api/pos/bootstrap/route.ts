@@ -64,6 +64,13 @@ const FALLBACK_PAYMENT_METHODS: PaymentMethodConfig[] = [
   },
 ]
 
+/** number|string|null → number finito o null. Nunca devuelve NaN. */
+function toFiniteNumber(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null
+  const n = typeof raw === "number" ? raw : Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
 // ── Resolución de upstream (idéntica al catch-all) ────────────────────────────
 
 function getTargetBase(): string {
@@ -103,6 +110,9 @@ interface UpstreamBootstrap {
   user: { id: string | number; role: number }
   activeOutletId: string
   activeOutletName: string
+  /** Coords de la sucursal activa (mig 14). null si no tiene ubicación cargada. */
+  activeOutletLat?: number | string | null
+  activeOutletLng?: number | string | null
   activeRegisterId?: string
   outlets: Array<{ id: string; name: string }>
 }
@@ -571,6 +581,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     outlet: {
       id: bs.activeOutletId ?? "",
       name: bs.activeOutletName ?? "",
+      // PG NUMERIC llega como string por PDO; normalizamos a number|null y
+      // descartamos cualquier valor no finito (nunca NaN hacia el cliente).
+      lat: toFiniteNumber(bs.activeOutletLat),
+      lng: toFiniteNumber(bs.activeOutletLng),
     },
     // Lista completa de sucursales del tenant (para el selector de 2 pasos).
     outlets: Array.isArray(bs.outlets) ? bs.outlets : [],

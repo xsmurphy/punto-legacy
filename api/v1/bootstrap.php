@@ -54,13 +54,18 @@ if (!is_object($row) && !is_array($row)) {
 // `forceObj=true` (4to arg) fuerza recordset multi-row iterable — sin él
 // ncmExecute con una única fila colapsa a CaseInsensitiveArray escalar.
 $outletsRs = ncmExecute(
-    'SELECT outletId, outletName FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletName ASC',
+    'SELECT outletId, outletName, lat, lng FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletName ASC',
     [COMPANY_ID],
     false,
     true
 );
 $outlets = [];
 $activeOutletName = '';
+// Coordenadas de la sucursal activa (mig 14: columnas numéricas `lat`/`lng`
+// que reemplazaron a `outletLatLng`). Las consume la vista mapa de
+// /pos/ordenes para el PIN del local. NULL si la sucursal no cargó ubicación.
+$activeOutletLat = null;
+$activeOutletLng = null;
 if ($outletsRs && is_object($outletsRs)) {
     while (!$outletsRs->EOF) {
         $f    = $outletsRs->fields;
@@ -69,6 +74,13 @@ if ($outletsRs && is_object($outletsRs)) {
         $outlets[] = ['id' => $oid, 'name' => $name];
         if ($oid === OUTLET_ID) {
             $activeOutletName = $name;
+            $rawLat = $f['lat'] ?? null;
+            $rawLng = $f['lng'] ?? null;
+            if ($rawLat !== null && $rawLat !== '' && is_numeric($rawLat)
+                && $rawLng !== null && $rawLng !== '' && is_numeric($rawLng)) {
+                $activeOutletLat = (float) $rawLat;
+                $activeOutletLng = (float) $rawLng;
+            }
         }
         $outletsRs->MoveNext();
     }
@@ -117,6 +129,9 @@ apiOk([
     // hay ≥2. POST /v1/active-outlet re-emite el JWT con el `oid` nuevo.
     'activeOutletId'   => OUTLET_ID,
     'activeOutletName' => $activeOutletName,
+    // Coords del local para el PIN fijo del mapa de órdenes (/pos/ordenes).
+    'activeOutletLat'  => $activeOutletLat,
+    'activeOutletLng'  => $activeOutletLng,
     'outlets'          => $outlets,
     // Cantidad de usuarios (type=0) activos del tenant — usado por el POS
     // para auto-activar el lock screen al entrar cuando hay > 1 usuario

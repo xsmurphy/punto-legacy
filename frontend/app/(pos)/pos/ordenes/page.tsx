@@ -4,238 +4,263 @@
  * Módulo Órdenes del POS (O1, context/24-orders-module-plan.md).
  *
  * Listado táctil de órdenes ACTIVAS del outlet del device (excluye
- * closed/cancelled — ver ACTIVE_ORDER_STATUSES en hooks/use-orders.ts).
+ * closed/cancelled — ver ACTIVE_ORDER_STATUSES en hooks/use-orders.ts) con
+ * tres vistas intercambiables desde la barra flotante inferior:
+ *
+ *   - Cuadros (default): grilla de cards.
+ *   - Lista: tabla compacta con buscador en tiempo real.
+ *   - Mapa: MapLibre con el local y las órdenes geolocalizadas.
+ *
  * "Cobrar" copia el contenido de la orden al carrito en modo venta
  * (loadFromOrder) y navega a /pos — el cobro en sí usa el flujo normal de
  * pay-dialog, que cierra el rastro con markPaid al confirmar (ver pay-dialog.tsx).
+ *
+ * Regla #10 (context/14-ui-conventions.md): la barra flotante existe SIEMPRE,
+ * incluso mientras carga o cuando no hay órdenes — nunca se mueve ni
+ * desaparece según el estado.
  */
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
-import { ClipboardList, Clock, DollarSign, Printer, X } from "lucide-react"
+import { ClipboardList, LayoutGrid, List, Map } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { formatTime } from "@/lib/format-date"
-import { formatMoney } from "@/lib/format-money"
-import { useCatalogStore } from "@/lib/catalog/store"
-import { useCartStore } from "@/lib/cart/store"
-import { usePrinterBindings } from "@/hooks/use-printer-bindings"
-import { posApi } from "@/lib/api/pos-client"
-import {
-  useActiveOrders,
-  useOrder,
-  useCancelOrder,
-  type Order,
-  type OrderStatus,
-} from "@/hooks/use-orders"
-import { printOrderComandas } from "@/lib/orders/print-comandas"
-import { toast } from "sonner"
+import { OrderCard } from "@/components/orders/order-card"
+import { OrdersListView } from "@/components/orders/orders-list-view"
+import { OrdersMapView } from "@/components/orders/orders-map-view"
+import { FILTERABLE_STATUSES, STATUS_LABEL } from "@/lib/orders/order-display"
+import { usePersistedView } from "@/lib/ui/use-persisted-view"
+import { useActiveOrders, type Order, type OrderStatus } from "@/hooks/use-orders"
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  open: "Abierta",
-  sent: "Enviada",
-  in_progress: "En preparación",
-  ready: "Lista",
-  delivered: "Entregada",
-  closed: "Cobrada",
-  cancelled: "Cancelada",
-}
+type OrdersView = "cards" | "list" | "map"
+const VIEW_STORAGE_KEY = "punto.pos.ordenes.view"
+const ORDERS_VIEWS = ["cards", "list", "map"] as const
+const ALL_STATUSES = "__all__"
 
-const STATUS_VARIANT: Record<OrderStatus, "default" | "secondary" | "outline"> = {
-  open: "outline",
-  sent: "secondary",
-  in_progress: "secondary",
-  ready: "default",
-  delivered: "default",
-  closed: "outline",
-  cancelled: "outline",
-}
-
-const SOURCE_LABEL: Record<Order["source"], string> = {
-  counter: "Mostrador",
-  table: "Espacio",
-  ecommerce: "E-commerce",
-  schedule: "Agenda",
-}
+const VIEWS: Array<{ id: OrdersView; icon: typeof LayoutGrid; label: string }> = [
+  { id: "cards", icon: LayoutGrid, label: "Cuadros" },
+  { id: "list", icon: List, label: "Lista" },
+  { id: "map", icon: Map, label: "Mapa" },
+]
 
 export default function PosOrdenesPage() {
   const { data, isLoading } = useActiveOrders()
-  const orders = data?.orders ?? []
+  const orders = React.useMemo(() => data?.orders ?? [], [data])
 
-  if (isLoading) {
-    return (
-      <div className="flex h-full w-full items-center justify-center p-6">
-        <p className="text-sm text-muted-foreground">Cargando órdenes...</p>
-      </div>
-    )
-  }
+  // Vista persistida por dispositivo (localStorage). Default: cuadros.
+  const [view, setStoredView] = usePersistedView<OrdersView>(
+    VIEW_STORAGE_KEY,
+    ORDERS_VIEWS,
+    "cards",
+  )
 
-  if (orders.length === 0) {
-    return (
-      <div className="flex h-full w-full items-center justify-center p-6">
-        <EmptyState
-          ghost
-          icon={ClipboardList}
-          title="Sin órdenes activas"
-          description="Las órdenes enviadas a cocina desde el carrito (modo Orden) van a aparecer acá."
-        />
-      </div>
-    )
-  }
+  const [statusFilter, setStatusFilter] = React.useState<OrderStatus | typeof ALL_STATUSES>(
+    ALL_STATUSES,
+  )
+  const [detailOrderId, setDetailOrderId] = React.useState<string | null>(null)
+
+  // El mapa se monta la primera vez que se lo elige y desde ahí queda montado
+  // (oculto en las otras vistas): recrear MapLibre en cada cambio de vista
+  // dispara una descarga de tiles innecesaria en cada toque. `mapWasShown` lo
+  // prende el handler; el `view === "map"` cubre entrar con la vista mapa ya
+  // persistida en localStorage.
+  const [mapWasShown, setMapWasShown] = React.useState(false)
+  const mapMounted = view === "map" || mapWasShown
+
+  const selectView = React.useCallback(
+    (v: OrdersView) => {
+      if (v === "map") setMapWasShown(true)
+      setStoredView(v)
+    },
+    [setStoredView],
+  )
+
+  // El filtro de estado aplica a las TRES vistas.
+  const filtered = React.useMemo(
+    () =>
+      statusFilter === ALL_STATUSES
+        ? orders
+        : orders.filter((o) => o.status === statusFilter),
+    [orders, statusFilter],
+  )
+
+  const handleOpenOrder = React.useCallback((order: Order) => {
+    setDetailOrderId(order.id)
+  }, [])
+
+  // Se resuelve contra la lista viva (no contra `filtered`): si la orden se
+  // cobra o cancela desde otro lado el diálogo se cierra solo, pero cambiar el
+  // filtro de estado mientras está abierto no debe cerrarlo.
+  const detailOrder = orders.find((o) => o.id === detailOrderId) ?? null
 
   return (
-    <div className="h-full w-full overflow-y-auto p-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {orders.map((order) => (
-          <OrderCard key={order.id} order={order} />
-        ))}
+    <div className="relative flex h-full w-full flex-col">
+      <div className="relative flex-1 overflow-hidden">
+        {/* Cuadros / Lista — contenedor scrolleable. pb-16 deja aire para que
+            la barra flotante no tape la última fila. */}
+        <div className={cn("h-full overflow-y-auto p-4 pb-16", view === "map" && "hidden")}>
+          {isLoading ? (
+            <p className="pt-6 text-center text-sm text-muted-foreground">Cargando órdenes...</p>
+          ) : orders.length === 0 ? (
+            <EmptyState
+              ghost
+              icon={ClipboardList}
+              title="Sin órdenes activas"
+              description="Las órdenes enviadas a cocina desde el carrito (modo Orden) van a aparecer acá."
+              className="h-full"
+            />
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              ghost
+              icon={ClipboardList}
+              title="Sin órdenes en este estado"
+              description="Cambiá el filtro de la barra inferior para ver el resto."
+              className="h-full"
+            />
+          ) : view === "list" ? (
+            <OrdersListView orders={filtered} onOpenOrder={handleOpenOrder} />
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filtered.map((order) => (
+                <OrderCard key={order.id} order={order} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Mapa — siempre en la misma caja (absolute inset-0), así conserva sus
+            dimensiones cuando está oculto y no hace falta un resize al volver. */}
+        {mapMounted ? (
+          <div
+            className={cn(
+              "absolute inset-0 p-4 pb-16",
+              view !== "map" && "pointer-events-none opacity-0",
+            )}
+            aria-hidden={view !== "map"}
+          >
+            <OrdersMapView orders={filtered} onOpenOrder={handleOpenOrder} />
+          </div>
+        ) : null}
       </div>
+
+      {/* Barra flotante — misma visual/posición que la de /pos/espacios y la de
+          categorías del modo venta (product-area.tsx): pill oscura #22252A
+          (excepción documentada del design system). Existe SIEMPRE (Regla #10):
+          switch de vista + filtros de estado. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex px-3">
+        <div className="pointer-events-auto flex w-full items-center gap-2 rounded-full bg-[#22252A] py-1.5 pl-1.5 pr-3 shadow-lg">
+          {/* Switch de vista (segmented, solo íconos para ahorrar ancho). */}
+          <div className="flex shrink-0 items-center gap-1">
+            {VIEWS.map((v) => (
+              <ViewButton
+                key={v.id}
+                icon={v.icon}
+                label={v.label}
+                active={view === v.id}
+                onClick={() => selectView(v.id)}
+              />
+            ))}
+          </div>
+          <div className="h-6 w-px shrink-0 bg-white/15" />
+          {/* Pills de estado — single-select con "Todas", scroll horizontal. */}
+          <div
+            className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap"
+            style={{ scrollbarWidth: "none" }}
+          >
+            <StatusPill
+              label="Todas"
+              active={statusFilter === ALL_STATUSES}
+              onClick={() => setStatusFilter(ALL_STATUSES)}
+            />
+            {FILTERABLE_STATUSES.map((s) => (
+              <StatusPill
+                key={s}
+                label={STATUS_LABEL[s]}
+                active={statusFilter === s}
+                onClick={() => setStatusFilter(s)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Detalle desde Lista/Mapa — mismas acciones que la vista Cuadros. */}
+      <Dialog open={detailOrder !== null} onOpenChange={(open) => !open && setDetailOrderId(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Orden #{detailOrder?.orderNumber ?? "—"}</DialogTitle>
+            <DialogDescription>
+              Cobrá, reimprimí la comanda o cancelá la orden.
+            </DialogDescription>
+          </DialogHeader>
+          {detailOrder ? (
+            <OrderCard
+              order={detailOrder}
+              className="border-0 bg-transparent p-0"
+              onAfterAction={() => setDetailOrderId(null)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-function OrderCard({ order }: { order: Order }) {
-  const router = useRouter()
-  const config = useCatalogStore((s) => s.config)
-  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
-  const allBindings = bindingsData?.bindings ?? []
-  const loadFromOrder = useCartStore((s) => s.loadFromOrder)
-  const cancelOrder = useCancelOrder()
-
-  // Detalle con ítems — el listado activo no los trae (ver OrderCoreService::list()).
-  const { data: detail } = useOrder(order.id)
-  const items = detail?.items ?? []
-
-  const [confirmCancelOpen, setConfirmCancelOpen] = React.useState(false)
-  const [printing, setPrinting] = React.useState(false)
-
-  const total = items.reduce((s, i) => s + (i.price ?? 0) * i.qty, 0)
-  const itemSummary = items.length > 0
-    ? items.map((i) => `${i.qty}x ${i.name}`).join(", ")
-    : "—"
-
-  function handleCobrar() {
-    if (!detail) return
-    loadFromOrder(detail)
-    router.push("/pos")
-  }
-
-  function handleCancelConfirm() {
-    cancelOrder.mutate(order.id, {
-      onSuccess: () => toast.success(`Orden #${order.orderNumber} cancelada`),
-      onError: (err) => toast.error("No se pudo cancelar la orden", { description: err.message }),
-    })
-    setConfirmCancelOpen(false)
-  }
-
-  async function handleReprint() {
-    if (!detail) return
-    setPrinting(true)
-    try {
-      const r = await printOrderComandas(detail, allBindings, config)
-      if (r.failed > 0) {
-        toast.warning(`${r.failed} impresora(s) fallaron al reimprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`)
-      } else if (r.printed > 0) {
-        toast.success(`${r.printed} impresora(s) reimprimieron`)
-      } else {
-        toast.warning("Ninguna impresora tiene asignado el documento Orden — asignáselo en Impresoras")
-      }
-    } catch (err) {
-      toast.error("No se pudo reimprimir la comanda", {
-        description: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      setPrinting(false)
-    }
-  }
-
+function ViewButton({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: typeof LayoutGrid
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-base font-semibold text-foreground">
-            Orden #{order.orderNumber ?? "—"}
-          </p>
-          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="size-3" aria-hidden />
-            {order.sentAt ? formatTime(order.sentAt) : order.createdAt ? formatTime(order.createdAt) : "—"}
-            <span aria-hidden>·</span>
-            <span>{SOURCE_LABEL[order.source]}</span>
-          </div>
-        </div>
-        <Badge variant={STATUS_VARIANT[order.status]}>{STATUS_LABEL[order.status]}</Badge>
-      </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Vista ${label.toLowerCase()}`}
+      title={`Vista ${label.toLowerCase()}`}
+      aria-pressed={active}
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-full transition-colors",
+        active ? "bg-white text-neutral-900" : "text-white/80 hover:text-white",
+      )}
+    >
+      <Icon className="size-4" />
+    </button>
+  )
+}
 
-      <p className="line-clamp-2 text-sm text-muted-foreground">{itemSummary}</p>
-
-      <p className="text-sm font-semibold tabular-nums text-foreground">
-        {formatMoney(total, config)}
-      </p>
-
-      <div className="flex items-center gap-2 pt-1">
-        <Button
-          size="sm"
-          className="flex-1 gap-1.5"
-          disabled={!detail}
-          onClick={handleCobrar}
-        >
-          <DollarSign className="size-3.5" />
-          Cobrar
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          disabled={!detail || printing}
-          onClick={handleReprint}
-          aria-label="Reimprimir comanda"
-        >
-          <Printer className="size-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className={cn("gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive")}
-          onClick={() => setConfirmCancelOpen(true)}
-          aria-label="Cancelar orden"
-        >
-          <X className="size-3.5" />
-        </Button>
-      </div>
-
-      <AlertDialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Cancelar la orden #{order.orderNumber}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta acción no se puede deshacer. Los ítems no se van a preparar ni cobrar.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Volver</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleCancelConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Cancelar orden
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+function StatusPill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-colors",
+        active ? "bg-white text-neutral-900" : "text-white/80 hover:text-white",
+      )}
+    >
+      {label}
+    </button>
   )
 }

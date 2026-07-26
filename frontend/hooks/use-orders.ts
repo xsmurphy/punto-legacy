@@ -57,6 +57,16 @@ export interface Order {
   orderNumber: number | null
   spaceSessionId: string | null
   customerId: string | null
+  /**
+   * Datos del cliente resueltos server-side (LEFT JOIN a `contact` en
+   * `OrderCoreService::list()`/`find()`). `customerLat`/`customerLng` salen de
+   * `contact.data->>'contactLatLng'` (string legacy "lat,lng") ya parseadas y
+   * validadas — null cuando el cliente no tiene ubicación cargada o el valor
+   * está malformado. Alimentan la vista mapa de /pos/ordenes.
+   */
+  customerName: string | null
+  customerLat: number | null
+  customerLng: number | null
   userId: string | null
   note: string | null
   channelRef: string | null
@@ -115,13 +125,22 @@ async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-/** Lista de órdenes activas del outlet del device — alimenta /pos/ordenes. */
+/**
+ * Lista de órdenes activas del outlet del device — alimenta /pos/ordenes.
+ *
+ * Pide `includeItems=1`: el service resuelve los ítems de TODAS las órdenes en
+ * una sola query batched (`loadItemsByOrderIds`). Antes cada card hacía su
+ * propio `useOrder(order.id)` → N+1 de requests para pintar un listado. Con
+ * los ítems en la respuesta del listado, las tres vistas (cuadros, lista,
+ * mapa) calculan total y resumen sin fetch adicional.
+ */
 export function useActiveOrders() {
   return useQuery<{ orders: Order[] }>({
     queryKey: ["orders", "active"],
     queryFn: () => {
       const qs = new URLSearchParams()
       for (const s of ACTIVE_ORDER_STATUSES) qs.append("status[]", s)
+      qs.set("includeItems", "1")
       return posJson<{ orders: Order[] }>(`/api/pos/orders?${qs.toString()}`)
     },
     staleTime: 10 * 1000,

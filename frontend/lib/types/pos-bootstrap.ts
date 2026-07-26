@@ -157,16 +157,25 @@ export interface PosUser {
 
 // ── Bootstrap completo ────────────────────────────────────────────────────────
 
+/**
+ * Sucursal activa del device. `lat`/`lng` son las columnas numéricas de
+ * `outlet` (mig 14) y pueden ser null si nunca se cargó la ubicación — las
+ * consume el PIN del local en la vista mapa de /pos/ordenes.
+ */
+export interface PosOutlet {
+  id: string
+  name: string
+  lat: number | null
+  lng: number | null
+}
+
 export interface PosBootstrap {
   config: PosConfig
   user: {
     id: string | number
     role: number
   }
-  outlet: {
-    id: string
-    name: string
-  }
+  outlet: PosOutlet
   /** Todas las sucursales disponibles para el tenant. */
   outlets: Array<{ id: string; name: string }>
   registers: PosRegister[]
