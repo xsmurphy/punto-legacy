@@ -589,8 +589,19 @@ final class OrderCoreService
             $params[] = '%' . $filters['q'] . '%';
         }
 
-        $sql = 'SELECT o.*
+        // JOIN a contact para traer nombre + coordenadas del cliente (vista
+        // mapa de /pos/ordenes). `contactLatLng` fue demoted al JSONB `data`
+        // (ver ContactService::mapToRecord) y sigue siendo un string
+        // "lat,lng" — se parsea en presentOrder(), no en SQL, porque puede
+        // venir vacío o malformado. NO se usa el operador jsonb `?` (colisiona
+        // con el placeholder PDO): `->>` es seguro.
+        $sql = 'SELECT o.*,
+                       c.contactname          AS customer_name,
+                       c.data->>\'contactLatLng\' AS customer_latlng
                   FROM pos_order o
+             LEFT JOIN contact c
+                    ON c.contactid = o.customerid
+                   AND c.companyid = o.companyid
                  WHERE ' . implode(' AND ', $where) . '
                  ORDER BY o.created_at DESC
                  LIMIT 500';
