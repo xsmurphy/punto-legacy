@@ -306,7 +306,14 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "relative flex w-full flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-2xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
+        // `min-w-0`: el inset es hijo de un contenedor flex (SidebarProvider).
+        // Sin esto su `min-width` resuelve a `auto` = ancho intrínseco del
+        // contenido, así que una tabla ancha (ej. /settings/devices, 11
+        // columnas) empuja TODA la página fuera del viewport y se cortan el
+        // header, la toolbar y la paginación. Con min-w-0 el inset se limita
+        // al viewport y el `overflow-x-auto` que ya trae el primitive Table
+        // hace su trabajo: scrollea la tabla, no la página.
+        "relative flex w-full min-w-0 flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-2xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}
       {...props}
