@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils"
 import { useElapsed } from "@/hooks/use-elapsed"
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card"
 import { SPACE_STATE_VISUALS, spaceTintBg } from "@/lib/pos/space-state-visuals"
+import { resolveColorBg } from "@/lib/ui/color-palette"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 const DECOR_SHAPES = ["decor_wall", "decor_plant", "bar"]
@@ -59,6 +60,17 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
 
   const visual = SPACE_STATE_VISUALS[table.state]
   const accent = disabled ? null : visual.accent
+  // Color de demora del pill del tiempo. Canal SEPARADO del estado
+  // (context/27 §A.4): el fondo/borde del tile dice el estado, el pill dice
+  // si va en hora. Por eso amber/rose están reservados y no se usan para
+  // estados de espacio.
+  const tierAccent = disabled
+    ? null
+    : elapsed.tier === "late"
+      ? resolveColorBg("rose")
+      : elapsed.tier === "warn"
+        ? resolveColorBg("amber")
+        : null
   const session = table.session
 
   const neutralClasses =
@@ -105,11 +117,16 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
               Decisión owner 2026-07-19. */}
           {session && !position && (
             <span
-              style={accent ? { backgroundColor: accent } : undefined}
+              // El pill del tiempo ES el canal de demora (context/27 §A.4):
+              // fresh toma el acento del estado, warn/late toman su propio
+              // color. Antes la demora se marcaba con un `ring` gris encima
+              // del acento — ruido visual que no comunicaba nada a distancia,
+              // que es donde esta pantalla se lee.
+              style={{ backgroundColor: tierAccent ?? accent ?? undefined }}
               className={cn(
                 "flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold text-black tabular-nums",
-                !accent && "bg-foreground/10 text-foreground",
-                elapsed.tier === "late" && "font-bold ring-2 ring-black/25",
+                !tierAccent && !accent && "bg-foreground/10 text-foreground",
+                elapsed.tier === "late" && "font-bold",
               )}
             >
               <Clock className="size-3" aria-hidden />
