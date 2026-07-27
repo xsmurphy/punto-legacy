@@ -307,8 +307,16 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
       try {
         const apiPayload = buildApiPayload(payload)
+        // El timeout existe para el modo offline: si la red no responde, se
+        // encola rápido y el cajero sigue vendiendo. Pero el cobro de un
+        // espacio/orden es ONLINE-ONLY (abajo), así que cortar a los 5s solo
+        // sirve para abortar una venta que el servidor quizás estaba
+        // procesando — con la mesa cargada y el servidor remoto, 5s se cumplen
+        // seguido. Para esos cobros se da margen real.
+        const isOnlineOnlyCharge = Boolean(sessionParentId || orderParentId || settlementIntent)
+        const timeoutMs = isOnlineOnlyCharge ? 20_000 : 5_000
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('fetch timeout')), 5000)
+          setTimeout(() => reject(new Error('fetch timeout')), timeoutMs)
         )
         const raw = await Promise.race([
           posApi.postLegacy<{ success: boolean; transactionId: string; uid: string; duplicated: boolean }>(
@@ -346,6 +354,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // quedaría intacto con la plata ya en la caja.
         // El cajero ve el error y reintenta con conexión.
         if (sessionParentId || orderParentId || settlementIntent) {
+          // Un 5xx NO es falta de conexión: es un error DEL SERVIDOR, y
+          // decirle "sin conexión" al cajero lo manda a reintentar para
+          // siempre contra un bug. Se propaga el error real para que se vea
+          // qué falló. Solo la caída de red y el timeout se reportan como
+          // falta de conexión.
+          if (fetchErr instanceof ApiError) {
+            throw fetchErr
+          }
           throw new Error(
             "Sin conexión con el servidor — el cobro de espacios/órdenes necesita estar online. Reintentá.",
           )
