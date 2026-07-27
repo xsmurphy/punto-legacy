@@ -353,19 +353,47 @@ export default function KdsPage() {
     if (body.data) applyOrder(body.data)
   }
 
-  /** Marcado optimista con rollback: se pinta ya, y si el POST falla se restaura el snapshot. */
+  /**
+   * Marcado optimista con rollback.
+   *
+   * El rollback revierte SOLO los ítems de ESTE bump, no un snapshot entero
+   * del estado: con `setOrders(snapshot)` un fallo del pedido A borraba
+   * también el marcado optimista del pedido B que había entrado mientras
+   * tanto (y el de cualquier evento del WS llegado en el medio). En una
+   * cocina con dos cocineros marcando a la vez eso se ve como "se
+   * desmarcó solo".
+   *
+   * Guard de reentrada por target: un doble tap sobre el mismo ítem —o un
+   * tap seguido del bump de toda la tarjeta— disparaba dos POST solapados
+   * para el mismo orderItemId. El backend valida la transición, pero el
+   * segundo request es ruido garantizado y puede pisar el estado.
+   */
   async function commitBump(busyId: string, targets: { item: OrderItem; next: OrderItemStatus }[]) {
     if (targets.length === 0) return
+    if (busyIds.has(busyId) || targets.some((t) => busyIds.has(t.item.id))) return
     registerInteraction()
-    const snapshot = orders
-    setBusyIds((s) => new Set(s).add(busyId))
+
+    // Estado previo de CADA ítem tocado, para revertir solo eso si falla.
+    const previous = new Map(targets.map((t) => [t.item.id, t.item.status]))
+
+    setBusyIds((s) => {
+      const n = new Set(s)
+      n.add(busyId)
+      for (const t of targets) n.add(t.item.id)
+      return n
+    })
     patchItems(new Map(targets.map((t) => [t.item.id, t.next])))
     try {
       await Promise.all(targets.map((t) => postStatus(t.item.id, t.next)))
     } catch {
-      setOrders(snapshot)
+      patchItems(previous)
     } finally {
-      setBusyIds((s) => { const n = new Set(s); n.delete(busyId); return n })
+      setBusyIds((s) => {
+        const n = new Set(s)
+        n.delete(busyId)
+        for (const t of targets) n.delete(t.item.id)
+        return n
+      })
     }
   }
 

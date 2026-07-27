@@ -23,9 +23,22 @@ import type { ElapsedTier } from "@/hooks/use-elapsed"
 import { STATUS_LABEL } from "@/lib/orders/order-display"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 
+/** Gris neutro de emergencia — nunca debería usarse (ver comentario abajo). */
+const FALLBACK_HEX = "#64748b"
+
+/**
+ * Falla SUAVE a propósito. Este módulo se evalúa al importarse, así que un
+ * `throw` acá deja la pantalla de cocina en blanco sin recuperación posible
+ * salvo redeploy. `PALETTE_COLORS` es compartida por toda la app: un rename
+ * o una limpieza en otro módulo no puede tumbar el KDS de un local que está
+ * en pleno servicio. Se degrada a gris y se avisa por consola.
+ */
 function paletteHex(key: string): string {
   const hex = resolveColorBg(key)
-  if (!hex) throw new Error(`[kds-visuals] color "${key}" no está en PALETTE_COLORS`)
+  if (!hex) {
+    console.error(`[kds-visuals] color "${key}" no está en PALETTE_COLORS — usando gris`)
+    return FALLBACK_HEX
+  }
   return hex
 }
 
