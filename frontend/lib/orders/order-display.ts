@@ -64,9 +64,15 @@ export type OrderDestinationKind = "space" | "counter" | "takeaway" | "delivery"
 
 export interface OrderDestination {
   kind: OrderDestinationKind
-  /** Dato concreto: nombre del espacio, "Mostrador", "Retiro", "Envío", el canal real. */
+  /**
+   * Texto con la CATEGORÍA siempre explícita: "Espacio 2", "Mostrador",
+   * "Retiro", "Envío". Nunca el dato pelado — un badge que dice solo "2"
+   * (nombre del espacio) no le dice a nadie si eso es una mesa, un mostrador
+   * o un número de orden. El ícono acompaña, no reemplaza: a 4 metros en una
+   * TV un glifo chico no se lee y la categoría se perdería.
+   */
   label: string
-  /** Categoría — para pantallas con íconos (KDS, despacho, listados). */
+  /** Ícono de la categoría — refuerzo visual del label, nunca su sustituto. */
   icon: LucideIcon
 }
 
@@ -86,7 +92,13 @@ export interface OrderDestination {
  */
 export function orderDestination(order: Order): OrderDestination {
   if (order.source === "table") {
-    return { kind: "space", label: order.spaceName ?? SOURCE_LABEL.table, icon: LayoutGrid }
+    // "Espacio 2", no "2". Si el nombre no se pudo resolver (sesión borrada,
+    // orden vieja), "Espacio" a secas — la categoría siempre es cierta.
+    return {
+      kind: "space",
+      label: order.spaceName ? `${SOURCE_LABEL.table} ${order.spaceName}` : SOURCE_LABEL.table,
+      icon: LayoutGrid,
+    }
   }
   if (order.source === "ecommerce") {
     return { kind: "ecommerce", label: order.channelRef ?? SOURCE_LABEL.ecommerce, icon: Globe }
@@ -106,15 +118,12 @@ export function orderDestination(order: Order): OrderDestination {
 }
 
 /**
- * Versión texto de `orderDestination()` con la categoría SIEMPRE explícita —
- * para superficies sin íconos: impresión térmica, `aria-label`, búsqueda.
- * "Espacio 2", "Mostrador", "Retiro", "Envío". Espacio sin nombre resoluble
- * → "Espacio" a secas (fallback), nunca un string vacío.
+ * Solo el texto del destino — para superficies sin íconos: impresión térmica,
+ * `aria-label`, búsqueda. Es exactamente `orderDestination(order).label`: NO
+ * existe una variante "corta" sin categoría, justamente para que ninguna
+ * pantalla pueda volver a mostrar el nombre del espacio pelado.
  */
 export function orderDestinationText(order: Order): string {
-  if (order.source === "table") {
-    return order.spaceName ? `Espacio ${order.spaceName}` : SOURCE_LABEL.table
-  }
   return orderDestination(order).label
 }
 
