@@ -360,12 +360,44 @@ bloquea el envío de la orden cuando es delivery.
 
 ## D.5 De dónde salen las coordenadas
 
-**Selector de pin en un mapa**, no geocoding. Coherente con §B.7: nada de
-depender de una API externa en el camino operativo. MapLibre ya está en el
-proyecto y `contact-detail-view.tsx` ya tiene el patrón de marcador.
+Tres caminos, en orden de uso real:
 
-El operador escribe la dirección y arrastra el pin. Geocoding automático
-(Nominatim u otro) queda como comodidad futura, nunca como requisito.
+1. **Pegar el link de Google Maps / ubicación de WhatsApp** — es lo que pasa
+   el 90% de las veces: el cliente comparte la ubicación y el operador pega
+   el link. **El extractor YA EXISTE** pero está inline dentro de
+   `contact-detail-view.tsx` (~L1085): parsea `/@lat,lng`, `?q=lat,lng` y
+   `lat,lng` pelado. **Hay que extraerlo a un helper compartido**
+   (`lib/geo/parse-coordinates.ts`) y consumirlo desde los dos lados — es
+   exactamente el caso "atacar el wrapper compartido, no duplicar el
+   call-site".
+2. **Arrastrar el pin en el mapa** (MapLibre, ya en el proyecto).
+3. **Escribir lat/lng a mano** (fallback).
+
+**Geocoding automático NO**: coherente con §B.7, nada de depender de una API
+externa en el camino operativo.
+
+### ⚠ Gap conocido: links cortos
+
+El extractor actual solo resuelve links LARGOS. Un `maps.app.goo.gl/xxx` o
+`goo.gl/maps/xxx` —que es lo que genera "compartir ubicación" en varias
+versiones de WhatsApp— **no contiene las coordenadas**: hay que seguir el
+redirect. Eso no se puede hacer desde el browser (CORS) → requiere un
+endpoint chico server-side que resuelva el redirect y devuelva la URL final.
+Registrado, no bloqueante: el operador siempre puede abrir el link y copiar
+el largo.
+
+## D.5.1 Campos de una dirección (definidos por el owner)
+
+| Campo | Ejemplo |
+|---|---|
+| Nombre | "Casa", "Trabajo" |
+| Dirección | "Av. Mcal. López 2143" |
+| Referencia | "portón negro en la esquina" |
+| Coordenadas | lat / lng |
+| Link de Google Maps | campo de pegado que dispara el extractor |
+
+El link no se persiste como dato de negocio: es el **input** del que se
+extraen las coordenadas.
 
 ## D.6 Superficie
 
