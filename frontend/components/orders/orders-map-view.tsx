@@ -41,7 +41,7 @@ import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { Order } from "@/hooks/use-orders"
-import { STATUS_LABEL, STATUS_VARIANT, orderTotal } from "@/lib/orders/order-display"
+import { STATUS_VARIANT, orderTotal, statusLabelFor } from "@/lib/orders/order-display"
 
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl"
 
@@ -290,7 +290,7 @@ export function OrdersMapView({
                         {order.customerName ?? "Sin cliente"}
                       </span>
                     </span>
-                    <Badge variant={STATUS_VARIANT[order.status]}>{STATUS_LABEL[order.status]}</Badge>
+                    <Badge variant={STATUS_VARIANT[order.status]}>{statusLabelFor(order)}</Badge>
                   </Button>
                 ))}
               </div>
@@ -323,7 +323,7 @@ function popupHtml(order: Order, total: string): string {
     <div class="flex flex-col gap-1.5 p-1 text-foreground">
       <p class="text-base font-semibold tabular-nums">Orden ${escapeHtml(number)}</p>
       <p class="text-sm text-muted-foreground">${escapeHtml(order.customerName ?? "Sin cliente")}</p>
-      <p class="text-sm text-muted-foreground">${escapeHtml(STATUS_LABEL[order.status])}</p>
+      <p class="text-sm text-muted-foreground">${escapeHtml(statusLabelFor(order))}</p>
       <p class="text-sm font-semibold tabular-nums">${escapeHtml(total)}</p>
       <button type="button" data-order-open
         class="mt-1 inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground">

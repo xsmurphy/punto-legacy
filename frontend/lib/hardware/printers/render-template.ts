@@ -171,6 +171,19 @@ export function renderTemplateToEscPos(opts: {
   let encoder: Encoder = new ReceiptPrinterEncoder({ columns })
   encoder = encoder.initialize()
 
+  // El destino de la comanda va SIEMPRE, en su propia línea, junto al número
+  // — sin depender de que la plantilla del binding tenga un bloque para eso
+  // (el operador la configura para factura/recibo; una comanda mal armada
+  // por un template incompleto es el bug que estamos evitando).
+  if (data.docType === "order" && data.orderDestination) {
+    encoder = encoder
+      .align("center")
+      .bold(true)
+      .line(`COMANDA #${data.ticketNo ?? "—"} · ${data.orderDestination.toUpperCase()}`)
+      .bold(false)
+      .align("left")
+  }
+
   const blocks = template.data ?? []
   let i = 0
 

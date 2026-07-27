@@ -5,6 +5,7 @@
  * exactamente los mismos labels y el mismo cálculo de total.
  */
 
+import { Bike, LayoutGrid, ShoppingBag, Store, Globe, CalendarClock, type LucideIcon } from "lucide-react"
 import type { Order, OrderStatus } from "@/hooks/use-orders"
 
 /**
@@ -13,21 +14,32 @@ import type { Order, OrderStatus } from "@/hooks/use-orders"
  *   open        → "Pendiente"  (se está armando, todavía no salió a preparar)
  *   sent        → "En espera"  (ya salió a preparar, esperando ser tomada)
  *   in_progress → "En proceso"
- *   ready       → "Enviado"    (despachada desde el mostrador)
+ *   ready       → "Enviado" (delivery) / "Listo" (el resto)
  * Los estados de la máquina NO cambian — esto es solo presentación.
+ *
+ * `STATUS_LABEL.ready` queda fijo en "Listo" — usalo solo cuando no hay
+ * `order` a mano (ej. un status suelto). Para una orden completa, usá
+ * `statusLabelFor(order)`, que resuelve "Enviado" para delivery.
  */
 export const STATUS_LABEL: Record<OrderStatus, string> = {
   open: "Pendiente",
   sent: "En espera",
   in_progress: "En proceso",
-  // "Listo" es la etiqueta base. "Enviado" corresponde SOLO a los pedidos
-  // marcados como delivery (decisión del owner) — eso llega con `fulfillment`
-  // (context/27 §B.1, todavía sin implementar). Hasta entonces ninguna orden
-  // es delivery, así que "Listo" es correcto para todas.
   ready: "Listo",
   delivered: "Entregada",
   closed: "Cobrada",
   cancelled: "Cancelada",
+}
+
+/**
+ * Label de estado de una orden completa — igual a `STATUS_LABEL[status]`
+ * salvo `ready` + `fulfillment==='delivery'`, que es "Enviado" (decisión del
+ * owner: una orden delivery lista para el cadete se dice distinto de una
+ * lista para retirar en mostrador).
+ */
+export function statusLabelFor(order: Order): string {
+  if (order.status === "ready" && order.fulfillment === "delivery") return "Enviado"
+  return STATUS_LABEL[order.status]
 }
 
 export const STATUS_VARIANT: Record<OrderStatus, "default" | "secondary" | "outline"> = {
@@ -47,33 +59,63 @@ export const SOURCE_LABEL: Record<Order["source"], string> = {
   schedule: "Agenda",
 }
 
+/** Categoría de destino de una orden — ver `orderDestination()`. */
+export type OrderDestinationKind = "space" | "counter" | "takeaway" | "delivery" | "ecommerce" | "schedule"
+
+export interface OrderDestination {
+  kind: OrderDestinationKind
+  /** Dato concreto: nombre del espacio, "Mostrador", "Retiro", "Envío", el canal real. */
+  label: string
+  /** Categoría — para pantallas con íconos (KDS, despacho, listados). */
+  icon: LucideIcon
+}
+
 /**
- * ORIGEN de la orden con el dato concreto, no la categoría.
+ * DESTINO de la orden: a dónde va, no de dónde vino. Todo pedido tiene que
+ * decir SIEMPRE uno de: Espacio (con nombre) / Mostrador / Retiro / Envío
+ * (más los casos de e-commerce/agenda, que conservan su tratamiento previo).
  *
- * `SOURCE_LABEL` responde "qué tipo de orden es"; esto responde la pregunta que
- * de verdad se hace quien la lee —cocina y mostrador— que es A DÓNDE VA: no
- * "Espacio" sino "Espacio 4", no "E-commerce" sino el canal real. Cuando el
- * dato concreto no está (orden vieja, sesión borrada, canal sin nombre) cae a
- * la categoría, que siempre es cierta.
+ * Precedencia: una orden de espacio (`source==='table'`) es SIEMPRE el
+ * espacio — manda sobre `fulfillment`, que ahí es `dine_in` por construcción
+ * (lo fuerza `OrderCoreService::create`, no es una elección real). Fuera de
+ * un espacio, `fulfillment` decide mostrador/retiro/envío.
  *
- * Fuente única: la consumen el KDS y /pos/ordenes. Un `switch` exhaustivo sobre
- * `source` a propósito — cuando llegue `fulfillment` (context/27 §B.1) los
- * casos "Delivery" y "Retira" se suman ACÁ y aparecen en las dos pantallas de
- * una. Hoy ese campo NO EXISTE en el modelo, así que no se inventan.
+ * Fuente única: la consumen el KDS, la pantalla de despacho, /pos/ordenes y
+ * la comanda impresa (`orderDestinationText`, sin íconos). Un `switch`
+ * exhaustivo sobre `kind` a propósito.
  */
-export function orderOrigin(order: Order): string {
-  switch (order.source) {
-    case "table":
-      return order.spaceName ?? SOURCE_LABEL.table
-    case "ecommerce":
-      return order.channelRef ?? SOURCE_LABEL.ecommerce
-    case "counter":
-      return SOURCE_LABEL.counter
-    case "schedule":
-      return SOURCE_LABEL.schedule
-    default:
-      return SOURCE_LABEL[order.source] ?? order.source
+export function orderDestination(order: Order): OrderDestination {
+  if (order.source === "table") {
+    return { kind: "space", label: order.spaceName ?? SOURCE_LABEL.table, icon: LayoutGrid }
   }
+  if (order.source === "ecommerce") {
+    return { kind: "ecommerce", label: order.channelRef ?? SOURCE_LABEL.ecommerce, icon: Globe }
+  }
+  if (order.source === "schedule") {
+    return { kind: "schedule", label: SOURCE_LABEL.schedule, icon: CalendarClock }
+  }
+  switch (order.fulfillment) {
+    case "takeaway":
+      return { kind: "takeaway", label: "Retiro", icon: ShoppingBag }
+    case "delivery":
+      return { kind: "delivery", label: "Envío", icon: Bike }
+    case "dine_in":
+    default:
+      return { kind: "counter", label: SOURCE_LABEL.counter, icon: Store }
+  }
+}
+
+/**
+ * Versión texto de `orderDestination()` con la categoría SIEMPRE explícita —
+ * para superficies sin íconos: impresión térmica, `aria-label`, búsqueda.
+ * "Espacio 2", "Mostrador", "Retiro", "Envío". Espacio sin nombre resoluble
+ * → "Espacio" a secas (fallback), nunca un string vacío.
+ */
+export function orderDestinationText(order: Order): string {
+  if (order.source === "table") {
+    return order.spaceName ? `Espacio ${order.spaceName}` : SOURCE_LABEL.table
+  }
+  return orderDestination(order).label
 }
 
 /**

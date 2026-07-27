@@ -31,12 +31,12 @@ import { formatTime } from "@/lib/format-date"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { Order } from "@/hooks/use-orders"
 import {
-  SOURCE_LABEL,
-  STATUS_LABEL,
   STATUS_VARIANT,
+  orderDestination,
   orderItemsSummary,
   orderSearchHaystack,
   orderTotal,
+  statusLabelFor,
 } from "@/lib/orders/order-display"
 
 export function OrdersListView({
@@ -86,14 +86,16 @@ export function OrdersListView({
                 <TableHead className="w-20">Orden</TableHead>
                 <TableHead>Cliente</TableHead>
                 <TableHead className="hidden md:table-cell">Ítems</TableHead>
-                <TableHead className="w-28">Origen</TableHead>
+                <TableHead className="w-32">Destino</TableHead>
                 <TableHead className="w-20">Hora</TableHead>
                 <TableHead className="w-32">Estado</TableHead>
                 <TableHead className="w-28 text-right">Total</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((order) => (
+              {filtered.map((order) => {
+                const destination = orderDestination(order)
+                return (
                 <TableRow
                   key={order.id}
                   // h-14: fila táctil (>44px) — se abre con el dedo en tablet.
@@ -112,7 +114,10 @@ export function OrdersListView({
                     {orderItemsSummary(order)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {SOURCE_LABEL[order.source]}
+                    <span className="flex items-center gap-1.5">
+                      <destination.icon className="size-3.5 shrink-0" aria-hidden />
+                      <span className="truncate">{destination.label}</span>
+                    </span>
                   </TableCell>
                   <TableCell className="tabular-nums text-muted-foreground">
                     {order.sentAt
@@ -123,14 +128,15 @@ export function OrdersListView({
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_VARIANT[order.status]}>
-                      {STATUS_LABEL[order.status]}
+                      {statusLabelFor(order)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
                     {formatMoney(orderTotal(order), config)}
                   </TableCell>
                 </TableRow>
-              ))}
+                )
+              })}
             </TableBody>
           </Table>
         </div>

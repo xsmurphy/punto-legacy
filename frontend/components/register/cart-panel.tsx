@@ -772,7 +772,7 @@ function CustomerChip({
 //
 // Mismo patrón visual que SpaceChip/CustomerChip arriba — solo visible cuando
 // fulfillment==="delivery" y hay una dirección elegida (context/27 §D.4). La
-// X vuelve el fulfillment a "dine_in" ("En el local"), que a su vez limpia
+// X vuelve el fulfillment a "dine_in" ("Mostrador"), que a su vez limpia
 // deliveryAddress vía la invariante de setFulfillment (lib/cart/store.ts).
 
 function DeliveryAddressChip({
@@ -1319,7 +1319,7 @@ function CartBottom({
       {/* Toggles CRÉDITO / INTERNO / IVA — atributos de la VENTA, no de la
           orden: no existe orden a crédito, "interno" es una venta sin valor
           fiscal y el IVA se define recién al cobrar. En modo orden-mostrador
-          esta fila lleva el selector de fulfillment (En el local/Retiro/
+          esta fila lleva el selector de fulfillment (Mostrador/Retiro/
           Envío, context/27 §D.4) en vez de los toggles — orden-espacio (dine_in
           por construcción) no muestra nada acá salvo VACIAR.
           `min-h-10` (antes `min-h-6`, subido para que el selector de 3

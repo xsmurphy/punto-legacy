@@ -4,7 +4,7 @@ import { Check, Clock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useElapsed } from "@/hooks/use-elapsed"
 import type { Order, OrderItem } from "@/hooks/use-orders"
-import { orderOrigin } from "@/lib/orders/order-display"
+import { orderDestination } from "@/lib/orders/order-display"
 
 interface ReadyCardProps {
   order: Order
@@ -25,14 +25,16 @@ interface ReadyCardProps {
  * elemento más grande de la tarjeta y el número queda como identificador
  * secundario, todavía legible de lejos.
  *
- * El destino sale de `orderOrigin()` — misma fuente que el KDS y /pos/ordenes,
- * y por eso dice "Espacio 4" y no "Espacio": el nombre real viene del backend
- * (`spaceName`, LEFT JOIN space_session → space). El badge redundante que solo
- * decía "Espacio" cuando había `spaceSessionId` desaparece: era la misma
+ * El destino sale de `orderDestination()` — misma fuente que el KDS y
+ * /pos/ordenes, y por eso dice "Espacio 4" y no "Espacio": el nombre real
+ * viene del backend (`spaceName`, LEFT JOIN space_session → space). También
+ * distingue mostrador/retiro/envío vía `fulfillment`. El badge redundante que
+ * solo decía "Espacio" cuando había `spaceSessionId` desaparece: era la misma
  * información, sin el dato.
  */
 export function ReadyCard({ order, readyItems, busy, onDeliverAll, onDeliverItem }: ReadyCardProps) {
   const elapsed = useElapsed(order.sentAt ?? order.createdAt, { warnMin: 5, lateMin: 15 })
+  const destination = orderDestination(order)
 
   return (
     <button
@@ -45,10 +47,11 @@ export function ReadyCard({ order, readyItems, busy, onDeliverAll, onDeliverItem
       <div className="flex items-baseline justify-between gap-2">
         {/* El dato accionable, y por eso el más grande de la tarjeta. */}
         <span
-          className="min-w-0 flex-1 truncate font-bold"
+          className="flex min-w-0 flex-1 items-center gap-2 truncate font-bold"
           style={{ fontSize: "clamp(1.75rem, 2.8vw + 1rem, 3.5rem)" }}
         >
-          {orderOrigin(order)}
+          <destination.icon className="size-[1em] shrink-0" />
+          <span className="truncate">{destination.label}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1 text-muted-foreground tabular-nums">
           <Clock className="size-4" />

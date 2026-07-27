@@ -39,6 +39,16 @@ export interface TicketData {
   payments: TicketPayment[]
   // nota
   note?: string
+  /**
+   * Destino de la orden ("Espacio 4", "Mostrador", "Retiro", "Envío") — solo
+   * `docType==="order"` (comandas), viene de `orderDestinationText()`
+   * (lib/orders/order-display.ts). Forzado en la cabecera del ticket por
+   * `render-template.ts`/`html-renderer.ts` SIEMPRE que esté presente, sin
+   * depender de qué bloques tenga configurada la plantilla del binding: es
+   * el primer dato que necesita quien arma el pedido, no un campo más que el
+   * operador pueda olvidarse de agregar al template.
+   */
+  orderDestination?: string
 }
 
 export interface TicketItem {

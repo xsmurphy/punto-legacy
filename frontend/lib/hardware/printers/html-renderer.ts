@@ -189,6 +189,14 @@ export function renderTemplateToHtml(
   const blocks = template.data ?? []
   const parts: string[] = []
 
+  // Mismo forzado que render-template.ts (ESC/POS): el destino de la comanda
+  // no depende de que la plantilla del binding tenga un bloque para eso.
+  if (data.docType === "order" && data.orderDestination) {
+    parts.push(
+      `<div style="text-align:center;font-weight:bold">COMANDA #${esc(data.ticketNo ?? "—")} · ${esc(data.orderDestination.toUpperCase())}</div>`,
+    )
+  }
+
   let i = 0
   while (i < blocks.length) {
     const block = blocks[i]

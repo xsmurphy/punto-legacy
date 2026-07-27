@@ -17,7 +17,7 @@ import {
   type KdsMode,
   type KdsOrderStatus,
 } from "@/lib/kds/kds-visuals"
-import { orderOrigin } from "@/lib/orders/order-display"
+import { orderDestination } from "@/lib/orders/order-display"
 
 /**
  * Tarjeta de comanda del KDS — flujo horizontal (rediseño 2026-07-27).
@@ -39,8 +39,8 @@ import { orderOrigin } from "@/lib/orders/order-display"
  *
  * Dos canales de color, nunca mezclados (context/27 §A.4): el ESTADO pinta la
  * franja/encabezado, la DEMORA pinta solo el pill de tiempo. Mapping en
- * `lib/kds/kds-visuals.ts` — nunca inline acá. El ORIGEN es un tercer dato pero
- * NO un tercer color: va como badge neutro, para no meterse en esos dos
+ * `lib/kds/kds-visuals.ts` — nunca inline acá. El DESTINO es un tercer dato
+ * pero NO un tercer color: va como badge neutro, para no meterse en esos dos
  * canales.
  *
  * GESTOS
@@ -104,6 +104,7 @@ export function OrderCard({
     [order, config.stationIds]
   )
 
+  const destination = orderDestination(order)
   const bumpable = items.filter((i) => i.status === "pending" || i.status === "preparing")
   const status = KDS_STATUS_VISUALS[order.status as KdsOrderStatus] ?? KDS_STATUS_VISUALS.sent
   /**
@@ -222,16 +223,18 @@ export function OrderCard({
             comanda, que es el identificador y nunca debe truncarse. */}
         <div className="mt-1 flex h-11 items-center gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2" style={{ fontSize: "0.72em" }}>
-            {/* ORIGEN — "Espacio 4", no "Espacio". Es de los primeros datos que
-                quien opera necesita (a dónde va el plato), así que va como
-                badge y no como texto muted perdido al lado del estado. Sin
-                color propio: los dos canales de color ya están tomados. */}
+            {/* DESTINO — ícono de categoría + dato concreto ("Espacio 4", no
+                "Espacio"). Es de los primeros datos que quien opera necesita
+                (a dónde va el plato), así que va como badge y no como texto
+                muted perdido al lado del estado. Sin color propio: los dos
+                canales de color ya están tomados. */}
             <Badge
               variant="secondary"
-              className="shrink-0 font-semibold"
+              className="shrink-0 gap-1 font-semibold"
               style={{ fontSize: "inherit" }}
             >
-              {orderOrigin(order)}
+              <destination.icon className="size-[1em] shrink-0" />
+              {destination.label}
             </Badge>
             <span className="shrink-0 font-semibold uppercase tracking-wide" style={{ color: accent }}>
               {status.label}

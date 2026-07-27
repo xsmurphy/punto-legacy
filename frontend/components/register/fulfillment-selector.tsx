@@ -1,8 +1,11 @@
 "use client"
 
 /**
- * Selector de fulfillment del carrito — "En el local" / "Retiro" / "Envío"
- * (context/27-delivery-sla-plan.md §B.4/§D.4).
+ * Selector de fulfillment del carrito — "Mostrador" / "Retiro" / "Envío"
+ * (context/27-delivery-sla-plan.md §B.4/§D.4). "Mostrador" y no "En el
+ * local": es el mismo vocabulario que usa la comanda (KDS, despacho,
+ * /pos/ordenes, ticket impreso) para este destino — dos nombres para lo
+ * mismo era exactamente la confusión que había que sacar de encima.
  *
  * Segmented control de 3 opciones EXCLUYENTES (ToggleGroup type="single",
  * shadcn — Regla #2/#6 de context/14-ui-conventions.md: sin `<button>`
@@ -23,7 +26,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import type { Fulfillment } from "@/hooks/use-orders"
 
 const OPTIONS: Array<{ value: Fulfillment; label: string; icon: typeof Store }> = [
-  { value: "dine_in", label: "En el local", icon: Store },
+  { value: "dine_in", label: "Mostrador", icon: Store },
   { value: "takeaway", label: "Retiro", icon: ShoppingBag },
   { value: "delivery", label: "Envío", icon: Bike },
 ]

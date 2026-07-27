@@ -24,6 +24,7 @@ import type { TicketData, TicketItem } from "@/lib/hardware/printers/build-ticke
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 import type { Order } from "@/hooks/use-orders"
+import { orderDestinationText } from "@/lib/orders/order-display"
 
 export function buildOrderTicketData(order: Order, config: PosConfig | null): TicketData {
   const catalogItems = useCatalogStore.getState().items
@@ -55,6 +56,9 @@ export function buildOrderTicketData(order: Order, config: PosConfig | null): Ti
     total: items.reduce((s, i) => s + i.total, 0),
     payments: [],
     note: order.note ?? undefined,
+    // A DÓNDE VA es lo primero que mira quien arma la comanda — ver el
+    // forzado de esta línea en render-template.ts/html-renderer.ts.
+    orderDestination: orderDestinationText(order),
   }
 }
 

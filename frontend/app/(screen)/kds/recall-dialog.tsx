@@ -16,7 +16,7 @@ import type { Order } from "@/hooks/use-orders"
 import { doneAtIso, recallBlockReason, RECALL_LIMIT, screenItems } from "@/lib/kds/board"
 import { KDS_ITEM_VISUALS, kdsTint } from "@/lib/kds/kds-visuals"
 import { formatTime } from "@/lib/format-date"
-import { orderOrigin, STATUS_LABEL } from "@/lib/orders/order-display"
+import { orderDestination, statusLabelFor } from "@/lib/orders/order-display"
 
 /**
  * Panel de comandas que ya SALIERON del board (recall).
@@ -86,6 +86,7 @@ export function KdsRecallDialog({
                 const reason = recallBlockReason(order, stationIds)
                 const doneIso = doneAtIso(order, stationIds)
                 const busy = busyIds.has(order.id)
+                const destination = orderDestination(order)
                 return (
                   <li key={order.id} className="rounded-lg border p-3">
                     <div className="flex items-start gap-3">
@@ -94,11 +95,14 @@ export function KdsRecallDialog({
                           <span className="text-lg font-bold tabular-nums">
                             #{order.orderNumber ?? "—"}
                           </span>
-                          <Badge variant="secondary">{STATUS_LABEL[order.status]}</Badge>
+                          <Badge variant="secondary">{statusLabelFor(order)}</Badge>
                           <span className="text-sm text-muted-foreground tabular-nums">
                             {doneIso ? formatTime(doneIso) : "—"}
                           </span>
-                          <Badge variant="outline">{orderOrigin(order)}</Badge>
+                          <Badge variant="outline" className="gap-1">
+                            <destination.icon className="size-3.5" />
+                            {destination.label}
+                          </Badge>
                           {order.customerName && (
                             <span className="truncate text-sm text-muted-foreground">
                               {order.customerName}

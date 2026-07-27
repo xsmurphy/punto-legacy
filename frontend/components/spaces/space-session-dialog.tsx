@@ -49,7 +49,7 @@ import {
   ACTIVE_ORDER_STATUSES,
   type Order,
 } from "@/hooks/use-orders"
-import { STATUS_LABEL } from "@/lib/orders/order-display"
+import { statusLabelFor } from "@/lib/orders/order-display"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 /** Total de una orden = suma de ítems no cancelados (qty × price). */
@@ -131,7 +131,7 @@ export function SpaceSessionDialog({
                       >
                         Orden #{o.orderNumber ?? "—"}
                       </span>
-                      <Badge variant="outline">{STATUS_LABEL[o.status]}</Badge>
+                      <Badge variant="outline">{statusLabelFor(o)}</Badge>
                     </div>
                     {(o.items?.length ?? 0) > 0 && (
                       <ul className="mt-1.5 flex flex-col gap-0.5 border-t border-border/60 pt-1.5">

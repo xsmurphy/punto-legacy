@@ -425,7 +425,7 @@ interface CartState {
   /**
    * Cambia el fulfillment de la orden en curso (context/27 §B.1). Cualquier
    * valor distinto de "delivery" limpia `deliveryAddress` — no puede quedar
-   * una dirección elegida "colgada" si el cajero vuelve a "En el local"/"Retiro".
+   * una dirección elegida "colgada" si el cajero vuelve a "Mostrador"/"Retiro".
    */
   setFulfillment: (f: Fulfillment) => void
 
@@ -638,7 +638,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     // válida — el backend la rechaza ('deliveryAddressId inválido para este
     // cliente') y el cajero vería un "no se pudo enviar la orden" opaco. Peor
     // sería que pasara: el pedido saldría a la casa del cliente anterior. Se
-    // vuelve a "En el local" y el cajero re-elige el destino.
+    // vuelve a "Mostrador" y el cajero re-elige el destino.
     set((state) =>
       state.deliveryAddress !== null && state.customer?.id !== customer?.id
         ? { customer, fulfillment: "dine_in" as Fulfillment, deliveryAddress: null }
@@ -782,7 +782,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   setFulfillment: (f) => {
     // Invariante acá (no en la UI, context/27): cualquier valor distinto de
     // "delivery" limpia la dirección — no puede quedar una dirección elegida
-    // colgada si el cajero vuelve a "En el local"/"Retiro".
+    // colgada si el cajero vuelve a "Mostrador"/"Retiro".
     set({ fulfillment: f, deliveryAddress: f === "delivery" ? _get().deliveryAddress : null })
   },
 

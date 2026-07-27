@@ -39,11 +39,11 @@ import { posApi } from "@/lib/api/pos-client"
 import { useCancelOrder, type Order } from "@/hooks/use-orders"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
 import {
-  SOURCE_LABEL,
-  STATUS_LABEL,
   STATUS_VARIANT,
+  orderDestination,
   orderItemsSummary,
   orderTotal,
+  statusLabelFor,
 } from "@/lib/orders/order-display"
 
 export function OrderCard({
@@ -70,6 +70,7 @@ export function OrderCard({
 
   const hasItems = (order.items?.length ?? 0) > 0
   const total = orderTotal(order)
+  const destination = orderDestination(order)
 
   function handleCobrar() {
     loadFromOrder(order)
@@ -125,10 +126,11 @@ export function OrderCard({
             <Clock className="size-3" aria-hidden />
             {order.sentAt ? formatTime(order.sentAt) : order.createdAt ? formatTime(order.createdAt) : "—"}
             <span aria-hidden>·</span>
-            <span>{SOURCE_LABEL[order.source]}</span>
+            <destination.icon className="size-3" aria-hidden />
+            <span>{destination.label}</span>
           </div>
         </div>
-        <Badge variant={STATUS_VARIANT[order.status]}>{STATUS_LABEL[order.status]}</Badge>
+        <Badge variant={STATUS_VARIANT[order.status]}>{statusLabelFor(order)}</Badge>
       </div>
 
       {order.customerName ? (
