@@ -263,7 +263,10 @@ export function OrdersMapView({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="absolute right-2 top-2 rounded-md bg-background/90 px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-background"
+                // Abajo a la izquierda: arriba vive el aviso de "sucursal sin
+                // ubicación" (inset-x-2 top-2, ocupa todo el ancho) y a la
+                // derecha el control de atribución de MapLibre.
+                className="absolute bottom-2 left-2 rounded-md bg-background/90 px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-background"
               >
                 {withoutCoords.length} envío{withoutCoords.length !== 1 ? "s" : ""} sin ubicación
               </button>

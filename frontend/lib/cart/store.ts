@@ -633,7 +633,17 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   setCustomer: (customer) => {
-    set({ customer })
+    // La dirección de envío pertenece al cliente que estaba cargado: si lo
+    // quitan (X del chip) o lo cambian por otro, esa dirección deja de ser
+    // válida — el backend la rechaza ('deliveryAddressId inválido para este
+    // cliente') y el cajero vería un "no se pudo enviar la orden" opaco. Peor
+    // sería que pasara: el pedido saldría a la casa del cliente anterior. Se
+    // vuelve a "En el local" y el cajero re-elige el destino.
+    set((state) =>
+      state.deliveryAddress !== null && state.customer?.id !== customer?.id
+        ? { customer, fulfillment: "dine_in" as Fulfillment, deliveryAddress: null }
+        : { customer },
+    )
   },
 
   toggleCredito: () => {

@@ -107,7 +107,7 @@ export function DeliveryAddressDialog({
       return
     }
     try {
-      await createAddress.mutateAsync({
+      const { id } = await createAddress.mutateAsync({
         customerId,
         name: form.name.trim(),
         address: form.address.trim(),
@@ -117,12 +117,11 @@ export function DeliveryAddressDialog({
         lat,
         lng,
       })
-      // add() siempre deja la dirección nueva como default (única forma de
-      // identificarla sin Insert_ID — ver CustomerAddressService::add) —
-      // refetch y tomar la marcada default es el mismo criterio que usa la
-      // libreta del panel.
-      const res = await refetch()
-      const created = res.data?.find((a) => a.default === true) ?? null
+      // El id viene del propio INSERT (RETURNING customerAddressId). No se
+      // deduce releyendo la libreta: la dirección nueva queda como default,
+      // pero dos altas concurrentes del mismo cliente harían que el "default"
+      // sea la del otro y el pedido saldría a la dirección equivocada.
+      const created = (await refetch()).data?.find((a) => a.id === id) ?? null
       if (!created) {
         toast.error("La dirección se creó pero no se pudo seleccionar automáticamente")
         return

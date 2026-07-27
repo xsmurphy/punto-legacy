@@ -65,7 +65,17 @@ final class CustomerAddressService
         return $out;
     }
 
-    /** Crea una dirección (queda como default). Desmarca el default de las demás ANTES de insertar. */
+    /**
+     * Crea una dirección (queda como default). Desmarca el default de las demás ANTES de insertar.
+     *
+     * Devuelve el id de la dirección creada (`RETURNING customerAddressId`).
+     * El caller lo necesita para usarla en el acto sin adivinar cuál es: el
+     * POS crea la dirección en medio del flujo de "Envío" y la snapshotea en
+     * la orden (context/27 §D.3). Deducirla releyendo la libreta y tomando la
+     * marcada default funciona por accidente (esta función deja exactamente
+     * una) y se rompe con dos altas concurrentes del mismo cliente —
+     * mandaría el pedido a la dirección equivocada.
+     */
     public function add(string $companyId, string $customerId, array $f): array
     {
         global $db;
@@ -76,15 +86,24 @@ final class CustomerAddressService
         $record['customerId']             = $customerId;
         $record['companyId']              = $companyId;
 
-        // Clear-then-insert atómico: sin Insert_ID en /app no podemos excluir el nuevo
-        // PK del clear, así que limpiamos el default ANTES e insertamos como default.
-        // La transacción evita dejar al cliente sin ninguna default si el INSERT falla.
+        // Clear-then-insert atómico: limpiamos el default de las demás ANTES e
+        // insertamos como default (así el nuevo PK no queda incluido en el
+        // clear). La transacción evita dejar al cliente sin ninguna default si
+        // el INSERT falla.
+        $cols         = implode(', ', array_keys($record));
+        $placeholders = implode(', ', array_fill(0, count($record), '?'));
+
         $db->StartTrans();
         $db->Execute(
             'UPDATE customerAddress SET customerAddressDefault = NULL WHERE customerId = ? AND companyId = ?',
             [$customerId, $companyId]
         );
-        if ($db->Insert('customerAddress', $record) === false) {
+        $rs = $db->Execute(
+            "INSERT INTO customerAddress ({$cols}) VALUES ({$placeholders}) RETURNING customerAddressId",
+            array_values($record)
+        );
+        $newId = ($rs !== false && !$rs->EOF) ? (string) $rs->fields['customeraddressid'] : '';
+        if ($newId === '') {
             $db->FailTrans();
         }
         if (!$db->CompleteTrans()) {
@@ -93,7 +112,7 @@ final class CustomerAddressService
 
         $this->touchContact($companyId, $customerId);
         $this->touchCompany($companyId);
-        return ['ok' => true];
+        return ['ok' => true, 'id' => $newId];
     }
 
     /** Actualiza nombre/dirección/ubicación/ciudad/coordenadas de una dirección del cliente. */

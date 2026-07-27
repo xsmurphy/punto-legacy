@@ -52,12 +52,18 @@ export interface CreateCustomerAddressPosInput {
   lng?: number | null
 }
 
-/** Alta de dirección desde el diálogo de delivery del carrito ("Nueva dirección"). */
+/**
+ * Alta de dirección desde el diálogo de delivery del carrito ("Nueva
+ * dirección"). Devuelve el `id` de la dirección creada
+ * (`CustomerAddressService::add` → `RETURNING customerAddressId`) — el
+ * diálogo la usa en el acto para snapshotearla en la orden, sin releer la
+ * libreta ni adivinar cuál es la nueva.
+ */
 export function useCreateCustomerAddressPos() {
   const qc = useQueryClient()
-  return useMutation<unknown, Error, CreateCustomerAddressPosInput>({
+  return useMutation<{ ok: boolean; id: string }, Error, CreateCustomerAddressPosInput>({
     mutationFn: (body) =>
-      posJson("/api/pos/customer-addresses", {
+      posJson<{ ok: boolean; id: string }>("/api/pos/customer-addresses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
