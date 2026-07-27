@@ -3,6 +3,15 @@
 
 # Bitácora de Sesiones
 
+## 2026-07-27 — Sesión multi-día: Estación de Impresión P0+P1, split de cuenta F3, historial de transiciones F-EVT-0, rediseño KDS+Órdenes+Espacios, libreta de direcciones
+
+Commits `49962f74..6fd81ffd` (53) en una semana (19-jul → 27-jul).
+
+- **Hecho**: Estación de Impresión P0 backend (mig 83, `PrintPoolService`, WS) + P1 pantalla `(screen)/print` con pairing/drenado. Split de cuenta en Espacios (migs 90/91, `SpaceSettlementService`, 4 modos, CAS anti doble cobro). Historial de transiciones `pos_order_event` (migs 85/86, `recordEvent()` en misma TX, base de SLA). Libreta de direcciones extendida sobre `customerAddress` (mig 87) + parser de coords compartido. Rediseños: KDS a flujo horizontal con recall, `/pos/ordenes` con barra flotante (cuadros/lista/mapa), Espacios con switch grilla/mapa. Bugs de raíz: `parseNaive` no stripeaba offsets `-03`/`+00` (fechas rotas en toda la app), `min-w-0` faltante en `SidebarInset`/`DataTable`, TX del wrapper DB sin contador de anidamiento, lock del POS solo en memoria (recarga pedía PIN de nuevo).
+- **Decisión**: ADOdb no existe en el proyecto — nombres de métodos legacy no implican dependencia, referencias eliminadas de código y docs. Cancelar orden exige motivo (enforcement en el service). Pedir la cuenta no bloquea agregar órdenes. Etiquetas: `ready`=Listo, "Enviado" reservado a delivery. Costo de envío = ítem del catálogo (cascada zona→banda, sin API externa). SLA target = máximo por estación. Nombres vertical-neutrales ("pantalla de despacho", no "de mozos").
+- **Pendiente**: deploy de ~30 commits + migs 83/85/86/87/89/90/91 (idempotentes, corren en boot). F-D-0 (fulfillment/delivery) cancelado por el owner, no relanzado — bloquea columnas de /pos/ordenes. Cobro de mesa: se corrigió clasificación 5xx y timeout, falta diagnosticar el error real reportado por el owner. Estación de impresión P2/P3. Decisión pendiente: ¿repartidor con app propia?
+- **Atención**: agentes en paralelo sobre worktree compartido se pisan el trabajo entre sí (causó P0 en main, un `LEFT JOIN` perdido) — usar `isolation: "worktree"` siempre que 2+ agentes escriban en simultáneo. Un agente leyó el checkout compartido en vez de su propio worktree y dio por aplicado un cambio inexistente en su commit. Lint+build no alcanzan como gate — el code-reviewer encontró P0/P1 reales (doble cobro por saldo cacheado, reintento contado doble, ticket impreso marcado fallido) en commits que ya habían pasado ambos.
+
 ## 2026-07-19 — Sesión multi-día: Finanzas F3+medios de pago, agente IA batch, impresión unificada, Producción v1, Órdenes O0-O2, Espacios (rename Mesas), auth invariante un-cliente-un-realm
 
 Commits `40fc0187..a95d814f` (~150) en dos semanas y media (03-jul → 19-jul). Sesión mayor con módulos nuevos + hardening cross-cutting.

@@ -10,17 +10,19 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-07-19 (cierre sesión multi-día: Finanzas F3, Producción v1, Órdenes O0-O2, Espacios v1)
+> **Última actualización:** 2026-07-27 (split de cuenta F3, historial de transiciones F-EVT-0, rediseño KDS, libreta de direcciones)
 
 ---
 
-## Módulos nuevos ✅ (cierre 2026-07-19)
+## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 
 - **Producción v1** ✅ — plan `context/23-production-module-plan.md`. F0 recetas canónicas en `item_compound` (mig 75), F1 `production_order`+`waste_event` (migs 76/77, permiso `production.manage`), F2 UI `/produccion`. Pendiente: v2 (parcial/co-productos/reversa).
-- **Órdenes** ✅ (O0-O2) — plan `context/24-orders-module-plan.md`. O0 core (`pos_order`/`order_station`, correlativo advisory-lock, canal realtime `kds`), O1 modal POS (Pagar↔Ordenar, comandas), O2 KDS+display device-paired WS. Pendiente: O3 split/reservas, O4 ecommerce/agenda.
-- **Espacios v1** ✅ (ex Mesas, rename migs 81/82) — plan `context/15-espacios-module-plan.md`. F0/F1 schema+editor (react-rnd), F2 operación POS (mapa, sesión, cobro multi-orden).
+- **Órdenes** ✅ (O0-O2) — plan `context/24-orders-module-plan.md`. O0 core (`pos_order`/`order_station`, correlativo advisory-lock, canal realtime `kds`), O1 modal POS (Pagar↔Ordenar, comandas), O2 KDS+display device-paired WS. Pendiente: O3 reservas, O4 ecommerce/agenda.
+- **Espacios v1** ✅ (ex Mesas, rename migs 81/82) — plan `context/15-espacios-module-plan.md`. F0/F1 schema+editor (react-rnd), F2 operación POS (mapa, sesión, cobro multi-orden). **F3 split de cuenta ✅ (2026-07-27)**: mig 90 (`space_session_payment`+`settledpaymentid`) + mig 91 (índice único anti doble-cobro) + `SpaceSettlementService`, UI 4 modos (total/por ítems/monto libre/partes iguales), no se mezclan familias de modo en una misma mesa.
 - **Estación de Impresión (pool)** — plan propio `context/26-print-station-plan.md` (cerrado 2026-07-19: estación router tonto device-paired + cola durable `print_job` + opt-in por binding). P0 backend + P1 pantalla ✅. Pendiente P2 (panel + rama pool del pipeline) y P3 (formatos inkjet/matricial). ⚠ Impresoras de RED no alcanzables desde el browser — ver hallazgo en el doc.
-- **SLA de tiempo por orden + Delivery (O4)** — plan `context/27-delivery-sla-plan.md` (2026-07-19). SLA transversal (KDS/órdenes/espacios/display) con target snapshoteado y tiers de color; delivery con `fulfillment` ortogonal a `source` y estado `out_for_delivery`. Sin implementar — 2 decisiones del owner pendientes (fiscalidad del `deliveryfee`, app del repartidor).
+- **SLA de tiempo por orden + Delivery (O4)** — plan `context/27-delivery-sla-plan.md` (2026-07-19). **Historial de transiciones F-EVT-0 ✅ (2026-07-27)**: migs 85/86, tabla `pos_order_event` (scope order|item, actor, station snapshoteado), `recordEvent()` en los 6 caminos que tocan status, misma TX — base del SLA. SLA target = máximo por estación (trabajo paralelo entre estaciones). Delivery con `fulfillment`/`out_for_delivery` **sin implementar** — F-D-0 cancelado por el owner, no relanzado; bloquea columna Tipo/estado En camino/selector de dirección en /pos/ordenes. 2 decisiones pendientes: fiscalidad del `deliveryfee` (resuelta: ítem del catálogo, cascada zona→banda) y app propia del repartidor (abierta).
+- **KDS — rediseño de flujo horizontal (2026-07-27)**: de columnas por estado a comandas en fila única, estado = color (la tarjeta nunca se mueve), pin local, teclado completo, recall (terminadas salen del board, "devolver a preparación" las trae de vuelta). El KDS nunca está desatendido — TV siempre con teclado/mouse detrás.
+- **Libreta de direcciones (2026-07-27)**: extendida sobre `customerAddress` existente (mig 87: `reference`+soft-delete), parser de coords centralizado en `lib/geo/parse-coordinates.ts`.
 
 ---
 

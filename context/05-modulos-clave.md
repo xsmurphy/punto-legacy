@@ -704,7 +704,9 @@ Comandas/órdenes de mesa desacopladas del cobro. Plan completo en `context/24-o
 - **O0 — Core**: `pos_order` + `order_station`, estados de 2 niveles con CAS optimista, correlativo vía advisory-lock, canal realtime `kds`.
 - **O1 — Modal POS**: toggle Pagar↔Ordenar en `/pos/ordenes`, comandas, cobro por volcado de la orden al carrito.
 - **O2 — KDS + display**: pantallas device-paired vía WS, responsive teléfono→TV, columnas configurables, whitelist de transiciones de estado por module.
-- **Pendiente**: O3 (split/reservas), O4 (ecommerce/agenda).
+- **Rediseño KDS (2026-07-27)**: de columnas por estado a flujo horizontal de comandas — estado = color, la tarjeta nunca cambia de posición, pin local, teclado completo, tema claro/oscuro por dispositivo, recall (terminadas salen del board, "devolver a preparación" las trae de vuelta). El KDS nunca está desatendido (siempre hay teclado/mouse detrás de la TV).
+- **F-EVT-0 — Historial de transiciones (2026-07-27)**: `pos_order_event` (migs 85/86), scope order|item, actor + station snapshoteados, `recordEvent()` en los 6 caminos que tocan status (misma TX). Base de SLA (target = máximo por estación, no suma — el trabajo es paralelo entre estaciones). Plan `context/27-delivery-sla-plan.md`.
+- **Pendiente**: O4 (ecommerce/agenda), F-D-0 (`fulfillment`/`out_for_delivery`, cancelado por el owner, no relanzado), UI del timeline de eventos.
 
 ## Módulo Espacios (ex Mesas, sprint 2026-07, context/15)
 
@@ -712,8 +714,22 @@ Layout de salón/mesas con editor visual. Plan completo en `context/15-espacios-
 
 - **F0/F1 — Schema + editor**: layout drag-and-resize con `react-rnd`.
 - **F2 — Operación POS**: mapa de espacios con hotkeys por slot, sesión de mesa, cobro multi-orden.
+- **F3 — Split de cuenta (2026-07-27)**: mig 90 (`space_session_payment` + `pos_order_item.settledpaymentid`) + mig 91 (índice único de idempotencia) + `SpaceSettlementService`. 4 modos: total / por ítems / monto libre / partes iguales. No se pueden mezclar familias de modo (por ítems vs monto/partes) en la misma mesa — descontaría stock dos veces. Doble cobro imposible por CAS sobre `settledpaymentid`.
 - **Rename Mesas→Espacios** (migs 81/82): sector pasa a obligatorio con default `"Salón"` + data-fix de registros huérfanos.
-- **Deuda cosmética**: la PK de la tabla (`space.tableid`) conserva el nombre viejo.
+- **Deuda cosmética**: la PK de la tabla (`space.tableid`) conserva el nombre viejo. `context/15` todavía usa "mozo" (`waiterId`) para features F5 sin construir — renombrar es decisión de diseño, no un sed.
+
+## Módulo Estación de Impresión (sprint 2026-07, context/26)
+
+Pool de impresión con router tonto device-paired + cola durable. Plan completo en `context/26-print-station-plan.md`.
+
+- **P0 — Backend**: mig 83 (`station_printer`+`print_job`), `PrintPoolService`, endpoints, canal WS `{companyId}:print:{outletId}`.
+- **P1 — Pantalla**: `(screen)/print`, pairing module `print`, vinculación USB/BT/red, drenado con claim/dispatch/done-failed.
+- ⚠ **Impresoras de RED no alcanzables desde el browser** (no puede abrir TCP; el proxy corre en el cloud y no rutea a la LAN) — requiere agente local, decisión de producto pendiente.
+- **Pendiente**: P2 (panel + rama pool del pipeline), P3 (formatos inkjet/matricial).
+
+## Libreta de direcciones (2026-07-27)
+
+Extendida sobre `customerAddress` (tabla preexistente, no nueva): mig 87 agrega `reference` + soft-delete (`status`). Parser de coordenadas de Google Maps centralizado en `frontend/lib/geo/parse-coordinates.ts`.
 
 ---
 
