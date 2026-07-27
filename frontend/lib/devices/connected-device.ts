@@ -18,7 +18,7 @@ export interface ConnectedDevice {
 export const DEVICE_KIND_LABELS: Record<DeviceKind, string> = {
   pos: "Caja POS",
   screen: "Pantalla cliente",
-  kds: "KDS Cocina",
-  display: "Pantalla de mozos",
+  kds: "KDS (preparación)",
+  display: "Pantalla de despacho",
   print: "Estación de impresión",
 }

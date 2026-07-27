@@ -79,7 +79,7 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
 
   // Solo la caja POS y la pantalla de cliente pertenecen a una CAJA: la
   // primera ES una caja, la segunda espeja el carrito de una caja concreta.
-  // KDS, pantalla de mozos y estación de impresión son de SUCURSAL — pedirles
+  // KDS, pantalla de despacho y estación de impresión son de SUCURSAL — pedirles
   // una caja es pedir un dato que no significa nada (el backend ya aceptaba
   // registerId nulo; la exigencia era solo de esta UI).
   const needsRegister = module === "pos" || module === "screen"
@@ -123,8 +123,8 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
                   <SelectContent>
                     <SelectItem value="pos">Caja POS</SelectItem>
                     <SelectItem value="screen">Pantalla cliente</SelectItem>
-                    <SelectItem value="kds">KDS Cocina</SelectItem>
-                    <SelectItem value="display">Pantalla de mozos</SelectItem>
+                    <SelectItem value="kds">KDS (preparación)</SelectItem>
+                    <SelectItem value="display">Pantalla de despacho</SelectItem>
                     <SelectItem value="print">Estación de impresión</SelectItem>
                   </SelectContent>
                 </Select>
@@ -148,7 +148,7 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
               </div>
 
               {/* La caja solo aplica a los dispositivos que pertenecen a una:
-                  KDS, pantalla de mozos y estación de impresión son de
+                  KDS, pantalla de despacho y estación de impresión son de
                   sucursal. */}
               {needsRegister && (
                 <div className="space-y-1.5">

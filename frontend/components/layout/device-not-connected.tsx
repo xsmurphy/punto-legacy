@@ -33,12 +33,12 @@ const COPY: Record<DeviceKind, { title: string; subtitle: string }> = {
   kds: {
     title: "KDS no conectado",
     subtitle:
-      "Pedile al administrador que genere un link de conexión (módulo KDS Cocina) desde Configuración › Dispositivos del panel.",
+      "Pedile al administrador que genere un link de conexión (módulo KDS) desde Configuración › Dispositivos del panel.",
   },
   display: {
-    title: "Pantalla de mozos no conectada",
+    title: "Pantalla de despacho no conectada",
     subtitle:
-      "Pedile al administrador que genere un link de conexión (módulo Pantalla de mozos) desde Configuración › Dispositivos del panel.",
+      "Pedile al administrador que genere un link de conexión (módulo Pantalla de despacho) desde Configuración › Dispositivos del panel.",
   },
   print: {
     title: "Estación de impresión no conectada",
