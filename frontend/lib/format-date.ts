@@ -26,8 +26,21 @@ import { es } from "date-fns/locale"
  */
 export function parseNaive(iso: string): Date | null {
   if (!iso) return null
-  // "2026-06-29 22:19:38+00" -> "2026-06-29T22:19:38"
-  const normalized = iso.replace(" ", "T").replace(/([+-]\d{2}:?\d{2}|Z)$/, "")
+  // Offset de PG: los minutos son OPCIONALES. Postgres emite "-03" y "+00"
+  // (solo la hora) cuando los minutos son cero, no "-03:00". La versión
+  // anterior exigía 4 dígitos (`\d{2}:?\d{2}`), así que NO stripeaba esos
+  // offsets → `new Date("...T09:13:26-03")` daba Invalid Date y TODOS los
+  // helpers de abajo caían al fallback de imprimir el ISO crudo. Se veía
+  // como "2026-07-23 09:13:26.243535-03" en el listado de órdenes.
+  //
+  //   "2026-06-29 22:19:38+00"        -> "2026-06-29T22:19:38"
+  //   "2026-07-23 09:13:26.243535-03" -> "2026-07-23T09:13:26.243535"
+  //
+  // El offset se ancla a que venga DESPUÉS de una hora: si no, en una fecha
+  // pelada "2026-06-29" el "-29" se comería como offset y quedaría "2026-06".
+  const normalized = iso
+    .replace(" ", "T")
+    .replace(/(\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(?:[+-]\d{2}(?::?\d{2})?|Z)$/, "$1")
   const d = new Date(normalized)
   return Number.isNaN(d.getTime()) ? null : d
 }
