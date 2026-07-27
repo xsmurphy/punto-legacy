@@ -125,16 +125,9 @@ export default function DevicesPage() {
       header: "Caja",
       cell: ({ row }) => row.original.registerName ?? "—",
     },
-    {
-      accessorKey: "module",
-      header: "Módulo",
-      cell: ({ row }) =>
-        row.original.module ? (
-          <Badge variant="outline">{row.original.module.toUpperCase()}</Badge>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        ),
-    },
+    // Sin columna "Módulo": era el MISMO dato que "Tipo" — `kind` se deriva
+    // de `module` (`moduleToKind` en hooks/use-connected-devices.ts), así que
+    // mostraba el valor crudo al lado de su propia etiqueta legible.
     {
       accessorKey: "ipLast",
       header: "IP",

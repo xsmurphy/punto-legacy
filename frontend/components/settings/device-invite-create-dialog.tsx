@@ -77,14 +77,23 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
     onOpenChange(v)
   }
 
-  const canSubmit = module !== "" && outletId !== "" && registerId !== ""
+  // Solo la caja POS y la pantalla de cliente pertenecen a una CAJA: la
+  // primera ES una caja, la segunda espeja el carrito de una caja concreta.
+  // KDS, pantalla de mozos y estación de impresión son de SUCURSAL — pedirles
+  // una caja es pedir un dato que no significa nada (el backend ya aceptaba
+  // registerId nulo; la exigencia era solo de esta UI).
+  const needsRegister = module === "pos" || module === "screen"
+  const canSubmit =
+    module !== "" && outletId !== "" && (!needsRegister || registerId !== "")
 
   function handleSubmit() {
     create.mutate(
       {
         module,
         outletId,
-        registerId,
+        // Sin caja para los dispositivos de sucursal: si el operador eligió
+        // una y después cambió a KDS, no se manda igual un dato que no aplica.
+        registerId: needsRegister ? registerId : "",
         deviceName: deviceName.trim() || undefined,
         ttlHours,
       },
@@ -138,25 +147,30 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="inv-register">Caja</Label>
-                <Select
-                  value={registerId}
-                  onValueChange={setRegisterId}
-                  disabled={!outletId}
-                >
-                  <SelectTrigger id="inv-register">
-                    <SelectValue
-                      placeholder={outletId ? "Seleccioná una caja..." : "Primero seleccioná una sucursal"}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filteredRegisters.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* La caja solo aplica a los dispositivos que pertenecen a una:
+                  KDS, pantalla de mozos y estación de impresión son de
+                  sucursal. */}
+              {needsRegister && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="inv-register">Caja</Label>
+                  <Select
+                    value={registerId}
+                    onValueChange={setRegisterId}
+                    disabled={!outletId}
+                  >
+                    <SelectTrigger id="inv-register">
+                      <SelectValue
+                        placeholder={outletId ? "Seleccioná una caja..." : "Primero seleccioná una sucursal"}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredRegisters.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <Label htmlFor="inv-name">Nombre del dispositivo (opcional)</Label>

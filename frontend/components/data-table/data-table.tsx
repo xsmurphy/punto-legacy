@@ -177,7 +177,13 @@ export function DataTable<T>({
   const selectedCount = selectedRows.length
 
   return (
-    <div className="flex flex-col gap-3">
+    // `min-w-0`: sin esto el ancho intrínseco de la tabla empuja al contenedor
+    // padre (grid item de un Dialog, hijo flex de un layout) porque su
+    // min-width resuelve a `auto` — la tabla se sale del modal o de la página
+    // en vez de scrollear. Con min-w-0 el contenedor se limita a lo
+    // disponible y el `overflow-x-auto` del primitive Table hace su trabajo.
+    // Ver también el mismo fix en SidebarInset (components/ui/sidebar.tsx).
+    <div className="flex min-w-0 flex-col gap-3">
       {/* Bulk action bar */}
       {enableSelection && selectedCount > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
@@ -252,7 +258,7 @@ export function DataTable<T>({
           del header y debajo de la última row para enmarcar visualmente;
           `[&_tr]:border-b` mantiene los divisores entre rows. Cells con
           `py-3.5 px-3` agrandan la altura de cada row para respirar mejor. */}
-      <div className="border-y [&_tr]:border-b last:[&_tr]:border-b-0 [&_td]:py-3.5 [&_td]:px-3 [&_th]:px-3 [&_th]:h-11">
+      <div className="min-w-0 border-y [&_tr]:border-b last:[&_tr]:border-b-0 [&_td]:py-3.5 [&_td]:px-3 [&_th]:px-3 [&_th]:h-11">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
