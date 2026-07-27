@@ -116,8 +116,77 @@ mozo/cajero al cobrar:
 
 Prerequisito de UI (hecho 2026-07-19): el diálogo de sesión muestra los
 ítems de cada orden — el cajero necesita verlos para poder seleccionarlos.
-El plan técnico de F3 (settlements, estados parciales, interacción con
-`markPaid`/`close`) se diseña en una sesión de planificación dedicada.
+
+### Plan técnico (cerrado 2026-07-19)
+
+#### El problema real: cobrar dos veces lo mismo
+
+Hoy cobrar una mesa es atómico: `loadFromSession` → carrito → una
+`transaction` → `markPaid` de TODAS las órdenes → `close` de la sesión. Con
+split hay **N cobros contra una misma sesión**, y ahí aparecen los dos
+errores que cuestan plata:
+
+- **Doble cobro**: dos mozos cobrando la misma mesa a la vez, o alguien
+  seleccionando ítems que otro ya cobró.
+- **Cobro incompleto**: la sesión se cierra con saldo pendiente.
+
+Ninguno se resuelve con cuidado en la UI: se resuelven en el modelo.
+
+#### Modelo: ledger de pagos + ítems marcados
+
+**`space_session_payment`** — un renglón por cobro parcial:
+
+```sql
+sessionid, transactionid, amount, kind ('items'|'amount'|'share'),
+sharecount (solo kind='share'), created_at, companyid, outletid
+```
+
+**`pos_order_item.settledpaymentid`** (nullable) — qué pago se llevó ese
+ítem. Solo lo usa `kind='items'`.
+
+**Saldo = total de la sesión − Σ pagos.** La sesión solo puede cerrarse con
+saldo ≤ 0.
+
+Los tres modos caen en el mismo modelo:
+
+| Modo | `amount` | Marca ítems |
+|---|---|---|
+| Por ítems | suma de los ítems elegidos | sí (CAS sobre `settledpaymentid IS NULL`) |
+| Monto libre | lo que ingresa el operador | no |
+| Partes iguales | `total / N` | no |
+
+**El CAS es lo que hace imposible el doble cobro por ítems**: marcar un ítem
+ya marcado no afecta filas → se aborta la transacción entera. No es una
+validación previa que se pueda ganar por carrera.
+
+#### Redondeo de las partes iguales
+
+`100.000 / 3 = 33.333,33` → en PYG (0 decimales) tres partes de `33.333`
+suman `99.999` y **falta 1 Gs**. La última parte absorbe el resto. Explícito
+en el service, no emergente: es un clásico generador de descuadres de caja.
+
+#### Fiscal
+
+**Cada cobro parcial es su propia `transaction` → su propio comprobante.**
+Es lo correcto: cada comensal se lleva su factura. Reusa `SaleService`
+íntegro, sin lógica de facturación nueva.
+
+#### Interacción con lo existente
+
+- `markPaid` de las órdenes y `close` de la sesión ocurren **solo en el
+  cobro que lleva el saldo a 0**, no en cada parcial.
+- Si la mesa pide más después de un pago parcial, el saldo sube — ya
+  contemplado (`bill_requested → open` al agregar orden).
+- **Fuera de alcance**: descuentos a nivel sesión combinados con split
+  (repartir un descuento entre pagos parciales abre una discusión fiscal
+  propia); propina.
+
+#### Fases
+
+- **F3a** — ledger + saldo + modo "monto libre" (el más simple, valida el
+  modelo end-to-end).
+- **F3b** — modo "partes iguales" (suma el redondeo).
+- **F3c** — modo "por ítems" (suma el CAS y la UI de selección).
 
 ## F0+F1 — hecho (2026-07-19)
 
