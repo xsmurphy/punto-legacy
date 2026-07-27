@@ -499,8 +499,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           sessionOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),
         )
           .then(() => closeSpaceSession.mutateAsync({ sessionId: sessionParentId, transactionId: txId }))
-          .catch(() => {
-            toast.error("Venta confirmada — no se pudo cerrar el espacio. Avisá al soporte.")
+          .catch((e: unknown) => {
+            // El motivo importa: el servidor NO cierra una mesa con saldo
+            // pendiente (SpaceSessionService::close), y el caso realista es
+            // que otro mozo haya mandado una orden entre que se cargó el
+            // carrito y se confirmó el cobro — esa comida quedó sin facturar.
+            // "Avisá al soporte" a secas mandaba a mirar logs algo que el
+            // cajero resuelve cobrando lo que falta.
+            const reason = e instanceof Error ? e.message : ""
+            toast.error(
+              reason
+                ? `Venta confirmada — no se pudo cerrar el espacio: ${reason}`
+                : "Venta confirmada — no se pudo cerrar el espacio. Avisá al soporte.",
+            )
           })
       } else if (orderParentId && result?.transactionId) {
         void markOrderPaid.mutateAsync({ orderId: orderParentId, transactionId: result.transactionId })
