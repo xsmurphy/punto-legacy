@@ -47,6 +47,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { DatePicker } from "@/components/date-picker"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -940,40 +941,40 @@ function AddressFormFields({
     <>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Nombre / etiqueta</label>
+          <Label>Nombre / etiqueta</Label>
           <Input placeholder="Casa, Trabajo, Depósito..."
             value={form.name} onChange={(e) => onChange({ ...form, name: e.target.value })} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Ciudad</label>
+          <Label>Ciudad</Label>
           <Input placeholder="Asunción"
             value={form.city} onChange={(e) => onChange({ ...form, city: e.target.value })} />
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium">Dirección</label>
+        <Label>Dirección</Label>
         <Input placeholder="Calle y número"
           value={form.address} onChange={(e) => onChange({ ...form, address: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium">Referencia</label>
+        <Label>Referencia</Label>
         <Input placeholder="Portón negro, timbre 2..."
           value={form.reference} onChange={(e) => onChange({ ...form, reference: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium">Barrio / zona</label>
+        <Label>Barrio / zona</Label>
         <Input placeholder="Carmelitas, San Lorenzo..."
           value={form.location} onChange={(e) => onChange({ ...form, location: e.target.value })} />
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Latitud</label>
+          <Label>Latitud</Label>
           <Input type="number" inputMode="decimal" step="0.0000001" placeholder="-25.2867"
             value={form.lat ?? ""} className="tabular-nums"
             onChange={(e) => onChange({ ...form, lat: e.target.value === "" ? null : Number(e.target.value) })} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Longitud</label>
+          <Label>Longitud</Label>
           <Input type="number" inputMode="decimal" step="0.0000001" placeholder="-57.6478"
             value={form.lng ?? ""} className="tabular-nums"
             onChange={(e) => onChange({ ...form, lng: e.target.value === "" ? null : Number(e.target.value) })} />
