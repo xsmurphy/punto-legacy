@@ -48,6 +48,10 @@ import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 const MAX_SHARES = 12
 
+/** Mensajes de por qué un modo quedó bloqueado (ver `lockedFamily`). */
+const LOCKED_ITEMS_HINT  = "Esta mesa ya se está cobrando por ítems."
+const LOCKED_AMOUNT_HINT = "Esta mesa ya se está cobrando por monto o por partes."
+
 export type SplitSelection =
   | { mode: "total" }
   | { mode: "items"; orderItemIds: string[] }
@@ -104,6 +108,22 @@ function SplitBillBody({
   const { data: balance, isLoading } = useSessionBalance(sessionId)
 
   const [mode, setMode] = React.useState<SplitSelection["mode"]>("total")
+  // Modos bloqueados por familia: una mesa se cobra por ítems O por monto/
+  // partes, nunca mezclando (ver `lockedFamily` en use-space-settlement.ts —
+  // mezclar descuenta stock dos veces del mismo ítem). El backend lo rechaza
+  // igual; esto evita que el cajero llegue hasta el cobro para enterarse.
+  const lockedFamily = balance?.lockedFamily ?? null
+  const itemsLocked  = lockedFamily === "amount"
+  const amountLocked = lockedFamily === "items"
+
+  // Si el modo activo quedó bloqueado (otro mozo cobró primero y el saldo se
+  // refrescó), volver a "total" en vez de dejar seleccionada una pestaña
+  // deshabilitada.
+  React.useEffect(() => {
+    if ((mode === "items" && itemsLocked) || ((mode === "amount" || mode === "share") && amountLocked)) {
+      setMode("total")
+    }
+  }, [mode, itemsLocked, amountLocked])
   const [selectedIds, setSelectedIds] = React.useState<string[]>([])
   const [freeAmount, setFreeAmount] = React.useState<number | null>(null)
   const [shareCount, setShareCount] = React.useState(2)
@@ -179,10 +199,33 @@ function SplitBillBody({
         {/* h-11: touch target del POS (§7) sobre el h-8 default de shadcn. */}
         <TabsList className="grid h-11 w-full grid-cols-4">
           <TabsTrigger value="total">Total</TabsTrigger>
-          <TabsTrigger value="items">Por ítems</TabsTrigger>
-          <TabsTrigger value="amount">Monto</TabsTrigger>
-          <TabsTrigger value="share">Partes</TabsTrigger>
+          <TabsTrigger
+            value="items"
+            disabled={itemsLocked}
+            title={itemsLocked ? LOCKED_ITEMS_HINT : undefined}
+          >
+            Por ítems
+          </TabsTrigger>
+          <TabsTrigger
+            value="amount"
+            disabled={amountLocked}
+            title={amountLocked ? LOCKED_AMOUNT_HINT : undefined}
+          >
+            Monto
+          </TabsTrigger>
+          <TabsTrigger
+            value="share"
+            disabled={amountLocked}
+            title={amountLocked ? LOCKED_AMOUNT_HINT : undefined}
+          >
+            Partes
+          </TabsTrigger>
         </TabsList>
+        {lockedFamily !== null && (
+          <p className="pt-2 text-xs text-muted-foreground">
+            {lockedFamily === "items" ? LOCKED_AMOUNT_HINT : LOCKED_ITEMS_HINT}
+          </p>
+        )}
 
         <div className="max-h-[40vh] overflow-y-auto pt-3">
           <TabsContent value="total">

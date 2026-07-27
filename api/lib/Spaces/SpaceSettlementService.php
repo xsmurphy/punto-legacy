@@ -54,7 +54,34 @@ final class SpaceSettlementService
     {
         $this->findSession($companyId, $sessionId, $outletScope, false);
         $balance = $this->computeBalance($companyId, $sessionId);
-        return array_merge(['sessionId' => $sessionId], $balance);
+        return array_merge(
+            ['sessionId' => $sessionId, 'lockedFamily' => $this->lockedFamily($companyId, $sessionId)],
+            $balance
+        );
+    }
+
+    /**
+     * Familia de modo ya comprometida en esta sesión, o null si todavía no se
+     * cobró nada (todos los modos disponibles). No se pueden mezclar: ver el
+     * comentario en registerPayment(). La UI lo usa para deshabilitar los
+     * modos que ya no aplican — pero el enforcement real está en
+     * registerPayment(), no acá.
+     *
+     * @return 'items'|'amount'|null
+     */
+    private function lockedFamily(string $companyId, string $sessionId): ?string
+    {
+        $row = ncmExecute(
+            "SELECT
+                 COUNT(*) FILTER (WHERE kind = 'items')  AS items_count,
+                 COUNT(*) FILTER (WHERE kind <> 'items') AS amount_count
+               FROM space_session_payment
+              WHERE sessionid = ? AND companyid = ?",
+            [$sessionId, $companyId]
+        );
+        if ((int) ($row['items_count'] ?? 0) > 0)  return 'items';
+        if ((int) ($row['amount_count'] ?? 0) > 0) return 'amount';
+        return null;
     }
 
     /**
@@ -113,6 +140,35 @@ final class SpaceSettlementService
             if ($dup) {
                 $db->CompleteTrans();
                 return $this->getBalance($companyId, $sessionId, $outletScope);
+            }
+
+            // No se pueden MEZCLAR familias de modo en una misma sesión
+            // (decisión del owner 2026-07-19). Motivo — es un problema de
+            // STOCK, no de plata:
+            //   - 'items' marca los ítems como saldados (CAS) y descuenta su
+            //     stock una vez.
+            //   - 'amount'/'share' prorratean sobre los ítems no saldados para
+            //     poder facturar mercadería real (`/v1/sales` rechaza líneas
+            //     sin itemId), pero NO los marcan.
+            // Mezclando ambas, un ítem prorrateado por un monto libre puede
+            // volver a cobrarse por 'items' y su stock se descuenta DOS veces.
+            // La plata queda bien (el ledger la cuenta una sola vez); el
+            // inventario deriva en silencio, que es peor porque no se nota.
+            $family    = $kind === 'items' ? 'items' : 'amount';
+            $otherKind = ncmExecute(
+                $family === 'items'
+                    ? "SELECT kind FROM space_session_payment
+                        WHERE sessionid = ? AND companyid = ? AND kind <> 'items' LIMIT 1"
+                    : "SELECT kind FROM space_session_payment
+                        WHERE sessionid = ? AND companyid = ? AND kind = 'items' LIMIT 1",
+                [$sessionId, $companyId]
+            );
+            if ($otherKind) {
+                throw new \InvalidArgumentException(
+                    $family === 'items'
+                        ? 'Esta mesa ya se está cobrando por monto o por partes: no se puede pasar a cobro por ítems'
+                        : 'Esta mesa ya se está cobrando por ítems: no se puede pasar a monto libre ni a partes iguales'
+                );
             }
 
             $balanceInfo = $this->computeBalance($companyId, $sessionId);

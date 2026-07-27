@@ -40,6 +40,15 @@ export interface SessionBalance {
   /** total − paid. La sesión solo puede cerrarse cuando llega a ≤ 0. */
   balance: number
   items: SettlementItem[]
+  /**
+   * Familia de modo ya comprometida en esta mesa, o null si todavía no se
+   * cobró nada. NO se pueden mezclar en una misma sesión: `items` marca los
+   * ítems y descuenta su stock una vez; `amount`/`share` prorratean sobre los
+   * ítems no saldados (para facturar mercadería real) pero NO los marcan, así
+   * que mezclar descuenta stock dos veces del mismo ítem. La UI deshabilita
+   * los modos de la otra familia; el enforcement real está en el backend.
+   */
+  lockedFamily: "items" | "amount" | null
 }
 
 export type SettlementKind = "items" | "amount" | "share"
