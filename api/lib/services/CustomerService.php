@@ -143,7 +143,7 @@ final class CustomerService
         $latLng  = $customer['contactLatLng'];
 
         $custAddr = ncmExecute(
-            'SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId = ? LIMIT 1',
+            'SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND status = 1 AND customerId = ? LIMIT 1',
             [$companyId, $customer['contactId']]
         );
         if ($custAddr) {
@@ -364,7 +364,7 @@ final class CustomerService
         $latLng  = $c['contactLatLng'] ?? null;
 
         $custAddr = ncmExecute(
-            'SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND customerId = ? LIMIT 1',
+            'SELECT * FROM customerAddress WHERE companyId = ? AND customerAddressDefault = true AND status = 1 AND customerId = ? LIMIT 1',
             [$companyId, $c['contactId']]
         );
         if ($custAddr) {

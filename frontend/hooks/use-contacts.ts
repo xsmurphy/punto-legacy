@@ -136,6 +136,8 @@ type AddressBody = {
   address: string
   location: string
   city: string
+  /** Referencia verbal ("portón negro, timbre 2") — mig 87. */
+  reference?: string
   lat?: number | null
   lng?: number | null
 }

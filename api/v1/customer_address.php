@@ -23,15 +23,17 @@ $svc    = new CustomerAddressService(TenantContext::fromAuth($ctx));
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 $fieldsFromBody = static fn(): array => [
-    'name'     => $_POST['name']     ?? '',
-    'address'  => $_POST['address']  ?? '',
-    'location' => $_POST['location'] ?? '',
-    'city'     => $_POST['city']     ?? '',
+    'name'      => $_POST['name']      ?? '',
+    'address'   => $_POST['address']   ?? '',
+    'location'  => $_POST['location']  ?? '',
+    'city'      => $_POST['city']      ?? '',
+    // Referencia verbal ("portón negro, timbre 2") — mig 87.
+    'reference' => $_POST['reference'] ?? '',
     // lat/lng pueden venir como números (cliente nuevo) o como string vacío.
     // latLng se mantiene por back-compat con clientes legacy.
-    'lat'      => $_POST['lat']      ?? null,
-    'lng'      => $_POST['lng']      ?? null,
-    'latLng'   => $_POST['latLng']   ?? '',
+    'lat'       => $_POST['lat']       ?? null,
+    'lng'       => $_POST['lng']       ?? null,
+    'latLng'    => $_POST['latLng']    ?? '',
 ];
 
 switch ($method) {

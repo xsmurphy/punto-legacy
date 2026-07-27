@@ -295,44 +295,47 @@ direcciones**; al armar una orden el operador **elige la dirección de ESA
 orden**, y esas coordenadas son las que usa el pin del mapa y el cálculo del
 envío.
 
-## D.1 Estado actual y por qué no alcanza
+## D.1 ⚠ CORRECCIÓN (2026-07-19): la libreta YA EXISTE
 
-Hoy el contacto tiene UNA sola ubicación, y encima escondida: `contactAddress`
-y `contactLatLng` viven dentro del JSONB `data` (demote de la mig 06). Eso
-impide:
-- Tener casa + oficina + la casa de la madre para el mismo cliente.
-- Indexar coordenadas para resolver zona/banda de envío en SQL.
-- Saber a qué dirección fue una orden puntual.
+**La versión original de esta sección estaba equivocada.** Decía que el
+contacto tenía una sola dirección en el JSONB. En realidad ya existe una
+libreta completa y en producción:
 
-## D.2 Tabla propia, no un array en JSONB
+| Pieza | Dónde |
+|---|---|
+| Tabla | `customerAddress` (anterior a las migs numeradas — por eso no aparece grepeando `api/database/migrations/`) |
+| Columnas | `customerAddressId/Name/Text/Location/City/Lat/Lng`, `customerAddressDefault`, `customerId`, `companyId` |
+| Service | `api/lib/services/CustomerAddressService.php` (CRUD + invariante de un solo default en TX) |
+| Endpoint | `api/v1/customer_address.php` |
+| Hooks | `useCustomerAddresses` / `useAddAddress` / `useUpdateAddress` / `useSetDefaultAddress` / `useDeleteAddress` en `frontend/hooks/use-contacts.ts` |
+| UI | Tab **"Direcciones"** en `contact-detail-view.tsx`, con parser de link de Google Maps y preview MapLibre |
+| Vínculo con órdenes legacy | tabla `toAddress` (transaction type=12) |
 
-Es tentador guardar un array de direcciones en `data`, pero la convención del
-proyecto es explícita: **indexable y queryable se queda en columna**, el resto
-va a JSONB. Las coordenadas son lo más queryable que hay acá (haversine para
-las bandas, point-in-polygon para las zonas) y la orden necesita **referenciar
-una dirección puntual**. Va tabla:
+El `contact.data->>'contactAddress'`/`contactLatLng` del JSONB es una **copia
+stale** sin vínculo con `customerAddress`; el único que la usa es el módulo
+nuevo `pos_order` como fallback del pin. **Ese es el hueco real.**
 
-```sql
-CREATE TABLE contact_address (
-  addressid  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  companyid  UUID NOT NULL REFERENCES company(companyId) ON DELETE CASCADE,
-  contactid  UUID NOT NULL,
-  label      VARCHAR(60),            -- "Casa", "Oficina", "Depósito"
-  address    TEXT NOT NULL,
-  reference  TEXT,                   -- "portón negro, timbre 2"
-  lat        NUMERIC(10,7),
-  lng        NUMERIC(10,7),
-  isdefault  BOOLEAN NOT NULL DEFAULT false,
-  status     SMALLINT NOT NULL DEFAULT 1,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
+## D.2 Decisión: EXTENDER `customerAddress`, no crear una tabla paralela
 
-`reference` no es adorno: en Paraguay la referencia verbal suele valer más
-que la numeración para que el repartidor encuentre la casa.
+Crear `contact_address` habría dejado **dos libretas de direcciones
+conviviendo** para el mismo cliente — exactamente el anti-patrón que prohíbe
+la regla de arquitectura del proyecto. Lo que falta es poco:
 
-**Backfill**: `data->>'contactAddress'` + `contactLatLng` de cada contacto se
-siembran como su primera dirección (`isdefault = true`). Idempotente.
+1. **`reference`** — el único campo del requisito que no existe ("portón negro
+   en la esquina"). En Paraguay la referencia verbal suele valer más que la
+   numeración para que el repartidor encuentre la casa.
+2. **`status`** para soft-delete (hoy el borrado es duro; una dirección
+   referenciada por una orden histórica no puede desaparecer).
+3. **UI a `<Dialog>`** — el alta/edición inline actual viola la Regla #2.2 de
+   `context/14-ui-conventions.md`.
+4. **`pos_order.deliveryaddressid` referencia `customerAddress`**, no una
+   tabla nueva.
+5. El parser de link de Google Maps (`AddressMapParser`, hoy inline) se
+   extrae a `lib/geo/parse-coordinates.ts` para que lo use también el POS.
+
+**Nada de backfill desde el JSONB**: `customerAddress` ya es la fuente de
+verdad. Si acaso, lo contrario — el JSONB stale del contacto debería dejar de
+usarse como fallback del pin (deuda registrada).
 
 ## D.3 La orden snapshotea, no referencia solamente
 

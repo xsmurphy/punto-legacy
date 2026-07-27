@@ -179,8 +179,10 @@ final class ContactRepository
      */
     public function addresses(string $contactId, string $companyId, int $limit = 20): array
     {
+        // status = 1: excluye las borradas (soft-delete, mig 87) — mismo
+        // filtro que CustomerAddressService::listForCustomer.
         $sql = "SELECT * FROM customerAddress
-                 WHERE customerId = ? AND companyId = ?
+                 WHERE customerId = ? AND companyId = ? AND status = 1
                  ORDER BY customerAddressDefault DESC
                  LIMIT " . (int) $limit;
         $rs  = $this->db->Execute($sql, [$contactId, $companyId]);
@@ -193,12 +195,14 @@ final class ContactRepository
     }
 
     /**
-     * Dirección default de un contacto, o null.
+     * Dirección default de un contacto, o null. `status = 1`: una dirección
+     * borrada (soft-delete, mig 87) nunca vuelve a aparecer como default,
+     * aunque el UPDATE de delete() ya le limpia el flag customerAddressDefault.
      */
     public function defaultAddress(string $contactId, string $companyId): array|CaseInsensitiveArray|null
     {
         $sql = "SELECT * FROM customerAddress
-                 WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true
+                 WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true AND status = 1
                  LIMIT 1";
         $rs  = $this->db->Execute($sql, [$contactId, $companyId]);
         if ($rs === false || $rs->EOF) return null;
@@ -218,7 +222,7 @@ final class ContactRepository
         $ok = ncmUpdate([
             'table'       => 'customerAddress',
             'records'     => $record,
-            'where'       => 'customerAddressDefault = true AND customerId = ? AND companyId = ?',
+            'where'       => 'customerAddressDefault = true AND customerId = ? AND companyId = ? AND status = 1',
             'whereParams' => [$contactId, $companyId],
         ]);
         return is_array($ok) && empty($ok['error']);

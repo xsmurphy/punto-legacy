@@ -166,6 +166,8 @@ export interface CustomerAddress {
   default: boolean | null
   location: string
   city: string
+  /** Referencia verbal ("portón negro, timbre 2") — mig 87. */
+  reference: string
   latLng: string | false
   lat: string | null
   lng: string | null

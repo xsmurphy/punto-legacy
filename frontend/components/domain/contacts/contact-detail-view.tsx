@@ -29,6 +29,7 @@ import {
   ShoppingBag, Layers,
   CalendarDays, MapPin, Sparkles, Inbox, X,
   ClipboardList as OrdersIcon, Receipt,
+  Pencil, Trash2,
 } from "lucide-react"
 import { EmptyState as EmptyStateBlock } from "@/components/empty-state"
 import { toast } from "sonner"
@@ -66,6 +67,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Form,
   FormControl,
   FormDescription,
@@ -99,6 +107,7 @@ import { usePriceLists } from "@/hooks/use-price-lists"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { parseCoordinates, ShortMapsLinkError } from "@/lib/geo/parse-coordinates"
 import type {
   ContactAnalytics,
   ContactFormValues,
@@ -730,12 +739,13 @@ type AddressFormState = {
   address: string
   location: string
   city: string
+  reference: string
   lat: number | null
   lng: number | null
 }
 
 const emptyAddressForm = (): AddressFormState => ({
-  name: "", address: "", location: "", city: "", lat: null, lng: null,
+  name: "", address: "", location: "", city: "", reference: "", lat: null, lng: null,
 })
 
 function AddressesTab({ contactId }: { contactId: string }) {
@@ -745,8 +755,11 @@ function AddressesTab({ contactId }: { contactId: string }) {
   const setDefault = useSetDefaultAddress()
   const deleteAddress = useDeleteAddress()
 
-  const [showForm, setShowForm] = React.useState(false)
-  const [editing, setEditing] = React.useState<string | null>(null)
+  // Alta/edición en <Dialog> (Regla #2.2 de context/14-ui-conventions.md —
+  // nunca Sheet/Drawer). `editing` guarda la dirección en edición; null =
+  // el diálogo abierto está creando una nueva.
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [editing, setEditing] = React.useState<CustomerAddress | null>(null)
   const [form, setForm] = React.useState<AddressFormState>(emptyAddressForm())
 
   const serializeForm = (f: AddressFormState) => ({
@@ -754,28 +767,42 @@ function AddressesTab({ contactId }: { contactId: string }) {
     address: f.address,
     location: f.location,
     city: f.city,
+    reference: f.reference,
     lat: f.lat,
     lng: f.lng,
   })
 
-  const handleAdd = async () => {
-    try {
-      await addAddress.mutateAsync({ customerId: contactId, ...serializeForm(form) })
-      toast.success("Dirección agregada")
-      setShowForm(false)
-      setForm(emptyAddressForm())
-    } catch (e) {
-      toast.error("No se pudo agregar", { description: e instanceof Error ? e.message : undefined })
-    }
+  const openCreate = () => {
+    setEditing(null)
+    setForm(emptyAddressForm())
+    setDialogOpen(true)
   }
 
-  const handleUpdate = async (addr: CustomerAddress) => {
+  const openEdit = (addr: CustomerAddress) => {
+    setEditing(addr)
+    setForm({
+      name: addr.name, address: addr.address, location: addr.location, city: addr.city,
+      reference: addr.reference ?? "",
+      lat: addr.lat !== null ? Number(addr.lat) : null,
+      lng: addr.lng !== null ? Number(addr.lng) : null,
+    })
+    setDialogOpen(true)
+  }
+
+  const handleSubmit = async () => {
     try {
-      await updateAddress.mutateAsync({ addressId: addr.id, customerId: contactId, ...serializeForm(form) })
-      toast.success("Dirección actualizada")
-      setEditing(null)
+      if (editing) {
+        await updateAddress.mutateAsync({ addressId: editing.id, customerId: contactId, ...serializeForm(form) })
+        toast.success("Dirección actualizada")
+      } else {
+        await addAddress.mutateAsync({ customerId: contactId, ...serializeForm(form) })
+        toast.success("Dirección agregada")
+      }
+      setDialogOpen(false)
     } catch (e) {
-      toast.error("No se pudo actualizar", { description: e instanceof Error ? e.message : undefined })
+      toast.error(editing ? "No se pudo actualizar" : "No se pudo agregar", {
+        description: e instanceof Error ? e.message : undefined,
+      })
     }
   }
 
@@ -797,6 +824,8 @@ function AddressesTab({ contactId }: { contactId: string }) {
     }
   }
 
+  const isSaving = addAddress.isPending || updateAddress.isPending
+
   if (isLoading) {
     return (
       <div className="flex flex-col gap-3">
@@ -813,109 +842,89 @@ function AddressesTab({ contactId }: { contactId: string }) {
             ? `${addresses.length} dirección${addresses.length !== 1 ? "es" : ""} registrada${addresses.length !== 1 ? "s" : ""}`
             : "Sin direcciones registradas"}
         </p>
-        {!showForm && (
-          <Button size="sm" variant="outline" onClick={() => { setShowForm(true); setForm(emptyAddressForm()) }}>
-            + Nueva dirección
-          </Button>
-        )}
+        <Button size="sm" variant="outline" onClick={openCreate}>
+          + Nueva dirección
+        </Button>
       </div>
 
-      {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Nueva dirección</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <AddressFormFields form={form} onChange={setForm} />
-            <div className="flex gap-2 justify-end">
-              <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>Cancelar</Button>
-              <Button size="sm" onClick={handleAdd} disabled={addAddress.isPending}>
-                {addAddress.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                Guardar
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {addresses?.length === 0 && !showForm && (
+      {addresses?.length === 0 && (
         <EmptyStateBlock icon={MapPin} title="Sin direcciones" description="Agregá una dirección de entrega para este cliente." />
       )}
 
       {addresses?.map((addr) => (
         <div key={addr.id} className="rounded-lg border bg-card px-3 py-2.5">
-          {editing === addr.id ? (
-              <div className="flex flex-col gap-3">
-                <AddressFormFields form={form} onChange={setForm} />
-                <div className="flex gap-2 justify-end">
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>Cancelar</Button>
-                  <Button size="sm" onClick={() => handleUpdate(addr)} disabled={updateAddress.isPending}>
-                    {updateAddress.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                    Guardar
-                  </Button>
-                </div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm">{addr.name || "Sin nombre"}</span>
+                {addr.default && <Badge variant="secondary" className="text-xs">Predeterminada</Badge>}
               </div>
-            ) : (
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm">{addr.name || "Sin nombre"}</span>
-                    {addr.default && <Badge variant="secondary" className="text-xs">Predeterminada</Badge>}
-                  </div>
-                  {addr.address && <span className="text-sm text-muted-foreground">{addr.address}</span>}
-                  {(addr.location || addr.city) && (
-                    <span className="text-xs text-muted-foreground">
-                      {[addr.location, addr.city].filter(Boolean).join(", ")}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {!addr.default && (
-                    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground"
-                      onClick={() => handleSetDefault(addr)} disabled={setDefault.isPending}>
-                      Predeterminar
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="icon" className="size-8"
-                    onClick={() => {
-                      setEditing(addr.id)
-                      setForm({
-                        name: addr.name, address: addr.address, location: addr.location,
-                        city: addr.city,
-                        lat: addr.lat !== null ? Number(addr.lat) : null,
-                        lng: addr.lng !== null ? Number(addr.lng) : null,
-                      })
-                    }}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              {addr.address && <span className="text-sm text-muted-foreground">{addr.address}</span>}
+              {(addr.location || addr.city) && (
+                <span className="text-xs text-muted-foreground">
+                  {[addr.location, addr.city].filter(Boolean).join(", ")}
+                </span>
+              )}
+              {addr.reference && (
+                <span className="text-xs text-muted-foreground">Referencia: {addr.reference}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {!addr.default && (
+                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground"
+                  onClick={() => handleSetDefault(addr)} disabled={setDefault.isPending}>
+                  Predeterminar
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(addr)}>
+                <Pencil className="size-4" />
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive">
+                    <Trash2 className="size-4" />
                   </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>¿Eliminar esta dirección?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Se eliminará &quot;{addr.name || addr.address}&quot; permanentemente.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => handleDelete(addr)} disabled={deleteAddress.isPending}
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                          Eliminar
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </div>
-            )}
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>¿Eliminar esta dirección?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Se eliminará &quot;{addr.name || addr.address}&quot;. Si una orden anterior la usó, esa
+                      orden sigue mostrando a dónde fue — solo deja de aparecer acá.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => handleDelete(addr)} disabled={deleteAddress.isPending}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      Eliminar
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
         </div>
       ))}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar dirección" : "Nueva dirección"}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <AddressFormFields form={form} onChange={setForm} />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSubmit} disabled={isSaving}>
+              {isSaving && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -945,6 +954,11 @@ function AddressFormFields({
         <label className="text-sm font-medium">Dirección</label>
         <Input placeholder="Calle y número"
           value={form.address} onChange={(e) => onChange({ ...form, address: e.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium">Referencia</label>
+        <Input placeholder="Portón negro, timbre 2..."
+          value={form.reference} onChange={(e) => onChange({ ...form, reference: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1.5">
         <label className="text-sm font-medium">Barrio / zona</label>
@@ -1086,26 +1100,23 @@ function AddressMapParser({ onParsed }: { onParsed: (lat: number, lng: number) =
   const [text, setText] = React.useState("")
   const parse = () => {
     if (!text.trim()) return
-    const patterns = [
-      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
-      /q=(-?\d+\.\d+),(-?\d+\.\d+)/,
-      /^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/,
-    ]
-    for (const re of patterns) {
-      const m = text.match(re)
-      if (m) {
-        const lat = Number(m[1])
-        const lng = Number(m[2])
-        if (Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180) {
-          onParsed(lat, lng)
-          setText("")
-          return
-        }
+    try {
+      const result = parseCoordinates(text)
+      if (!result) {
+        toast.error("No pude extraer coordenadas", {
+          description: "Pegá un link largo de Google Maps o el texto 'lat,lng'.",
+        })
+        return
       }
+      onParsed(result.lat, result.lng)
+      setText("")
+    } catch (e) {
+      if (e instanceof ShortMapsLinkError) {
+        toast.error("Link corto sin coordenadas", { description: e.message })
+        return
+      }
+      throw e
     }
-    toast.error("No pude extraer coordenadas", {
-      description: "Pegá un link largo de Google Maps o el texto 'lat,lng'.",
-    })
   }
   return (
     <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">

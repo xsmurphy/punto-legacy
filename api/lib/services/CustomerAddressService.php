@@ -30,12 +30,17 @@ final class CustomerAddressService
         public readonly TenantContext $ctx,
     ) {}
 
-    /** Lista las direcciones de un cliente (o una sola si se pasa addressId). Shape = front legacy. */
+    /**
+     * Lista las direcciones de un cliente (o una sola si se pasa addressId).
+     * Shape = front legacy. `status = 1` filtra las borradas (soft-delete,
+     * mig 87) — una dirección referenciada por una orden histórica
+     * (tabla toAddress) sigue existiendo en BD pero no debe reaparecer acá.
+     */
     public function listForCustomer(string $companyId, string $customerId, ?string $addressId = null): array
     {
         if ($addressId !== null && $addressId !== '') {
             $row = ncmExecute(
-                'SELECT * FROM customerAddress WHERE customerAddressId = ? AND companyId = ? LIMIT 1',
+                'SELECT * FROM customerAddress WHERE customerAddressId = ? AND companyId = ? AND status = 1 LIMIT 1',
                 [$addressId, $companyId],
                 false
             );
@@ -43,7 +48,7 @@ final class CustomerAddressService
         }
 
         $rows = ncmExecute(
-            'SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ?
+            'SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND status = 1
               ORDER BY customerAddressDefault DESC, customerAddressId DESC LIMIT 10',
             [$customerId, $companyId],
             false,
@@ -123,29 +128,25 @@ final class CustomerAddressService
         return ['ok' => true];
     }
 
-    /** Borra una dirección y sus referencias en toAddress (ambos scopeados al tenant). */
+    /**
+     * Soft-delete (status = 0, mig 87) — ya NO es DELETE físico. Una
+     * dirección referenciada por una orden histórica (tabla toAddress,
+     * órdenes legacy type=12) tiene que seguir existiendo para que esa
+     * orden pueda seguir mostrando a dónde fue; solo desaparece de los
+     * listados (listForCustomer filtra status = 1). Si la dirección
+     * borrada era la default, queda sin default — mismo comportamiento que
+     * antes (no se promueve otra automáticamente).
+     */
     public function delete(string $companyId, string $customerId, string $addressId): array
     {
         global $db;
 
-        $db->StartTrans();
-
-        // toAddress no tiene companyId propio → scopear vía subquery a customerAddress
-        // del tenant, así un addressId ajeno/adivinado no borra refs de otra empresa.
-        $db->Execute(
-            'DELETE FROM toAddress WHERE customerAddressId = ? AND customerAddressId IN
-               (SELECT customerAddressId FROM customerAddress WHERE companyId = ?)',
-            [$addressId, $companyId]
-        );
-
-        if ($db->Execute(
-            'DELETE FROM customerAddress WHERE customerAddressId = ? AND customerId = ? AND companyId = ?',
+        $res = $db->Execute(
+            'UPDATE customerAddress SET status = 0, customerAddressDefault = NULL
+              WHERE customerAddressId = ? AND customerId = ? AND companyId = ?',
             [$addressId, $customerId, $companyId]
-        ) === false) {
-            $db->FailTrans();
-        }
-
-        if (!$db->CompleteTrans()) {
+        );
+        if ($res === false) {
             return ['ok' => false];
         }
 
@@ -164,9 +165,13 @@ final class CustomerAddressService
             [$customerId, $companyId]
         );
 
+        // status = 1: no se puede "predeterminar" una dirección ya borrada
+        // (soft-delete, mig 87) — el UPDATE simplemente no afecta filas y
+        // el cliente queda sin default, mismo resultado que un addressId
+        // inexistente.
         $res = $db->Execute(
             'UPDATE customerAddress SET customerAddressDefault = true
-              WHERE customerId = ? AND companyId = ? AND customerAddressId = ?',
+              WHERE customerId = ? AND companyId = ? AND customerAddressId = ? AND status = 1',
             [$customerId, $companyId, $addressId]
         );
         if ($res === false) {
@@ -188,6 +193,12 @@ final class CustomerAddressService
             'customerAddressText'     => strip_tags($f['address'] ?? ''),
             'customerAddressLocation' => strip_tags($f['location'] ?? ''),
             'customerAddressCity'     => strip_tags($f['city'] ?? ''),
+            // Referencia verbal ("portón negro, timbre 2") — mig 87. Vacío se
+            // guarda como NULL (no '') para poder distinguir "sin referencia"
+            // de "referencia vacía a propósito" si algún día hace falta.
+            'reference'               => isset($f['reference']) && $f['reference'] !== ''
+                ? strip_tags((string) $f['reference'])
+                : null,
         ];
 
         // Coordenadas: leemos primero los campos directos (lat/lng) que el
@@ -240,6 +251,7 @@ final class CustomerAddressService
             'default'    => $row['customerAddressDefault'] ?? null,
             'location'   => $row['customerAddressLocation'] ?? '',
             'city'       => $row['customerAddressCity'] ?? '',
+            'reference'  => $row['reference'] ?? '',
             'latLng'     => $lat ? ($lat . ',' . $lng) : false,
             'lat'        => $lat,
             'lng'        => $lng,

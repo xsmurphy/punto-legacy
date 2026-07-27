@@ -613,9 +613,13 @@ final class SaleService
         // Anti-IDOR: validamos que la dirección pertenezca a ESE cliente y tenant
         // (el legacy insertaba el addressId crudo del front sin validar).
         if ($input->clientId !== null && $input->addressId !== null) {
+            // status = 1: una dirección borrada (soft-delete, mig 87) no se
+            // puede elegir para una venta NUEVA — a diferencia de
+            // getTransactionAddress() (Customer.php), que SÍ debe seguir
+            // resolviendo direcciones borradas para ventas YA hechas.
             $addr = $this->db->Execute(
                 'SELECT customerAddressId FROM customerAddress
-                 WHERE customerAddressId = ? AND customerId = ? AND companyId = ? LIMIT 1',
+                 WHERE customerAddressId = ? AND customerId = ? AND companyId = ? AND status = 1 LIMIT 1',
                 [$input->addressId, $input->clientId, $this->ctx->companyId]
             );
             if ($addr && !$addr->EOF) {

@@ -311,8 +311,10 @@ final class Customer
                 $lat      = 0;
                 $lng      = 0;
 
+                // status = 1: excluye direcciones borradas (soft-delete, mig 87) —
+                // mismo filtro que CustomerAddressService::listForCustomer.
                 $addressRow = ncmExecute(
-                    'SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true LIMIT 1',
+                    'SELECT * FROM customerAddress WHERE customerId = ? AND companyId = ? AND customerAddressDefault = true AND status = 1 LIMIT 1',
                     [$id, COMPANY_ID]
                 );
 

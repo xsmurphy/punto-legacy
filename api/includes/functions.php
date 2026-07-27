@@ -1470,10 +1470,15 @@ if (!function_exists('_getTableSchema')) {
             'customerAddress' => [
                 'pk'       => 'customerAddressId',
                 'jsonbCol' => 'data',
+                // 'reference' y 'status' agregados en mig 87 (libreta de
+                // direcciones, context/27 PARTE D) — sin esta entrada,
+                // ncmInsert/ncmUpdate los enrutarían silenciosamente al JSONB
+                // `data` en vez de a las columnas reales (mismo footgun
+                // documentado en context/04 para esta tabla).
                 'columns'  => ['customerAddressId', 'customerAddressDate', 'customerAddressName',
                                'customerAddressText', 'customerAddressLat', 'customerAddressLng',
                                'customerAddressDefault', 'customerAddressLocation', 'customerAddressCity',
-                               'customerId', 'companyId', 'updated_at'],
+                               'customerId', 'companyId', 'updated_at', 'reference', 'status'],
             ],
             // Módulo Finanzas (mig 72). Tablas nuevas, columnas físicas lowercase
             // sin quotes (§40.1/§44) — escritas vía ncmInsert/ncmUpdate.
