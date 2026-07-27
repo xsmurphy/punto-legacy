@@ -443,6 +443,16 @@ final class OrderCoreService
      * Marca la orden como cobrada. La llama el flujo de cobro (O1: volcado
      * al carrito → SaleService → acá) con el transactionId ya creado — este
      * método NO crea la transacción, solo deja el rastro.
+     *
+     * Publish diferido si InTrans() (mismo patrón que updateStatus()):
+     * SpaceSettlementService::settleIfCovered (F3) llama a este método
+     * ANIDADO dentro de la TX de registerPayment() — sin este guard,
+     * publicaría "orden cerrada" por WS antes de que esa TX externa
+     * confirme el commit real, y un rollback (ej. el pago que la cubre
+     * falla después) dejaría un phantom notify contra una orden que en
+     * BD sigue abierta. El caller anidado llama publishOrderStatus()
+     * después de SU commit — igual que hace SpaceSessionService::cancel()
+     * con las cancelaciones en cascada.
      */
     public function markPaid(string $companyId, string $orderId, string $transactionId, ?string $outletScope = null): array
     {
@@ -494,7 +504,7 @@ final class OrderCoreService
         }
 
         $result = $this->find($companyId, $orderId);
-        if ($result !== null) {
+        if ($result !== null && !$db->InTrans()) {
             $this->publish($companyId, $result['outletId'], 'order:status', $result);
             realtimePublish('order', 'update', $orderId);
         }

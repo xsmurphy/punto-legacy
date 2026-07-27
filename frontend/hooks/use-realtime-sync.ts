@@ -44,8 +44,11 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // Módulo de Espacios (F2, context/15-espacios-module-plan.md). Invalida tanto
   // el plano operativo del POS (use-pos-spaces.ts) como la config del panel
   // (use-spaces.ts/use-space-sectors.ts, /settings/espacios) — ambos
-  // consumen las mismas entidades bajo distintas auth.
-  space:             [["pos-spaces"], ["pos-space-sectors"], ["spaces"], ["space-sectors"]],
+  // consumen las mismas entidades bajo distintas auth. `space-settlement`
+  // (F3, SpaceSettlementService::publishBalance) es prefix-match: invalida
+  // TODOS los saldos cacheados, no solo el de la sesión que cambió — barato
+  // (son queries livianas) y evita mapear sessionId→queryKey acá.
+  space:             [["pos-spaces"], ["pos-space-sectors"], ["spaces"], ["space-sectors"], ["space-settlement"]],
   // pack, payment-method, giftcard, schedule: no hay hooks con queryKeys
   // propios en frontend aún — se agregan cuando existan sus hooks.
 }

@@ -181,6 +181,15 @@ final class SpaceSessionService
      * Cierra la sesión. `transactionId` opcional (F2 lo pasará al cobrar).
      * En F0+F1, sin flujo de cobro, se usa para cerrar espacios manualmente
      * (ej. espacio abierto por error).
+     *
+     * Publish diferido si InTrans() (mismo fix aplicado a
+     * OrderCoreService::markPaid — ver ese comentario): F3
+     * (SpaceSettlementService::settleIfCovered) llama a close() ANIDADO
+     * dentro de la TX de registerPayment(). Sin este guard, publicaría
+     * "sesión cerrada" por WS antes del commit real de esa TX externa — un
+     * rollback posterior (ej. el markPaid de una orden falla después)
+     * dejaría un phantom notify contra una sesión que en BD sigue abierta.
+     * El caller anidado usa publishSessionState() después de SU commit.
      */
     public function close(string $companyId, string $sessionId, ?string $transactionId = null, ?string $outletScope = null): array
     {
@@ -198,7 +207,7 @@ final class SpaceSessionService
             throw new \RuntimeException('No se pudo cerrar la sesión');
         }
         $result = $this->find($companyId, $sessionId);
-        if ($result !== null) {
+        if ($result !== null && !$this->db->InTrans()) {
             $this->publish($companyId, (string) $session['outletid'], $result);
         }
         return $result ?? [];
