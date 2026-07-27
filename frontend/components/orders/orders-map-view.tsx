@@ -7,10 +7,19 @@
  * key, positron/fiord según el tema).
  *
  * Pinta el local como PIN fijo (coords de `outlet.lat/lng`, mig 14, expuestas
- * por /v1/bootstrap → BFF) y un PIN por orden con coordenadas del cliente
- * (`customerLat`/`customerLng`, parseadas server-side desde el
- * `contactLatLng` legacy). Las órdenes SIN coordenadas no se pierden: se
- * listan aparte debajo del mapa.
+ * por /v1/bootstrap → BFF) y un PIN por orden de DELIVERY, con las coords
+ * SNAPSHOTEADAS en la propia orden (`deliveryLat`/`deliveryLng`, mig 94) — NO
+ * las del contacto (`customerLat`/`customerLng`): el cliente puede mudarse
+ * después de pedir, y esta orden fue a la dirección de ese momento
+ * (context/27-delivery-sla-plan.md §B.3/§D.3).
+ *
+ * El filtro correcto es `fulfillment==='delivery'` (§B.4), no "tiene
+ * coordenadas": una orden de mostrador nunca pertenece a este mapa, tenga o
+ * no un cliente con ubicación cargada en su ficha. `page.tsx` ya filtra
+ * antes de pasar `orders` acá. Dentro de los envíos, los que no tienen pin
+ * (dirección pegada como texto, sin link de mapa — §D.5) NO se pierden: se
+ * muestran como chip contador flotante con un Popover listando el detalle
+ * (mismo tratamiento que el aviso de "sucursal sin ubicación").
  *
  * Ciclo de vida: el mapa se crea UNA vez al montar y se destruye en el
  * unmount (`map.remove()` + markers). Los markers se reconcilian en un efecto
@@ -27,6 +36,7 @@ import { MapPin, WifiOff } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -49,10 +59,10 @@ const STYLE_LOAD_TIMEOUT_MS = 12_000
 
 function hasCoords(o: Order): boolean {
   return (
-    typeof o.customerLat === "number" &&
-    typeof o.customerLng === "number" &&
-    Number.isFinite(o.customerLat) &&
-    Number.isFinite(o.customerLng)
+    typeof o.deliveryLat === "number" &&
+    typeof o.deliveryLng === "number" &&
+    Number.isFinite(o.deliveryLat) &&
+    Number.isFinite(o.deliveryLng)
   )
 }
 
@@ -174,8 +184,8 @@ export function OrdersMapView({
       }
 
       for (const order of withCoords) {
-        const lng = order.customerLng as number
-        const lat = order.customerLat as number
+        const lng = order.deliveryLng as number
+        const lat = order.deliveryLat as number
 
         const el = document.createElement("div")
         // min-w/h-9: touch target de 36px+ — se toca con el dedo en tablet.
@@ -243,34 +253,48 @@ export function OrdersMapView({
             La sucursal no tiene ubicación cargada. Configurala en Ajustes → Sucursales.
           </p>
         ) : null}
-      </div>
 
-      {withoutCoords.length > 0 ? (
-        <div className="shrink-0 rounded-xl border border-border bg-card p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Sin ubicación ({withoutCoords.length})
-          </p>
-          <div className="flex max-h-32 flex-col gap-1 overflow-y-auto">
-            {withoutCoords.map((order) => (
-              <Button
-                key={order.id}
-                variant="ghost"
-                onClick={() => onOpenOrder(order)}
-                className={cn("h-11 w-full justify-between gap-2 px-3")}
+        {/* Envíos con dirección pero SIN pin (§D.5 — dirección pegada como
+            texto, sin link de mapa) no pueden quedar invisibles: mismo
+            tratamiento visual que el aviso de sucursal sin ubicación, pero
+            como chip contador flotante que abre el detalle en un Popover. */}
+        {withoutCoords.length > 0 ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="absolute right-2 top-2 rounded-md bg-background/90 px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-background"
               >
-                <span className="flex min-w-0 items-center gap-2">
-                  <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="tabular-nums">#{order.orderNumber ?? "—"}</span>
-                  <span className="truncate text-muted-foreground">
-                    {order.customerName ?? "Sin cliente"}
-                  </span>
-                </span>
-                <Badge variant={STATUS_VARIANT[order.status]}>{STATUS_LABEL[order.status]}</Badge>
-              </Button>
-            ))}
-          </div>
-        </div>
-      ) : null}
+                {withoutCoords.length} envío{withoutCoords.length !== 1 ? "s" : ""} sin ubicación
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Sin ubicación ({withoutCoords.length})
+              </p>
+              <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+                {withoutCoords.map((order) => (
+                  <Button
+                    key={order.id}
+                    variant="ghost"
+                    onClick={() => onOpenOrder(order)}
+                    className={cn("h-11 w-full justify-between gap-2 px-3")}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      <span className="tabular-nums">#{order.orderNumber ?? "—"}</span>
+                      <span className="truncate text-muted-foreground">
+                        {order.customerName ?? "Sin cliente"}
+                      </span>
+                    </span>
+                    <Badge variant={STATUS_VARIANT[order.status]}>{STATUS_LABEL[order.status]}</Badge>
+                  </Button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+      </div>
     </div>
   )
 }

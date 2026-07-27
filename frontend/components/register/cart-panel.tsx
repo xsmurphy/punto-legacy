@@ -88,11 +88,13 @@ import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
 import { OfflineBanner } from "@/components/pos/offline-banner"
-import { useCreateOrder, type Order } from "@/hooks/use-orders"
+import { useCreateOrder, type Order, type Fulfillment } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
+import { FulfillmentSelector } from "@/components/register/fulfillment-selector"
+import { DeliveryAddressDialog } from "@/components/register/delivery-address-dialog"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
 
@@ -105,6 +107,10 @@ export function CartPanel() {
   const spaceSessionId = useCartStore((s) => s.spaceSessionId)
   const spaceName = useCartStore((s) => s.spaceName)
   const clearSelectedSpace = useCartStore((s) => s.clearSelectedSpace)
+  const fulfillment = useCartStore((s) => s.fulfillment)
+  const deliveryAddress = useCartStore((s) => s.deliveryAddress)
+  const setFulfillment = useCartStore((s) => s.setFulfillment)
+  const setDeliveryAddress = useCartStore((s) => s.setDeliveryAddress)
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
   const ivaRemoved = useCartStore((s) => s.ivaRemoved)
@@ -167,6 +173,42 @@ export function CartPanel() {
   const savingQuote = usePosUIStore((s) => s.savingQuote)
 
   const cartMode: CartModeKey = resolveCartMode(posMode, spaceName, savingQuote)
+
+  // ── Flujo "Envío" del selector de fulfillment (context/27 §D.4) ────────────
+  // Elegir "Envío" sin cliente en el carrito abre PRIMERO CustomerDialog; una
+  // vez elegido el cliente (o si ya había uno), se abre DeliveryAddressDialog.
+  // `pendingDeliveryFlow` recuerda que el CustomerDialog se abrió como parte
+  // de este flujo (no por el botón normal de cliente) — si el cajero lo
+  // cierra sin elegir cliente, el intento de "Envío" se descarta sin tocar
+  // el fulfillment (nunca optimista).
+  const [deliveryDialogOpen, setDeliveryDialogOpen] = React.useState(false)
+  const [pendingDeliveryFlow, setPendingDeliveryFlow] = React.useState(false)
+
+  const handleSelectFulfillment = React.useCallback(
+    (f: Fulfillment) => {
+      if (f !== "delivery") {
+        setFulfillment(f)
+        return
+      }
+      if (!customer) {
+        setPendingDeliveryFlow(true)
+        setCustomerOpen(true)
+        return
+      }
+      setDeliveryDialogOpen(true)
+    },
+    [customer, setFulfillment, setCustomerOpen],
+  )
+
+  React.useEffect(() => {
+    if (customerOpen || !pendingDeliveryFlow) return
+    // CustomerDialog se acaba de cerrar mientras había un intento de "Envío"
+    // pendiente: si quedó un cliente cargado, continuar al selector de
+    // dirección; si no, el cajero canceló — se descarta el intento sin tocar
+    // el fulfillment.
+    setPendingDeliveryFlow(false)
+    if (customer) setDeliveryDialogOpen(true)
+  }, [customerOpen, pendingDeliveryFlow, customer])
 
   const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
   const [syncQueueOpen, setSyncQueueOpen] = React.useState(false)
@@ -265,6 +307,8 @@ export function CartPanel() {
       const created = await createOrder.mutateAsync({
         source: spaceSessionId ? "table" : "counter",
         spaceSessionId: spaceSessionId ?? undefined,
+        fulfillment,
+        deliveryAddressId: fulfillment === "delivery" ? (deliveryAddress?.id ?? undefined) : undefined,
         items: lines.map((l) => ({
           itemId: l.itemId,
           qty: l.qty,
@@ -309,7 +353,7 @@ export function CartPanel() {
     } finally {
       setSubmittingOrder(false)
     }
-  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, spaceSessionId, spaceName, router])
+  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, spaceSessionId, spaceName, router, fulfillment, deliveryAddress])
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   const activeRef = React.useRef<HTMLDivElement>(null)
@@ -334,6 +378,17 @@ export function CartPanel() {
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
+      {customer && (
+        <DeliveryAddressDialog
+          open={deliveryDialogOpen}
+          onOpenChange={setDeliveryDialogOpen}
+          customerId={customer.id}
+          onConfirm={(address) => {
+            setFulfillment("delivery")
+            setDeliveryAddress(address)
+          }}
+        />
+      )}
       <PayDialog open={payOpen} onOpenChange={setPayOpen} />
       {orderSuccess && (
         <TransactionSuccessDialog
@@ -477,6 +532,13 @@ export function CartPanel() {
       {/* ── Chip de cliente ── */}
       <CustomerChip customer={customer} />
 
+      {/* ── Strip de dirección de envío elegida (context/27 §D.4) ── */}
+      <DeliveryAddressChip
+        fulfillment={fulfillment}
+        address={deliveryAddress}
+        onClear={() => setFulfillment("dine_in")}
+      />
+
       {/* ── Lista de líneas ── */}
       <div className="flex-1 overflow-y-auto">
         {lines.length === 0 ? (
@@ -533,6 +595,8 @@ export function CartPanel() {
         onPayClick={handlePayClick}
         onOrderClick={handleOrderClick}
         orderSubmitting={submittingOrder}
+        fulfillment={fulfillment}
+        onSelectFulfillment={handleSelectFulfillment}
       />
         </>
       )}
@@ -697,6 +761,45 @@ function CustomerChip({
         size="icon-xs"
         onClick={() => setCustomer(null)}
         aria-label="Quitar cliente"
+      >
+        <X className="size-3" />
+      </Button>
+    </div>
+  )
+}
+
+// ── Strip de dirección de envío elegida ───────────────────────────────────────
+//
+// Mismo patrón visual que SpaceChip/CustomerChip arriba — solo visible cuando
+// fulfillment==="delivery" y hay una dirección elegida (context/27 §D.4). La
+// X vuelve el fulfillment a "dine_in" ("En el local"), que a su vez limpia
+// deliveryAddress vía la invariante de setFulfillment (lib/cart/store.ts).
+
+function DeliveryAddressChip({
+  fulfillment,
+  address,
+  onClear,
+}: {
+  fulfillment: Fulfillment
+  address: ReturnType<typeof useCartStore.getState>["deliveryAddress"]
+  onClear: () => void
+}) {
+  if (fulfillment !== "delivery" || !address) return null
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5">
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-xs font-medium text-foreground">{address.name}</p>
+        <p className="truncate text-[10px] text-muted-foreground">
+          {address.address}
+          {address.reference ? ` — ${address.reference}` : ""}
+        </p>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        onClick={onClear}
+        aria-label="Quitar dirección de envío"
       >
         <X className="size-3" />
       </Button>
@@ -1139,6 +1242,8 @@ function CartBottom({
   onPayClick,
   onOrderClick,
   orderSubmitting,
+  fulfillment,
+  onSelectFulfillment,
 }: {
   credito: boolean
   interno: boolean
@@ -1157,6 +1262,8 @@ function CartBottom({
   onPayClick: () => void
   onOrderClick: () => void
   orderSubmitting: boolean
+  fulfillment: Fulfillment
+  onSelectFulfillment: (f: Fulfillment) => void
 }) {
   const totalFormatted = formatMoney(total, config)
   const ivaFormatted = formatMoney(iva, config)
@@ -1209,30 +1316,54 @@ function CartBottom({
 
   return (
     <div className="shrink-0 bg-background p-2 pt-2">
-      {/* Toggles CRÉDITO / INTERNO / IVA — distribuidos de forma pareja */}
-      <div className="mb-2 flex items-center justify-center gap-2">
-        <ToggleChip
-          label="CRÉDITO"
-          active={credito}
-          onClick={onToggleCredito}
-        />
-        <ToggleChip
-          label="INTERNO"
-          active={interno}
-          onClick={onToggleInterno}
-        />
-        <button
-          onClick={onToggleIva}
-          aria-label={ivaRemoved ? "Restaurar IVA" : "Eliminar IVA"}
-          className={cn(
-            "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
-            ivaRemoved
-              ? "border-border bg-transparent text-muted-foreground/50"
-              : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground hover:text-foreground",
-          )}
-        >
-          {ivaFormatted}
-        </button>
+      {/* Toggles CRÉDITO / INTERNO / IVA — atributos de la VENTA, no de la
+          orden: no existe orden a crédito, "interno" es una venta sin valor
+          fiscal y el IVA se define recién al cobrar. En modo orden-mostrador
+          esta fila lleva el selector de fulfillment (En el local/Retiro/
+          Envío, context/27 §D.4) en vez de los toggles — orden-espacio (dine_in
+          por construcción) no muestra nada acá salvo VACIAR.
+          `min-h-10` (antes `min-h-6`, subido para que el selector de 3
+          botones entre sin recortarse): la fila conserva su alto aunque
+          quede vacía en cualquier modo, así el CTA de abajo NO se mueve ni un
+          pixel al cambiar de modo — memoria muscular del cajero (Regla #10,
+          context/14-ui-conventions.md). */}
+      <div
+        className={cn(
+          "mb-2 flex min-h-10 items-center gap-2",
+          cartMode === "orden-mostrador" ? "justify-between" : "justify-center",
+        )}
+      >
+        {!isOrderMode && (
+          <>
+            <ToggleChip
+              label="CRÉDITO"
+              active={credito}
+              onClick={onToggleCredito}
+            />
+            <ToggleChip
+              label="INTERNO"
+              active={interno}
+              onClick={onToggleInterno}
+            />
+            <button
+              onClick={onToggleIva}
+              aria-label={ivaRemoved ? "Restaurar IVA" : "Eliminar IVA"}
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
+                ivaRemoved
+                  ? "border-border bg-transparent text-muted-foreground/50"
+                  : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground hover:text-foreground",
+              )}
+            >
+              {ivaFormatted}
+            </button>
+          </>
+        )}
+        {cartMode === "orden-mostrador" && (
+          <div className="min-w-0 flex-1">
+            <FulfillmentSelector value={fulfillment} onSelect={onSelectFulfillment} />
+          </div>
+        )}
         {lineCount > 0 && (
           <button
             onClick={onClear}

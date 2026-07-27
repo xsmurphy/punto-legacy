@@ -31,6 +31,15 @@ export type OrderStatus =
 
 export type OrderItemStatus = "pending" | "preparing" | "ready" | "delivered" | "cancelled"
 
+/**
+ * Cómo llega la orden al cliente (context/27-delivery-sla-plan.md §B.1,
+ * F-D-0). Ortogonal a `source` (de dónde vino el pedido) — un pedido
+ * telefónico puede ser delivery, y uno de ecommerce puede ser retiro en el
+ * local. Una orden de espacio (`spaceSessionId`) siempre es `dine_in`, el
+ * backend lo fuerza (OrderCoreService::create).
+ */
+export type Fulfillment = "dine_in" | "takeaway" | "delivery"
+
 export interface OrderItem {
   id: string
   itemId: string | null
@@ -101,6 +110,22 @@ export interface Order {
   sentAt: string | null
   closedAt: string | null
   /**
+   * Cómo llega la orden al cliente (mig 94, F-D-0). Default `dine_in` para
+   * toda orden creada antes de este slice.
+   */
+  fulfillment: Fulfillment
+  /**
+   * Snapshot del destino de entrega (mig 94, F-D-1 — congelado al crear, NO
+   * se re-lee de `customerAddress`: el cliente puede mudarse/borrar la
+   * dirección y esa orden sigue diciendo a dónde fue). Todo null salvo
+   * `fulfillment==='delivery'`.
+   */
+  deliveryAddressId: string | null
+  deliveryAddress: string | null
+  deliveryReference: string | null
+  deliveryLat: number | null
+  deliveryLng: number | null
+  /**
    * Presente en `find()` (detalle) siempre, y en `list()` solo si se pidió
    * `includeItems=1` (ej. `useOrdersBySession` — dialog de sesión de
    * espacio, context/15 F3). Ausente en `list()` sin ese flag.
@@ -126,6 +151,10 @@ export interface CreateOrderInput {
    * que la sesión sea del tenant+outlet y esté `open`.
    */
   spaceSessionId?: string
+  /** Default 'dine_in' en el backend. El backend fuerza 'dine_in' si viene `spaceSessionId`. */
+  fulfillment?: Fulfillment
+  /** Requerido cuando `fulfillment==='delivery'` — el backend valida que sea del cliente. */
+  deliveryAddressId?: string
   items: CreateOrderItemInput[]
   customerId?: string
   note?: string

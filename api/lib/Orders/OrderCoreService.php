@@ -92,7 +92,8 @@ final class OrderCoreService
      * Atómico — TX propia.
      *
      * @param array{outletId:string, registerId?:string, source?:string,
-     *              spaceSessionId?:string,
+     *              spaceSessionId?:string, fulfillment?:string,
+     *              deliveryAddressId?:string,
      *              items:list<array{itemId?:string, qty:float, price?:float,
      *              note?:string, course?:int}>, customerId?:string,
      *              userId?:string, note?:string, channelRef?:string,
@@ -119,6 +120,16 @@ final class OrderCoreService
         $channelRef     = isset($data['channelRef']) && $data['channelRef'] !== '' ? (string) $data['channelRef'] : null;
         $sendNow        = !empty($data['sendNow']);
 
+        // `fulfillment` es ORTOGONAL a `source` (context/27 §B.1) — ver mig 94.
+        // Una orden de espacio SIEMPRE es dine_in (misma lógica que fuerza
+        // source='table' arriba): una mesa no pide delivery/takeaway.
+        $fulfillment = $spaceSessionId !== null
+            ? 'dine_in'
+            : (string) ($data['fulfillment'] ?? 'dine_in');
+        if (!in_array($fulfillment, ['dine_in', 'takeaway', 'delivery'], true)) {
+            throw new \InvalidArgumentException("fulfillment inválido (esperado 'dine_in'|'takeaway'|'delivery')");
+        }
+
         if ($outletId === '') {
             throw new \InvalidArgumentException('outletId requerido');
         }
@@ -132,6 +143,45 @@ final class OrderCoreService
         $outlet = ncmExecute('SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1', [$outletId, $companyId]);
         if (!$outlet) {
             throw new \InvalidArgumentException('outletId inválido para este tenant');
+        }
+
+        // Resolución + snapshot del destino de entrega (context/27 §B.3/§D.3).
+        // Se resuelve ANTES de la TX — falla rápido (400) sin tomar ningún
+        // lock si la dirección ni siquiera existe/pertenece al cliente+tenant.
+        // Fuera de 'delivery' las 5 columnas quedan NULL a propósito, aunque
+        // el payload traiga algo (ej. un fulfillment cambiado a último
+        // momento) — no tiene sentido guardar un destino de entrega para una
+        // orden que no se entrega.
+        $deliveryAddressId = null;
+        $deliveryAddress    = null;
+        $deliveryReference  = null;
+        $deliveryLat        = null;
+        $deliveryLng        = null;
+        if ($fulfillment === 'delivery') {
+            if ($customerId === null) {
+                throw new \InvalidArgumentException('delivery requiere customerId');
+            }
+            $addressId = !empty($data['deliveryAddressId']) ? (string) $data['deliveryAddressId'] : null;
+            if ($addressId === null) {
+                throw new \InvalidArgumentException('delivery requiere deliveryAddressId');
+            }
+            $address = ncmExecute(
+                'SELECT customerAddressId, customerAddressText, reference, customerAddressLat, customerAddressLng
+                   FROM customerAddress
+                  WHERE customerAddressId = ? AND companyId = ? AND customerId = ? AND status = 1
+                  LIMIT 1',
+                [$addressId, $companyId, $customerId]
+            );
+            if (!$address) {
+                throw new \InvalidArgumentException('deliveryAddressId inválido para este cliente');
+            }
+            $deliveryAddressId = (string) $address['customeraddressid'];
+            $deliveryAddress   = (string) ($address['customeraddresstext'] ?? '');
+            $deliveryReference = $address['reference'] ?? null;
+            // lat/lng pueden quedar NULL — dirección sin pin es un caso
+            // válido (§D.5, gap de links cortos de Maps sin coords).
+            $deliveryLat = isset($address['customeraddresslat']) ? (float) $address['customeraddresslat'] : null;
+            $deliveryLng = isset($address['customeraddresslng']) ? (float) $address['customeraddresslng'] : null;
         }
 
         if ($spaceSessionId !== null) {
@@ -207,10 +257,15 @@ final class OrderCoreService
         $rs = $this->db->Execute(
             "INSERT INTO pos_order
                 (orderid, companyid, outletid, registerid, source, status, ordernumber,
-                 spacesessionid, customerid, userid, note, channelref, sent_at)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
+                 spacesessionid, customerid, userid, note, channelref,
+                 fulfillment, deliveryaddressid, deliveryaddress, deliveryreference, deliverylat, deliverylng,
+                 sent_at)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
              RETURNING orderid",
-            [$companyId, $outletId, $registerId, $source, $status, $orderNumber, $spaceSessionId, $customerId, $userId, $note, $channelRef]
+            [
+                $companyId, $outletId, $registerId, $source, $status, $orderNumber, $spaceSessionId, $customerId, $userId, $note, $channelRef,
+                $fulfillment, $deliveryAddressId, $deliveryAddress, $deliveryReference, $deliveryLat, $deliveryLng,
+            ]
         );
         if ($rs === false || $rs->EOF) {
             $db->FailTrans();
@@ -673,6 +728,14 @@ final class OrderCoreService
             $where[]  = 'o.source = ?';
             $params[] = (string) $filters['source'];
         }
+        if (!empty($filters['fulfillment'])) {
+            $fulfillment = (string) $filters['fulfillment'];
+            if (!in_array($fulfillment, ['dine_in', 'takeaway', 'delivery'], true)) {
+                throw new \InvalidArgumentException("fulfillment inválido (esperado 'dine_in'|'takeaway'|'delivery')");
+            }
+            $where[]  = 'o.fulfillment = ?';
+            $params[] = $fulfillment;
+        }
         if (!empty($filters['spaceSessionId'])) {
             $where[]  = 'o.spacesessionid = ?';
             $params[] = (string) $filters['spaceSessionId'];
@@ -980,7 +1043,15 @@ final class OrderCoreService
             'createdAt'         => $row['created_at'] ?? null,
             'sentAt'            => $row['sent_at'] ?? null,
             'closedAt'          => $row['closed_at'] ?? null,
+            'fulfillment'       => (string) ($row['fulfillment'] ?? 'dine_in'),
+            'deliveryAddressId' => $row['deliveryaddressid'] ?? null,
+            'deliveryAddress'   => $row['deliveryaddress'] ?? null,
+            'deliveryReference' => $row['deliveryreference'] ?? null,
         ];
+        // lat/lng snapshoteados de la orden (mig 94) — mismo criterio que
+        // customerLat/customerLng: float o null, nunca NaN.
+        $out['deliveryLat'] = isset($row['deliverylat']) && $row['deliverylat'] !== null ? (float) $row['deliverylat'] : null;
+        $out['deliveryLng'] = isset($row['deliverylng']) && $row['deliverylng'] !== null ? (float) $row['deliverylng'] : null;
 
         // Datos del cliente para la vista mapa de /pos/ordenes. Vienen del
         // LEFT JOIN a contact (list()/find()); si la orden no tiene cliente o

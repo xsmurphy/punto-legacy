@@ -6,9 +6,9 @@
  * (aceptación de pedidos online sobre transaction type=12, dominio distinto,
  * no se toca).
  *
- *   GET  /v1/orders-core                                    → lista (filtros: outletId, status[], source, from, to, q, spaceSessionId; includeItems=1 adjunta ítems batched)
+ *   GET  /v1/orders-core                                    → lista (filtros: outletId, status[], source, fulfillment, from, to, q, spaceSessionId; includeItems=1 adjunta ítems batched)
  *   GET  /v1/orders-core?id=<uuid>                           → detalle con ítems
- *   POST /v1/orders-core                                     → crea (body: outletId, registerId?, source?,
+ *   POST /v1/orders-core                                     → crea (body: outletId, registerId?, source?, fulfillment?, deliveryAddressId?,
  *                                                              items:[{itemId?,qty,price?,note?,course?}],
  *                                                              customerId?, note?, channelRef?, sendNow?)
  *   POST /v1/orders-core?id=<uuid>&action=send                → open → sent
@@ -109,6 +109,7 @@ switch ($method) {
             'outletId'       => $outletScope ?? ($_GET['outletId'] ?? null),
             'status'         => $_GET['status'] ?? null,
             'source'         => $_GET['source'] ?? null,
+            'fulfillment'    => $_GET['fulfillment'] ?? null,
             'from'           => $_GET['from'] ?? null,
             'to'             => $_GET['to'] ?? null,
             'q'              => $_GET['q'] ?? null,

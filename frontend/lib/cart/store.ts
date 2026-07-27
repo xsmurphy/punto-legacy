@@ -21,7 +21,8 @@
 import { create } from "zustand"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
-import type { Order } from "@/hooks/use-orders"
+import type { Order, Fulfillment } from "@/hooks/use-orders"
+import type { CustomerAddress } from "@/lib/types/contact"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,21 @@ interface CartState {
   spaceName: string | null
 
   /**
+   * Cómo llega la orden al cliente (context/27-delivery-sla-plan.md §B.1,
+   * §D.4). Default "dine_in". Solo aplica a modo "orden" (una venta directa
+   * no tiene fulfillment) — `handleOrderClick` la incluye en el payload de
+   * `createOrder`. Invariantes de reset viven en las acciones (`setFulfillment`,
+   * `setSelectedSpace`/`loadFromSession`, `setPosMode`) — no en la UI.
+   */
+  fulfillment: Fulfillment
+  /**
+   * Dirección de delivery elegida para ESTA orden (context/27 PARTE D). Se
+   * setea junto con `fulfillment="delivery"` desde `DeliveryAddressDialog`.
+   * null en cualquier otro fulfillment — `setFulfillment` lo garantiza.
+   */
+  deliveryAddress: CustomerAddress | null
+
+  /**
    * Cobro de un espacio completo (context/15 F2): análogo a `orderParentId`
    * pero para VARIAS órdenes a la vez. Se setea vía `loadFromSession()`
    * cuando el cajero toca "Cobrar" en el sheet de un espacio ocupado — el
@@ -407,6 +423,16 @@ interface CartState {
   clearSelectedSpace: () => void
 
   /**
+   * Cambia el fulfillment de la orden en curso (context/27 §B.1). Cualquier
+   * valor distinto de "delivery" limpia `deliveryAddress` — no puede quedar
+   * una dirección elegida "colgada" si el cajero vuelve a "En el local"/"Retiro".
+   */
+  setFulfillment: (f: Fulfillment) => void
+
+  /** Setea la dirección de delivery elegida para esta orden. null = quitarla. */
+  setDeliveryAddress: (a: CustomerAddress | null) => void
+
+  /**
    * Vuelca TODAS las órdenes no cerradas/canceladas de una sesión de espacio
    * al carrito en modo venta — "cobrar el espacio" (context/15 F2). Merge de
    * líneas de todas las órdenes (mismo criterio de merge que `addLines`:
@@ -480,6 +506,8 @@ const initialState = {
   orderParentId: null as string | null,
   spaceSessionId: null as string | null,
   spaceName: null as string | null,
+  fulfillment: "dine_in" as Fulfillment,
+  deliveryAddress: null as CustomerAddress | null,
   sessionParentId: null as string | null,
   sessionOrderIds: [] as string[],
   settlementIntent: null as SettlementIntent | null,
@@ -680,7 +708,22 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   setPosMode: (mode) => {
-    set({ posMode: mode })
+    // Los flags fiscales/de cobro son de la VENTA, no de la orden: una orden
+    // no se emite a crédito, no es "interna" (venta sin valor fiscal) y no
+    // tiene IVA que quitar — se define todo recién al cobrarla. Además
+    // `ivaRemoved` participa del total (lineSubtotal), así que si sobrevive
+    // al cambio de modo el CTA "Ordenar" muestra un monto sin IVA que nadie
+    // pidió. Se resetean acá (raíz) y no se renderizan en modo orden.
+    //
+    // Al volver a "venta": el fulfillment/dirección son atributos de la
+    // ORDEN (context/27 §B.1) — una venta directa de mostrador no tiene
+    // fulfillment, así que se resetean igual que credito/interno/ivaRemoved
+    // arriba (mismo criterio, atributo que no aplica al modo destino).
+    set(
+      mode === "orden"
+        ? { posMode: mode, credito: false, interno: false, ivaRemoved: false }
+        : { posMode: mode, fulfillment: "dine_in", deliveryAddress: null },
+    )
   },
 
   loadFromOrder: (order) => {
@@ -711,11 +754,30 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   setSelectedSpace: (sessionId, spaceName) => {
-    set({ spaceSessionId: sessionId, spaceName, posMode: "orden" })
+    // Un espacio es dine_in por construcción (context/27 §B.1, mismo criterio
+    // que el backend forzando source='table') — una mesa no pide delivery.
+    set({
+      spaceSessionId: sessionId,
+      spaceName,
+      posMode: "orden",
+      fulfillment: "dine_in",
+      deliveryAddress: null,
+    })
   },
 
   clearSelectedSpace: () => {
     set({ spaceSessionId: null, spaceName: null })
+  },
+
+  setFulfillment: (f) => {
+    // Invariante acá (no en la UI, context/27): cualquier valor distinto de
+    // "delivery" limpia la dirección — no puede quedar una dirección elegida
+    // colgada si el cajero vuelve a "En el local"/"Retiro".
+    set({ fulfillment: f, deliveryAddress: f === "delivery" ? _get().deliveryAddress : null })
+  },
+
+  setDeliveryAddress: (a) => {
+    set({ deliveryAddress: a })
   },
 
   loadFromSession: (sessionId, spaceName, orders) => {

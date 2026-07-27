@@ -91,6 +91,15 @@ export default function PosOrdenesPage() {
     [orders, statusFilter],
   )
 
+  // El mapa es SOLO para envíos (context/27 §B.4) — el filtro correcto es
+  // fulfillment==='delivery', no "tiene coordenadas": una orden de mostrador
+  // nunca pertenece acá, tenga o no el cliente una ubicación cargada en su
+  // ficha. Se filtra ANTES de pasarle `orders` a OrdersMapView.
+  const deliveryOrders = React.useMemo(
+    () => filtered.filter((o) => o.fulfillment === "delivery"),
+    [filtered],
+  )
+
   const handleOpenOrder = React.useCallback((order: Order) => {
     setDetailOrderId(order.id)
   }, [])
@@ -145,7 +154,7 @@ export default function PosOrdenesPage() {
             )}
             aria-hidden={view !== "map"}
           >
-            <OrdersMapView orders={filtered} onOpenOrder={handleOpenOrder} />
+            <OrdersMapView orders={deliveryOrders} onOpenOrder={handleOpenOrder} />
           </div>
         ) : null}
       </div>
