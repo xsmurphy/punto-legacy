@@ -48,19 +48,9 @@ import {
   useOrdersBySession,
   ACTIVE_ORDER_STATUSES,
   type Order,
-  type OrderStatus,
 } from "@/hooks/use-orders"
+import { STATUS_LABEL } from "@/lib/orders/order-display"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
-
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  open: "Abierta",
-  sent: "Enviada",
-  in_progress: "En preparación",
-  ready: "Lista",
-  delivered: "Entregada",
-  closed: "Cobrada",
-  cancelled: "Cancelada",
-}
 
 /** Total de una orden = suma de ítems no cancelados (qty × price). */
 function orderTotal(order: Order): number {

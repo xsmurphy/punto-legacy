@@ -125,7 +125,16 @@ export interface CreateOrderInput {
   sendNow?: boolean
 }
 
-/** Órdenes operativamente activas — excluye closed/cancelled (ver O0, ORDER_TRANSITIONS). */
+/**
+ * Órdenes operativamente activas — excluye closed/cancelled (ver O0,
+ * ORDER_TRANSITIONS).
+ *
+ * `delivered` SIGUE acá a propósito aunque ya no tenga pill de filtro
+ * (ver FILTERABLE_STATUSES): una orden entregada pero NO cobrada —el caso
+ * del delivery que se paga cuando el repartidor vuelve— tiene que seguir
+ * siendo alcanzable desde "Todos" para poder cobrarla. Sacarla de acá
+ * dejaría plata sin cobrar e invisible.
+ */
 export const ACTIVE_ORDER_STATUSES: OrderStatus[] = [
   "open",
   "sent",
