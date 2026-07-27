@@ -96,6 +96,25 @@ final class SpaceSettlementService
             }
             $outletId = (string) $sessionRow['outletid'];
 
+            // Idempotencia por transactionId. Un reintento del cliente (timeout
+            // que en realidad llegó, doble tap) volvería a insertar un renglón
+            // del ledger y el pago se contaría DOS VECES. `kind='items'` estaba
+            // cubierto por el CAS de settledpaymentid, pero 'amount' y 'share'
+            // no tenían nada — hallazgo del code-reviewer, y es plata.
+            // Se resuelve como no-op idempotente (no error): el cliente que
+            // reintenta obtiene el mismo estado que si hubiera funcionado la
+            // primera vez, igual que la dedupe por `uid` de las ventas. El
+            // índice único de la mig 91 es el respaldo estructural.
+            $dup = ncmExecute(
+                'SELECT paymentid FROM space_session_payment
+                  WHERE companyid = ? AND transactionid = ? LIMIT 1',
+                [$companyId, $transactionId]
+            );
+            if ($dup) {
+                $db->CompleteTrans();
+                return $this->getBalance($companyId, $sessionId, $outletScope);
+            }
+
             $balanceInfo = $this->computeBalance($companyId, $sessionId);
             $balance     = $balanceInfo['balance'];
             $decimals    = $this->currencyDecimals($companyId);
@@ -180,7 +199,11 @@ final class SpaceSettlementService
                 $amount = $parts[$shareIndex - 1];
                 $shareCountForRow = $shareCount;
             } else { // amount
-                $amount = round((float) ($data['amount'] ?? 0), 2);
+                // Redondeo a los decimales de la moneda del tenant, igual que
+                // la rama `share`. Con `round(..., 2)` fijo, en guaraníes (0
+                // decimales) entraba un monto con centavos que la caja no
+                // puede cobrar.
+                $amount = round((float) ($data['amount'] ?? 0), $decimals);
             }
 
             if ($amount <= 0) {
