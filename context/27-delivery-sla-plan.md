@@ -189,7 +189,8 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 | **F-SLA-0** | Mig (targetminutes + timestamps), default por outlet, snapshot, `use-order-sla`, `sla-visuals`, consumo en KDS/ordenes/espacios | — |
 | **F-D-0** | `fulfillment`, `out_for_delivery`, guards, whitelist por module | F-SLA-0 (timestamps) |
 | **F-D-1** | Dirección/coords snapshot, `courierid`, UI de despacho, mapa filtrado | F-D-0 |
-| **F-D-1a** | Costo de envío por bandas de distancia → ítem del catálogo (§B.7) | F-D-1 |
+| **F-D-1c** | Libreta de direcciones del cliente + snapshot de coords en la orden (§PARTE D) | F-D-0 |
+| **F-D-1a** | Costo de envío por bandas de distancia → ítem del catálogo (§B.7) | F-D-1c |
 | **F-D-1b** | Zonas por polígono con editor en el panel (§B.7) | F-D-1a |
 | **F-SLA-1** | `prepMinutes` por ítem + agregación max-por-estación | F-SLA-0 |
 | **F-D-2** | Tracking del repartidor en vivo (reusa `contactTrackLocation`) | F-D-1 |
@@ -284,6 +285,107 @@ pico. El modelo `regla → ítem` los admite sin rediseño.
 - **F-D-1b — zonas por polígono**: editor en el panel sobre MapLibre
   (requiere librería de dibujo) + resolución por ray casting con prioridad
   sobre las bandas.
+
+---
+
+# PARTE D — Direcciones del cliente (libreta) y coordenadas de la orden
+
+Requisito del owner (2026-07-19): un cliente puede tener **varias
+direcciones**; al armar una orden el operador **elige la dirección de ESA
+orden**, y esas coordenadas son las que usa el pin del mapa y el cálculo del
+envío.
+
+## D.1 Estado actual y por qué no alcanza
+
+Hoy el contacto tiene UNA sola ubicación, y encima escondida: `contactAddress`
+y `contactLatLng` viven dentro del JSONB `data` (demote de la mig 06). Eso
+impide:
+- Tener casa + oficina + la casa de la madre para el mismo cliente.
+- Indexar coordenadas para resolver zona/banda de envío en SQL.
+- Saber a qué dirección fue una orden puntual.
+
+## D.2 Tabla propia, no un array en JSONB
+
+Es tentador guardar un array de direcciones en `data`, pero la convención del
+proyecto es explícita: **indexable y queryable se queda en columna**, el resto
+va a JSONB. Las coordenadas son lo más queryable que hay acá (haversine para
+las bandas, point-in-polygon para las zonas) y la orden necesita **referenciar
+una dirección puntual**. Va tabla:
+
+```sql
+CREATE TABLE contact_address (
+  addressid  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  companyid  UUID NOT NULL REFERENCES company(companyId) ON DELETE CASCADE,
+  contactid  UUID NOT NULL,
+  label      VARCHAR(60),            -- "Casa", "Oficina", "Depósito"
+  address    TEXT NOT NULL,
+  reference  TEXT,                   -- "portón negro, timbre 2"
+  lat        NUMERIC(10,7),
+  lng        NUMERIC(10,7),
+  isdefault  BOOLEAN NOT NULL DEFAULT false,
+  status     SMALLINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+`reference` no es adorno: en Paraguay la referencia verbal suele valer más
+que la numeración para que el repartidor encuentre la casa.
+
+**Backfill**: `data->>'contactAddress'` + `contactLatLng` de cada contacto se
+siembran como su primera dirección (`isdefault = true`). Idempotente.
+
+## D.3 La orden snapshotea, no referencia solamente
+
+`pos_order` guarda **las dos cosas**:
+- `deliveryaddressid` → FK a `contact_address` (para "misma dirección que la
+  vez pasada" y analítica).
+- `deliveryaddress`, `deliveryreference`, `deliverylat`, `deliverylng` →
+  **copia congelada**.
+
+Si el cliente corrige o borra esa dirección mañana, la orden de ayer tiene que
+seguir diciendo a dónde fue. Mismo principio que `targetminutes` (§A.2) y el
+costo de envío (§B.7): **lo que se cobró y lo que se hizo no se reescriben**.
+
+## D.4 ⚠ Pedir dirección SIEMPRE haría más lento el mostrador
+
+El requisito dice "al crear/seleccionar un cliente para una orden hay que
+crear/seleccionar una dirección". Tomado literal, un cajero que carga un
+cliente solo para acumular puntos en un café tendría que completar una
+dirección — fricción pura en el flujo de alto volumen.
+
+**Regla adoptada**: la dirección es **obligatoria si `fulfillment='delivery'`**
+y **opcional en los demás casos**. El selector de dirección aparece siempre
+que el cliente tenga direcciones cargadas (para poder elegir), pero solo
+bloquea el envío de la orden cuando es delivery.
+
+## D.5 De dónde salen las coordenadas
+
+**Selector de pin en un mapa**, no geocoding. Coherente con §B.7: nada de
+depender de una API externa en el camino operativo. MapLibre ya está en el
+proyecto y `contact-detail-view.tsx` ya tiene el patrón de marcador.
+
+El operador escribe la dirección y arrastra el pin. Geocoding automático
+(Nominatim u otro) queda como comodidad futura, nunca como requisito.
+
+## D.6 Superficie
+
+- **Backend**: mig `contact_address` + backfill; `ContactAddressService`
+  (CRUD, garantía de un solo `isdefault` por contacto); endpoints
+  `/v1/contact-addresses`; `OrderCoreService::create()` acepta
+  `deliveryAddressId`, valida que pertenezca al cliente y al tenant, y
+  snapshotea.
+- **POS**: al elegir cliente en una orden, selector de dirección (preselecciona
+  la default) con opción "Agregar dirección" inline — el operador no debería
+  tener que salir del flujo de la orden.
+- **Panel**: ABM de direcciones en el detalle del contacto.
+- **Mapa de `/pos/ordenes`**: los pines salen del **snapshot de la orden**
+  (`deliverylat/lng`), NO del contacto — así el pin queda donde realmente fue
+  el pedido.
+
+## D.7 Fase
+
+**F-D-1c** — depende de F-D-0 (`fulfillment`). Es prerequisito del cálculo de
+envío (§B.7), que necesita una coordenada de destino para resolver zona/banda.
 
 ---
 
