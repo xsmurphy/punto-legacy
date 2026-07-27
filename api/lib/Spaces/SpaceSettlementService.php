@@ -36,14 +36,17 @@ use Punto\Api\Orders\OrderCoreService;
  */
 final class SpaceSettlementService
 {
-    private const MONEY_EPSILON = 0.01;
+    private const MONEY_EPSILON = SpaceBalanceService::MONEY_EPSILON;
 
     /** @var mixed */
     private $db;
 
+    private SpaceBalanceService $balances;
+
     public function __construct($db)
     {
-        $this->db = $db;
+        $this->db       = $db;
+        $this->balances = new SpaceBalanceService($db);
     }
 
     /**
@@ -314,7 +317,7 @@ final class SpaceSettlementService
 
             if (!in_array((string) $row['status'], ['closed', 'cancelled'], true)) {
                 $balance = $this->computeBalance($companyId, $sessionId)['balance'];
-                if ($balance <= self::MONEY_EPSILON) {
+                if (SpaceBalanceService::isCovered($balance)) {
                     $orders = new OrderCoreService($this->db);
                     $activeRs = $this->db->Execute(
                         "SELECT orderid FROM pos_order WHERE spacesessionid = ? AND companyid = ? AND status NOT IN ('closed','cancelled')",
@@ -354,62 +357,13 @@ final class SpaceSettlementService
     // ------------------------------------------------------------------
 
     /**
-     * total = Σ (qty × price) de ítems NO cancelados de órdenes NO
-     * cerradas/canceladas de la sesión (mismo criterio que
-     * `loadFromSession` en frontend/lib/cart/store.ts — el shape de "qué
-     * cuenta para el total de la mesa" es único, no diverge entre front y
-     * back). paid = Σ ledger. balance = total − paid.
-     *
-     * Dos queries (ítems, pagos) — el total sale de agregar la query de
-     * ítems en PHP, no de una tercera query.
+     * La definición del saldo vive en SpaceBalanceService — la comparten este
+     * service y SpaceSessionService::close(), que decide el cierre con el
+     * mismo número.
      */
     private function computeBalance(string $companyId, string $sessionId): array
     {
-        $itemsRs = $this->db->Execute(
-            "SELECT oi.orderitemid, oi.orderid, oi.name, oi.qty, oi.price, oi.settledpaymentid
-               FROM pos_order_item oi
-               JOIN pos_order o ON o.orderid = oi.orderid AND o.companyid = oi.companyid
-              WHERE o.spacesessionid = ? AND o.companyid = ?
-                AND o.status NOT IN ('closed','cancelled')
-                AND oi.status != 'cancelled'
-              ORDER BY oi.created_at ASC",
-            [$sessionId, $companyId]
-        );
-
-        $items = [];
-        $total = 0.0;
-        if ($itemsRs !== false) {
-            foreach ($itemsRs->GetRows() as $row) {
-                $qty       = (float) ($row['qty'] ?? 0);
-                $price     = (float) ($row['price'] ?? 0);
-                $lineTotal = round($qty * $price, 2);
-                $total    += $lineTotal;
-                $items[]   = [
-                    'id'               => (string) $row['orderitemid'],
-                    'orderId'          => (string) $row['orderid'],
-                    'name'             => (string) $row['name'],
-                    'qty'              => $qty,
-                    'price'            => $price,
-                    'total'            => $lineTotal,
-                    'settled'          => !empty($row['settledpaymentid']),
-                    'settledPaymentId' => $row['settledpaymentid'] ?? null,
-                ];
-            }
-        }
-        $total = round($total, 2);
-
-        $paidRow = ncmExecute(
-            'SELECT COALESCE(SUM(amount), 0) AS paid FROM space_session_payment WHERE companyid = ? AND sessionid = ?',
-            [$companyId, $sessionId]
-        );
-        $paid = round((float) ($paidRow['paid'] ?? 0), 2);
-
-        return [
-            'total'   => $total,
-            'paid'    => $paid,
-            'balance' => round($total - $paid, 2),
-            'items'   => $items,
-        ];
+        return $this->balances->compute($companyId, $sessionId);
     }
 
     /**

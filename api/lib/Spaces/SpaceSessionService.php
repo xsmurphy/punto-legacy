@@ -182,8 +182,8 @@ final class SpaceSessionService
      * En F0+F1, sin flujo de cobro, se usa para cerrar espacios manualmente
      * (ej. espacio abierto por error).
      *
-     * Publish diferido si InTrans() (mismo fix aplicado a
-     * OrderCoreService::markPaid — ver ese comentario): F3
+     * Publish diferido si ya veníamos dentro de una TX ajena (mismo fix
+     * aplicado a OrderCoreService::markPaid — ver ese comentario): F3
      * (SpaceSettlementService::settleIfCovered) llama a close() ANIDADO
      * dentro de la TX de registerPayment(). Sin este guard, publicaría
      * "sesión cerrada" por WS antes del commit real de esa TX externa — un
@@ -193,68 +193,88 @@ final class SpaceSessionService
      */
     public function close(string $companyId, string $sessionId, ?string $transactionId = null, ?string $outletScope = null, bool $allowPendingBalance = false): array
     {
-        $session = $this->lockSession($companyId, $sessionId, $outletScope);
-        if (in_array($session['status'], ['closed', 'cancelled'], true)) {
-            throw new \InvalidArgumentException('La sesión ya está ' . $session['status']);
-        }
+        global $db;
 
-        // Invariante del plan (context/15 §F3): una sesión NO se cierra con
-        // saldo pendiente. Estaba sostenido solo por el cliente — un bug de
-        // UI, un doble tap o un `curl` directo cerraban la mesa dejando plata
-        // sin cobrar, sin ningún registro de que faltaba. El enforcement va
-        // acá, igual que el motivo de cancelación.
-        //
-        // `$allowPendingBalance` es la puerta EXPLÍCITA para el cierre
-        // administrativo (espacio abierto por error, mesa que se fue sin
-        // pagar): quien la usa está declarando que perdona el saldo, no
-        // salteándose el invariante por accidente.
-        if (!$allowPendingBalance) {
-            $row = ncmExecute(
-                "SELECT
-                     COALESCE((SELECT SUM(oi.qty * COALESCE(oi.price, 0))
-                                 FROM pos_order_item oi
-                                 JOIN pos_order o ON o.orderid = oi.orderid
-                                WHERE o.spacesessionid = ? AND o.companyid = ?
-                                  AND o.status <> 'cancelled' AND oi.status <> 'cancelled'), 0) AS total,
-                     COALESCE((SELECT SUM(p.amount)
-                                 FROM space_session_payment p
-                                WHERE p.sessionid = ? AND p.companyid = ?), 0) AS paid,
-                     (SELECT COUNT(*) FROM space_session_payment p2
-                       WHERE p2.sessionid = ? AND p2.companyid = ?) AS payments",
-                [$sessionId, $companyId, $sessionId, $companyId, $sessionId, $companyId]
-            );
-            $total    = (float) ($row['total'] ?? 0);
-            $paid     = (float) ($row['paid'] ?? 0);
-            $payments = (int) ($row['payments'] ?? 0);
+        // Anidado = nos llamó settleIfCovered dentro de SU transacción. El
+        // publish le corresponde al caller externo, después de SU commit.
+        $nested = $this->db->InTrans();
 
-            // Sin renglones en el ledger y CON transactionId: es el cobro
-            // atómico de la mesa completa (el camino de siempre, anterior al
-            // split) — esa transacción ES el pago total, no hay saldo que
-            // validar contra el ledger.
-            $isAtomicFullCharge = $payments === 0 && $transactionId !== null && $transactionId !== '';
-
-            // Tolerancia de una unidad mínima: la última parte de un split
-            // absorbe el resto del redondeo (ver SpaceSettlementService).
-            $pending = $total - $paid;
-            if (!$isAtomicFullCharge && $pending > 0.01) {
-                throw new \InvalidArgumentException(
-                    'La sesión tiene saldo pendiente y no se puede cerrar (falta cobrar '
-                    . number_format($pending, 2, ',', '.') . ')'
-                );
+        // TX propia (anida sin romper, ver StartTrans/depth counter): el lock
+        // de la sesión, la lectura del saldo y el UPDATE tienen que ser UNA
+        // unidad. Sin la TX, el `FOR UPDATE` de abajo se liberaría al terminar
+        // ese SELECT y el saldo que leemos sería una foto vieja.
+        $db->StartTrans();
+        $outletIdForPublish = '';
+        try {
+            $session            = $this->lockSession($companyId, $sessionId, $outletScope, true);
+            $outletIdForPublish = (string) $session['outletid'];
+            if (in_array($session['status'], ['closed', 'cancelled'], true)) {
+                throw new \InvalidArgumentException('La sesión ya está ' . $session['status']);
             }
+
+            // Invariante del plan (context/15 §F3): una sesión NO se cierra
+            // con saldo pendiente. Estaba sostenido solo por el cliente
+            // (handleSplitCharge relee el saldo antes de elegir el camino) —
+            // un bug de UI, un doble tap o un `curl` directo cerraban la mesa
+            // dejando plata sin cobrar y sin ningún registro de que faltaba.
+            //
+            // El saldo se computa con SpaceBalanceService, la MISMA definición
+            // que usa el settlement para aceptar parciales y para decidir la
+            // liquidación. Que sea la misma es lo que hace que los dos caminos
+            // de cobro pasen sin excepciones especiales:
+            //
+            //   - Cobro atómico de mesa completa (pay-dialog, rama
+            //     `sessionParentId`): markPaid() de TODAS las órdenes y recién
+            //     después close(). Al llegar acá las órdenes ya están `closed`,
+            //     que el balance no cuenta como pendiente (una orden `closed`
+            //     está cobrada por construcción: solo markPaid la cierra), así
+            //     que total = 0 → saldo cubierto.
+            //   - Split (settleIfCovered): markPaid + close corren DESPUÉS del
+            //     INSERT del pago que salda, en la misma TX — el saldo ya es
+            //     ≤ 0 cuando esta validación lo relee.
+            //
+            // Y lo que NO pasa es cerrar una mesa con órdenes activas sin
+            // cobrar: eso es exactamente el saldo pendiente que hay que frenar.
+            //
+            // `$allowPendingBalance` es la puerta EXPLÍCITA para el cierre
+            // administrativo (mesa que se fue sin pagar): quien la usa está
+            // declarando que perdona el saldo, no salteándose el invariante
+            // por accidente.
+            if (!$allowPendingBalance) {
+                $balance = (new SpaceBalanceService($this->db))->compute($companyId, $sessionId)['balance'];
+                if (!SpaceBalanceService::isCovered($balance)) {
+                    throw new \InvalidArgumentException(
+                        'La sesión tiene saldo pendiente y no se puede cerrar (falta cobrar '
+                        . number_format($balance, 2, ',', '.') . ')'
+                    );
+                }
+            }
+
+            $ok = $this->db->Execute(
+                "UPDATE space_session SET status = 'closed', closed_at = now(), saletransactionid = COALESCE(?, saletransactionid)
+                  WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
+                [$transactionId, $sessionId, $companyId]
+            );
+            if ($ok === false) {
+                throw new \RuntimeException('No se pudo cerrar la sesión');
+            }
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
+        }
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        // Solo el nivel más externo juzga el resultado: anidados, `transOk` es
+        // el estado de TODA la TX del caller y no nos corresponde abortar por
+        // algo que él ya está manejando.
+        if ($failed && !$nested) {
+            throw new \RuntimeException('No se pudo cerrar la sesión (transacción abortada)');
         }
 
-        $ok = $this->db->Execute(
-            "UPDATE space_session SET status = 'closed', closed_at = now(), saletransactionid = COALESCE(?, saletransactionid)
-              WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
-            [$transactionId, $sessionId, $companyId]
-        );
-        if ($ok === false) {
-            throw new \RuntimeException('No se pudo cerrar la sesión');
-        }
         $result = $this->find($companyId, $sessionId);
-        if ($result !== null && !$this->db->InTrans()) {
-            $this->publish($companyId, (string) $session['outletid'], $result);
+        if ($result !== null && !$nested) {
+            $this->publish($companyId, $outletIdForPublish, $result);
         }
         return $result ?? [];
     }
@@ -296,11 +316,19 @@ final class SpaceSessionService
     // Internals
     // ------------------------------------------------------------------
 
-    /** Lee + valida scope. No usa FOR UPDATE explícito (F0+F1 sin UI de alta concurrencia sobre una misma sesión). */
-    private function lockSession(string $companyId, string $sessionId, ?string $outletScope): array
+    /**
+     * Lee + valida scope. Con `$forUpdate` toma el lock de fila — obligatorio
+     * para quien decida una escritura a partir de lo que lee (close() y su
+     * validación de saldo), y SOLO sirve dentro de una TX: fuera, el lock se
+     * libera al terminar la sentencia. Es el mismo lock que toma
+     * SpaceSettlementService::registerPayment, así que cobro y cierre de una
+     * misma sesión quedan serializados entre sí.
+     */
+    private function lockSession(string $companyId, string $sessionId, ?string $outletScope, bool $forUpdate = false): array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM space_session WHERE sessionid = ? AND companyid = ? LIMIT 1',
+            'SELECT * FROM space_session WHERE sessionid = ? AND companyid = ? LIMIT 1'
+                . ($forUpdate ? ' FOR UPDATE' : ''),
             [$sessionId, $companyId]
         );
         if ($rs === false || $rs->EOF) {
