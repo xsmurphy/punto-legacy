@@ -191,11 +191,57 @@ final class SpaceSessionService
      * dejaría un phantom notify contra una sesión que en BD sigue abierta.
      * El caller anidado usa publishSessionState() después de SU commit.
      */
-    public function close(string $companyId, string $sessionId, ?string $transactionId = null, ?string $outletScope = null): array
+    public function close(string $companyId, string $sessionId, ?string $transactionId = null, ?string $outletScope = null, bool $allowPendingBalance = false): array
     {
         $session = $this->lockSession($companyId, $sessionId, $outletScope);
         if (in_array($session['status'], ['closed', 'cancelled'], true)) {
             throw new \InvalidArgumentException('La sesión ya está ' . $session['status']);
+        }
+
+        // Invariante del plan (context/15 §F3): una sesión NO se cierra con
+        // saldo pendiente. Estaba sostenido solo por el cliente — un bug de
+        // UI, un doble tap o un `curl` directo cerraban la mesa dejando plata
+        // sin cobrar, sin ningún registro de que faltaba. El enforcement va
+        // acá, igual que el motivo de cancelación.
+        //
+        // `$allowPendingBalance` es la puerta EXPLÍCITA para el cierre
+        // administrativo (espacio abierto por error, mesa que se fue sin
+        // pagar): quien la usa está declarando que perdona el saldo, no
+        // salteándose el invariante por accidente.
+        if (!$allowPendingBalance) {
+            $row = ncmExecute(
+                "SELECT
+                     COALESCE((SELECT SUM(oi.qty * COALESCE(oi.price, 0))
+                                 FROM pos_order_item oi
+                                 JOIN pos_order o ON o.orderid = oi.orderid
+                                WHERE o.spacesessionid = ? AND o.companyid = ?
+                                  AND o.status <> 'cancelled' AND oi.status <> 'cancelled'), 0) AS total,
+                     COALESCE((SELECT SUM(p.amount)
+                                 FROM space_session_payment p
+                                WHERE p.sessionid = ? AND p.companyid = ?), 0) AS paid,
+                     (SELECT COUNT(*) FROM space_session_payment p2
+                       WHERE p2.sessionid = ? AND p2.companyid = ?) AS payments",
+                [$sessionId, $companyId, $sessionId, $companyId, $sessionId, $companyId]
+            );
+            $total    = (float) ($row['total'] ?? 0);
+            $paid     = (float) ($row['paid'] ?? 0);
+            $payments = (int) ($row['payments'] ?? 0);
+
+            // Sin renglones en el ledger y CON transactionId: es el cobro
+            // atómico de la mesa completa (el camino de siempre, anterior al
+            // split) — esa transacción ES el pago total, no hay saldo que
+            // validar contra el ledger.
+            $isAtomicFullCharge = $payments === 0 && $transactionId !== null && $transactionId !== '';
+
+            // Tolerancia de una unidad mínima: la última parte de un split
+            // absorbe el resto del redondeo (ver SpaceSettlementService).
+            $pending = $total - $paid;
+            if (!$isAtomicFullCharge && $pending > 0.01) {
+                throw new \InvalidArgumentException(
+                    'La sesión tiene saldo pendiente y no se puede cerrar (falta cobrar '
+                    . number_format($pending, 2, ',', '.') . ')'
+                );
+            }
         }
 
         $ok = $this->db->Execute(

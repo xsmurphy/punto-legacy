@@ -67,8 +67,13 @@ switch ($method) {
 
         if ($id !== null && $action === 'close') {
             $transactionId = !empty($_POST['transactionId']) ? (string) $_POST['transactionId'] : null;
+            // Cierre con saldo pendiente = perdonar lo que falta cobrar. Es
+            // explícito y solo desde el panel: la caja no puede cerrar una
+            // mesa a medio pagar por accidente.
+            $forgiveBalance = ($ctx['realm'] ?? '') === 'panel'
+                && filter_var($_POST['forgivePendingBalance'] ?? false, FILTER_VALIDATE_BOOLEAN);
             try {
-                apiOk($svc->close($companyId, (string) $id, $transactionId, $outletScope));
+                apiOk($svc->close($companyId, (string) $id, $transactionId, $outletScope, $forgiveBalance));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
