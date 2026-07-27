@@ -156,7 +156,7 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 - Solo válido si `fulfillment='delivery'` — una mesa no sale "en camino".
 - **Whitelist por module** (`assertModuleCanSetStatus`, patrón ya existente):
   el KDS **no** puede setear `out_for_delivery` — la cocina marca `ready`,
-  el despacho marca la salida. La pantalla de mozos tampoco.
+  el despacho marca la salida. La pantalla de despacho tampoco.
 
 ## B.3 Dirección y repartidor
 

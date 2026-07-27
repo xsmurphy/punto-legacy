@@ -129,7 +129,7 @@ screen (`{companyId}:checkout:{registerId}` → `wsPublish` en `screens.php`):
      detalle vía `useOrder(order.id)` (N+1 liviano — el volumen de órdenes
      activas simultáneas en un turno es bajo; si O2/O3 revela volumen alto,
      se resuelve trayendo ítems en `list()`).
-- **O2 — KDS + pantalla mozos. ✅ DONE (2026-07-19).** Pantallas device-paired
+- **O2 — KDS + pantalla de despacho. ✅ DONE (2026-07-19).** Pantallas device-paired
   (mismo Device Authorization Grant que el checkout screen, module='kds'|
   'display') consumiendo `{companyId}:kds:{outletId}` en vivo por WS, con
   REST inicial + re-sync en cada reconexión.
@@ -167,7 +167,7 @@ screen (`{companyId}:checkout:{registerId}` → `wsPublish` en `screens.php`):
      el ThemeProvider global).
   4. Interacción: tap en tarjeta = bump de todos los ítems bumpeables
      visibles (paralelo, optimista con rollback); tap en línea = bump de ese
-     ítem. `delivered` es dominio exclusivo de la pantalla de mozos.
+     ítem. `delivered` es dominio exclusivo de la pantalla de despacho.
   5. Pairing: extendido `DeviceModule`/`DeviceKind` (device-token.ts,
      connected-device.ts, device-not-connected.tsx) a kds/display, selector
      de módulo en `device-invite-create-dialog.tsx`, ruteo post-pairing en
