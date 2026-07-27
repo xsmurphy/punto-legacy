@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Search, SearchX } from "lucide-react"
 import {
@@ -48,7 +49,9 @@ function ModuleCard({
   const isSoon = entry.status === "soon"
   const moduleState = modulesMap?.[entry.key]
   const enabled = moduleState?.enabled ?? false
-  const hasConfig = entry.configKind !== "none" && !isSoon
+  // configHref (navegación a página propia) es una señal de "tiene config"
+  // igual de válida que configKind — ver docblock de ModuleCatalogEntry.
+  const hasConfig = (entry.configKind !== "none" || !!entry.configHref) && !isSoon
 
   // Sin icono: el switch es el foco visual (acción primaria) + botón
   // Configurar aparece solo cuando el módulo está activado.
@@ -132,6 +135,7 @@ function normalize(s: string): string {
 }
 
 export function ModulesPanel() {
+  const router = useRouter()
   const { data: modulesMap, isLoading } = useModules()
   const toggleModule = useToggleModule()
   const [query, setQuery] = React.useState("")
@@ -158,6 +162,10 @@ export function ModulesPanel() {
   }
 
   function handleConfigure(entry: ModuleCatalogEntry) {
+    if (entry.configHref) {
+      router.push(entry.configHref)
+      return
+    }
     setConfigDialog({ open: true, entry })
   }
 

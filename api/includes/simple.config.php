@@ -92,6 +92,15 @@ define('DLOCAL_GO_SUCCESS_URL',      $_ENV['DLOCAL_GO_SUCCESS_URL']      ?? '');
 define('DLOCAL_GO_BACK_URL',         $_ENV['DLOCAL_GO_BACK_URL']         ?? '');
 define('DLOCAL_GO_NOTIFICATION_URL', $_ENV['DLOCAL_GO_NOTIFICATION_URL'] ?? '');
 
+// Facturación electrónica — Automate (PY/SIFEN), context/28-facturacion-electronica-plan.md.
+// APP_ENCRYPTION_KEY: base64 de 32 bytes, usada por CredentialVault (AES-256-GCM)
+// para cifrar usuario/contraseña/token del proveedor de FE. Sin ella el vault
+// no arranca (RuntimeException explícito) — nunca hay fallback silencioso a
+// texto plano ni a una clave derivada débil.
+define('APP_ENCRYPTION_KEY', $_ENV['APP_ENCRYPTION_KEY'] ?? '');
+// AUTOMATE_BASE_URL: override para apuntar a staging sin tocar código.
+define('AUTOMATE_BASE_URL', $_ENV['AUTOMATE_BASE_URL'] ?? 'https://automate.com.py');
+
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);
 define('API_PIX_SECRET',         $_ENV['API_PIX_SECRET']        ?? '');

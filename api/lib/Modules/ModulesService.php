@@ -30,6 +30,7 @@ final class ModulesService
         'loyalty', 'feedback', 'crm',
         'calendar', 'tables', 'production', 'kds', 'cds', 'cos', 'ordersPanel',
         'recurring', 'dunning', 'digitalInvoice', 'salesSummaryDaily',
+        'einvoicePy',
         'api',
     ];
 

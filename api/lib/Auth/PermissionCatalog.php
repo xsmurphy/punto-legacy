@@ -57,6 +57,7 @@ final class PermissionCatalog
 
             ['id' => 'billing.view',             'label' => 'Ver facturación',         'group' => 'Facturación'],
             ['id' => 'billing.manage',           'label' => 'Gestionar plan y pagos',  'group' => 'Facturación'],
+            ['id' => 'einvoice.manage',          'label' => 'Gestionar facturación electrónica', 'group' => 'Facturación'],
 
             ['id' => 'finance.manage',           'label' => 'Gestionar finanzas',      'group' => 'Finanzas'],
 

@@ -55,6 +55,7 @@ final class RoleService
             'ai.agent.use','ai.agent.elevated',
             'finance.manage',
             'production.manage',
+            'einvoice.manage',
         ],
         'cashier' => [
             'pos.sale.create','pos.sale.creditPayment','pos.drawer.open','pos.drawer.close',

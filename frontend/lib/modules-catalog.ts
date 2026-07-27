@@ -2,6 +2,12 @@
  * Catálogo de módulos nativos de Punto.
  *
  * - `configKind` controla qué dialog de config se muestra en el panel.
+ * - `configHref` (opcional): si está seteado, el botón "Configurar" navega
+ *   a esa ruta en vez de abrir el `ModuleConfigDialog` — para módulos cuya
+ *   config es una página propia, no un form chico de dialog (ej. Facturación
+ *   Electrónica: conexión de cuenta + próximamente documentos/reintentos,
+ *   demasiado para un dialog). `configKind` en ese caso queda en "none": el
+ *   dialog nunca se monta, `configHref` es la única señal que importa.
  * - `status: 'soon'` → sin switch, muestra Badge "Próximamente", card muted.
  * - `status: 'available'` → switch normal, toggle habilitado.
  * - Los módulos `soon` (campaigns, reminder) NO se envían al backend
@@ -30,6 +36,7 @@ import {
   Mail,
   Code,
   Bell,
+  ReceiptText,
 } from "lucide-react"
 
 export type ConfigKind =
@@ -51,6 +58,8 @@ export interface ModuleCatalogEntry {
   category: string
   configKind: ConfigKind
   status: ModuleStatus
+  /** Ruta a la que navega "Configurar" en vez de abrir el dialog. Ver docblock arriba. */
+  configHref?: string
 }
 
 export const MODULES_CATALOG: ModuleCatalogEntry[] = [
@@ -223,6 +232,16 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     category: "Facturación",
     configKind: "none",
     status: "available",
+  },
+  {
+    key: "einvoicePy",
+    title: "Facturación Electrónica",
+    description: "Emití facturas electrónicas habilitadas por la SET (SIFEN) directo desde tus ventas.",
+    icon: ReceiptText,
+    category: "Facturación",
+    configKind: "none",
+    status: "available",
+    configHref: "/settings/facturacion-electronica",
   },
 
   // ── Otros ────────────────────────────────────────────────────────────────
