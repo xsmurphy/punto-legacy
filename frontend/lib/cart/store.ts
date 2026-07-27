@@ -68,6 +68,30 @@ export interface CartLine {
 }
 
 /**
+ * Cobro PARCIAL de una sesión de espacio — split de cuenta (context/15 §F3).
+ *
+ * Es el discriminador que le dice a `pay-dialog.tsx` que la venta que está
+ * por confirmar NO es "la mesa entera" sino una parte: en vez de la rama
+ * `sessionParentId` (markPaid de cada orden + close de la sesión), registra
+ * el pago en el ledger vía `registerSessionPayment` y **el backend decide**
+ * si el saldo llegó a 0 y corresponde liquidar (`settleIfCovered`). La UI no
+ * cierra órdenes ni sesiones en un parcial.
+ *
+ * Mutuamente excluyente con `sessionParentId` y `orderParentId`. Se resetea
+ * en `clear()` vía `initialState` — crítico: un intent que sobreviva al clear
+ * haría que la SIGUIENTE venta normal se registre como parcial de una mesa
+ * vieja, imputando plata a la cuenta equivocada.
+ *
+ * El monto real lo recalcula el backend en los tres casos (kind='items' desde
+ * los precios persistidos, 'share' desde el total de la sesión); lo que viaja
+ * acá es la ELECCIÓN del operador, no una cifra de autoridad.
+ */
+export type SettlementIntent =
+  | { sessionId: string; kind: "items"; orderItemIds: string[] }
+  | { sessionId: string; kind: "amount"; amount: number }
+  | { sessionId: string; kind: "share"; shareCount: number; shareIndex: number }
+
+/**
  * Tasa del IVA. Por ahora hardcodeada al modelo paraguayo (10% incluido en
  * precio final del item). TODO: cuando el catálogo exponga `taxRate` por item
  * (y el config del tenant exponga el modo "incluido / no incluido"), derivarlo
@@ -235,6 +259,15 @@ interface CartState {
   sessionOrderIds: string[]
 
   /**
+   * Cobro PARCIAL de una sesión (split de cuenta, context/15 §F3). Set vía
+   * `loadForSettlement()`. Ver el docblock de `SettlementIntent` arriba: es
+   * lo que hace que `pay-dialog.tsx` registre el pago en el ledger en vez de
+   * cerrar la mesa. Mutuamente excluyente con `sessionParentId` /
+   * `orderParentId`. Se resetea en clear().
+   */
+  settlementIntent: SettlementIntent | null
+
+  /**
    * Controla cómo se agrupan los ítems repetidos al agregar al carrito.
    *
    * - true (default): suma cantidad solo si el ítem nuevo coincide con el
@@ -386,6 +419,25 @@ interface CartState {
   loadFromSession: (sessionId: string, spaceName: string, orders: Order[]) => void
 
   /**
+   * Vuelca al carrito UN COBRO PARCIAL de una sesión de espacio (split de
+   * cuenta, context/15 §F3). Reemplaza el carrito entero, igual que
+   * `loadFromSession`, pero setea `settlementIntent` en vez de
+   * `sessionParentId`/`sessionOrderIds` — la diferencia es qué hace
+   * `pay-dialog.tsx` DESPUÉS de la venta (registrar el pago en el ledger vs.
+   * cerrar la mesa). El cobro de la mesa completa sigue usando
+   * `loadFromSession`, sin cambios.
+   *
+   * Las líneas las arma el caller (`lib/spaces/settlement-lines.ts`) porque
+   * dependen del modo: los ítems elegidos en kind='items', el reparto
+   * proporcional del monto en 'amount'/'share'.
+   */
+  loadForSettlement: (
+    spaceName: string,
+    lines: Omit<CartLine, "lineId">[],
+    intent: SettlementIntent,
+  ) => void
+
+  /**
    * Setea el descuento de venta (transactionDiscount). No toca las líneas.
    * El monto en plata se resuelve via selectSaleDiscountAmount y se resta
    * en selectCartTotal. Siempre removible con clearSaleDiscount().
@@ -430,6 +482,7 @@ const initialState = {
   spaceName: null as string | null,
   sessionParentId: null as string | null,
   sessionOrderIds: [] as string[],
+  settlementIntent: null as SettlementIntent | null,
 }
 
 export const useCartStore = create<CartState>()((set, _get) => ({
@@ -715,6 +768,16 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       sessionParentId: sessionId,
       sessionOrderIds: billable.map((o) => o.id),
       spaceName,
+    })
+  },
+
+  loadForSettlement: (spaceName, lines, intent) => {
+    set({
+      ...initialState,
+      lines: lines.map((l) => ({ ...l, lineId: crypto.randomUUID() })),
+      posMode: "venta",
+      spaceName,
+      settlementIntent: intent,
     })
   },
 

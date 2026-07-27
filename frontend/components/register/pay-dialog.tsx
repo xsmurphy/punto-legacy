@@ -55,6 +55,7 @@ import { useCreateOrder, useMarkOrderPaid } from "@/hooks/use-orders"
 import { TransactionSuccessView } from "./transaction-success-dialog"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { useCloseSpaceSession } from "@/hooks/use-pos-spaces"
+import { useRegisterSessionPayment } from "@/hooks/use-space-settlement"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -164,6 +165,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const orderParentId = useCartStore((s) => s.orderParentId)
   const sessionParentId = useCartStore((s) => s.sessionParentId)
   const sessionOrderIds = useCartStore((s) => s.sessionOrderIds)
+  const settlementIntent = useCartStore((s) => s.settlementIntent)
   const saleDiscount = useCartStore((s) => s.saleDiscount)
   const setQuoteParent = useCartStore((s) => s.setQuoteParent)
   const clearCart = useClearCart()
@@ -198,6 +200,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const createOrder = useCreateOrder()
   const markOrderPaid = useMarkOrderPaid()
   const closeSpaceSession = useCloseSpaceSession()
+  const registerSessionPayment = useRegisterSessionPayment()
 
   const qc = useQueryClient()
 
@@ -338,8 +341,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // Online-only: el cobro de un espacio/orden NO se encola offline —
         // el scope offline es SOLO ventas simples (memoria/roadmap): encolar
         // acá dejaría la sesión/orden sin markPaid ni close en el server.
+        // El cobro PARCIAL (split, context/15 §F3) es aún más estricto: sin
+        // transactionId no hay renglón de ledger, y el saldo de la mesa
+        // quedaría intacto con la plata ya en la caja.
         // El cajero ve el error y reintenta con conexión.
-        if (sessionParentId || orderParentId) {
+        if (sessionParentId || orderParentId || settlementIntent) {
           throw new Error(
             "Sin conexión con el servidor — el cobro de espacios/órdenes necesita estar online. Reintentá.",
           )
@@ -428,9 +434,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         })
       }
 
-      // Módulo de Órdenes/Espacios (O1 + context/15 F2) — tres casos, mutuamente
-      // excluyentes, ninguno bloquea el éxito de la venta ya confirmada:
+      // Módulo de Órdenes/Espacios (O1 + context/15 F2/F3) — cuatro casos,
+      // mutuamente excluyentes, ninguno bloquea el éxito de la venta ya
+      // confirmada:
       //
+      // 0) settlementIntent presente: esta venta es un cobro PARCIAL de una
+      //    mesa (split de cuenta, context/15 §F3). Se registra en el ledger
+      //    (`space_session_payment`) y NADA MÁS: markPaid de las órdenes y
+      //    close de la sesión los decide el SERVIDOR en la misma transacción
+      //    (`settleIfCovered`) cuando el saldo llega a 0. Si la UI cerrara
+      //    acá, la primera persona en pagar liberaría la mesa con saldo
+      //    pendiente. Va primero porque es excluyente con sessionParentId.
       // 1) sessionParentId presente: esta venta viene de "Cobrar" un espacio
       //    completo (loadFromSession en /pos/espacios) — cerrar el rastro de
       //    CADA orden de la sesión con markPaid y, al terminar, cerrar la
@@ -444,7 +458,42 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       //    modo venta — generar una orden espejo (sendNow=true) y cobrarla
       //    inmediatamente, para que quede el mismo registro operativo que si
       //    el mozo la hubiera tomado como orden primero.
-      if (sessionParentId && result?.transactionId) {
+      if (settlementIntent && result?.transactionId) {
+        const txId = result.transactionId
+        // La venta YA está confirmada: si el registro falla no se revierte
+        // nada — se avisa para que soporte concilie el ledger a mano. El
+        // backend es idempotente por transactionId, así que un reintento del
+        // mismo cobro nunca cuenta doble.
+        void registerSessionPayment
+          .mutateAsync(
+            settlementIntent.kind === "items"
+              ? {
+                  sessionId: settlementIntent.sessionId,
+                  transactionId: txId,
+                  kind: "items",
+                  orderItemIds: settlementIntent.orderItemIds,
+                }
+              : settlementIntent.kind === "amount"
+                ? {
+                    sessionId: settlementIntent.sessionId,
+                    transactionId: txId,
+                    kind: "amount",
+                    amount: settlementIntent.amount,
+                  }
+                : {
+                    sessionId: settlementIntent.sessionId,
+                    transactionId: txId,
+                    kind: "share",
+                    shareCount: settlementIntent.shareCount,
+                    shareIndex: settlementIntent.shareIndex,
+                  },
+          )
+          .catch(() => {
+            toast.error(
+              "Venta confirmada — no se pudo registrar el pago parcial en la cuenta de la mesa. Avisá al soporte.",
+            )
+          })
+      } else if (sessionParentId && result?.transactionId) {
         const txId = result.transactionId
         void Promise.all(
           sessionOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),

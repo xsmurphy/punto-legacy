@@ -68,7 +68,6 @@ interface Props {
   onCancelSession: () => void
   requestBillPending: boolean
   cancelPending: boolean
-  chargePending: boolean
 }
 
 export function SpaceSessionDialog({
@@ -80,7 +79,6 @@ export function SpaceSessionDialog({
   onCancelSession,
   requestBillPending,
   cancelPending,
-  chargePending,
 }: Props) {
   const config = useCatalogStore((s) => s.config)
   const sessionId = table?.session?.id ?? null
@@ -201,11 +199,11 @@ export function SpaceSessionDialog({
               size="lg"
               variant="outline"
               onClick={onCharge}
-              disabled={chargePending || orders.length === 0}
+              disabled={orders.length === 0}
               className="w-full gap-1.5"
             >
               <CreditCard className="size-4" />
-              {chargePending ? "Preparando cobro..." : "Cobrar"}
+              Cobrar
             </Button>
           </div>
           <Button

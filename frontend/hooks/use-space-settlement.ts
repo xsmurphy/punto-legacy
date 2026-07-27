@@ -70,6 +70,23 @@ async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
   return json.data as T
 }
 
+// ── Fetchers imperativos ──────────────────────────────────────────────────────
+
+/**
+ * Saldo de la sesión leído AHORA, sin caché (mismo patrón que
+ * `fetchOrdersBySession` en `use-orders.ts`).
+ *
+ * Existe porque el saldo cacheado no sirve para DECIDIR un cobro: entre que
+ * el diálogo lo mostró y el cajero toca "Cobrar" puede haber entrado un pago
+ * parcial de otro dispositivo, y con un `paid` viejo se tomaría el camino de
+ * "mesa completa" (markPaid + close, sin ledger) sobre una mesa que ya tenía
+ * plata cobrada — doble cobro. La UI muestra el saldo cacheado; para cobrar,
+ * relee.
+ */
+export function fetchSessionBalance(sessionId: string): Promise<SessionBalance> {
+  return posJson<SessionBalance>(`/api/pos/space-settlements?sessionId=${sessionId}`)
+}
+
 // ── Queries ───────────────────────────────────────────────────────────────────
 
 /**
