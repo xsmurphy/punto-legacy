@@ -62,6 +62,8 @@ export interface OrderEvent {
   toStatus: OrderStatus | OrderItemStatus
   actorKind: "user" | "device" | "system"
   actorModule: string | null
+  /** Motivo de la transición. Obligatorio en las cancelaciones (lo exige el backend). */
+  reason: string | null
   createdAt: string | null
 }
 
@@ -257,14 +259,20 @@ export function useMarkOrderPaid() {
   })
 }
 
+/**
+ * Cancela una orden. Una orden NUNCA se elimina — se cancela, y el motivo es
+ * OBLIGATORIO (lo exige `OrderCoreService::updateStatus`, no solo esta UI:
+ * la regla vale para cualquier cliente). Queda registrado en el timeline
+ * (`pos_order_event.reason`).
+ */
 export function useCancelOrder() {
   const qc = useQueryClient()
-  return useMutation<Order, Error, string>({
-    mutationFn: (orderId) =>
+  return useMutation<Order, Error, { orderId: string; reason: string }>({
+    mutationFn: ({ orderId, reason }) =>
       posJson<Order>(`/api/pos/orders?id=${orderId}&action=status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "cancelled" }),
+        body: JSON.stringify({ status: "cancelled", reason }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["orders"] })

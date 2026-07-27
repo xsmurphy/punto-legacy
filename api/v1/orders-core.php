@@ -145,8 +145,11 @@ switch ($method) {
             $status = (string) ($_POST['status'] ?? '');
             if ($status === '') apiError('status requerido', 422);
             assertModuleCanSetStatus($deviceModule, 'order', $status);
+            // Cancelar exige motivo — lo valida el service (ver updateStatus),
+            // no este endpoint: la regla vale para TODO cliente, no solo el POS.
+            $reason = isset($_POST['reason']) ? (string) $_POST['reason'] : null;
             try {
-                apiOk($svc->updateStatus($companyId, (string) $id, $status, $outletScope));
+                apiOk($svc->updateStatus($companyId, (string) $id, $status, $outletScope, $reason));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }

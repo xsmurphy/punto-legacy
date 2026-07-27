@@ -340,12 +340,26 @@ final class OrderCoreService
      * saletransactionid (ya cobrada = no se puede cancelar acá, hay que
      * anular la venta). `closed` está prohibido — solo markPaid() cierra.
      */
-    public function updateStatus(string $companyId, string $id, string $status, ?string $outletScope = null): array
-    {
+    public function updateStatus(
+        string $companyId,
+        string $id,
+        string $status,
+        ?string $outletScope = null,
+        ?string $reason = null
+    ): array {
         global $db;
 
         if ($status === 'closed') {
             throw new \InvalidArgumentException('closed solo se setea vía markPaid() (cobro de la orden)');
+        }
+
+        // Una orden NUNCA se elimina: se cancela, y toda cancelación lleva
+        // motivo (regla del owner 2026-07-19). El enforcement va ACÁ, no en la
+        // UI — si viviera solo en el diálogo del POS, cualquier otro cliente
+        // (KDS, integración, curl) cancelaría sin dejar rastro del porqué.
+        $reason = $reason !== null ? trim($reason) : null;
+        if ($status === 'cancelled' && ($reason === null || $reason === '')) {
+            throw new \InvalidArgumentException('Cancelar una orden requiere un motivo');
         }
 
         $db->StartTrans();
@@ -391,7 +405,7 @@ final class OrderCoreService
             $db->CompleteTrans();
             throw new \RuntimeException('No se pudo actualizar el estado de la orden');
         }
-        $this->recordEvent($companyId, (string) $order['outletid'], $id, null, null, 'order', $current, $status);
+        $this->recordEvent($companyId, (string) $order['outletid'], $id, null, null, 'order', $current, $status, $reason);
 
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
@@ -841,7 +855,8 @@ final class OrderCoreService
         ?string $stationId,
         string $scope,
         ?string $fromStatus,
-        string $toStatus
+        string $toStatus,
+        ?string $reason = null
     ): void {
         $userId   = (defined('AUTHED_USER_ID') && AUTHED_USER_ID !== '') ? AUTHED_USER_ID : null;
         $deviceId = (defined('AUTHED_DEVICE_ID') && AUTHED_DEVICE_ID !== '') ? AUTHED_DEVICE_ID : null;
@@ -864,10 +879,10 @@ final class OrderCoreService
         $this->db->Execute(
             'INSERT INTO pos_order_event
                 (eventid, companyid, outletid, orderid, orderitemid, stationid, scope,
-                 from_status, to_status, actor_kind, actor_id, actor_module)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                 from_status, to_status, actor_kind, actor_id, actor_module, reason)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [$companyId, $outletId, $orderId, $orderItemId, $stationId, $scope,
-             $fromStatus, $toStatus, $actorKind, $actorId, $actorModule]
+             $fromStatus, $toStatus, $actorKind, $actorId, $actorModule, $reason]
         );
     }
 
@@ -943,6 +958,7 @@ final class OrderCoreService
                         'toStatus'    => (string) ($ev['to_status'] ?? ''),
                         'actorKind'   => (string) ($ev['actor_kind'] ?? ''),
                         'actorModule' => $ev['actor_module'] ?? null,
+                        'reason'      => $ev['reason'] ?? null,
                         'createdAt'   => $ev['created_at'] ?? null,
                     ];
                 }

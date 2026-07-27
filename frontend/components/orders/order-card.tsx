@@ -17,6 +17,8 @@ import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +65,7 @@ export function OrderCard({
   const cancelOrder = useCancelOrder()
 
   const [confirmCancelOpen, setConfirmCancelOpen] = React.useState(false)
+  const [cancelReason, setCancelReason] = React.useState("")
   const [printing, setPrinting] = React.useState(false)
 
   const hasItems = (order.items?.length ?? 0) > 0
@@ -75,14 +78,20 @@ export function OrderCard({
   }
 
   function handleCancelConfirm() {
-    cancelOrder.mutate(order.id, {
-      onSuccess: () => {
-        toast.success(`Orden #${order.orderNumber} cancelada`)
-        onAfterAction?.()
+    const reason = cancelReason.trim()
+    if (reason === "") return // el backend también lo rechaza; acá evitamos el round-trip
+    cancelOrder.mutate(
+      { orderId: order.id, reason },
+      {
+        onSuccess: () => {
+          toast.success(`Orden #${order.orderNumber} cancelada`)
+          onAfterAction?.()
+        },
+        onError: (err) => toast.error("No se pudo cancelar la orden", { description: err.message }),
       },
-      onError: (err) => toast.error("No se pudo cancelar la orden", { description: err.message }),
-    })
+    )
     setConfirmCancelOpen(false)
+    setCancelReason("")
   }
 
   async function handleReprint() {
@@ -168,18 +177,37 @@ export function OrderCard({
         </Button>
       </div>
 
-      <AlertDialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+      <AlertDialog
+        open={confirmCancelOpen}
+        onOpenChange={(v) => {
+          setConfirmCancelOpen(v)
+          if (!v) setCancelReason("")
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Cancelar la orden #{order.orderNumber}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Los ítems no se van a preparar ni cobrar.
+              La orden no se elimina: queda cancelada y sale de las pantallas operativas.
+              El motivo queda registrado en su historial.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* Motivo obligatorio — el backend rechaza la cancelación sin él. */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`cancel-reason-${order.id}`}>Motivo de la cancelación</Label>
+            <Textarea
+              id={`cancel-reason-${order.id}`}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Ej.: el cliente se retiró, error de carga, faltó stock"
+              rows={3}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Volver</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancelConfirm}
+              disabled={cancelReason.trim() === ""}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Cancelar orden

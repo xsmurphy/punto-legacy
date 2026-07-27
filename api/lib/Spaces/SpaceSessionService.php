@@ -132,7 +132,16 @@ final class SpaceSessionService
                     $orderId = (string) $row['orderid'];
                     // updateStatus difiere su publish (InTrans) — se emite
                     // abajo, después del commit real de ESTA transacción.
-                    $orders->updateStatus($companyId, $orderId, 'cancelled');
+                    // Motivo obligatorio en toda cancelación: acá lo genera el
+                    // sistema porque la cancelación no la pidió nadie sobre
+                    // ESTA orden, sino sobre la sesión que la contiene.
+                    $orders->updateStatus(
+                        $companyId,
+                        $orderId,
+                        'cancelled',
+                        null,
+                        'Cancelación en cascada: se canceló la sesión del espacio'
+                    );
                     $cancelledIds[] = $orderId;
                 }
             }
