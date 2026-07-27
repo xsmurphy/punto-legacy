@@ -20,7 +20,11 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   open: "Pendiente",
   sent: "En espera",
   in_progress: "En proceso",
-  ready: "Enviado",
+  // "Listo" es la etiqueta base. "Enviado" corresponde SOLO a los pedidos
+  // marcados como delivery (decisión del owner) — eso llega con `fulfillment`
+  // (context/27 §B.1, todavía sin implementar). Hasta entonces ninguna orden
+  // es delivery, así que "Listo" es correcto para todas.
+  ready: "Listo",
   delivered: "Entregada",
   closed: "Cobrada",
   cancelled: "Cancelada",
