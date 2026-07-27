@@ -2,7 +2,7 @@
 
 /**
  * Pairing + WS + heartbeat compartido por las pantallas device-paired de
- * "solo lectura + acciones acotadas" (KDS, pantalla de mozos — O2,
+ * "solo lectura + acciones acotadas" (KDS, pantalla de despacho — O2,
  * context/24-orders-module-plan.md). Generaliza el patrón de
  * `app/(screen)/checkout/page.tsx` (que lo tiene inline porque el checkout
  * screen es un caso único con vistas live/confirmed/idle) para no duplicarlo
@@ -37,6 +37,15 @@ export interface PairedScreenContext {
 
 export type PairState = "unpaired" | "connecting" | "ready"
 
+/**
+ * Estado del socket, independiente del pairing: una pantalla emparejada puede
+ * quedarse sin WS un rato y seguir mostrando lo último que sabe. Se expone
+ * porque la pantalla NO se actualiza sola mientras está caída, y al reconectar
+ * el `onOpen` re-sincroniza de golpe — sin un indicador, eso se ve como
+ * "las comandas cambian solas" y nadie entiende por qué.
+ */
+export type WsState = "connecting" | "online" | "offline"
+
 interface UseePairedScreenOpts {
   module: Extract<DeviceModule, "kds" | "display" | "print">
   /** Canales adicionales a suscribir además de `${module}:${deviceId}` (revocación). */
@@ -48,6 +57,7 @@ interface UseePairedScreenOpts {
 
 export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePairedScreenOpts) {
   const [pairState, setPairState] = React.useState<PairState>("unpaired")
+  const [wsState, setWsState] = React.useState<WsState>("connecting")
   const [ctx, setCtx] = React.useState<PairedScreenContext | null>(null)
   const wsRef = React.useRef<WebSocket | null>(null)
   const reconnectRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -83,6 +93,7 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
     ws.onopen = () => {
       for (const ch of wsChannels) ws.send(JSON.stringify({ action: "subscribe", channel: ch }))
       backoff = 1000
+      setWsState("online")
       onOpenRef.current?.()
     }
     ws.onmessage = (ev) => {
@@ -95,6 +106,7 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
     ws.onclose = () => {
       if (!activeRef.current) return
       if (wsRef.current === ws) {
+        setWsState("offline")
         reconnectRef.current = setTimeout(() => {
           backoff = Math.min(backoff * 2, 30000)
           connectWs(token, wsChannels)
@@ -159,5 +171,5 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [module])
 
-  return { pairState, ctx, forgetDevice }
+  return { pairState, wsState, ctx, forgetDevice }
 }

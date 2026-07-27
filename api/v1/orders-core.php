@@ -67,6 +67,11 @@ $deviceModule = $isPosApp ? (string) ($ctx['module'] ?? 'pos') : null;
  * (ORDER_TRANSITIONS permite 'sent'→'delivered' directo — hallazgo del
  * code-reviewer en la review de este mismo commit). El flujo real de mozos
  * es SIEMPRE item-status por cada ítem `ready`.
+ *
+ * 'kds' suma 'pending' a nivel ítem (2026-07-27): el KDS ahora puede RETROCEDER
+ * un ítem un paso (`ready → preparing → pending`) para deshacer un marcado
+ * equivocado y para devolver una comanda a cocina. Sigue sin poder pedir
+ * 'delivered' — entregar es de la pantalla de mozos, no de la cocina.
  */
 function assertModuleCanSetStatus(?string $module, string $scope, string $status): void
 {
@@ -75,7 +80,7 @@ function assertModuleCanSetStatus(?string $module, string $scope, string $status
     }
     $allowed = [
         'item'  => [
-            'kds'     => ['preparing', 'ready', 'cancelled'],
+            'kds'     => ['pending', 'preparing', 'ready', 'cancelled'],
             'display' => ['delivered'],
         ],
         'order' => [

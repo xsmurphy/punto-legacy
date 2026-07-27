@@ -22,6 +22,31 @@ export type KdsSortOrder = "oldest" | "newest"
 export const KDS_CARDS_PER_SCREEN = [4, 6, 8, 12] as const
 export type KdsCardsPerScreen = (typeof KDS_CARDS_PER_SCREEN)[number]
 
+/** Oscuro / claro / por horario — ver `resolveKdsMode`. */
+export type KdsTheme = "dark" | "light" | "auto"
+
+export const KDS_ROTATE_SECONDS = [8, 12, 20, 30] as const
+export type KdsRotateSeconds = (typeof KDS_ROTATE_SECONDS)[number]
+
+/**
+ * Hora (local del dispositivo) en la que el modo automático pasa a claro y a
+ * oscuro. Se resuelve por HORARIO y no por `prefers-color-scheme`: una TV o
+ * tablet colgada en una cocina reporta casi siempre "light" — es el default del
+ * SO y nadie entra a configurarlo en un equipo montado en la pared —, así que
+ * esa señal no sigue lo único que nos importa, que es la luz real del local.
+ * La hora sí: al mediodía entra sol por los ventanales y de noche la cocina
+ * está iluminada a media luz.
+ */
+const AUTO_LIGHT_FROM_HOUR = 7
+const AUTO_DARK_FROM_HOUR = 19
+
+/** Modo efectivo de la pantalla. `auto` se resuelve contra la hora dada. */
+export function resolveKdsMode(theme: KdsTheme, now: Date = new Date()): "dark" | "light" {
+  if (theme !== "auto") return theme
+  const hour = now.getHours()
+  return hour >= AUTO_LIGHT_FROM_HOUR && hour < AUTO_DARK_FROM_HOUR ? "light" : "dark"
+}
+
 export interface KdsConfig {
   /** Nombre de esta pantalla ("Parrilla", "Barra"). Vacío = se usa el nombre de la sucursal. */
   name: string
@@ -35,6 +60,22 @@ export interface KdsConfig {
   lateMin: number
   /** Aviso sonoro al entrar una comanda. Requiere desbloqueo por gesto — ver lib/kds/sound.ts. */
   soundOnNew: boolean
+  /** Tono de la pantalla. Se elige por dispositivo: la luz de cada cocina es distinta. */
+  theme: KdsTheme
+  /**
+   * Rotación automática de páginas. APAGADA por default: una pantalla que
+   * cambia sola sin que nadie la toque desconcierta y le pelea a quien está
+   * operando. Queda disponible para quien la quiera en una pantalla realmente
+   * desatendida.
+   *
+   * El riesgo opuesto —que las comandas de la página 2 queden escondidas en
+   * silencio— NO se resuelve moviendo la pantalla sola, sino avisando: con más
+   * de una página la barra inferior muestra un contador explícito de lo que no
+   * entra. La regla es "nunca esconder en silencio, nunca moverse solo sin que
+   * lo pidan".
+   */
+  autoRotate: boolean
+  rotateSeconds: KdsRotateSeconds
 }
 
 export const DEFAULT_KDS_CONFIG: KdsConfig = {
@@ -45,6 +86,9 @@ export const DEFAULT_KDS_CONFIG: KdsConfig = {
   warnMin: 10,
   lateMin: 20,
   soundOnNew: false,
+  theme: "dark",
+  autoRotate: false,
+  rotateSeconds: 12,
 }
 
 const KEY = "punto.kds.config"
@@ -63,6 +107,13 @@ function coerceCardsPerScreen(value: unknown, legacy: LegacyKdsConfig): KdsCards
   // ("compacta = quiero ver más de una vez") en vez de resetearlo al default.
   if (legacy.density === "compact") return 8
   return DEFAULT_KDS_CONFIG.cardsPerScreen
+}
+
+function coerceRotateSeconds(value: unknown): KdsRotateSeconds {
+  if (typeof value === "number" && (KDS_ROTATE_SECONDS as readonly number[]).includes(value)) {
+    return value as KdsRotateSeconds
+  }
+  return DEFAULT_KDS_CONFIG.rotateSeconds
 }
 
 function coercePositiveInt(value: unknown, fallback: number): number {
@@ -98,6 +149,10 @@ export function loadKdsConfig(): KdsConfig {
       // la tarjeta en rojo permanente y el canal de demora sin señal útil.
       lateMin: Math.max(lateMin, warnMin),
       soundOnNew: parsed.soundOnNew === true,
+      theme: parsed.theme === "light" || parsed.theme === "auto" ? parsed.theme : "dark",
+      // Solo encendida si el dispositivo la pidió explícitamente.
+      autoRotate: parsed.autoRotate === true,
+      rotateSeconds: coerceRotateSeconds(parsed.rotateSeconds),
     }
   } catch {
     return DEFAULT_KDS_CONFIG

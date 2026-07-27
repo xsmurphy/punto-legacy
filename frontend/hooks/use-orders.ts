@@ -87,6 +87,12 @@ export interface Order {
   customerName: string | null
   customerLat: number | null
   customerLng: number | null
+  /**
+   * Nombre del espacio resuelto server-side (LEFT JOIN `space_session` →
+   * `space`). Solo para `source='table'`; null en el resto. Se consume vía
+   * `orderOrigin()` (lib/orders/order-display.ts), nunca directo.
+   */
+  spaceName: string | null
   userId: string | null
   note: string | null
   channelRef: string | null

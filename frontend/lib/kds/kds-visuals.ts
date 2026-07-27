@@ -58,7 +58,7 @@ export interface KdsVisual {
  * color para el mismo concepto en todo el producto.
  *
  * Los labels salen de `STATUS_LABEL` (lib/orders/order-display.ts) — fuente
- * única con /pos/ordenes: el cocinero y el cajero nombran igual los estados.
+ * única con /pos/ordenes: quien opera y el cajero nombran igual los estados.
  */
 export const KDS_STATUS_VISUALS: Record<KdsOrderStatus, KdsVisual> = {
   sent: { accent: paletteHex("slate"), label: STATUS_LABEL.sent },
@@ -72,7 +72,7 @@ export const KDS_STATUS_VISUALS: Record<KdsOrderStatus, KdsVisual> = {
  * cambia de color. Misma escala que la orden para que se lean como una sola
  * cosa.
  *
- * `delivered` no lo produce el KDS (lo setea la pantalla de mozos y el backend
+ * `delivered` no lo produce el KDS (lo setea la pantalla de despacho y el backend
  * bloquea la transición para module=kds, ver `assertModuleCanSetStatus`), pero
  * puede llegar por WS mientras la comanda sigue en pantalla.
  */
@@ -101,7 +101,44 @@ export const KDS_TIER_ACCENT: Record<ElapsedTier, string | null> = {
  * Fondo tintado a partir de un acento. Mismo criterio que `spaceTintBg`:
  * suficiente para leerse a distancia sin tapar el texto. Hex de 8 dígitos
  * (RGBA), soportado por todos los navegadores objetivo.
+ *
+ * Sirve igual en claro y en oscuro: es el MISMO acento a baja opacidad sobre el
+ * fondo del modo, así que se resuelve claro sobre claro y oscuro sobre oscuro.
  */
 export function kdsTint(accentHex: string, strength: "soft" | "strong" = "soft"): string {
   return `${accentHex}${strength === "strong" ? "33" : "1f"}`
+}
+
+/** Modo resuelto de la pantalla (la config puede decir "auto" — ver lib/kds/config.ts). */
+export type KdsMode = "dark" | "light"
+
+/**
+ * Los acentos de la paleta están elegidos para BRILLAR sobre fondo oscuro. Como
+ * FONDO (franja, borde, tinte) funcionan en los dos modos, pero como TEXTO
+ * sobre fondo claro no llegan ni cerca del contraste mínimo: sky #38bdf8 sobre
+ * blanco da ~1.9:1 y emerald ~2.5:1 — ilegibles, y esta es una pantalla cuyo
+ * único propósito es leerse de lejos.
+ *
+ * Por eso el texto tiene su propio hex en modo claro: el tono 700 del mismo
+ * color, que mantiene la identidad (sky sigue siendo azul, emerald verde) y
+ * pasa 4.5:1 sobre blanco y sobre el tinte pálido del mismo acento. Mismo
+ * criterio que el precedente de context/20 §7 (elegir el color del texto por
+ * contraste, no por estética).
+ *
+ * El mapeo es hex→hex y no key→hex a propósito: los componentes ya tienen el
+ * acento resuelto y no deberían tener que arrastrar además la key de paleta.
+ */
+const LIGHT_TEXT_BY_ACCENT: Record<string, string> = {
+  [paletteHex("slate")]: "#475569",
+  [paletteHex("sky")]: "#0369a1",
+  [paletteHex("emerald")]: "#047857",
+  [paletteHex("violet")]: "#6d28d9",
+  [paletteHex("amber")]: "#b45309",
+  [paletteHex("rose")]: "#be123c",
+}
+
+/** El mismo acento, en el tono que se lee como TEXTO en este modo. */
+export function kdsTextHex(accentHex: string, mode: KdsMode): string {
+  if (mode === "dark") return accentHex
+  return LIGHT_TEXT_BY_ACCENT[accentHex] ?? accentHex
 }

@@ -19,11 +19,28 @@ namespace Punto\Api\Orders;
  */
 final class OrderCoreService
 {
-    /** Transiciones válidas de pos_order_item.status. */
+    /**
+     * Transiciones válidas de pos_order_item.status.
+     *
+     * El ciclo es BIDIRECCIONAL hasta 'ready' (KDS recall + deshacer, 2026-07-27):
+     *   - `ready → preparing` es "devolver a preparación": una comanda que ya
+     *     salió del board vuelve a él porque salió mal, faltó algo o despacho
+     *     la rechazó.
+     *   - `preparing → pending` es "deshacer": el error más común de quien
+     *     opera es marcar la línea equivocada, y hasta ahora no había vuelta
+     *     atrás.
+     * `delivered` y `cancelled` siguen siendo TERMINALES: lo que ya salió al
+     * cliente o se anuló no se re-abre desde una pantalla de preparación (eso
+     * es una operación de caja, con su propia autorización).
+     *
+     * El re-trabajo NO se esconde: cada retroceso queda en `pos_order_event`
+     * como la transición que es (recordEvent), que es justamente lo que el
+     * timeline existe para poder medir (context/27 PARTE C).
+     */
     private const ITEM_TRANSITIONS = [
         'pending'   => ['preparing', 'cancelled'],
-        'preparing' => ['ready', 'cancelled'],
-        'ready'     => ['delivered'],
+        'preparing' => ['ready', 'pending', 'cancelled'],
+        'ready'     => ['delivered', 'preparing'],
         'delivered' => [],
         'cancelled' => [],
     ];
@@ -36,12 +53,22 @@ final class OrderCoreService
         'delivered' => 3,
     ];
 
-    /** Transiciones válidas de pos_order.status vía updateStatus() (closed es SOLO markPaid). */
+    /**
+     * Transiciones válidas de pos_order.status vía updateStatus() (closed es SOLO markPaid).
+     *
+     * Los retrocesos (`ready → in_progress`, `→ sent`) acompañan al retroceso de
+     * ítems: son los estados a los que llega una orden devuelta a preparación o
+     * con su marcado deshecho. En el flujo normal los deriva
+     * recomputeOrderStatus(), que persiste con un UPDATE propio y NO consulta
+     * este mapa — razón de más para declararlos acá: un estado alcanzable por un
+     * camino y prohibido por el otro es la máquina mintiendo sobre sí misma, y
+     * el próximo que lea esta constante para razonar va a razonar mal.
+     */
     private const ORDER_TRANSITIONS = [
         'open'        => ['sent', 'cancelled'],
         'sent'        => ['in_progress', 'ready', 'delivered', 'cancelled'],
-        'in_progress' => ['ready', 'delivered', 'cancelled'],
-        'ready'       => ['delivered', 'cancelled'],
+        'in_progress' => ['sent', 'ready', 'delivered', 'cancelled'],
+        'ready'       => ['sent', 'in_progress', 'delivered', 'cancelled'],
         'delivered'   => ['cancelled'],
         'closed'      => [],
         'cancelled'   => [],
@@ -515,8 +542,13 @@ final class OrderCoreService
      * Transición de un ítem individual. Recalcula y persiste el estado
      * agregado de la orden a partir de sus ítems activos (no cancelados):
      * todos ready → ready; todos delivered → delivered; alguno preparing o
-     * más avanzado → in_progress; si todos siguen pending, no toca el
-     * status de la orden.
+     * más avanzado → in_progress; todos pending → sent.
+     *
+     * La derivación vale en los DOS sentidos: es también el único camino por el
+     * que una orden vuelve de 'ready' a 'in_progress' cuando el KDS devuelve
+     * una comanda a preparación (des-bumpear sus ítems). El caller no setea el
+     * status de la orden a mano — lo deriva esta maquinaria, que es la que
+     * sabe agregarlo.
      */
     public function updateItemStatus(string $companyId, string $orderItemId, string $status, ?string $outletScope = null): array
     {
@@ -555,10 +587,17 @@ final class OrderCoreService
             throw new \InvalidArgumentException("Transición de ítem inválida: {$current} → {$status}");
         }
 
+        // Los timestamps ESPEJAN el status, también cuando se retrocede: un ítem
+        // devuelto a preparación no está listo, así que no puede conservar el
+        // ready_at de la vuelta anterior (mediría un tiempo de preparación que
+        // no fue). El historial del re-trabajo vive en pos_order_event, no en
+        // esta columna, que responde "¿cuándo quedó listo?" — y la respuesta
+        // correcta mientras se re-prepara es "todavía no".
         $timeCol = match ($status) {
-            'ready'     => ', ready_at = now()',
-            'delivered' => ', delivered_at = now()',
-            default     => '',
+            'ready'                => ', ready_at = now()',
+            'delivered'            => ', delivered_at = now()',
+            'preparing', 'pending' => ', ready_at = NULL',
+            default                => '',
         };
         $ok = $this->db->Execute(
             "UPDATE pos_order_item SET status = ?{$timeCol} WHERE orderitemid = ? AND companyid = ?",
@@ -652,19 +691,26 @@ final class OrderCoreService
             $params[] = '%' . $filters['q'] . '%';
         }
 
-        // Enriquecimiento de cliente (nombre + coords) en el MISMO query — el
-        // shape de una orden es único, venga del listado o del detalle (ver
-        // find()). `contactLatLng` vive en el JSONB `data` (demote de la mig
-        // 06) y se lee con `->>`: el operador jsonb `?` está PROHIBIDO en
-        // queries PDO (colisiona con el placeholder). El LEFT JOIN acarrea
-        // companyid para no filtrar contactos de otro tenant.
+        // Enriquecimiento de cliente (nombre + coords) y de espacio en el MISMO
+        // query — el shape de una orden es único, venga del listado o del
+        // detalle (ver find()). `contactLatLng` vive en el JSONB `data` (demote
+        // de la mig 06) y se lee con `->>`: el operador jsonb `?` está
+        // PROHIBIDO en queries PDO (colisiona con el placeholder). Los LEFT
+        // JOIN acarrean companyid para no filtrar datos de otro tenant.
         $sql = 'SELECT o.*,
                        c.contactname          AS customer_name,
-                       c.data->>\'contactLatLng\' AS customer_latlng
+                       c.data->>\'contactLatLng\' AS customer_latlng,
+                       sp.name                AS space_name
                   FROM pos_order o
              LEFT JOIN contact c
                     ON c.contactid = o.customerid
                    AND c.companyid = o.companyid
+             LEFT JOIN space_session ss
+                    ON ss.sessionid = o.spacesessionid
+                   AND ss.companyid = o.companyid
+             LEFT JOIN space sp
+                    ON sp.tableid = ss.tableid
+                   AND sp.companyid = ss.companyid
                  WHERE ' . implode(' AND ', $where) . '
                  ORDER BY o.created_at DESC
                  LIMIT 500';
@@ -691,15 +737,22 @@ final class OrderCoreService
     public function find(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            // Mismo enriquecimiento de cliente que list() — el shape de una
-            // orden es único, venga del listado o del detalle.
+            // Mismo enriquecimiento de cliente y espacio que list() — el shape
+            // de una orden es único, venga del listado o del detalle.
             'SELECT o.*,
                     c.contactname          AS customer_name,
-                    c.data->>\'contactLatLng\' AS customer_latlng
+                    c.data->>\'contactLatLng\' AS customer_latlng,
+                    sp.name                AS space_name
                FROM pos_order o
           LEFT JOIN contact c
                  ON c.contactid = o.customerid
                 AND c.companyid = o.companyid
+          LEFT JOIN space_session ss
+                 ON ss.sessionid = o.spacesessionid
+                AND ss.companyid = o.companyid
+          LEFT JOIN space sp
+                 ON sp.tableid = ss.tableid
+                AND sp.companyid = ss.companyid
               WHERE o.orderid = ? AND o.companyid = ? LIMIT 1',
             [$id, $companyId]
         );
@@ -730,10 +783,22 @@ final class OrderCoreService
         } elseif (count($unique) === 1 && $unique[0] === 'ready') {
             $newStatus = 'ready';
         } else {
+            // Antes, "todos pending" devolvía null (= no tocar la orden): en un
+            // flujo que solo avanzaba, todos-pending era el estado inicial y no
+            // había nada que recalcular. Con los retrocesos de ítem (recall /
+            // deshacer) ese caso SÍ es alcanzable hacia atrás, y dejarlo en null
+            // dejaba la orden en un estado imposible: 'ready' con todos sus
+            // ítems pending — fuera del board para siempre, porque el board mira
+            // el status de la orden. El status de la orden es una FUNCIÓN de sus
+            // ítems, así que todos-pending deriva a 'sent' (salió a preparar,
+            // nadie la tomó todavía).
+            //
+            // Hacia adelante no cambia nada: en el único caso donde antes daba
+            // null la orden YA estaba en 'sent', y el guard de abajo corta sin
+            // UPDATE ni evento cuando el status derivado es el que ya tenía.
             $maxRank = max(array_map(static fn ($s) => self::ITEM_STATUS_RANK[$s] ?? 0, $statuses));
-            $newStatus = $maxRank >= self::ITEM_STATUS_RANK['preparing'] ? 'in_progress' : null;
+            $newStatus = $maxRank >= self::ITEM_STATUS_RANK['preparing'] ? 'in_progress' : 'sent';
         }
-        if ($newStatus === null) return;
 
         // FLAG (auditoría F-EVT-0): este UPDATE es un SEGUNDO cambio de
         // pos_order.status disparado por updateItemStatus() — un camino de
@@ -925,6 +990,13 @@ final class OrderCoreService
             ? (string) $customerName
             : null;
         [$out['customerLat'], $out['customerLng']] = self::parseLatLng($row['customer_latlng'] ?? null);
+
+        // Nombre del espacio (LEFT JOIN space_session → space en list()/find()).
+        // Sin él, una comanda de salón solo puede decir "Espacio" a secas: el
+        // spacesessionid es un UUID y la cocina necesita saber A DÓNDE va el
+        // plato. null cuando la orden no es de espacio o el row no lo trajo.
+        $spaceName = $row['space_name'] ?? null;
+        $out['spaceName'] = ($spaceName !== null && $spaceName !== '') ? (string) $spaceName : null;
 
         if ($withItems && $companyId !== null) {
             $rs = $this->db->Execute(

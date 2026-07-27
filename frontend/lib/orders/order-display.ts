@@ -48,6 +48,35 @@ export const SOURCE_LABEL: Record<Order["source"], string> = {
 }
 
 /**
+ * ORIGEN de la orden con el dato concreto, no la categoría.
+ *
+ * `SOURCE_LABEL` responde "qué tipo de orden es"; esto responde la pregunta que
+ * de verdad se hace quien la lee —cocina y mostrador— que es A DÓNDE VA: no
+ * "Espacio" sino "Espacio 4", no "E-commerce" sino el canal real. Cuando el
+ * dato concreto no está (orden vieja, sesión borrada, canal sin nombre) cae a
+ * la categoría, que siempre es cierta.
+ *
+ * Fuente única: la consumen el KDS y /pos/ordenes. Un `switch` exhaustivo sobre
+ * `source` a propósito — cuando llegue `fulfillment` (context/27 §B.1) los
+ * casos "Delivery" y "Retira" se suman ACÁ y aparecen en las dos pantallas de
+ * una. Hoy ese campo NO EXISTE en el modelo, así que no se inventan.
+ */
+export function orderOrigin(order: Order): string {
+  switch (order.source) {
+    case "table":
+      return order.spaceName ?? SOURCE_LABEL.table
+    case "ecommerce":
+      return order.channelRef ?? SOURCE_LABEL.ecommerce
+    case "counter":
+      return SOURCE_LABEL.counter
+    case "schedule":
+      return SOURCE_LABEL.schedule
+    default:
+      return SOURCE_LABEL[order.source] ?? order.source
+  }
+}
+
+/**
  * Estados filtrables desde la barra flotante: Pendiente / En espera / En
  * proceso / Enviado (más el pill "Todos"). `delivered` quedó FUERA por
  * decisión del owner — una orden entregada no se consulta operativamente;

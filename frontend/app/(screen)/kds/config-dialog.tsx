@@ -23,7 +23,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { KDS_CARDS_PER_SCREEN, type KdsCardsPerScreen, type KdsConfig } from "@/lib/kds/config"
+import {
+  KDS_CARDS_PER_SCREEN,
+  KDS_ROTATE_SECONDS,
+  type KdsCardsPerScreen,
+  type KdsConfig,
+  type KdsRotateSeconds,
+} from "@/lib/kds/config"
 import { playKdsChime, unlockKdsSound } from "@/lib/kds/sound"
 
 /**
@@ -96,7 +102,7 @@ export function KdsConfigDialog({ config, stations, onChange }: ConfigDialogProp
               id="kds-name"
               value={draft.name}
               maxLength={40}
-              placeholder="Parrilla, Barra, Cocina fría…"
+              placeholder="Preparación, Barra, Armado…"
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
             />
             <p className="text-sm text-muted-foreground">
@@ -142,6 +148,57 @@ export function KdsConfigDialog({ config, stations, onChange }: ConfigDialogProp
                   <SelectItem value="newest">Más nuevas primero</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Tono de la pantalla</Label>
+              <Select
+                value={draft.theme}
+                onValueChange={(v) => setDraft((d) => ({ ...d, theme: v as KdsConfig["theme"] }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dark">Oscuro</SelectItem>
+                  <SelectItem value="light">Claro</SelectItem>
+                  <SelectItem value="auto">Automático (por horario)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Automático usa claro de 7 a 19 y oscuro el resto del día.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Rotación de páginas</Label>
+              <Select
+                value={draft.autoRotate ? String(draft.rotateSeconds) : "off"}
+                onValueChange={(v) =>
+                  setDraft((d) =>
+                    v === "off"
+                      ? { ...d, autoRotate: false }
+                      : { ...d, autoRotate: true, rotateSeconds: Number(v) as KdsRotateSeconds }
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">Manual</SelectItem>
+                  {KDS_ROTATE_SECONDS.map((s) => (
+                    <SelectItem key={s} value={String(s)}>
+                      Cada {s} segundos
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Manual = las páginas solo cambian con el teclado o los puntos de la barra.
+              </p>
             </div>
           </div>
 

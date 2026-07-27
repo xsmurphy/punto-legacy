@@ -3,15 +3,29 @@
 import * as React from "react"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 import { usePairedScreen } from "@/hooks/use-paired-screen"
+import { useKdsHotkeys } from "@/hooks/use-kds-hotkeys"
 import { getDeviceToken } from "@/lib/auth/device-token"
-import { loadKdsConfig, saveKdsConfig, type KdsConfig } from "@/lib/kds/config"
+import { loadKdsConfig, resolveKdsMode, saveKdsConfig, type KdsConfig } from "@/lib/kds/config"
 import { applyPinOrder, loadKdsPins, purgeKdsPins, saveKdsPins, togglePin } from "@/lib/kds/pins"
 import { closeKdsSound, kdsSoundState, playKdsChime, unlockKdsSound, type KdsSoundState } from "@/lib/kds/sound"
-import type { KdsOrderStatus } from "@/lib/kds/kds-visuals"
+import {
+  belongsToScreen,
+  boardTimeMs,
+  doneAtMs,
+  isDoneForScreen,
+  isTerminal,
+  pruneTerminal,
+  recallableItems,
+  RECALL_LIMIT,
+  screenItems,
+} from "@/lib/kds/board"
+import type { KdsMode, KdsOrderStatus } from "@/lib/kds/kds-visuals"
 import type { Order, OrderItem, OrderItemStatus } from "@/hooks/use-orders"
 import { OrderCard } from "./order-card"
 import { KdsBottomBar } from "./bottom-bar"
 import { KdsConfigDialog } from "./config-dialog"
+import { KdsRecallDialog } from "./recall-dialog"
+import { KdsHelpDialog } from "./help-dialog"
 
 /**
  * KDS — pantalla de cocina device-paired (O2, context/24-orders-module-plan.md).
@@ -24,7 +38,7 @@ import { KdsConfigDialog } from "./config-dialog"
  * Antes: tres columnas por estado. La cocina prioriza por TIEMPO, no por
  * estado, así que las columnas gastaban el ancho de la pantalla en estados
  * (un tercio cada uno, vacíos o no) en vez de gastarlo en comandas. Y lo
- * decisivo: al cambiar de estado la tarjeta SALTABA de columna — el cocinero
+ * decisivo: al cambiar de estado la tarjeta SALTABA de columna — quien opera
  * veía moverse justo lo que estaba leyendo.
  *
  * Ahora: las comandas van una al lado de la otra ordenadas por tiempo, cada
@@ -33,11 +47,23 @@ import { KdsConfigDialog } from "./config-dialog"
  * un ítem (el ítem se colorea en su misma línea). Lo único que reordena es que
  * entren o salgan comandas, y el pin existe justamente para blindarse de eso.
  *
- * OVERFLOW = PAGINACIÓN, NO SCROLL. Es una TV desatendida: un scroll
- * horizontal que nadie va a tocar esconde comandas para siempre. Las páginas
- * rotan solas cada 12s, y CUALQUIER interacción (marcar, pinear, pasar de
- * página a mano, swipe) congela la rotación 30s — nunca se va la página que el
- * cocinero está usando bajo sus manos.
+ * EL BOARD MUESTRA LO QUE FALTA HACER
+ * -----------------------------------
+ * Una comanda terminada sale del board: para la cocina no sirve y tapa las que
+ * faltan. Se llega a ella por el panel de recall, desde donde se puede
+ * DEVOLVER A PREPARACIÓN (des-bumpear sus ítems) — y al volver reaparece en su
+ * posición por tiempo, no al final, porque el orden es por `sentAt`, que no
+ * cambia. Qué cuenta como "terminada" —y por qué con filtro de estaciones eso
+ * se decide por ítem y no por el status de la orden— vive en `lib/kds/board.ts`.
+ *
+ * OVERFLOW = PAGINACIÓN, NO SCROLL. Un scroll horizontal que nadie va a tocar
+ * esconde comandas para siempre. La regla de la paginación es NUNCA ESCONDER EN
+ * SILENCIO, NUNCA MOVERSE SOLO SIN QUE LO PIDAN: la rotación automática viene
+ * APAGADA (una pantalla que cambia sola desconcierta y le pelea a quien opera)
+ * y a cambio la barra inferior dice explícitamente cuántas comandas no entran.
+ * Para quien la quiera, la rotación se enciende en la config, y ahí CUALQUIER
+ * interacción (marcar, pinear, teclado, swipe) la congela 30s — nunca se va la
+ * página que se está usando bajo las manos de quien opera.
  *
  * TV / TABLET / TELÉFONO — la misma pantalla en los tres
  * -----------------------------------------------------
@@ -52,16 +78,32 @@ import { KdsConfigDialog } from "./config-dialog"
  * la paginación necesita saber CUÁNTAS entraron: con `auto-fill` el número lo
  * decide el motor de layout y el tamaño de página quedaría adivinado.
  *
- * Sin hover ni interacción obligatoria: en una TV nadie toca la pantalla. Toda
- * la información se lee sin tocar nada y la paginación avanza sola; el pin, el
- * bump y el swipe son affordances de tablet/teléfono, nunca requisitos.
+ * TRES INPUTS, LAS MISMAS FUNCIONES
+ * ---------------------------------
+ * Esta pantalla NUNCA está desatendida: una TV colgada siempre tiene detrás el
+ * teclado y el mouse de una PC — si no, no habría con qué marcar las comandas.
+ * Así que el teclado no es una comodidad, es el input PRINCIPAL del caso TV
+ * (ver `hooks/use-kds-hotkeys.ts`), y ninguna acción puede existir en un solo
+ * input: seleccionar, marcar, retroceder, deshacer, pinear, paginar y abrir el
+ * recall se hacen con teclado, con mouse y con el dedo. Si algo solo se puede
+ * clickear, está mal.
  *
- * Dark forzado con `className="dark"` en el wrapper: `(screen)/layout.tsx` fija
- * forcedTheme="light" para el checkout screen (visor al cliente). Tailwind v4
- * con `@custom-variant dark (&:is(.dark *))` — el `.dark` en un div ancestro
- * alcanza para escopear el theme sin tocar el ThemeProvider global.
+ * Corolario en la UI: nada depende de hover, el foco de teclado se ve a
+ * distancia de TV (anillo grueso, no un outline de 1px) y toda acción por gesto
+ * (long-press para retroceder) tiene su equivalente visible en la barra.
+ *
+ * TEMA CLARO / OSCURO
+ * -------------------
+ * `(screen)/layout.tsx` fija forcedTheme="light" para el checkout screen (visor
+ * al cliente), así que el KDS escopea SU tema con la clase `.dark` en este
+ * wrapper (Tailwind v4, `@custom-variant dark (&:is(.dark *))`). Ahora esa
+ * clase sale de la config del dispositivo en vez de estar fija: una cocina con
+ * ventanales al mediodía necesita claro y una barra de noche oscuro. El
+ * ThemeProvider global y el resto de las pantallas quedan intactos.
  */
 
+/** Lo que la pantalla PIDE al servidor. Lo que MUESTRA en el board es menos que esto:
+ *  `ready` entra en el fetch porque el panel de recall la necesita. */
 const ACTIVE_STATUSES = ["sent", "in_progress", "ready"] as const
 
 /**
@@ -74,12 +116,23 @@ const ACTIVE_STATUSES = ["sent", "in_progress", "ready"] as const
 const MIN_CARD_PX = 260
 /** gap-2 de la grilla, en px — se descuenta para calcular el ancho real de columna. */
 const GRID_GAP_PX = 8
-const AUTO_PAGE_MS = 12_000
 const INTERACTION_PAUSE_MS = 30_000
 /** Desplazamiento horizontal mínimo para que un swipe cuente como cambio de página. */
 const SWIPE_PX = 48
 
 interface Station { id: string; name: string }
+
+/** Selección por teclado. `itemId` null = la comanda entera. */
+interface KdsSelection { orderId: string; itemId: string | null }
+
+/** Última acción de marcado, para deshacerla. Solo la última — quien opera que
+ *  se dio cuenta al toque; un historial profundo acá sería una máquina del
+ *  tiempo que nadie puede auditar en medio del servicio. */
+interface LastAction {
+  id: string
+  /** itemId → estado que tenía y estado que le pusimos. */
+  byItem: Map<string, { from: OrderItemStatus; to: OrderItemStatus }>
+}
 
 export default function KdsPage() {
   const [orders, setOrders] = React.useState<Map<string, Order>>(new Map())
@@ -92,6 +145,21 @@ export default function KdsPage() {
   const [soundState, setSoundState] = React.useState<KdsSoundState>("blocked")
   const [page, setPage] = React.useState(0)
   const [gridWidth, setGridWidth] = React.useState(0)
+  const [selection, setSelection] = React.useState<KdsSelection | null>(null)
+  const [recallOpen, setRecallOpen] = React.useState(false)
+  const [helpOpen, setHelpOpen] = React.useState(false)
+  // Arranca en "dark" (el default y el comportamiento previo) y se resuelve en
+  // un efecto: la config vive en localStorage, así que decidir el modo durante
+  // el render sería un mismatch de hidratación garantizado.
+  const [mode, setMode] = React.useState<KdsMode>("dark")
+
+  /**
+   * Última acción deshacible. Es ESTADO y no un ref porque la barra inferior
+   * tiene un botón "Deshacer" que se habilita con esto: toda función de la
+   * pantalla existe en los tres inputs (teclado, mouse y dedo), ninguna vive
+   * solo en un atajo que hay que saberse.
+   */
+  const [lastAction, setLastAction] = React.useState<LastAction | null>(null)
 
   const gridRef = React.useRef<HTMLDivElement>(null)
   const pauseUntilRef = React.useRef(0)
@@ -104,20 +172,21 @@ export default function KdsPage() {
    */
   const suppressClickUntilRef = React.useRef(0)
 
-  /** Congela la rotación automática: el cocinero está mirando ESTA página. */
+  /** Congela la rotación automática: quien opera está mirando ESTA página. */
   const registerInteraction = React.useCallback(() => {
     pauseUntilRef.current = Date.now() + INTERACTION_PAUSE_MS
   }, [])
 
+  /**
+   * Toda orden conocida entra al mapa, también las terminales — el panel de
+   * recall las muestra (sin poder devolverlas). `pruneTerminal` es lo que hace
+   * que eso no crezca sin fin en una pantalla que queda abierta días.
+   */
   const applyOrder = React.useCallback((order: Order) => {
     setOrders((prev) => {
       const next = new Map(prev)
-      if ((ACTIVE_STATUSES as readonly string[]).includes(order.status)) {
-        next.set(order.id, order)
-      } else {
-        next.delete(order.id)
-      }
-      return next
+      next.set(order.id, order)
+      return pruneTerminal(next)
     })
   }, [])
 
@@ -145,12 +214,15 @@ export default function KdsPage() {
           return b.data ?? o
         })
       )
-      setOrders(() => {
+      setOrders((prev) => {
         const next = new Map<string, Order>()
-        for (const o of detailed) {
-          if ((ACTIVE_STATUSES as readonly string[]).includes(o.status)) next.set(o.id, o)
-        }
-        return next
+        // Las terminales que ya conocíamos se conservan: el fetch pide solo las
+        // activas, así que reconstruir el mapa a secas vaciaría el recall en
+        // cada reconexión. Para todo lo demás manda el servidor — una orden que
+        // ya no vuelve en la respuesta dejó de estar activa y se va.
+        for (const [id, o] of prev) if (isTerminal(o.status)) next.set(id, o)
+        for (const o of detailed) next.set(o.id, o)
+        return pruneTerminal(next)
       })
       // Recién con un sync completo encima sabemos qué órdenes siguen vivas —
       // antes de esto purgar pins borraría TODO (el mapa arranca vacío).
@@ -174,25 +246,14 @@ export default function KdsPage() {
     } catch { /* best-effort */ }
   }, [])
 
-  /** ¿La comanda tiene algo para ESTA estación? (mismo criterio que el filtro visible). */
-  const matchesStations = React.useCallback(
-    (order: Order) => {
-      if (config.stationIds.length === 0) return true
-      const items = order.items
-      if (!items) return true // el detalle todavía no llegó — no la escondemos
-      return items.some((i) => i.stationId && config.stationIds.includes(i.stationId))
-    },
-    [config.stationIds]
-  )
-
-  const { pairState, ctx } = usePairedScreen({
+  const { pairState, wsState, ctx } = usePairedScreen({
     module: "kds",
     channels: (c) => [`${c.companyId}:kds:${c.outletId}`],
     onEvent: (event, data) => {
       if (event === "order:new") {
         const order = data as Order
         applyOrder(order)
-        if (config.soundOnNew && matchesStations(order)) playKdsChime()
+        if (config.soundOnNew && belongsToScreen(order, config.stationIds)) playKdsChime()
       } else if (event === "order:status") {
         applyOrder(data as Order)
       } else if (event === "order:item-status") {
@@ -210,6 +271,16 @@ export default function KdsPage() {
     setSoundState(kdsSoundState())
     return () => { closeKdsSound() }
   }, [])
+
+  /** Modo claro/oscuro. En "auto" se re-evalúa sola: la pantalla no se recarga
+   *  nunca, así que el cambio de turno tiene que llegarle igual. */
+  React.useEffect(() => {
+    const apply = () => setMode(resolveKdsMode(config.theme))
+    apply()
+    if (config.theme !== "auto") return
+    const t = setInterval(apply, 60_000)
+    return () => clearInterval(t)
+  }, [config.theme])
 
   /** Ancho medido de la grilla — de acá sale cuántas comandas entran y el tamaño de letra. */
   React.useEffect(() => {
@@ -247,25 +318,43 @@ export default function KdsPage() {
     })
   }
 
-  // ---- Órdenes visibles -----------------------------------------------------
+  // ---- Board y recall -------------------------------------------------------
 
+  /** Todo lo que le pertenece a esta pantalla, ordenado por tiempo. */
   const visible = React.useMemo(() => {
-    const sorted = Array.from(orders.values())
-      .filter((o) => config.stationIds.length === 0 || (o.items ?? []).some((i) => i.stationId && config.stationIds.includes(i.stationId)))
+    return Array.from(orders.values())
+      .filter((o) => belongsToScreen(o, config.stationIds))
       .sort((a, b) => {
-        const ta = new Date(a.sentAt ?? a.createdAt ?? 0).getTime()
-        const tb = new Date(b.sentAt ?? b.createdAt ?? 0).getTime()
+        const ta = boardTimeMs(a)
+        const tb = boardTimeMs(b)
         return config.sortOrder === "newest" ? tb - ta : ta - tb
       })
-    // Pineadas al extremo izquierdo, en el orden en que se pinearon.
-    return applyPinOrder(sorted, pins)
-  }, [orders, config.stationIds, config.sortOrder, pins])
+  }, [orders, config.stationIds, config.sortOrder])
+
+  /** Lo que falta hacer. Pineadas al extremo izquierdo, en el orden en que se pinearon. */
+  const board = React.useMemo(
+    () => applyPinOrder(visible.filter((o) => !isDoneForScreen(o, config.stationIds)), pins),
+    [visible, config.stationIds, pins]
+  )
+
+  /** Lo que ya salió, la más reciente primero y ACOTADO — ver RECALL_LIMIT. */
+  const done = React.useMemo(
+    () => visible.filter((o) => isDoneForScreen(o, config.stationIds)),
+    [visible, config.stationIds]
+  )
+  const recall = React.useMemo(
+    () =>
+      [...done]
+        .sort((a, b) => doneAtMs(b, config.stationIds) - doneAtMs(a, config.stationIds))
+        .slice(0, RECALL_LIMIT),
+    [done, config.stationIds]
+  )
 
   /**
    * Purga de pins obsoletos. Se compara contra el mapa COMPLETO de órdenes
-   * activas (no contra `visible`): cambiar las estaciones visibles esconde una
-   * comanda pero no la mata, y no tiene por qué costarle el pin. Una orden
-   * cobrada o cancelada, en cambio, sale del mapa y su pin se va con ella —
+   * conocidas (no contra `board`): cambiar las estaciones visibles esconde una
+   * comanda pero no la mata, y terminarla tampoco — puede volver por recall.
+   * Una orden que se cae del mapa (podada por terminal) sí se lleva su pin;
    * sin esto localStorage crecería para siempre en una pantalla que queda
    * abierta durante días.
    */
@@ -281,11 +370,14 @@ export default function KdsPage() {
 
   const counts = React.useMemo(() => {
     const acc: Record<KdsOrderStatus, number> = { sent: 0, in_progress: 0, ready: 0 }
-    for (const o of visible) {
+    for (const o of board) {
       if (o.status === "sent" || o.status === "in_progress" || o.status === "ready") acc[o.status] += 1
     }
+    // El tercer contador NO es del board: es lo que ya salió y sigue esperando
+    // ser retirado (las entregadas/cobradas ya no le importan a nadie acá).
+    acc.ready = done.filter((o) => !isTerminal(o.status)).length
     return acc
-  }, [visible])
+  }, [board, done])
 
   // ---- Layout y paginación --------------------------------------------------
 
@@ -298,25 +390,130 @@ export default function KdsPage() {
     : config.cardsPerScreen
   const colWidth = gridWidth > 0 ? (gridWidth - GRID_GAP_PX * (cols - 1)) / cols : 0
 
-  const totalPages = Math.max(1, Math.ceil(visible.length / cols))
+  const totalPages = Math.max(1, Math.ceil(board.length / cols))
   const safePage = Math.min(page, totalPages - 1)
-  const pageOrders = visible.slice(safePage * cols, safePage * cols + cols)
+  const pageOrders = board.slice(safePage * cols, safePage * cols + cols)
 
   React.useEffect(() => {
-    if (totalPages <= 1) return
+    if (!config.autoRotate || totalPages <= 1) return
     const t = setInterval(() => {
-      // Rotación automática, pero nunca encima del cocinero.
+      // Rotación automática, pero nunca encima de quien opera.
       if (Date.now() < pauseUntilRef.current) return
       setPage((p) => (p + 1) % totalPages)
-    }, AUTO_PAGE_MS)
+    }, config.rotateSeconds * 1000)
     return () => clearInterval(t)
-  }, [totalPages])
+  }, [totalPages, config.autoRotate, config.rotateSeconds])
+
+  // ---- Selección por teclado ------------------------------------------------
+
+  const selectedOrder = React.useMemo(
+    () => (selection ? board.find((o) => o.id === selection.orderId) ?? null : null),
+    [board, selection]
+  )
+
+  /**
+   * La selección NUNCA puede apuntar a una comanda que salió del board. Se
+   * suelta en vez de saltar sola a la vecina: si saltara, el Enter siguiente
+   * —que quien opera ya tenía en el dedo— marcaría una comanda que no eligió.
+   * Un `→` de más es barato; marcar la comanda equivocada no.
+   */
+  React.useEffect(() => {
+    if (selection && !board.some((o) => o.id === selection.orderId)) setSelection(null)
+  }, [board, selection])
+
+  /** La selección manda sobre la paginación: si me muevo a otra página, la vista va. */
+  React.useEffect(() => {
+    if (!selection) return
+    const i = board.findIndex((o) => o.id === selection.orderId)
+    if (i < 0) return
+    const target = Math.floor(i / cols)
+    setPage((p) => (p === target ? p : target))
+  }, [selection, board, cols])
+
+  function moveOrder(delta: number) {
+    registerInteraction()
+    setSelection((prev) => {
+      if (board.length === 0) return null
+      // Sin selección previa se arranca por la primera comanda de la página que
+      // quien opera está mirando, no por la primera del board.
+      if (!prev) return { orderId: (pageOrders[0] ?? board[0]).id, itemId: null }
+      const i = board.findIndex((o) => o.id === prev.orderId)
+      if (i < 0) return { orderId: (pageOrders[0] ?? board[0]).id, itemId: null }
+      const next = Math.min(board.length - 1, Math.max(0, i + delta))
+      return { orderId: board[next].id, itemId: null }
+    })
+  }
+
+  function moveItem(delta: number) {
+    registerInteraction()
+    setSelection((prev) => {
+      if (!prev) {
+        if (board.length === 0) return null
+        return { orderId: (pageOrders[0] ?? board[0]).id, itemId: null }
+      }
+      const order = board.find((o) => o.id === prev.orderId)
+      if (!order) return prev
+      const items = screenItems(order, config.stationIds)
+      if (items.length === 0) return prev
+      const i = items.findIndex((it) => it.id === prev.itemId)
+      if (i < 0) return { ...prev, itemId: (delta > 0 ? items[0] : items[items.length - 1]).id }
+      const next = Math.min(items.length - 1, Math.max(0, i + delta))
+      return { ...prev, itemId: items[next].id }
+    })
+  }
+
+  function selectedItem(): OrderItem | null {
+    if (!selectedOrder || !selection?.itemId) return null
+    return screenItems(selectedOrder, config.stationIds).find((i) => i.id === selection.itemId) ?? null
+  }
+
+  function confirmSelection() {
+    if (!selectedOrder) return
+    const item = selectedItem()
+    if (item) { void bumpItem(item); return }
+    const items = screenItems(selectedOrder, config.stationIds)
+    void bumpOrder(selectedOrder, items.filter((i) => i.status === "pending" || i.status === "preparing"))
+  }
+
+  function stepBackSelection() {
+    const item = selectedItem()
+    // Sin ítem seleccionado no se retrocede la comanda entera: retroceder de a
+    // uno es reversible de un vistazo, retroceder ocho líneas de golpe no.
+    if (item) void stepBackItem(item)
+  }
+
+  useKdsHotkeys(
+    {
+      moveOrder,
+      moveItem,
+      confirm: confirmSelection,
+      stepBack: stepBackSelection,
+      undo: () => { void undoLast() },
+      togglePin: () => { if (selection) handleTogglePin(selection.orderId) },
+      toggleRecall: () => { registerInteraction(); setRecallOpen((o) => !o) },
+      toggleHelp: () => { registerInteraction(); setHelpOpen((o) => !o) },
+      movePage: (delta) => {
+        registerInteraction()
+        setPage((p) => (p + delta + totalPages) % totalPages)
+      },
+      clearSelection: () => setSelection(null),
+    },
+    { helpOpen, recallOpen }
+  )
 
   // ---- Transiciones de ítems ------------------------------------------------
 
   function nextItemStatus(item: OrderItem): OrderItemStatus | null {
     if (item.status === "pending") return "preparing"
     if (item.status === "preparing") return "ready"
+    return null
+  }
+
+  /** Un paso HACIA ATRÁS. El backend habilita `ready → preparing → pending`
+   *  (ITEM_TRANSITIONS) justamente para esto. */
+  function prevItemStatus(item: OrderItem): OrderItemStatus | null {
+    if (item.status === "ready") return "preparing"
+    if (item.status === "preparing") return "pending"
     return null
   }
 
@@ -354,13 +551,15 @@ export default function KdsPage() {
   }
 
   /**
-   * Marcado optimista con rollback.
+   * Marcado optimista con rollback. Es el ÚNICO camino de escritura de la
+   * pantalla: avanzar, retroceder, devolver a preparación y deshacer pasan todos por
+   * acá, así que todos heredan el optimismo, el rollback y el guard.
    *
    * El rollback revierte SOLO los ítems de ESTE bump, no un snapshot entero
    * del estado: con `setOrders(snapshot)` un fallo del pedido A borraba
    * también el marcado optimista del pedido B que había entrado mientras
    * tanto (y el de cualquier evento del WS llegado en el medio). En una
-   * cocina con dos cocineros marcando a la vez eso se ve como "se
+   * cocina con dos personas marcando a la vez eso se ve como "se
    * desmarcó solo".
    *
    * Guard de reentrada por target: un doble tap sobre el mismo ítem —o un
@@ -397,17 +596,73 @@ export default function KdsPage() {
     }
   }
 
+  /** Deja registrado qué se acaba de hacer, para que "Deshacer" tenga qué revertir. */
+  function rememberAction(targets: { item: OrderItem; next: OrderItemStatus }[]) {
+    if (targets.length === 0) return
+    setLastAction({
+      id: `${Date.now()}`,
+      byItem: new Map(targets.map((t) => [t.item.id, { from: t.item.status, to: t.next }])),
+    })
+  }
+
   async function bumpItem(item: OrderItem) {
     const next = nextItemStatus(item)
     if (!next) return
-    await commitBump(item.id, [{ item, next }])
+    const targets = [{ item, next }]
+    rememberAction(targets)
+    await commitBump(item.id, targets)
   }
 
   async function bumpOrder(order: Order, items: OrderItem[]) {
     const targets = items
       .map((item) => ({ item, next: nextItemStatus(item) }))
       .filter((t): t is { item: OrderItem; next: OrderItemStatus } => t.next !== null)
+    rememberAction(targets)
     await commitBump(order.id, targets)
+  }
+
+  async function stepBackItem(item: OrderItem) {
+    const next = prevItemStatus(item)
+    if (!next) return
+    const targets = [{ item, next }]
+    rememberAction(targets)
+    await commitBump(item.id, targets)
+  }
+
+  /**
+   * Devolver a preparación: des-bumpea los ítems `ready` DE ESTA PANTALLA
+   * (`ready → preparing`) y deja que el backend derive el estado de la orden
+   * (`recomputeOrderStatus` la lleva a `in_progress` sola). No se setea el
+   * status de la orden a mano: derivarlo es trabajo del service, que es el que
+   * sabe agregar todos los ítems, incluidos los de las otras estaciones.
+   */
+  async function handleRecall(order: Order) {
+    const targets = recallableItems(order, config.stationIds).map((item) => ({
+      item,
+      next: "preparing" as OrderItemStatus,
+    }))
+    rememberAction(targets)
+    await commitBump(order.id, targets)
+  }
+
+  /**
+   * Deshacer la última acción. Solo revierte los ítems que SIGUEN como los
+   * dejamos: si despacho ya entregó uno o el otro cocinero lo tocó, ese ítem se
+   * queda como está — deshacer nunca pisa una decisión más nueva que la propia.
+   */
+  async function undoLast() {
+    const last = lastAction
+    if (!last) return
+    setLastAction(null)
+
+    const targets: { item: OrderItem; next: OrderItemStatus }[] = []
+    for (const order of orders.values()) {
+      for (const item of order.items ?? []) {
+        const rec = last.byItem.get(item.id)
+        if (rec && item.status === rec.to) targets.push({ item, next: rec.from })
+      }
+    }
+    await commitBump(`undo:${last.id}`, targets)
   }
 
   if (pairState === "unpaired") {
@@ -415,7 +670,9 @@ export default function KdsPage() {
   }
 
   return (
-    <div className="dark flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div
+      className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col overflow-hidden bg-background text-foreground`}
+    >
       <main className="min-h-0 flex-1 p-2">
         <div
           ref={gridRef}
@@ -453,12 +710,12 @@ export default function KdsPage() {
             ["--kds-col" as string]: `${colWidth}px`,
           }}
         >
-          {visible.length === 0 ? (
+          {board.length === 0 ? (
             <div
               className="flex items-center justify-center text-muted-foreground"
               style={{ gridColumn: "1 / -1" }}
             >
-              <p style={{ fontSize: "clamp(1rem, 1.5vw, 1.5rem)" }}>Sin comandas activas</p>
+              <p style={{ fontSize: "clamp(1rem, 1.5vw, 1.5rem)" }}>Sin comandas pendientes</p>
             </div>
           ) : (
             pageOrders.map((order) => (
@@ -466,11 +723,15 @@ export default function KdsPage() {
                 key={order.id}
                 order={order}
                 config={config}
+                mode={mode}
                 busy={busyIds.has(order.id)}
                 pinned={pins.includes(order.id)}
+                selected={selection?.orderId === order.id}
+                selectedItemId={selection?.orderId === order.id ? selection.itemId : null}
                 onTogglePin={handleTogglePin}
                 onBumpOrder={bumpOrder}
                 onBumpItem={bumpItem}
+                onStepBackItem={stepBackItem}
               />
             ))
           )}
@@ -478,17 +739,33 @@ export default function KdsPage() {
       </main>
 
       <KdsBottomBar
-        name={config.name || ctx?.outletName || "Cocina"}
+        name={config.name || ctx?.outletName || "Preparación"}
         counts={counts}
+        mode={mode}
         page={safePage}
         totalPages={totalPages}
+        hiddenCount={board.length - pageOrders.length}
         onPage={(p) => { registerInteraction(); setPage(p) }}
         loading={loading}
+        wsState={wsState}
         needsSoundUnlock={config.soundOnNew && soundState !== "ready"}
         onUnlockSound={() => void handleUnlockSound()}
+        canUndo={lastAction !== null}
+        onUndo={() => { void undoLast() }}
+        onShowHelp={() => setHelpOpen(true)}
       >
+        <KdsRecallDialog
+          open={recallOpen}
+          onOpenChange={setRecallOpen}
+          orders={recall}
+          stationIds={config.stationIds}
+          busyIds={busyIds}
+          onRecall={(order) => { void handleRecall(order) }}
+        />
         <KdsConfigDialog config={config} stations={stations} onChange={updateConfig} />
       </KdsBottomBar>
+
+      <KdsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   )
 }

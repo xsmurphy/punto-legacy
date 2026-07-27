@@ -9,7 +9,14 @@ import type { Order, OrderItem } from "@/hooks/use-orders"
 import { ReadyCard } from "./ready-card"
 
 /**
- * Pantalla de mozos — device-paired (O2, context/24-orders-module-plan.md).
+ * Pantalla de DESPACHO — device-paired (O2, context/24-orders-module-plan.md).
+ *
+ * "Despacho" y no "mozos": Punto es multi-vertical (context/20 §1.5,
+ * terminología vertical-neutral). Un depósito de electrónica recibe pedidos del
+ * ecommerce, alguien prepara con el KDS y otra persona despacha con ESTA — ahí
+ * no hay ningún mozo. La key del module sigue siendo `display`, que ya es
+ * genérica: renombrarla obligaría a migrar `device.module` de dispositivos
+ * pareados en producción.
  * Mismo pairing/WS que el KDS (canal `{companyId}:kds:{outletId}`), pero
  * SOLO lee ítems en estado `ready` (agrupados por orden) y los marca
  * `delivered` — el backend bloquea cualquier otra transición para
