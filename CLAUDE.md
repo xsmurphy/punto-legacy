@@ -13,6 +13,11 @@ proporcional al riesgo de la tarea:
 - **Grande** (arquitectura, refactor multi-módulo, decisión de diseño):
   ahí sí, leé el doc completo + `_session-log.md` para continuidad.
 
+**Si vas a retomar lo que quedó abierto**, leé `context/_handoff.md` PRIMERO:
+es el estado de la última sesión (objetivo, qué quedó a medias, qué se intentó
+y no funcionó, próximo paso). Se reescribe entero en cada cierre, así que
+siempre describe el ahora — el `_session-log.md` es el índice histórico.
+
 ### Tabla de docs (en `context/`)
 
 | Tema | Archivo |
@@ -38,7 +43,8 @@ proporcional al riesgo de la tarea:
 | **Auth rewrite (JWT → tokens opacos)** | `21-auth-rewrite.md` (plan cerrado 2026-06-29) |
 | **Sucursales, outlet scope, view-scope** | `25-sucursales-y-scopes.md` |
 | **Facturación electrónica (Automate/SIFEN)** | `28-facturacion-electronica-plan.md` |
-| Bitácora de sesiones | `_session-log.md` |
+| **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
+| Bitácora de sesiones | `_session-log.md` (índice histórico, append) |
 
 > Items completados / docs superseded archivados en `_archive-*.md` (no se leen en uso normal).
 
@@ -151,7 +157,7 @@ las más relevantes son:
 - `claude-api` — código que importa `anthropic` SDK
 - `security-review` — auditoría de seguridad del branch
 - `shadcn` — frontend, componentes UI
-- `end-session` — cierre con resumen en `_session-log.md`
+- `end-session` — cierre: entry en `_session-log.md` + `_handoff.md` reescrito
 
 El resto (operations, design, documentos, enterprise-search) solo si la
 tarea lo pide explícitamente.
