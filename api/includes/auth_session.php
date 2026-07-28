@@ -182,7 +182,20 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
     if ($session === null) {
         http_response_code(401);
         header('Content-Type: application/json');
-        if ($sawRevoked && !$sawWrongRealm) {
+        // La revocación manda sobre el realm equivocado, SIEMPRE.
+        //
+        // Antes esto exigía `!$sawWrongRealm`, y esa condición casi nunca se
+        // cumple en el browser del operador: por el modelo de doble sesión ahí
+        // conviven la cookie del panel y el Bearer del device, así que revocar
+        // el device dejaba `$sawWrongRealm=true` por la cookie y el 401 salía
+        // como "Token de otro realm" — un mensaje que apunta a un bug de
+        // cliente mal configurado cuando en realidad el dispositivo estaba
+        // revocado y solo hacía falta reconectarlo. Costó un diagnóstico en
+        // producción (2026-07-28, selección de caja en /pos).
+        //
+        // "Revocada" es la causa concreta y accionable; "otro realm" es el
+        // fallback para cuando NO hubo ninguna credencial revocada.
+        if ($sawRevoked) {
             die(json_encode(['error' => 'Sesión revocada por el administrador', 'code' => 'session_revoked']));
         }
         die(json_encode([
