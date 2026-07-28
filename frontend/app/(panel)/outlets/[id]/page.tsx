@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useFormTabErrors, TabErrorDot } from "@/hooks/use-form-tab-errors"
 import {
   Select,
   SelectContent,
@@ -150,6 +151,26 @@ export default function OutletEditPage() {
     defaultValues: emptyValues(),
   })
 
+  const [activeTab, setActiveTab] = React.useState("general")
+  // "depositos"/"cajas" quedan afuera del mapa: son listados propios (sin
+  // campos del form), no hay nada ahí que pueda quedar "invisible".
+  const { tabsWithErrors, onInvalid } = useFormTabErrors({
+    form,
+    fields: {
+      general: ["name", "description", "status", "ecom", "priceListId"],
+      fiscal: ["billingName", "ruc", "taxId", "taxIncluded", "purchaseOrderNo"],
+      contacto: ["address", "phone", "whatsApp", "email"],
+      ubicacion: ["lat", "lng"],
+    },
+    onTabChange: setActiveTab,
+    tabLabels: {
+      general: "General",
+      fiscal: "Datos fiscales",
+      contacto: "Contacto",
+      ubicacion: "Ubicación",
+    },
+  })
+
   // Reset form cuando llegan los datos del backend (sólo en edit).
   React.useEffect(() => {
     if (isNew || !data) return
@@ -217,7 +238,7 @@ export default function OutletEditPage() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex flex-col gap-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <BackLink />
@@ -273,25 +294,29 @@ export default function OutletEditPage() {
           </div>
         </header>
 
-        <Tabs defaultValue="general" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* -mx-2 px-2 permite scroll horizontal en mobile sin cortar el foco */}
           <div className="-mx-2 overflow-x-auto px-2">
             <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
               <TabsTrigger value="general" className="gap-1.5">
                 <Store className="size-3.5" />
                 General
+                {tabsWithErrors.has("general") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="fiscal" className="gap-1.5">
                 <Receipt className="size-3.5" />
                 Datos fiscales
+                {tabsWithErrors.has("fiscal") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="contacto" className="gap-1.5">
                 <Phone className="size-3.5" />
                 Contacto
+                {tabsWithErrors.has("contacto") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="ubicacion" className="gap-1.5">
                 <MapPin className="size-3.5" />
                 Ubicación
+                {tabsWithErrors.has("ubicacion") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="depositos" className="gap-1.5" disabled={isNew}>
                 <Boxes className="size-3.5" />

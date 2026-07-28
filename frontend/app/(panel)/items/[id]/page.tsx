@@ -120,6 +120,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useFormTabErrors, TabErrorDot } from "@/hooks/use-form-tab-errors"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -214,6 +215,29 @@ export default function ItemEditPage() {
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemSchema),
     defaultValues: { ...emptyValues(), kind: initialKind },
+  })
+
+  const [activeTab, setActiveTab] = React.useState("perfil")
+  // "imagenes", "stock" y "variantes" quedan afuera: no tienen campos del
+  // form de react-hook-form (galería/stock son sus propios editores, y
+  // variantes se renderiza condicional sobre hasVariants).
+  const { tabsWithErrors, onInvalid } = useFormTabErrors({
+    form,
+    fields: {
+      perfil: ["name", "sku", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor"],
+      config: ["outletId", "uom", "taxId", "taxIncluded", "discount", "priceType", "pricePercent", "commission", "commissionType", "sort", "ecom", "featured"],
+      disponibilidad: ["availability"],
+      cotizaciones: ["currencies"],
+      produccion: ["procedure"],
+    },
+    onTabChange: setActiveTab,
+    tabLabels: {
+      perfil: "Perfil",
+      config: "Configuración",
+      disponibilidad: "Disponibilidad",
+      cotizaciones: "Cotizaciones",
+      produccion: "Producción",
+    },
   })
 
   // Para items nuevos: pre-seleccionamos el primer impuesto disponible del
@@ -449,7 +473,7 @@ export default function ItemEditPage() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex flex-col gap-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <BackLink />
@@ -507,7 +531,7 @@ export default function ItemEditPage() {
           </div>
         </header>
 
-        <Tabs defaultValue="perfil" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Horizontal scroll en mobile — con 7 tabs, grid-cols-7 dejaría
               cada tab en ~45px y el texto se cortaba. */}
           <div className="-mx-2 overflow-x-auto px-2">
@@ -515,6 +539,7 @@ export default function ItemEditPage() {
               <TabsTrigger value="perfil" className="gap-1.5">
                 <User className="size-3.5" />
                 Perfil
+                {tabsWithErrors.has("perfil") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="imagenes" className="gap-1.5" disabled={isNew}>
                 <Images className="size-3.5" />
@@ -523,14 +548,17 @@ export default function ItemEditPage() {
               <TabsTrigger value="config" className="gap-1.5">
                 <SettingsIcon className="size-3.5" />
                 Configuración
+                {tabsWithErrors.has("config") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="disponibilidad" className="gap-1.5">
                 <Calendar className="size-3.5" />
                 Disponibilidad
+                {tabsWithErrors.has("disponibilidad") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="cotizaciones" className="gap-1.5">
                 <Coins className="size-3.5" />
                 Cotizaciones
+                {tabsWithErrors.has("cotizaciones") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="stock" className="gap-1.5" disabled={isNew}>
                 <Boxes className="size-3.5" />
@@ -554,6 +582,7 @@ export default function ItemEditPage() {
                     Producción
                   </>
                 )}
+                {tabsWithErrors.has("produccion") && <TabErrorDot />}
               </TabsTrigger>
             </TabsList>
           </div>
