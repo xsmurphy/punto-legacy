@@ -213,6 +213,35 @@ export const FILTERABLE_STATUSES: OrderStatus[] = [
   "ready",
 ]
 
+/**
+ * Espejo de `ORDER_TRANSITIONS` en `api/lib/Orders/OrderCoreService.php:67` —
+ * SOLO para decidir qué opciones mostrar en el dropdown de cambio manual de
+ * estado (`OrderDetailView`). La autoridad es el backend: `updateStatus()`
+ * revalida esta misma whitelist server-side y rechaza cualquier transición
+ * que no esté acá, así que un desincronizado en este archivo nunca permite
+ * saltarse la regla — a lo sumo el dropdown ofrece una opción que el server
+ * rechaza (y el toast muestra el error real, no uno genérico).
+ */
+export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  open: ["sent", "cancelled"],
+  sent: ["in_progress", "ready", "delivered", "cancelled"],
+  in_progress: ["sent", "ready", "delivered", "cancelled"],
+  ready: ["sent", "in_progress", "delivered", "cancelled"],
+  delivered: ["cancelled"],
+  closed: [],
+  cancelled: [],
+}
+
+/**
+ * Transiciones para el dropdown de estado manual — `ORDER_TRANSITIONS` sin
+ * `cancelled`: cancelar exige motivo obligatorio y ya vive en el menú de
+ * "más acciones" (`OrderDetailView`); dos caminos al mismo destino, uno sin
+ * pedir motivo, sería un bug esperando pasar.
+ */
+export function manualStatusOptions(order: Order): OrderStatus[] {
+  return ORDER_TRANSITIONS[order.status].filter((s) => s !== "cancelled")
+}
+
 /** Total de la orden = suma de sus ítems. `items` puede faltar (list sin includeItems). */
 export function orderTotal(order: Order): number {
   return (order.items ?? []).reduce((sum, i) => sum + (i.price ?? 0) * i.qty, 0)

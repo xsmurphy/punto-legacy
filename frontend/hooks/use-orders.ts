@@ -296,10 +296,36 @@ export function useMarkOrderPaid() {
 }
 
 /**
+ * Cambio manual de estado SIN motivo — cualquier transición de
+ * `ORDER_TRANSITIONS` salvo `cancelled` (esa exige motivo obligatorio, ver
+ * `useCancelOrder` abajo). Dos hooks separados a propósito: unificarlos en
+ * uno solo con `reason?: string` opcional dejaría la puerta abierta a
+ * cancelar sin motivo por el código path "genérico" — el backend lo
+ * rechazaría, pero el bug de UX (perder el motivo tipeado) ya habría pasado.
+ * Usado por el dropdown de estado de `OrderDetailView`.
+ */
+export function useUpdateOrderStatus() {
+  const qc = useQueryClient()
+  return useMutation<Order, Error, { orderId: string; status: OrderStatus }>({
+    mutationFn: ({ orderId, status }) =>
+      posJson<Order>(`/api/pos/orders?id=${orderId}&action=status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["orders"] })
+    },
+  })
+}
+
+/**
  * Cancela una orden. Una orden NUNCA se elimina — se cancela, y el motivo es
  * OBLIGATORIO (lo exige `OrderCoreService::updateStatus`, no solo esta UI:
  * la regla vale para cualquier cliente). Queda registrado en el timeline
- * (`pos_order_event.reason`).
+ * (`pos_order_event.reason`). Separado de `useUpdateOrderStatus` porque el
+ * motivo no es opcional acá — un solo hook con parámetro opcional invitaría
+ * a un call-site a saltearlo.
  */
 export function useCancelOrder() {
   const qc = useQueryClient()

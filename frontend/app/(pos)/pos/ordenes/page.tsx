@@ -24,15 +24,10 @@ import * as React from "react"
 import { ClipboardList, LayoutGrid, List, Map } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { OrderCard } from "@/components/orders/order-card"
+import { OrderDetailView } from "@/components/orders/order-detail-view"
 import { OrdersListView } from "@/components/orders/orders-list-view"
 import { OrdersMapView } from "@/components/orders/orders-map-view"
 import { FILTERABLE_STATUSES, STATUS_LABEL } from "@/lib/orders/order-display"
@@ -200,19 +195,21 @@ export default function PosOrdenesPage() {
         </div>
       </div>
 
-      {/* Detalle desde Lista/Mapa — mismas acciones que la vista Cuadros. */}
+      {/* Detalle desde Lista/Mapa — mismo formato que el detalle de transacción
+          (TransactionDetail), con dropdown de estado. El título/descripción
+          real ya los pinta el header de OrderDetailView; acá solo quedan
+          sr-only para accesibilidad (Radix exige DialogTitle). */}
       <Dialog open={detailOrder !== null} onOpenChange={(open) => !open && setDetailOrderId(null)}>
         <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
+          <DialogHeader className="sr-only">
             <DialogTitle>Orden #{detailOrder?.orderNumber ?? "—"}</DialogTitle>
             <DialogDescription>
-              Cobrá, reimprimí la comanda o cancelá la orden.
+              Cobrá, reimprimí la comanda, cancelá o cambiá el estado de la orden.
             </DialogDescription>
           </DialogHeader>
           {detailOrder ? (
-            <OrderCard
+            <OrderDetailView
               order={detailOrder}
-              className="border-0 bg-transparent p-0"
               onAfterAction={() => setDetailOrderId(null)}
             />
           ) : null}
