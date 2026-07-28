@@ -25,6 +25,15 @@ se arreglan — lo que crece acá es señal de deuda, no de backlog.
   sin importar si hay uno aplicado: son excluyentes y hoy no se sabe, mirando el
   menú, si la venta tiene descuento. Ver `frontend/components/register/sale-options-drawer.tsx`
   y el render del descuento en el listado de transacciones.
+- **Control de Caja muestra UUIDs en vez del nombre del medio de pago**
+  (2026-07-28). Los medios nativos se ven como slug (`efectivo`, `tdebito`) y
+  los personalizados como el UUID de taxonomía. El resumen sale de
+  `getSalesByPayment` (`api/includes/functions.php:1033`), que lee el JSON
+  `transaction.transactionPaymentType` — o sea que el nombre que se muestra es
+  el que la VENTA persistió al cobrar, no uno resuelto al leer. Hay que ver si
+  el fix va al momento de escribir (guardar el nombre además del id) o al de
+  leer (resolver id → nombre contra la taxonomía); ojo que el histórico ya
+  guardado necesita el camino de lectura igual, así que probablemente los dos.
 - **"Imprimir" del drawer de opciones sigue como "Próximamente"** (2026-07-28).
   El resto del flujo de impresión ya funciona (auto-print, selector de impresora,
   plantillas) — esa entrada quedó desconectada.
