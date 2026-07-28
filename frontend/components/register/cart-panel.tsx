@@ -94,6 +94,7 @@ import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
 import { FulfillmentSelector } from "@/components/register/fulfillment-selector"
+import { ToggleChip } from "@/components/register/toggle-chip"
 import { DeliveryAddressDialog } from "@/components/register/delivery-address-dialog"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
@@ -1322,17 +1323,12 @@ function CartBottom({
           esta fila lleva el selector de fulfillment (Mostrador/Retiro/
           Envío, context/27 §D.4) en vez de los toggles — orden-espacio (dine_in
           por construcción) no muestra nada acá salvo VACIAR.
-          `min-h-10` (antes `min-h-6`, subido para que el selector de 3
-          botones entre sin recortarse): la fila conserva su alto aunque
-          quede vacía en cualquier modo, así el CTA de abajo NO se mueve ni un
-          pixel al cambiar de modo — memoria muscular del cajero (Regla #10,
-          context/14-ui-conventions.md). */}
-      <div
-        className={cn(
-          "mb-2 flex min-h-10 items-center gap-2",
-          cartMode === "orden-mostrador" ? "justify-between" : "justify-center",
-        )}
-      >
+          Los tres son el MISMO chip (`ToggleChip`) que los toggles de venta —
+          la fila es un patrón cerrado, no admite un control con forma propia.
+          `min-h-6`: conserva su alto aunque quede vacía en cualquier modo, así
+          el CTA de abajo NO se mueve ni un pixel al cambiar de modo — memoria
+          muscular del cajero (Regla #10, context/14-ui-conventions.md). */}
+      <div className="mb-2 flex min-h-6 items-center justify-center gap-2">
         {!isOrderMode && (
           <>
             <ToggleChip
@@ -1360,9 +1356,7 @@ function CartBottom({
           </>
         )}
         {cartMode === "orden-mostrador" && (
-          <div className="min-w-0 flex-1">
-            <FulfillmentSelector value={fulfillment} onSelect={onSelectFulfillment} />
-          </div>
+          <FulfillmentSelector value={fulfillment} onSelect={onSelectFulfillment} />
         )}
         {lineCount > 0 && (
           <button
@@ -1396,28 +1390,5 @@ function CartBottom({
   )
 }
 
-// ── Toggle chip ───────────────────────────────────────────────────────────────
-
-function ToggleChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
-        active
-          ? "border-brand bg-brand/20 text-brand"
-          : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground",
-      )}
-    >
-      {label}
-    </button>
-  )
-}
+// `ToggleChip` vive ahora en components/register/toggle-chip.tsx — lo comparten
+// esta fila y el selector de fulfillment, que necesitaba el chip idéntico.

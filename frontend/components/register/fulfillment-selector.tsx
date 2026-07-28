@@ -1,17 +1,22 @@
 "use client"
 
 /**
- * Selector de fulfillment del carrito — "Mostrador" / "Retiro" / "Envío"
+ * Selector de fulfillment del carrito — MOSTRADOR / RETIRO / ENVÍO
  * (context/27-delivery-sla-plan.md §B.4/§D.4). "Mostrador" y no "En el
  * local": es el mismo vocabulario que usa la comanda (KDS, despacho,
  * /pos/ordenes, ticket impreso) para este destino — dos nombres para lo
  * mismo era exactamente la confusión que había que sacar de encima.
  *
- * Segmented control de 3 opciones EXCLUYENTES (ToggleGroup type="single",
- * shadcn — Regla #2/#6 de context/14-ui-conventions.md: sin `<button>`
- * nativo, íconos lucide). Solo visible en `cartMode==="orden-mostrador"`
- * (ver CartBottom en cart-panel.tsx) — en `orden-espacio` el fulfillment es
- * `dine_in` por construcción, no hay nada que elegir.
+ * Son los MISMOS chips que CRÉDITO/INTERNO/IVA/VACIAR (`ToggleChip`): misma
+ * fila, mismo lugar, misma forma — el cajero ya los reconoce. Lo único
+ * distinto es que acá son excluyentes (siempre hay exactamente uno activo), y
+ * eso se resuelve en el handler, no con un componente aparte. Un segmented
+ * control con íconos y alto propio sería una regla de diseño NUEVA, y el
+ * design system existente manda (context/14-ui-conventions.md).
+ *
+ * Solo visible en `cartMode==="orden-mostrador"` (ver CartBottom en
+ * cart-panel.tsx) — en `orden-espacio` el fulfillment es `dine_in` por
+ * construcción, no hay nada que elegir.
  *
  * "Envío" no cambia el estado acá directamente: el caller (`cart-panel.tsx`)
  * intercepta el intento de elegir "delivery" para abrir primero
@@ -21,14 +26,13 @@
  * pegarle directo a `useCartStore.setFulfillment`.
  */
 
-import { Store, ShoppingBag, Bike } from "lucide-react"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { ToggleChip } from "@/components/register/toggle-chip"
 import type { Fulfillment } from "@/hooks/use-orders"
 
-const OPTIONS: Array<{ value: Fulfillment; label: string; icon: typeof Store }> = [
-  { value: "dine_in", label: "Mostrador", icon: Store },
-  { value: "takeaway", label: "Retiro", icon: ShoppingBag },
-  { value: "delivery", label: "Envío", icon: Bike },
+const OPTIONS: Array<{ value: Fulfillment; label: string }> = [
+  { value: "dine_in", label: "MOSTRADOR" },
+  { value: "takeaway", label: "RETIRO" },
+  { value: "delivery", label: "ENVÍO" },
 ]
 
 export function FulfillmentSelector({
@@ -39,31 +43,15 @@ export function FulfillmentSelector({
   onSelect: (f: Fulfillment) => void
 }) {
   return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      value={value}
-      onValueChange={(next) => {
-        // type="single" de radix permite des-seleccionar (value=""); acá no
-        // tiene sentido — siempre hay un fulfillment activo — así que se
-        // ignora ese caso en vez de dejar el carrito sin valor.
-        if (next) onSelect(next as Fulfillment)
-      }}
-      className="w-full"
-    >
+    <>
       {OPTIONS.map((opt) => (
-        <ToggleGroupItem
+        <ToggleChip
           key={opt.value}
-          value={opt.value}
-          aria-label={opt.label}
-          // h-10 mínimo: POS touch-first, tablet — se toca con el dedo del
-          // cajero (Regla #2 de context/14-ui-conventions.md).
-          className="h-10 flex-1 gap-1.5 text-xs font-medium"
-        >
-          <opt.icon className="size-4" aria-hidden />
-          <span className="truncate">{opt.label}</span>
-        </ToggleGroupItem>
+          label={opt.label}
+          active={value === opt.value}
+          onClick={() => onSelect(opt.value)}
+        />
       ))}
-    </ToggleGroup>
+    </>
   )
 }
