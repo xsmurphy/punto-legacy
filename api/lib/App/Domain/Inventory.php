@@ -474,20 +474,51 @@ final class Inventory
      */
     public static function getAllWasteValue(mixed $id = false, mixed $cache = false): array
     {
-        $andId = ' LIMIT 500';
+        // `itemWaste` NO es una columna: vive en el JSONB `data` (demote de
+        // item, mismo patrón que outlet en la mig 14). Leerlo como columna
+        // tiraba 42703 "column itemwaste does not exist", y como esta función
+        // corre DENTRO de la transacción de la venta, el error abortaba la TX
+        // entera: todo lo que seguía fallaba con 25P02 ("current transaction
+        // is aborted") y la venta se caía con un 500 sin causa visible. Los
+        // readers de campos demoted que hacen SQL crudo hay que migrarlos a
+        // leer del JSONB — el `_flattenJsonb` de los `SELECT *` no los cubre.
+        //
+        // El CASE no es decorativo: `itemWaste` está guardado como número en
+        // 150 ítems pero como booleano en al menos uno, y un `::numeric` suelto
+        // revienta con ese dato. Filtrar por tipo ANTES de castear es la única
+        // forma determinística — Postgres puede reordenar los AND de un WHERE,
+        // así que un guard de tipo al lado del cast no alcanza.
+        $params = [COMPANY_ID];
+        $andId  = '';
+        $limit  = ' LIMIT 500';
 
         if ($id) {
-            $andId = ' AND itemId = ' . $id . ' LIMIT 1';
+            // Parametrizado, NO interpolado: además de la inyección, un UUID
+            // sin comillas es un error de sintaxis en Postgres.
+            $andId  = ' AND itemId = ?';
+            $limit  = ' LIMIT 1';
+            $params[] = $id;
         }
 
-        $sql    = 'SELECT itemWaste, itemId FROM item WHERE itemWaste > 0 AND companyId = ? ' . $andId;
-        $result = ncmExecute($sql, [COMPANY_ID], $cache, true);
+        $sql = 'SELECT itemId, waste
+                  FROM (
+                        SELECT itemId,
+                               CASE WHEN jsonb_typeof(data->\'itemWaste\') = \'number\'
+                                    THEN (data->>\'itemWaste\')::numeric
+                                    ELSE 0
+                               END AS waste
+                          FROM item
+                         WHERE companyId = ?' . $andId . '
+                       ) t
+                 WHERE waste > 0' . $limit;
+
+        $result = ncmExecute($sql, $params, $cache, true);
         $out    = [];
 
         if ($result) {
             while (!$result->EOF) {
-                $fields                = $result->fields;
-                $out[$fields['itemId']] = $fields['itemWaste'];
+                $fields                 = $result->fields;
+                $out[$fields['itemId']] = $fields['waste'];
                 $result->MoveNext();
             }
             $result->Close();

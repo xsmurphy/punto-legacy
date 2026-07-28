@@ -133,7 +133,14 @@ final class ProductionService
             $childId = $ing['compoundId'];
 
             $childRow = ncmExecute(
-                'SELECT itemwaste, itemtrackinventory FROM item WHERE itemid = ? AND companyid = ? LIMIT 1',
+                // `itemWaste` vive en el JSONB `data`, no es columna (demote de item):
+                // leerlo como columna tira 42703 y aborta la TX entera. El CASE
+                // filtra por tipo antes de castear — hay ítems con el valor
+                // guardado como booleano y un `::numeric` suelto revienta.
+                "SELECT CASE WHEN jsonb_typeof(data->'itemWaste') = 'number'
+                          THEN (data->>'itemWaste')::numeric ELSE 0 END AS itemwaste,
+                        itemtrackinventory
+                   FROM item WHERE itemid = ? AND companyid = ? LIMIT 1",
                 [$childId, $companyId]
             );
             $wasteP  = $childRow ? (float) ($childRow['itemwaste'] ?? 0) : 0.0;
@@ -385,7 +392,11 @@ final class ProductionService
             // Un solo SELECT por insumo: waste %, ubicación, control de stock
             // y costo de catálogo (fallback).
             $childRow = ncmExecute(
-                'SELECT itemwaste, locationid, itemtrackinventory, itemcost FROM item WHERE itemid = ? AND companyid = ? LIMIT 1',
+                // Ver el comentario de `itemWaste` arriba: JSONB, no columna.
+                "SELECT CASE WHEN jsonb_typeof(data->'itemWaste') = 'number'
+                          THEN (data->>'itemWaste')::numeric ELSE 0 END AS itemwaste,
+                        locationid, itemtrackinventory, itemcost
+                   FROM item WHERE itemid = ? AND companyid = ? LIMIT 1",
                 [$childId, $companyId]
             );
 
