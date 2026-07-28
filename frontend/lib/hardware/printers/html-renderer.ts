@@ -1,5 +1,14 @@
 import type { PrintTemplateConfig, PrintBlock } from "@/lib/types/print-template"
 import type { TicketData } from "./build-ticket-data"
+import {
+  BLOCK_VALUE_RESOLVERS,
+  ITEM_FIELD_RESOLVERS,
+  ITEM_LINE_TYPES,
+  ITEM_TABLE_TYPES,
+  formatMoney,
+  itemTableColumns,
+  sortBlocksForRender,
+} from "./blocks"
 
 function esc(s: string): string {
   return s
@@ -7,26 +16,6 @@ function esc(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-}
-
-function formatMoney(n: number): string {
-  return new Intl.NumberFormat("es-PY", { style: "currency", currency: "PYG" }).format(n)
-}
-
-const ITEM_BLOCK_TYPES = new Set([
-  "item",
-  "item_units",
-  "item_uni_price",
-  "item_discount",
-  "item_total",
-])
-
-function interpolate(text: string, data: TicketData): string {
-  return text.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const val = (data as unknown as Record<string, unknown>)[key]
-    if (val === undefined || val === null) return ""
-    return String(val)
-  })
 }
 
 function blockAlign(block: PrintBlock): string {
@@ -42,133 +31,87 @@ function blockFont(block: PrintBlock): string {
   return parts.join(";")
 }
 
+function blockStyleAttr(block: PrintBlock): string {
+  const style = [blockAlign(block), blockFont(block)].filter(Boolean).join(";")
+  return style ? ` style="${style}"` : ""
+}
+
+/** Listado completo de ítems para `item_receipt*` — columnas según variante
+ *  (ver `itemTableColumns` en blocks.ts). */
+function renderItemTable(block: PrintBlock, data: TicketData): string {
+  const cols = itemTableColumns(block.type)
+  const headerCells =
+    `<th style="text-align:left">Ítem</th>` +
+    (cols.qty ? `<th style="text-align:right">Cant.</th>` : "") +
+    (cols.unitPrice ? `<th style="text-align:right">P.Unit</th>` : "") +
+    (cols.total ? `<th style="text-align:right">Total</th>` : "")
+  const rows = data.items
+    .map((item) => {
+      const cells =
+        `<td>${esc(item.name)}</td>` +
+        (cols.qty ? `<td style="text-align:right">${item.qty}</td>` : "") +
+        (cols.unitPrice ? `<td style="text-align:right">${esc(formatMoney(item.unitPrice))}</td>` : "") +
+        (cols.total ? `<td style="text-align:right">${esc(formatMoney(item.total))}</td>` : "")
+      return `<tr>${cells}</tr>`
+    })
+    .join("")
+  return (
+    `<table style="width:100%;border-collapse:collapse;font-size:inherit">` +
+    `<thead><tr>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`
+  )
+}
+
 function renderBlockHtml(block: PrintBlock, data: TicketData): string {
+  const styleAttr = blockStyleAttr(block)
   const align = blockAlign(block)
-  const font = blockFont(block)
-  const style = [align, font].filter(Boolean).join(";")
-  const styleAttr = style ? ` style="${style}"` : ""
 
   switch (block.type) {
     case "hor_line":
       return `<hr style="border:none;border-top:1px dashed #000;margin:4px 0"/>`
 
-    case "custom":
-      return `<div${styleAttr}>${esc(interpolate(block.text ?? "", data))}</div>`
+    case "ver_line":
+      // A diferencia de ESC/POS (no-op), en HTML sí tiene sentido dibujar
+      // una línea vertical real (el fallback de navegador no está limitado
+      // a un rollo monocolumna).
+      return `<div style="display:inline-block;border-left:1px solid #000;height:1em;margin:0 4px"></div>`
 
     case "company_name":
       return `<div style="${align};font-weight:bold">${esc(data.companyName)}</div>`
 
-    case "company_address":
-      return `<div${styleAttr}>${esc(data.companyAddress ?? "")}</div>`
-
-    case "company_phone":
-      return `<div${styleAttr}>${esc(data.companyPhone ?? "")}</div>`
-
-    case "outlet_name":
-      return `<div${styleAttr}>${esc(data.outletName ?? "")}</div>`
-
-    case "outlet_address":
-      return `<div${styleAttr}>${esc(data.outletAddress ?? "")}</div>`
-
-    case "customer_name":
-    case "customer_full_name":
-      return `<div${styleAttr}>${esc(data.customerName ?? "")}</div>`
-
-    case "customer_address":
-      return `<div${styleAttr}>${esc(data.customerAddress ?? "")}</div>`
-
-    case "customer_phone":
-      return `<div${styleAttr}>${esc(data.customerPhone ?? "")}</div>`
-
-    case "customer_tin":
-    case "customer_ci":
-      return `<div${styleAttr}>${esc(data.customerTin ?? "")}</div>`
-
-    case "date":
-      return `<div${styleAttr}>${esc(data.date)}</div>`
-
-    case "user_name":
-      return `<div${styleAttr}>${esc(data.userName ?? "")}</div>`
-
-    case "document_number":
-      return `<div${styleAttr}>${esc(data.documentNumber ?? "")}</div>`
-
-    case "document_prefix":
-      return `<div${styleAttr}>${esc(data.documentPrefix ?? "")}</div>`
-
-    case "document_sufix":
-      return `<div${styleAttr}>${esc(data.documentSufix ?? "")}</div>`
-
-    case "subtotal":
-      return `<div${styleAttr}>${esc(formatMoney(data.subtotal))}</div>`
-
-    case "discount":
-      return `<div${styleAttr}>${esc(formatMoney(data.discount))}</div>`
-
-    case "tax_total":
-      return `<div${styleAttr}>${esc(formatMoney(data.taxTotal))}</div>`
-
     case "total":
       return `<div style="${align};font-weight:bold">${esc(formatMoney(data.total))}</div>`
 
-    case "note":
-      return `<div${styleAttr}>${esc(data.note ?? "")}</div>`
-
-    case "transaction_id":
-      return `<div${styleAttr}>${esc(data.transactionId)}</div>`
-
     case "payment_methods": {
-      const lines = data.payments
+      return data.payments
         .map((p) => `<div${styleAttr}>${esc(p.method)}: ${esc(formatMoney(p.amount))}</div>`)
         .join("")
-      return lines
-    }
-
-    case "item_receipt":
-    case "item_receipt_2":
-    case "item_receipt_3":
-    case "item_receipt_4": {
-      const rows = data.items
-        .map(
-          (item) =>
-            `<tr><td>${esc(item.name)}</td><td style="text-align:right">${item.qty}</td>` +
-            `<td style="text-align:right">${esc(formatMoney(item.unitPrice))}</td>` +
-            `<td style="text-align:right">${esc(formatMoney(item.total))}</td></tr>`,
-        )
-        .join("")
-      return (
-        `<table style="width:100%;border-collapse:collapse;font-size:inherit">` +
-        `<thead><tr><th style="text-align:left">Ítem</th><th style="text-align:right">Cant.</th>` +
-        `<th style="text-align:right">P.Unit</th><th style="text-align:right">Total</th></tr></thead>` +
-        `<tbody>${rows}</tbody></table>`
-      )
     }
 
     default:
-      return ""
+      break
   }
+
+  if (ITEM_TABLE_TYPES.has(block.type)) {
+    return renderItemTable(block, data)
+  }
+
+  const resolver = BLOCK_VALUE_RESOLVERS[block.type]
+  if (resolver) {
+    const value = resolver(data, block)
+    return `<div${styleAttr}>${esc(value ?? "")}</div>`
+  }
+
+  // Tipo realmente no implementado — no descartarlo en silencio (ese
+  // silencio fue lo que hizo que este bug llegara a producción).
+  console.error("[html-renderer] BlockType desconocido, no implementado:", block.type)
+  return `<div${styleAttr} data-missing-block="${esc(block.type)}">[${esc(block.type)}]</div>`
 }
 
-function renderItemsBlock(block: PrintBlock, data: TicketData): string {
-  const rows = data.items
-    .map((item) => {
-      switch (block.type) {
-        case "item":
-          return `<div>${esc(item.name)}</div>`
-        case "item_units":
-          return `<div>${item.qty}</div>`
-        case "item_uni_price":
-          return `<div>${esc(formatMoney(item.unitPrice))}</div>`
-        case "item_discount":
-          return `<div>${esc(formatMoney(item.discount))}</div>`
-        case "item_total":
-          return `<div>${esc(formatMoney(item.total))}</div>`
-        default:
-          return ""
-      }
-    })
-    .join("")
-  return rows
+function renderItemFieldHtml(block: PrintBlock, item: TicketData["items"][number], data: TicketData): string {
+  const resolver = ITEM_FIELD_RESOLVERS[block.type]
+  if (!resolver) return ""
+  const value = resolver(item, data)
+  return `<div>${esc(value ?? "")}</div>`
 }
 
 export interface RenderTemplateToHtmlOptions {
@@ -186,7 +129,8 @@ export function renderTemplateToHtml(
   data: TicketData,
   options: RenderTemplateToHtmlOptions = {},
 ): string {
-  const blocks = template.data ?? []
+  // Canvas → orden visual: ver `sortBlocksForRender` en blocks.ts.
+  const blocks = sortBlocksForRender(template.data ?? [])
   const parts: string[] = []
 
   // Mismo forzado que render-template.ts (ESC/POS): el destino de la comanda
@@ -200,15 +144,15 @@ export function renderTemplateToHtml(
   let i = 0
   while (i < blocks.length) {
     const block = blocks[i]
-    if (ITEM_BLOCK_TYPES.has(block.type)) {
+    if (ITEM_LINE_TYPES.has(block.type)) {
       const groupStart = i
-      while (i < blocks.length && ITEM_BLOCK_TYPES.has(blocks[i].type)) {
+      while (i < blocks.length && ITEM_LINE_TYPES.has(blocks[i].type)) {
         i++
       }
       const itemBlocks = blocks.slice(groupStart, i)
       for (const item of data.items) {
         for (const ib of itemBlocks) {
-          parts.push(renderItemsBlock({ ...ib }, { ...data, items: [item] }))
+          parts.push(renderItemFieldHtml(ib, item, data))
         }
       }
     } else {

@@ -78,7 +78,7 @@ export async function printSale(opts: {
 
       if (binding.categoryIds.length > 0 && filteredItems.length === 0) continue
 
-      const dataForPrinter: TicketData = { ...opts.data, items: filteredItems }
+      const dataForPrinter: TicketData = { ...opts.data, items: filteredItems, printerName: binding.name }
 
       if (binding.transport === "native") {
         if (!binding.templateId) {

@@ -8,14 +8,52 @@ export interface TicketData {
   companyAddress?: string
   companyPhone?: string
   companyLogoUrl?: string
+  /**
+   * companyBillingName/companyTin/companyEmail/companyWebsite: NO poblados
+   * hoy — PosConfig (`lib/types/pos-bootstrap.ts`) solo trae
+   * companyName/companyId/companyLogo, sin razón social/RUC/email/sitio.
+   * Requiere ampliar `/api/pos/bootstrap` + `/v1/bootstrap` upstream. Los
+   * bloques `company_billing_name`/`company_tin`/`company_email`/
+   * `company_website` (ver `blocks.ts`) resuelven estos campos y quedan en
+   * blanco hasta que existan.
+   */
+  companyBillingName?: string | null
+  companyTin?: string | null
+  companyEmail?: string | null
+  companyWebsite?: string | null
   // sucursal
   outletName?: string
+  /**
+   * outletAddress/outletBillingName/outletTin/outletPhone: `OutletListItem`
+   * (`lib/types/outlet.ts`) YA tiene billingName/ruc/phone/address, pero
+   * `PosOutlet` (bootstrap del POS) solo trae id/name/lat/lng — no llegan
+   * acá. Requiere ampliar el bootstrap igual que company*.
+   */
   outletAddress?: string
+  outletBillingName?: string | null
+  outletTin?: string | null
+  outletPhone?: string | null
   // cliente
   customerName?: string
+  /** Ver nota de PosCustomer abajo — no modelado hoy, siempre null. */
   customerAddress?: string
   customerPhone?: string
   customerTin?: string
+  /**
+   * customerAddress2/Location/City/Country/Phone2/Note/Loyalty/Birthday/
+   * Email: `PosCustomer` (`lib/types/pos-bootstrap.ts`) solo trae
+   * id/name/phone/tin/storeCredit/isCreditable. Requiere ampliar el modelo
+   * de cliente (backend `/v1/contacts` + bootstrap) para poblarlos.
+   */
+  customerAddress2?: string | null
+  customerLocation?: string | null
+  customerCity?: string | null
+  customerCountry?: string | null
+  customerPhone2?: string | null
+  customerNote?: string | null
+  customerLoyalty?: string | null
+  customerBirthday?: string | null
+  customerEmail?: string | null
   // documento
   docType: string
   documentNumber?: string
@@ -24,8 +62,38 @@ export interface TicketData {
   ticketNo?: string
   transactionId: string
   saleId?: string
+  /** Fecha de vencimiento (ventas a crédito) — `payload.dueDate`. */
+  dueDate?: string | null
+  /** Etiquetas de texto libre de la venta — `payload.tags`. */
+  tags?: string[]
+  /**
+   * Número de documento asociado (ej. cotización origen de esta venta).
+   * `CreateSalePayload.parentTransactionId` es un UUID interno, no un
+   * número de documento imprimible — resolver ese UUID contra el
+   * `documentNumber` de la transacción padre no está implementado. Queda
+   * null hasta que exista ese lookup.
+   */
+  associatedDocument?: string | null
   // usuario
   userName?: string
+  /** Caja activa (`activeRegisterId` resuelto contra `registers` del catálogo). */
+  registerName?: string | null
+  /**
+   * Impresora física que está imprimiendo este ticket — NO se completa acá
+   * (buildTicketData no sabe con qué binding se va a imprimir; puede haber
+   * más de uno). La inyecta `printSale` (lib/hardware/printers/index.ts)
+   * por binding, clonando `TicketData` antes de renderizar cada copia.
+   */
+  printerName?: string | null
+  /**
+   * Timbrado (No./inicio/vencimiento): registerInvoiceAuth* existe en BD
+   * (mig 26) pero no viaja al POS bootstrap hoy, y la fuente correcta a
+   * futuro puede terminar siendo el módulo de facturación electrónica
+   * (api/lib/EInvoice/*, en desarrollo en paralelo — no tocado acá).
+   */
+  authNumber?: string | null
+  authStartDate?: string | null
+  authExpiration?: string | null
   // fecha
   date: string
   // items
@@ -46,7 +114,8 @@ export interface TicketData {
    * `render-template.ts`/`html-renderer.ts` SIEMPRE que esté presente, sin
    * depender de qué bloques tenga configurada la plantilla del binding: es
    * el primer dato que necesita quien arma el pedido, no un campo más que el
-   * operador pueda olvidarse de agregar al template.
+   * operador pueda olvidarse de agregar al template. También reusado como
+   * valor best-effort del bloque `table_number` (ver blocks.ts).
    */
   orderDestination?: string
 }
@@ -75,6 +144,7 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
   const state = useCatalogStore.getState()
   const outletName = state.outlet?.name
   const customer = state.customers.find((c) => c.id === payload.client) ?? null
+  const registerName = state.registers.find((r) => r.id === state.activeRegisterId)?.name ?? null
 
   const items: TicketItem[] = payload.sale.map((s) => {
     const catalogItem = state.items.find((i) => i.id === s.itemId)
@@ -101,6 +171,9 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     customerTin: customer?.tin ?? undefined,
     docType: payload.type === 3 ? "credit" : "receipt",
     transactionId: result.transactionId,
+    dueDate: payload.dueDate ?? null,
+    tags: payload.tags,
+    registerName,
     date: payload.date,
     items,
     subtotal: payload.subtotal,
