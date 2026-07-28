@@ -33,8 +33,19 @@ final class Validation
      *   - no seteado (isset false)
      *   - vacío (!$value, empty(), == '', == false)
      *   - el string literal 'undefined' (legacy del front JS)
-     *   - cuenta < 0.00001 (counts())
+     *   - string vacío / array vacío (`Arr::sizeOf() < 0.00001`)
      * Sino retorna el valor original.
+     *
+     * ⚠ El guard de `sizeOf` NO se aplica a valores numéricos. `Arr::sizeOf()`
+     * devuelve el NÚMERO cuando el valor es numérico (no su "tamaño"), así que
+     * el guard rechazaba en silencio TODO número negativo: -25.2637 < 0.00001.
+     * Con ~716 callers, eso significaba que ninguna latitud/longitud del
+     * hemisferio sur, ni ningún ajuste o saldo negativo, sobrevivía a
+     * `validateHttp()` — el valor llegaba al endpoint y desaparecía sin error
+     * (síntoma real: las coordenadas de sucursal se "guardaban" y volvían
+     * vacías, y el PIN del local nunca aparecía en el mapa de /pos/ordenes).
+     * Para numéricos el cero ya lo filtran `!$value`/`== false` de arriba, que
+     * es lo único que el guard aportaba en ese caso.
      *
      * Con $force se valida tipo:
      *   - 'email'  → filter_var FILTER_VALIDATE_EMAIL
@@ -49,7 +60,10 @@ final class Validation
         if (!isset($value)) {
             return false;
         }
-        if (!$value || empty($value) || $value == 'undefined' || $value === null || $value == false || $value === false || $value == '' || Arr::sizeOf($value) < 0.00001) {
+        if (!$value || empty($value) || $value == 'undefined' || $value === null || $value == false || $value === false || $value == '') {
+            return false;
+        }
+        if (!is_numeric($value) && Arr::sizeOf($value) < 0.00001) {
             return false;
         }
         if ($force) {
