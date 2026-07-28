@@ -161,6 +161,48 @@ cruza la medianoche pierde el lease pero NO el arqueo — son dos ciclos
 distintos y no hay que acoplarlos.
 
 
+### 4.2 Tope por vencimiento de timbrado (responsabilidad del motor)
+
+Decisión del owner (2026-07-28): **impedir que un comercio facture con el
+timbrado vencido es responsabilidad de nuestro motor de facturación**, no
+del contador. Los cierres fiscales, en cambio, NO nos corresponden — ver
+§4.1.
+
+El timbrado ya está modelado: `register.data->>'registerInvoiceAuth'` y
+`registerInvoiceAuthExpiration` (demoted a JSONB en la mig 26). De ahí salen
+tres reglas:
+
+1. **`expiresAt` del lease = `min(fin de la fecha del outlet, vencimiento
+   del timbrado)`.** Un bloque reservado no puede sobrevivir al timbrado que
+   lo ampara: si vence el jueves, el lease tomado el jueves muere el jueves,
+   no a la medianoche por defecto.
+2. **Sin timbrado vigente no se entregan números.** El chequeo va del lado
+   del servidor, al tomar la caja y al pedir bloque — no en el cliente, que
+   puede estar desactualizado u offline.
+3. **El bloque offline lleva el tope adentro.** El device no puede emitir
+   con números de un bloque cuyo timbrado ya venció, aunque no tenga red
+   para enterarse: la fecha de corte viaja con el lease y el POS la respeta
+   localmente.
+
+⚠ **Bloqueante para activar esto**: hoy **ningún register de producción
+tiene timbrado cargado** (verificado 2026-07-28: `registerInvoiceAuth` y
+`registerInvoiceAuthExpiration` vacíos en todos). Un check estricto
+bloquearía el 100% de la facturación el día que se active. Hace falta una
+transición explícita — cargar timbrados primero, avisar durante N días, y
+recién después endurecer — y decidir qué hace el motor ante un register
+**sin** timbrado cargado (¿bloquea, avisa, o deja pasar?). Es distinto de
+"timbrado vencido", que sí bloquea sin discusión.
+
+**Aviso anticipado**: el panel debería avisar con antelación (p. ej. 30/15/7
+días) que el timbrado de una caja está por vencer. Un bloqueo sorpresa un
+lunes a la mañana es peor que el problema que evita.
+
+**Convergencia con impresión**: los bloques `auth_number`, `auth_start_date`
+y `auth_expiration` de las plantillas de ticket piden exactamente estos
+datos y hoy no viajan al POS (flag abierto del catálogo de bloques,
+2026-07-28). Exponer el timbrado en el bootstrap del POS resuelve las dos
+cosas de una.
+
 ---
 
 ## 5. Superficie técnica
