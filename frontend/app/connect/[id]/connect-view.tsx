@@ -6,6 +6,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { setDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
+import { InvalidLink } from "./invalid-link"
 import { setDeviceClaims } from "@/lib/auth/device-claims"
 
 const POLL_INTERVAL_MS = 3000
@@ -43,6 +44,10 @@ interface ConnectViewProps {
 export function ConnectView({ invitationId, userCode, module, autoApproveToken, autoApproveCompanyId, autoApproveRegisterId, autoApproveDeviceId }: ConnectViewProps) {
   const router = useRouter()
   const [status, setStatus] = React.useState<InvitationStatus>("opened")
+  // Motivo definitivo por el que este link no sirve (invitación inexistente,
+  // vencida, o dispositivo revocado). Corta el polling y se muestra en vez de
+  // dejar al operador esperando una aprobación que nunca va a llegar.
+  const [fatalError, setFatalError] = React.useState<string | null>(null)
   const startedAt = React.useRef(Date.now())
 
   // Reconnect: el token llega directamente desde open() — persistir y redirigir
@@ -74,6 +79,24 @@ export function ConnectView({ invitationId, userCode, module, autoApproveToken, 
           `/api/v1/device_invitations.php?resource=status&id=${encodeURIComponent(invitationId)}`,
           { method: "GET", credentials: "include", cache: "no-store" },
         )
+        // 404/410/409 son definitivos: la invitación no existe, venció, o su
+        // dispositivo fue REVOCADO (`issueTokenForExistingDevice` exige
+        // status=1 y tira 404 "Device no encontrado o revocado"). Antes esto
+        // caía en un `return` mudo y el poll seguía girando: el operador veía
+        // la pantalla de "esperando aprobación" para siempre, o terminaba en
+        // el POS sin token con un "Dispositivo no conectado" que culpaba al
+        // admin. Ahora se corta y se muestra el motivo real.
+        if (res.status === 404 || res.status === 410 || res.status === 409) {
+          clearInterval(intervalId)
+          const errBody = (await res.json().catch(() => null)) as
+            | { error?: { message?: string } }
+            | null
+          setFatalError(
+            errBody?.error?.message ??
+              "El link ya no es válido. Pedí uno nuevo desde Ajustes → Dispositivos.",
+          )
+          return
+        }
         if (!res.ok) return
 
         const body = (await res.json()) as {
@@ -117,6 +140,8 @@ export function ConnectView({ invitationId, userCode, module, autoApproveToken, 
 
     return () => clearInterval(intervalId)
   }, [invitationId, module, router, autoApproveToken])
+
+  if (fatalError) return <InvalidLink reason={fatalError} />
 
   return (
     <div className="min-h-svh flex flex-col items-center justify-center p-6 bg-background">
