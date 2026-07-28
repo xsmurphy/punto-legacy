@@ -534,6 +534,63 @@ final class OrderCoreService
     }
 
     /**
+     * Asigna (o desasigna, `$courierId=null`) el repartidor de una orden
+     * delivery (F-D-1, context/27 §B.6.2). El repartidor es una PERSONA
+     * (staff en `contact`), no un dispositivo pareado — hoy la caja asigna y
+     * marca las transiciones por él; cuando exista su app propia va a usar
+     * la misma columna con su propio actor.
+     *
+     * Sin TX/FOR UPDATE: no es una transición de status con carrera contra
+     * markPaid, es un campo independiente que no participa de la máquina de
+     * estados.
+     *
+     * NO se llama a recordEvent() acá — decisión cerrada (context/27 §C.3/§C.4):
+     * `pos_order_event.to_status` es NOT NULL y `scope` está limitado a
+     * 'order'|'item' como transiciones de la MÁQUINA DE ESTADOS. Asignar
+     * repartidor no es una transición de status; forzarlo con `to_status` =
+     * el status actual sin cambio sería un evento mintiendo que hubo una
+     * transición que no ocurrió. Si a futuro se quiere trackear "quién asignó
+     * a quién y cuándo" en el timeline, es una evolución de schema aparte
+     * (scope nuevo o columna dedicada), no de esta tarea.
+     */
+    public function assignCourier(string $companyId, string $orderId, ?string $courierId, ?string $outletScope = null): array
+    {
+        global $db;
+
+        $order = ncmExecute('SELECT * FROM pos_order WHERE orderid = ? AND companyid = ?', [$orderId, $companyId]);
+        if (!$order) {
+            throw new \RuntimeException('Orden no encontrada');
+        }
+        $this->assertOutletScope((string) $order['outletid'], $outletScope);
+
+        if ((string) ($order['fulfillment'] ?? 'dine_in') !== 'delivery') {
+            throw new \InvalidArgumentException("Solo se puede asignar repartidor a órdenes con fulfillment='delivery'");
+        }
+
+        if ($courierId !== null) {
+            $courier = ncmExecute('SELECT contactid FROM contact WHERE contactid = ? AND companyid = ?', [$courierId, $companyId]);
+            if (!$courier) {
+                throw new \InvalidArgumentException('El repartidor no existe');
+            }
+        }
+
+        $ok = $this->db->Execute(
+            'UPDATE pos_order SET courierid = ? WHERE orderid = ? AND companyid = ?',
+            [$courierId, $orderId, $companyId]
+        );
+        if ($ok === false) {
+            throw new \RuntimeException('No se pudo asignar el repartidor');
+        }
+
+        $order = $this->find($companyId, $orderId);
+        if ($order !== null) {
+            $this->publish($companyId, $order['outletId'], 'order:status', $order);
+            realtimePublish('order', 'update', $orderId);
+        }
+        return $order ?? [];
+    }
+
+    /**
      * Marca la orden como cobrada. La llama el flujo de cobro (O1: volcado
      * al carrito → SaleService → acá) con el transactionId ya creado — este
      * método NO crea la transacción, solo deja el rastro.
@@ -775,7 +832,8 @@ final class OrderCoreService
         $sql = 'SELECT o.*,
                        c.contactname          AS customer_name,
                        c.data->>\'contactLatLng\' AS customer_latlng,
-                       sp.name                AS space_name
+                       sp.name                AS space_name,
+                       co.contactname         AS courier_name
                   FROM pos_order o
              LEFT JOIN contact c
                     ON c.contactid = o.customerid
@@ -786,6 +844,9 @@ final class OrderCoreService
              LEFT JOIN space sp
                     ON sp.tableid = ss.tableid
                    AND sp.companyid = ss.companyid
+             LEFT JOIN contact co
+                    ON co.contactid = o.courierid
+                   AND co.companyid = o.companyid
                  WHERE ' . implode(' AND ', $where) . '
                  ORDER BY o.created_at DESC
                  LIMIT 500';
@@ -817,7 +878,8 @@ final class OrderCoreService
             'SELECT o.*,
                     c.contactname          AS customer_name,
                     c.data->>\'contactLatLng\' AS customer_latlng,
-                    sp.name                AS space_name
+                    sp.name                AS space_name,
+                    co.contactname         AS courier_name
                FROM pos_order o
           LEFT JOIN contact c
                  ON c.contactid = o.customerid
@@ -828,6 +890,9 @@ final class OrderCoreService
           LEFT JOIN space sp
                  ON sp.tableid = ss.tableid
                 AND sp.companyid = ss.companyid
+          LEFT JOIN contact co
+                 ON co.contactid = o.courierid
+                AND co.companyid = o.companyid
               WHERE o.orderid = ? AND o.companyid = ? LIMIT 1',
             [$id, $companyId]
         );
@@ -1048,6 +1113,7 @@ final class OrderCoreService
             'orderNumber'       => isset($row['ordernumber']) ? (int) $row['ordernumber'] : null,
             'spaceSessionId'    => $row['spacesessionid'] ?? null,
             'customerId'        => $row['customerid'] ?? null,
+            'courierId'         => $row['courierid'] ?? null,
             'userId'            => $row['userid'] ?? null,
             'note'              => $row['note'] ?? null,
             'channelRef'        => $row['channelref'] ?? null,
@@ -1073,6 +1139,13 @@ final class OrderCoreService
             ? (string) $customerName
             : null;
         [$out['customerLat'], $out['customerLng']] = self::parseLatLng($row['customer_latlng'] ?? null);
+
+        // Nombre del repartidor (LEFT JOIN a `contact` en list()/find(), mismo
+        // patrón que customerName). Solo relevante si fulfillment==='delivery'.
+        $courierName = $row['courier_name'] ?? null;
+        $out['courierName'] = ($courierName !== null && $courierName !== '')
+            ? (string) $courierName
+            : null;
 
         // Nombre del espacio (LEFT JOIN space_session → space en list()/find()).
         // Sin él, una comanda de salón solo puede decir "Espacio" a secas: el

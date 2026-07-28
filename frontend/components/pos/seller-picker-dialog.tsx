@@ -18,6 +18,8 @@ interface SellerPickerDialogProps {
   onOpenChange: (open: boolean) => void
   onSelect: (userId: string | null) => void
   currentUserId?: string
+  /** Título del diálogo — default "Asignar usuario". Ej.: "Asignar repartidor" (courier picker, F-D-1). */
+  title?: string
 }
 
 export function SellerPickerDialog({
@@ -25,6 +27,7 @@ export function SellerPickerDialog({
   onOpenChange,
   onSelect,
   currentUserId,
+  title = "Asignar usuario",
 }: SellerPickerDialogProps) {
   const [search, setSearch] = React.useState("")
   const users = useCatalogStore((s) => s.users)
@@ -44,7 +47,7 @@ export function SellerPickerDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">
-            Asignar usuario
+            {title}
           </DialogTitle>
         </DialogHeader>
         <div className="relative mb-1">

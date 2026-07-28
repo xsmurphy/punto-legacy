@@ -188,7 +188,7 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 |---|---|---|
 | **F-SLA-0** | Mig (targetminutes + timestamps), default por outlet, snapshot, `use-order-sla`, `sla-visuals`, consumo en KDS/ordenes/espacios | — |
 | **F-D-0** | ✅ HECHO (2026-07-27) — `fulfillment` (mig 94), guards en `OrderCoreService::create()`, filtro en `list()`. `out_for_delivery`/whitelist por module quedan para cuando se ataque `out_for_delivery` (ver F-D-1) | F-SLA-0 (timestamps) |
-| **F-D-1** | Snapshot de dirección (`deliveryaddress*`, mig 94) y mapa filtrado por `fulfillment` entraron en F-D-0 (2026-07-27). `out_for_delivery` ("En camino": mig 95, `ORDER_TRANSITIONS` back+front, guard fulfillment='delivery', pills/colores) HECHO (2026-07-28). Quedan pendientes: `courierid`, vista de despacho por repartidor, tracking — dependen de §B.6.2 (owner) | F-D-0 |
+| **F-D-1** | Snapshot de dirección (`deliveryaddress*`, mig 94) y mapa filtrado por `fulfillment` entraron en F-D-0 (2026-07-27). `out_for_delivery` ("En camino": mig 95, `ORDER_TRANSITIONS` back+front, guard fulfillment='delivery', pills/colores) HECHO (2026-07-28). `courierid` + asignación desde la caja (mig 97, `assignCourier()`, selector en el detalle de orden) HECHO (2026-07-28). Quedan pendientes: vista de despacho por repartidor, tracking en vivo — F-D-2 | F-D-0 |
 | **F-D-1c** | Libreta de direcciones del cliente + snapshot de coords en la orden (§PARTE D) | F-D-0 |
 | **F-D-1a** | Costo de envío por bandas de distancia → ítem del catálogo (§B.7) | F-D-1c |
 | **F-D-1b** | Zonas por polígono con editor en el panel (§B.7) | F-D-1a |
@@ -202,10 +202,19 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 1. **`deliveryfee` fiscal — RESUELTO (2026-07-19)**: el costo de envío es un
    **ítem más de la venta**. Es un servicio que se cobra y se factura, así
    que entra al comprobante como cualquier otra línea. Ver §B.7.
-2. **¿El repartidor tiene app propia?** — PENDIENTE. Si sí,
-   `out_for_delivery` y `delivered` los marca él y hace falta un
-   realm/module nuevo (patrón device pairing). Si no, los marca el POS y
-   F-D-2 se simplifica mucho.
+2. **¿El repartidor tiene app propia? — RESUELTO (2026-07-28)**: SÍ, va a
+   tener app propia, pero todavía no existe. El repartidor es una
+   **persona, no un dispositivo pareado**: las pantallas (KDS, despacho,
+   impresión) se parean por device porque son fijas y del local; el
+   repartidor está en la calle con su propio teléfono y hace falta saber
+   QUIÉN marcó entregado, no qué aparato. Cuando exista, su app va a
+   entrar como **usuario con sesión propia y permiso acotado**, no como un
+   `module` de device más. El punto de extensión ya existe:
+   `assertModuleCanSetStatus` en `api/v1/orders-core.php` — sumar quién
+   puede pedir qué transición es agregar una entrada, no rediseñar. Hoy
+   (F-D-1) la caja asigna el repartidor (`courierid`) y marca las
+   transiciones por él; las mismas columnas y transiciones las va a usar
+   la app después.
 
 ## B.7 Cálculo del costo de envío
 

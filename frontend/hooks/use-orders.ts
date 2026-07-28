@@ -88,6 +88,15 @@ export interface Order {
   spaceSessionId: string | null
   customerId: string | null
   /**
+   * Repartidor asignado (F-D-1, context/27-delivery-sla-plan.md §B.6.2). Es
+   * una PERSONA (staff en `contact`), no un dispositivo pareado — hoy la caja
+   * lo asigna; solo relevante si `fulfillment==='delivery'`, el backend
+   * rechaza asignarlo en el resto.
+   */
+  courierId: string | null
+  /** Nombre del repartidor asignado (LEFT JOIN a `contact`, mismo patrón que `customerName`). Solo relevante si `fulfillment==='delivery'`. */
+  courierName: string | null
+  /**
    * Datos del cliente resueltos server-side (LEFT JOIN a `contact` en
    * `OrderCoreService::list()`/`find()`). `customerLat`/`customerLng` salen de
    * `contact.data->>'contactLatLng'` (string legacy "lat,lng") ya parseadas y
@@ -314,6 +323,25 @@ export function useUpdateOrderStatus() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["orders"] })
+    },
+  })
+}
+
+/**
+ * Asigna o desasigna (courierId=null) el repartidor de una orden delivery.
+ * Solo válido si `fulfillment==='delivery'` — el backend rechaza el resto.
+ */
+export function useAssignCourier() {
+  const qc = useQueryClient()
+  return useMutation<Order, Error, { orderId: string; courierId: string | null }>({
+    mutationFn: ({ orderId, courierId }) =>
+      posJson<Order>(`/api/pos/orders?id=${orderId}&action=assign-courier`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courierId }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["orders"] })

@@ -15,7 +15,7 @@
  */
 
 import * as React from "react"
-import { ChevronDown, DollarSign, MoreHorizontal, Printer, X } from "lucide-react"
+import { ChevronDown, DollarSign, MoreHorizontal, Printer, Truck, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -44,7 +44,9 @@ import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useOrderActions } from "@/hooks/use-order-actions"
 import { KDS_ITEM_VISUALS } from "@/lib/kds/kds-visuals"
+import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
 import {
+  useAssignCourier,
   useOrder,
   useUpdateOrderStatus,
   type Order,
@@ -75,6 +77,8 @@ export function OrderDetailView({
 }) {
   const config = useCatalogStore((s) => s.config)
   const updateStatus = useUpdateOrderStatus()
+  const assignCourier = useAssignCourier()
+  const [courierPickerOpen, setCourierPickerOpen] = React.useState(false)
   // Mismas acciones que la card de la vista Cuadros — `useOrderActions` es la
   // única definición de Cobrar/Reimprimir/Cancelar.
   const {
@@ -109,6 +113,16 @@ export function OrderDetailView({
         // El error real del server, no uno genérico — ORDER_TRANSITIONS acá es
         // solo un espejo, la autoridad de qué transición vale es el backend.
         onError: (err) => toast.error("No se pudo cambiar el estado", { description: err.message }),
+      },
+    )
+  }
+
+  function handleAssignCourier(courierId: string | null) {
+    assignCourier.mutate(
+      { orderId: order.id, courierId },
+      {
+        onSuccess: () => toast.success(courierId ? "Repartidor asignado" : "Repartidor quitado"),
+        onError: (err) => toast.error("No se pudo asignar el repartidor", { description: err.message }),
       },
     )
   }
@@ -221,6 +235,31 @@ export function OrderDetailView({
         </div>
       </div>
 
+      {/* ── Repartidor (F-D-1) — solo delivery ────────────────────────────────
+          El repartidor es una PERSONA (staff de `contact`), no un dispositivo
+          pareado; hoy la caja lo asigna (context/27 §B.6.2). */}
+      {order.fulfillment === "delivery" && (
+        <div className="mt-4 rounded-lg bg-muted/40 p-4">
+          <h3 className="text-sm font-medium text-muted-foreground mb-2">Repartidor</h3>
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2 text-sm">
+              <Truck className="size-3.5 text-muted-foreground" aria-hidden />
+              {order.courierName ?? (
+                <span className="text-muted-foreground italic">Sin repartidor asignado</span>
+              )}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCourierPickerOpen(true)}
+              disabled={assignCourier.isPending}
+            >
+              {order.courierName ? "Reasignar" : "Asignar"}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Historial de transiciones (F-EVT-0) ───────────────────────────────
           `events` solo viene en el detalle — mientras carga, skeleton (igual
           que TransactionDetail); si el detalle ya resolvió y no hay eventos,
@@ -262,6 +301,14 @@ export function OrderDetailView({
           </div>
         )}
       </div>
+
+      <SellerPickerDialog
+        open={courierPickerOpen}
+        onOpenChange={setCourierPickerOpen}
+        title="Asignar repartidor"
+        currentUserId={order.courierId ?? undefined}
+        onSelect={handleAssignCourier}
+      />
 
       <AlertDialog
         open={cancelOpen}

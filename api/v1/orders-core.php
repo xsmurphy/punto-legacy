@@ -14,6 +14,7 @@
  *   POST /v1/orders-core?id=<uuid>&action=send                → open → sent
  *   POST /v1/orders-core?id=<uuid>&action=status  {status}    → transición a nivel orden (cancel, etc — closed prohibido)
  *   POST /v1/orders-core?id=<uuid>&action=mark-paid {transactionId} → cierra la orden tras cobrarla (llamado por el flujo de cobro, O1)
+ *   POST /v1/orders-core?id=<uuid>&action=assign-courier {courierId} → asigna/desasigna repartidor (solo fulfillment='delivery')
  *   POST /v1/orders-core?resource=item-status&id=<orderItemId> {status} → transición de un ítem
  *
  * Auth: panel + pos-app (las órdenes las opera tanto el POS como el panel).
@@ -176,8 +177,22 @@ switch ($method) {
             break;
         }
 
+        if ($id !== null && $action === 'assign-courier') {
+            if ($deviceModule === 'kds' || $deviceModule === 'display') {
+                apiError("El dispositivo ({$deviceModule}) no puede asignar repartidores", 403);
+            }
+            $courierId = array_key_exists('courierId', $_POST) ? $_POST['courierId'] : null;
+            $courierId = ($courierId === '' || $courierId === null) ? null : (string) $courierId;
+            try {
+                apiOk($svc->assignCourier($companyId, (string) $id, $courierId, $outletScope));
+            } catch (\Throwable $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
         if ($id !== null) {
-            apiError('action inválida (esperado: send|status|mark-paid, o resource=item-status)', 422);
+            apiError('action inválida (esperado: send|status|mark-paid|assign-courier, o resource=item-status)', 422);
         }
 
         if ($deviceModule === 'kds' || $deviceModule === 'display') {
