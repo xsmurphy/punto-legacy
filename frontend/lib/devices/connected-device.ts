@@ -13,6 +13,7 @@ export interface ConnectedDevice {
   pairedAt: string | null
   lastSeenAt: string | null
   status: number              // 1 activo, 0 revocado
+  activeSessions: number      // sesiones auth_session activas para este device
 }
 
 export const DEVICE_KIND_LABELS: Record<DeviceKind, string> = {

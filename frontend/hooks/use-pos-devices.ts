@@ -18,6 +18,7 @@ export interface PosDevice {
   revokedAt: string | null
   module: string | null
   ipLast: string | null
+  activeSessions: number
 }
 
 export function usePosDevices(opts: { showRevoked?: boolean } = {}) {

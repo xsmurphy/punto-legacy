@@ -434,17 +434,26 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // 401 en cualquiera → propagar 401 entero.
-  if (
-    bsRes.status === 401 ||
-    itemsRes.status === 401 ||
-    customersRes.status === 401 ||
-    registersRes.status === 401 ||
-    usersRes.status === 401
-  ) {
+  const unauthorizedRes = [bsRes, itemsRes, customersRes, registersRes, usersRes].find(
+    (r) => r.status === 401,
+  )
+  if (unauthorizedRes) {
+    // El upstream (`api/includes/auth_session.php`) manda `code: "session_revoked"`
+    // en el body cuando la sesión fue revocada explícitamente por un admin — sin
+    // preservarlo acá, `posFetch`/`PosAuthGuard` no pueden distinguir esa causa
+    // de un token vencido/ausente genérico y muestran el copy equivocado.
+    let upstreamCode: string | number = 401
+    try {
+      const parsed = unauthorizedRes.rawText ? JSON.parse(unauthorizedRes.rawText) : null
+      if (parsed && typeof parsed.code !== "undefined") upstreamCode = parsed.code
+    } catch {
+      // rawText no era JSON — nos quedamos con el código genérico.
+    }
     return NextResponse.json(
       {
         ok: false,
         error: { message: "No autenticado", code: 401 },
+        code: upstreamCode,
       },
       { status: 401 },
     )

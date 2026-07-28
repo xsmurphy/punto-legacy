@@ -86,6 +86,10 @@ export default function DevicesPage() {
   const pendingCount = (invitationsData ?? []).filter((i) => i.status === "opened").length
 
   const { devices, isLoading } = useConnectedDevices({ showRevoked })
+  const revokeDeviceTarget = React.useMemo(
+    () => devices.find((d) => d.id === revokeId) ?? null,
+    [devices, revokeId],
+  )
 
   const revokeDevice = useRevokePosDevice()
   const deletePosDevice = useDeletePosDevice()
@@ -158,12 +162,20 @@ export default function DevicesPage() {
     {
       accessorKey: "status",
       header: "Estado",
-      cell: ({ row }) =>
-        row.original.status === 1 ? (
-          <Badge variant="default">Activo</Badge>
-        ) : (
-          <Badge variant="secondary">Revocado</Badge>
-        ),
+      cell: ({ row }) => {
+        const { status, activeSessions } = row.original
+        if (status !== 1) return <Badge variant="secondary">Revocado</Badge>
+        return (
+          <div className="flex items-center gap-1.5">
+            <Badge variant="default">Activo</Badge>
+            {activeSessions > 1 && (
+              <span className="text-xs text-muted-foreground">
+                {activeSessions} sesiones
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       id: "actions",
@@ -308,9 +320,21 @@ export default function DevicesPage() {
       <AlertDialog open={revokeId !== null} onOpenChange={(o) => { if (!o) setRevokeId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revocar dispositivo</AlertDialogTitle>
+            <AlertDialogTitle>
+              Revocar {revokeDeviceTarget ? `"${revokeDeviceTarget.name}"` : "dispositivo"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              El dispositivo dejará de funcionar inmediatamente. Esta acción no se puede deshacer.
+              {revokeDeviceTarget
+                ? `${DEVICE_KIND_LABELS[revokeDeviceTarget.kind]} dejará de funcionar inmediatamente.`
+                : "El dispositivo dejará de funcionar inmediatamente."}
+              {" "}Esta acción no se puede deshacer.
+              {revokeDeviceTarget && revokeDeviceTarget.activeSessions > 1 && (
+                <>
+                  {" "}Tiene <strong>{revokeDeviceTarget.activeSessions} sesiones activas</strong> ahora
+                  mismo — puede haber más de una computadora usándolo en simultáneo, y todas se van a
+                  cortar a la vez.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

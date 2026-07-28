@@ -35,6 +35,7 @@ export function useConnectedDevices(opts: { showRevoked?: boolean } = {}) {
         pairedAt: d.pairedAt,
         lastSeenAt: d.lastSeenAt,
         status: d.status,
+        activeSessions: d.activeSessions,
       }
     })
   }, [posData])

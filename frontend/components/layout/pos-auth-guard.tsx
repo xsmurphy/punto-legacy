@@ -10,6 +10,18 @@ import { WifiOff } from "lucide-react"
 import type { PosBootstrap } from "@/lib/types/pos-bootstrap"
 import { getDeviceToken } from "@/lib/auth/device-token"
 
+const REVOKED_FLAG_KEY = "punto.device.revoked.pos"
+
+/** Lee y consume (una sola vez) el flag que `posFetch` deja cuando detecta
+ * `code: "session_revoked"` en una respuesta 401 — así el guard sabe si el
+ * token ausente es por revocación explícita o por "nunca se parea". */
+function consumeRevokedFlag(): boolean {
+  if (typeof window === "undefined") return false
+  const revoked = window.sessionStorage.getItem(REVOKED_FLAG_KEY) === "1"
+  if (revoked) window.sessionStorage.removeItem(REVOKED_FLAG_KEY)
+  return revoked
+}
+
 /**
  * Guard de auth exclusivo del POS. Verifica el Bearer token del device en
  * localStorage (`punto.device.token`, realm pos-app, 10 años). Si el token
@@ -28,7 +40,9 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   // Check sincrónico: si no hay token en localStorage → DeviceNotConnected sin round-trip.
   // null = aún hidratando (SSR), continuar optimistamente al useQuery.
   const [hasLocalToken, setHasLocalToken] = React.useState<boolean | null>(null)
+  const [revoked, setRevoked] = React.useState(false)
   React.useEffect(() => {
+    if (consumeRevokedFlag()) setRevoked(true)
     setHasLocalToken(getDeviceToken() !== null)
   }, [])
 
@@ -46,6 +60,14 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
         headers,
       })
       if (res.status === 401) {
+        // El body trae `code: "session_revoked"` cuando el admin desconectó
+        // el device explícitamente (ver api/includes/auth_session.php) — lo
+        // distinguimos de "nunca se parea" para mostrar el copy correcto.
+        const payload = await res
+          .clone()
+          .json()
+          .catch(() => null) as { code?: string } | null
+        if (payload?.code === "session_revoked") setRevoked(true)
         throw Object.assign(new Error("DEVICE_UNAUTHORIZED"), { status: 401 })
       }
       if (!res.ok) {
@@ -62,7 +84,7 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   })
 
   // Sin token en localStorage → DeviceNotConnected inmediato, sin round-trip.
-  if (hasLocalToken === false) return <DeviceNotConnected />
+  if (hasLocalToken === false) return <DeviceNotConnected reason={revoked ? "revoked" : "unpaired"} />
 
   // Loading: render children optimistically — el POS tiene su propio LoadingScreen.
   if (status === "pending") return <>{children}</>
@@ -70,7 +92,7 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   if (status === "error") {
     const err = error as { status?: number }
     if (err?.status === 401) {
-      return <DeviceNotConnected />
+      return <DeviceNotConnected reason={revoked ? "revoked" : "unpaired"} />
     }
     // Error transitorio (500, red) → UI de retry para no bloquear la caja.
     return (

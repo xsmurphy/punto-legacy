@@ -47,8 +47,23 @@ const COPY: Record<DeviceKind, { title: string; subtitle: string }> = {
   },
 }
 
-export function DeviceNotConnected({ kind = "pos" }: { kind?: DeviceKind }) {
-  const { title, subtitle } = COPY[kind]
+export type DeviceNotConnectedReason = "unpaired" | "revoked"
+
+export function DeviceNotConnected({
+  kind = "pos",
+  reason = "unpaired",
+}: {
+  kind?: DeviceKind
+  reason?: DeviceNotConnectedReason
+}) {
+  const { title, subtitle } =
+    reason === "revoked"
+      ? {
+          title: "Dispositivo desconectado por un administrador",
+          subtitle:
+            "Para volver a usarlo, pedile al administrador que genere un nuevo link de conexión desde Configuración › Dispositivos del panel.",
+        }
+      : COPY[kind]
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 bg-background">
       <Card className="max-w-md w-full">

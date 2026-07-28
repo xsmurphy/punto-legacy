@@ -62,7 +62,11 @@ $rs = ncmExecute(
             d.registerid, r.registername, d.userid AS pairedbycontactid,
             c.contactname AS pairedbyname,
             d.createdat AS pairedat, d.lastseenat,
-            d.status, d.revokedat, d.module, d.iplast::text AS iplast
+            d.status, d.revokedat, d.module, d.iplast::text AS iplast,
+            (SELECT count(*) FROM auth_session s
+              WHERE s.\"deviceId\" = d.deviceid
+                AND s.\"companyId\" = d.companyid
+                AND s.status = 1) AS activesessions
      FROM device d
      LEFT JOIN outlet   o ON o.outletid   = d.outletid   AND o.companyid = d.companyid
      LEFT JOIN register r ON r.registerid = d.registerid AND r.companyid = d.companyid
@@ -93,6 +97,7 @@ if ($rs && !$rs->EOF) {
             'revokedAt'         => $rs->fields['revokedat']                   ?? null,
             'module'            => (string) ($rs->fields['module']            ?? ''),
             'ipLast'            => (string) ($rs->fields['iplast']            ?? ''),
+            'activeSessions'    => (int) ($rs->fields['activesessions']       ?? 0),
         ];
         $rs->MoveNext();
     }
