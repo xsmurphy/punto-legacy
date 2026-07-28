@@ -20,7 +20,7 @@
 
 import type { OrderItemStatus, OrderStatus } from "@/hooks/use-orders"
 import type { ElapsedTier } from "@/hooks/use-elapsed"
-import { STATUS_LABEL } from "@/lib/orders/order-display"
+import { STATUS_LABEL, STATUS_ACCENT } from "@/lib/orders/order-display"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 
 /** Gris neutro de emergencia — nunca debería usarse (ver comentario abajo). */
@@ -59,11 +59,24 @@ export interface KdsVisual {
  *
  * Los labels salen de `STATUS_LABEL` (lib/orders/order-display.ts) — fuente
  * única con /pos/ordenes: quien opera y el cajero nombran igual los estados.
+ *
+ * El color sale de `STATUS_ACCENT` (mismo archivo) — fuente única de estado→
+ * color para toda la app, incluida la vista lista de /pos/ordenes. Acá solo
+ * se resuelve el fallback gris si algún día esas keys de paleta faltaran.
  */
+function statusAccent(status: KdsOrderStatus): string {
+  const accent = STATUS_ACCENT[status]
+  if (!accent) {
+    console.error(`[kds-visuals] STATUS_ACCENT["${status}"] vino null — usando gris`)
+    return FALLBACK_HEX
+  }
+  return accent
+}
+
 export const KDS_STATUS_VISUALS: Record<KdsOrderStatus, KdsVisual> = {
-  sent: { accent: paletteHex("slate"), label: STATUS_LABEL.sent },
-  in_progress: { accent: paletteHex("sky"), label: STATUS_LABEL.in_progress },
-  ready: { accent: paletteHex("emerald"), label: STATUS_LABEL.ready },
+  sent: { accent: statusAccent("sent"), label: STATUS_LABEL.sent },
+  in_progress: { accent: statusAccent("in_progress"), label: STATUS_LABEL.in_progress },
+  ready: { accent: statusAccent("ready"), label: STATUS_LABEL.ready },
 }
 
 /**

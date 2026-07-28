@@ -67,6 +67,29 @@ export function formatTime(iso: string): string {
 }
 
 /**
+ * "hace 10 min" / "hace 1 h" / "hace 2 d" — para listados donde el dato que
+ * importa es qué tan vieja es la orden, no la hora de reloj (vista lista de
+ * /pos/ordenes). Parsea con `parseNaive` a propósito: es un timestamp naive
+ * del negocio, no UTC genuino — usar `new Date(iso)` acá reintroduce el
+ * mismo bug de desfasaje de TZ documentado arriba.
+ *
+ * Devuelve "—" si `iso` no parsea (nunca el ISO crudo: esta función es para
+ * texto corto de celda, no para debug).
+ */
+export function formatRelativeShort(iso: string): string {
+  const d = parseNaive(iso)
+  if (!d) return "—"
+  const diffMs = Date.now() - d.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return "recién"
+  if (diffMin < 60) return `hace ${diffMin} min`
+  const diffH = Math.floor(diffMin / 60)
+  if (diffH < 24) return `hace ${diffH} h`
+  const diffD = Math.floor(diffH / 24)
+  return `hace ${diffD} d`
+}
+
+/**
  * "Ahora" formateado como naive "YYYY-MM-DD HH:MM:SS" en la TZ del TENANT.
  *
  * Convención de storage: los timestamps del negocio se guardan en hora LOCAL

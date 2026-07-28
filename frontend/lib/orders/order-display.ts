@@ -7,6 +7,7 @@
 
 import { Bike, LayoutGrid, ShoppingBag, Store, Globe, CalendarClock, type LucideIcon } from "lucide-react"
 import type { Order, OrderStatus } from "@/hooks/use-orders"
+import { resolveColorBg } from "@/lib/ui/color-palette"
 
 /**
  * Etiquetas operativas (decisión del owner 2026-07-19). Nombran los estados
@@ -89,6 +90,13 @@ export interface OrderDestination {
  * Fuente única: la consumen el KDS, la pantalla de despacho, /pos/ordenes y
  * la comanda impresa (`orderDestinationText`, sin íconos). Un `switch`
  * exhaustivo sobre `kind` a propósito.
+ *
+ * ⚠ Esto es la FUSIÓN de dos ejes (de dónde vino + cómo se entrega) en un
+ * solo label, pensada para superficies que solo tienen lugar para un dato
+ * (comanda impresa, KDS, despacho, vista cuadros). Cuando hay lugar para dos
+ * columnas (la vista lista de /pos/ordenes), usar los ejes separados:
+ * `orderSourceLabel()` y `orderFulfillmentLabel()` de abajo. No crear un
+ * tercer helper — son exactamente estos dos ejes.
  */
 export function orderDestination(order: Order): OrderDestination {
   if (order.source === "table") {
@@ -128,6 +136,69 @@ export function orderDestinationText(order: Order): string {
 }
 
 /**
+ * Eje 1 de 2 para la vista lista: DE DÓNDE vino la orden — "Mostrador",
+ * "Espacio 2", el canal de e-commerce ("Pedidos Ya"), "Agenda". Es
+ * `orderDestination()` desarmado en su eje `source`, sin mezclar cómo se
+ * entrega (ver `orderFulfillmentLabel`).
+ */
+export function orderSourceLabel(order: Order): string {
+  if (order.source === "table") {
+    return order.spaceName ? `${SOURCE_LABEL.table} ${order.spaceName}` : SOURCE_LABEL.table
+  }
+  if (order.source === "ecommerce") return order.channelRef ?? SOURCE_LABEL.ecommerce
+  if (order.source === "schedule") return SOURCE_LABEL.schedule
+  return SOURCE_LABEL.counter
+}
+
+/**
+ * Eje 2 de 2 para la vista lista: CÓMO se entrega — "Local" / "Retiro" /
+ * "Envío". Es `orderDestination()` desarmado en su eje `fulfillment`. Ojo:
+ * `dine_in` acá dice "Local", no "Mostrador" — en esta tabla el Origen ya
+ * dice "Mostrador"/"Espacio X", así que repetir la palabra sería ruido. El
+ * chip del carrito sigue diciendo "MOSTRADOR" para `dine_in`; son superficies
+ * distintas, no hace falta unificar la palabra entre ambas.
+ */
+export function orderFulfillmentLabel(order: Order): string {
+  switch (order.fulfillment) {
+    case "takeaway":
+      return "Retiro"
+    case "delivery":
+      return "Envío"
+    case "dine_in":
+    default:
+      return "Local"
+  }
+}
+
+/**
+ * Color de acento por estado — fuente única para toda la app. El KDS
+ * (`lib/kds/kds-visuals.ts`) consume ESTE mapa para `sent`/`in_progress`/
+ * `ready` en vez de llamar a `paletteHex` por su cuenta; no duplicar el
+ * mapping ahí ni en ningún otro componente.
+ *
+ * `open` y `closed`/`cancelled` son `null` (borde neutro): `open` porque el
+ * pedido todavía se está armando (no hay "estado" que anunciar), y
+ * closed/cancelled porque ya salieron del flujo operativo.
+ *
+ * `sent`/`in_progress`/`ready` son EXACTAMENTE los colores de hoy en el KDS
+ * (slate/sky/emerald) — no se pueden tocar, es la única señal de estado que
+ * lee el cocinero a distancia. `delivered` usa `violet`, el mismo que el
+ * ítem "Entregado" en `KDS_ITEM_VISUALS`.
+ *
+ * Hex SIEMPRE vía `resolveColorBg` (lib/ui/color-palette.ts) — nunca hex
+ * literal nuevo.
+ */
+export const STATUS_ACCENT: Record<OrderStatus, string | null> = {
+  open: null,
+  sent: resolveColorBg("slate"),
+  in_progress: resolveColorBg("sky"),
+  ready: resolveColorBg("emerald"),
+  delivered: resolveColorBg("violet"),
+  closed: null,
+  cancelled: null,
+}
+
+/**
  * Estados filtrables desde la barra flotante: Pendiente / En espera / En
  * proceso / Enviado (más el pill "Todos"). `delivered` quedó FUERA por
  * decisión del owner — una orden entregada no se consulta operativamente;
@@ -154,13 +225,15 @@ export function orderItemsSummary(order: Order): string {
   return items.map((i) => `${i.qty}x ${i.name}`).join(", ")
 }
 
-/** Texto sobre el que busca la vista lista: nº de orden, cliente e ítems. */
+/** Texto sobre el que busca la vista lista: nº de orden, cliente, ítems, origen y tipo de entrega. */
 export function orderSearchHaystack(order: Order): string {
   return [
     order.orderNumber !== null ? `#${order.orderNumber} ${order.orderNumber}` : "",
     order.customerName ?? "",
     orderItemsSummary(order),
     order.note ?? "",
+    orderSourceLabel(order),
+    orderFulfillmentLabel(order),
   ]
     .join(" ")
     .toLowerCase()
