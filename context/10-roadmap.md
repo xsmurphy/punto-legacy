@@ -29,6 +29,67 @@ se arreglan — lo que crece acá es señal de deuda, no de backlog.
   El resto del flujo de impresión ya funciona (auto-print, selector de impresora,
   plantillas) — esa entrada quedó desconectada.
 
+### Relevamiento del cliente — "Módulo caja" (doc del 2026-07-28)
+
+Bugs concretos del documento. Los que el propio doc marca resueltos (gift cards,
+control de caja) no se repiten acá. **Verificar cuáles siguen vivos después del
+deploy de hoy antes de atacarlos** — varios eran síntomas del P0 de `itemWaste`,
+que abortaba la transacción de CUALQUIER venta y la mandaba a la cola offline.
+
+- **Venta a crédito sin fecha de vencimiento ni pago inicial.** Al generar una
+  venta a crédito no se puede elegir vencimiento antes de cerrarla, ni registrar
+  un pago en el acto. `defaultDueDate()` existe en `pay-dialog.tsx` (hoy + 30
+  días) pero no hay UI para editarlo.
+- **Cotizaciones: la vista previa / PDF sale en blanco.** Ver
+  `quote-print-view.tsx`.
+- **Ventas guardadas no se pueden reabrir**: "This page couldn't load" al entrar
+  a verificar los artículos de una venta guardada (`/pos/guardadas`).
+- **Cantidades decimales bloqueadas** al clickear una línea del carrito (tampoco
+  con Shift).
+- **Descuento con artículo-descuento no afecta al total** del carrito. Distinto
+  del descuento global de arriba: acá el descuento entra como ítem del catálogo.
+- **Espacios: cobrar la mesa por el total dice "servidor no conectado"** — se
+  corrigió la clasificación de 5xx y el timeout el 2026-07-27, pero el error de
+  fondo nunca se diagnosticó. Reproducir después del deploy.
+- **Al cobrar no se ven medios de pago distintos de Efectivo.** Regresión
+  probable del CRUD de medios de pago; alto impacto, verificar primero.
+- **Cierre de caja 500** (`Drawer action error 500: Error al cerrar caja`). El
+  doc lo marca resuelto en otro punto pero el mensaje quedó registrado —
+  confirmar.
+- **Pago de factura a crédito sin comprobante**: al pagar desde el detalle de
+  una transacción a crédito no ofrece imprimir el recibo de dinero.
+
+Cubiertos por el trabajo del 2026-07-28, **pendientes de confirmación del
+cliente**: el `25P02` en ventas a crédito y el "todas las ventas aparecen sin
+conexión" (los dos eran el P0 de `itemWaste`, commit `da46d29f`), y la vista
+previa de impresión que no se parecía a la plantilla configurada (catálogo de
+bloques, `3cab66b1` — con la salvedad de que razón social, RUC, email y timbrado
+todavía no viajan al POS y salen vacíos).
+
+### Pedidos de funcionalidad del cliente (doc "Módulo caja", 2026-07-28)
+
+No son correcciones: son features a planificar y priorizar aparte.
+
+- **Cierre de turno con listado de productos vendidos** imprimible.
+- **Panel de transacciones más rico** — el cliente pidió más detalle del que hay
+  hoy (adjuntó referencia visual en el doc).
+- **Pago de facturas a crédito desde Clientes** y **línea de crédito por cliente**
+  (hoy no hay dónde cargarla).
+- **Transacciones del contacto** dentro de su ficha, para anular o reimprimir.
+- **Gift card: permitir cargar un código manual** — el que genera el sistema no
+  lo reconoce al canjear.
+- **Catálogo del POS en vista vertical** al abrir un grupo desde hotkeys, para
+  que se vean imagen y detalle del producto.
+- **Espacios**: imprimir pre-cuenta, cambiar/unir espacio, asignar mozo,
+  renombrar, etiquetas. (Cobro por partes YA existe: split de cuenta F3.)
+- **Órdenes**: notas y etiquetas por pedido; atajo de teclado `O` para saltar a
+  órdenes.
+- **Pedidos de viandas** (semanales/mensuales por cliente o empresa, con resumen
+  de consumiciones por fecha) — es un módulo, no un ajuste.
+- **Chat de soporte embebido** en un costado de la pantalla.
+- **Facturación electrónica** — ya en curso, ver
+  [28-facturacion-electronica-plan.md](28-facturacion-electronica-plan.md).
+
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 
 - **Producción v1** ✅ — plan `context/23-production-module-plan.md`. F0 recetas canónicas en `item_compound` (mig 75), F1 `production_order`+`waste_event` (migs 76/77, permiso `production.manage`), F2 UI `/produccion`. Pendiente: v2 (parcial/co-productos/reversa).
