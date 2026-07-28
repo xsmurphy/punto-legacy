@@ -47,7 +47,7 @@ reemplaza.
 | Proveedor | **Factomate** (motor real de SIFEN) — no Automate |
 | Credenciales | **Cuenta propia por comercio** — usuario/contraseña/teléfono por tenant, cifrados |
 | Disparo | **Automática en toda venta**, con outbox + reintentos (no fire-and-forget) — sin cambios por el pivot |
-| Numeración | **REABIERTA** (ver §Numeración abajo) — Factomate sí soporta correlativo propio, a diferencia de Automate |
+| Numeración | **La asigna la SET** (`number: -1`) — un solo dueño del correlativo; ver §Numeración |
 | Ítems fuera de contrato | **Cae la regla de "colapsar a 1 línea"** (ver §Armado del documento) — Factomate no tiene el límite de qty/price entero que tenía Automate |
 | Config | Sector propio dentro de **Módulos** (`einvoicePy` → `/settings/facturacion-electronica`) — sin cambios |
 
@@ -136,16 +136,34 @@ exponía ningún campo de número/establecimiento/punto de expedición en su
   rechaza — y los duplicados también los rechaza SIFEN.
 - `-1` — para que la SET asigne el número.
 
-Esto reabre la pregunta que la F0 original había cerrado por descarte:
-**¿Punto numera (correlativo propio, mismo criterio que timbrado local
-tradicional) o deja que la SET asigne?** Es una decisión de producto (afecta
-impresión de ticket, reimpresión, y qué se muestra como "número de
-factura" en reportes), **no se cierra en este documento** — queda anotada
-como pendiente explícita del owner antes de arrancar F1. Lo que SÍ es
-seguro para cualquiera de las dos opciones: `punto_number`
-(`einvoice_document`, mig 92) sigue existiendo como correlativo interno de
-referencia operativa, y `provider_number`/`document_number` (mig 95) son
-donde se guarda lo que Factomate confirme.
+**Decisión cerrada con el owner (2026-07-28): numera la SET — `number: -1`.**
+
+El motivo no es comodidad, es que el correlativo tiene **un solo dueño
+legítimo**: el titular del timbrado. Si Punto también numera hay dos
+escritores del mismo correlativo, sin forma de garantizar que no se pisen —
+varias cajas emitiendo, ventas que fallan y dejan huecos que después hay que
+justificar ante la SET, y el punto de expedición de cada caja teniendo que
+mantenerse en sincronía con el `EEE-PPP` del timbrado de Factomate (una
+segunda fuente de verdad que va a driftear). SIFEN rechaza duplicados, así
+que el error no sería silencioso, pero **la multa la paga el tenant**.
+
+Consecuencias:
+
+1. En un comercio con el módulo activo, Punto **deja de asignar timbrado
+   propio** a esas ventas. `punto_number` (mig 92) queda como correlativo
+   interno de referencia operativa, nunca como número fiscal. Dos
+   numeraciones sobre el mismo hecho imponible es exactamente lo que se está
+   evitando.
+2. El número fiscal viene de vuelta en la misma llamada que el CDC
+   (`/Bulk` es sincrónico), así que el ticket puede imprimirse con el número
+   real casi en el acto.
+3. **Costo real, y es uno solo: offline.** Hoy las ventas simples offline
+   toman número de un lease local. Con `-1` una venta offline **no tiene
+   número fiscal** hasta que hay conexión y el outbox la emite: lo que se
+   imprime en el momento es un comprobante no fiscal y la factura sale al
+   sincronizar. Qué se imprime exactamente en ese hueco es **decisión de
+   operación de caja pendiente del owner al arrancar F1** — es lo último que
+   queda abierto de este bloque.
 
 ### Armado del documento electrónico (F1) — cae la regla de colapso
 
