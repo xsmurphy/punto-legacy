@@ -20,6 +20,8 @@ import {
 } from "@/lib/print-station/api"
 import { dispatchJob, resolveLinks, sendToPrinter, type UsbHandleMap } from "@/lib/print-station/dispatch"
 import type { PrintJob, StationLogEntry, StationPrinter } from "@/lib/print-station/types"
+import { loadScreenTheme, resolveScreenMode, saveScreenTheme, type ScreenTheme } from "@/lib/screens/theme"
+import { ScreenThemeToggle } from "@/components/screens/screen-theme-toggle"
 import { AddPrinterDialog } from "./add-printer-dialog"
 
 /**
@@ -38,9 +40,11 @@ import { AddPrinterDialog } from "./add-printer-dialog"
  * GET ?resource=pending — un comando de cocina no se pierde porque la estación
  * estaba offline.
  *
- * Dark forzado con `.dark` en el wrapper, igual que el KDS: `(screen)/layout.tsx`
- * fija `forcedTheme="light"` para el visor al cliente, y Tailwind v4 escopea el
- * theme con `@custom-variant dark (&:is(.dark *))`.
+ * Tono claro/oscuro/automático elegido por dispositivo (mismo mecanismo que
+ * el KDS y despacho, ver `lib/screens/theme.ts`): el wrapper agrega `.dark` de
+ * forma local según `resolveScreenMode`, independiente del `forcedTheme="light"`
+ * de `(screen)/layout.tsx` — Tailwind v4 escopea el theme con
+ * `@custom-variant dark (&:is(.dark *))`.
  */
 
 /** Red de seguridad del drenado: reintentos de jobs re-encolados y jobs que
@@ -64,6 +68,9 @@ export default function PrintStationPage() {
   const [addOpen, setAddOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [testingId, setTestingId] = React.useState<string | null>(null)
+  // Tono de pantalla — mismo patrón que despacho/KDS (ver lib/screens/theme.ts).
+  const [screenTheme, setScreenTheme] = React.useState<ScreenTheme>("dark")
+  const [mode, setMode] = React.useState<"dark" | "light">("dark")
 
   // Refs: el loop de la cola corre fuera del ciclo de render y necesita el
   // valor actual, no el capturado en el closure de un efecto.
@@ -215,6 +222,25 @@ export default function PrintStationPage() {
     }
   }, [drain])
 
+  React.useEffect(() => {
+    setScreenTheme(loadScreenTheme("print", "dark"))
+  }, [])
+
+  function changeTheme(theme: ScreenTheme) {
+    setScreenTheme(theme)
+    saveScreenTheme("print", theme)
+  }
+
+  // En "auto" se re-evalúa sola: la estación no se recarga nunca, así que el
+  // cambio de turno tiene que llegarle igual.
+  React.useEffect(() => {
+    const apply = () => setMode(resolveScreenMode(screenTheme))
+    apply()
+    if (screenTheme !== "auto") return
+    const t = setInterval(apply, 60_000)
+    return () => clearInterval(t)
+  }, [screenTheme])
+
   // ── Acciones de UI ───────────────────────────────────────────────────────
 
   async function testPrinter(printer: StationPrinter) {
@@ -266,7 +292,7 @@ export default function PrintStationPage() {
   const waiting = pending.filter((j) => !linked.has(j.stationPrinterId))
 
   return (
-    <div className="dark flex h-screen flex-col bg-background text-foreground">
+    <div className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col bg-background text-foreground`}>
       <header className="flex items-center justify-between gap-3 border-b px-6 py-4">
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-semibold">
@@ -289,6 +315,7 @@ export default function PrintStationPage() {
             <Plus className="size-4" />
             Agregar impresora
           </Button>
+          <ScreenThemeToggle theme={screenTheme} onChange={changeTheme} />
         </div>
       </header>
 

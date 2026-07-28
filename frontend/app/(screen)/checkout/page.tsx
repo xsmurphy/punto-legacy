@@ -6,6 +6,8 @@ import { IdleView } from "./idle-view"
 import { getDeviceToken, clearDeviceToken } from "@/lib/auth/device-token"
 import { getDeviceClaims, clearDeviceClaims } from "@/lib/auth/device-claims"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
+import { loadScreenTheme, resolveScreenMode, saveScreenTheme, type ScreenTheme } from "@/lib/screens/theme"
+import { ScreenThemeToggle } from "@/components/screens/screen-theme-toggle"
 
 const HEARTBEAT_INTERVAL = 30_000
 const CONFIRMED_DURATION = 5_000
@@ -45,6 +47,30 @@ export default function CheckoutPage() {
   const heartbeatRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const confirmedRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeRef = React.useRef(true)
+  // Tono de pantalla — mismo mecanismo que KDS/despacho/impresión (ver
+  // lib/screens/theme.ts), pero el default acá es "light": es lo que ve el
+  // cliente hoy y lo que forzaba `(screen)/layout.tsx` antes de este cambio.
+  const [screenTheme, setScreenTheme] = React.useState<ScreenTheme>("light")
+  const [mode, setMode] = React.useState<"dark" | "light">("light")
+
+  React.useEffect(() => {
+    setScreenTheme(loadScreenTheme("checkout", "light"))
+  }, [])
+
+  function changeTheme(theme: ScreenTheme) {
+    setScreenTheme(theme)
+    saveScreenTheme("checkout", theme)
+  }
+
+  // En "auto" se re-evalúa sola: la pantalla no se recarga nunca, así que el
+  // cambio de turno tiene que llegarle igual.
+  React.useEffect(() => {
+    const apply = () => setMode(resolveScreenMode(screenTheme))
+    apply()
+    if (screenTheme !== "auto") return
+    const t = setInterval(apply, 60_000)
+    return () => clearInterval(t)
+  }, [screenTheme])
 
   // Cursor auto-hide
   React.useEffect(() => {
@@ -219,7 +245,16 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className="relative w-full min-h-screen">
+    <div className={`${mode === "dark" ? "dark " : ""}relative w-full min-h-screen bg-background text-foreground`}>
+      {/* Selector de tono — top-right, discreto: es la pantalla del cliente,
+          no un control de operador. Mismo tratamiento visual apagado que el
+          botón de fullscreen de al lado (opacidad baja, sin robarle foco al
+          carrito/total). */}
+      <ScreenThemeToggle
+        theme={screenTheme}
+        onChange={changeTheme}
+        className="absolute top-4 right-4 z-50 size-9 text-muted-foreground opacity-60 hover:opacity-100 hover:bg-muted hover:text-foreground transition-opacity"
+      />
       {/* Botón fullscreen — top-left, visible permanente (mockup 2026-06-28). */}
       <button
         type="button"

@@ -8,6 +8,8 @@ import { usePairedScreen } from "@/hooks/use-paired-screen"
 import { getDeviceToken } from "@/lib/auth/device-token"
 import type { Order, OrderItem, OrderStatus } from "@/hooks/use-orders"
 import { STATUS_LABEL } from "@/lib/orders/order-display"
+import { loadScreenTheme, resolveScreenMode, saveScreenTheme, type ScreenTheme } from "@/lib/screens/theme"
+import { ScreenThemeToggle } from "@/components/screens/screen-theme-toggle"
 import { DisplayColumn } from "./display-column"
 
 /**
@@ -66,8 +68,32 @@ export default function DisplayPage() {
   const [gridWidth, setGridWidth] = React.useState(0)
   // Selector de estado en modo teléfono — arranca en "Listo": es lo accionable.
   const [selectedStatus, setSelectedStatus] = React.useState<BoardStatus>("ready")
+  // Tono de pantalla. Arranca en "dark" (comportamiento previo) y se resuelve
+  // en un efecto — la preferencia vive en localStorage, leerla durante el
+  // render sería un mismatch de hidratación garantizado.
+  const [screenTheme, setScreenTheme] = React.useState<ScreenTheme>("dark")
+  const [mode, setMode] = React.useState<"dark" | "light">("dark")
 
   const gridRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    setScreenTheme(loadScreenTheme("display", "dark"))
+  }, [])
+
+  function changeTheme(theme: ScreenTheme) {
+    setScreenTheme(theme)
+    saveScreenTheme("display", theme)
+  }
+
+  // En "auto" se re-evalúa sola: la pantalla no se recarga nunca, así que el
+  // cambio de turno tiene que llegarle igual.
+  React.useEffect(() => {
+    const apply = () => setMode(resolveScreenMode(screenTheme))
+    apply()
+    if (screenTheme !== "auto") return
+    const t = setInterval(apply, 60_000)
+    return () => clearInterval(t)
+  }, [screenTheme])
 
   const applyOrder = React.useCallback((order: Order) => {
     setOrders((prev) => {
@@ -198,7 +224,7 @@ export default function DisplayPage() {
   const visibleColumns = threeColsFit ? COLUMNS : COLUMNS.filter((c) => c.status === selectedStatus)
 
   return (
-    <div className="dark flex h-screen flex-col bg-background text-foreground">
+    <div className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col bg-background text-foreground`}>
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <h1 className="text-xl font-semibold">Despacho — {ctx?.outletName ?? ""}</h1>
         {loading && <RefreshCw className="size-4 animate-spin text-muted-foreground" />}
@@ -213,6 +239,7 @@ export default function DisplayPage() {
             </TabsList>
           </Tabs>
         )}
+        <ScreenThemeToggle theme={screenTheme} onChange={changeTheme} className={threeColsFit ? "ml-auto size-11" : "size-11"} />
       </header>
 
       <main className="min-h-0 flex-1 p-3">

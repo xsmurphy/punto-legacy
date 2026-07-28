@@ -17,35 +17,26 @@
  * de localStorage tiene la forma actual.
  */
 
+import { resolveScreenMode, type ScreenTheme } from "@/lib/screens/theme"
+
 export type KdsSortOrder = "oldest" | "newest"
 
 export const KDS_CARDS_PER_SCREEN = [4, 6, 8, 12] as const
 export type KdsCardsPerScreen = (typeof KDS_CARDS_PER_SCREEN)[number]
 
 /** Oscuro / claro / por horario — ver `resolveKdsMode`. */
-export type KdsTheme = "dark" | "light" | "auto"
+export type KdsTheme = ScreenTheme
 
 export const KDS_ROTATE_SECONDS = [8, 12, 20, 30] as const
 export type KdsRotateSeconds = (typeof KDS_ROTATE_SECONDS)[number]
 
 /**
- * Hora (local del dispositivo) en la que el modo automático pasa a claro y a
- * oscuro. Se resuelve por HORARIO y no por `prefers-color-scheme`: una TV o
- * tablet colgada en una cocina reporta casi siempre "light" — es el default del
- * SO y nadie entra a configurarlo en un equipo montado en la pared —, así que
- * esa señal no sigue lo único que nos importa, que es la luz real del local.
- * La hora sí: al mediodía entra sol por los ventanales y de noche la cocina
- * está iluminada a media luz.
+ * Modo efectivo de la pantalla. `auto` se resuelve por HORARIO — la lógica y
+ * la razón de por qué NO es `prefers-color-scheme` viven en
+ * `lib/screens/theme.ts` (mecanismo compartido con despacho/impresión/checkout).
+ * Alias para no tocar los call-sites existentes del KDS.
  */
-const AUTO_LIGHT_FROM_HOUR = 7
-const AUTO_DARK_FROM_HOUR = 19
-
-/** Modo efectivo de la pantalla. `auto` se resuelve contra la hora dada. */
-export function resolveKdsMode(theme: KdsTheme, now: Date = new Date()): "dark" | "light" {
-  if (theme !== "auto") return theme
-  const hour = now.getHours()
-  return hour >= AUTO_LIGHT_FROM_HOUR && hour < AUTO_DARK_FROM_HOUR ? "light" : "dark"
-}
+export const resolveKdsMode = resolveScreenMode
 
 export interface KdsConfig {
   /** Nombre de esta pantalla ("Parrilla", "Barra"). Vacío = se usa el nombre de la sucursal. */
