@@ -10,9 +10,24 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-07-27 (split de cuenta F3, historial de transiciones F-EVT-0, rediseño KDS, libreta de direcciones)
+> **Última actualización:** 2026-07-28 (fulfillment F-D-0/F-D-1, board de despacho, catálogo de bloques de impresión)
 
 ---
+
+## Correcciones pendientes (reportadas por el owner, sin atacar)
+
+Lista corta de bugs concretos reportados durante el uso. Se vacía a medida que
+se arreglan — lo que crece acá es señal de deuda, no de backlog.
+
+- **Descuento de venta invisible y sin estado en el menú de opciones** (2026-07-28).
+  Al aplicar un descuento no se refleja en el listado de ventas. Además el drawer
+  de opciones de la venta ofrece a la vez "Descuento global" y "Quitar descuento"
+  sin importar si hay uno aplicado: son excluyentes y hoy no se sabe, mirando el
+  menú, si la venta tiene descuento. Ver `frontend/components/register/sale-options-drawer.tsx`
+  y el render del descuento en el listado de transacciones.
+- **"Imprimir" del drawer de opciones sigue como "Próximamente"** (2026-07-28).
+  El resto del flujo de impresión ya funciona (auto-print, selector de impresora,
+  plantillas) — esa entrada quedó desconectada.
 
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 
