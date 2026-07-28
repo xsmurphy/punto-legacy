@@ -4,13 +4,14 @@ declare(strict_types=1);
 namespace Punto\Api\EInvoice;
 
 /**
- * Cifrado reversible de credenciales (usuario/contraseña, token) del
- * proveedor de facturación electrónica.
+ * Cifrado reversible de credenciales (usuario/contraseña/teléfono, token)
+ * del proveedor de facturación electrónica.
  *
- * Por qué reversible y no hasheado: la API de Automate no tiene un
- * "refresh" que no pida la contraseña de nuevo (`refresh-credentials`
- * la vuelve a exigir) — así que hay que poder recuperar el password en
- * texto plano para volver a loguear cuando el token expira. Un hash
+ * Por qué reversible y no hasheado: la API de Factomate no tiene un
+ * "refresh" silencioso — reautenticar es volver a encadenar `/Token`
+ * (usuario+contraseña) → `PhoneLogin` (bearer + teléfono), así que hay
+ * que poder recuperar tanto el password como el teléfono en texto plano
+ * para volver a loguear cuando el token de 24 h expira. Un hash
  * unidireccional (como el password del usuario de Punto) no sirve acá.
  *
  * AES-256-GCM: cifrado autenticado (el tag detecta manipulación del

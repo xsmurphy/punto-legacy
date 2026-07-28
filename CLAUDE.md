@@ -42,7 +42,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **POS roadmap (sprint 2026-06-21+)** | `19-pos-roadmap.md` |
 | **Auth rewrite (JWT → tokens opacos)** | `21-auth-rewrite.md` (plan cerrado 2026-06-29) |
 | **Sucursales, outlet scope, view-scope** | `25-sucursales-y-scopes.md` |
-| **Facturación electrónica (Automate/SIFEN)** | `28-facturacion-electronica-plan.md` |
+| **Facturación electrónica (Factomate/SIFEN)** | `28-facturacion-electronica-plan.md` |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
 | Bitácora de sesiones | `_session-log.md` (índice histórico, append) |
 

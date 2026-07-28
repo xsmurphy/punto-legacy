@@ -1,7 +1,7 @@
-# Facturación Electrónica (Automate / SIFEN) — plan del módulo
+# Facturación Electrónica (Factomate / SIFEN) — plan del módulo
 
-> Estado: **F0 implementada** (2026-07-27). F1–F4 pendientes.
-> Decisiones cerradas con el owner el 2026-07-27 — no relitigar sin motivo nuevo.
+> Estado: **F0 implementada** (2026-07-28, sobre Factomate — ver pivot abajo). F1–F4 pendientes.
+> Decisiones cerradas con el owner el 2026-07-27 (numeración: ver nota, quedó reabierta el 2026-07-28) — no relitigar sin motivo nuevo.
 
 ## Por qué
 
@@ -13,54 +13,180 @@ global de entorno** (`FACTURACION_ELECTRONICA_TOKEN`) y disparado sólo si la ve
 traía `electronicInvoicePY`. Ese campo **no lo produce ningún cliente del stack
 moderno** (grep en `frontend/` = 0): el camino está muerto desde la fusión del POS.
 
-Se integra **Automate** (`https://app.automate.com.py`) como proveedor real de FE
-para Paraguay.
+## Pivot de proveedor (2026-07-28) — leer antes de tocar este módulo
+
+La F0 original (2026-07-27) se implementó contra **Automate**
+(`https://app.automate.com.py`), asumiendo que era el motor real de
+facturación electrónica para Paraguay. **Es un error**: Automate es OTRO
+cliente de Factomate, exactamente igual que Punto va a serlo. El motor real
+— el que firma, timbra y manda a SIFEN — es **Factomate** (a.k.a. efatech,
+`https://factomatedev.tech-precision.com` en test).
+
+El error se detectó antes de implementar emisión real (F0 solo conecta la
+cuenta y lee el timbrado), así que el costo del pivot se limitó a: reemplazar
+el cliente HTTP (`AutomateProvider`/`AutomateSession` → `FactomateProvider`/
+`FactomateSession`), extender el schema (mig 95, correctiva sobre la 92) y
+reescribir este documento. Lo agnóstico del proveedor —
+`CredentialVault`, la interfaz `EInvoiceProvider`, el módulo del catálogo, el
+permiso `einvoice.manage`, la estructura de `EInvoiceService`, el endpoint
+`api/v1/einvoice.php`, el hook y la página de settings — se conservó sin
+tocar el diseño, solo los tipos/firmas que dependían del shape real de la
+API.
+
+La guía real de integración (escrita desde una implementación en
+producción, con las minas ya pisadas) vive fuera de este repo:
+`/Users/xstian/Dropbox/Automate/Agent/context/09-integracion-factomate.md`
++ `factomate-endpoints.md` en la misma carpeta. Es la fuente de verdad para
+todo lo que sigue — este doc resume lo relevante para Punto, no la
+reemplaza.
 
 ## Decisiones cerradas
 
 | Decisión | Elegido |
 |---|---|
-| Credenciales | **Cuenta propia por comercio** — usuario/contraseña por tenant, cifrados |
-| Disparo | **Automática en toda venta**, con outbox + reintentos (no fire-and-forget) |
-| Numeración | **Automate es el emisor fiscal** — su número + CDC SON el documento |
-| Ítems fuera de contrato | **Colapsar la línea a 1 × total** |
-| Config | Sector propio dentro de **Módulos** (`einvoicePy` → `/settings/facturacion-electronica`) |
+| Proveedor | **Factomate** (motor real de SIFEN) — no Automate |
+| Credenciales | **Cuenta propia por comercio** — usuario/contraseña/teléfono por tenant, cifrados |
+| Disparo | **Automática en toda venta**, con outbox + reintentos (no fire-and-forget) — sin cambios por el pivot |
+| Numeración | **REABIERTA** (ver §Numeración abajo) — Factomate sí soporta correlativo propio, a diferencia de Automate |
+| Ítems fuera de contrato | **Cae la regla de "colapsar a 1 línea"** (ver §Armado del documento) — Factomate no tiene el límite de qty/price entero que tenía Automate |
+| Config | Sector propio dentro de **Módulos** (`einvoicePy` → `/settings/facturacion-electronica`) — sin cambios |
 
-## La API de Automate (spec en `GET /api/docs/json`)
+## La API de Factomate
 
-| Hallazgo | Consecuencia |
-|---|---|
-| `POST /api/v1/auth/login` (user/pass) → JWT 24 h; `refresh-credentials` **vuelve a pedir la contraseña** | La contraseña se guarda **reversible** (AES-256-GCM), no hasheada. Un re-`login` es equivalente al refresh y más simple |
-| Emisión en 2 pasos: `POST /invoices/preview` (borrador **en Redis del lado de Automate**) → `POST /invoices/confirm` **sin body** | El borrador es estado de sesión por credencial: dos cajas emitiendo a la vez se pisan. **Serializar por companyId** con `pg_advisory_xact_lock` (patrón de `OrderCoreService.php:168`) |
-| `items[].qty` entero ≥ 1 y `items[].price` entero ≥ 1 | Kilos/decimales y líneas a precio 0 no son representables → regla de colapso |
-| El payload no lleva IVA por ítem, ni establecimiento, ni punto de expedición, ni número | Automate los deriva de la cuenta del emisor |
-| `GET /invoices/{cdc}/pdf` (KuDE); `POST /invoices/{cdc}/cancel` (motivo 10–500 chars); CDC = 44 dígitos | El CDC es el identificador fiscal a persistir |
-| `POST /customers/lookup` resuelve RUC/CI **con fallback al registro de la SET** | Reusable para autocompletar razón social en Contactos (F3) |
+### Autenticación — dos pasos, no uno
 
-Las respuestas **no están tipadas en el spec**: se parsea defensivamente y se guarda
-la respuesta cruda (`einvoice_account.emitter`, `einvoice_document.provider_response`)
-para poder ajustar sin adivinar.
+```
+POST /Token                    usuario + contraseña        → bearer 15 min, 1 uso
+POST /api/account/PhoneLogin   bearer + header phonenumber → bearer 24 h (éste se cachea)
+```
 
-### Numeración — decisión (revisada 2026-07-27)
+El bearer de `/Token` **solo sirve para probar que se conoce la contraseña**:
+se usa una vez para pedir el bearer real vía `PhoneLogin` y se descarta. El
+de `PhoneLogin` es el que se cachea (`token_enc`/`token_expires_at`, igual
+patrón que la F0 original) y se usa para todo el resto.
 
-La primera decisión fue *"Punto numera, Automate espeja"*, pero `preview` **no expone**
-campo de número, establecimiento ni punto de expedición, y `confirm` no lleva body. Sin
-campo, no hay soporte. **Decisión final: Automate es el emisor fiscal.**
+`/Token` es quisquilloso con el formato del usuario: emails tal cual,
+teléfonos en formato local **sin `+`** — coincide con la convención de
+teléfonos del proyecto (storage sin `+`, `api/includes/phone.php`), se
+reusa esa convención en vez de inventar otra.
 
-Consecuencias para F1/F2:
+### Dos reglas de headers que rompen todo (costaron horas de debugging ajeno)
 
-1. En un comercio con el módulo activo, **el número y el CDC de Automate son el
-   documento fiscal**. Punto deja de asignar timbrado propio a esas ventas.
-2. El correlativo interno (`transaction.authNo`, `registerInvoiceNumber`) sigue
-   existiendo como **referencia operativa** y se guarda en
-   `einvoice_document.punto_number` para trazabilidad — no es el número fiscal.
-3. **El ticket fiscal no se puede imprimir hasta que Automate responda.** Eso convierte
-   la latencia del proveedor en parte del flujo de caja: F1 tiene que definir qué se
-   imprime en el momento (comprobante no fiscal / "factura en camino") y cómo se
-   reimprime cuando llega el CDC. Es el punto más delicado del módulo — se cierra con
-   el owner antes de implementar F1.
-4. La impresión del comprobante fiscal usa los datos que devuelve Automate (o el KuDE
-   vía `GET /invoices/{cdc}/pdf`), no la plantilla de factura propia de Punto.
+1. **El header `phonenumber` va en TODAS las llamadas autenticadas.** Sin
+   él, `/api/sincro/config` revienta con `The given header was not found`.
+   Es el teléfono del titular de la cuenta, cifrado en
+   `einvoice_account.phone_enc` igual que la contraseña (es tan "factor de
+   auth" como ella).
+2. **Nunca mandar `Content-Type` en un GET, ni en un POST sin body.**
+   Varios endpoints — sobre todo los que devuelven binario (`getkude`) —
+   responden `500 An error has occurred`: ASP.NET Web API intenta
+   deserializar un body inexistente y explota.
+
+### La emisión es SINCRÓNICA — sin preview/confirm, sin borrador en Redis
+
+Automate tenía un flujo en dos pasos (`preview` → `confirm`) con el
+borrador viviendo en Redis del lado de Automate — eso fue lo que motivó,
+en el plan viejo, la idea de serializar con `pg_advisory_xact_lock` por
+companyId (dos cajas emitiendo a la vez se pisarían el borrador
+compartido).
+
+**Factomate no tiene ese problema**: `POST /api/electronicDocument/Bulk` es
+una sola llamada que devuelve el documento firmado, con el CDC en
+`Items[0].CDC`, en la misma respuesta. No hay estado intermedio compartido
+entre dos requests — **cae la necesidad del advisory lock por borrador
+compartido**. Lo que SÍ se mantiene sin cambios es la idempotencia dura:
+`UNIQUE(companyid, transactionid, doctype)` en `einvoice_document` (mig 92)
+sigue siendo la garantía de que una venta no se factura dos veces, ahora
+simplemente porque dos intentos concurrentes del mismo `transactionid`
+van a chocar contra el constraint, no porque haga falta serializar un
+borrador.
+
+Chequear igual `Items[0].Success === false` → usar `StatusMessage` como
+motivo del rechazo y no intentar bajar el PDF.
+
+**Riesgo conocido — rechazo asíncrono de SIFEN**: un CDC devuelto por
+`/Bulk` no garantiza aceptación definitiva. SIFEN puede rechazar el DE
+minutos después (ej. código 1002, duplicado) y recién ahí poblar el
+resultado real. `einvoice_document.sifen_status`/`sifen_result`/
+`sifen_checked_at` (mig 95) son donde F1/F2 van a persistir esa
+reconciliación, consultando `GET /api/ElectronicDocument/GetAll` (o
+`getBulk/{id}`) más tarde — el `status` de mig 92 (pending/sending/
+issued/...) sigue siendo el estado del OUTBOX de Punto (¿se mandó?),
+`sifen_status` es el estado FISCAL real (¿SIFEN lo aceptó?), son dos cosas
+distintas que se completan en momentos distintos.
+
+**El KuDE llega tarde**: Factomate tarda 3–8 s entre aceptar el `/Bulk` y
+terminar de generar el XML firmado + el KuDE. Llamar `getkude` de
+inmediato devuelve `500`. F1/F2 deben reintentar con backoff lineal
+(1 s, 2 s, 3 s) y **solo ante 5xx** — un 4xx (CDC mal formado) se tira de
+una. El PDF es **opcional**: si `getkude` falla, la factura ya se emitió
+igual; ofrecer un botón "descargar PDF" que reintente después.
+
+### Numeración — REABIERTA (revierte la decisión de la F0 original)
+
+La F0 original cerró "Automate es el emisor fiscal" porque Automate no
+exponía ningún campo de número/establecimiento/punto de expedición en su
+`preview`/`confirm`. **Esa premisa no aplica a Factomate**: el campo
+`number` de `POST /api/electronicDocument/Bulk` SÍ acepta:
+
+- Un correlativo propio — pero **solo la parte `NNNNNNN`** de
+  `EEE-PPP-NNNNNNN`; establecimiento y punto de expedición salen siempre
+  del timbrado (`stamp.Id` de sincro/config). Si Punto manda numeración
+  propia, tiene que coincidir en `EEE-PPP` con el timbrado o SIFEN
+  rechaza — y los duplicados también los rechaza SIFEN.
+- `-1` — para que la SET asigne el número.
+
+Esto reabre la pregunta que la F0 original había cerrado por descarte:
+**¿Punto numera (correlativo propio, mismo criterio que timbrado local
+tradicional) o deja que la SET asigne?** Es una decisión de producto (afecta
+impresión de ticket, reimpresión, y qué se muestra como "número de
+factura" en reportes), **no se cierra en este documento** — queda anotada
+como pendiente explícita del owner antes de arrancar F1. Lo que SÍ es
+seguro para cualquiera de las dos opciones: `punto_number`
+(`einvoice_document`, mig 92) sigue existiendo como correlativo interno de
+referencia operativa, y `provider_number`/`document_number` (mig 95) son
+donde se guarda lo que Factomate confirme.
+
+### Armado del documento electrónico (F1) — cae la regla de colapso
+
+La F0 original planteaba "colapsar la línea a 1 × total" porque Automate
+exigía `items[].qty` entero ≥ 1 y `items[].price` entero ≥ 1 (kilos/
+decimales y líneas a precio 0 no eran representables). **Factomate no
+tiene esa restricción**: toma precios **con IVA incluido**
+(`unitPriceWithTax`) y `taxRate` por ítem (`10` general, `5` reducido).
+F1 puede mandar los ítems de la venta tal cual, sin colapsar — la regla de
+colapso queda retirada del plan.
+
+Puntos del armado que sí hay que respetar (guía §5):
+
+- **No mandar el bloque `tenant: { ruc, taxpayerType, name }`** — el emisor
+  del timbrado ya es autoritativo, esa sección fue rechazada/ignorada en
+  producción.
+- Receptor (`client`): tres casos — contribuyente con RUC
+  (`nature=1`, `identityDocumentTypeCode=1`, RUC con DV), persona física
+  sin RUC (`nature=2`, CI **obligatorio**), innominado/consumidor final
+  (`nature=2`, `identityDocumentTypeCode=5`, sin RUC ni CI) — **el
+  innominado solo aplica a montos menores a 1.000.000 Gs**.
+- Condición de venta: `operationCondition` 0=contado, 1=crédito. **Crédito
+  exige el bloque `credit` completo** (`creditOperationCondition`,
+  `creditDeadline` o `feeNumbers`/`fees[]`) — sin él, SIFEN rechaza con un
+  mensaje que no menciona la causa real. Regla fiscal aparte: **una
+  factura a crédito exige receptor identificado** (RUC o CI), nunca a un
+  innominado.
+- Totales: `tax = total / 11`, `subTotal = total` (con IVA incluido, pese a
+  que el PDF de Factomate describe `subTotal` como "sin IVA" — el flujo
+  probado en producción manda `subTotal === total`; SIFEN deriva el
+  desglose real de `taxRate` + `taxedProportion` por ítem).
+  **`total / 11` asume IVA 10% en TODOS los ítems.** Punto tiene ítems al
+  10%, al 5% y exentos — **F1 debe implementar redondeo per-item real**
+  (no la fórmula de la guía tal cual), con el mismo invariante que ya
+  regía en el plan viejo: `sum(qty*price) === totalAmount`, ajustando el
+  residuo de redondeo en la última línea. Esto es un **requisito
+  explícito de F1**, no una nota al pie — la fórmula simple de la guía
+  produce IVA incorrecto para canasta básica/medicamentos (5%) y exentas.
+- Pagos: `payments: [{ paymentMethodCode, ammount: total }]` — nótese el
+  typo `ammount` (doble m), es de la API real, no un error de tipeo
+  nuestro.
 
 ## Arquitectura
 
@@ -68,87 +194,95 @@ Consecuencias para F1/F2:
 
 | Archivo | Rol |
 |---|---|
-| `EInvoiceProvider.php` | Interfaz. F0 usa `login`/`me`/`paymentMethods`; `issue`/`cancel`/`pdf`/`lookupCustomer` declaradas y tirando `LogicException` hasta F1 |
-| `AutomateProvider.php` | Cliente cURL contra `AUTOMATE_BASE_URL`. Timeouts explícitos, parseo defensivo del token |
-| `AutomateSession.php` | Resuelve un bearer válido por company: reusa el token cacheado si le quedan > 5 min, si no re-loguea con la credencial del vault |
-| `CredentialVault.php` | AES-256-GCM con `APP_ENCRYPTION_KEY`. Formato `base64(iv[12] ‖ tag[16] ‖ ciphertext)` |
+| `EInvoiceProvider.php` | Interfaz. F0 usa `token`/`phoneLogin`/`userInfo`/`sincroConfig`/`paymentMethods`; `issue`/`cancel`/`kude`/`clientByRuc` declaradas y tirando `LogicException` hasta F1/F2/F3 |
+| `FactomateProvider.php` | Cliente cURL contra `FACTOMATE_BASE_URL_TEST`/`FACTOMATE_BASE_URL_PROD` (según `environment` de la cuenta). Sin estado — `environment`/`phone`/`bearer` van explícitos en cada llamada. Timeouts explícitos, parseo defensivo |
+| `FactomateSession.php` | Resuelve un bearer de 24 h válido por company: reusa el cacheado si le quedan > 5 min, si no encadena `token()` → `phoneLogin()` con la credencial del vault |
+| `CredentialVault.php` | AES-256-GCM con `APP_ENCRYPTION_KEY`. Formato `base64(iv[12] ‖ tag[16] ‖ ciphertext)` — sin cambios por el pivot, cifra password/phone/token por igual |
 | `EInvoiceService.php` | F0: `getAccount`/`saveAccount`/`testConnection`/`paymentMethods`. F1 suma enqueue/drain/cancel/retry |
 
-El proveedor va detrás de una interfaz para no casar el módulo con Automate y para
-poder retirar el camino legacy entero en F4.
+El proveedor va detrás de una interfaz para no casar el módulo con
+Factomate y para poder retirar el camino legacy entero en F4.
 
-### Schema (mig 92)
+### Schema (mig 92 + mig 95)
 
-- **`einvoice_account`** — 1 fila por company: credenciales cifradas, `status`
-  (`unconfigured`/`ok`/`auth_error`), `emitter` jsonb (respuesta cruda de `/auth/me`),
-  `config` jsonb (`autoIssue`, `onlyWithTaxId`, `paymentMethodMap`, …).
-- **`einvoice_document`** — outbox + libro de documentos. `UNIQUE (companyid,
-  transactionid, doctype)` es la idempotencia dura: una venta no se factura dos veces
-  aunque el drainer corra en paralelo. Índice parcial sobre `next_retry_at` para el
-  drainer.
+- **`einvoice_account`** — 1 fila por company. Mig 92: credenciales
+  cifradas, `status` (`unconfigured`/`ok`/`auth_error`), `emitter` jsonb
+  (respuesta cruda de `GetUserInfo`), `config` jsonb (`autoIssue`,
+  `onlyWithTaxId`, `paymentMethodMap`, …). Mig 95 (correctiva del pivot):
+  `phone_enc` (teléfono del titular, cifrado — header obligatorio en todas
+  las llamadas), `environment` (`test`/`prod` — Factomate tiene HOSTS
+  DISTINTOS, a diferencia de Automate que no distinguía esto), `stamp` +
+  `stamp_synced_at` (timbrado vigente cacheado de `sincro/config`, se lee
+  no se crea).
+- **`einvoice_document`** — outbox + libro de documentos. `UNIQUE
+  (companyid, transactionid, doctype)` sigue siendo la idempotencia dura
+  (ver §La emisión es sincrónica). Mig 95 agrega `document_number` (el
+  `DocumentNumber` de `/Bulk`) y `sifen_status`/`sifen_result`/
+  `sifen_checked_at` (reconciliación asíncrona contra SIFEN — ver arriba).
 
 > **Trampa conocida**: `Query::flattenJsonb()` (`api/lib/App/Database/Query.php:52`)
 > aplana automáticamente toda columna llamada `data`/`meta`/`config` en cualquier fila
 > leída por `ncmExecute`. Todo `SELECT` que traiga `einvoice_account.config` **debe**
-> alias-earla (`config AS account_config`) — no se toca el helper compartido, tiene
-> 1035+ callers.
+> alias-earla (`config AS account_config`) — `stamp`/`emitter` no colisionan con esos
+> nombres mágicos, no necesitan alias.
 
 ### Flujo de emisión (F1)
 
 1. **Enqueue transaccional** — la fila `einvoice_document` en `pending` se inserta
-   dentro de la transacción de la venta. Es escritura local: si la venta commitea, el
-   documento a emitir existe sí o sí. Reemplaza el hook best-effort
+   dentro de la transacción de la venta. Reemplaza el hook best-effort
    `dispatchElectronicInvoice`.
 2. **Intento inline post-commit** — best-effort, para que la venta normal se facture
-   en el acto.
+   en el acto (la emisión es sincrónica del lado de Factomate — un solo
+   `/Bulk` y se sabe el resultado, no hace falta polling).
 3. **Drainer con reintentos** — `POST /v1/einvoice?action=drain` protegido por secreto
-   compartido, invocado por cron del sistema en el server (no hay infraestructura de
-   jobs en el repo y `pg_cron` no hace HTTP). Toma el advisory lock por companyId
-   **antes** de `preview` y lo suelta después de `confirm`. Backoff exponencial sobre
-   `next_retry_at`.
-
-### Regla de colapso (`SaleToInvoiceMapper`, F1)
-
-- Línea con `qty` decimal, precio no entero o precio < 1 → `qty:1`,
-  `name: "<item> (1,35 kg)"`, `price: round(totalDeLínea)`; descuentos de línea
-  plegados en el precio.
-- **Invariante**: `sum(qty*price) === totalAmount`. El residuo de redondeo se ajusta en
-  la última línea. Si aun así no cierra → documento en `error` con motivo explícito.
-  **Nunca** se emite un documento cuyo total difiera de la venta.
+   compartido, invocado por cron del sistema en el server. Backoff exponencial sobre
+   `next_retry_at`. **Sin advisory lock por borrador compartido** (eso era
+   necesidad de Automate, no de Factomate — ver arriba); la idempotencia
+   la da el `UNIQUE` constraint.
+4. **Reconciliación SIFEN** — proceso separado (F2) que consulta
+   `GET /api/ElectronicDocument/GetAll` para documentos `issued` recientes
+   y actualiza `sifen_status`/`sifen_result`/`sifen_checked_at`.
 
 ### Endpoints — `api/v1/einvoice.php`
 
 Realm `panel`, escritura gateada por `einvoice.manage`. Query params `resource`/`action`
 (patrón de `api/v1/production.php`).
 
-- `GET ?resource=account` · `POST ?action=account` · `POST ?action=test`
-- `GET ?resource=paymentMethods` (proxy de los códigos de Automate)
+- `GET ?resource=account` (incluye `stamp`/`stampSyncedAt`) · `POST ?action=account` · `POST ?action=test`
+- `GET ?resource=paymentMethods` (proxy de los códigos de Factomate)
 - F1: `?resource=documents`, `?action=retry|cancel|drain`, `?resource=pdf`
 
-**El frontend nunca habla con Automate**: la credencial no sale del backend y no hay
+**El frontend nunca habla con Factomate**: la credencial no sale del backend y no hay
 CORS de terceros en el navegador del cajero.
 
 ### Frontend
 
 `einvoicePy` en `frontend/lib/modules-catalog.ts` (categoría Facturación) con
-`configHref` — campo nuevo del catálogo: si está seteado, *Configurar* navega en vez de
-abrir `ModuleConfigDialog`. Es la salida limpia para módulos cuya config es una página,
-no un form chico. Página en `settings/facturacion-electronica` + componente
+`configHref`. Página en `settings/facturacion-electronica` + componente
 `components/settings/einvoice-manager.tsx` + hook `hooks/use-einvoice.ts`.
+
+Campo de teléfono con el `PhoneInput` compartido del proyecto
+(`components/forms/phone-input.tsx`, libphonenumber-js, UI nacional →
+storage E.164). Selector de entorno (Prueba/Producción) con `Select` de
+shadcn. El timbrado y los datos del emisor se muestran listando las claves
+crudas que devuelve Factomate (mismo criterio que el emisor en la F0
+original) — no se asumen nombres de campo fijos porque el spec no los tipa.
 
 ## Fases
 
 | Fase | Alcance | Estado |
 |---|---|---|
-| **F0** | Migs 92/93, vault, provider/session, módulo + página de config con *Probar conexión* | **Hecha** |
-| **F1** | Mapper, outbox, drainer, enqueue en `SaleService`, cron, estado en transacciones | Pendiente |
-| **F2** | DataTable de documentos, KuDE PDF, cancelación, reintento manual | Pendiente |
-| **F3** | Mapping de medios de pago, TC preferidos (`/codes/fx-prefs`), lookup de RUC en Contactos, notas de crédito | Pendiente |
+| **F0** | Migs 92/93/95, vault, provider/session Factomate, módulo + página de config con teléfono/entorno/timbrado + *Probar conexión* | **Hecha** (pivot 2026-07-28) |
+| **F1** | Mapper con redondeo per-item real, outbox, drainer, enqueue en `SaleService`, cron, estado en transacciones, decisión de numeración | Pendiente |
+| **F2** | DataTable de documentos, KuDE PDF (con retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`) | Pendiente |
+| **F3** | Mapping de medios de pago, lookup de RUC/CI en Contactos (`clientByRuc`), notas de crédito | Pendiente |
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
 
 ## Infra
 
 - `APP_ENCRYPTION_KEY` — base64 de 32 bytes. **Sin ella el vault no arranca** y el
   módulo queda `unconfigured`. Generar con `openssl rand -base64 32`.
-- `AUTOMATE_BASE_URL` — default `https://automate.com.py`, override para staging.
+- `FACTOMATE_BASE_URL_TEST` — default `https://factomatedev.tech-precision.com` (el de la guía).
+- `FACTOMATE_BASE_URL_PROD` — default vacío. Sin configurar, cualquier cuenta en
+  `environment='prod'` falla explícito (nunca cae a test).
 - F1: `EINVOICE_DRAIN_SECRET` + entrada de cron en el server de producción.

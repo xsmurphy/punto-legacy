@@ -1,11 +1,11 @@
 <?php
 /**
- * REST — Facturación electrónica (Automate / SIFEN). F0: cuenta del comercio
+ * REST — Facturación electrónica (Factomate / SIFEN). F0: cuenta del comercio
  * (context/28-facturacion-electronica-plan.md). F1 agrega documents/drain.
  *
- *   GET  /v1/einvoice?resource=account         → estado de la cuenta conectada
- *   POST /v1/einvoice?action=account           → guarda usuario/contraseña/config
- *   POST /v1/einvoice?action=test              → prueba la conexión (login + /auth/me)
+ *   GET  /v1/einvoice?resource=account         → estado de la cuenta conectada (incluye timbrado)
+ *   POST /v1/einvoice?action=account           → guarda usuario/teléfono/entorno/contraseña/config
+ *   POST /v1/einvoice?action=test              → prueba la conexión (Token → PhoneLogin → GetUserInfo → sincro/config)
  *   GET  /v1/einvoice?resource=paymentMethods  → proxy de códigos de medio de pago
  *
  * Auth: panel. Escritura (POST) gateada por `einvoice.manage`. La cuenta es
@@ -13,7 +13,9 @@
  * multi-tenant, ver context/25-sucursales-y-scopes.md).
  *
  * password_enc/token_enc NUNCA salen de acá — EInvoiceService::getAccount()
- * ya los excluye del SELECT.
+ * ya los excluye del SELECT. phone_enc SÍ vuelve descifrado (ver comentario
+ * en EInvoiceService::getAccount — no es secreto en el mismo sentido que la
+ * contraseña, el operador lo necesita para editar sin re-tipearlo).
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -54,6 +56,8 @@ switch ($method) {
 
         if ($action === 'account') {
             $username    = (string) (validateHttp('username', 'post') ?: '');
+            $phone       = (string) (validateHttp('phone', 'post') ?: '');
+            $environment = (string) (validateHttp('environment', 'post') ?: 'test');
             $passwordRaw = validateHttp('password', 'post');
             $password    = $passwordRaw === false || $passwordRaw === null ? null : (string) $passwordRaw;
             $configRaw   = (string) (validateHttp('config', 'post') ?: '{}');
@@ -64,7 +68,7 @@ switch ($method) {
             }
 
             try {
-                apiOk($svc->saveAccount($companyId, $username, $password, $config));
+                apiOk($svc->saveAccount($companyId, $username, $password, $phone, $environment, $config));
             } catch (\RuntimeException $e) {
                 apiError($e->getMessage(), 422);
             }

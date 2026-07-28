@@ -25,13 +25,15 @@ export function useEinvoiceAccount() {
   })
 }
 
-/** Guarda usuario/contraseña (opcional) + config. Resetea status a 'unconfigured' si cambia la credencial (server-side). */
+/** Guarda usuario/teléfono/entorno/contraseña (opcional) + config. Resetea status a 'unconfigured' si cambia alguna credencial (server-side). */
 export function useSaveEinvoiceAccount() {
   const qc = useQueryClient()
   return useMutation<EInvoiceAccount, Error, EInvoiceSaveAccountPayload>({
-    mutationFn: ({ username, password, config }) =>
+    mutationFn: ({ username, phone, environment, password, config }) =>
       api.post<EInvoiceAccount>("/v1/einvoice?action=account", {
         username,
+        phone,
+        environment,
         password: password ?? "",
         config: JSON.stringify(config),
       }),
@@ -41,7 +43,7 @@ export function useSaveEinvoiceAccount() {
   })
 }
 
-/** Login + /auth/me contra Automate — persiste status/emitter/lastError server-side. */
+/** Token → PhoneLogin → GetUserInfo → sincro/config contra Factomate — persiste status/emitter/stamp/lastError server-side. */
 export function useTestEinvoiceConnection() {
   const qc = useQueryClient()
   return useMutation<EInvoiceTestResult, Error, void>({
@@ -53,8 +55,8 @@ export function useTestEinvoiceConnection() {
 }
 
 /**
- * Proxy de los medios de pago de Automate (F3 los mapea contra los medios
- * de pago de Punto). 403 si la cuenta no está conectada — `enabled` evita
+ * Proxy de los medios de pago de Factomate (F3 los mapea contra los medios
+ * de pago de Punto). 409 si la cuenta no está conectada — `enabled` evita
  * disparar la query hasta que `status === 'ok'`.
  */
 export function useEinvoicePaymentMethods(enabled: boolean) {
