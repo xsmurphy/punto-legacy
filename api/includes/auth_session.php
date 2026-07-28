@@ -180,6 +180,24 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
     }
 
     if ($session === null) {
+        // Diagnóstico del 401 de auth — SIN material sensible (nunca el token,
+        // ni su hash). Existe porque "Token de otro realm" se repitió durante
+        // meses en producción sin forma de saber qué había llegado realmente:
+        // si el header Authorization llegó al PHP (no siempre lo expone el SAPI
+        // como HTTP_AUTHORIZATION), cuántas credenciales traía la request y qué
+        // realms se reconocieron. Con esto, el próximo caso se diagnostica
+        // leyendo una línea en vez de reproduciendo a ciegas.
+        error_log(sprintf(
+            '[auth_session] 401 %s %s — authHeader=%s candidatos=%d realmsVistos=[%s] revocada=%s realmAjeno=%s esperados=[%s]',
+            $_SERVER['REQUEST_METHOD'] ?? '?',
+            $_SERVER['REQUEST_URI'] ?? '?',
+            empty($_SERVER['HTTP_AUTHORIZATION']) ? 'no' : 'si',
+            count($candidates),
+            implode(',', array_keys($seenRealms)),
+            $sawRevoked ? 'si' : 'no',
+            $sawWrongRealm ? 'si' : 'no',
+            implode(',', $allowedRealms)
+        ));
         http_response_code(401);
         header('Content-Type: application/json');
         // La revocación manda sobre el realm equivocado, SIEMPRE.
