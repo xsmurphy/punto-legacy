@@ -49,6 +49,7 @@ import { printSale } from "@/lib/hardware/printers"
 import { getBindingsForSale } from "@/lib/hardware/printers/binding"
 import type { PrinterDocType } from "@/lib/hardware/printers/binding"
 import { buildTicketData } from "@/lib/hardware/printers/build-ticket-data"
+import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCreateOrder, useMarkOrderPaid } from "@/hooks/use-orders"
@@ -189,6 +190,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
+  // Selector de impresora para el botón manual del modal de éxito — mismo
+  // wrapper que usan el diálogo de transacciones y el drawer de opciones.
+  const { requestPrint, pickerDialog } = usePrintWithPicker()
 
   // Guard de caja
   const { data: drawerStatus } = useDrawerStatus()
@@ -251,6 +255,59 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const remaining = total - appliedTotal
 
   // ── Confirmar venta ───────────────────────────────────────────────────────
+  /**
+   * Auto-print ESC/POS de la venta recién confirmada.
+   *
+   * Se llama en LAS DOS ramas —online y offline—: la impresión es browser-side
+   * y no necesita al servidor (decisión del owner), así que una venta encolada
+   * también tiene que salir por la impresora. Antes vivía solo en la rama
+   * online y la offline hacía `return` antes de llegar: con el server caído,
+   * TODA venta se encolaba y ninguna imprimía sola, mientras el botón manual sí
+   * funcionaba — exactamente el síntoma reportado.
+   *
+   * Venta al contado/crédito SIEMPRE emite Factura — el recibo es el documento
+   * del pago de una factura a crédito (regla fiscal), NO un fallback cuando
+   * falta el binding "factura". EXCEPCIÓN fiscal (F2 giftcard-issue-flow, PY):
+   * vender una gift card es un ADELANTO → Recibo. v1: si el carrito mezcla gift
+   * card(s) + productos, emitimos Recibo para TODA la venta (no partimos el
+   * documento) — TODO partirlo cuando el owner lo priorice.
+   */
+  function runAutoPrint(
+    payload: import("@/lib/commands/create-sale").CreateSalePayload,
+    result: CreateSaleResult,
+  ) {
+    const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
+    const ticketData = buildTicketData({ payload, result, config })
+    const saleCategoryIds = [
+      ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
+    ]
+    const autoDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
+    const matchedBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds)
+    const autoBindings = matchedBindings.filter((b) => b.autoPrint)
+    // Sin binding para este documento el auto-print no dispara, y antes no
+    // decía nada. Solo avisamos cuando NO hay binding: si lo hay pero ninguno
+    // tiene auto-print, es una elección del operador y un toast por venta sería
+    // ruido.
+    if (matchedBindings.length === 0 && allBindings.length > 0) {
+      const docLabel = autoDocType === "receipt" ? "Recibo" : "Factura"
+      toast.warning(
+        `Ninguna impresora tiene asignado el documento ${docLabel} — asignáselo en Ajustes → Impresoras`,
+      )
+    }
+    if (autoBindings.length === 0) return
+    printSale({ docType: autoDocType, data: ticketData, bindings: allBindings })
+      .then((r) => {
+        if (r.failed > 0) {
+          toast.warning(
+            `${r.failed} impresora(s) fallaron al imprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`,
+          )
+        } else if (r.printed > 0) {
+          toast.success(`${r.printed} impresora(s) imprimieron`)
+        }
+      })
+      .catch((err) => console.error("[auto-print] Error:", err))
+  }
+
   async function handleConfirm(
     appliedPayments: AppliedPayment[],
     changeAmount: number,
@@ -391,13 +448,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // al cerrar (handleClose, fase success), igual que el flujo online.
         toast.info('Sin conexión — la venta se enviará al volver online')
         setChange(changeAmount)
-        setSaleResult({
+        const offlineResult: CreateSaleResult = {
           transactionId: "",
           transactionUID: payload.uid,
-          invoiceNumber: null,
+          // El número leasado es el que va impreso: es el mismo que el server
+          // va a confirmar al sincronizar (lease de numeración offline).
+          invoiceNumber: leasedInvoiceNo > 0 ? String(leasedInvoiceNo) : null,
           total: payload.subtotal,
           duplicated: false,
-        })
+        }
+        setSaleResult(offlineResult)
+        runAutoPrint(payload, offlineResult)
         setPhase("success")
         return
       }
@@ -405,52 +466,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setChange(changeAmount)
       setSaleResult(result)
 
-      // Auto-print ESC/POS si hay bindings con autoPrint=true.
-      // Venta al contado/crédito SIEMPRE emite Factura — el recibo es el
-      // documento del pago de una factura a crédito (regla fiscal), NO un
-      // fallback cuando falta el binding "factura".
-      //
-      // EXCEPCIÓN fiscal (F2 giftcard-issue-flow, Paraguay): vender una gift
-      // card es un ADELANTO, no una venta de bienes/servicios → Recibo, no
-      // Factura. v1: si el carrito mezcla gift card(s) + productos normales,
-      // igual emitimos Recibo para TODA la venta (no partimos el documento) —
-      // TODO: partir el documento en mixto (Factura para productos + Recibo
-      // para la gift card) cuando el owner lo priorice.
-      const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
-      const ticketData = buildTicketData({ payload, result, config })
-      const saleCategoryIds = [
-        ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
-      ]
-      const autoDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
-      const matchedBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds)
-      const autoBindings = matchedBindings.filter((b) => b.autoPrint)
-      // Sin binding para este documento, el auto-print no dispara y ANTES no
-      // decía nada: el cajero veía la venta confirmada y ninguna impresión, sin
-      // pista de por qué (el botón manual sí funciona porque cae al picker de
-      // impresoras). Caso real: bindings viejos asignados a "Recibo" cuando la
-      // venta pasó a emitir SIEMPRE Factura por la regla fiscal.
-      // Solo avisamos cuando NO hay binding para el documento; si lo hay pero
-      // ninguno tiene auto-print, es una elección del operador y callarse es lo
-      // correcto — un toast en cada venta sería ruido.
-      if (matchedBindings.length === 0 && allBindings.length > 0) {
-        const docLabel = autoDocType === "receipt" ? "Recibo" : "Factura"
-        toast.warning(
-          `Ninguna impresora tiene asignado el documento ${docLabel} — asignáselo en Ajustes → Impresoras`,
-        )
-      }
-      if (autoBindings.length > 0) {
-        printSale({ docType: autoDocType, data: ticketData, bindings: allBindings })
-          .then((r) => {
-            if (r.failed > 0) {
-              toast.warning(
-                `${r.failed} impresora(s) fallaron al imprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`,
-              )
-            } else if (r.printed > 0) {
-              toast.success(`${r.printed} impresora(s) imprimieron`)
-            }
-          })
-          .catch((err) => console.error("[auto-print] Error:", err))
-      }
+      runAutoPrint(payload, result)
 
       // Si hubo pago con giftcard, consumirla (fire-and-forget: la venta ya está confirmada)
       const gcPayment = appliedPayments.find((r) => r.method.systemKey === "giftcard")
@@ -807,26 +823,15 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     // fallback cuando falta el binding "factura". EXCEPCIÓN: emisión de gift
     // card = adelanto → Recibo (ver comentario espejo en handleConfirm arriba).
     const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
-    const printCategoryIds = [
-      ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
-    ]
     const printDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
-    const docLabel = hasGiftcardIssuance ? "Recibo" : "Factura"
-    const receiptBindings = getBindingsForSale(allBindings, printDocType, printCategoryIds)
-    if (receiptBindings.length > 0) {
-      const r = await printSale({ docType: printDocType, data: ticketData, bindings: allBindings })
-      if (r.failed > 0) {
-        toast.warning(
-          `${r.failed} impresora(s) fallaron al reimprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`,
-        )
-      } else if (r.printed > 0) {
-        toast.success(`${r.printed} impresora(s) reimprimieron`)
-      } else {
-        toast.warning(`Ninguna impresora tiene asignado el documento ${docLabel} — asignáselo en Impresoras`)
-      }
-    } else {
-      toast.warning(`Ninguna impresora tiene asignado el documento ${docLabel} — asignáselo en Impresoras`)
-    }
+    // `requestPrint` es el wrapper compartido (print-with-fallback.ts) que ya
+    // usan el diálogo de transacciones y el drawer de opciones: si hay binding
+    // para el documento imprime derecho; si NO hay pero sí hay impresoras
+    // configuradas abre el SELECTOR para elegir a mano; y sin impresoras cae al
+    // diálogo nativo del browser. Antes acá solo se tiraba un toast de "ninguna
+    // impresora tiene asignado el documento" y el cajero quedaba sin forma de
+    // imprimir — teniendo la impresora enchufada al lado.
+    requestPrint(printDocType, ticketData, allBindings)
   }
 
   function handleClose() {
@@ -846,6 +851,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Selector de impresora del botón manual — sin montarlo acá, requestPrint
+          no tendría dónde mostrarlo cuando no hay binding para el documento. */}
+      {pickerDialog}
       <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
         <DialogContent
           className={cn(
