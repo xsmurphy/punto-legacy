@@ -50,6 +50,7 @@ reemplaza.
 | Numeración | **La asigna la SET** (`number: -1`) — un solo dueño del correlativo; ver §Numeración |
 | Ítems fuera de contrato | **Cae la regla de "colapsar a 1 línea"** (ver §Armado del documento) — Factomate no tiene el límite de qty/price entero que tenía Automate |
 | Config | Sector propio dentro de **Módulos** (`einvoicePy` → `/settings/facturacion-electronica`) — sin cambios |
+| Offline | **No se puede vender sin conexión** con el módulo activo (ver §Offline). El envío diferido en lotes queda para F5 |
 
 ## La API de Factomate
 
@@ -157,13 +158,43 @@ Consecuencias:
 2. El número fiscal viene de vuelta en la misma llamada que el CDC
    (`/Bulk` es sincrónico), así que el ticket puede imprimirse con el número
    real casi en el acto.
-3. **Costo real, y es uno solo: offline.** Hoy las ventas simples offline
-   toman número de un lease local. Con `-1` una venta offline **no tiene
-   número fiscal** hasta que hay conexión y el outbox la emite: lo que se
-   imprime en el momento es un comprobante no fiscal y la factura sale al
-   sincronizar. Qué se imprime exactamente en ese hueco es **decisión de
-   operación de caja pendiente del owner al arrancar F1** — es lo último que
-   queda abierto de este bloque.
+3. Sin número fiscal disponible offline — resuelto bloqueando la venta, ver
+   §Offline.
+
+### Regla fiscal PY que encuadra todo esto
+
+**Para un comercio habilitado como facturador electrónico, el comprobante
+impreso deja de ser un documento fiscal válido.** El documento fiscal es el
+electrónico (el DE firmado, identificado por su CDC); lo que se imprime es la
+representación gráfica (KuDE). El comprobante impreso solo tiene validez
+fiscal en comercios que **no** son facturadores electrónicos.
+
+Consecuencias concretas:
+
+- No existe "imprimir un ticket fiscal mientras esperamos a Factomate": no
+  hay ticket fiscal que imprimir. O hay DE emitido, o no hay documento.
+- Las plantillas de impresión de Factura de Punto **no aplican** a un
+  comercio con el módulo activo — el impreso pasa a ser el KuDE. F1/F2 tienen
+  que resolver esto en el flujo de impresión, no dejar la plantilla vieja
+  imprimiendo algo que parece una factura y no lo es.
+
+### Offline — decisión cerrada (2026-07-28)
+
+**Con el módulo activo, la caja no puede vender sin conexión.** Si no hay
+internet no se puede emitir el DE, y sin DE no hay documento fiscal (ver
+regla de arriba), así que dejar completar la venta produciría un cobro sin
+respaldo fiscal y un impreso que aparenta serlo.
+
+Esto **recorta el alcance offline actual** para estos comercios: hoy el POS
+permite ventas simples offline con lease de numeración local (ver
+`project_offline_scope`). Con `einvoicePy` activo esa capacidad se apaga —
+F1 tiene que gatearlo desde el bootstrap del POS, no dejarlo a criterio de la
+pantalla.
+
+Existe un modelo de emisión diferida (acumular offline y enviar en lotes al
+recuperar conexión) que resolvería esto, pero es bastante más complejo y
+además depende de qué garantice Factomate sobre emisión con fecha pasada.
+Queda como **F5 del roadmap**, no como parte de esta integración.
 
 ### Armado del documento electrónico (F1) — cae la regla de colapso
 
@@ -291,10 +322,11 @@ original) — no se asumen nombres de campo fijos porque el spec no los tipa.
 | Fase | Alcance | Estado |
 |---|---|---|
 | **F0** | Migs 92/93/95, vault, provider/session Factomate, módulo + página de config con teléfono/entorno/timbrado + *Probar conexión* | **Hecha** (pivot 2026-07-28) |
-| **F1** | Mapper con redondeo per-item real, outbox, drainer, enqueue en `SaleService`, cron, estado en transacciones, decisión de numeración | Pendiente |
+| **F1** | Mapper con redondeo per-item real, outbox, drainer, enqueue en `SaleService`, cron, estado en transacciones, gate del modo offline, impresión = KuDE | Pendiente |
 | **F2** | DataTable de documentos, KuDE PDF (con retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`) | Pendiente |
 | **F3** | Mapping de medios de pago, lookup de RUC/CI en Contactos (`clientByRuc`), notas de crédito | Pendiente |
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
+| **F5** | Emisión diferida offline: acumular ventas sin conexión y emitir en lotes al recuperar internet. Depende de qué garantice Factomate sobre emisión con fecha pasada | Roadmap (no comprometida) |
 
 ## Infra
 
