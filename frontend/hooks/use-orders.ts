@@ -25,6 +25,7 @@ export type OrderStatus =
   | "sent"
   | "in_progress"
   | "ready"
+  | "out_for_delivery"
   | "delivered"
   | "closed"
   | "cancelled"
@@ -178,6 +179,7 @@ export const ACTIVE_ORDER_STATUSES: OrderStatus[] = [
   "sent",
   "in_progress",
   "ready",
+  "out_for_delivery",
   "delivered",
 ]
 

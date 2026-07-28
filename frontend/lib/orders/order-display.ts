@@ -27,6 +27,7 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   sent: "En espera",
   in_progress: "En proceso",
   ready: "Listo",
+  out_for_delivery: "En camino",
   delivered: "Entregada",
   closed: "Cobrada",
   cancelled: "Cancelada",
@@ -37,6 +38,15 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
  * salvo `ready` + `fulfillment==='delivery'`, que es "Enviado" (decisión del
  * owner: una orden delivery lista para el cadete se dice distinto de una
  * lista para retirar en mostrador).
+ *
+ * ⚠ TENSIÓN sin resolver (2026-07-28, F-D-1): con `out_for_delivery` ya
+ * existiendo, "Enviado" (ready+delivery) y "En camino" (out_for_delivery)
+ * quedan MUY cerca semánticamente — "Enviado" hoy en realidad significa
+ * "listo, esperando que el cadete lo retire", no que ya salió. No se tocó
+ * esta función por decisión propia: el label "Enviado" lo fijó el owner el
+ * 2026-07-19, antes de que existiera este estado. Pendiente de que el owner
+ * decida si "Enviado" debería renombrarse (ej. "Listo para envío") para
+ * despejar la ambigüedad con "En camino".
  */
 export function statusLabelFor(order: Order): string {
   if (order.status === "ready" && order.fulfillment === "delivery") return "Enviado"
@@ -48,6 +58,7 @@ export const STATUS_VARIANT: Record<OrderStatus, "default" | "secondary" | "outl
   sent: "secondary",
   in_progress: "secondary",
   ready: "default",
+  out_for_delivery: "default",
   delivered: "default",
   closed: "outline",
   cancelled: "outline",
@@ -183,7 +194,11 @@ export function orderFulfillmentLabel(order: Order): string {
  * `sent`/`in_progress`/`ready` son EXACTAMENTE los colores de hoy en el KDS
  * (slate/sky/emerald) — no se pueden tocar, es la única señal de estado que
  * lee el cocinero a distancia. `delivered` usa `violet`, el mismo que el
- * ítem "Entregado" en `KDS_ITEM_VISUALS`.
+ * ítem "Entregado" en `KDS_ITEM_VISUALS`. `out_for_delivery` usa `amber`
+ * (F-D-1, 2026-07-28) — es el único color de `PALETTE_COLORS` que ningún
+ * otro estado usa todavía (slate/sky/emerald/violet ya tomados); el borde de
+ * color es un filtro visual en la vista cuadros y dos estados compartiendo
+ * color lo rompería.
  *
  * Hex SIEMPRE vía `resolveColorBg` (lib/ui/color-palette.ts) — nunca hex
  * literal nuevo.
@@ -193,6 +208,7 @@ export const STATUS_ACCENT: Record<OrderStatus, string | null> = {
   sent: resolveColorBg("slate"),
   in_progress: resolveColorBg("sky"),
   ready: resolveColorBg("emerald"),
+  out_for_delivery: resolveColorBg("amber"),
   delivered: resolveColorBg("violet"),
   closed: null,
   cancelled: null,
@@ -200,17 +216,18 @@ export const STATUS_ACCENT: Record<OrderStatus, string | null> = {
 
 /**
  * Estados filtrables desde la barra flotante: Pendiente / En espera / En
- * proceso / Enviado (más el pill "Todos"). `delivered` quedó FUERA por
- * decisión del owner — una orden entregada no se consulta operativamente;
- * se llega a ella desde el menú principal y el listado de transacciones.
- * `closed`/`cancelled` tampoco aparecen: el listado del POS ya los excluye
- * (ver ACTIVE_ORDER_STATUSES).
+ * proceso / Enviado / En camino (más el pill "Todos"). `delivered` quedó
+ * FUERA por decisión del owner — una orden entregada no se consulta
+ * operativamente; se llega a ella desde el menú principal y el listado de
+ * transacciones. `closed`/`cancelled` tampoco aparecen: el listado del POS
+ * ya los excluye (ver ACTIVE_ORDER_STATUSES).
  */
 export const FILTERABLE_STATUSES: OrderStatus[] = [
   "open",
   "sent",
   "in_progress",
   "ready",
+  "out_for_delivery",
 ]
 
 /**
@@ -226,7 +243,8 @@ export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   open: ["sent", "cancelled"],
   sent: ["in_progress", "ready", "delivered", "cancelled"],
   in_progress: ["sent", "ready", "delivered", "cancelled"],
-  ready: ["sent", "in_progress", "delivered", "cancelled"],
+  ready: ["sent", "in_progress", "delivered", "out_for_delivery", "cancelled"],
+  out_for_delivery: ["delivered", "cancelled"],
   delivered: ["cancelled"],
   closed: [],
   cancelled: [],

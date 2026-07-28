@@ -188,7 +188,7 @@ Requiere actualizar el CHECK de `pos_order.status` y `ORDER_TRANSITIONS`.
 |---|---|---|
 | **F-SLA-0** | Mig (targetminutes + timestamps), default por outlet, snapshot, `use-order-sla`, `sla-visuals`, consumo en KDS/ordenes/espacios | — |
 | **F-D-0** | ✅ HECHO (2026-07-27) — `fulfillment` (mig 94), guards en `OrderCoreService::create()`, filtro en `list()`. `out_for_delivery`/whitelist por module quedan para cuando se ataque `out_for_delivery` (ver F-D-1) | F-SLA-0 (timestamps) |
-| **F-D-1** | Snapshot de dirección (`deliveryaddress*`, mig 94) y mapa filtrado por `fulfillment` YA ENTRARON en el slice de F-D-0 (2026-07-27). Quedan pendientes: `out_for_delivery`, `courierid`, UI de despacho | F-D-0 |
+| **F-D-1** | Snapshot de dirección (`deliveryaddress*`, mig 94) y mapa filtrado por `fulfillment` entraron en F-D-0 (2026-07-27). `out_for_delivery` ("En camino": mig 95, `ORDER_TRANSITIONS` back+front, guard fulfillment='delivery', pills/colores) HECHO (2026-07-28). Quedan pendientes: `courierid`, vista de despacho por repartidor, tracking — dependen de §B.6.2 (owner) | F-D-0 |
 | **F-D-1c** | Libreta de direcciones del cliente + snapshot de coords en la orden (§PARTE D) | F-D-0 |
 | **F-D-1a** | Costo de envío por bandas de distancia → ítem del catálogo (§B.7) | F-D-1c |
 | **F-D-1b** | Zonas por polígono con editor en el panel (§B.7) | F-D-1a |

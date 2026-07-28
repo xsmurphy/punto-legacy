@@ -65,13 +65,17 @@ final class OrderCoreService
      * el próximo que lea esta constante para razonar va a razonar mal.
      */
     private const ORDER_TRANSITIONS = [
-        'open'        => ['sent', 'cancelled'],
-        'sent'        => ['in_progress', 'ready', 'delivered', 'cancelled'],
-        'in_progress' => ['sent', 'ready', 'delivered', 'cancelled'],
-        'ready'       => ['sent', 'in_progress', 'delivered', 'cancelled'],
-        'delivered'   => ['cancelled'],
-        'closed'      => [],
-        'cancelled'   => [],
+        'open'             => ['sent', 'cancelled'],
+        'sent'             => ['in_progress', 'ready', 'delivered', 'cancelled'],
+        'in_progress'      => ['sent', 'ready', 'delivered', 'cancelled'],
+        // out_for_delivery ("En camino", F-D-1, context/27 §B.2) SOLO se
+        // alcanza desde ready — no se sale en camino algo que la cocina no
+        // terminó. El guard de fulfillment='delivery' vive en updateStatus().
+        'ready'            => ['sent', 'in_progress', 'delivered', 'out_for_delivery', 'cancelled'],
+        'out_for_delivery' => ['delivered', 'cancelled'],
+        'delivered'        => ['cancelled'],
+        'closed'           => [],
+        'cancelled'        => [],
     ];
 
     /** @var mixed */
@@ -475,6 +479,14 @@ final class OrderCoreService
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \InvalidArgumentException('No se puede cancelar una orden ya cobrada (saleTransactionId presente)');
+        }
+        // out_for_delivery ("En camino") solo tiene sentido si la orden se
+        // envía — una mesa o un retiro en mostrador no salen "en camino"
+        // (context/27 §B.2).
+        if ($status === 'out_for_delivery' && (string) ($order['fulfillment'] ?? 'dine_in') !== 'delivery') {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \InvalidArgumentException("out_for_delivery solo es válido para órdenes con fulfillment='delivery'");
         }
 
         $closedAtSql = $status === 'cancelled' ? ', closed_at = now()' : '';
