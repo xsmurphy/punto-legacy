@@ -51,8 +51,14 @@ que abortaba la transacción de CUALQUIER venta y la mandaba a la cola offline.
 - **Espacios: cobrar la mesa por el total dice "servidor no conectado"** — se
   corrigió la clasificación de 5xx y el timeout el 2026-07-27, pero el error de
   fondo nunca se diagnosticó. Reproducir después del deploy.
-- **Al cobrar no se ven medios de pago distintos de Efectivo.** Regresión
-  probable del CRUD de medios de pago; alto impacto, verificar primero.
+- **Al cobrar no se ven medios de pago distintos de Efectivo.** ⚠ NO se
+  reproduce (owner, 2026-07-28) — pasa en algún caso particular sin identificar.
+  Descartado: no es un bootstrap degradado, porque `FALLBACK_PAYMENT_METHODS`
+  del BFF ya trae cuatro métodos (efectivo, crédito, débito, giftcard) y el
+  fallback del propio `pay-dialog.tsx` también. Por dónde seguir si reaparece:
+  qué métodos tiene activos ese tenant, y la fila secundaria del diálogo
+  (`SECONDARY_SYSTEM_KEYS`, que saca "interno" y giftcard de la grilla
+  principal y los pinta aparte). Pedir captura y tenant al reportarlo.
 - **Cierre de caja 500** (`Drawer action error 500: Error al cerrar caja`). El
   doc lo marca resuelto en otro punto pero el mensaje quedó registrado —
   confirmar.
