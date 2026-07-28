@@ -1,10 +1,10 @@
 "use client"
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Inbox } from "lucide-react"
+import { Inbox, Check, X } from "lucide-react"
 import { toast } from "sonner"
 import { DataTable } from "@/components/data-table/data-table"
-import { Button } from "@/components/ui/button"
+import { RowActions } from "@/components/data-table/row-actions"
 import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
@@ -95,21 +95,22 @@ export function DeviceInvitesTab() {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex gap-1">
-          {row.original.status === "opened" && (
-            <Button size="sm" onClick={() => setApproveTarget(row.original)}>
-              Aprobar
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setDenyId(row.original.id)}
-          >
-            Rechazar
-          </Button>
-        </div>
+        <RowActions
+          actions={[
+            {
+              label: "Aprobar",
+              icon: Check,
+              onSelect: () => setApproveTarget(row.original),
+              hidden: row.original.status !== "opened",
+            },
+            {
+              label: "Rechazar",
+              icon: X,
+              variant: "destructive",
+              onSelect: () => setDenyId(row.original.id),
+            },
+          ]}
+        />
       ),
     },
   ], [])

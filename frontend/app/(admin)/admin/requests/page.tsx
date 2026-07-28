@@ -2,13 +2,13 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { FileText, Loader2 } from "lucide-react"
+import { FileText, Check, X } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -101,41 +101,38 @@ export default function AdminRequestsPage() {
         const req = row.original
         if (req.status !== "pending") return null
         return (
-          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-green-600 border-green-600 hover:bg-green-50"
-              disabled={resolveRequest.isPending}
-              onClick={() =>
-                resolveRequest.mutate(
-                  { requestId: req.id, approve: true },
-                  {
-                    onSuccess: () => toast.success("Solicitud aprobada"),
-                    onError: (err) => toast.error(err.message ?? "Error"),
-                  },
-                )
-              }
-            >
-              {resolveRequest.isPending ? <Loader2 className="size-3 animate-spin" /> : "Aprobar"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-destructive border-destructive hover:bg-red-50"
-              disabled={resolveRequest.isPending}
-              onClick={() =>
-                resolveRequest.mutate(
-                  { requestId: req.id, approve: false },
-                  {
-                    onSuccess: () => toast.success("Solicitud rechazada"),
-                    onError: (err) => toast.error(err.message ?? "Error"),
-                  },
-                )
-              }
-            >
-              Rechazar
-            </Button>
+          <div onClick={(e) => e.stopPropagation()}>
+            <RowActions
+              actions={[
+                {
+                  label: "Aprobar",
+                  icon: Check,
+                  disabled: resolveRequest.isPending,
+                  onSelect: () =>
+                    resolveRequest.mutate(
+                      { requestId: req.id, approve: true },
+                      {
+                        onSuccess: () => toast.success("Solicitud aprobada"),
+                        onError: (err) => toast.error(err.message ?? "Error"),
+                      },
+                    ),
+                },
+                {
+                  label: "Rechazar",
+                  icon: X,
+                  variant: "destructive",
+                  disabled: resolveRequest.isPending,
+                  onSelect: () =>
+                    resolveRequest.mutate(
+                      { requestId: req.id, approve: false },
+                      {
+                        onSuccess: () => toast.success("Solicitud rechazada"),
+                        onError: (err) => toast.error(err.message ?? "Error"),
+                      },
+                    ),
+                },
+              ]}
+            />
           </div>
         )
       },

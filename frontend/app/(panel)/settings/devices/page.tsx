@@ -4,6 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { Plus, Trash2, Bell, MonitorSmartphone, RefreshCw, ExternalLink, Copy } from "lucide-react"
 import { toast } from "sonner"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -169,75 +170,62 @@ export default function DevicesPage() {
       header: "",
       cell: ({ row }) => {
         const { kind, id, status } = row.original
-        if (status === 1) {
-          return (
-            <div className="flex items-center gap-1">
-              {/* Abrir la pantalla del dispositivo. El pareo vive en el
-                  localStorage de SU browser, así que este link recupera la
-                  sesión al abrirlo ahí — sirve para volver a entrar cuando
-                  alguien cierra la pestaña del KDS o del despacho, que antes
-                  no dejaba ninguna pista de cuál era la URL. */}
-              <Button variant="ghost" size="sm" asChild>
-                <a href={DEVICE_KIND_ROUTES[kind]} target="_blank" rel="noreferrer">
-                  <ExternalLink className="size-4 mr-1.5" />
-                  Abrir
-                </a>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Copiar link de la pantalla"
-                title="Copiar link de la pantalla"
-                onClick={() => {
+        const isActive = status === 1
+        // Solo POS revocado tiene hard-delete (historial); screen revocado
+        // queda en la lista sin acciones cuando "Mostrar revocados" está activado.
+        const isDeletablePos = kind === "pos" && status === 0
+        return (
+          <RowActions
+            actions={[
+              {
+                label: "Abrir",
+                icon: ExternalLink,
+                // Abre la pantalla del dispositivo. El pareo vive en el
+                // localStorage de SU browser, así que este link recupera la
+                // sesión al abrirlo ahí — sirve para volver a entrar cuando
+                // alguien cierra la pestaña del KDS o del despacho, que antes
+                // no dejaba ninguna pista de cuál era la URL.
+                href: DEVICE_KIND_ROUTES[kind],
+                target: "_blank",
+                hidden: !isActive,
+              },
+              {
+                label: "Copiar link",
+                icon: Copy,
+                onSelect: () => {
                   navigator.clipboard.writeText(
                     `${window.location.origin}${DEVICE_KIND_ROUTES[kind]}`,
                   )
                   toast.success("Link copiado")
-                }}
-              >
-                <Copy className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={reconnectingId === id}
-                onClick={() => handleReconnect(row.original)}
-              >
-                <RefreshCw className={`size-4 mr-1.5${reconnectingId === id ? " animate-spin" : ""}`} />
-                Reconectar
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setRevokeId(id)}
-              >
-                <Trash2 className="size-4 mr-1.5" />
-                Revocar
-              </Button>
-            </div>
-          )
-        }
-        // Solo POS revocado tiene hard-delete (historial); screen revocado
-        // queda en la lista cuando "Mostrar revocados" está activado.
-        if (kind === "pos" && status === 0) {
-          return (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setDeletePosId(id)}
-            >
-              <Trash2 className="size-4 mr-1.5" />
-              Eliminar
-            </Button>
-          )
-        }
-        // screen revocada — sin acción
-        return null
+                },
+                hidden: !isActive,
+              },
+              {
+                label: "Reconectar",
+                icon: RefreshCw,
+                onSelect: () => handleReconnect(row.original),
+                disabled: reconnectingId === id,
+                hidden: !isActive,
+              },
+              {
+                label: "Revocar",
+                icon: Trash2,
+                variant: "destructive",
+                onSelect: () => setRevokeId(id),
+                hidden: !isActive,
+              },
+              {
+                label: "Eliminar",
+                icon: Trash2,
+                variant: "destructive",
+                onSelect: () => setDeletePosId(id),
+                hidden: !isDeletablePos,
+              },
+            ]}
+          />
+        )
       },
     },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [reconnectingId])
 
   return (

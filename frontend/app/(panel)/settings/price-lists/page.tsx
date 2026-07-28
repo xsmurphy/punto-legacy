@@ -10,6 +10,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { EmptyState } from "@/components/empty-state"
 import {
   Dialog,
@@ -364,25 +365,18 @@ export default function PriceListsPage() {
         id: "actions",
         header: "",
         cell: ({ row }) => (
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={(e) => { e.stopPropagation(); openEdit(row.original) }}
-              title="Editar"
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-destructive"
-              onClick={(e) => { e.stopPropagation(); setDeletingList(row.original) }}
-              title="Eliminar"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <RowActions
+              actions={[
+                { label: "Editar", icon: Pencil, onSelect: () => openEdit(row.original) },
+                {
+                  label: "Eliminar",
+                  icon: Trash2,
+                  variant: "destructive",
+                  onSelect: () => setDeletingList(row.original),
+                },
+              ]}
+            />
           </div>
         ),
         enableSorting: false,

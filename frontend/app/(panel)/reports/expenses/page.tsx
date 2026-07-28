@@ -54,6 +54,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import {
   DateRangePicker,
   rangeToBackend,
@@ -239,26 +240,17 @@ export default function ExpensesReportPage() {
         id: "actions",
         header: "",
         cell: ({ row }) => (
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label="Editar"
-              onClick={() => openEdit(row.original)}
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-destructive hover:text-destructive"
-              aria-label="Eliminar"
-              onClick={() => setDeleteRow(row.original)}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </div>
+          <RowActions
+            actions={[
+              { label: "Editar", icon: Pencil, onSelect: () => openEdit(row.original) },
+              {
+                label: "Eliminar",
+                icon: Trash2,
+                variant: "destructive",
+                onSelect: () => setDeleteRow(row.original),
+              },
+            ]}
+          />
         ),
         meta: { label: "Acciones" },
         enableSorting: false,

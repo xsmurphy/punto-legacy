@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, MoreVertical, Plus, Landmark } from "lucide-react"
+import { Loader2, ArrowRightCircle, Ban, Plus, Landmark } from "lucide-react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -39,13 +39,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { EmptyState } from "@/components/empty-state"
 import { DatePicker } from "@/components/date-picker"
 import { formatMoney } from "@/lib/format"
@@ -204,30 +199,24 @@ export default function FinanzasChequesPage() {
           const c = row.original
           const nextOptions = NEXT_STATUSES[c.status]
           return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="Acciones"
-                >
-                  <MoreVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                {nextOptions.map((s) => (
-                  <DropdownMenuItem key={s} onSelect={() => handleStatusChange(c, s)}>
-                    Marcar como {STATUS_LABELS[s]}
-                  </DropdownMenuItem>
-                ))}
-                {c.status !== "cancelled" && (
-                  <DropdownMenuItem variant="destructive" onSelect={() => setCancelTarget(c)}>
-                    Anular
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div onClick={(e) => e.stopPropagation()}>
+              <RowActions
+                actions={[
+                  ...nextOptions.map((s) => ({
+                    label: `Marcar como ${STATUS_LABELS[s]}`,
+                    icon: ArrowRightCircle,
+                    onSelect: () => handleStatusChange(c, s),
+                  })),
+                  {
+                    label: "Anular",
+                    icon: Ban,
+                    variant: "destructive" as const,
+                    onSelect: () => setCancelTarget(c),
+                    hidden: c.status === "cancelled",
+                  },
+                ]}
+              />
+            </div>
           )
         },
         meta: { className: "w-12" },

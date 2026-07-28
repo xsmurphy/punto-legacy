@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -311,27 +312,22 @@ export default function RolesPage() {
         id: "actions",
         header: "",
         cell: ({ row }) => (
-          <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => openEdit(row.original)}
-            >
-              <Pencil className="size-4 mr-1.5" />
-              {row.original.isSeed ? "Ver" : "Editar"}
-            </Button>
-            {!row.original.isSeed && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setDeleteTarget(row.original)}
-              >
-                <Trash2 className="size-4 mr-1.5" />
-                Eliminar
-              </Button>
-            )}
-          </div>
+          <RowActions
+            actions={[
+              {
+                label: row.original.isSeed ? "Ver" : "Editar",
+                icon: Pencil,
+                onSelect: () => openEdit(row.original),
+              },
+              {
+                label: "Eliminar",
+                icon: Trash2,
+                variant: "destructive",
+                onSelect: () => setDeleteTarget(row.original),
+                hidden: row.original.isSeed,
+              },
+            ]}
+          />
         ),
       },
     ],

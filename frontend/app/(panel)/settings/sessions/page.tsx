@@ -1,9 +1,10 @@
 "use client"
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { KeyRound } from "lucide-react"
+import { KeyRound, LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
@@ -136,18 +137,19 @@ export default function SessionsPage() {
       {
         id: "actions",
         header: "",
-        cell: ({ row }) => {
-          if (row.original.status !== 1) return null
-          return (
-            <button
-              type="button"
-              className="text-sm text-destructive hover:underline"
-              onClick={() => setRevokeId(row.original.sessionId)}
-            >
-              Revocar
-            </button>
-          )
-        },
+        cell: ({ row }) => (
+          <RowActions
+            actions={[
+              {
+                label: "Revocar",
+                icon: LogOut,
+                variant: "destructive",
+                onSelect: () => setRevokeId(row.original.sessionId),
+                hidden: row.original.status !== 1,
+              },
+            ]}
+          />
+        ),
       },
     ],
     [],

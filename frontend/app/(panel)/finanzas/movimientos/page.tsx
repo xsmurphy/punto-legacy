@@ -10,7 +10,6 @@ import {
   ArrowLeftRight,
   BadgeCheck,
   Loader2,
-  MoreVertical,
   Plus,
   Receipt,
   X,
@@ -49,13 +48,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { EmptyState } from "@/components/empty-state"
 import { DatePicker } from "@/components/date-picker"
 import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
@@ -218,26 +212,18 @@ function FinanzasMovimientosPageInner() {
           const m = row.original
           const isVoided = m.status !== 1
           return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="Acciones"
-                >
-                  <MoreVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                <DropdownMenuItem
-                  disabled={isVoided}
-                  onSelect={() => setVoidTarget(m)}
-                >
-                  Anular
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div onClick={(e) => e.stopPropagation()}>
+              <RowActions
+                actions={[
+                  {
+                    label: "Anular",
+                    icon: X,
+                    disabled: isVoided,
+                    onSelect: () => setVoidTarget(m),
+                  },
+                ]}
+              />
+            </div>
           )
         },
         meta: { className: "w-12" },

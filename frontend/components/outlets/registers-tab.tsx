@@ -6,6 +6,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -86,21 +87,17 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex gap-1">
-          <Button variant="ghost" size="sm" onClick={() => openEdit(row.original)}>
-            <Pencil className="size-4 mr-1.5" />
-            Editar
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setDeleteTarget(row.original)}
-          >
-            <Trash2 className="size-4 mr-1.5" />
-            Eliminar
-          </Button>
-        </div>
+        <RowActions
+          actions={[
+            { label: "Editar", icon: Pencil, onSelect: () => openEdit(row.original) },
+            {
+              label: "Eliminar",
+              icon: Trash2,
+              variant: "destructive",
+              onSelect: () => setDeleteTarget(row.original),
+            },
+          ]}
+        />
       ),
     },
   ], [])

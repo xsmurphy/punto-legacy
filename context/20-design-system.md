@@ -316,6 +316,14 @@ Nunca un `<p>"No hay resultados"</p>` pelado ni un `<Empty>` armado a mano
 call-site — siempre `<EmptyState>`. Único lugar (junto al sidebar) donde los
 íconos van fuera de botones icon-only.
 
+### RowActions — `components/data-table/row-actions.tsx`
+
+Fila de `<DataTable>` con **2+ acciones** → `<RowActions actions={[...]} />`
+(agrupa en `DropdownMenu` con trigger `MoreHorizontal`, destructivas al final
+tras `DropdownMenuSeparator`). Con **1 sola acción** (tras filtrar `hidden`)
+renderiza un botón ghost directo — nunca un dropdown de un solo ítem. Nunca
+botones sueltos por columna ni `<button>` nativo.
+
 ### Select con sentinel
 
 `<Select>` de shadcn no acepta `value=""` en un `<SelectItem>` (colisiona con

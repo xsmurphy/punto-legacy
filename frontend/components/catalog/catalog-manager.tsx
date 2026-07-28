@@ -28,6 +28,7 @@ import { ColorPicker } from "@/components/ui/color-picker"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import {
   Dialog,
   DialogContent,
@@ -169,31 +170,22 @@ export function CatalogManager<T, P>({
         id: "actions",
         header: "",
         cell: ({ row }) => (
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={(e) => {
-                e.stopPropagation()
-                openEdit(row.original)
-              }}
-              aria-label={`Editar ${entitySingular}`}
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-destructive"
-              onClick={(e) => {
-                e.stopPropagation()
-                setDeleteTarget(row.original)
-              }}
-              aria-label={`Eliminar ${entitySingular}`}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <RowActions
+              actions={[
+                {
+                  label: `Editar ${entitySingular}`,
+                  icon: Pencil,
+                  onSelect: () => openEdit(row.original),
+                },
+                {
+                  label: `Eliminar ${entitySingular}`,
+                  icon: Trash2,
+                  variant: "destructive",
+                  onSelect: () => setDeleteTarget(row.original),
+                },
+              ]}
+            />
           </div>
         ),
         meta: { className: "w-24" },
