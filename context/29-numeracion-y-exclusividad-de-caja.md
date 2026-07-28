@@ -35,7 +35,7 @@ más.
   en cuanto ambos consuman offline.
 - Bloques de hasta 200 números (default 100, `count` en el body), **TTL de
   24 horas corridas** desde que se emite (`+24 hours`) — cruza la
-  medianoche fiscal sin relación con el día calendario.
+  medianoche sin relación con la fecha de emisión.
 - La asignación de un bloque *nuevo* SÍ está serializada con
   `pg_advisory_xact_lock(hashtext(registerId))` (fix de un P0 anterior:
   carrera entre dos `INSERT` con el mismo `MAX(invoiceNo)+1`). Eso evita que
@@ -101,7 +101,7 @@ tenencia.
         │           └────┬─────┘                              │
         │                │ dispositivo pide tomar la caja      │
         │                ▼                                    │
-        │           ┌──────────┐   vencimiento del día fiscal  │
+        │           ┌──────────┐   vencimiento (fecha outlet)   │
         │  libera ok │ TOMADA   ├───────────────────────────►  │ VENCIDA
         │◄───────────┤          │                              │ (números no
         │  (cierre   └────┬─────┘                              │  consumidos
@@ -123,26 +123,43 @@ Transiciones y qué pasa en cada corte:
 | **Toma normal** | Dispositivo sin caja tomada llama a `lease.php` | LIBRE → TOMADA, `deviceId` = el que pide | — |
 | **Segundo dispositivo pide la misma caja, TOMADA por otro** | Llamada concurrente | Sin cambio. Rechazo 409 con `{ holderDeviceId, expiresAt }` | — |
 | **Liberación normal** | El propio tenedor cierra caja o toca "liberar caja" | TOMADA → LIBRE | Números no consumidos del bloque activo se **anulan** (ver §6) — no quedan disponibles para el próximo tenedor |
-| **Vencimiento** | Pasa el corte del día fiscal (§4.1) sin liberación explícita | TOMADA → VENCIDA → LIBRE | Idem: se anulan los no consumidos |
+| **Vencimiento** | Cambia la fecha del outlet (§4.1) sin liberación explícita | TOMADA → VENCIDA → LIBRE | Idem: se anulan los no consumidos |
 | **Liberación forzada** | Admin desde panel, tenedor no responde (offline, tablet perdida, etc.) | TOMADA → FORZADA → LIBRE | Se anulan los no consumidos del tenedor anterior. El tenedor anterior, si vuelve online, recibe rechazo si intenta emitir con ese lease |
 | **Dispositivo cambia de caja** | El mismo device pide lease en OTRA caja mientras tiene una tomada | La caja anterior se libera igual que "liberación normal" (no queda tomada por un dispositivo que ya se fue) | Idem anulación |
 | **Re-pareo del mismo navegador** | `DeviceAuth` reusa `deviceId` existente (mismo `browserLocalId`) | Es el MISMO `deviceId` → mantiene la tenencia si la tenía, no dispara ningún cambio de estado | Sin efecto — sigue siendo el mismo tenedor |
 
-### 4.1 El lease muere con el día fiscal, no a las 24h corridas
+### 4.1 El lease muere con la FECHA del outlet, no a las 24h corridas
 
-`expiresAt` deja de calcularse como `now() + 24h`. Se calcula como **el
-cierre del día fiscal vigente en el momento de la toma**, en la timezone
-del outlet (`America/Asuncion`, ya usada en otros lados del sistema para
-reportes). Si se toma la caja a las 23:00, el lease vence a la medianoche
-de ESE día, no 24h después arrastrando el bloque al día siguiente.
+⚠ CORRECCIÓN (owner, 2026-07-28): la versión anterior de esta sección ataba
+el vencimiento al "día fiscal". **Ese concepto no existe en Punto y no lo
+maneja el sistema**: la jornada fiscal la define el contador del comercio,
+no nosotros. Lo que Punto ofrece es el **control de caja OPCIONAL** — si el
+comercio lo habilita, hay un reporte del total vendido entre apertura y
+cierre, sin importar fecha ni hora; si no lo habilita, opera normal y no hay
+registro de apertura/cierre.
 
-⚠ **Flag para el owner**: "día fiscal" se define acá como el día
-calendario en la timezone del outlet (00:00–23:59:59 local). Si el negocio
-usa un concepto distinto de "jornada" atado al arqueo/cierre de caja
-(`drawer`) — que puede no coincidir con la medianoche si el turno cruza el
-día — hay que decidir cuál de los dos manda. Este documento asume
-calendario porque es el criterio verificable por la SET sin depender de
-cuándo el cajero decida cerrar el arqueo.
+Por eso el ancla del vencimiento **no puede ser** ni el día fiscal ni el
+arqueo:
+
+- **El arqueo no sirve como ancla**: es opcional (la mitad de los comercios
+  no lo usa) y una sesión de caja puede cruzar varios días. Un lease atado a
+  un arqueo abierto tres días seguidos arrastra números viejos a fechas
+  nuevas — el problema que este documento existe para evitar.
+- **El día fiscal no sirve como ancla**: no está modelado en el sistema y
+  depende del contador de cada comercio.
+
+`expiresAt` se calcula como **el final de la FECHA del outlet** (00:00–23:59
+en su timezone) vigente al momento de la toma. La justificación no es
+contable sino directa: el invariante que protegemos es *orden de números =
+orden de fechas*, así que basta con que ningún bloque sobreviva a un cambio
+de fecha. Si se toma la caja a las 23:00, el lease vence a la medianoche de
+ESE día y no arrastra el bloque al siguiente.
+
+Esto es independiente del control de caja: un comercio sin control de caja
+igual tiene leases que vencen con la fecha, y uno con arqueo abierto que
+cruza la medianoche pierde el lease pero NO el arqueo — son dos ciclos
+distintos y no hay que acoplarlos.
+
 
 ---
 
@@ -168,7 +185,7 @@ registerId       UUID
 deviceId         UUID          -- tenedor actual
 status           TEXT          -- 'active' | 'released' | 'expired' | 'forced'
 takenAt          TIMESTAMPTZ
-expiresAt        TIMESTAMPTZ   -- fin del día fiscal, no +24h
+expiresAt        TIMESTAMPTZ   -- fin de la fecha del outlet, no +24h
 releasedAt       TIMESTAMPTZ
 releasedBy       TEXT          -- 'device' | 'expiry' | 'admin:{contactId}'
 ```
@@ -185,7 +202,7 @@ tenencia bajo la cual se emitió.
   registerId = ? AND status = 'active' FOR UPDATE` (dentro del mismo
   `pg_advisory_xact_lock` que ya existe).
   - Si no hay fila activa → crear `register_lease` con `deviceId` del
-    request, `expiresAt` = fin de día fiscal, y recién ahí emitir/servir el
+    request, `expiresAt` = fin de la fecha del outlet, y recién ahí emitir/servir el
     bloque de números.
   - Si hay fila activa y `deviceId` coincide → servir el bloque (comportamiento
     actual, sin cambios).
@@ -275,9 +292,9 @@ caja — el hueco queda justificado y timestamped, no es un misterio.
 
 | Riesgo | Detalle | Mitigación / estado |
 |---|---|---|
-| **Reloj del dispositivo desincronizado** | `expiresAt` se calcula server-side (fin de día fiscal por timezone del outlet), no con el reloj del device — un device con hora mal puesta no adelanta ni atrasa su propio vencimiento | Ya cubierto por diseño: toda fecha de expiración es del servidor, el device solo la muestra |
-| **Dispositivo desaparece con la caja tomada** (se rompe, se pierde, batería muerta) | La caja queda TOMADA hasta el vencimiento del día fiscal o hasta que un admin la libere a mano | Liberación forzada (§3, §5.5) es la vía rápida; sin ella, el peor caso es esperar al corte del día — acotado, nunca "para siempre" |
-| **Ventana de bloqueo máxima** | Sin intervención de admin, una caja puede quedar inutilizable el resto del día fiscal si el dispositivo tenedor murió a media mañana | Aceptado como trade-off: es preferible a arriesgar un duplicado. El panel de cajas (§5.5) es la herramienta para no depender de "esperar a mañana" |
+| **Reloj del dispositivo desincronizado** | `expiresAt` se calcula server-side (fin de la fecha del outlet, por su timezone), no con el reloj del device — un device con hora mal puesta no adelanta ni atrasa su propio vencimiento | Ya cubierto por diseño: toda fecha de expiración es del servidor, el device solo la muestra |
+| **Dispositivo desaparece con la caja tomada** (se rompe, se pierde, batería muerta) | La caja queda TOMADA hasta el cambio de fecha del outlet o hasta que un admin la libere a mano | Liberación forzada (§3, §5.5) es la vía rápida; sin ella, el peor caso es esperar al corte del día — acotado, nunca "para siempre" |
+| **Ventana de bloqueo máxima** | Sin intervención de admin, una caja puede quedar inutilizable el resto de la fecha si el dispositivo tenedor murió a media mañana | Aceptado como trade-off: es preferible a arriesgar un duplicado. El panel de cajas (§5.5) es la herramienta para no depender de "esperar a mañana" |
 | **Doble tenencia por bug de red** (request de toma llega dos veces) | El `UNIQUE (registerId) WHERE status='active'` en BD es la garantía real, no la lógica de aplicación — un segundo INSERT concurrente falla en el constraint, no en una condición de carrera de lectura | Cubierto por diseño (mismo patrón que el advisory lock ya usado en creación de bloques) |
 | **Venta cae offline justo cuando la caja se libera/vence** | El dispositivo sigue emitiendo localmente con un lease que el servidor ya invalidó | El número consumido offline con un `registerLeaseId` no-activo falla el sync explícitamente (§5.4) — la venta no se pierde (queda en cola local) pero requiere re-numeración manual antes de poder sincronizar. Es un caso a resolver con UX específica, no cubierto en detalle acá |
 
@@ -306,7 +323,7 @@ tiene la tenencia de una caja, dos caminos:
 |---|---|---|
 | **F0 — Schema** | Mig: `register_lease` + `numbering_lease.registerLeaseId` (nullable) + `numbering_lease.voidedAt/voidReason` (o tabla `numbering_void`) | — |
 | **F1 — Backfill** | Script: crear `register_lease` activa por caja con lease vivo hoy (tenedor = último consumidor), anular bloques huérfanos de cajas con >1 dispositivo activo (§6) | F0 |
-| **F2 — Endpoint** | `lease.php`: chequeo de tenencia, 409 con holder info, creación de `register_lease` al tomar caja, `expiresAt` = fin de día fiscal | F0, F1 |
+| **F2 — Endpoint** | `lease.php`: chequeo de tenencia, 409 con holder info, creación de `register_lease` al tomar caja, `expiresAt` = fin de la fecha del outlet | F0, F1 |
 | **F3 — Consumo** | `offline-sync.php`: validar `registerLeaseId` activo + dueño antes de marcar `consumedAt`; anulación de no-consumidos en liberación/vencimiento/forzado | F2 |
 | **F4 — Panel** | Vista de cajas: tenedor, vencimiento, "liberar caja" (forzado) con permiso dedicado | F2 |
 | **F5 — POS** | Mensaje de caja tomada (409) + reintento; UX de venta offline que falla sync por lease invalidado | F2, F3 |
