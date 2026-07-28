@@ -1,19 +1,16 @@
 "use client"
 
 /**
- * Card de una orden activa del POS. Es la unidad de la vista Cuadros y también
- * el contenido del diálogo de detalle que abren las vistas Lista y Mapa — así
- * las tres vistas ofrecen exactamente las mismas acciones (Cobrar, Reimprimir,
- * Cancelar) sin duplicar lógica.
+ * Card de una orden activa del POS — la unidad de la vista Cuadros. El
+ * diálogo de detalle de Lista/Mapa usa
+ * `OrderDetailView`, que comparte las acciones (Cobrar, Reimprimir, Cancelar)
+ * vía `useOrderActions` — misma lógica, una sola definición.
  *
  * Los ítems vienen en la propia orden (`useActiveOrders` pide
  * `includeItems=1`), no de un fetch por card.
  */
 
-import * as React from "react"
-import { useRouter } from "next/navigation"
 import { Clock, DollarSign, Printer, User, X } from "lucide-react"
-import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,11 +30,8 @@ import { cn } from "@/lib/utils"
 import { formatTime } from "@/lib/format-date"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { useCartStore } from "@/lib/cart/store"
-import { usePrinterBindings } from "@/hooks/use-printer-bindings"
-import { posApi } from "@/lib/api/pos-client"
-import { useCancelOrder, type Order } from "@/hooks/use-orders"
-import { printOrderComandas } from "@/lib/orders/print-comandas"
+import { useOrderActions } from "@/hooks/use-order-actions"
+import { type Order } from "@/hooks/use-orders"
 import {
   STATUS_VARIANT,
   orderDestination,
@@ -56,64 +50,24 @@ export function OrderCard({
   /** La dispara el diálogo de detalle para cerrarse tras cobrar/cancelar. */
   onAfterAction?: () => void
 }) {
-  const router = useRouter()
   const config = useCatalogStore((s) => s.config)
-  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
-  const allBindings = bindingsData?.bindings ?? []
-  const loadFromOrder = useCartStore((s) => s.loadFromOrder)
-  const cancelOrder = useCancelOrder()
-
-  const [confirmCancelOpen, setConfirmCancelOpen] = React.useState(false)
-  const [cancelReason, setCancelReason] = React.useState("")
-  const [printing, setPrinting] = React.useState(false)
+  // Cobrar / Reimprimir / Cancelar viven en `useOrderActions` — las comparte
+  // con `OrderDetailView` (diálogo de detalle de Lista/Mapa). Estaban
+  // duplicadas en los dos componentes y cualquier fix se aplicaba en uno solo.
+  const {
+    cobrar,
+    reprint,
+    printing,
+    cancelOpen,
+    setCancelOpen,
+    cancelReason,
+    setCancelReason,
+    confirmCancel,
+  } = useOrderActions(order, onAfterAction)
 
   const hasItems = (order.items?.length ?? 0) > 0
   const total = orderTotal(order)
   const destination = orderDestination(order)
-
-  function handleCobrar() {
-    loadFromOrder(order)
-    onAfterAction?.()
-    router.push("/pos")
-  }
-
-  function handleCancelConfirm() {
-    const reason = cancelReason.trim()
-    if (reason === "") return // el backend también lo rechaza; acá evitamos el round-trip
-    cancelOrder.mutate(
-      { orderId: order.id, reason },
-      {
-        onSuccess: () => {
-          toast.success(`Orden #${order.orderNumber} cancelada`)
-          onAfterAction?.()
-        },
-        onError: (err) => toast.error("No se pudo cancelar la orden", { description: err.message }),
-      },
-    )
-    setConfirmCancelOpen(false)
-    setCancelReason("")
-  }
-
-  async function handleReprint() {
-    setPrinting(true)
-    try {
-      const r = await printOrderComandas(order, allBindings, config)
-      if (r.failed > 0) {
-        toast.warning(`${r.failed} impresora(s) fallaron al reimprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`)
-      } else if (r.printed > 0) {
-        toast.success(`${r.printed} impresora(s) reimprimieron`)
-      } else {
-        toast.warning("Ninguna impresora tiene asignado el documento Orden — asignáselo en Impresoras")
-      }
-    } catch (err) {
-      toast.error("No se pudo reimprimir la comanda", {
-        description: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      setPrinting(false)
-    }
-  }
 
   return (
     <div className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
@@ -151,7 +105,7 @@ export function OrderCard({
           size="sm"
           className="flex-1 gap-1.5"
           disabled={!hasItems}
-          onClick={handleCobrar}
+          onClick={cobrar}
         >
           <DollarSign className="size-3.5" />
           Cobrar
@@ -161,7 +115,7 @@ export function OrderCard({
           variant="outline"
           className="gap-1.5"
           disabled={!hasItems || printing}
-          onClick={handleReprint}
+          onClick={() => void reprint()}
           aria-label="Reimprimir comanda"
           title="Reimprimir comanda"
         >
@@ -171,7 +125,7 @@ export function OrderCard({
           size="sm"
           variant="outline"
           className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={() => setConfirmCancelOpen(true)}
+          onClick={() => setCancelOpen(true)}
           aria-label="Cancelar orden"
           title="Cancelar orden"
         >
@@ -180,9 +134,9 @@ export function OrderCard({
       </div>
 
       <AlertDialog
-        open={confirmCancelOpen}
+        open={cancelOpen}
         onOpenChange={(v) => {
-          setConfirmCancelOpen(v)
+          setCancelOpen(v)
           if (!v) setCancelReason("")
         }}
       >
@@ -208,7 +162,7 @@ export function OrderCard({
           <AlertDialogFooter>
             <AlertDialogCancel>Volver</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleCancelConfirm}
+              onClick={confirmCancel}
               disabled={cancelReason.trim() === ""}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

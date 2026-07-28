@@ -10,14 +10,11 @@
  * Mapa) — NO reemplaza a `OrderCard`, que sigue siendo la card de la vista
  * Cuadros con su propio layout compacto.
  *
- * Cobrar/Reimprimir/Cancelar duplican la lógica de `OrderCard` a propósito
- * (mismos hooks: `useCancelOrder`, `printOrderComandas`, `loadFromOrder`) —
- * `OrderCard` no se toca, así que extraerla a un hook compartido hubiera
- * significado migrar también su call-site.
+ * Cobrar/Reimprimir/Cancelar salen de `useOrderActions`, compartido con
+ * `OrderCard` — una sola definición para las dos superficies.
  */
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import { ChevronDown, DollarSign, MoreHorizontal, Printer, X } from "lucide-react"
 import { toast } from "sonner"
 
@@ -42,22 +39,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { cn } from "@/lib/utils"
 import { formatRelativeShort, formatDateTime } from "@/lib/format-date"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { useCartStore } from "@/lib/cart/store"
-import { usePrinterBindings } from "@/hooks/use-printer-bindings"
-import { posApi } from "@/lib/api/pos-client"
+import { useOrderActions } from "@/hooks/use-order-actions"
 import { KDS_ITEM_VISUALS } from "@/lib/kds/kds-visuals"
 import {
-  useCancelOrder,
   useOrder,
   useUpdateOrderStatus,
   type Order,
   type OrderEvent,
 } from "@/hooks/use-orders"
-import { printOrderComandas } from "@/lib/orders/print-comandas"
 import {
   STATUS_LABEL,
   STATUS_VARIANT,
@@ -81,14 +73,20 @@ export function OrderDetailView({
   /** La dispara el Dialog contenedor para cerrarse tras cobrar/cancelar. */
   onAfterAction?: () => void
 }) {
-  const router = useRouter()
   const config = useCatalogStore((s) => s.config)
-  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
-  const allBindings = bindingsData?.bindings ?? []
-  const loadFromOrder = useCartStore((s) => s.loadFromOrder)
-  const cancelOrder = useCancelOrder()
   const updateStatus = useUpdateOrderStatus()
+  // Mismas acciones que la card de la vista Cuadros — `useOrderActions` es la
+  // única definición de Cobrar/Reimprimir/Cancelar.
+  const {
+    cobrar,
+    reprint,
+    printing,
+    cancelOpen,
+    setCancelOpen,
+    cancelReason,
+    setCancelReason,
+    confirmCancel,
+  } = useOrderActions(order, onAfterAction)
 
   // `events` (F-EVT-0) solo viene en el detalle — el listado no lo trae.
   // El resto (header, items, monto) ya está disponible en `order` (la lista
@@ -96,59 +94,12 @@ export function OrderDetailView({
   // pintar el grueso del panel.
   const { data: detail, isLoading: eventsLoading } = useOrder(order.id)
 
-  const [confirmCancelOpen, setConfirmCancelOpen] = React.useState(false)
-  const [cancelReason, setCancelReason] = React.useState("")
-  const [printing, setPrinting] = React.useState(false)
-
   const items = order.items ?? []
   const hasItems = items.length > 0
   const total = orderTotal(order)
   const destination = orderDestination(order)
   const statusOptions = manualStatusOptions(order)
   const timeIso = order.sentAt ?? order.createdAt
-
-  function handleCobrar() {
-    loadFromOrder(order)
-    onAfterAction?.()
-    router.push("/pos")
-  }
-
-  function handleCancelConfirm() {
-    const reason = cancelReason.trim()
-    if (reason === "") return // el backend también lo rechaza; acá evitamos el round-trip
-    cancelOrder.mutate(
-      { orderId: order.id, reason },
-      {
-        onSuccess: () => {
-          toast.success(`Orden #${order.orderNumber} cancelada`)
-          onAfterAction?.()
-        },
-        onError: (err) => toast.error("No se pudo cancelar la orden", { description: err.message }),
-      },
-    )
-    setConfirmCancelOpen(false)
-    setCancelReason("")
-  }
-
-  async function handleReprint() {
-    setPrinting(true)
-    try {
-      const r = await printOrderComandas(order, allBindings, config)
-      if (r.failed > 0) {
-        toast.warning(`${r.failed} impresora(s) fallaron al reimprimir${r.errors[0] ? `: ${r.errors[0]}` : ""}`)
-      } else if (r.printed > 0) {
-        toast.success(`${r.printed} impresora(s) reimprimieron`)
-      } else {
-        toast.warning("Ninguna impresora tiene asignado el documento Orden — asignáselo en Impresoras")
-      }
-    } catch (err) {
-      toast.error("No se pudo reimprimir la comanda", {
-        description: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      setPrinting(false)
-    }
-  }
 
   function handleStatusChange(status: Order["status"]) {
     updateStatus.mutate(
@@ -212,7 +163,7 @@ export function OrderDetailView({
               size="sm"
               className="rounded-r-none border-r-0 gap-1.5"
               disabled={!hasItems}
-              onClick={handleCobrar}
+              onClick={cobrar}
             >
               <DollarSign className="size-3.5" />
               Cobrar
@@ -224,13 +175,13 @@ export function OrderDetailView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem disabled={!hasItems || printing} onSelect={handleReprint}>
+                <DropdownMenuItem disabled={!hasItems || printing} onSelect={() => void reprint()}>
                   <Printer className="size-3.5" />
                   Reimprimir comanda
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
-                  onSelect={() => setConfirmCancelOpen(true)}
+                  onSelect={() => setCancelOpen(true)}
                 >
                   <X className="size-3.5" />
                   Cancelar orden
@@ -313,9 +264,9 @@ export function OrderDetailView({
       </div>
 
       <AlertDialog
-        open={confirmCancelOpen}
+        open={cancelOpen}
         onOpenChange={(v) => {
-          setConfirmCancelOpen(v)
+          setCancelOpen(v)
           if (!v) setCancelReason("")
         }}
       >
@@ -341,7 +292,7 @@ export function OrderDetailView({
           <AlertDialogFooter>
             <AlertDialogCancel>Volver</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleCancelConfirm}
+              onClick={confirmCancel}
               disabled={cancelReason.trim() === ""}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
