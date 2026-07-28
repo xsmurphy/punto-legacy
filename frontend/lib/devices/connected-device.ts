@@ -22,3 +22,22 @@ export const DEVICE_KIND_LABELS: Record<DeviceKind, string> = {
   display: "Pantalla de despacho",
   print: "Estación de impresión",
 }
+
+/**
+ * Ruta de la pantalla de cada tipo de dispositivo.
+ *
+ * El pareo guarda el token en el localStorage del browser del dispositivo
+ * (namespaced por module, ver `lib/auth/device-token.ts`), así que volver a
+ * abrir la ruta ahí recupera la sesión sin re-parear. El agujero que esto
+ * tapa: si alguien cerraba la pestaña del KDS, la URL no estaba escrita en
+ * ningún lado del panel y no había forma de volver a entrar salvo adivinarla.
+ *
+ * `screen` es `/checkout` — la pantalla del cliente no vive en `/screen`.
+ */
+export const DEVICE_KIND_ROUTES: Record<DeviceKind, string> = {
+  pos: "/pos",
+  screen: "/checkout",
+  kds: "/kds",
+  display: "/display",
+  print: "/print",
+}

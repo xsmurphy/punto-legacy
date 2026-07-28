@@ -1,7 +1,7 @@
 "use client"
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Plus, Trash2, Bell, MonitorSmartphone, RefreshCw } from "lucide-react"
+import { Plus, Trash2, Bell, MonitorSmartphone, RefreshCw, ExternalLink, Copy } from "lucide-react"
 import { toast } from "sonner"
 import { DataTable } from "@/components/data-table/data-table"
 import { Button } from "@/components/ui/button"
@@ -33,7 +33,11 @@ import { useDeviceInvitations } from "@/hooks/use-device-invitations"
 import { useConnectedDevices } from "@/hooks/use-connected-devices"
 import { DeviceInvitesTab } from "@/components/settings/device-invites-tab"
 import { DeviceInviteCreateDialog } from "@/components/settings/device-invite-create-dialog"
-import { DEVICE_KIND_LABELS, type ConnectedDevice } from "@/lib/devices/connected-device"
+import {
+  DEVICE_KIND_LABELS,
+  DEVICE_KIND_ROUTES,
+  type ConnectedDevice,
+} from "@/lib/devices/connected-device"
 import { EmptyState } from "@/components/empty-state"
 import { api } from "@/lib/api-client"
 
@@ -168,6 +172,31 @@ export default function DevicesPage() {
         if (status === 1) {
           return (
             <div className="flex items-center gap-1">
+              {/* Abrir la pantalla del dispositivo. El pareo vive en el
+                  localStorage de SU browser, así que este link recupera la
+                  sesión al abrirlo ahí — sirve para volver a entrar cuando
+                  alguien cierra la pestaña del KDS o del despacho, que antes
+                  no dejaba ninguna pista de cuál era la URL. */}
+              <Button variant="ghost" size="sm" asChild>
+                <a href={DEVICE_KIND_ROUTES[kind]} target="_blank" rel="noreferrer">
+                  <ExternalLink className="size-4 mr-1.5" />
+                  Abrir
+                </a>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Copiar link de la pantalla"
+                title="Copiar link de la pantalla"
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `${window.location.origin}${DEVICE_KIND_ROUTES[kind]}`,
+                  )
+                  toast.success("Link copiado")
+                }}
+              >
+                <Copy className="size-4" />
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
