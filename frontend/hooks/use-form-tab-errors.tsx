@@ -121,6 +121,14 @@ function matchesPath(errorPath: string, mappedPath: string): boolean {
   return errorPath === mappedPath || errorPath.startsWith(`${mappedPath}.`)
 }
 
+/**
+ * Claves internas del objeto de error de RHF: no son campos del formulario y
+ * no se recursa en ellas. `ref` en particular apunta al nodo del DOM (o al
+ * objeto de un Controller) — recursarlo genera paths fantasma tipo
+ * "phone.ref" que después se reportan como "campos sin tab asignado".
+ */
+const RHF_ERROR_META_KEYS = new Set(["ref", "types", "type", "message", "root"])
+
 /** RHF nest los errores con la misma forma que los valores del form. Esta
  * función los aplana a una lista de paths tipo "availability.days.lunes.enabled"
  * — solo hojas reales (objetos con `type`/`message`), recursando también por
@@ -129,6 +137,7 @@ function flattenErrorPaths(errors: unknown, prefix = ""): string[] {
   if (!errors || typeof errors !== "object") return []
   const paths: string[] = []
   for (const key of Object.keys(errors as Record<string, unknown>)) {
+    if (RHF_ERROR_META_KEYS.has(key)) continue
     const value = (errors as Record<string, unknown>)[key]
     if (!value || typeof value !== "object") continue
     const path = prefix ? `${prefix}.${key}` : key
