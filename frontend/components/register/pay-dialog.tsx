@@ -422,9 +422,22 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
       ]
       const autoDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
-      const autoBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds).filter(
-        (b) => b.autoPrint,
-      )
+      const matchedBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds)
+      const autoBindings = matchedBindings.filter((b) => b.autoPrint)
+      // Sin binding para este documento, el auto-print no dispara y ANTES no
+      // decía nada: el cajero veía la venta confirmada y ninguna impresión, sin
+      // pista de por qué (el botón manual sí funciona porque cae al picker de
+      // impresoras). Caso real: bindings viejos asignados a "Recibo" cuando la
+      // venta pasó a emitir SIEMPRE Factura por la regla fiscal.
+      // Solo avisamos cuando NO hay binding para el documento; si lo hay pero
+      // ninguno tiene auto-print, es una elección del operador y callarse es lo
+      // correcto — un toast en cada venta sería ruido.
+      if (matchedBindings.length === 0 && allBindings.length > 0) {
+        const docLabel = autoDocType === "receipt" ? "Recibo" : "Factura"
+        toast.warning(
+          `Ninguna impresora tiene asignado el documento ${docLabel} — asignáselo en Ajustes → Impresoras`,
+        )
+      }
       if (autoBindings.length > 0) {
         printSale({ docType: autoDocType, data: ticketData, bindings: allBindings })
           .then((r) => {
