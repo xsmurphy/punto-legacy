@@ -348,6 +348,94 @@ shadcn. El timbrado y los datos del emisor se muestran listando las claves
 crudas que devuelve Factomate (mismo criterio que el emisor en la F0
 original) — no se asumen nombres de campo fijos porque el spec no los tipa.
 
+## Onboarding del emisor desde Punto — white-label (dirección 2026-07-29)
+
+Objetivo del owner: **el tenant nunca se entera de que hay un tercero detrás.**
+Registro, configuración y emisión, todo desde Punto.
+
+Fuente: manual "Editar Tenant y ABM de Actividad Económica, Timbrados y
+Sucursales" que pasó Factomate. **Vive fuera del repo**
+(`~/Downloads/manual-tenant-abm.md`) — si se va a implementar F7, copiarlo a
+`context/` primero para que no dependa de la máquina de quien lo bajó.
+
+### Qué habilita el ABM
+
+| Entidad Factomate | Endpoint | Equivalente en Punto |
+|---|---|---|
+| `Tenant` | `PUT /api/Tenant` | Datos fiscales de la company (RUC, razón social, tipo de contribuyente, régimen, CSC de SIFEN, textos adicionales por tipo de documento) |
+| `Branch` | `POST/PUT/DELETE /api/Branch` | **Outlet** |
+| `BranchDocumentType` (timbrado) | `POST/PUT/DELETE /api/BranchDocumentType` | Timbrado + `Stablishment`/`ExpeditionPoint` = **punto de expedición de la caja** |
+| `Activity` | `POST/PUT/DELETE /api/Activity` | Actividad económica (no existe hoy en Punto) |
+| Certificado de firma | `POST /api/Tenant/{id}/UploadCert` | Carga del `.pfx` + contraseña |
+
+Dos cosas que este manual resuelve y que estaban abiertas:
+
+1. **El drift de `EEE-PPP` desaparece.** Punto puede crear el timbrado en
+   Factomate con el mismo establecimiento/punto de expedición que ya tiene
+   configurado en la caja, en vez de tener que mantener dos configuraciones
+   en sincronía a mano.
+2. **`CurrentNumber` vive en el timbrado de Factomate**, o sea que el
+   correlativo lo lleva ellos. Confirma que la decisión de `number: -1` no era
+   solo prudencia: Factomate es estructuralmente el único escritor.
+
+### Lo que BLOQUEA el registro (pendiente de Factomate)
+
+**No hay endpoint para crear un `Tenant` ni para crear un `User`.** El manual
+es ABM de un emisor que **ya existe**; `PUT /api/Tenant` actualiza, no crea. Y
+sin creación de usuario no hay credencial contra la cual autenticar (`/Token`
++ `PhoneLogin`).
+
+Mientras eso no exista, el alta del emisor y su usuario se provisiona a mano
+del lado de Factomate y Punto solo puede administrar lo que sigue. **El
+white-label completo no es implementable todavía** — no es una limitación de
+diseño nuestra.
+
+Pista del camino que sí existe (guía de integración §2): con el bearer de
+admin del tenant se pueden emitir bearers de usuario vía `PhoneLogin` **sin la
+contraseña del usuario final**. Eso es exactamente el mecanismo que permite
+ocultar Factomate por completo — falta saber cómo se crea ese admin.
+
+### Certificado de firma — reglas no negociables
+
+El `.pfx` es la **identidad de firma digital del contribuyente**: quien lo
+tenga puede firmar documentos como él. Si el comercio lo sube desde Punto:
+
+- Punto lo **reenvía a Factomate y lo descarta**. No se persiste en BD, ni en
+  disco, ni en caché, ni en un temporal. La contraseña tampoco.
+- **Nunca** al log — ni el archivo, ni la contraseña, ni un hash de ninguno de
+  los dos.
+- El upload va por el backend, nunca del browser a Factomate.
+
+Aparte, dato de ellos que conviene tener registrado: Factomate guarda el
+certificado cifrado (AES-256-CBC) pero **la contraseña solo en Base64, sin
+cifrar** (`CertificateAcc`) — el propio manual lo señala y explica que es por
+un proceso de firma externo en Java que la lee así. No lo controlamos, pero
+son los certificados de nuestros tenants.
+
+Mismo criterio para `CSCProduccion` (secreto de SIFEN): pasa, no se guarda.
+
+### Riesgo en la API de ellos, a no replicar
+
+El manual (§3) avisa que en `Activity` el `tenantId` viaja **desde el cliente
+sin validar contra el usuario autenticado**. Si eso es así en producción, su
+API permite cruzar tenants mandando otro id. Punto manda siempre el suyo y
+nunca expone ese parámetro al frontend — pero conviene saber que la barrera
+no está garantizada del otro lado.
+
+## Preguntas abiertas para Factomate
+
+Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
+
+1. Content-type y body exacto de `POST /Token` — se asumió form-urlencoded
+   OAuth (`grant_type=password`).
+2. Shape de la respuesta de `POST /api/sincro/config`, en particular dónde
+   vive el timbrado vigente (`stamps[0]`).
+3. **Fecha de emisión diferida**: qué pasa con un DE enviado días después de
+   la venta. ¿Ventana de tolerancia de SIFEN? ¿Qué pasa fuera de ella?
+   Decide si F5 es viable.
+4. **Alta de emisor y de usuario por API**: ¿existe endpoint para crear un
+   `Tenant` y su `User`? Sin eso, el registro desde Punto no se puede hacer.
+
 ## Fases
 
 | Fase | Alcance | Estado |
@@ -359,6 +447,7 @@ original) — no se asumen nombres de campo fijos porque el spec no los tipa.
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
 | **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante + listado por RUC con segundo factor | Pendiente |
+| **F7** | Onboarding white-label del emisor desde Punto: datos fiscales, actividad económica, sucursales↔outlets, timbrados↔puntos de expedición, carga del certificado. **Bloqueada** hasta que Factomate exponga alta de `Tenant` y de `User` | Pendiente |
 
 ## Infra
 
