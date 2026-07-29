@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { AddressMapParser } from "@/components/geo/address-map-parser"
 import { useFormTabErrors, TabErrorDot } from "@/hooks/use-form-tab-errors"
 import {
   Select,
@@ -696,8 +697,8 @@ function UbicacionTab({ form }: FormProp) {
         />
       </div>
 
-      <GoogleMapsLinkParser
-        onParsed={(lat, lng) => {
+      <AddressMapParser
+        onParsed={({ lat, lng }) => {
           form.setValue("lat", lat, { shouldDirty: true })
           form.setValue("lng", lng, { shouldDirty: true })
           toast.success(`Coordenadas extraídas: ${lat}, ${lng}`)
@@ -730,73 +731,6 @@ function emptyValues(): OutletFormValues {
   }
 }
 
-/**
- * Helper de UX: el usuario pega un link de Google Maps o un string crudo
- * "lat,lng" y los inputs lat/lng se completan. Cubre los formatos típicos:
- *   https://www.google.com/maps/place/.../@-25.2867,-57.6478,17z/...
- *   https://maps.app.goo.gl/...?q=-25.2867,-57.6478
- *   -25.2867, -57.6478
- *   -25.2867,-57.6478
- *
- * Los links cortos `maps.app.goo.gl` requieren resolver el redirect — eso
- * no se puede hacer client-side por CORS. Mensaje al usuario para que
- * abra el link primero y pegue el largo.
- */
-function GoogleMapsLinkParser({
-  onParsed,
-}: {
-  onParsed: (lat: number, lng: number) => void
-}) {
-  const [text, setText] = React.useState("")
-
-  const parse = () => {
-    if (!text.trim()) return
-    // Patrones: `@<lat>,<lng>` en URLs de Google Maps; `lat,lng` crudo;
-    // `q=<lat>,<lng>` en query params.
-    const patterns = [
-      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
-      /q=(-?\d+\.\d+),(-?\d+\.\d+)/,
-      /^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/,
-    ]
-    for (const re of patterns) {
-      const m = text.match(re)
-      if (m) {
-        const lat = Number(m[1])
-        const lng = Number(m[2])
-        if (
-          Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
-          Number.isFinite(lng) && lng >= -180 && lng <= 180
-        ) {
-          onParsed(lat, lng)
-          setText("")
-          return
-        }
-      }
-    }
-    toast.error("No pude extraer coordenadas", {
-      description: "Pegá un link largo de Google Maps o el texto 'lat,lng'.",
-    })
-  }
-
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
-      <label className="text-xs text-muted-foreground">
-        Pegar link de Google Maps o &quot;lat,lng&quot;
-      </label>
-      <div className="flex gap-2">
-        <Input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="https://www.google.com/maps/@-25.28,-57.64,17z"
-          className="text-xs"
-        />
-        <Button type="button" variant="outline" size="sm" onClick={parse}>
-          Extraer
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 function LocationsSection({ outletId }: { outletId: string }) {
   const { data: locations = [], isLoading } = useOutletLocations(outletId)
