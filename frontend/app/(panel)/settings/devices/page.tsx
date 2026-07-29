@@ -183,9 +183,13 @@ export default function DevicesPage() {
       cell: ({ row }) => {
         const { kind, id, status } = row.original
         const isActive = status === 1
-        // Solo POS revocado tiene hard-delete (historial); screen revocado
-        // queda en la lista sin acciones cuando "Mostrar revocados" está activado.
-        const isDeletablePos = kind === "pos" && status === 0
+        // Hard-delete: cualquier dispositivo YA revocado, sin importar el tipo.
+        // El backend (DELETE /v1/devices?hard=1) solo exige status=0 — la
+        // barrera de seguridad es "revocar primero", no el módulo. El gate
+        // `kind === "pos"` que había acá era herencia de cuando las pantallas
+        // se listaban desde otra fuente: dejaba screen/kds/display/print
+        // revocados atascados en el historial, sin ninguna acción posible.
+        const isDeletable = status === 0
         return (
           <RowActions
             actions={[
@@ -231,7 +235,7 @@ export default function DevicesPage() {
                 icon: Trash2,
                 variant: "destructive",
                 onSelect: () => setDeletePosId(id),
-                hidden: !isDeletablePos,
+                hidden: !isDeletable,
               },
             ]}
           />
@@ -355,7 +359,7 @@ export default function DevicesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* AlertDialog: eliminar dispositivo POS revocado */}
+      {/* AlertDialog: eliminar del historial un dispositivo ya revocado (cualquier tipo) */}
       <AlertDialog open={deletePosId !== null} onOpenChange={(o) => { if (!o) setDeletePosId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
