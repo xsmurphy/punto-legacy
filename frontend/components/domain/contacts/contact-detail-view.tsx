@@ -108,8 +108,9 @@ import { usePriceLists } from "@/hooks/use-price-lists"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { splitPlaceAddress } from "@/lib/geo/parse-coordinates"
 import { AddressMapParser } from "@/components/geo/address-map-parser"
+import { AddressAutocompleteInput } from "@/components/geo/address-autocomplete-input"
+import type { GeoSuggestion } from "@/lib/geo/types"
 import type {
   ContactAnalytics,
   ContactFormValues,
@@ -954,8 +955,21 @@ function AddressFormFields({
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>Dirección</Label>
-        <Input placeholder="Calle y número"
-          value={form.address} onChange={(e) => onChange({ ...form, address: e.target.value })} />
+        <AddressAutocompleteInput
+          placeholder="Calle y número"
+          value={form.address}
+          onValueChange={(v) => onChange({ ...form, address: v })}
+          onSelect={(s: GeoSuggestion) =>
+            onChange({
+              ...form,
+              address: s.street ?? form.address,
+              city: s.city ?? form.city,
+              location: s.neighborhood ?? form.location,
+              lat: s.lat,
+              lng: s.lng,
+            })
+          }
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>Referencia</Label>
@@ -982,18 +996,21 @@ function AddressFormFields({
         </div>
       </div>
       <AddressMapParser
-        onParsed={({ lat, lng, address }) => {
-          // El link de Maps a veces trae "Calle y número, Ciudad" en la URL.
-          // Se completa de forma conservadora: solo si el campo está vacío —
-          // nunca pisa lo que el usuario ya escribió. Barrio/zona NUNCA sale
-          // de acá (Google no lo incluye en el link) — si no está, queda vacío.
-          const placeFields = address ? splitPlaceAddress(address) : null
+        onParsed={({ lat, lng, address, city, neighborhood, placeName }) => {
+          // Conservador: cada campo solo se completa si estaba vacío — nunca
+          // pisa lo que el usuario ya escribió. `address`/`city`/`neighborhood`
+          // vienen de reverse geocoding (Photon) sobre las coordenadas del
+          // link, no del texto crudo — un link "place" puede traer el nombre
+          // de un comercio ahí, y eso va a Referencia (`placeName`), nunca a
+          // Dirección.
           onChange({
             ...form,
             lat,
             lng,
-            address: !form.address.trim() && placeFields?.address ? placeFields.address : form.address,
-            city: !form.city.trim() && placeFields?.city ? placeFields.city : form.city,
+            address: !form.address.trim() && address ? address : form.address,
+            city: !form.city.trim() && city ? city : form.city,
+            location: !form.location.trim() && neighborhood ? neighborhood : form.location,
+            reference: !form.reference.trim() && placeName ? placeName : form.reference,
           })
           toast.success(`Coordenadas: ${lat}, ${lng}`)
         }}

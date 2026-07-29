@@ -42,7 +42,8 @@ import {
 } from "@/hooks/use-pos-customer-addresses"
 import type { CustomerAddress } from "@/lib/types/contact"
 import { AddressMapParser } from "@/components/geo/address-map-parser"
-import { splitPlaceAddress } from "@/lib/geo/parse-coordinates"
+import { AddressAutocompleteInput } from "@/components/geo/address-autocomplete-input"
+import type { GeoSuggestion } from "@/lib/geo/types"
 
 interface NewAddressForm {
   name: string
@@ -163,11 +164,21 @@ export function DeliveryAddressDialog({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="da-address">Dirección</Label>
-              <Input
+              <AddressAutocompleteInput
                 id="da-address"
                 value={form.address}
-                onChange={(e) => set("address", e.target.value)}
+                onValueChange={(v) => set("address", v)}
                 placeholder="Calle y número"
+                onSelect={(s: GeoSuggestion) =>
+                  setForm((f) => ({
+                    ...f,
+                    address: s.street ?? f.address,
+                    city: s.city ?? f.city,
+                    location: s.neighborhood ?? f.location,
+                    lat: s.lat,
+                    lng: s.lng,
+                  }))
+                }
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -189,17 +200,21 @@ export function DeliveryAddressDialog({
               />
             </div>
             <AddressMapParser
-              onParsed={({ lat, lng, address }) => {
-                // Conservador: el link solo completa Ciudad/Dirección si el
-                // cajero todavía no escribió nada ahí. Barrio/zona nunca sale
-                // de acá — Google no lo trae en el link.
-                const placeFields = address ? splitPlaceAddress(address) : null
+              onParsed={({ lat, lng, address, city, neighborhood, placeName }) => {
+                // Conservador: el link solo completa un campo si el cajero
+                // todavía no escribió nada ahí. `address`/`city`/`neighborhood`
+                // ya vienen de reverse geocoding (o del fallback del propio
+                // AddressMapParser) — nunca del nombre de comercio crudo.
+                // `placeName` (posible nombre de local, ej. "El Café de Acá")
+                // va a Referencia, NUNCA a Dirección.
                 setForm((f) => ({
                   ...f,
                   lat,
                   lng,
-                  address: !f.address.trim() && placeFields?.address ? placeFields.address : f.address,
-                  city: !f.city.trim() && placeFields?.city ? placeFields.city : f.city,
+                  address: !f.address.trim() && address ? address : f.address,
+                  city: !f.city.trim() && city ? city : f.city,
+                  location: !f.location.trim() && neighborhood ? neighborhood : f.location,
+                  reference: !f.reference.trim() && placeName ? placeName : f.reference,
                 }))
                 toast.success(`Coordenadas: ${lat}, ${lng}`)
               }}
