@@ -564,8 +564,13 @@ export default function ItemEditPage() {
                 <Boxes className="size-3.5" />
                 Stock
               </TabsTrigger>
-              {hasVariants && !isNew && (
-                <TabsTrigger value="variantes" className="gap-1.5">
+              {/* Con el item todavía sin guardar el tab se muestra DESHABILITADO,
+                  no oculto (misma convención que Stock y Producción): las
+                  variantes cuelgan de un parentId que aún no existe. Ocultarlo
+                  dejaba al usuario activando el switch y sin ninguna pista de
+                  dónde cargar las variantes. */}
+              {hasVariants && (
+                <TabsTrigger value="variantes" className="gap-1.5" disabled={isNew}>
                   <Layers className="size-3.5" />
                   Variantes
                 </TabsTrigger>
@@ -923,6 +928,13 @@ function PerfilTab({
                   <p className="text-xs text-muted-foreground">
                     Cuando esta activo, precio y costo se definen por variante.
                   </p>
+                  {hasVariants && (
+                    <p className="text-xs text-muted-foreground">
+                      {isNew
+                        ? "Guardá el producto y cargá las variantes desde el tab Variantes."
+                        : "Cargá las variantes desde el tab Variantes."}
+                    </p>
+                  )}
                 </div>
                 <TooltipProvider>
                   <Tooltip>
