@@ -94,7 +94,7 @@ final class ProductsService
                      SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount) as discount";
         $selUnits = "SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldTotal) as total,
                      SUM(a.itemSoldTax) as tax, SUM(ABS(a.itemSoldCOGS) * a.itemSoldUnits) as cogs,
-                     SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount * a.itemSoldUnits) as discount";
+                     SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount) as discount";
 
         if ($f['cusId']) {
             $sql = "SELECT a.itemId as id, $selFlat
@@ -272,7 +272,7 @@ final class ProductsService
 
             $cogs      = (float) $l['itemSoldCOGS'] * $uSold;
             $comission = (float) $l['itemSoldComission'];
-            $discount  = (float) $l['itemSoldDiscount'] * $uSold;
+            $discount  = (float) $l['itemSoldDiscount'];
             $name      = $itm ? (string) $itm['itemName'] : ((!$l['itemId'] && $l['itemSoldDescription']) ? (string) $l['itemSoldDescription'] : '');
             $utility   = ($total - $cogs) - $comission;
 

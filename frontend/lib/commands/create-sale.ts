@@ -30,6 +30,7 @@
 // device (`apiAuthPosContext`), nunca la cookie del panel.
 import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
+import { allocateLineDiscounts } from "@/lib/cart/allocate-discounts"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { tenantNow } from "@/lib/format-date"
 
@@ -52,9 +53,12 @@ export interface SaleItem {
   name: string
   count: number
   price: number
-  /** subtotal = price * count (pre-computed, mirrors el legacy). */
+  /** BRUTO de la línea = price * count, sin descuentos (semántica de itemSoldTotal). */
   total: number
+  /** Porcentaje efectivo de descuento de la línea (propio + parte del de venta). */
   discount: number
+  /** Plata del descuento de la línea → itemSold.itemSoldDiscount. */
+  totalDiscount: number
   note: string | null
   /**
    * Metadata de EMISIÓN de gift card (F2 giftcard-issue-flow) — presente solo
@@ -237,14 +241,26 @@ export interface BuildSaleInput {
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
   const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid } = input
 
-  const saleItems: SaleItem[] = lines.map((line) => ({
+  // Los descuentos se reparten por ÍTEM (ver lib/cart/allocate-discounts.ts):
+  // el descuento de venta se prorratea entre las líneas y se suma al descuento
+  // propio de cada una. `total` sigue siendo el BRUTO — es la semántica de
+  // `itemSold.itemSoldTotal`, que los reportes suman aparte de
+  // `itemSoldDiscount` — y el neto sale de restarlos.
+  const allocations = allocateLineDiscounts(lines, saleDiscount)
+
+  const saleItems: SaleItem[] = lines.map((line, i) => ({
     itemId: line.itemId,
     name: line.name,
     count: line.qty,
     price: line.unitPrice,
-    total: line.qty * line.unitPrice,
-    // discount por línea: porcentaje aplicado a esa línea (independiente del saleDiscount)
-    discount: line.discount ?? 0,
+    total: allocations[i].gross,
+    // Porcentaje EFECTIVO de la línea: su descuento propio más la parte del
+    // descuento de venta que le tocó.
+    discount: allocations[i].effectivePercent,
+    // Plata del descuento de esa línea → itemSold.itemSoldDiscount. Antes no se
+    // mandaba, así que esa columna quedaba siempre en 0 y los reportes de
+    // descuento por producto/categoría/marca no mostraban nada.
+    totalDiscount: allocations[i].totalDiscount,
     note: line.note ?? null,
     ...(line.giftcard
       ? {
@@ -260,19 +276,15 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
 
   const subtotal = saleItems.reduce((s, i) => s + i.total, 0)
 
-  // Resolver el descuento de venta a plata. Mismo cálculo que selectSaleDiscountAmount
-  // del store (consistencia con lo que muestra la UI).
-  // Base: subtotal de líneas con descuentos de línea ya aplicados.
-  const linesSubtotal = lines.reduce((s, line) => {
-    const discountFactor = 1 - (line.discount ?? 0) / 100
-    return s + line.qty * line.unitPrice * discountFactor
-  }, 0)
-  const transactionDiscount = (() => {
-    if (!saleDiscount || linesSubtotal === 0) return 0
-    if (saleDiscount.mode === "money") return Math.min(saleDiscount.value, linesSubtotal)
-    const pct = Math.min(100, Math.max(0, saleDiscount.value))
-    return Math.round(linesSubtotal * pct / 100)
-  })()
+  // El descuento de la transacción es la SUMA de los descuentos de sus ítems —
+  // no una cifra propia. Así `subtotal - discount` da exactamente lo que se
+  // cobró.
+  //
+  // Antes acá solo entraba el descuento de venta: el descuento POR LÍNEA se
+  // mostraba en el carrito y se cobraba, pero no llegaba a ningún total de la
+  // transacción, que quedaba registrada por el bruto menos el descuento de
+  // venta. Es decir, más plata de la que efectivamente entró.
+  const transactionDiscount = allocations.reduce((s, a) => s + a.totalDiscount, 0)
 
   const now = new Date()
   // Storage = hora local del TENANT, naive. El server ya guarda en

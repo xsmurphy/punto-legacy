@@ -92,7 +92,7 @@ final class CategoriesService
                        SUM(a.itemSoldTax)                     AS tax,
                        SUM(a.itemSoldCOGS * a.itemSoldUnits)  AS cogs,
                        SUM(a.itemSoldComission)               AS comission,
-                       SUM(a.itemSoldDiscount * a.itemSoldUnits) AS discount,
+                       SUM(a.itemSoldDiscount)                   AS discount,
                        c.categoryId                           AS category
                 FROM itemSold a, transaction b, item c
                 WHERE a.itemId = c.itemId

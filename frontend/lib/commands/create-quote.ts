@@ -12,6 +12,7 @@
 // (cookie) el POST era un 401 garantizado — la cotización nunca se guardaba.
 import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
+import { allocateLineDiscounts } from "@/lib/cart/allocate-discounts"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 
 export interface CreateQuoteInput {
@@ -20,6 +21,8 @@ export interface CreateQuoteInput {
   userId: string | null
   note: string | null
   tags: string[]
+  /** Descuento de venta activo en el carrito, si lo hay. Se prorratea entre las líneas. */
+  saleDiscount?: { value: number; mode: "percent" | "money" } | null
 }
 
 export interface CreateQuoteResult {
@@ -37,25 +40,31 @@ interface RawQuoteResponse {
 }
 
 export async function createQuote(input: CreateQuoteInput): Promise<CreateQuoteResult> {
-  const { lines, customer, userId, note, tags } = input
+  const { lines, customer, userId, note, tags, saleDiscount } = input
 
   if (lines.length === 0) {
     throw new Error("El carrito está vacío")
   }
 
-  const saleItems = lines.map((line) => ({
+  // Misma regla que la venta: los descuentos viven en el ítem. Antes esto
+  // mandaba `discount: 0, totalDiscount: 0` fijo, así que una cotización con
+  // líneas descontadas se guardaba e imprimía por el bruto.
+  const allocations = allocateLineDiscounts(lines, saleDiscount)
+
+  const saleItems = lines.map((line, i) => ({
     itemId: line.itemId,
     name: line.name,
     count: line.qty,
     price: line.unitPrice,
-    total: line.qty * line.unitPrice,
-    discount: 0,
-    totalDiscount: 0,
+    total: allocations[i].gross,
+    discount: allocations[i].effectivePercent,
+    totalDiscount: allocations[i].totalDiscount,
     tax: 0,
     note: line.note ?? null,
   }))
 
   const subtotal = saleItems.reduce((s, i) => s + i.total, 0)
+  const quoteDiscount = allocations.reduce((s, a) => s + a.totalDiscount, 0)
 
   const now = new Date()
   const pad = (n: number) => String(n).padStart(2, "0")
@@ -72,7 +81,7 @@ export async function createQuote(input: CreateQuoteInput): Promise<CreateQuoteR
     sale: saleItems,
     subtotal,
     tax: 0,
-    discount: 0,
+    discount: quoteDiscount,
     date: dateStr,
     timestamp,
     client: customer?.id ?? null,

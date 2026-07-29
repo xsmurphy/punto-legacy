@@ -167,7 +167,17 @@ export function SaleOptionsDrawer({
     setIsSavingQuote(true)
     setSavingQuote(true)
     try {
-      const result = await createQuote({ lines, customer, userId: null, note: cartNote, tags })
+      const result = await createQuote({
+        lines,
+        customer,
+        userId: null,
+        note: cartNote,
+        tags,
+        // El descuento de venta activo también se prorratea en la cotización:
+        // si no viaja, la cotización se guarda por el bruto y no coincide con
+        // lo que el cliente vio en pantalla.
+        saleDiscount: useCartStore.getState().saleDiscount,
+      })
 
       // Construir el preview desde el snapshot del carrito ANTES de limpiarlo.
       // Mismo cálculo que createQuote (total línea = qty * unitPrice, sin aplicar
