@@ -2,8 +2,9 @@
 
 import * as React from "react"
 import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
-import { MessageCircle, Upload } from "lucide-react"
+import { ArrowDown, MessageCircle, Upload } from "lucide-react"
 import Link from "next/link"
+import { Button } from "@/components/ui/button"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
@@ -41,6 +42,7 @@ export function AgentChatContent({
 }: Props) {
   const [input, setInput] = React.useState("")
   const bottomRef = React.useRef<HTMLDivElement>(null)
+  const [isAtBottom, setIsAtBottom] = React.useState(true)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const [tick, setTick] = React.useState(0)
 
@@ -72,9 +74,26 @@ export function AgentChatContent({
   }, [error, is402])
   const invalidateBalance = useInvalidateAiBalance()
 
+  // Auto-scroll SOLO si el usuario ya estaba abajo. Si subió a releer algo,
+  // una respuesta nueva no debe arrastrarlo — para eso está el botón de bajar.
+  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = "smooth") => {
+    bottomRef.current?.scrollIntoView({ behavior })
+  }, [])
+
+  function handleScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget
+    // Margen de 80px: el navegador redondea scrollTop en fraccionales y sin
+    // holgura el estado parpadea entre "abajo" y "no abajo" al hacer scroll.
+    setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+  }
+
   React.useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    if (isAtBottom) scrollToBottom()
+    // `isAtBottom` a propósito fuera de las deps: el efecto se dispara por
+    // mensajes nuevos y lee la posición del momento. Incluirlo haría saltar
+    // el scroll cada vez que el usuario llega al fondo por su cuenta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, scrollToBottom])
 
   const prevStatusRef = React.useRef(status)
   React.useEffect(() => {
@@ -215,7 +234,10 @@ export function AgentChatContent({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
+        onScroll={handleScroll}
+      >
         {messages.length === 0 &&
           (renderEmpty ?? (
             <p className="text-center text-sm text-muted-foreground pt-8">
@@ -326,7 +348,22 @@ export function AgentChatContent({
         <div ref={bottomRef} />
       </div>
 
-      <div className="px-4 py-3">
+      <div className="relative px-4 py-3">
+        {/* Bajar al último mensaje. Solo aparece con el hilo scrolleado hacia
+            arriba; se apoya sobre el input sin empujarlo (absolute) para que
+            la caja de escritura no se mueva de lugar. */}
+        {!isAtBottom && messages.length > 0 && (
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            aria-label="Ir al último mensaje"
+            onClick={() => scrollToBottom()}
+            className="absolute -top-5 left-1/2 z-10 size-9 -translate-x-1/2 rounded-full border shadow-md"
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+        )}
         {(hasNoCredits || is402) && (
           <div className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             Sin créditos disponibles.{" "}
