@@ -45,7 +45,7 @@ interface CreditPaymentDialogProps {
    */
   paymentMethods: PaymentMethodConfig[]
   config: PosConfig | null
-  onSuccess?: (result: { id: string; parentComplete: boolean; paid: number; debtRemaining: number }) => void
+  onSuccess?: (result: { id: string; encId: string; amount: number; parentComplete: boolean; paid: number; debtRemaining: number }) => void
 }
 
 export function CreditPaymentDialog({

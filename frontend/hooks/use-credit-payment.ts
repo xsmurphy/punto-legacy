@@ -15,6 +15,10 @@ interface CreateCreditPaymentVars {
 
 interface CreateCreditPaymentResult {
   id: string
+  /** Id del recibo (transacción type=5) en formato enc() — usar con `/pos/transactions/[encId]`. */
+  encId: string
+  /** Monto de ESTE pago (no el acumulado). */
+  amount: number
   parentComplete: boolean
   paid: number
   debtRemaining: number

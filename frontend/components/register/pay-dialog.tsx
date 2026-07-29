@@ -320,8 +320,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     try { leasedInvoiceNo = getNextInvoiceNo() } catch { /* NO_LEASE — sin offline numbering */ }
 
     try {
+      // Bug Control de Caja: se mandaba `name: r.method.id` — el UUID de
+      // taxonomía (o el slug nativo) quedaba persistido como "nombre" del
+      // medio de pago en `transactionPaymentType`, y el resumen de caja lo
+      // mostraba crudo. `name` es SIEMPRE el label legible; `type` lleva el
+      // id/slug para agrupar de forma estable.
       const payments: SalePaymentMethod[] = appliedPayments.map((r) => ({
-        name: r.method.id,
+        name: r.method.name,
+        type: r.method.id,
         total: r.amount,
         ...(r.identifier ? { identifier: r.identifier } : {}),
       }))
@@ -331,7 +337,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // el dialog en modo crédito pero el cajero no aplica ningún pago.
       const effectivePayments =
         payments.length === 0 && credito
-          ? [{ name: "credito", total: 0 }]
+          ? [{ name: "Crédito", type: "credito", total: 0 }]
           : payments
 
       if (lines.length === 0) {
