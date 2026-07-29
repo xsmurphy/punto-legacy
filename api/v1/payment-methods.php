@@ -11,16 +11,28 @@
  *   PUT    /v1/payment-methods?resource=reorder → reordena (body: { orderedIds: [...] })
  *   DELETE /v1/payment-methods?id=<uuid>       → elimina (Efectivo no borrable)
  *
- * Auth: panel. Identidad estable: el taxonomyId (UUID) es la clave del método
- * que las ventas nuevas guardan y que finAccountMap referencia. El BFF del POS
- * (`/api/pos/bootstrap`) consume este endpoint para armar paymentMethods.
+ * Auth: lectura panel + pos-app; escritura solo panel. Identidad estable: el
+ * taxonomyId (UUID) es la clave del método que las ventas nuevas guardan y que
+ * finAccountMap referencia. El BFF del POS (`/api/pos/bootstrap`) consume este
+ * endpoint para armar paymentMethods.
+ *
+ * Por qué el GET acepta `pos-app`: el bootstrap del POS viaja con el Bearer del
+ * device (realm pos-app) y este era el ÚNICO de sus 6 upstreams restringido a
+ * panel. Resultado en producción: 401 solo acá, el BFF degradaba a los métodos
+ * hardcodeados de fallback y la caja operaba con ids falsos ("efectivo",
+ * "tcredito") en vez de los UUID reales del tenant — cualquier flujo que
+ * resuelva el medio de pago server-side (cobro de espacios, control de caja)
+ * fallaba después con un error sin relación aparente. La lectura de la lista de
+ * medios de pago no es privilegiada: la caja necesita exactamente los mismos
+ * datos para poder cobrar.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel']);
-$companyId = $ctx['companyId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+// Alta/edición/borrado/reorden siguen siendo configuración del tenant: panel.
+$ctx       = apiAuthTenant($method === 'GET' ? ['panel', 'pos-app'] : ['panel']);
+$companyId = $ctx['companyId'];
 $id        = $_GET['id'] ?? null;
 
 global $db;

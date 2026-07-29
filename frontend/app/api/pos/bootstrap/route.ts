@@ -433,10 +433,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     )
   }
 
-  // 401 en cualquiera → propagar 401 entero.
-  const unauthorizedRes = [bsRes, itemsRes, customersRes, registersRes, usersRes].find(
-    (r) => r.status === 401,
-  )
+  // 401 en cualquiera → propagar 401 entero. `paymentMethodsRes` incluido: desde
+  // que `/v1/payment-methods` acepta el realm `pos-app` (antes era el único
+  // upstream panel-only), un 401 acá ya no puede significar "endpoint más
+  // estricto que el resto" — significa sesión muerta, igual que en los core.
+  // Degradarlo a los métodos de fallback dejaba la caja operando con ids
+  // falsos y rompía el cobro después, lejos de la causa (incidente 2026-07-29).
+  const unauthorizedRes = [
+    bsRes,
+    itemsRes,
+    customersRes,
+    registersRes,
+    usersRes,
+    paymentMethodsRes,
+  ].find((r) => r.status === 401)
   if (unauthorizedRes) {
     // El upstream (`api/includes/auth_session.php`) manda `code: "session_revoked"`
     // en el body cuando la sesión fue revocada explícitamente por un admin — sin
@@ -491,14 +501,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     })
   }
 
-  // payment-methods: NUNCA debe bloquear ni tirar 500 el bootstrap. Cualquier
-  // falla (5xx, red, respuesta vacía) degrada al fallback hardcodeado — el
-  // POS siempre necesita al menos Efectivo para poder cobrar.
-  // NOTA (intencional): un 401 acá NO se propaga como en los 5 core — degrada a
-  // fallback. Si los 5 core autenticaron OK, es improbable que solo este 401;
-  // y ante la duda preferimos un POS operable con métodos default que un
-  // bootstrap caído. El re-login lo fuerzan los core, no este endpoint.
-  if (paymentMethodsRes.status >= 400) {
+  // payment-methods: una falla de INFRAESTRUCTURA (5xx, red, respuesta vacía)
+  // degrada al fallback hardcodeado — el POS siempre necesita al menos Efectivo
+  // para poder cobrar. El 401, en cambio, se propaga junto con los core (ver
+  // bloque de abajo): es sesión muerta, no un endpoint indisponible, y los ids
+  // del fallback no son UUID del tenant — cobrar con ellos falla más tarde con
+  // un error que no se parece en nada a un problema de auth.
+  if (paymentMethodsRes.status >= 400 && paymentMethodsRes.status !== 401) {
     const snippet =
       paymentMethodsRes.rawText.length > 500
         ? paymentMethodsRes.rawText.slice(0, 500) + "…"
