@@ -12,6 +12,10 @@ export interface ParkedSaleData {
   customer: PosCustomer | null
   notes?: string | null
   title?: string | null
+  /** Descuento de venta activo al guardar — sin esto, retomar perdía el descuento. */
+  saleDiscount?: { value: number; mode: "percent" | "money" } | null
+  /** Etiquetas de la venta al guardar. */
+  tags?: string[]
 }
 
 export interface ParkedSale {
@@ -53,11 +57,22 @@ function normalizeParkedSaleData(raw: unknown): ParkedSaleData {
       ? (d.customer as PosCustomer)
       : null
 
+  const rawDiscount = d.saleDiscount as { value?: unknown; mode?: unknown } | null | undefined
+  const saleDiscount =
+    rawDiscount &&
+    typeof rawDiscount === "object" &&
+    typeof rawDiscount.value === "number" &&
+    (rawDiscount.mode === "percent" || rawDiscount.mode === "money")
+      ? { value: rawDiscount.value, mode: rawDiscount.mode as "percent" | "money" }
+      : null
+
   return {
     cart,
     customer,
     notes: typeof d.notes === "string" ? d.notes : null,
     title: typeof d.title === "string" ? d.title : null,
+    saleDiscount,
+    tags: Array.isArray(d.tags) ? (d.tags as string[]).filter((t) => typeof t === "string") : [],
   }
 }
 

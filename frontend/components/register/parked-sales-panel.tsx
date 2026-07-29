@@ -39,6 +39,11 @@ export function ParkedSalesPanel() {
           lines: sale.data.cart,
           customer: sale.data.customer,
           note: sale.data.notes ?? null,
+          // La venta se retoma ENTERA: descuento de venta y etiquetas también
+          // (guardados desde 2026-07-30; ventas viejas traen null/[] y esto
+          // queda igual que antes).
+          saleDiscount: sale.data.saleDiscount ?? null,
+          tags: sale.data.tags ?? [],
         })
         toast.success("Venta retomada")
         router.push('/pos')
