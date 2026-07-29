@@ -1213,7 +1213,9 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
   { key: "ordenAImpresion", label: "Orden a impresión" },
   { key: "servidorImpresion", label: "Servidor de impresión" },
   { key: "sonidosAlertas", label: "Sonidos en alertas" },
-  { key: "inhabilitarAnimaciones", label: "Inhabilitar animaciones" },
+  // "Inhabilitar animaciones" sacado de la lista por decisión del owner
+  // (2026-07-29). La key sigue en PosRegisterConfig con default false para no
+  // romper los devices que ya la tengan guardada.
   { key: "permitirGuardarVentas", label: "Permitir guardar ventas" },
   { key: "ocultarDetalleCombos", label: "Ocultar detalle de combos en impresión" },
   { key: "modoSoloOrdenes", label: "Modo: solo órdenes" },
@@ -1372,23 +1374,17 @@ function AjustesPanel() {
               <DeviceContextSelectors />
 
 
-              {/* Próxima numeración */}
-              {/* TODO (backend): GET /api/v1/pos/register/next-seq */}
-              <div className="flex items-center gap-3">
-                <label className="w-48 shrink-0 text-sm text-muted-foreground">
-                  Próxima numeración
-                </label>
-                <Input className="flex-1" defaultValue="3578" />
-              </div>
+              {/* Sin campo "Próxima numeración": era un input mock con un valor
+                  hardcodeado que no leía ni escribía nada. La numeración la
+                  entrega el lease del servidor; dejar que se toque a mano
+                  quemaría o duplicaría números fiscales. Decisión del owner
+                  (2026-07-29). */}
 
-              {/* Fecha */}
-              {/* TODO (backend): no editable — viene del servidor */}
-              <div className="flex items-center gap-3">
-                <label className="w-48 shrink-0 text-sm text-muted-foreground">
-                  Fecha
-                </label>
-                <Input className="flex-1" type="date" defaultValue="2026-06-16" />
-              </div>
+              {/* Sin campo "Fecha": la fecha de la transacción la pone el
+                  servidor (tenant-local, ver `tenantNow`). Un input editable acá
+                  sugiere que el cajero puede fechar una venta a mano — con
+                  numeración fiscal y cierres de caja de por medio, eso es un
+                  problema, no una función. Decisión del owner (2026-07-29). */}
 
               {/* Bloqueo por inactividad */}
               {/* TODO (backend): persistir en config del dispositivo */}
