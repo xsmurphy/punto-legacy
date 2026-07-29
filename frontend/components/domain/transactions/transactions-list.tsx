@@ -94,6 +94,7 @@ import {
   type TransactionDataItem,
 } from "@/hooks/use-transactions"
 import { api } from "@/lib/api-client"
+import { posApi } from "@/lib/api/pos-client"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { formatAmount } from "@/lib/format-money"
@@ -204,17 +205,22 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
     [range],
   )
 
+  // En modo POS el listado viaja con el cliente del DEVICE (Bearer): el scope
+  // de sucursal sale de la fila `device`, no del view-scope del panel. Con el
+  // cliente del panel, la caja mostraba las ventas de la sucursal seleccionada
+  // en el PANEL (o de todas) — bug reportado 2026-07-30.
+  const reportClient = mode === "pos" ? posApi : undefined
   const { data, isLoading, error } = useReport<TransactionsReportResponse>(
     "transactions",
-    opts,
+    { ...opts, client: reportClient },
   )
   const { data: cobrosData, isLoading: cobrosLoading } = useReport<CobrosReportResponse>(
     "transactions",
-    cobrosOpts,
+    { ...cobrosOpts, client: reportClient },
   )
   const { data: quotesData, isLoading: quotesLoading } = useReport<QuotesReportResponse>(
     "transactions",
-    quotesOpts,
+    { ...quotesOpts, client: reportClient },
   )
 
   const rows = data?.rows ?? []

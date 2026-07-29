@@ -12,12 +12,16 @@
  *        Actualiza header, ítems (itemSold), tags y cascadas de fecha/comisión.
  *        Solo roles != 7. companyId siempre de COMPANY_ID (JWT), nunca del body.
  *
- * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Auth: lectura panel + pos-app; escritura solo panel. Tenant por COMPANY_ID +
+ * outlet. Para pos-app el OUTLET_ID sale de la fila `device` (bootstrap.php),
+ * así el listado de transacciones del POS queda scopeado a la sucursal de la
+ * caja — con panel-only, el POS pedía con la cookie del operador y mostraba la
+ * sucursal del view-scope del panel (bug 2026-07-30).
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel']);
+$ctx    = apiAuthTenant(($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' ? ['panel', 'pos-app'] : ['panel']);
 $svc    = new \Punto\Api\Reports\TransactionsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';

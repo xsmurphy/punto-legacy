@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { api, type HttpClient } from "@/lib/api-client"
 
 /**
  * Hook genérico para reports: fetcher GET con date range + extra params.
@@ -11,7 +11,20 @@ import { api } from "@/lib/api-client"
  */
 export function useReport<T>(
   name: string,
-  opts: { from?: string; to?: string; params?: Record<string, string>; enabled?: boolean },
+  opts: {
+    from?: string
+    to?: string
+    params?: Record<string, string>
+    enabled?: boolean
+    /**
+     * Cliente HTTP a usar — define el REALM y por lo tanto el scope de sucursal.
+     * Default `api` (panel: cookie + view-scope del selector del logo). Los
+     * call-sites del POS DEBEN pasar `posApi`: con el cliente del panel, el
+     * listado de la caja mostraba la sucursal elegida en el PANEL (o "Todas"),
+     * no la del device (bug 2026-07-30, /pos > transacciones).
+     */
+    client?: HttpClient
+  },
 ) {
   const params = new URLSearchParams()
   if (opts.from) params.set("from", opts.from)
@@ -22,9 +35,20 @@ export function useReport<T>(
     })
   }
   const qs = params.toString()
+  const client = opts.client ?? api
   return useQuery<T>({
-    queryKey: ["reports", name, opts.from ?? "", opts.to ?? "", JSON.stringify(opts.params ?? {})],
-    queryFn: () => api.get<T>(`/v1/reports/${name}${qs ? `?${qs}` : ""}`),
+    // El realm entra a la queryKey: el mismo reporte pedido como panel y como
+    // device son datasets distintos (scope de sucursal distinto) y no deben
+    // pisarse en cache.
+    queryKey: [
+      "reports",
+      name,
+      opts.from ?? "",
+      opts.to ?? "",
+      JSON.stringify(opts.params ?? {}),
+      client === api ? "panel" : "pos",
+    ],
+    queryFn: () => client.get<T>(`/v1/reports/${name}${qs ? `?${qs}` : ""}`),
     staleTime: 60 * 1000, // 1 min — reports cambian con transacciones nuevas
     enabled: opts.enabled ?? true,
     retry: false,
