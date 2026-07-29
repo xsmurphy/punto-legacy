@@ -172,7 +172,17 @@ export async function POST(req: Request) {
     `7. Cuando el usuario confirme, llamá execute_action con {confirmToken} para ejecutar.\n` +
     `8. Reportá el resultado: "Se importaron X artículos/contactos. Y actualizados. Z errores." Si hay errores, listalos.`
 
-  const modelMessages = await convertToModelMessages(messages)
+  // El historial llega del cliente (localStorage) y NO es confiable: puede
+  // traer una tool call sin su resultado — recarga a mitad de una confirmación,
+  // stream abortado, pestaña cerrada, timeout de 60s. Sin `ignoreIncompleteToolCalls`
+  // eso tira AI_MissingToolResultsError ANTES de llamar al modelo, y como el
+  // historial roto queda persistido, TODA request posterior falla igual: el
+  // agente queda mudo para siempre y el usuario no tiene forma de salir salvo
+  // borrar el chat. Es exactamente lo que pasó en producción (mudo desde el
+  // 2026-07-27; ningún débito en ai_credit_ledger desde esa fecha).
+  const modelMessages = await convertToModelMessages(messages, {
+    ignoreIncompleteToolCalls: true,
+  })
 
   const result = streamText({
     model,
