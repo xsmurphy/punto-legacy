@@ -4,6 +4,7 @@ import * as React from "react"
 import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
 import Link from "next/link"
 import {
+  ArrowDown,
   TrendingUp,
   Search,
   Plus as PlusIcon,
@@ -92,9 +93,24 @@ export default function ChatPage() {
   const invalidateBalance = useInvalidateAiBalance()
   const isEmpty = messages.length === 0
 
+  // Mismo patrón que AgentChatContent (FAB): auto-scroll solo si el usuario ya
+  // estaba abajo; si subió a releer, aparece el botón de bajar. Instantáneo
+  // durante el stream (las animaciones suaves encadenadas se ven como saltos).
+  const [isAtBottom, setIsAtBottom] = React.useState(true)
+
+  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = "smooth") => {
+    bottomRef.current?.scrollIntoView({ behavior })
+  }, [])
+
+  function handleScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget
+    setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+  }
+
   React.useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    if (isAtBottom) scrollToBottom(isStreaming ? "auto" : "smooth")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, scrollToBottom, isStreaming])
 
   const prevStatusRef = React.useRef(status)
   React.useEffect(() => {
@@ -203,7 +219,7 @@ export default function ChatPage() {
       ) : (
         // ── Estado con mensajes: thread + input al pie ───────────────────────
         <>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" onScroll={handleScroll}>
             <div className="mx-auto w-full max-w-3xl space-y-4 px-2 pt-6 pb-[10px] sm:px-6">
               {messages.map((message) => {
                 const isUser = message.role === "user"
@@ -309,7 +325,21 @@ export default function ChatPage() {
           </div>
 
           {/* Sin border-t: el shadow del input box ya separa visualmente del thread */}
-          <div className="bg-background/80 backdrop-blur">
+          <div className="relative bg-background/80 backdrop-blur">
+            {/* Bajar al último mensaje — solo con el hilo scrolleado arriba;
+                absolute para que el input no se mueva de lugar. */}
+            {!isAtBottom && (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                aria-label="Ir al último mensaje"
+                onClick={() => scrollToBottom()}
+                className="absolute -top-11 left-1/2 z-10 size-9 -translate-x-1/2 rounded-full border shadow-md"
+              >
+                <ArrowDown className="size-4" />
+              </Button>
+            )}
             <div className="mx-auto w-full max-w-3xl px-2 pt-0 pb-[10px] sm:px-6">
 
               {(hasNoCredits || is402) && (
@@ -332,6 +362,9 @@ export default function ChatPage() {
                 placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : undefined}
                 maxHeight={200}
               />
+              <p className="mt-2 text-center text-xs text-muted-foreground">
+                Punto usa IA y puede cometer errores. Verificá la información importante.
+              </p>
             </div>
           </div>
         </>

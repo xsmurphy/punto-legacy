@@ -392,6 +392,9 @@ export function AgentChatContent({
           onAddFiles={(files) => files.forEach(addAttachment)}
           onRemoveAttachment={removeAttachment}
         />
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Punto usa IA y puede cometer errores. Verificá la información importante.
+        </p>
       </div>
     </div>
   )
