@@ -121,7 +121,8 @@ final class OpenInvoicesService
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $res = ncmExecute(
-            "SELECT transactionParentId, SUM(ABS(transactionTotal)) as payed
+            "SELECT transactionParentId,
+                    SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed
              FROM transaction WHERE transactionType IN (5,6) AND companyId = ? AND transactionParentId IN ($ph)
              GROUP BY transactionParentId",
             array_merge([$companyId], $ids), false, false, true

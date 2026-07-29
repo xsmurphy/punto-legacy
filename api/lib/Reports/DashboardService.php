@@ -458,7 +458,8 @@ final class DashboardService
     private function payedByParent(string $companyId): array
     {
         $res = ncmExecute(
-            "SELECT transactionParentId, SUM(ABS(transactionTotal)) as payed
+            "SELECT transactionParentId,
+                    SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed
              FROM transaction WHERE transactionType IN (5,6) AND companyId = ?
              GROUP BY transactionParentId",
             [$companyId], false, false, true

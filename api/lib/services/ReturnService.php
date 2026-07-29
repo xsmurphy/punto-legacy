@@ -64,7 +64,8 @@ final class ReturnService
 
         $newTransactionId = null;
         $stockMovements   = 0;
-        $returnTotal      = 0.0;
+        $returnTotal      = 0.0;   // bruto devuelto (espeja itemSoldTotal)
+        $returnDiscount   = 0.0;   // descuento proporcional devuelto
         $processedItems   = [];
 
         try {
@@ -95,8 +96,8 @@ final class ReturnService
 
                 // Datos del itemSold original — scopeado por companyId via la TX padre
                 $origItem = $db->GetRow(
-                    'SELECT is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs,
-                            i.itemhasstock, i.itemlocationid
+                    'SELECT is1.itemsoldunits, is1.itemsoldtotal, is1.itemsolddiscount,
+                            is1.itemsoldcogs, i.itemhasstock, i.itemlocationid
                      FROM "itemSold" is1
                      JOIN item i ON i.itemid = is1.itemid
                      WHERE is1.transactionid = ? AND is1.itemid = ?',
@@ -107,8 +108,14 @@ final class ReturnService
                 }
 
                 $soldQty   = abs((float) $origItem['itemsoldunits']);
+                // itemSoldTotal es el BRUTO de la linea y itemSoldDiscount su
+                // descuento (ver lib/cart/allocate-discounts.ts): lo que el
+                // cliente pago es la resta. Devolver sobre el bruto le estaria
+                // reintegrando plata que nunca entrego.
                 $lineTotal = abs((float) $origItem['itemsoldtotal']);
+                $lineDisc  = abs((float) ($origItem['itemsolddiscount'] ?? 0));
                 $unitPrice = $soldQty > 0 ? $lineTotal / $soldQty : 0.0;
+                $unitDisc  = $soldQty > 0 ? $lineDisc  / $soldQty : 0.0;
                 $cogs      = abs((float) $origItem['itemsoldcogs']);
                 $unitCogs  = $soldQty > 0 ? $cogs / $soldQty : 0.0;
 
@@ -129,15 +136,21 @@ final class ReturnService
                     );
                 }
 
+                // Se espeja el shape de la venta: el bruto y el descuento viajan
+                // por separado, ambos en negativo. Asi una devolucion total
+                // cancela EXACTAMENTE a la venta original en las dos columnas.
                 $lineReturnTotal = round($unitPrice * $reqQty, 2);
+                $lineReturnDisc  = round($unitDisc  * $reqQty, 2);
                 $lineCogs        = round($unitCogs  * $reqQty, 2);
                 $returnTotal    += $lineReturnTotal;
+                $returnDiscount += $lineReturnDisc;
 
                 $processedItems[] = [
-                    'itemId'     => $itemId,
-                    'qty'        => $reqQty,
-                    'lineTotal'  => $lineReturnTotal,
-                    'cogs'       => $lineCogs,
+                    'itemId'      => $itemId,
+                    'qty'         => $reqQty,
+                    'lineTotal'   => $lineReturnTotal,
+                    'lineDiscount'=> $lineReturnDisc,
+                    'cogs'        => $lineCogs,
                     'hasStock'   => !empty($origItem['itemhasstock']),
                     'locationId' => $origItem['itemlocationid'] ?? null,
                 ];
@@ -145,10 +158,14 @@ final class ReturnService
 
             $newTransactionId = $db->GetOne('SELECT gen_random_uuid()');
 
+            // Lo que efectivamente sale de la caja (o se acredita) es el NETO:
+            // el bruto menos el descuento que el cliente ya no pago en su momento.
+            $returnNet = round($returnTotal - $returnDiscount, 2);
+
             // Pagos: monto negativo = egreso de caja
             $paymentsJson = json_encode([[
                 'type'   => $refundMode === 'cash' ? 'cash' : 'storeCredit',
-                'amount' => -abs($returnTotal),
+                'amount' => -abs($returnNet),
             ]]);
 
             // totalUnits = suma real de unidades devueltas (no cuenta de líneas)
@@ -157,14 +174,16 @@ final class ReturnService
             $db->Execute(
                 'INSERT INTO transaction (
                     transactionid, transactiontype, transactionparentid,
-                    transactiontotal, transactionunitssold, transactionpaymenttype,
+                    transactiontotal, transactiondiscount, transactionunitssold,
+                    transactionpaymenttype,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
                     customerid, registerid, userid, outletid, companyid, meta
-                ) VALUES (?, 6, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
+                ) VALUES (?, 6, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
                 [
                     $newTransactionId,
                     $parentTransactionId,
                     -abs($returnTotal),
+                    -abs($returnDiscount),
                     $totalUnits,
                     $paymentsJson,
                     $note,
@@ -182,15 +201,16 @@ final class ReturnService
                 $db->Execute(
                     'INSERT INTO "itemSold" (
                         itemsoldid, itemid, transactionid,
-                        itemsoldunits, itemsoldtotal, itemsoldcogs,
+                        itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldcogs,
                         itemsolddate
-                    ) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
                     [
                         $itemSoldId,
                         $pi['itemId'],
                         $newTransactionId,
                         -abs($pi['qty']),
                         -abs($pi['lineTotal']),
+                        -abs($pi['lineDiscount']),
                         -abs($pi['cogs']),
                     ]
                 );
@@ -219,7 +239,7 @@ final class ReturnService
                 $db->Execute(
                     'UPDATE contact SET contactstorecredit = contactstorecredit + ?
                      WHERE contactid = ? AND companyid = ?',
-                    [abs($returnTotal), $parent['customerid'], $companyId]
+                    [abs($returnNet), $parent['customerid'], $companyId]
                 );
             }
 
@@ -233,10 +253,10 @@ final class ReturnService
 
         return [
             'id'                    => $newTransactionId,
-            'total'                 => abs($returnTotal),
+            'total'                 => abs($returnNet),
             'refundMode'            => $refundMode,
             'stockMovements'        => $stockMovements,
-            'customerCreditApplied' => $refundMode === 'credit' ? abs($returnTotal) : null,
+            'customerCreditApplied' => $refundMode === 'credit' ? abs($returnNet) : null,
         ];
     }
 

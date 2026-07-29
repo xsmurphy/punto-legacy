@@ -90,7 +90,7 @@ final class TransactionService
         if ((string) $fields['transactionType'] === '3') {
             $payedData = $this->getTypePayments($transactionId, $companyId);
             $payedRow  = ncmExecute(
-                'SELECT SUM(ABS(transactionTotal)) as payed FROM transaction WHERE transactionType IN(5,6) AND transactionParentId = ? AND companyId = ?',
+                'SELECT SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed FROM transaction WHERE transactionType IN(5,6) AND transactionParentId = ? AND companyId = ?',
                 [$transactionId, $companyId]
             );
             $payed = (float) ($payedRow['payed'] ?? 0);
