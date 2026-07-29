@@ -659,10 +659,16 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 
 ### Pendientes reales de Phase AI
 
+> **Norte de largo plazo (2026-07-30):** `context/30-ai-agent-roadmap.md` — el
+> agente como capa transversal del ERP: registry de tools por dominio + router
+> de dos etapas (floor tools + dominios lazy), OCR de facturas/menús, CRUDs por
+> sectores, web_search y análisis sobre rollups. AI-5 queda subsumido en las
+> fases F2/F5 de ese doc.
+
 | Slice | Scope | Prioridad |
 |---|---|---|
 | **AI-4** | UI en `/admin` para editar `ai_model_config` (modelo + creditsPerKToken por capability). Calibración de pricing real vs costo OpenRouter para que el margen cierre. | Alta |
-| **AI-5** | Capabilities extra: OCR (foto de factura → Gemini extrae ítems), análisis libre sobre rollup (queries NL → leen `report_rollup`), dashboards custom guardados en `dashboard.config` JSONB. | Media |
+| **AI-5** | Capabilities extra: OCR (foto de factura → Gemini extrae ítems), análisis libre sobre rollup (queries NL → leen `report_rollup`), dashboards custom guardados en `dashboard.config` JSONB. → detalle en `context/30` (F2/F5). | Media |
 | **AI-tools++** | Expandir las 13 tools iniciales según uso: tools para reportes específicos, búsquedas avanzadas, recomendaciones (top sellers, stock bajo). | Media |
 | **AI proactivo** | Cron que detecta condiciones (stock bajo, ventas anómalas) y notifica al operador. Necesita canal — el FAB del agente puede mostrar un badge. | Baja |
 | **AI multi-canal** | Telegram / WhatsApp / SMS. Mismo agente, otros transports. Requiere vincular usuario externo → JWT del tenant (flow de pareo). | Baja |
