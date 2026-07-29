@@ -21,6 +21,7 @@
  */
 
 import * as React from "react"
+import { usePathname } from "next/navigation"
 import { CartPanel } from "@/components/register/cart-panel"
 import { LockScreen } from "@/components/register/lock-screen"
 import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
@@ -30,6 +31,7 @@ import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { posApi } from "@/lib/api/pos-client"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
@@ -52,6 +54,32 @@ function BeforeUnloadGuard() {
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
   }, [lineCount])
+
+  return null
+}
+
+/**
+ * Cierra el modo edición de hotkeys al salir de /pos.
+ *
+ * El editor vive en el bloque IZQUIERDO (ProductArea, solo en /pos) pero su
+ * "modo" es un flag global del hotkeys-store que el CartPanel —persistente en
+ * este layout— lee para mostrar la guía de edición en lugar del carrito. Nadie
+ * lo apagaba al navegar, así que al ir a Órdenes quedaba el listado a la
+ * izquierda y las instrucciones de hotkeys a la derecha, con el editor todavía
+ * abierto (reporte del owner 2026-07-29).
+ *
+ * Se resuelve acá, en el layout que mantiene vivo el panel, y no con un cleanup
+ * de unmount en ProductArea: ese cleanup también corre en el doble montaje de
+ * StrictMode y apagaría el modo apenas se enciende desde el menú.
+ */
+function HotkeysEditScope() {
+  const pathname = usePathname()
+
+  React.useEffect(() => {
+    if (pathname !== "/pos") {
+      useHotkeysStore.getState().setEditing(false)
+    }
+  }, [pathname])
 
   return null
 }
@@ -95,6 +123,7 @@ export default function PosWorkspaceLayout({
           Ahora el tope es flex-col: banner arriba, paneles en una fila debajo. */}
       <OfflineBanner />
       <BeforeUnloadGuard />
+      <HotkeysEditScope />
       <OfflineSyncRunner />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="hidden flex-[7] overflow-hidden md:block">
