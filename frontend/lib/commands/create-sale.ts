@@ -74,8 +74,21 @@ export interface SaleItem {
  * El legacy manda: [{ name/method, total, identifier? }]
  */
 export interface SalePaymentMethod {
-  /** Código/label del método (ej. 'efectivo', 'tarjeta', 'transferencia', 'qr'). */
+  /**
+   * Nombre LEGIBLE del método (ej. 'Efectivo', 'T. Débito', o el nombre del
+   * medio custom). Esto es lo que persiste `transactionPaymentType.name` y lo
+   * que lee Control de Caja — nunca el id/slug/UUID (bug: se mandaba
+   * `method.id`, guardando el UUID de taxonomía como "nombre" del medio).
+   */
   name: string
+  /**
+   * Id/slug del método (taxonomyId para custom, slug fijo para nativos:
+   * 'efectivo'/'tcredito'/'tdebito'/'giftcard'). Se persiste junto al name
+   * para que el agrupado por método sea estable aunque el nombre legible
+   * cambie, y para que la lectura pueda re-resolver el nombre contra la
+   * taxonomía si hiciera falta.
+   */
+  type?: string
   /** Monto aplicado con este método. */
   total: number
   /** Identificador opcional (nro de cheque, nro de voucher, etc). */

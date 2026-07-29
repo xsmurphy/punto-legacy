@@ -887,8 +887,19 @@ function groupByPaymentMethod($new,$old){
 		$nuType 	= $nu['type'] ?? ($nu['name'] ?? '');
 		$nu['type'] = $nuType;
 
-		if(!isset($nu['name']) || !$nu['name']){
-			$nu['name'] = getPaymentMethodName($nu['type']);
+		// Resuelve id/slug → nombre legible SIEMPRE (no solo cuando falta
+		// 'name'). Ventas viejas persistieron el id/UUID del medio de pago
+		// directamente en 'name' (bug de escritura ya corregido en
+		// pay-dialog.tsx) — sin este resolve, Control de Caja mostraba el
+		// slug nativo ('efectivo','tdebito') o el UUID de taxonomía crudo.
+		// getPaymentMethodName() devuelve '' si no matchea (medio custom ya
+		// borrado, o el valor ya era un nombre legible) → fallback al valor
+		// crudo que ya traía la venta, nunca se rompe el resumen.
+		$resolvedName = getPaymentMethodName($nuType);
+		if ($resolvedName !== '') {
+			$nu['name'] = $resolvedName;
+		} elseif (!isset($nu['name']) || !$nu['name']) {
+			$nu['name'] = $nuType;
 		}
 
 		// Clamp de pago parcial solo cuando total es significativo (no zerar un
