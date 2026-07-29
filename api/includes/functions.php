@@ -1351,18 +1351,32 @@ if (!function_exists('_getTableSchema')) {
             'company' => [
                 'pk'       => 'companyId',
                 'jsonbCol' => 'config',
+                // aiCreditsBalance (mig 28) hoy solo se escribe por SQL crudo, así
+                // que nunca pasó por este map — pero el día que alguien la escriba
+                // con ncmUpdate, sin estar acá el saldo de créditos se perdería en
+                // el JSONB `config` sin ningún error. Se lista por adelantado.
                 'columns'  => ['companyId', 'status', 'plan', 'balance', 'slug', 'blocked',
                                'planExpired', 'isTrial', 'smsCredit', 'parentId', 'isParent',
-                               'createdAt', 'updatedAt', 'expiresAt', 'config'],
+                               'createdAt', 'updatedAt', 'expiresAt', 'config',
+                               'aiCreditsBalance'],
             ],
             'item' => [
                 'pk'       => 'itemId',
                 'jsonbCol' => 'data',
+                // hasVariants / variantParentId / variantAttributes son COLUMNAS
+                // reales de `item` (los SELECT las leen directo). Faltaban acá, así
+                // que _routeToJsonb las trataba como campos desconocidos y las
+                // escribía dentro del JSONB `data`: el UPDATE respondía 200, el
+                // dato quedaba en `data->>'hasVariants'` y la columna seguía en
+                // false — activar el switch de variantes "no hacía nada"
+                // (incidente 2026-07-29). Toda columna nueva de esta tabla tiene
+                // que sumarse a esta lista o la escritura se pierde en silencio.
                 'columns'  => ['itemId', 'itemName', 'itemDate', 'itemSKU', 'itemCost', 'itemPrice',
                                'itemIsParent', 'itemParentId', 'itemType', 'itemKind', 'itemStatus',
                                'itemTrackInventory', 'itemCanSale', 'itemSort', 'itemProduction',
                                'taxId', 'brandId', 'categoryId', 'supplierId', 'locationId',
-                               'outletId', 'companyId', 'updated_at', 'data'],
+                               'outletId', 'companyId', 'updated_at', 'data',
+                               'hasVariants', 'variantParentId', 'variantAttributes'],
             ],
             'contact' => [
                 'pk'       => 'contactId',
@@ -1371,13 +1385,19 @@ if (!function_exists('_getTableSchema')) {
                 // contactAddress2, contactNote, contactCity, contactLocation,
                 // contactCountry, contactCI, contactBirthDay demoted al JSONB
                 // `data`. contactPhone2 ELIMINADO (decisión de producto).
+                // lockPassHash (mig 49) y pinhash (mig 55) son columnas reales:
+                // faltaban acá, así que UsersService::create/update las escribía
+                // en el JSONB mientras el unlock del POS seguía validando contra
+                // la columna — cambiar el PIN parecía funcionar y no tenía efecto.
+                // Mismo bug que las variantes de item (2026-07-29).
                 'columns'  => ['contactId', 'contactName', 'contactEmail',
                                'contactPhone', 'contactTIN', 'contactDate',
                                'contactPassword', 'contactLoyalty', 'contactLoyaltyAmount',
                                'contactStoreCredit', 'contactCreditable', 'contactCreditLine',
                                'contactStatus', 'contactLastNotificationSeen', 'debtLastNotify',
                                'type', 'main', 'role', 'lockPass', 'salt', 'parentId', 'categoryId',
-                               'userId', 'outletId', 'companyId', 'updated_at', 'data'],
+                               'userId', 'outletId', 'companyId', 'updated_at', 'data',
+                               'lockPassHash', 'pinhash'],
             ],
             'transaction' => [
                 'pk'       => 'transactionId',
