@@ -173,7 +173,13 @@ export async function printTicketInBrowser(opts: PrintTicketInBrowserOptions): P
     console.error("[printTicketInBrowser] No se pudo resolver la plantilla", err)
   }
 
-  const html = config
+  // Una plantilla existe como fila (config no-null) pero puede no tener NINGÚN
+  // bloque cargado — típicamente un docType que el tenant nunca abrió en el
+  // editor de plantillas (ej. "quote"). renderTemplateToHtml con data:[] arma
+  // igual un <html> válido pero con el <body> vacío: "imprime" en blanco sin
+  // ningún error. Tratamos ese caso como "sin plantilla usable" y caemos al
+  // mismo fallback genérico que usamos cuando no hay fila en absoluto.
+  const html = config && config.data.length > 0
     ? renderTemplateToHtml(config, opts.data, { paperWidthMm })
     : renderFallbackTicketHtml(opts.docType, opts.data, paperWidthMm)
 
