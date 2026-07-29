@@ -1,5 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
-import { streamText, tool, convertToModelMessages, stepCountIs, hasToolCall } from "ai"
+import { streamText, tool, convertToModelMessages, stepCountIs, hasToolCall, smoothStream } from "ai"
 import { z } from "zod"
 import type { UIMessage } from "ai"
 import { makeActionTools } from "@/lib/agent/confirm-tool"
@@ -188,6 +188,12 @@ export async function POST(req: Request) {
     model,
     system,
     messages: modelMessages,
+    // El proveedor manda el texto en bloques grandes (y cuánto llega junto
+    // depende del provider que OpenRouter elija ese día), así que la respuesta
+    // aparecía a los saltos en vez de escribirse. `smoothStream` reparte lo que
+    // llega palabra por palabra y deja el ritmo de tipeo parejo, sin depender
+    // del tamaño de chunk de turno.
+    experimental_transform: smoothStream({ delayInMs: 12, chunking: "word" }),
     // stopWhen es un array: se corta apenas se cumple CUALQUIERA de las
     // condiciones. hasToolCall("register_action") es el gate real de
     // confirmación — sin esto, el modelo podía llamar register_action y

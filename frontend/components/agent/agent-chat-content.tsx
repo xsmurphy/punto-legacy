@@ -88,12 +88,16 @@ export function AgentChatContent({
   }
 
   React.useEffect(() => {
-    if (isAtBottom) scrollToBottom()
+    // Mientras streamea, scroll INSTANTÁNEO: el texto crece de a poco y cada
+    // animación suave se pisa con la siguiente, que es lo que se ve como el
+    // scroll "saltando" en cada bloque. Suave queda solo para el salto de un
+    // mensaje ya terminado.
+    if (isAtBottom) scrollToBottom(isStreaming ? "auto" : "smooth")
     // `isAtBottom` a propósito fuera de las deps: el efecto se dispara por
     // mensajes nuevos y lee la posición del momento. Incluirlo haría saltar
     // el scroll cada vez que el usuario llega al fondo por su cuenta.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, scrollToBottom])
+  }, [messages, scrollToBottom, isStreaming])
 
   const prevStatusRef = React.useRef(status)
   React.useEffect(() => {
