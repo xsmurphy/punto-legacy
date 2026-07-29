@@ -3,8 +3,11 @@
 /**
  * Menú de opciones de la venta — drawer inferior (shadcn/vaul).
  *
- * Acciones cableadas: descuento global, nota, usuario, guardar, lista de precios.
- * Acciones stub (Próximamente): imprimir, etiquetas, cotización, remisión, cita, orden.
+ * Acciones cableadas: imprimir, descuento global, nota, usuario, etiquetas,
+ * guardar, lista de precios. El descuento es un único ítem dinámico:
+ * "Descuento global" para aplicar cuando no hay uno activo, "Descuento:
+ * <valor>" (con ícono de quitar) cuando sí — nunca ambas opciones a la vez.
+ * Acciones stub (Próximamente): remisión, cita.
  * Eliminados: moneda, devolución.
  */
 
@@ -213,6 +216,30 @@ export function SaleOptionsDrawer({
     }
   }
 
+  // ── Descuento de venta — label del estado actual. El menú tiene que mostrar
+  // CUÁL es el descuento aplicado, no solo que hay uno: antes ofrecía a la vez
+  // "Descuento global" y "Quitar descuento" sin decir si había alguno activo.
+  const discountValueLabel = saleDiscount
+    ? saleDiscount.mode === "percent"
+      ? `${saleDiscount.value}%`
+      : formatMoney(saleDiscount.value, config)
+    : null
+
+  // ⚠ Impresión de la venta EN CURSO — deliberadamente NO conectada (2026-07-29).
+  // El intento original la imprimía con docType "receipt", pero en este sistema
+  // el Recibo es un documento FISCAL (el comprobante del pago de una factura a
+  // crédito, ver pay-dialog.tsx): emitirlo para una venta que todavía no existe,
+  // sin transactionId ni número de documento, produce un papel con forma de
+  // comprobante fiscal que respalda algo inexistente.
+  //
+  // Lo que corresponde es un documento NO fiscal (pre-cuenta), que hoy no está
+  // modelado. Definirlo es una decisión de producto — anotado en
+  // context/10-roadmap.md.
+  const handlePrintCart = () => {
+    setOpen(false)
+    toast.info("Impresión de la venta en curso — falta definir el documento no fiscal")
+  }
+
   // ── Opciones de la venta ───────────────────────────────────────────────────
 
   const options: Array<{
@@ -227,25 +254,21 @@ export function SaleOptionsDrawer({
       key: "print",
       label: "Imprimir",
       icon: Printer,
-      stub: true,
+      action: handlePrintCart,
     },
     {
       key: "discount",
-      label: "Descuento global",
-      icon: Percent,
-      action: () => openDialog("discount"),
+      label: hasGlobalDiscount ? `Descuento: ${discountValueLabel}` : "Descuento global",
+      icon: hasGlobalDiscount ? (XCircle as LucideIcon) : Percent,
+      action: hasGlobalDiscount
+        ? () => {
+            useCartStore.getState().clearSaleDiscount()
+            toast.success("Descuento de venta eliminado")
+            setOpen(false)
+          }
+        : () => openDialog("discount"),
       active: hasGlobalDiscount,
     },
-    ...(hasGlobalDiscount ? [{
-      key: "clear-discount",
-      label: "Quitar descuento",
-      icon: XCircle as LucideIcon,
-      action: () => {
-        useCartStore.getState().clearSaleDiscount()
-        toast.success("Descuento de venta eliminado")
-        setOpen(false)
-      },
-    }] : []),
     {
       key: "note",
       label: "Nota",

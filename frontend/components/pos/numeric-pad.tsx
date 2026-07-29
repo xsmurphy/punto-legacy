@@ -82,6 +82,18 @@ export function NumericPad({
   const handleDot = React.useCallback(() => {
     if (!allowDot) return
     ourChangeRef.current = true
+    if (isFirstRef.current) {
+      // Igual que handleDigit: la primera pulsación reemplaza el valor
+      // precargado (p.ej. la cantidad actual de la línea) en vez de
+      // agregarse a él. Sin esto, tipear "." como primera tecla NO bajaba
+      // isFirstRef — el próximo dígito seguía en "modo reemplazo" y pisaba
+      // TODO el draft, incluido el punto recién tipeado (bug: no se podían
+      // cargar decimales). Wrapper compartido por money/percent/decimal —
+      // se arregla acá, no en cada caller (qty-edit-dialog, discount, etc).
+      isFirstRef.current = false
+      onChange("0.")
+      return
+    }
     onChange(appendDot(value))
   }, [allowDot, value, onChange])
 
