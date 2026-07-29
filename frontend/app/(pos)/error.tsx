@@ -18,7 +18,7 @@ import * as React from "react"
 import { AlertTriangle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { isChunkLoadError } from "@/lib/pos/chunk-error-reload"
+import { isChunkLoadError, reloadNowForChunkError } from "@/lib/pos/chunk-error-reload"
 
 export default function PosError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   React.useEffect(() => {
@@ -27,7 +27,9 @@ export default function PosError({ error, reset }: { error: Error & { digest?: s
 
   function handleRetry() {
     if (isChunkLoadError(error)) {
-      window.location.reload()
+      // Purga el shell cacheado antes de recargar: un reload pelado vuelve a
+      // recibir del service worker el mismo HTML/chunk viejo que causó el error.
+      reloadNowForChunkError()
       return
     }
     reset()

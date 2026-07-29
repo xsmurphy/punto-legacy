@@ -45,10 +45,58 @@ function markReloadAttempted(): void {
   }
 }
 
-/** Reload único: si ya se intentó en esta sesión de tab, no vuelve a recargar. */
+/**
+ * Borra las caches del SHELL de la app (documentos, payloads RSC, estáticos de
+ * Next, precache de Serwist) y fuerza al service worker a buscar versión nueva.
+ *
+ * Sin esto, recargar no arregla nada: el SW vuelve a servir el mismo HTML/
+ * chunk viejo de cache y el ChunkLoadError se repite en cada entrada a la ruta
+ * — reload, error, reload. Eso es lo que hacía que una ruta pesada se sintiera
+ * como "la página se recarga sola cada vez" (reporte del owner 2026-07-29).
+ *
+ * NO toca `pos-bootstrap` ni `pos-items` (datos que sostienen el modo offline)
+ * ni IndexedDB, donde vive la cola de ventas sin sincronizar.
+ */
+const SHELL_CACHE_PATTERN = /precache|pages-|next-static|static-js|static-style|^others$/
+
+async function purgeStaleAppShell(): Promise<void> {
+  try {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys()
+      await Promise.all(
+        keys.filter((k) => SHELL_CACHE_PATTERN.test(k)).map((k) => caches.delete(k)),
+      )
+    }
+  } catch {
+    // best-effort: si no se puede limpiar, igual recargamos.
+  }
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration()
+    await reg?.update()
+  } catch {
+    // idem.
+  }
+}
+
+/**
+ * Reload único: si ya se intentó en esta sesión de tab, no vuelve a recargar
+ * (deja que el error boundary muestre el estado, en vez de loopear).
+ *
+ * Antes de recargar purga el shell cacheado — recargar sin eso reproduce el
+ * mismo error.
+ */
 export function reloadOnceForChunkError(): boolean {
   if (alreadyAttemptedReload()) return false
   markReloadAttempted()
-  window.location.reload()
+  void purgeStaleAppShell().finally(() => window.location.reload())
   return true
+}
+
+/**
+ * Reload manual (botón "Recargar" del error boundary). Sin guard —lo pidió una
+ * persona— pero con la misma purga, que es lo que hace que el reintento tenga
+ * alguna chance de traer la versión nueva.
+ */
+export function reloadNowForChunkError(): void {
+  void purgeStaleAppShell().finally(() => window.location.reload())
 }
