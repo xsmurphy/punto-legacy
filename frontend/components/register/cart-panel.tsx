@@ -62,6 +62,7 @@ import {
   useCartStore,
   selectCartTotal,
   selectCartIva,
+  selectSaleDiscountAmount,
   lineSubtotal,
   type CartLine,
 } from "@/lib/cart/store"
@@ -1114,9 +1115,17 @@ function EmptyCart() {
 
 // ── Extras de la venta ────────────────────────────────────────────────────────
 //
-// Muestra nota, descuento global y usuario cuando tienen valor.
-// Orden fijo: nota → descuento → usuario.
-// Customer ya se muestra en CustomerChip (arriba de las líneas), no se duplica.
+// Muestra nota, descuento de venta, descuento por línea y usuario cuando
+// tienen valor. Orden fijo: nota → descuento de venta → descuento por línea →
+// usuario. Customer ya se muestra en CustomerChip (arriba de las líneas), no
+// se duplica.
+//
+// Descuento de venta (`saleDiscount`, sale-options-drawer.tsx) es DISTINTO
+// del descuento por línea de acá abajo (`globalDiscount`, bakeado en cada
+// línea vía `applyGlobalDiscount`/`setLineDiscount`) — dos mecanismos
+// distintos que pueden convivir. Antes solo se mostraba el de línea; el de
+// venta ya se calculaba (`selectSaleDiscountAmount`) pero era invisible en
+// el carrito.
 
 function CartExtras() {
   const note = useCartStore((s) => s.note)
@@ -1125,6 +1134,16 @@ function CartExtras() {
   const setNote = useCartStore((s) => s.setNote)
   const clearTags = useCartStore((s) => s.clearTags)
   const users = useCatalogStore((s) => s.users)
+  const config = useCatalogStore((s) => s.config)
+  const saleDiscount = useCartStore((s) => s.saleDiscount)
+  const saleDiscountAmount = useCartStore(selectSaleDiscountAmount)
+  const clearSaleDiscount = useCartStore((s) => s.clearSaleDiscount)
+
+  const saleDiscountLabel = saleDiscount
+    ? saleDiscount.mode === "percent"
+      ? `Descuento de venta: ${saleDiscount.value}% (-${formatMoney(saleDiscountAmount, config)})`
+      : `Descuento de venta: -${formatMoney(saleDiscountAmount, config)}`
+    : null
 
   // Descuento global: todas las líneas aplicables comparten el mismo valor.
   // applyGlobalDiscount bake el % en cada línea sin discount previo.
@@ -1159,7 +1178,8 @@ function CartExtras() {
     ? (users.find((u) => u.id === globalSellerId)?.name ?? null)
     : null
 
-  const hasExtras = note || globalDiscount !== null || globalSellerId !== null || tags.length > 0
+  const hasExtras =
+    note || saleDiscountLabel !== null || globalDiscount !== null || globalSellerId !== null || tags.length > 0
   if (!hasExtras) return null
 
   return (
@@ -1171,10 +1191,17 @@ function CartExtras() {
           onClear={() => setNote(null)}
         />
       )}
+      {saleDiscountLabel !== null && (
+        <ExtraRow
+          icon={Percent}
+          label={saleDiscountLabel}
+          onClear={clearSaleDiscount}
+        />
+      )}
       {globalDiscount !== null && (
         <ExtraRow
           icon={Percent}
-          label={`Descuento: ${Math.round(globalDiscount)}%`}
+          label={`Descuento por línea: ${Math.round(globalDiscount)}%`}
           onClear={clearGlobalDiscount}
         />
       )}
