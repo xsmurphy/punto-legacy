@@ -1481,6 +1481,19 @@ if (!function_exists('_getTableSchema')) {
                 'columns'  => ['customerRecordId', 'customerRecordSort', 'customerRecordName',
                                'companyId', 'data'],
             ],
+            // Sin JSONB: `expenses` no tiene columna `data`, así que jsonbCol es
+            // null y cualquier campo fuera de esta lista llega al SQL y falla
+            // fuerte (no hay dónde guardarlo en silencio). Estaba SIN registrar,
+            // y por eso ncmInsert caía al pk por defecto 'id' e inyectaba una
+            // columna inexistente: toda extracción/ingreso de caja moría con
+            // "Error al registrar extracción" (incidente 2026-07-29).
+            'expenses' => [
+                'pk'       => 'expensesId',
+                'jsonbCol' => null,
+                'columns'  => ['expensesId', 'expensesNameId', 'expensesAmount',
+                               'expensesDescription', 'expensesDate', 'expensesUID',
+                               'type', 'userId', 'registerId', 'outletId', 'companyId'],
+            ],
             'inventoryCount' => [
                 'pk'       => 'inventoryCountId',
                 'jsonbCol' => 'data',
@@ -1577,7 +1590,14 @@ if (!function_exists('_routeToJsonb')) {
         if (!isset($schema[$table])) {
             return [$record, [], ''];
         }
-        $jsonbCol  = $schema[$table]['jsonbCol'];
+        $jsonbCol  = $schema[$table]['jsonbCol'] ?? null;
+        // Tabla registrada SIN columna JSONB (ej. `expenses`): no hay dónde
+        // enrutar lo desconocido. Se devuelve el record entero como columnas —
+        // un campo que no exista revienta en el SQL, que es lo correcto: el
+        // silencio es peor que el error (ver hasVariants/pinhash, 2026-07-29).
+        if (empty($jsonbCol)) {
+            return [$record, [], ''];
+        }
         $knownCols = array_flip($schema[$table]['columns']);
 
         $cleanRecord = [];
@@ -1615,12 +1635,17 @@ function ncmInsert($options)
     $table  = $options['table'];
     $record = $options['records'];
 
-    // Determinar la columna PK de esta tabla (fallback 'id' para tablas no registradas)
-    $tableSchema = _getTableSchema();
-    $pkCol       = isset($tableSchema[$table]['pk']) ? $tableSchema[$table]['pk'] : 'id';
+    // Determinar la columna PK. Antes el fallback para tablas no registradas era
+    // 'id' a ciegas: si la tabla no tenía esa columna (la mayoría usa
+    // <entidad>Id), el INSERT incluía una columna inexistente y fallaba entero.
+    // Así moría toda extracción de caja — `expenses` no estaba en el map.
+    // Ahora, si el map no la conoce, se le pregunta al catálogo de PG.
+    $pkCol = _resolveTablePk($table);
 
-    // Generar UUID v7 si el registro no trae el PK
-    if (empty($record[$pkCol])) {
+    // Generar UUID v7 si el registro no trae el PK. Solo para PKs uuid: en una
+    // PK serial/bigint el uuid rompería el INSERT, y ahí el default de la
+    // columna ya sabe generarlo.
+    if ($pkCol !== null && empty($record[$pkCol]) && _pkIsUuid($table, $pkCol)) {
         $record[$pkCol] = generateUuidV7();
     }
 
@@ -1635,7 +1660,96 @@ function ncmInsert($options)
     }
 
     $insert = $db->AutoExecute($table, $record, 'INSERT');
-    return $insert !== false ? $record[$pkCol] : false;
+    if ($insert === false) {
+        return false;
+    }
+    // Sin PK conocida (o generada por la DB) no hay id que devolver: `true`
+    // dice "insertó" sin mentir con un id inventado. Los callers que necesitan
+    // el id usan tablas registradas con PK uuid.
+    return ($pkCol !== null && isset($record[$pkCol])) ? $record[$pkCol] : true;
+}
+
+/**
+ * PK de una tabla: primero el schema map, y si no está registrada se consulta
+ * el catálogo de PG (cacheado por request).
+ *
+ * Existe porque el fallback anterior era 'id' a ciegas y rompía el INSERT
+ * entero en toda tabla no registrada cuya PK no se llamara así.
+ */
+function _resolveTablePk(string $table): ?string
+{
+    static $cache = [];
+    if (array_key_exists($table, $cache)) {
+        return $cache[$table];
+    }
+    $schema = _getTableSchema();
+    if (isset($schema[$table]['pk'])) {
+        return $cache[$table] = $schema[$table]['pk'];
+    }
+    global $db;
+    try {
+        // Sin LIMIT 1: con PK compuesta la query devuelve N filas y quedarse con
+        // una sería elegir a ciegas la columna equivocada. En ese caso no hay
+        // una "PK" que generar — se devuelve null y la DB se encarga.
+        $rs = $db->Execute(
+            "SELECT a.attname
+               FROM pg_index i
+               JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+              WHERE i.indrelid = ?::regclass AND i.indisprimary",
+            [$table]
+        );
+        $cols = [];
+        while ($rs && !$rs->EOF) {
+            $cols[] = (string) $rs->fields['attname'];
+            $rs->MoveNext();
+        }
+        if (count($cols) === 1) {
+            return $cache[$table] = $cols[0];
+        }
+        if (count($cols) > 1) {
+            error_log('[ncmInsert] ' . $table . ' tiene PK compuesta (' . implode(',', $cols) . ') — no se genera id');
+        }
+    } catch (\Throwable $e) {
+        error_log('[ncmInsert] no se pudo resolver la PK de ' . $table . ': ' . $e->getMessage());
+    }
+    return $cache[$table] = null;
+}
+
+/**
+ * true si la PK es de tipo uuid — la única en la que tiene sentido generar un v7.
+ *
+ * Para tablas del schema map se responde sin tocar la DB: todas tienen PK uuid y
+ * este chequeo corre en cada INSERT (transaction, itemSold, item son paths
+ * calientes). El catálogo solo se consulta para tablas NO registradas.
+ */
+function _pkIsUuid(string $table, string $pkCol): bool
+{
+    $schema = _getTableSchema();
+    if (isset($schema[$table]['pk'])) {
+        return true;
+    }
+    static $cache = [];
+    $key = $table . '.' . $pkCol;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+    global $db;
+    try {
+        $rs = $db->Execute(
+            'SELECT data_type FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = ? AND lower(column_name) = lower(?) LIMIT 1',
+            [$table, $pkCol]
+        );
+        if ($rs && !$rs->EOF) {
+            return $cache[$key] = (strtolower((string) $rs->fields['data_type']) === 'uuid');
+        }
+    } catch (\Throwable $e) {
+        error_log('[ncmInsert] no se pudo leer el tipo de ' . $key . ': ' . $e->getMessage());
+    }
+    // Falla cerrada: ante la duda NO se inventa un id. Inyectar un uuid en una
+    // PK que no lo es reintroduce exactamente el bug que esto arregla.
+    return $cache[$key] = false;
 }
 
 /**
