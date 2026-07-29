@@ -25,6 +25,18 @@ se arreglan — lo que crece acá es señal de deuda, no de backlog.
   sin importar si hay uno aplicado: son excluyentes y hoy no se sabe, mirando el
   menú, si la venta tiene descuento. Ver `frontend/components/register/sale-options-drawer.tsx`
   y el render del descuento en el listado de transacciones.
+- **El agente no responde al pedirle crear un producto** (2026-07-28). Se manda
+  el mensaje y no pasa nada: ni respuesta, ni error visible. Descartado en el
+  diagnóstico: la acción `create_item` SÍ existe en `api/v1/ai/execute.php`
+  (línea ~127), y el tenant tiene 8884 créditos — pero el ledger
+  (`ai_credit_ledger`) no registra ningún débito de hoy, así que la llamada al
+  modelo no llega a completarse. El fallo está entre el gate de balance y el
+  débito, en `frontend/app/api/agent/chat/route.ts`.
+  ⚠ Lo primero a arreglar es que el chat **no muestra ningún error**: esa ruta
+  devuelve JSON de error (402 "Sin créditos", etc.) y la UI no los renderiza,
+  así que cualquier falla se ve igual que "no pasó nada". Además tiene varios
+  `catch {}` fail-open que se tragan el motivo. Sin eso, cada diagnóstico
+  arranca a ciegas.
 - **Control de Caja muestra UUIDs en vez del nombre del medio de pago**
   (2026-07-28). Los medios nativos se ven como slug (`efectivo`, `tdebito`) y
   los personalizados como el UUID de taxonomía. El resumen sale de
