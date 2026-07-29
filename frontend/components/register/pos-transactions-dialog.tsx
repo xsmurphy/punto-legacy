@@ -56,6 +56,7 @@ import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ti
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
+import { TransactionSuccessDialog } from "@/components/register/transaction-success-dialog"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -447,6 +448,12 @@ function TransactionDetail({
   const [quotePdfOpen, setQuotePdfOpen] = React.useState(false)
   const [creditPayOpen, setCreditPayOpen] = React.useState(false)
   const [receiptDetail, setReceiptDetail] = React.useState<NonNullable<TransactionDetailType["paymentsReceived"]>[number] | null>(null)
+  // Pantalla "¿imprimir?" tras cobrar un crédito — el pago genera un recibo
+  // (docType "receipt", transactionType=5) que hasta ahora no se ofrecía
+  // imprimir. `encId` es el id del recibo recién creado (formato enc(), el
+  // que espera `/pos/transactions/[id]`); se resuelve el detalle recién al
+  // imprimir para no pagar un round-trip si el cajero no imprime.
+  const [creditReceipt, setCreditReceipt] = React.useState<{ encId: string; amount: number } | null>(null)
 
   if (!encId) {
     return (
@@ -553,6 +560,22 @@ function TransactionDetail({
     // real resuelto contra el catálogo.
     const ticketData = buildTicketDataFromTransaction(detail, config, docType)
     requestPrint(docType, ticketData, allBindings)
+  }
+
+  // Recibo del pago de crédito: docType "receipt" (nunca "factura" — la
+  // factura es la venta original, el recibo respalda el pago). Se pide el
+  // detalle del recibo recién creado (no viene en el resultado del mutation)
+  // y se reusa el mismo wrapper de impresión que el resto de la app.
+  async function handlePrintCreditReceipt(receiptEncId: string) {
+    try {
+      const receiptDetailData = await posApi.get<TransactionDetailType>(
+        `/pos/transactions/${encodeURIComponent(receiptEncId)}`,
+      )
+      const ticketData = buildTicketDataFromTransaction(receiptDetailData, config, "receipt")
+      requestPrint("receipt", ticketData, allBindings)
+    } catch {
+      toast.error("No se pudo obtener el recibo para imprimir")
+    }
   }
 
   // Formato de fecha para la cabecera (compacto pero con día)
@@ -797,9 +820,24 @@ function TransactionDetail({
           customerName={detail.customerName ?? ""}
           paymentMethods={paymentMethods}
           config={config}
-          onSuccess={() => {
+          onSuccess={(data) => {
             setCreditPayOpen(false)
+            setCreditReceipt({ encId: data.encId, amount: data.amount })
           }}
+        />
+      )}
+
+      {/* Post-cobro de crédito: ofrece imprimir el RECIBO del pago (docType
+          "receipt") — la factura es la venta original, este es el
+          comprobante de dinero que respalda el pago. */}
+      {creditReceipt && (
+        <TransactionSuccessDialog
+          open
+          title="Pago registrado"
+          amount={formatMoney(creditReceipt.amount, config)}
+          closeLabel="Cerrar"
+          onPrint={() => handlePrintCreditReceipt(creditReceipt.encId)}
+          onClose={() => setCreditReceipt(null)}
         />
       )}
 

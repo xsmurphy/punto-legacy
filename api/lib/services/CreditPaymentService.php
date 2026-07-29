@@ -29,7 +29,7 @@ final class CreditPaymentService
      * @param string  $parentTransactionId   UUID de la factura crédito (type=3).
      * @param float   $amount                Monto a cobrar (validado > 0 y <= deuda).
      * @param string  $paymentMethodKey      Key del método de pago (ej. "efectivo").
-     * @return array  {id, parentComplete, paid, debtRemaining}
+     * @return array  {id, encId, amount, parentComplete, paid, debtRemaining}
      */
     public function create(
         string  $companyId,
@@ -165,6 +165,12 @@ final class CreditPaymentService
 
         return [
             'id'             => $newId,
+            // enc($newId) — la transacción type=5 (recibo de pago) recién creada,
+            // en el formato que espera el BFF `/pos/transactions/[id]` (dec()
+            // server-side). El front la usa para pedir el detalle e imprimir el
+            // recibo (bug: pagar crédito no ofrecía imprimir el comprobante).
+            'encId'          => enc($newId),
+            'amount'         => $amount,
             'parentComplete' => $parentComplete,
             'paid'           => $newPaid,
             'debtRemaining'  => $debtRemaining,
