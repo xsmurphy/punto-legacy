@@ -27,6 +27,55 @@ factura a crédito; cotización que salía en blanco; ventas guardadas que tumba
 la página; y el chat del agente, que ahora muestra los errores que antes se
 tragaba.
 
+### Consumo a cuenta de empresa (viandas) — el caso real detrás de "Interno"
+
+Contado por el owner (2026-07-29). **No es una venta interna: es consumo a
+cuenta que se factura al cierre del período.** Un restaurante con convenio
+entrega almuerzos a empleados de una empresa; no cobra en el momento, registra
+quién pidió y cuánto; a fin de mes emite UNA factura a la empresa por el total,
+y la empresa exige el detalle de consumo por empleado.
+
+**Lo que hacen hoy es un workaround**: cada plato sale como *crédito + interno*
+— interno para que no emita factura legal, crédito para que no sume en caja
+pero quede como pendiente de pago. Cada cliente recibe un link público con su
+estado de cuenta. Funciona por efecto colateral de dos flags, no porque el
+modelo lo contemple: hoy además el flag `interno` ni siquiera llega al backend
+(ver el ítem de abajo), así que esos consumos están tomando numeración fiscal.
+
+**Solución propuesta** (a validar con el owner antes de ejecutar):
+
+1. **Comprobante como documento propio** (no fiscal, contador propio —
+   `registerBoletaNumber` está libre). Es lo que respalda la entrega del plato:
+   legitima lo que ya hacen en vez de que un flag ignorado tome números de
+   factura. La gift card también emite Comprobante (decisión del owner
+   2026-07-29), lo que reemplaza la regla actual "gift card → Recibo".
+2. **Empleado → Empresa**: el consumo de un empleado acumula en la cuenta de la
+   EMPRESA. Requiere relación padre/hijo entre contactos; verificar si el
+   modelo actual de `contact` ya la soporta o hay que agregarla.
+3. **Facturación por período**: elegir empresa + rango, juntar los comprobantes
+   de consumo de sus empleados y emitir **UNA factura fiscal** por el total,
+   dejando cada comprobante vinculado a esa factura
+   (`parentTransactionId`). Eso da las dos cosas que el cliente necesita: un
+   único documento fiscal y el detalle por empleado como respaldo.
+4. **Estado de cuenta público**: ya existe por cliente; extenderlo al nivel
+   empresa, consolidando por empleado.
+
+⚠ **Invariantes que hay que respetar o se rompe la contabilidad**:
+- Los comprobantes de consumo **no son ventas fiscales** y no deben sumar
+  ingresos: al facturar el período, el reporte tiene que contar **la factura O
+  los comprobantes, nunca los dos** (doble conteo — el error clásico de este
+  modelo).
+- La factura del período debe registrar **qué comprobantes cubre**, para
+  auditar y para que no se facturen dos veces.
+- El consumo no toca la caja; el pago de fin de mes sí.
+
+⚠ **Terminología** (duda planteada por el owner): "Recibo" y "Comprobante" se
+parecen. En el código conviene fijarlos como conceptos distintos y que nunca
+colisionen: `receipt` = recibo de dinero por pago de una factura a crédito;
+`comprobante` = documento no fiscal de entrega/consumo. Mantener la palabra que
+ya usa el personal, pero documentar la diferencia donde se define
+`PrinterDocType`.
+
 - **El botón "Interno" no hace nada — la venta interna consume numeración
   FISCAL** (2026-07-29, hallazgo). El owner definió el catálogo de documentos:
   Factura · **Comprobante (sin valor fiscal, numeración aparte, se activa con
