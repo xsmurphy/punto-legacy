@@ -14,41 +14,39 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ---
 
-## Correcciones pendientes (reportadas por el owner, sin atacar)
+## Correcciones pendientes (reportadas por el owner)
 
 Lista corta de bugs concretos reportados durante el uso. Se vacía a medida que
 se arreglan — lo que crece acá es señal de deuda, no de backlog.
 
-- **Descuento de venta invisible y sin estado en el menú de opciones** (2026-07-28).
-  Al aplicar un descuento no se refleja en el listado de ventas. Además el drawer
-  de opciones de la venta ofrece a la vez "Descuento global" y "Quitar descuento"
-  sin importar si hay uno aplicado: son excluyentes y hoy no se sabe, mirando el
-  menú, si la venta tiene descuento. Ver `frontend/components/register/sale-options-drawer.tsx`
-  y el render del descuento en el listado de transacciones.
-- **El agente no responde al pedirle crear un producto** (2026-07-28). Se manda
-  el mensaje y no pasa nada: ni respuesta, ni error visible. Descartado en el
-  diagnóstico: la acción `create_item` SÍ existe en `api/v1/ai/execute.php`
-  (línea ~127), y el tenant tiene 8884 créditos — pero el ledger
-  (`ai_credit_ledger`) no registra ningún débito de hoy, así que la llamada al
-  modelo no llega a completarse. El fallo está entre el gate de balance y el
-  débito, en `frontend/app/api/agent/chat/route.ts`.
-  ⚠ Lo primero a arreglar es que el chat **no muestra ningún error**: esa ruta
-  devuelve JSON de error (402 "Sin créditos", etc.) y la UI no los renderiza,
-  así que cualquier falla se ve igual que "no pasó nada". Además tiene varios
-  `catch {}` fail-open que se tragan el motivo. Sin eso, cada diagnóstico
-  arranca a ciegas.
-- **Control de Caja muestra UUIDs en vez del nombre del medio de pago**
-  (2026-07-28). Los medios nativos se ven como slug (`efectivo`, `tdebito`) y
-  los personalizados como el UUID de taxonomía. El resumen sale de
-  `getSalesByPayment` (`api/includes/functions.php:1033`), que lee el JSON
-  `transaction.transactionPaymentType` — o sea que el nombre que se muestra es
-  el que la VENTA persistió al cobrar, no uno resuelto al leer. Hay que ver si
-  el fix va al momento de escribir (guardar el nombre además del id) o al de
-  leer (resolver id → nombre contra la taxonomía); ojo que el histórico ya
-  guardado necesita el camino de lectura igual, así que probablemente los dos.
-- **"Imprimir" del drawer de opciones sigue como "Próximamente"** (2026-07-28).
-  El resto del flujo de impresión ya funciona (auto-print, selector de impresora,
-  plantillas) — esa entrada quedó desconectada.
+**Resueltos el 2026-07-29** (pendientes de confirmación en uso): descuento de
+venta visible y con estado en el menú; UUIDs de medios de pago en Control de
+Caja (resuelto en las dos puntas + agrupación por nombre, así el mismo medio no
+aparece dos veces); cantidades decimales en el carrito; recibo al pagar una
+factura a crédito; cotización que salía en blanco; ventas guardadas que tumbaban
+la página; y el chat del agente, que ahora muestra los errores que antes se
+tragaba.
+
+- **Imprimir la venta EN CURSO — falta definir el documento** (2026-07-29).
+  La entrada del drawer de opciones sigue sin conectar, a propósito: el intento
+  de conectarla la emitía con docType `receipt`, y en este sistema el Recibo es
+  un documento FISCAL (respalda el pago de una factura a crédito). Emitirlo para
+  una venta que todavía no existe, sin transactionId ni número, genera un papel
+  con forma de comprobante fiscal que no respalda nada. Lo que corresponde es un
+  documento NO fiscal tipo pre-cuenta, que hoy no está modelado. **Decisión de
+  producto pendiente**: qué es ese documento, qué lleva y si necesita plantilla
+  propia.
+- **Descuento cargado como ARTÍCULO no afecta el total** del carrito. Distinto
+  del descuento de venta (ya resuelto): acá el descuento entra como un ítem del
+  catálogo. Quedó sin atacar en la tanda del 2026-07-29 — hay que determinar
+  primero cómo se modela hoy ese ítem (¿precio negativo? ¿`itemkind` propio?),
+  porque si el modelo no lo distingue, representarlo es una decisión de producto.
+- **El agente no completa la creación de producto** (2026-07-29). El chat ya
+  muestra los errores (antes no mostraba nada), pero la causa de fondo sigue sin
+  identificarse: el AI SDK ocultaba los errores de stream detrás de un genérico
+  y sin log server-side, así que el modelo fallaba a mitad de stream mudo en los
+  dos lados. Con el logging agregado, el próximo intento deja rastro — revisar
+  logs después de reproducirlo.
 
 ### Relevamiento del cliente — "Módulo caja" (doc del 2026-07-28)
 
