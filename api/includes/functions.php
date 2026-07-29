@@ -915,9 +915,19 @@ function groupByPaymentMethod($new,$old){
 
     $match 					= false;
 
+    // Clave de agrupación: el NOMBRE resuelto, no el type crudo. El mismo medio
+    // convive con dos identificadores distintos en el histórico — el slug
+    // ('efectivo') de las ventas viejas y el UUID de taxonomía de las nuevas —
+    // así que agrupar por type mostraba "Efectivo" DOS veces, con el monto
+    // partido entre ambas filas. Al resolver el nombre primero, las dos entradas
+    // caen en la misma. Si no hay nombre resuelto (medio borrado), se cae al
+    // type, que es el comportamiento anterior.
+    $nuKey = $resolvedName !== '' ? mb_strtolower($resolvedName) : $nuType;
+    $nu['groupKey'] = $nuKey;
+
     if(validity($old,'array')) {
 	    foreach($old as $index => $ol){
-	        if($nuType === $ol['type']){
+	        if($nuKey === ($ol['groupKey'] ?? $ol['type'])){
 	            $old[$index]['price'] = (float)$ol['price'] + (float)$nuPrice;
 	            $old[$index]['count'] = (int)($ol['count'] ?? 0) + 1;
 	            $match = true;
