@@ -22,7 +22,7 @@
  */
 
 import * as React from "react"
-import { MapPin, Plus, Loader2 } from "lucide-react"
+import { MapPin, Plus, Loader2, X } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -41,25 +41,27 @@ import {
   useCreateCustomerAddressPos,
 } from "@/hooks/use-pos-customer-addresses"
 import type { CustomerAddress } from "@/lib/types/contact"
+import { AddressMapParser } from "@/components/geo/address-map-parser"
+import { splitPlaceAddress } from "@/lib/geo/parse-coordinates"
 
 interface NewAddressForm {
   name: string
+  city: string
   address: string
   reference: string
-  city: string
   location: string
-  lat: string
-  lng: string
+  lat: number | null
+  lng: number | null
 }
 
 const EMPTY_FORM: NewAddressForm = {
   name: "",
+  city: "",
   address: "",
   reference: "",
-  city: "",
   location: "",
-  lat: "",
-  lng: "",
+  lat: null,
+  lng: null,
 }
 
 export function DeliveryAddressDialog({
@@ -100,12 +102,6 @@ export function DeliveryAddressDialog({
       toast.error("Nombre y dirección son obligatorios")
       return
     }
-    const lat = form.lat.trim() !== "" ? Number(form.lat) : null
-    const lng = form.lng.trim() !== "" ? Number(form.lng) : null
-    if ((lat !== null && !Number.isFinite(lat)) || (lng !== null && !Number.isFinite(lng))) {
-      toast.error("Lat/Lng inválidos")
-      return
-    }
     try {
       const { id } = await createAddress.mutateAsync({
         customerId,
@@ -114,8 +110,8 @@ export function DeliveryAddressDialog({
         reference: form.reference.trim() || undefined,
         city: form.city.trim() || undefined,
         location: form.location.trim() || undefined,
-        lat,
-        lng,
+        lat: form.lat,
+        lng: form.lng,
       })
       // El id viene del propio INSERT (RETURNING customerAddressId). No se
       // deduce releyendo la libreta: la dirección nueva queda como default,
@@ -183,36 +179,52 @@ export function DeliveryAddressDialog({
                 placeholder="Portón negro, timbre 2..."
               />
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="da-location">Barrio</Label>
-                <Input
-                  id="da-location"
-                  value={form.location}
-                  onChange={(e) => set("location", e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="da-lat">Lat</Label>
-                <Input
-                  id="da-lat"
-                  type="number"
-                  step="any"
-                  value={form.lat}
-                  onChange={(e) => set("lat", e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="da-lng">Lng</Label>
-                <Input
-                  id="da-lng"
-                  type="number"
-                  step="any"
-                  value={form.lng}
-                  onChange={(e) => set("lng", e.target.value)}
-                />
-              </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="da-location">Barrio / zona</Label>
+              <Input
+                id="da-location"
+                value={form.location}
+                onChange={(e) => set("location", e.target.value)}
+                placeholder="Carmelitas, San Lorenzo..."
+              />
             </div>
+            <AddressMapParser
+              onParsed={({ lat, lng, address }) => {
+                // Conservador: el link solo completa Ciudad/Dirección si el
+                // cajero todavía no escribió nada ahí. Barrio/zona nunca sale
+                // de acá — Google no lo trae en el link.
+                const placeFields = address ? splitPlaceAddress(address) : null
+                setForm((f) => ({
+                  ...f,
+                  lat,
+                  lng,
+                  address: !f.address.trim() && placeFields?.address ? placeFields.address : f.address,
+                  city: !f.city.trim() && placeFields?.city ? placeFields.city : f.city,
+                }))
+                toast.success(`Coordenadas: ${lat}, ${lng}`)
+              }}
+            />
+            {form.lat !== null && form.lng !== null ? (
+              <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <span className="tabular-nums text-muted-foreground">
+                  Lat {form.lat.toFixed(6)}, Lng {form.lng.toFixed(6)}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-muted-foreground"
+                  onClick={() => setForm((f) => ({ ...f, lat: null, lng: null }))}
+                >
+                  <X className="size-3.5" aria-hidden />
+                  Limpiar
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Sin coordenadas — pegá un link de Maps arriba para extraerlas.
+              </p>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowForm(false)}>
                 Volver

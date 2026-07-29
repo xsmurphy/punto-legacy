@@ -108,7 +108,8 @@ import { usePriceLists } from "@/hooks/use-price-lists"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { parseCoordinates, ShortMapsLinkError } from "@/lib/geo/parse-coordinates"
+import { splitPlaceAddress } from "@/lib/geo/parse-coordinates"
+import { AddressMapParser } from "@/components/geo/address-map-parser"
 import type {
   ContactAnalytics,
   ContactFormValues,
@@ -981,8 +982,19 @@ function AddressFormFields({
         </div>
       </div>
       <AddressMapParser
-        onParsed={(lat, lng) => {
-          onChange({ ...form, lat, lng })
+        onParsed={({ lat, lng, address }) => {
+          // El link de Maps a veces trae "Calle y número, Ciudad" en la URL.
+          // Se completa de forma conservadora: solo si el campo está vacío —
+          // nunca pisa lo que el usuario ya escribió. Barrio/zona NUNCA sale
+          // de acá (Google no lo incluye en el link) — si no está, queda vacío.
+          const placeFields = address ? splitPlaceAddress(address) : null
+          onChange({
+            ...form,
+            lat,
+            lng,
+            address: !form.address.trim() && placeFields?.address ? placeFields.address : form.address,
+            city: !form.city.trim() && placeFields?.city ? placeFields.city : form.city,
+          })
           toast.success(`Coordenadas: ${lat}, ${lng}`)
         }}
       />
@@ -1093,42 +1105,6 @@ function AddressMapPreview({ lat, lng }: { lat: number | null; lng: number | nul
       >
         Abrir en OpenStreetMap →
       </a>
-    </div>
-  )
-}
-
-function AddressMapParser({ onParsed }: { onParsed: (lat: number, lng: number) => void }) {
-  const [text, setText] = React.useState("")
-  const parse = () => {
-    if (!text.trim()) return
-    try {
-      const result = parseCoordinates(text)
-      if (!result) {
-        toast.error("No pude extraer coordenadas", {
-          description: "Pegá un link largo de Google Maps o el texto 'lat,lng'.",
-        })
-        return
-      }
-      onParsed(result.lat, result.lng)
-      setText("")
-    } catch (e) {
-      if (e instanceof ShortMapsLinkError) {
-        toast.error("Link corto sin coordenadas", { description: e.message })
-        return
-      }
-      throw e
-    }
-  }
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
-      <label className="text-xs text-muted-foreground">
-        Pegar link de Google Maps o &quot;lat,lng&quot;
-      </label>
-      <div className="flex gap-2">
-        <Input value={text} onChange={(e) => setText(e.target.value)}
-          placeholder="https://www.google.com/maps/@-25.28,-57.64,17z" className="text-xs" />
-        <Button type="button" variant="outline" size="sm" onClick={parse}>Extraer</Button>
-      </div>
     </div>
   )
 }
