@@ -49,7 +49,10 @@ export async function POST(req: Request) {
     : { cookie }
 
   // Elegir modelo desde la config del tenant (fail-safe: deepseek por defecto)
-  let modelId = "deepseek/deepseek-chat"
+  // Fallback si `/v1/ai/config` no responde. Mantener alineado con el seed de
+  // `ai_model_config` (migs 43 / 98): un slug retirado por OpenRouter hace que
+  // el agente falle en silencio.
+  let modelId = "deepseek/deepseek-v4-flash"
   try {
     const configRes = await fetch(`${apiUrl}/v1/ai/config`, {
       headers: { cookie },

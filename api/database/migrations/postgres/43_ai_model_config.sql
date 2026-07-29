@@ -12,9 +12,13 @@ CREATE TABLE IF NOT EXISTS ai_model_config (
   updatedat         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Slugs vigentes al 2026-07-29. OpenRouter retira slugs sin aviso: cuando eso
+-- pase, la capability deja de responder en silencio. Refrescarlos con una mig
+-- nueva (ver 98_ai_model_slugs_refresh.sql), NO editando este seed — el
+-- ON CONFLICT DO NOTHING hace que este INSERT no vuelva a correr nunca.
 INSERT INTO ai_model_config (capability, model, creditsperktoken) VALUES
-  ('chat',   'deepseek/deepseek-chat',    1),
-  ('vision', 'google/gemini-flash-1.5',   1)
+  ('chat',   'deepseek/deepseek-v4-flash', 1),
+  ('vision', 'google/gemini-3.5-flash',    1)
 ON CONFLICT (capability) DO NOTHING;
 
 COMMIT;
