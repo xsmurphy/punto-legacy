@@ -1208,18 +1208,18 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
   { key: "mergeRepeated", label: "Agrupar productos repetidos", description: "Sumar cantidad al tocar el mismo producto seguido. Si tocás otro entre medio, se crea una línea nueva — útil para promos con descuento por línea." },
   { key: "showSoftKeyboard", label: "Mostrar teclado virtual en numpads", description: "Útil para pantallas táctiles sin teclado físico." },
   { key: "controlCaja", label: "Control de Caja" },
-  { key: "tecladoVirtual", label: "Teclado virtual" },
   { key: "ordenEnVenta", label: "Orden en venta" },
   { key: "ordenAImpresion", label: "Orden a impresión" },
-  { key: "servidorImpresion", label: "Servidor de impresión" },
-  { key: "sonidosAlertas", label: "Sonidos en alertas" },
-  // "Inhabilitar animaciones" sacado de la lista por decisión del owner
-  // (2026-07-29). La key sigue en PosRegisterConfig con default false para no
-  // romper los devices que ya la tengan guardada.
   { key: "permitirGuardarVentas", label: "Permitir guardar ventas" },
-  { key: "ocultarDetalleCombos", label: "Ocultar detalle de combos en impresión" },
   { key: "modoSoloOrdenes", label: "Modo: solo órdenes" },
 ]
+// Sacados de la lista por decisión del owner (2026-07-29): "Inhabilitar
+// animaciones", "Teclado virtual", "Servidor de impresión", "Sonidos en
+// alertas" y "Ocultar detalle de combos en impresión". Ninguno tenía consumidor
+// —solo existían como campo en PosRegisterConfig—, así que eran interruptores
+// que no hacían nada. Las keys quedan en el tipo con default false para no
+// romper los devices que ya las tengan guardadas; si alguno se implementa de
+// verdad, vuelve a esta lista.
 
 /**
  * Selectores de sucursal+caja del device actual.
