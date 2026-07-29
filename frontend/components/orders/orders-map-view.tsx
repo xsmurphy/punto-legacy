@@ -42,6 +42,9 @@ import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { Order } from "@/hooks/use-orders"
 import { STATUS_VARIANT, orderTotal, statusLabelFor } from "@/lib/orders/order-display"
+import { formatRelativeShort, parseNaive } from "@/lib/format-date"
+import { KDS_TIER_ACCENT } from "@/lib/kds/kds-visuals"
+import type { ElapsedTier } from "@/hooks/use-elapsed"
 
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl"
 
@@ -191,6 +194,14 @@ export function OrdersMapView({
         // min-w/h-9: touch target de 36px+ — se toca con el dedo en tablet.
         el.className =
           "flex h-9 min-w-9 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-foreground px-2 text-xs font-bold tabular-nums text-background shadow-md"
+        // Urgencia en el pin: mismos colores del canal de demora del KDS
+        // (amber = warn, rose = late). fresh queda en bg-foreground neutral.
+        const tier = orderElapsedTier(order)
+        const accent = KDS_TIER_ACCENT[tier]
+        if (accent) {
+          el.style.backgroundColor = accent
+          el.style.color = "#000"
+        }
         el.textContent = order.orderNumber !== null ? `#${order.orderNumber}` : "#—"
 
         const popup = new maplibregl.Popup({ offset: 18, closeButton: true }).setHTML(
@@ -319,16 +330,51 @@ function escapeHtml(value: string): string {
  */
 function popupHtml(order: Order, total: string): string {
   const number = order.orderNumber !== null ? `#${order.orderNumber}` : "#—"
+  const since = order.sentAt ?? order.createdAt
+  const age = since ? formatRelativeShort(since) : null
+  const tier = orderElapsedTier(order)
+  const accent = KDS_TIER_ACCENT[tier]
+  // Edad con el MISMO canal de color que el pill del KDS (amber/rose) — el
+  // cajero lee la urgencia igual en el mapa que en cocina.
+  const ageHtml = age
+    ? `<span class="tabular-nums font-medium"${accent ? ` style="color:${accent}"` : ""}>${escapeHtml(age)}</span>`
+    : ""
+  const courier = order.courierName
+    ? escapeHtml(order.courierName)
+    : `<span class="text-muted-foreground">Sin repartidor</span>`
   return `
-    <div class="flex flex-col gap-1.5 p-1 text-foreground">
-      <p class="text-base font-semibold tabular-nums">Orden ${escapeHtml(number)}</p>
+    <div class="flex min-w-44 flex-col gap-1.5 p-1 text-foreground">
+      <div class="flex items-baseline justify-between gap-3">
+        <p class="text-base font-semibold tabular-nums">Orden ${escapeHtml(number)}</p>
+        ${ageHtml}
+      </div>
       <p class="text-sm text-muted-foreground">${escapeHtml(order.customerName ?? "Sin cliente")}</p>
-      <p class="text-sm text-muted-foreground">${escapeHtml(statusLabelFor(order))}</p>
-      <p class="text-sm font-semibold tabular-nums">${escapeHtml(total)}</p>
+      <div class="flex items-center justify-between gap-3 text-sm">
+        <span class="text-muted-foreground">${escapeHtml(statusLabelFor(order))}</span>
+        <span class="font-semibold tabular-nums">${escapeHtml(total)}</span>
+      </div>
+      <p class="text-sm">${courier}</p>
       <button type="button" data-order-open
         class="mt-1 inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground">
         Ver detalle
       </button>
     </div>
   `
+}
+
+/**
+ * Tier de demora de una orden para el mapa. Mismos umbrales que la pantalla de
+ * despacho (display-card.tsx: warn 5' / late 15') y mismo criterio de origen
+ * (sentAt, con createdAt de fallback). `parseNaive` y no `new Date`: los
+ * timestamps del negocio son naive tenant-local (ver lib/format-date.ts).
+ * Snapshot al render — los markers se reconcilian con cada refetch (15s), así
+ * que el tier se refresca solo.
+ */
+function orderElapsedTier(order: Order): ElapsedTier {
+  const since = order.sentAt ?? order.createdAt
+  if (!since) return "fresh"
+  const d = parseNaive(since)
+  if (!d) return "fresh"
+  const minutes = Math.floor((Date.now() - d.getTime()) / 60000)
+  return minutes >= 15 ? "late" : minutes >= 5 ? "warn" : "fresh"
 }
