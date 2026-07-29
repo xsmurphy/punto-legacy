@@ -24,8 +24,6 @@
  */
 
 import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
-import { getSharedQueryClient } from "@/lib/auth/query-client-singleton"
-import { moduleLogout } from "@/lib/auth/module-logout"
 
 type Json = Record<string, unknown> | unknown[]
 
@@ -140,28 +138,27 @@ async function request<T>(
     // 401 del api-client, no solo el de useBootstrap.
     if (res.status === 401 && typeof window !== "undefined") {
       const backendCode = envelope?.error?.code
-      // TODO(arquitectura): cuando migremos los endpoints POS a /v1/pos/* prefix,
-      // esto puede simplificarse a un único startsWith check.
-      const isPosRoute =
-        path.startsWith("/api/pos/") ||
-        path.startsWith("/v1/pos/") ||
-        // Endpoints POS migrados a apiAuthPosContext (commit e008922)
-        path.startsWith("/v1/sales") ||
-        path.startsWith("/v1/parked-sales") ||
-        path.startsWith("/v1/credit-payments") ||
-        path.startsWith("/v1/transactions")
-      if (isPosRoute) {
-        // Cualquier 401 POS → cleanup completo de sesión.
-        // moduleLogout despacha "module:logged-out" internamente.
-        const qc = getSharedQueryClient()
-        if (qc) moduleLogout(qc)
-      } else {
-        window.dispatchEvent(
-          new CustomEvent("api:unauthorized", {
-            detail: { path, message: backendMsg ?? "", code: backendCode },
-          }),
-        )
-      }
+      // Este cliente es SOLO panel: un 401 acá significa que la COOKIE del panel
+      // murió (expiró a las 24h, se cerró sesión, se revocó) — nunca dice nada
+      // sobre la sesión del device.
+      //
+      // Antes, un heurístico por prefijo de path ("/v1/sales", "/v1/transactions",
+      // …) asumía "401 en ruta POS = device muerto" y llamaba `moduleLogout()`,
+      // que borra el Bearer del device de localStorage. Como esos endpoints usan
+      // `apiAuthPosContext()` (SOLO Bearer) y este cliente NUNCA manda Bearer, el
+      // 401 era inevitable: guardar una cotización o anular una venta desde el POS
+      // desemparejaba la caja y mostraba "Dispositivo no conectado" con la sesión
+      // del device viva en la BD (incidente 2026-07-29, repetido).
+      //
+      // La ÚNICA señal válida de device muerto es `code: "session_revoked"` del
+      // server, y se maneja donde corresponde: `lib/api/pos-fetch.ts`, por donde
+      // pasa todo el tráfico autenticado con Bearer. Este cliente no es dueño de
+      // esa credencial y no la toca.
+      window.dispatchEvent(
+        new CustomEvent("api:unauthorized", {
+          detail: { path, message: backendMsg ?? "", code: backendCode },
+        }),
+      )
     }
     throw new ApiError(
       res.status,

@@ -7,7 +7,10 @@
  * offlineEligible: false.
  */
 
-import { api } from "@/lib/api-client"
+// `/v1/sales` autentica con `apiAuthPosContext()` (SOLO Bearer del device), así
+// que la cotización DEBE viajar por el cliente del POS. Con el cliente de panel
+// (cookie) el POST era un 401 garantizado — la cotización nunca se guardaba.
+import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 

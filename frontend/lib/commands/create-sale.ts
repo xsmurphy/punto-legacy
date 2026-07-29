@@ -26,7 +26,9 @@
  * Ver context/16-app-next-rewrite.md §7 Slice A y context/14-app-rewrite-analysis.md §9.
  */
 
-import { api } from "@/lib/api-client"
+// Mismo motivo que en `create-quote.ts`: `/v1/sales` solo acepta el Bearer del
+// device (`apiAuthPosContext`), nunca la cookie del panel.
+import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { tenantNow } from "@/lib/format-date"

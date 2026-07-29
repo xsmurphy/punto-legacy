@@ -1,5 +1,6 @@
 import { getDeviceToken, clearDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
 import { getSharedQueryClient } from "@/lib/auth/query-client-singleton"
+import { moduleLogout } from "@/lib/auth/module-logout"
 
 /**
  * Fetch autenticado para los BFF routes `/api/pos/*`.
@@ -56,10 +57,19 @@ export async function posFetch(
         if (typeof window !== "undefined") {
           window.sessionStorage.setItem(`punto.device.revoked.${module}`, "1")
         }
-        clearDeviceToken(module)
-        if (module === "pos") {
+        const qc = getSharedQueryClient()
+        if (module === "pos" && qc) {
+          // Cleanup COMPLETO de la sesión del módulo (token + catálogo + carrito
+          // + hotkeys + lock + query cache). Este es el único punto del front que
+          // sabe, con la señal explícita del server, que la sesión del device
+          // murió — antes el cleanup completo colgaba del interceptor 401 del
+          // cliente de PANEL, que no es dueño de esta credencial y lo disparaba
+          // ante 401 que nada tenían que ver con el device (ver api-client.ts).
+          moduleLogout(qc)
           // Empuja al guard a re-chequear ya, sin esperar el poll de 60s.
-          getSharedQueryClient()?.invalidateQueries({ queryKey: ["pos-bootstrap-auth"] })
+          qc.invalidateQueries({ queryKey: ["pos-bootstrap-auth"] })
+        } else {
+          clearDeviceToken(module)
         }
       }
     } catch {
