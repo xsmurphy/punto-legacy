@@ -378,22 +378,50 @@ Dos cosas que este manual resuelve y que estaban abiertas:
    correlativo lo lleva ellos. Confirma que la decisión de `number: -1` no era
    solo prudencia: Factomate es estructuralmente el único escritor.
 
-### Lo que BLOQUEA el registro (pendiente de Factomate)
+### Modelo de provisioning (confirmado por Factomate, 2026-07-29)
 
-**No hay endpoint para crear un `Tenant` ni para crear un `User`.** El manual
-es ABM de un emisor que **ya existe**; `PUT /api/Tenant` actualiza, no crea. Y
-sin creación de usuario no hay credencial contra la cual autenticar (`/Token`
-+ `PhoneLogin`).
+El manual de ABM no incluía creación de `Tenant` ni de `User`, pero Factomate
+confirmó que **sí existe por API** y cómo funciona:
 
-Mientras eso no exista, el alta del emisor y su usuario se provisiona a mano
-del lado de Factomate y Punto solo puede administrar lo que sigue. **El
-white-label completo no es implementable todavía** — no es una limitación de
-diseño nuestra.
+1. Punto tiene un **usuario admin propio** en Factomate. Ese usuario genera un
+   token que habilita la creación de cuentas.
+2. El comerciante completa en Punto un formulario con sus datos de emisor.
+3. Al hacer submit, Punto — **con su credencial admin** — crea el tenant y un
+   usuario asignado a ese tenant, por API.
+4. Factomate devuelve `tenantId`, `userId` y el **usuario/contraseña de API de
+   ese tenant**. Punto los guarda y opera con ellos de ahí en adelante.
 
-Pista del camino que sí existe (guía de integración §2): con el bearer de
-admin del tenant se pueden emitir bearers de usuario vía `PhoneLogin` **sin la
-contraseña del usuario final**. Eso es exactamente el mecanismo que permite
-ocultar Factomate por completo — falta saber cómo se crea ese admin.
+El comerciante **nunca ve ni tipea una credencial de Factomate**: es lo que
+hace posible el white-label.
+
+**Todavía faltan** los endpoints concretos de creación y el user/pass admin —
+sin eso F7 no se puede implementar, aunque el diseño ya está cerrado.
+
+#### Qué cambia en la arquitectura actual
+
+- **Nivel de credencial nuevo: el admin de Punto.** Es un secreto **global**,
+  no por tenant, y el más poderoso del módulo — crea emisores. Va en env
+  (`FACTOMATE_ADMIN_USERNAME` / `FACTOMATE_ADMIN_PASSWORD`, uno por entorno),
+  **nunca en BD** y nunca alcanzable desde un endpoint con auth de tenant.
+  Mismo criterio que el resto de los secretos de bootstrap (`env_to_admin_panel`
+  explícitamente deja bootstrap+secretos en env).
+- **La credencial por comercio deja de ser input del usuario.** Hoy
+  `einvoice-manager.tsx` pide usuario/contraseña de Factomate; bajo este modelo
+  el comerciante llena datos fiscales y Punto recibe la credencial de vuelta y
+  la guarda en el vault. **El vault, el schema y `FactomateSession` sobreviven
+  sin cambios** — cambian el formulario y `EInvoiceService::saveAccount`.
+- **Los campos manuales de F0 son andamio**, no producto final: sirven para
+  probar F1 contra una cuenta provisionada a mano. **Se retiran cuando entre
+  F7** — no deben quedar dos caminos de alta conviviendo.
+- **Columnas nuevas** (migración de F7): `factomate_tenant_id`,
+  `factomate_user_id` en `einvoice_account`.
+
+#### Consecuencia a no perder de vista
+
+Punto termina siendo el único que conoce la credencial de Factomate de cada
+comercio. Si un tenant se va de Punto o quiere operar directo contra
+Factomate, necesita esa credencial — hace falta una forma de revelarla o
+resetearla. No es urgente para F7, pero es deuda si no se anota.
 
 ### Certificado de firma — reglas no negociables
 
@@ -433,8 +461,16 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 3. **Fecha de emisión diferida**: qué pasa con un DE enviado días después de
    la venta. ¿Ventana de tolerancia de SIFEN? ¿Qué pasa fuera de ella?
    Decide si F5 es viable.
-4. **Alta de emisor y de usuario por API**: ¿existe endpoint para crear un
-   `Tenant` y su `User`? Sin eso, el registro desde Punto no se puede hacer.
+4. **Endpoints de alta de `Tenant` y de `User`** + el usuario/contraseña admin
+   de Punto. El modelo ya está confirmado (ver §Modelo de provisioning), falta
+   el contrato concreto. Bloquea F7.
+5. **El teléfono del usuario del tenant, ¿lo definimos nosotros en el alta?**
+   Es el que después va en el header `phonenumber` y en `PhoneLogin`, así que
+   hay que saber si se manda en el formulario de creación o si lo devuelven
+   ellos junto con el user/pass.
+6. **El admin, ¿autentica igual que un usuario de tenant** (`/Token` →
+   `PhoneLogin`) o solo con `/Token`? Un admin no tiene tenant asignado, así
+   que el segundo paso podría no aplicarle.
 
 ## Fases
 
@@ -447,7 +483,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
 | **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante + listado por RUC con segundo factor | Pendiente |
-| **F7** | Onboarding white-label del emisor desde Punto: datos fiscales, actividad económica, sucursales↔outlets, timbrados↔puntos de expedición, carga del certificado. **Bloqueada** hasta que Factomate exponga alta de `Tenant` y de `User` | Pendiente |
+| **F7** | Onboarding white-label: formulario de datos del emisor → alta de tenant+usuario con la credencial admin de Punto → guardar `tenantId`/`userId`/credencial en el vault. Después: actividad económica, sucursales↔outlets, timbrados↔puntos de expedición, carga del certificado. Retira los campos manuales de F0. **Bloqueada** hasta tener endpoints de alta + credencial admin | Pendiente |
 
 ## Infra
 
