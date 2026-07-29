@@ -200,7 +200,11 @@ export default function PosOrdenesPage() {
           real ya los pinta el header de OrderDetailView; acá solo quedan
           sr-only para accesibilidad (Radix exige DialogTitle). */}
       <Dialog open={detailOrder !== null} onOpenChange={(open) => !open && setDetailOrderId(null)}>
-        <DialogContent className="sm:max-w-2xl">
+        {/* max-h + overflow: una orden con varios ítems y su historial supera
+            el alto de pantalla, y sin esto el contenido quedaba cortado sin
+            forma de llegar a las acciones. El scroll va en el CONTENIDO, no en
+            la página. */}
+        <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-2xl">
           <DialogHeader className="sr-only">
             <DialogTitle>Orden #{detailOrder?.orderNumber ?? "—"}</DialogTitle>
             <DialogDescription>

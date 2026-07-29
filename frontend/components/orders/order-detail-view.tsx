@@ -15,13 +15,18 @@
  */
 
 import * as React from "react"
-import { ChevronDown, DollarSign, MoreHorizontal, Printer, Truck, X } from "lucide-react"
+import { ChevronDown, ChevronRight, DollarSign, MoreHorizontal, Printer, Truck, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { Textarea } from "@/components/ui/textarea"
 import {
   AlertDialog,
@@ -50,6 +55,7 @@ import {
   useOrder,
   useUpdateOrderStatus,
   type Order,
+  type OrderStatus,
   type OrderEvent,
 } from "@/hooks/use-orders"
 import {
@@ -60,6 +66,22 @@ import {
   orderTotal,
   statusLabelFor,
 } from "@/lib/orders/order-display"
+
+
+/**
+ * Etiqueta legible de un extremo de la transición. El historial mezcla eventos
+ * de ORDEN (`open`, `sent`, …) y de ÍTEM (`pending`, `preparing`, …): son dos
+ * máquinas de estado distintas, así que se resuelve contra el mapa que
+ * corresponda según el `scope` del evento. Sin esto se imprimía el valor crudo
+ * de la BD ("open → sent"), que no le dice nada a quien atiende.
+ */
+function eventStatusLabel(scope: OrderEvent["scope"], status: string | null): string {
+  if (!status) return ""
+  if (scope === "item") {
+    return KDS_ITEM_VISUALS[status as keyof typeof KDS_ITEM_VISUALS]?.label ?? status
+  }
+  return STATUS_LABEL[status as OrderStatus] ?? status
+}
 
 const ACTOR_KIND_LABEL: Record<OrderEvent["actorKind"], string> = {
   user: "Usuario",
@@ -264,8 +286,19 @@ export function OrderDetailView({
           `events` solo viene en el detalle — mientras carga, skeleton (igual
           que TransactionDetail); si el detalle ya resolvió y no hay eventos,
           el bloque no se rompe, solo dice "Sin movimientos". */}
-      <div className="mt-4 rounded-lg bg-muted/40 p-4">
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Historial</h3>
+      {/* Colapsado por defecto: una orden con varias rondas acumula decenas de
+          transiciones y empujaba todo lo accionable fuera de la vista. El
+          contador va en el trigger para no tener que abrirlo para saber si hay
+          algo. */}
+      <Collapsible className="mt-4 rounded-lg bg-muted/40 p-4">
+        <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-sm font-medium text-muted-foreground [&[data-state=open]>svg:last-child]:rotate-90">
+          <span>
+            Historial
+            {detail?.events && detail.events.length > 0 ? ` (${detail.events.length})` : ""}
+          </span>
+          <ChevronRight className="size-4 shrink-0 transition-transform" aria-hidden />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
         {eventsLoading ? (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-4 w-3/4" />
@@ -279,7 +312,9 @@ export function OrderDetailView({
               <div key={idx} className="py-2 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span>
-                    {ev.fromStatus ? `${ev.fromStatus} → ${ev.toStatus}` : ev.toStatus}
+                    {ev.fromStatus
+                      ? `${eventStatusLabel(ev.scope, ev.fromStatus)} → ${eventStatusLabel(ev.scope, ev.toStatus)}`
+                      : eventStatusLabel(ev.scope, ev.toStatus)}
                   </span>
                   {ev.createdAt && (
                     <span
@@ -300,7 +335,8 @@ export function OrderDetailView({
             ))}
           </div>
         )}
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <SellerPickerDialog
         open={courierPickerOpen}
