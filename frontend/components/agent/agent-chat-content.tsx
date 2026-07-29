@@ -56,6 +56,20 @@ export function AgentChatContent({
   const balance = balData?.balance ?? null
   const hasNoCredits = balance !== null && balance <= 0
   const is402 = error?.message?.includes("Sin créditos") || error?.message?.includes("402")
+  // El body de /api/agent/chat viaja como texto plano en error.message. Si es
+  // un error HTTP (402/500 tempranos) llega como JSON `{"error":"..."}`; si es
+  // un error de stream (ver onError en route.ts) llega como texto simple. En
+  // ambos casos queremos el mensaje accionable, nunca "algo salió mal".
+  const genericErrorMessage = React.useMemo(() => {
+    if (!error || is402) return null
+    try {
+      const parsed = JSON.parse(error.message) as { error?: string }
+      if (parsed?.error) return parsed.error
+    } catch {
+      // no era JSON — el texto plano del error ya es el mensaje a mostrar
+    }
+    return error.message || "No se pudo completar el pedido. Probá de nuevo."
+  }, [error, is402])
   const invalidateBalance = useInvalidateAiBalance()
 
   React.useEffect(() => {
@@ -202,15 +216,6 @@ export function AgentChatContent({
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {(hasNoCredits || is402) && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            Sin créditos disponibles.{" "}
-            <Link href="/history-billing" className="underline font-medium">
-              Comprar créditos
-            </Link>
-          </div>
-        )}
-
         {messages.length === 0 &&
           (renderEmpty ?? (
             <p className="text-center text-sm text-muted-foreground pt-8">
@@ -322,6 +327,19 @@ export function AgentChatContent({
       </div>
 
       <div className="px-4 py-3">
+        {(hasNoCredits || is402) && (
+          <div className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Sin créditos disponibles.{" "}
+            <Link href="/history-billing" className="underline font-medium">
+              Comprar créditos
+            </Link>
+          </div>
+        )}
+        {genericErrorMessage && (
+          <div className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {genericErrorMessage}
+          </div>
+        )}
         <AgentInputBox
           ref={taRef}
           value={input}
