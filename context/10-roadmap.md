@@ -27,6 +27,29 @@ factura a crédito; cotización que salía en blanco; ventas guardadas que tumba
 la página; y el chat del agente, que ahora muestra los errores que antes se
 tragaba.
 
+- **El botón "Interno" no hace nada — la venta interna consume numeración
+  FISCAL** (2026-07-29, hallazgo). El owner definió el catálogo de documentos:
+  Factura · **Comprobante (sin valor fiscal, numeración aparte, se activa con
+  "Interno")** · Recibo (pago de crédito) · Nota de crédito (devolución) ·
+  Remisión · Cotización · Orden. Verificado contra el código: el Comprobante
+  **no existe en ninguna capa**.
+  - El front manda `interno` en el payload (`lib/commands/create-sale.ts:297`)
+    y **el backend no lo lee en ningún lado** (cero referencias a `interno` en
+    PHP): el flag muere en el borde de la API.
+  - Por lo tanto la venta se persiste como contado type 0 y toma
+    `registerInvoiceNumber` — o sea, **una venta sin valor fiscal está
+    quemando números de factura**, con el agravante de correlatividad
+    número↔fecha de `context/29`.
+  - La impresión también lo ignora: `pay-dialog.tsx` elige
+    `hasGiftcardIssuance ? "receipt" : "factura"`, sin mirar `interno`. Una
+    venta interna imprime **Factura**.
+  - `PrinterDocType` (`lib/hardware/printers/binding.ts`) no tiene
+    `comprobante`; los bindings de impresora no pueden apuntarle.
+  - Contador libre disponible: **`registerBoletaNumber` está en el schema y no
+    lo usa nadie** (0 referencias) — candidato natural para la numeración
+    aparte del Comprobante.
+  ⚠ No se implementó: definir tipo de documento fiscal, contador y ruteo es
+  decisión del owner. Lo que sí es seguro afirmar es que hoy el botón engaña.
 - **Imprimir la venta EN CURSO — falta definir el documento** (2026-07-29).
   La entrada del drawer de opciones sigue sin conectar, a propósito: el intento
   de conectarla la emitía con docType `receipt`, y en este sistema el Recibo es
