@@ -117,10 +117,12 @@ export function parseCoordinates(text: string): ParsedCoordinates | null {
   const trimmed = text.trim()
   if (!trimmed) return null
 
-  if (SHORT_LINK_PATTERN.test(trimmed)) {
-    throw new ShortMapsLinkError()
-  }
-
+  // ⚠ El chequeo de link corto va DESPUÉS de intentar los patrones, no antes.
+  // Un `maps.app.goo.gl/...?q=-25.28,-57.64` YA trae las coordenadas en la
+  // query y se resuelve sin seguir ningún redirect — es un caso que el parser
+  // de sucursales soportaba y que rechazar de entrada rompió al unificar
+  // (regresión 2026-07-28). Solo es un callejón sin salida el link corto que
+  // NO trae coordenadas en ninguna forma.
   for (const pattern of COORDINATE_PATTERNS) {
     const match = trimmed.match(pattern)
     if (!match) continue
@@ -131,6 +133,10 @@ export function parseCoordinates(text: string): ParsedCoordinates | null {
       const address = extractPlaceText(trimmed)
       return address ? { lat, lng, address } : { lat, lng }
     }
+  }
+
+  if (SHORT_LINK_PATTERN.test(trimmed)) {
+    throw new ShortMapsLinkError()
   }
 
   return null
