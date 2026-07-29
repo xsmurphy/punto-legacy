@@ -62,9 +62,12 @@ export async function POST(req: Request) {
       if (config?.chat?.model) {
         modelId = config.chat.model
       }
+    } else {
+      console.error(`[agent] ai/config respondió ${configRes.status}, usando default ${modelId}`)
     }
-  } catch {
-    // ignorar — fallback al default
+  } catch (e) {
+    // fail-open: seguimos con el modelo default, pero dejamos rastro
+    console.error("[agent] fallo al leer ai/config, usando default", e)
   }
 
   // Gate: verificar balance antes de llamar al modelo
@@ -78,9 +81,12 @@ export async function POST(req: Request) {
       if (balance <= 0) {
         return Response.json({ error: "Sin créditos" }, { status: 402 })
       }
+    } else {
+      console.error(`[agent] ai/balance respondió ${balRes.status}, fail-open (no se gatea)`)
     }
-  } catch {
-    // ignorar — si no podemos verificar, dejamos pasar (fail-open)
+  } catch (e) {
+    // fail-open: si no podemos verificar, dejamos pasar, pero dejamos rastro
+    console.error("[agent] fallo al verificar balance, fail-open (no se gatea)", e)
   }
 
   // Contexto del negocio (server-side, autoritativo): moneda + país. Para que el
@@ -94,9 +100,12 @@ export async function POST(req: Request) {
       const s = (sj.data ?? sj) as Record<string, unknown>
       currency = String(s.currency ?? "")
       country = String(s.country ?? "")
+    } else {
+      console.error(`[agent] settings respondió ${setRes.status}, sigue sin contexto extra`)
     }
-  } catch {
-    // fail-open: el agente sigue funcionando sin el contexto extra
+  } catch (e) {
+    // fail-open: el agente sigue funcionando sin el contexto extra, pero dejamos rastro
+    console.error("[agent] fallo al leer settings, sigue sin contexto extra", e)
   }
 
   const openrouter = createOpenRouter({ apiKey })
@@ -630,5 +639,17 @@ export async function POST(req: Request) {
     },
   })
 
-  return result.toUIMessageStreamResponse()
+  // Por default el AI SDK oculta cualquier error del stream (fallo del
+  // modelo, timeout, error del provider, etc.) detrás de un genérico "An
+  // error occurred." — SIN loguear nada server-side. Esto es lo que hacía
+  // que "creame un producto" no mostrara nada: el modelo fallaba a mitad de
+  // stream, el cliente recibía ese genérico y la UI ni siquiera lo
+  // renderizaba. Logueamos la causa real acá y la devolvemos al cliente
+  // (accionable) en vez de dejarla muda.
+  return result.toUIMessageStreamResponse({
+    onError: (error) => {
+      console.error("[agent] error en el stream del modelo", error)
+      return error instanceof Error ? error.message : "Error al conectar con el asistente"
+    },
+  })
 }

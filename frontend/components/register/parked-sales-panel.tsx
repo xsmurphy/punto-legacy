@@ -36,9 +36,9 @@ export function ParkedSalesPanel() {
       onSuccess: () => {
         useCartStore.getState().clear()
         useCartStore.setState({
-          lines: sale.data?.cart ?? [],
-          customer: sale.data?.customer ?? null,
-          note: sale.data?.notes ?? null,
+          lines: sale.data.cart,
+          customer: sale.data.customer,
+          note: sale.data.notes ?? null,
         })
         toast.success("Venta retomada")
         router.push('/pos')
@@ -71,9 +71,10 @@ export function ParkedSalesPanel() {
   return (
     <div className="flex flex-col gap-1 p-2">
       {sales.map((sale) => {
-        // Guard: una venta guardada corrupta (data/cart null) NO debe tumbar toda
-        // la página. Se renderiza con 0 items para que el cajero pueda verla/borrarla.
-        const cart = sale.data?.cart ?? []
+        // sale.data ya viene normalizado por useParkedSales (select) — cart
+        // siempre es un array válido, customer null o completo. No hace falta
+        // repetir guards de null acá.
+        const cart = sale.data.cart
         const itemCount = cart.reduce((sum, l) => sum + l.qty, 0)
         const total = cart.reduce((sum, l) => sum + lineSubtotal(l, false), 0)
         const timeLabel = formatRelativeTime(sale.createdAt)
@@ -85,16 +86,16 @@ export function ParkedSalesPanel() {
           >
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground truncate">
-                {sale.data?.title?.trim()
+                {sale.data.title?.trim()
                   ? sale.data.title
                   : `${itemCount} ${itemCount === 1 ? "ítem" : "ítems"}`}
-                {sale.data?.customer && (
+                {sale.data.customer && (
                   <span className="ml-1.5 text-muted-foreground">
                     · {sale.data.customer.name}
                   </span>
                 )}
               </p>
-              {sale.data?.title?.trim() && (
+              {sale.data.title?.trim() && (
                 <p className="text-xs text-muted-foreground">
                   {itemCount} {itemCount === 1 ? "ítem" : "ítems"}
                 </p>

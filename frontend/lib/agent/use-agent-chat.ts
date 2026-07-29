@@ -136,6 +136,12 @@ export function useAgentChat({
         }
       }
     },
+    // Antes esto no existía: una falla de red, un 500, o un error de stream
+    // del modelo quedaban sin rastro alguno en el cliente (ver
+    // agent-chat-content.tsx para dónde se renderiza `error`).
+    onError: (err) => {
+      console.error("[agent] useChat error", err)
+    },
   })
 
   // Hidratar el chat con el historial guardado APENAS persist termine de
