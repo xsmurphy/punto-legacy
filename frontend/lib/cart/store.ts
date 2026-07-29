@@ -220,7 +220,7 @@ interface CartState {
    * La cotización sigue siendo una acción de guardado inmediato aparte, NO
    * un modo — no se toca su mecanismo acá.
    */
-  posMode: "venta" | "orden"
+  posMode: "venta" | "orden" | "cotizacion"
 
   /**
    * ID de la orden padre (`pos_order`). Se setea vía `loadFromOrder()` cuando
@@ -399,7 +399,7 @@ interface CartState {
    * debe re-lockear a "orden" después de un clear() cuando ese flag está
    * activo (ver context/24-orders-module-plan.md, decisión O1 punto 1).
    */
-  setPosMode: (mode: "venta" | "orden") => void
+  setPosMode: (mode: "venta" | "orden" | "cotizacion") => void
 
   /**
    * Vuelca el contenido de una orden (`pos_order` + `pos_order_item`) al
@@ -502,7 +502,7 @@ const initialState = {
   tags: [] as string[],
   quoteParentId: null as string | null,
   saleDiscount: null as { value: number; mode: "percent" | "money" } | null,
-  posMode: "venta" as "venta" | "orden",
+  posMode: "venta" as "venta" | "orden" | "cotizacion",
   orderParentId: null as string | null,
   spaceSessionId: null as string | null,
   spaceName: null as string | null,
@@ -729,8 +729,11 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     // ORDEN (context/27 §B.1) — una venta directa de mostrador no tiene
     // fulfillment, así que se resetean igual que credito/interno/ivaRemoved
     // arriba (mismo criterio, atributo que no aplica al modo destino).
+    // "cotizacion" (sticky desde 2026-07-30, mismo mecanismo que orden): una
+    // cotización tampoco se emite a crédito ni es interna ni quita IVA — esos
+    // atributos se definen recién si la cotización se convierte en venta.
     set(
-      mode === "orden"
+      mode === "orden" || mode === "cotizacion"
         ? { posMode: mode, credito: false, interno: false, ivaRemoved: false }
         : { posMode: mode, fulfillment: "dine_in", deliveryAddress: null },
     )

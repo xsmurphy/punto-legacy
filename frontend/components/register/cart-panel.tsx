@@ -1300,12 +1300,12 @@ function CartBottom({
 
   // Label + acción del CTA por modo. Venta: el monto formateado ES el label
   // centrado (comportamiento histórico — el cajero mira el botón para saber
-  // cuánto cobrar). Modos con color (orden/espacio): label de la acción a la
-  // IZQUIERDA + monto a la DERECHA con `justify-between` (patrón de botón POS),
-  // monto en tabular-nums sin opacity para que no quede lavado. En pantallas
-  // angostas el monto baja debajo del label (flex-wrap) — nunca concatenado
-  // inline. Cotización NO dispara nada desde acá — el guardado ya arrancó desde
-  // el drawer de Opciones; el botón solo refleja el estado "en vuelo".
+  // cuánto cobrar). Modos con color (orden/espacio/cotización): label de la
+  // acción a la IZQUIERDA + monto a la DERECHA con `justify-between` (patrón de
+  // botón POS), monto en tabular-nums sin opacity para que no quede lavado. En
+  // pantallas angostas el monto baja debajo del label (flex-wrap) — nunca
+  // concatenado inline. Cotización es un modo sticky (2026-07-30): el CTA amber
+  // ES el que genera la cotización (requestQuoteSave → SaleOptionsDrawer).
   const amountRight = lineCount > 0 && (
     <span className="shrink-0 text-2xl font-semibold tabular-nums">{totalFormatted}</span>
   )
@@ -1316,6 +1316,15 @@ function CartBottom({
     ctaLabel = "Guardando cotización..."
     ctaAction = undefined
     ctaAriaLabel = "Guardando cotización"
+  } else if (cartMode === "cotizacion") {
+    ctaLabel = (
+      <span className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span>Cotizar</span>
+        {amountRight}
+      </span>
+    )
+    ctaAction = () => usePosUIStore.getState().requestQuoteSave()
+    ctaAriaLabel = "Generar cotización"
   } else if (isOrderMode) {
     const SpaceIcon = MODE_VISUALS["orden-espacio"].icon
     ctaLabel = orderSubmitting ? (
@@ -1356,7 +1365,9 @@ function CartBottom({
           el CTA de abajo NO se mueve ni un pixel al cambiar de modo — memoria
           muscular del cajero (Regla #10, context/14-ui-conventions.md). */}
       <div className="mb-2 flex min-h-6 items-center justify-center gap-2">
-        {!isOrderMode && (
+        {/* Los toggles son atributos de la VENTA: tampoco aplican en modo
+            cotización (setPosMode ya los resetea al entrar). */}
+        {!isOrderMode && cartMode !== "cotizacion" && (
           <>
             <ToggleChip
               label="CRÉDITO"

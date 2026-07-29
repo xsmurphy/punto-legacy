@@ -40,6 +40,16 @@ interface PosUIState {
    */
   savingQuote: boolean
   setSavingQuote: (v: boolean) => void
+  /**
+   * Disparador del guardado de cotización desde el CTA del carrito (modo
+   * cotización sticky, 2026-07-30). El CTA vive en CartPanel pero el flujo de
+   * guardado (createQuote + modal de éxito + impresión) es del
+   * SaleOptionsDrawer — ambos montados juntos en CartPanel. El CTA incrementa
+   * el nonce; el drawer lo observa y ejecuta. Contador y no boolean para que
+   * dos pedidos seguidos disparen dos efectos.
+   */
+  quoteSaveNonce: number
+  requestQuoteSave: () => void
 }
 
 export const usePosUIStore = create<PosUIState>()((set) => ({
@@ -65,4 +75,6 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   setShowSoftKeyboard: (v) => set({ showSoftKeyboard: v }),
   savingQuote: false,
   setSavingQuote: (v) => set({ savingQuote: v }),
+  quoteSaveNonce: 0,
+  requestQuoteSave: () => set((s) => ({ quoteSaveNonce: s.quoteSaveNonce + 1 })),
 }))

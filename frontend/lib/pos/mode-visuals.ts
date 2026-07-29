@@ -53,20 +53,20 @@ export const MODE_VISUALS: Record<CartModeKey, ModeVisual> = {
 /**
  * Resuelve el modo visual desde el estado del carrito.
  *
- * - `savingQuote` (usePosUIStore) tiene prioridad: cotización es una acción
- *   de guardado inmediato, NO un posMode sticky (lib/cart/store.ts, campo
- *   `posMode` — ver comentario ahí "no se toca su mecanismo acá") — su única
- *   ventana de vida es la llamada async a `createQuote()`, así que el color
- *   solo se refleja mientras esa promesa está en vuelo.
+ * - Cotización es un posMode STICKY desde 2026-07-30 (decisión owner): se
+ *   entra desde Opciones → Cotización, se carga el carrito en amber, y el CTA
+ *   amber es el que genera la cotización. `savingQuote` sigue existiendo para
+ *   pintar el estado "guardando…" del CTA mientras `createQuote()` está en
+ *   vuelo (y cubre el guardado aunque el modo ya se haya reseteado).
  * - `posMode === "orden"` se divide en 2 variantes de color según haya o no
  *   espacio seleccionado (mismo color, ícono/label distinto).
  */
 export function resolveCartMode(
-  posMode: "venta" | "orden",
+  posMode: "venta" | "orden" | "cotizacion",
   spaceName: string | null,
   savingQuote: boolean,
 ): CartModeKey {
-  if (savingQuote) return "cotizacion"
+  if (savingQuote || posMode === "cotizacion") return "cotizacion"
   if (posMode === "orden") return spaceName ? "orden-espacio" : "orden-mostrador"
   return "venta"
 }

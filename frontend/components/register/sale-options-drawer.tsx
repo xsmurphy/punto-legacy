@@ -310,11 +310,19 @@ export function SaleOptionsDrawer({
       },
     },
     {
+      // Modo sticky (decisión owner 2026-07-30), mismo mecanismo que Orden:
+      // elegir "Cotización" NO guarda nada — pinta el POS de amber para cargar
+      // ítems, y la cotización se genera recién con el CTA amber del carrito
+      // (que dispara handleSaveAsQuote vía requestQuoteSave).
       key: "quote",
       label: "Cotización",
       icon: FileText,
+      active: posMode === "cotizacion",
       action: () => {
-        void handleSaveAsQuote()
+        if (posMode === "cotizacion") return // ya activo — usar "Volver a venta"
+        setPosMode("cotizacion")
+        setOpen(false)
+        toast.success("Modo cotización activado — el botón principal genera la cotización")
       },
     },
     {
@@ -341,7 +349,7 @@ export function SaleOptionsDrawer({
         toast.success("Modo orden activado — el botón principal ahora envía a cocina")
       },
     },
-    ...(posMode === "orden" && !modoSoloOrdenes
+    ...(posMode !== "venta" && !(posMode === "orden" && modoSoloOrdenes)
       ? [{
           key: "back-to-venta",
           label: "Volver a venta",
@@ -361,18 +369,45 @@ export function SaleOptionsDrawer({
     },
   ]
 
+  // ── Disparo del guardado de cotización desde el CTA amber del carrito ─────
+  // (usePosUIStore.requestQuoteSave — ver el docblock del nonce en lib/ui/store).
+  const quoteSaveNonce = usePosUIStore((s) => s.quoteSaveNonce)
+  const lastNonceRef = React.useRef(quoteSaveNonce)
+  React.useEffect(() => {
+    if (quoteSaveNonce === lastNonceRef.current) return // mount / re-render, no es un pedido
+    lastNonceRef.current = quoteSaveNonce
+    void handleSaveAsQuote().then(() => {
+      // La cotización se generó (o falló) — en éxito, clear() ya devolvió el
+      // posMode a venta vía initialState; nada más que hacer acá.
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteSaveNonce])
+
   // ── Guardar venta en curso ─────────────────────────────────────────────────
 
   const saveParked = useSaveParkedSale()
 
   const handleSave = (title?: string | null) => {
-    const { lines, customer, note } = useCartStore.getState()
+    // Snapshot COMPLETO de la venta en curso: líneas (con vendedor/descuento/
+    // nota por línea), cliente, nota, descuento de venta y etiquetas. Antes solo
+    // se guardaban líneas+cliente+nota, así que retomar perdía el descuento y
+    // las etiquetas en silencio (reporte del owner 2026-07-30).
+    const { lines, customer, note, saleDiscount: cartSaleDiscount, tags } = useCartStore.getState()
     if (lines.length === 0) {
       toast.error("No hay ítems para guardar")
       return
     }
     saveParked.mutate(
-      { data: { cart: lines, customer, notes: note, title: title ?? null } },
+      {
+        data: {
+          cart: lines,
+          customer,
+          notes: note,
+          title: title ?? null,
+          saleDiscount: cartSaleDiscount,
+          tags,
+        },
+      },
       {
         onSuccess: () => {
           useCartStore.getState().clear()
