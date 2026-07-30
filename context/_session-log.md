@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-07-27/30 — Facturación electrónica Paraguay (SIFEN) — F0/F1/F2 contra API real de Factomate
+
+Commits `d7feed6d..774bd0d8` (15). Highlights: F0 conexión de cuenta (migs 92/93/95, `CredentialVault` AES-256-GCM, módulo `einvoicePy`); pivot de proveedor a mitad de sesión — la F0 se había implementado contra Automate creyendo que era el motor, pero el motor real es **Factomate** (Automate es otro cliente suyo), corregido con mig 95 sin tocar la 92; F1 emisión automática con outbox transaccional en `SaleService` + drainer CAS; F2 listado/KuDE/cancelación/reconciliación; verificado end-to-end contra DEV con 2 facturas reales (correlativo 54 rechazada por SIFEN 1002 duplicado, 55 aprobada `FinalizadoOK`); 9 bugs que solo aparecían contra la API real, incluido que el taxRate se calculaba mal y habría emitido TODO exento de IVA sin error visible. Plan vivo en `context/28-facturacion-electronica-plan.md`. Pendiente: `APP_ENCRYPTION_KEY` sin configurar (el módulo no arranca sin eso), migs 92/93/95 sin correr en prod, F3-F7.
+
 ## 2026-07-29/30 — Wrapper DB (4 features rotas por el mismo bug) + descuentos por ítem + IVA toggle + agente IA fixes
 
 Commits `3299437e..1076d1e9` (37; excluye 9 commits paralelos de facturación electrónica intercalados). Highlights: `_getTableSchema()` no listaba columnas reales → `hasVariants`/`pinhash` se escribían al JSONB y nunca cambiaban (migs 99/100); `ncmInsert` fallback ciego a PK `'id'` tumbaba `expenses` (`_resolveTablePk()`); `flattenJsonb` borraba el JSONB crudo en 5 sitios (venta guardada, config de caja con 3 cajas ignorando toggles, anular compra sin revertir stock) → fix de raíz con side-channel `Query::rawJsonb()`; descuentos ahora se reparten por ítem (`allocate-discounts.ts`) con alcance congelado + un descuento por producto (corrige mi propia implementación anterior); IVA toggle persistía mal (mig 101, `lineGross()` única fuente); fix P0 auth: `api-client` desemparejaba el device del POS por 401 heurístico. Pendiente: 5 bugs por reproducir en prod, deuda de permisos (17/45 chequeados en backend).
