@@ -500,6 +500,69 @@ API permite cruzar tenants mandando otro id. Punto manda siempre el suyo y
 nunca expone ese parámetro al frontend — pero conviene saber que la barrera
 no está garantizada del otro lado.
 
+## F1 — lo que hay que saber antes de tocarla
+
+### La tasa de IVA sale del ítem, NO de la línea vendida
+
+**No derivar el `taxRate` del cociente `tax / neto` de la línea.** El POS
+moderno no persiste impuesto por línea: `buildSalePayload`
+(`frontend/lib/commands/create-sale.ts`) arma cada ítem con `total` bruto y
+manda `tax: 0` a nivel transacción, sin `taxObj`. Esa derivación daba 0 en
+todas las líneas, o sea **todas las facturas emitidas con todo exento** —
+sub-declaración sistemática de IVA que SIFEN acepta sin error, porque exento
+es una categoría válida. Silenciosa y masiva.
+
+La fuente correcta es la definición de impuesto del ítem: `item.taxId` →
+`tax.name`, que guarda el porcentaje como texto (`'10'`, `'5'`, `'0'` — ver
+mig 23). Resuelto en `EInvoiceService::resolveTaxRatesForItems()`, una sola
+query para toda la venta.
+
+**Si la tasa de un ítem no se puede resolver, el documento falla.** Nunca se
+asume 10 ni 0 ni se saltea la línea: mejor un documento en `error` que alguien
+mira, que un documento fiscal con una tasa inventada.
+
+Trade-off documentado en el código: se usa la tasa **vigente** del ítem para
+facturar una venta pasada, porque la de la línea no se persiste. Si un ítem
+cambió de tasa entre la venta y la emisión, se factura con la nueva.
+
+### `transaction.transactionTotal` es BRUTO
+
+Guarda `SaleInput::$subtotal`, que es la suma de los totales de línea **con
+IVA incluido** (`create-sale.ts`: "`total` sigue siendo el BRUTO"). No sumarle
+`transactionTax` — eso inflaría cada factura.
+
+### Solo PYG
+
+El payload sale con `currencyTypeCode: 'PYG'` y `exchangeRate: 0`. Una venta en
+otra moneda **aborta la emisión** en vez de declarar los montos como guaraníes.
+Facturar en otra moneda requiere `exchangeRate > 0` e `itemExchangeRate`
+consistente — no implementado.
+
+### Suposiciones SIN VERIFICAR contra la API real
+
+Todas flageadas en comentarios; son los primeros sospechosos ante un rechazo:
+
+- `taxRate: 0` para líneas exentas — la guía solo documenta 10 y 5.
+- `contributorType` física/jurídica por heurística de longitud de RUC.
+- `creditDeadline` por defecto a +30 días cuando la venta no tiene
+  `transactionDueDate`.
+- Un solo `paymentMethodCode` por documento: una venta con pago mixto se
+  declara con un único medio.
+- (Heredadas de F0) el content-type de `POST /Token` y el shape de `stamps[0]`.
+
+### Hueco conocido: documentos trabados en `sending`
+
+El drainer reclama con CAS `pending`/`error` → `sending`. Si el proceso muere
+entre el reclamo y la persistencia del resultado, **el documento queda en
+`sending` para siempre**: no lo toma nadie más y no aparece como error.
+
+Es deliberado que no se auto-reintenten: la emisión no es idempotente del lado
+de Factomate, así que reintentar un `sending` arriesga **emitir dos veces** el
+mismo documento fiscal. Pero hoy quedan invisibles, y eso sí hay que
+arreglarlo: **F2 tiene que exponerlos** para revisión manual (contra
+`GET /api/ElectronicDocument/GetAll` se puede confirmar si llegaron a emitirse
+antes de decidir).
+
 ## Preguntas abiertas para Factomate
 
 Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
@@ -531,8 +594,8 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 | Fase | Alcance | Estado |
 |---|---|---|
 | **F0** | Migs 92/93/95, vault, provider/session Factomate, módulo + página de config con teléfono/entorno/timbrado + *Probar conexión* | **Hecha** (pivot 2026-07-28) |
-| **F1** | Mapper con redondeo per-item real, outbox, drainer, enqueue en `SaleService`, cron, estado en transacciones | Pendiente |
-| **F2** | DataTable de documentos, KuDE PDF (con retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`) | Pendiente |
+| **F1** | Mapper, outbox transaccional, drainer con CAS, enqueue en `SaleService`, endpoint de drain, badge en transacciones | **Hecha** (2026-07-30) |
+| **F2** | DataTable de documentos, KuDE PDF (con retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`), **exponer los trabados en `sending`** | Pendiente |
 | **F3** | Mapping de medios de pago, lookup de RUC/CI en Contactos (`clientByRuc`), notas de crédito | Pendiente |
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
