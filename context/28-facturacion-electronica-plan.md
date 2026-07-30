@@ -692,9 +692,32 @@ de la respuesta de `/Bulk`, que por eso ahora se persiste en
 `Items[0].SifenResult.rRetEnviDe.rProtDeField` → `dEstResField` y
 `gResProcField[].dCodResField/dMsgResField`.
 
-### Todavía sin verificar
+### Segunda emisión: SIFEN APROBÓ — el payload es correcto
 
-`/event` (cancelación) — requiere anular un documento emitido.
+Se emitió una segunda factura de prueba **generada por nuestro propio mapper**
+(payload idéntico campo por campo al que la API aceptó). Resultado:
+`FinalizadoOK`, `dEstResField: Aprobado`, código **0260**. El rechazo 1002 de la
+primera era estado del entorno de DEV, no un problema del payload.
+
+**Estado transitorio `Pendiente`**: entre la emisión y el veredicto de SIFEN
+pasaron varios segundos en los que `getBulk` devuelve
+`StatusString: "Pendiente"` **con `Success: false`**. Ese `false` **NO es un
+rechazo**. La reconciliación lo guarda como `Pendiente` y lo vuelve a consultar;
+`Aprobado`/`Rechazado` son los únicos estados finales y ya no se re-consultan.
+
+### Cancelación (`/event`) — envoltorio `eventDetails`
+
+Igual que la emisión, el body va envuelto:
+`{"eventDetails": [{ typeCode: 1, documentId: <CDC>, reason, signDate }]}`.
+Nuestro código lo mandaba suelto y no habría funcionado.
+
+Probado contra la primera factura (la que SIFEN rechazó): respondió
+`4002 - CDC no existente en el SIFEN`, que es el rechazo correcto — no se puede
+anular un documento que SIFEN nunca aceptó. El shape del request quedó validado
+igual, porque el pedido llegó hasta SIFEN y volvió con un error de negocio, no
+de validación.
+
+**Sin verificar todavía**: una cancelación exitosa sobre un documento aprobado.
 
 ## Preguntas abiertas para Factomate
 

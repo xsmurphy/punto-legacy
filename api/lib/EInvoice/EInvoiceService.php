@@ -668,6 +668,13 @@ final class EInvoiceService
             "SELECT einvoicedocid, provider_number FROM einvoice_document
               WHERE companyid = ? AND status = 'issued' AND provider_number IS NOT NULL
                 AND (sifen_checked_at IS NULL OR sifen_checked_at < now() - interval '10 minutes')
+                -- Aprobado/Rechazado son ESTADOS FINALES: una vez que SIFEN se
+                -- expidió no cambia, así que re-consultarlos es gasto puro. Se
+                -- siguen consultando los que no tienen estado todavía y los
+                -- transitorios: verificado contra la API real (2026-07-30) que un
+                -- documento recién emitido pasa varios segundos en 'Pendiente'
+                -- (con Success:false, que NO es un rechazo) antes de resolverse.
+                AND (sifen_status IS NULL OR sifen_status NOT IN ('Aprobado', 'Rechazado'))
               ORDER BY issued_at ASC NULLS LAST
               LIMIT ?",
             [$companyId, $limit],

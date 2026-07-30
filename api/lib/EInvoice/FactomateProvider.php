@@ -241,11 +241,17 @@ final class FactomateProvider implements EInvoiceProvider
         // nombre de campo más probable dado el resto del payload en inglés
         // (ej. `ammount`, `taxRate`) — si Factomate espera otra clave
         // (`comment`/`motivo`/`description`), este es el primer sospechoso.
+        // VERIFICADO contra la API real (2026-07-30) y contra la implementación
+        // de referencia (efatech.client.ts:154): el body va envuelto en
+        // `eventDetails: []`, igual que la emisión va envuelta en
+        // `ElectronicDocuments: []`. Suelto no llega a procesarse.
         $payload = [
-            'typeCode'   => 1,
-            'documentId' => $cdc,
-            'reason'     => $reason,
-            'signDate'   => $signDate,
+            'eventDetails' => [[
+                'typeCode'   => 1,
+                'documentId' => $cdc,
+                'reason'     => $reason,
+                'signDate'   => $signDate,
+            ]],
         ];
 
         $raw = $this->request('POST', '/api/electronicDocument/event', $payload, $bearer, $phone, $environment);
