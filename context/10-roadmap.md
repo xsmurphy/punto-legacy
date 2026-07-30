@@ -197,13 +197,24 @@ No son correcciones: son features a planificar y priorizar aparte.
   (`frontend/components/register/qty-edit-dialog.tsx:33-42`).
 - **Cotizaciones: la vista previa / PDF sale en blanco** — resuelto el
   2026-07-29, confirmado.
-- **Descuento con artículo-descuento no afecta al total** (y su gemelo
-  "Descuento cargado como ARTÍCULO no afecta el total") — ya está modelado:
-  `item.kind === "descuento"` aplica su `discountPercent` de catálogo como
-  descuento de venta (`frontend/lib/cart/store.ts:518-537`) y avisa por toast
-  cuando reemplaza uno previo (`frontend/lib/cart/add-catalog-item.ts:30-52`).
-  Deja de ser "decisión de producto". Limitación conocida: solo soporta
-  porcentaje, no monto fijo.
+- **Descuento con artículo-descuento no afecta al total** — superado por el
+  rework de descuentos del 2026-07-30 (ver abajo): ahora se reparte por ítem
+  y queda reflejado en `itemSold.itemSoldDiscount` y en el total real
+  cobrado.
+
+**Rework de descuentos y reglas del owner (2026-07-30)**: el descuento
+global se repartía sobre el total sin tocar `itemSold.itemSoldDiscount`
+(commit `e7a3ad8d`, `frontend/lib/cart/allocate-discounts.ts`, reparto por
+resto mayor). El owner cerró dos reglas que una implementación previa mía
+había asumido mal (commit `dbbc4aca`): el descuento global congela su
+alcance a las líneas presentes al aplicarlo (lo agregado después no se
+descuenta), y un producto no puede tener más de un descuento a la vez
+(individual bloquea al global). `saleDiscount` pasó a
+`{value, mode, lineIds}`. Devoluciones y "cuánto se pagó a crédito" ahora
+usan el neto, no el bruto (`9d46ad12`). El toggle "quitar IVA" también
+tenía el mismo tipo de bug (persistía mal entre carrito y payload) —
+arreglado con mig 101 (`transaction.ivaRemoved`) y `lineGross()` como
+fuente única de la fórmula del bruto.
 
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 

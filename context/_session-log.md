@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-07-29/30 — Wrapper DB (4 features rotas por el mismo bug) + descuentos por ítem + IVA toggle + agente IA fixes
+
+Commits `3299437e..1076d1e9` (37; excluye 9 commits paralelos de facturación electrónica intercalados). Highlights: `_getTableSchema()` no listaba columnas reales → `hasVariants`/`pinhash` se escribían al JSONB y nunca cambiaban (migs 99/100); `ncmInsert` fallback ciego a PK `'id'` tumbaba `expenses` (`_resolveTablePk()`); `flattenJsonb` borraba el JSONB crudo en 5 sitios (venta guardada, config de caja con 3 cajas ignorando toggles, anular compra sin revertir stock) → fix de raíz con side-channel `Query::rawJsonb()`; descuentos ahora se reparten por ítem (`allocate-discounts.ts`) con alcance congelado + un descuento por producto (corrige mi propia implementación anterior); IVA toggle persistía mal (mig 101, `lineGross()` única fuente); fix P0 auth: `api-client` desemparejaba el device del POS por 401 heurístico. Pendiente: 5 bugs por reproducir en prod, deuda de permisos (17/45 chequeados en backend).
+
 ## 2026-07-29 — Fulfillment de órdenes (F-D-0/1) + repartidor + geocoding + tanda de bugs de uso real + P0 ventas
 
 Commits `c1541ba6..904df1a4` (57). Highlights: columna `fulfillment` (mig 94) + snapshot de dirección + selector Mostrador/Retiro/Envío + mapa filtrado; `out_for_delivery` "En camino" (mig 96) + `courierid`/asignación (mig 97); destino explícito único en KDS/despacho/listados/comanda; board de 3 columnas en `/display`; catálogo único de bloques de impresión (79 tipos, antes 2 renderers perdían 12); ruta BFF `/api/geo` (Photon); P0 prod: `getAllWasteValue` leía `itemWaste` de columna en vez del JSONB `data`, tumbaba toda venta; fix `Validation::isValid` descartaba coordenadas negativas (Paraguay) en silencio; `context/_handoff.md` + skill `/end-session` únicas. Post-cierre (`b49e582c..7aec191a`, docs): catálogo de documentos imprimibles cerrado (Factura/Comprobante/Recibo/Nota de crédito/Remisión/Cotización/Orden, gift card → Comprobante) y hallazgo de que el botón "Interno" no hace nada y quema numeración fiscal.
