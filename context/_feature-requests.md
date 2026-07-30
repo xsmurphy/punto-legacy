@@ -95,22 +95,24 @@
 
 ## 2026-06-24 — pendientes Panel (owner → desarrollo, lista vieja)
 
+Auditado contra el código el 2026-07-30.
+
 Lista de bugs/feature requests del frontend que el owner mandó en sesiones
 anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
 — auditoría inicial pendiente.
 
 ### Bulk edit items
-- **Opción "Quitar"** en el form de edición masiva — hoy solo permite cambiar categoría/marca/tax pero no eliminar el valor existente.
-- **Lista no refresca al instante** al hacer bulk edit — requiere F5.
+- **Opción "Quitar"** en el form de edición masiva — hoy solo permite cambiar categoría/marca/tax pero no eliminar el valor existente. — CERRADO (`frontend/components/items/bulk-edit-dialog.tsx:47-48,109-123`, checkbox "Quitar valor actual")
+- **Lista no refresca al instante** al hacer bulk edit — requiere F5. — CERRADO (`frontend/hooks/use-items.ts:109`, `invalidateQueries`)
 
 ### Realtime
-- **Barra de categorías no se actualiza en tiempo real** — necesita hard reload.
-- **Nuevas funciones de Items no funcionan** (descripción vaga del owner — necesita aclaración).
+- **Barra de categorías no se actualiza en tiempo real** — necesita hard reload. (sigue abierto — no se ubicó el componente)
+- **Nuevas funciones de Items no funcionan** (descripción vaga del owner — necesita aclaración). (sigue abierto — necesita aclaración del owner)
 
 ### Bugs visibles
-- `/stock-transfer/new` — error `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string`.
-- `/inventory-count` — error `outletId invalido para este tenant` aunque la sucursal seleccionada estaba correcta.
-- `/stock-adjustment` — 422 al agregar items (`POST /v1/stock_adjustment`).
+- `/stock-transfer/new` — error `Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string`. — CERRADO (usa `const NONE = "__none__"`, `frontend/app/(panel)/stock-transfer/new/page.tsx:58`)
+- `/inventory-count` — error `outletId invalido para este tenant` aunque la sucursal seleccionada estaba correcta. — CERRADO (el sentinel se strippea antes del POST, `frontend/app/(panel)/inventory-count/page.tsx:89`; el mensaje exacto del reporte viene de StationService (órdenes), no de este endpoint)
+- `/stock-adjustment` — 422 al agregar items (`POST /v1/stock_adjustment`). — CERRADO (mismo strip del sentinel, `frontend/app/(panel)/stock-adjustment/page.tsx:162`)
 
 ### Sidebar
 - **Contactos como NavGroup** con sub-secciones: Clientes, Proveedores, Usuarios.
@@ -119,13 +121,15 @@ anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
 
 ## 2026-06-24 — pendientes POS (segundo batch, owner)
 
+Auditado contra el código el 2026-07-30.
+
 ### Bugs P0
-- **Guardar venta falla** — toast "No se pudo guardar la venta" al confirmar. Posible nuevo bug del sprint retail (similar a los boolean-vs-int de hoy). Investigar logs prod.
+- **Guardar venta falla** — toast "No se pudo guardar la venta" al confirmar. Posible nuevo bug del sprint retail (similar a los boolean-vs-int de hoy). Investigar logs prod. (sigue abierto — P0 de junio, necesita logs de prod)
 
 ### Numpad / cantidades
-- **Primer keystroke = reemplazo**, no append. Hoy: abre con `5`, presiono `3` → muestra `53`. Esperado: `3`.
-- **Numpad virtual cierra modal** al presionar — bug.
-- **Softkeyboards visibles solo si el operador los activa en Ajustes** — útiles solo en pantallas touch; default OFF.
+- **Primer keystroke = reemplazo**, no append. Hoy: abre con `5`, presiono `3` → muestra `53`. Esperado: `3`. — CERRADO (`frontend/components/pos/numeric-pad.tsx:51-79`, `isFirstRef`)
+- **Numpad virtual cierra modal** al presionar — bug. (sigue abierto — necesita repro táctil)
+- **Softkeyboards visibles solo si el operador los activa en Ajustes** — útiles solo en pantallas touch; default OFF. — CERRADO (`frontend/lib/ui/store.ts:74`)
 - **SHIFT togglea entero ↔ decimales (3 decimales)** para cantidades — gramos, comida por peso, etc. (Ya estaba pedido en el primer batch; reconfirmar que funcione en runtime, la auditoría dijo ✓ pero el owner dice que algo está mal.)
 
 ### Inconsistencia de diseño POS
@@ -133,7 +137,7 @@ anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
   - Desde un ítem en el listado de venta (`<LineSellerDialog>`)
   - Desde el menú "Opciones de venta" → Usuario (`<UserDialog>` de `sale-options-drawer`)
 - Ninguno tiene **buscador**. Con 50+ usuarios se vuelve inusable.
-- Unificar a un solo componente reusable con buscador.
+- Unificar a un solo componente reusable con buscador. — CERRADO (unificado en `frontend/components/pos/seller-picker-dialog.tsx`, tiene Input de búsqueda + filtro; ambos call-sites lo usan)
 
 ---
 
@@ -143,27 +147,29 @@ Lista de cambios pedidos para el módulo POS (`app/(pos)/pos` en frontend).
 Una de varias listas que el owner mandó en sesiones anteriores. Sin priorización
 todavía. Auditoría inicial pendiente para marcar qué está implementado.
 
+Auditado contra el código el 2026-07-30.
+
 ### Bootstrap / cache local
 - **Cargar todo al inicio del POS en localStorage** (clientes, usuarios, bootstrap, config, items). El lockscreen valida PIN contra el array local de usuarios, no contra la API.
-- **Bug PIN del master no acepta** — solo el PIN de un usuario funciona, el del master no.
+- **Bug PIN del master no acepta** — solo el PIN de un usuario funciona, el del master no. (sigue abierto — depende de datos del tenant)
 
 ### Visual
 - **Color del category bar #22252A** (el neutro de botones).
 
 ### Catálogo
-- **Faltan artículos en la caja** — no aparecen los agrupados. Verificar que carguen todos los vendibles.
+- **Faltan artículos en la caja** — no aparecen los agrupados. Verificar que carguen todos los vendibles. (sigue abierto — depende de datos del tenant)
 
 ### UX listados
-- **Empty state** en búsqueda de items y de clientes cuando no hay resultados.
-- **No limpiar el input de búsqueda** al cerrar el modal de items/clientes.
-- **Toast "Bienvenido {nombre}"** después de PIN, no solo "Bienvenido".
+- **Empty state** en búsqueda de items y de clientes cuando no hay resultados. — CERRADO (`frontend/components/pos/product-search-dialog.tsx:136`)
+- **No limpiar el input de búsqueda** al cerrar el modal de items/clientes. — CERRADO (`frontend/components/pos/product-search-dialog.tsx:54-67`; es intencional, no bug)
+- **Toast "Bienvenido {nombre}"** después de PIN, no solo "Bienvenido". — CERRADO (`frontend/components/register/lock-screen.tsx:118`)
 
 ### Cart / venta
 - Click en ítem de venta → opciones → **botón "agregar usuario" debe abrir modal con lista de usuarios**.
 - Botón modificar cantidad: **número más pequeño** + **SHIFT togglea decimales** (gramos/medidas).
 - Descuento por ítem y por venta: **modal numérico**, default moneda (ej. 2.500), **SHIFT togglea %** (ej. 10%).
 - **Descuento de venta solo aplica a items presentes al momento de añadirlo** — items agregados después no se afectan. Items con descuento individual tampoco son afectados por el descuento de venta.
-- **Confirm nativo del navegador** al cerrar/refrescar si hay items en la lista de venta.
+- **Confirm nativo del navegador** al cerrar/refrescar si hay items en la lista de venta. — CERRADO (`frontend/app/(pos)/pos/layout.tsx:49-56`)
 - **Tab de ventas en curso visible en caja** — para retomarlas sin ir al listado de transacciones (en legacy había que ir hasta ahí).
 
 ### Modal de pago
@@ -171,10 +177,10 @@ todavía. Auditoría inicial pendiente para marcar qué está implementado.
 - **Línea secundaria con Giftcard + Crédito interno**. Giftcard pide código del cliente, valida no vencida + no usada, **consumo total en una sola transacción** (es crédito a favor).
 
 ### Apertura de caja
-- Si el cajero quiere vender con caja cerrada, **primero pedir monto de apertura**, después mostrar modal de pago. Hoy va directo al pago.
+- Si el cajero quiere vender con caja cerrada, **primero pedir monto de apertura**, después mostrar modal de pago. Hoy va directo al pago. — CERRADO (gate por `controlCaja`, `frontend/components/register/cart-panel.tsx:283-289`)
 
 ### Datos / auditoría
-- **Transacciones con timestamp completo** (hora+minuto+segundo). Hoy aparecen en 0.
+- **Transacciones con timestamp completo** (hora+minuto+segundo). Hoy aparecen en 0. — CERRADO (`frontend/lib/format-date.ts:105-125`)
 
 ### Listado de Transacciones en /pos
 

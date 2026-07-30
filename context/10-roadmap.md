@@ -19,6 +19,15 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 Lista corta de bugs concretos reportados durante el uso. Se vacía a medida que
 se arreglan — lo que crece acá es señal de deuda, no de backlog.
 
+**Auditoría 2026-07-30**: se revisó todo el listado contra el código (no contra
+la memoria de quién reportó qué). De ~24 bugs anotados quedan tres categorías:
+los que siguen abiertos por decisión de producto pendiente (el owner tiene que
+resolver qué se hace, no es un bug de código), los que necesitan repro en
+producción (no se pueden confirmar leyendo el código solo), y los que ya
+estaban arreglados y nadie había cerrado — esos se movieron a
+"Cerrados en la auditoría del 2026-07-30" al final de la sección, con la
+evidencia de dónde quedó el fix.
+
 **Resueltos el 2026-07-29** (pendientes de confirmación en uso): descuento de
 venta visible y con estado en el menú; UUIDs de medios de pago en Control de
 Caja (resuelto en las dos puntas + agrupación por nombre, así el mismo medio no
@@ -108,18 +117,6 @@ ya usa el personal, pero documentar la diferencia donde se define
   documento NO fiscal tipo pre-cuenta, que hoy no está modelado. **Decisión de
   producto pendiente**: qué es ese documento, qué lleva y si necesita plantilla
   propia.
-- **Descuento cargado como ARTÍCULO no afecta el total** del carrito. Distinto
-  del descuento de venta (ya resuelto): acá el descuento entra como un ítem del
-  catálogo. Quedó sin atacar en la tanda del 2026-07-29 — hay que determinar
-  primero cómo se modela hoy ese ítem (¿precio negativo? ¿`itemkind` propio?),
-  porque si el modelo no lo distingue, representarlo es una decisión de producto.
-- **El agente no completa la creación de producto** (2026-07-29). El chat ya
-  muestra los errores (antes no mostraba nada), pero la causa de fondo sigue sin
-  identificarse: el AI SDK ocultaba los errores de stream detrás de un genérico
-  y sin log server-side, así que el modelo fallaba a mitad de stream mudo en los
-  dos lados. Con el logging agregado, el próximo intento deja rastro — revisar
-  logs después de reproducirlo.
-
 ### Relevamiento del cliente — "Módulo caja" (doc del 2026-07-28)
 
 Bugs concretos del documento. Los que el propio doc marca resueltos (gift cards,
@@ -127,34 +124,11 @@ control de caja) no se repiten acá. **Verificar cuáles siguen vivos después d
 deploy de hoy antes de atacarlos** — varios eran síntomas del P0 de `itemWaste`,
 que abortaba la transacción de CUALQUIER venta y la mandaba a la cola offline.
 
-- **Venta a crédito sin fecha de vencimiento ni pago inicial.** Al generar una
-  venta a crédito no se puede elegir vencimiento antes de cerrarla, ni registrar
-  un pago en el acto. `defaultDueDate()` existe en `pay-dialog.tsx` (hoy + 30
-  días) pero no hay UI para editarlo.
-- **Cotizaciones: la vista previa / PDF sale en blanco.** Ver
-  `quote-print-view.tsx`.
-- **Ventas guardadas no se pueden reabrir**: "This page couldn't load" al entrar
-  a verificar los artículos de una venta guardada (`/pos/guardadas`).
-- **Cantidades decimales bloqueadas** al clickear una línea del carrito (tampoco
-  con Shift).
-- **Descuento con artículo-descuento no afecta al total** del carrito. Distinto
-  del descuento global de arriba: acá el descuento entra como ítem del catálogo.
-- **Espacios: cobrar la mesa por el total dice "servidor no conectado"** — se
-  corrigió la clasificación de 5xx y el timeout el 2026-07-27, pero el error de
-  fondo nunca se diagnosticó. Reproducir después del deploy.
-- **Al cobrar no se ven medios de pago distintos de Efectivo.** ⚠ NO se
-  reproduce (owner, 2026-07-28) — pasa en algún caso particular sin identificar.
-  Descartado: no es un bootstrap degradado, porque `FALLBACK_PAYMENT_METHODS`
-  del BFF ya trae cuatro métodos (efectivo, crédito, débito, giftcard) y el
-  fallback del propio `pay-dialog.tsx` también. Por dónde seguir si reaparece:
-  qué métodos tiene activos ese tenant, y la fila secundaria del diálogo
-  (`SECONDARY_SYSTEM_KEYS`, que saca "interno" y giftcard de la grilla
-  principal y los pinta aparte). Pedir captura y tenant al reportarlo.
-- **Cierre de caja 500** (`Drawer action error 500: Error al cerrar caja`). El
-  doc lo marca resuelto en otro punto pero el mensaje quedó registrado —
-  confirmar.
-- **Pago de factura a crédito sin comprobante**: al pagar desde el detalle de
-  una transacción a crédito no ofrece imprimir el recibo de dinero.
+Los cinco bugs de esta lista ya arreglados (vencimiento/pago inicial de
+crédito, cotización en blanco, ventas guardadas, decimales, descuento por
+artículo) se movieron a "Cerrados en la auditoría del 2026-07-30" al final de
+la sección. Quedan acá los que necesitan repro en producción, ver
+"Pendientes de reproducción" abajo.
 
 Cubiertos por el trabajo del 2026-07-28, **pendientes de confirmación del
 cliente**: el `25P02` en ventas a crédito y el "todas las ventas aparecen sin
@@ -186,6 +160,50 @@ No son correcciones: son features a planificar y priorizar aparte.
 - **Chat de soporte embebido** en un costado de la pantalla.
 - **Facturación electrónica** — ya en curso, ver
   [28-facturacion-electronica-plan.md](28-facturacion-electronica-plan.md).
+
+### Pendientes de reproducción (no se pueden verificar leyendo código)
+
+- **Espacios: cobrar la mesa por el total dice "servidor no conectado"** — se
+  corrigió la clasificación de 5xx y el timeout el 2026-07-27, pero el error de
+  fondo nunca se diagnosticó. Falta: reproducir en un tenant con espacios
+  activos y capturar la respuesta real del servidor al cobrar.
+- **Al cobrar no se ven medios de pago distintos de Efectivo.** ⚠ NO se
+  reproduce (owner, 2026-07-28) — pasa en algún caso particular sin
+  identificar. Hoy 2026-07-30 se arregló un 401 de `/v1/payment-methods` que
+  hacía caer el POS a los medios de fallback (commit `83854750`) — puede haber
+  sido la causa de este reporte. Falta: confirmar con el owner si sigue
+  pasando después de este fix.
+- **Cierre de caja 500** (`Drawer action error 500: Error al cerrar caja`). El
+  doc lo marca resuelto en otro punto pero el mensaje quedó registrado. Falta:
+  reproducir el cierre de caja y ver si el 500 todavía sale.
+- **El agente no completa la creación de producto** (2026-07-29). El chat ya
+  muestra los errores (antes se los tragaba), pero la causa de fondo sigue sin
+  identificarse — el logging se agregó recién. Falta: reproducirlo de nuevo y
+  revisar los logs server-side del intento.
+- **Pago de factura a crédito sin comprobante**: al pagar desde el detalle de
+  una transacción a crédito no ofrecía imprimir el recibo de dinero. Falta:
+  confirmar si el fix del 2026-07-29 (recibo al pagar una factura a crédito,
+  ver nota arriba) ya cubre este caso o si es un flujo distinto.
+
+### Cerrados en la auditoría del 2026-07-30
+
+- **Venta a crédito sin fecha de vencimiento ni pago inicial** — la UI de
+  vencimiento y la de pago inicial ya existen
+  (`frontend/components/register/pay-dialog.tsx:1060` y `:1145-1195`).
+- **Ventas guardadas no se pueden reabrir** — arreglado, commit `229e654c`: el
+  GET leía el JSONB con `ncmExecute` y el flatten lo borraba.
+- **Cantidades decimales bloqueadas al clickear una línea del carrito** — el
+  pad abre en modo decimal
+  (`frontend/components/register/qty-edit-dialog.tsx:33-42`).
+- **Cotizaciones: la vista previa / PDF sale en blanco** — resuelto el
+  2026-07-29, confirmado.
+- **Descuento con artículo-descuento no afecta al total** (y su gemelo
+  "Descuento cargado como ARTÍCULO no afecta el total") — ya está modelado:
+  `item.kind === "descuento"` aplica su `discountPercent` de catálogo como
+  descuento de venta (`frontend/lib/cart/store.ts:518-537`) y avisa por toast
+  cuando reemplaza uno previo (`frontend/lib/cart/add-catalog-item.ts:30-52`).
+  Deja de ser "decisión de producto". Limitación conocida: solo soporta
+  porcentaje, no monto fijo.
 
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 
