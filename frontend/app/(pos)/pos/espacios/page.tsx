@@ -90,6 +90,17 @@ export default function EspaciosPage() {
   // Vista persistida por dispositivo (localStorage). Default: grilla.
   const [view, selectView] = usePersistedView<SpaceView>(VIEW_STORAGE_KEY, SPACE_VIEWS, "grid")
 
+  // El mapa NO admite "Todos": cada sector tiene su propio plano y las
+  // coordenadas del editor son POR SECTOR, así que superponerlos dibuja mesas
+  // una arriba de otra (reporte del owner 2026-07-30). Al entrar al mapa con
+  // "Todos" activo se cae al primer sector; el pill "Todos" se oculta en mapa.
+  // Con 0 sectores no hay nada que superponer y "Todos" sigue siendo válido.
+  React.useEffect(() => {
+    if (view === "map" && activeSector === ALL_SECTORS && sectors.length > 0) {
+      setActiveSector(sectors[0].id)
+    }
+  }, [view, activeSector, sectors])
+
   const sectorTables = React.useMemo(
     () => (activeSector === ALL_SECTORS ? tables : tables.filter((t) => t.sectorId === activeSector)),
     [tables, activeSector],
@@ -464,11 +475,14 @@ export default function EspaciosPage() {
             className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap"
             style={{ scrollbarWidth: "none" }}
           >
-            <SectorPill
-              label="Todos"
-              active={activeSector === ALL_SECTORS}
-              onClick={() => setActiveSector(ALL_SECTORS)}
-            />
+            {/* "Todos" solo en grilla (o sin sectores) — ver el efecto de arriba. */}
+            {(view !== "map" || sectors.length === 0) && (
+              <SectorPill
+                label="Todos"
+                active={activeSector === ALL_SECTORS}
+                onClick={() => setActiveSector(ALL_SECTORS)}
+              />
+            )}
             {sectors.map((s) => (
               <SectorPill
                 key={s.id}
