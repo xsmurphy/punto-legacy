@@ -26,22 +26,35 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 // --- GET → lista de ventas guardadas del usuario/outlet --------------------
 if ($method === 'GET') {
-    $rows = ncmExecute(
-        'SELECT id, data, "createdAt" FROM parked_sale'
+    // Lectura RAW con $db->Execute, NO ncmExecute: el wrapper aplana las
+    // columnas JSONB (`data`/`meta`/`config`) — mergea su contenido al nivel de
+    // la fila y BORRA la columna (Query::flattenJsonb). Con ncmExecute,
+    // `fields['data']` volvía null, el json_decode daba null y el POS mostraba
+    // toda venta guardada como "0 ítems / Gs. 0", sin título ni cliente, aunque
+    // en la BD estuviera completa (bug 2026-07-30). Mismo criterio ya
+    // documentado en functions.php (getLastUpdates) y OrderItemsService.
+    //
+    // Alias en minúsculas + ::text: el recordset crudo devuelve las keys como
+    // las da PG (lowercase) y sin CIA de por medio, así que se nombran acá para
+    // no depender del casing.
+    $rows = $db->Execute(
+        'SELECT id::text AS id, data::text AS payload, "createdAt"::text AS createdat'
+        . ' FROM parked_sale'
         . ' WHERE "companyId"=? AND "outletId"=? AND "userId"=?'
         . ' ORDER BY "createdAt" DESC',
-        [$companyId, $outletId, $userId],
-        false,
-        true
+        [$companyId, $outletId, $userId]
     );
     $result = [];
-    while (!$rows->EOF) {
-        $result[] = [
-            'id'        => $rows->fields['id'],
-            'data'      => json_decode($rows->fields['data'], true),
-            'createdAt' => $rows->fields['createdAt'],
-        ];
-        $rows->MoveNext();
+    if ($rows !== false) {
+        while (!$rows->EOF) {
+            $decoded = json_decode((string) ($rows->fields['payload'] ?? ''), true);
+            $result[] = [
+                'id'        => $rows->fields['id'],
+                'data'      => is_array($decoded) ? $decoded : null,
+                'createdAt' => $rows->fields['createdat'],
+            ];
+            $rows->MoveNext();
+        }
     }
     apiOk($result);
 }
