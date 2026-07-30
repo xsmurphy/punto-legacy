@@ -8,10 +8,22 @@ export type EInvoiceStatus = "unconfigured" | "ok" | "auth_error"
 /** Factomate tiene HOSTS DISTINTOS para test y prod — no es un flag cosmético. */
 export type EInvoiceEnvironment = "test" | "prod"
 
-/** Config de emisión — `autoIssue`/`onlyWithTaxId` recién se aplican en F1; F0 solo los guarda. */
+/**
+ * Config de emisión. El backend la MERGEA clave por clave (ver
+ * EInvoiceService::saveAccount), así que cada sección de la pantalla manda
+ * solo lo suyo — no hace falta reenviar la config entera para no pisarla.
+ */
 export interface EInvoiceConfig {
   autoIssue?: boolean
   onlyWithTaxId?: boolean
+  /**
+   * F3 — `taxonomyId` del medio de pago de Punto → código de medio de pago de
+   * SIFEN (el `Identifier` que expone Factomate). Los métodos sin entrada acá
+   * se emiten con `defaultPaymentMethodCode`.
+   */
+  paymentMethodMap?: Record<string, number>
+  /** Código usado cuando el medio de pago no está mapeado. 1 = Efectivo. */
+  defaultPaymentMethodCode?: number
   [key: string]: unknown
 }
 
@@ -50,11 +62,14 @@ export interface EInvoiceTestResult {
   lastError: string | null
 }
 
-/** Shape del proxy de códigos de medio de pago — sin tipar en el spec de Factomate. */
+/**
+ * Códigos de medio de pago de SIFEN, normalizados por el backend
+ * (EInvoiceService::normalizePaymentMethods) desde el payload crudo de
+ * Factomate: `code` es el `Identifier` que espera SIFEN, NO el `Id`.
+ */
 export interface EInvoicePaymentMethod {
-  code: string
+  code: number
   name: string
-  [key: string]: unknown
 }
 
 // ── F2 — operación de documentos ya emitidos ────────────────────────────

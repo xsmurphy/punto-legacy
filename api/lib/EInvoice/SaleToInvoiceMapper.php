@@ -43,7 +43,14 @@ namespace Punto\Api\EInvoice;
  *     'feeNumbers'  => ?int,
  *     'fees'        => ?array,
  *   ],
- *   'paymentMethod' => string,          // medio de pago de Punto, se mapea vía config
+ *   'payments' => [                     // una línea por pago real de la venta
+ *     [
+ *       'methodId'  => ?string,         // taxonomyId del medio de pago de Punto (null = desconocido)
+ *       'methodKey' => string,          // clave cruda del pago, solo para mensajes de error
+ *       'amount'    => float,           // monto COBRADO con ese medio (sin vuelto)
+ *     ],
+ *     ...
+ *   ],
  * ]
  *
  * Elegí este shape (en vez de pasar el array crudo de `sale`/SaleInput) porque
@@ -176,11 +183,23 @@ final class SaleToInvoiceMapper
             // (con redondeo por item, no sobre el total) en vez de aplicar una
             // fórmula global que solo es válida para el caso 100%-10%.
             'tax'      => round($taxSum),
-            'payments' => [$this->buildPayment($sale, $total, $config)],
         ];
 
+        $paymentsPayload = $this->buildPayments($sale, $total, $config, $operationCondition);
+        if ($paymentsPayload !== []) {
+            $payload['payments'] = $paymentsPayload;
+        }
+
         if ($operationCondition === 1) {
-            $payload['credit'] = $this->buildCredit((array) ($sale['credit'] ?? []));
+            // Entrega inicial = lo que efectivamente se cobró al concretar la
+            // venta a crédito (0 si no se cobró nada). Antes iba fijo en 0, lo
+            // que sub-declaraba la entrega inicial de toda venta a crédito con
+            // pago parcial.
+            $initialDelivery = 0.0;
+            foreach ($paymentsPayload as $payment) {
+                $initialDelivery += (float) $payment['ammount'];
+            }
+            $payload['credit'] = $this->buildCredit((array) ($sale['credit'] ?? []), $initialDelivery);
         }
 
         return $payload;
@@ -351,8 +370,9 @@ final class SaleToInvoiceMapper
 
     /**
      * @param array<string,mixed> $credit
+     * @param float $initialDelivery Suma de lo cobrado al concretar la venta (ver build()).
      */
-    private function buildCredit(array $credit): array
+    private function buildCredit(array $credit, float $initialDelivery): array
     {
         $condition = (int) ($credit['creditOperationCondition'] ?? 0);
 
@@ -364,7 +384,7 @@ final class SaleToInvoiceMapper
             return [
                 'creditOperationCondition' => 0,
                 'creditDeadline'           => (string) $deadline,
-                'initialDeliveryAmmount'   => (float) ($credit['initialDeliveryAmmount'] ?? 0),
+                'initialDeliveryAmmount'   => $initialDelivery,
             ];
         }
 
@@ -378,26 +398,106 @@ final class SaleToInvoiceMapper
             'creditOperationCondition' => 1,
             'feeNumbers'               => (int) $feeNumbers,
             'fees'                     => $fees,
-            'initialDeliveryAmmount'   => (float) ($credit['initialDeliveryAmmount'] ?? 0),
+            'initialDeliveryAmmount'   => $initialDelivery,
         ];
     }
 
     /**
+     * Una entrada de `payments[]` por medio de pago usado en la venta, con su
+     * monto real. Las líneas del mismo código se suman en una sola entrada
+     * (dos pagos con la misma tarjeta son un solo medio de pago para SIFEN).
+     *
+     * Mapeo: `config.paymentMethodMap[taxonomyId] → código de Factomate`
+     * (1=Efectivo, 2=Cheque, 3=T. Crédito, 4=T. Débito, 5=Transferencia,
+     * 6=Giro, 7=Billetera electrónica, 8=Tarjeta empresarial — es el campo
+     * `Identifier` de `PaymentMethod/get`, verificado 2026-07-30). Un método
+     * sin mapear cae en `defaultPaymentMethodCode` (1=Efectivo si no se
+     * configuró): declarar el medio equivocado es un dato accesorio del
+     * documento, mientras que abortar la emisión por un método sin mapear
+     * dejaría al comercio sin factura por un detalle de configuración.
+     *
+     * CONTADO: la suma de las líneas tiene que dar el total del documento —
+     * el POS registra el cobrado sin vuelto, así que cierra. Se absorbe hasta
+     * 1 Gs de redondeo por línea en la última entrada; una diferencia mayor
+     * aborta la emisión en vez de declarar pagos que no cuadran.
+     *
+     * CRÉDITO: las líneas son la ENTREGA INICIAL, no el total — el saldo no
+     * está pagado. Si no hubo entrega inicial, el documento va SIN bloque
+     * `payments` (la condición de venta la describe `credit`).
+     * SIN VERIFICAR contra la API real: hasta hoy solo se emitieron facturas
+     * al contado con un único medio de pago. Primeros sospechosos si Factomate
+     * rechaza una venta a crédito o una con pago dividido.
+     *
      * @param array<string,mixed> $sale
      * @param array<string,mixed> $config
+     * @return array<int,array{paymentMethodCode:int,ammount:float}>
      */
-    private function buildPayment(array $sale, float $total, array $config): array
+    private function buildPayments(array $sale, float $total, array $config, int $operationCondition): array
     {
-        $puntoMethod = (string) ($sale['paymentMethod'] ?? '');
+        $lines = $sale['payments'] ?? [];
         $map = (array) ($config['paymentMethodMap'] ?? []);
         $default = (int) ($config['defaultPaymentMethodCode'] ?? 1);
 
-        $code = isset($map[$puntoMethod]) ? (int) $map[$puntoMethod] : $default;
+        $byCode = [];
+        if (is_array($lines)) {
+            foreach ($lines as $line) {
+                $amount = (float) ($line['amount'] ?? 0);
+                if ($amount <= 0) {
+                    continue;
+                }
+                $methodId = $line['methodId'] ?? null;
+                $code = ($methodId !== null && isset($map[$methodId])) ? (int) $map[$methodId] : $default;
+                $byCode[$code] = ($byCode[$code] ?? 0.0) + $amount;
+            }
+        }
 
-        return [
-            'paymentMethodCode' => $code,
-            // 'ammount' con doble m: typo de la API de Factomate, no se corrige.
-            'ammount' => $total,
-        ];
+        if ($operationCondition === 1) {
+            // Crédito: sin entrega inicial no hay nada que declarar como pagado.
+            return $this->paymentsPayload($byCode);
+        }
+
+        if ($byCode === []) {
+            // Venta al contado sin pagos registrados (ventas viejas migradas,
+            // o un flujo que no persistió transactionPaymentType): se declara
+            // el total con el medio por defecto, que es la única lectura
+            // posible — la alternativa sería no emitir una venta ya cobrada.
+            return [['paymentMethodCode' => $default, 'ammount' => $total]];
+        }
+
+        $sum = array_sum($byCode);
+        $diff = $total - $sum;
+        if (abs($diff) > max(1.0, (float) count($byCode))) {
+            throw new \RuntimeException(
+                "Los pagos registrados suman $sum y el total de la venta es $total — " .
+                'no se emite un documento cuyos medios de pago no cuadran con el total.'
+            );
+        }
+        if ($diff != 0.0) {
+            // Residuo de redondeo: se absorbe en el código de mayor monto para
+            // que la suma cierre exacto (mismo criterio que el ajuste de
+            // redondeo per-item).
+            arsort($byCode);
+            $biggest = array_key_first($byCode);
+            $byCode[$biggest] += $diff;
+        }
+
+        return $this->paymentsPayload($byCode);
+    }
+
+    /**
+     * @param array<int,float> $byCode
+     * @return array<int,array{paymentMethodCode:int,ammount:float}>
+     */
+    private function paymentsPayload(array $byCode): array
+    {
+        $out = [];
+        foreach ($byCode as $code => $amount) {
+            $out[] = [
+                'paymentMethodCode' => (int) $code,
+                // 'ammount' con doble m: typo de la API de Factomate, no se corrige.
+                'ammount' => $amount,
+            ];
+        }
+        return $out;
     }
 }

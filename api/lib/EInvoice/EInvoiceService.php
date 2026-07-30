@@ -89,6 +89,13 @@ final class EInvoiceService
      * environment, que SIEMPRE vienen del form porque getAccount() los
      * devuelve en claro y el frontend los pre-carga.
      *
+     * `$config` se MERGEA sobre la config guardada, no la reemplaza: la
+     * pantalla tiene varias secciones (conexión, emisión, medios de pago) que
+     * guardan por separado, y un PUT destructivo hacía que tocar un switch de
+     * emisión borrara el `paymentMethodMap` entero. Mismo criterio que
+     * Finance\ConfigService::update (merge no-destructivo sobre settingObj).
+     * Para borrar una clave se manda explícitamente en null.
+     *
      * Cambiar cualquiera de los cuatro (usuario, contraseña, teléfono,
      * entorno) invalida el bearer cacheado: quedó emitido para una
      * combinación de credenciales o un HOST (test≠prod son hosts distintos)
@@ -127,9 +134,16 @@ final class EInvoiceService
             throw new \RuntimeException('El teléfono del titular es obligatorio.');
         }
 
+        // `config AS account_config`: flattenJsonb aplana toda columna llamada
+        // `config` y la vuelve inutilizable (ver nota en context/28 §Schema).
         $existing = ncmExecute(
-            'SELECT username, phone_enc, environment FROM einvoice_account WHERE companyid = ?',
+            'SELECT username, phone_enc, environment, config AS account_config FROM einvoice_account WHERE companyid = ?',
             [$companyId]
+        );
+
+        $config = $this->mergeConfig(
+            $existing ? $this->decodeJsonb($existing['account_config'] ?? null) : [],
+            $config
         );
 
         $passwordChanged = $password !== null && $password !== '';
@@ -262,7 +276,14 @@ final class EInvoiceService
         }
     }
 
-    /** @throws \RuntimeException si la cuenta no está conectada (status != 'ok'). */
+    /**
+     * Códigos de medio de pago de Factomate, normalizados a
+     * `[{code:int, name:string}]` para que el frontend (y el mapa de F3) no
+     * dependan del casing ni del envoltorio crudo de la API.
+     *
+     * @return array<int,array{code:int,name:string}>
+     * @throws \RuntimeException si la cuenta no está conectada (status != 'ok').
+     */
     public function paymentMethods(string $companyId): array
     {
         $row = ncmExecute('SELECT status FROM einvoice_account WHERE companyid = ?', [$companyId]);
@@ -272,7 +293,61 @@ final class EInvoiceService
 
         $bearer = $this->session->getBearer($companyId);
         [$phone, $environment] = $this->phoneAndEnvironment($companyId);
-        return $this->provider->paymentMethods($environment, $phone, $bearer);
+        return $this->normalizePaymentMethods($this->provider->paymentMethods($environment, $phone, $bearer));
+    }
+
+    /**
+     * `GET /api/PaymentMethod/get` no está tipado en la guía y devolvió
+     * PascalCase contra la API real (2026-07-30). Se desenvuelve el contenedor
+     * (`Items`/`data`) si viene, y de cada fila se toma:
+     *
+     *   - `code` ← **`Identifier`**, NO `Id`. Es el código que espera SIFEN;
+     *     hoy coinciden en el emisor de prueba pero son campos distintos, y
+     *     usar `Id` mandaría un medio de pago equivocado en cada factura.
+     *   - `name` ← Description/Name/Denomination, lo primero que exista.
+     *
+     * Mismo criterio defensivo que extractToken()/extractStamp(): probar los
+     * casings plausibles en vez de asumir uno.
+     *
+     * @param array<mixed> $raw
+     * @return array<int,array{code:int,name:string}>
+     */
+    private function normalizePaymentMethods(array $raw): array
+    {
+        $rows = $raw;
+        foreach (['Items', 'items', 'Data', 'data', 'Result', 'result'] as $wrapper) {
+            if (isset($raw[$wrapper]) && is_array($raw[$wrapper])) {
+                $rows = $raw[$wrapper];
+                break;
+            }
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $code = null;
+            foreach (['Identifier', 'identifier'] as $key) {
+                if (isset($row[$key]) && $row[$key] !== '' && is_numeric($row[$key])) {
+                    $code = (int) $row[$key];
+                    break;
+                }
+            }
+            if ($code === null) {
+                continue;
+            }
+            $name = '';
+            foreach (['Description', 'description', 'Name', 'name', 'Denomination', 'denomination'] as $key) {
+                if (isset($row[$key]) && is_string($row[$key]) && $row[$key] !== '') {
+                    $name = $row[$key];
+                    break;
+                }
+            }
+            $out[] = ['code' => $code, 'name' => $name !== '' ? $name : "Código $code"];
+        }
+
+        return $out;
     }
 
     /**
@@ -802,6 +877,28 @@ final class EInvoiceService
         return is_array($decoded) ? $decoded : [];
     }
 
+    /**
+     * Merge shallow de la config de la cuenta: lo que viene del request pisa
+     * clave por clave, y `null` BORRA la clave. Shallow a propósito —
+     * `paymentMethodMap` se guarda entero desde su propia sección de la UI, así
+     * que un merge profundo dejaría vivos mapeos de métodos ya borrados.
+     *
+     * @param array<string,mixed> $stored
+     * @param array<string,mixed> $incoming
+     * @return array<string,mixed>
+     */
+    private function mergeConfig(array $stored, array $incoming): array
+    {
+        foreach ($incoming as $key => $value) {
+            if ($value === null) {
+                unset($stored[$key]);
+                continue;
+            }
+            $stored[$key] = $value;
+        }
+        return $stored;
+    }
+
     // ── F1 — outbox de emisión ──────────────────────────────────────────
 
     /**
@@ -1269,18 +1366,37 @@ final class EInvoiceService
 
         $operationCondition = $doctype === 'FCR' ? 1 : 0;
 
-        // Medio de pago: la venta puede tener varios pagos, pero el mapper (F1)
-        // solo soporta UN paymentMethodCode por documento con el total completo
-        // (ver SaleToInvoiceMapper::buildPayment) — se toma el primer pago no-balance
-        // (cash/card real) como representativo. SIN VERIFICAR: pagos mixtos
-        // (ej. mitad efectivo, mitad tarjeta) se facturan igual con un solo código.
-        $paymentMethod = '';
+        // Medios de pago (F3): se declara UNA línea por pago real de la venta
+        // — SIFEN admite varias formas de pago en el mismo documento, así que
+        // una venta mitad efectivo / mitad tarjeta se declara como es, no
+        // colapsada en un solo código.
+        //
+        // La clave del pago NO es homogénea: las ventas nuevas guardan el
+        // taxonomyId del método en `type`, las viejas un slug/nombre legacy.
+        // La resolución a taxonomyId es la MISMA que necesita Finanzas, así
+        // que se comparte (PaymentMethods\PaymentMethodResolver) en vez de
+        // duplicarse acá. `methodId` null = método borrado o clave
+        // desconocida: el mapper cae al código por defecto de la cuenta.
+        //
+        // El monto es el COBRADO, no el entregado: el POS registra el pago por
+        // el remanente y el vuelto queda fuera (ver pay-dialog, caso C), así
+        // que la suma de las líneas cierra contra el total de la venta.
+        $resolver = new \Punto\Api\PaymentMethods\PaymentMethodResolver();
+        $paymentLines = [];
         foreach ($payments as $pay) {
-            $t = (string) ($pay['type'] ?? '');
-            if (!in_array($t, ['points', 'storeCredit', 'giftcard'], true) && $t !== '') {
-                $paymentMethod = $t;
-                break;
+            $amount = abs(round((float) ($pay['total'] ?? $pay['price'] ?? 0)));
+            if ($amount <= 0) {
+                continue;
             }
+            $key = trim((string) ($pay['type'] ?? ''));
+            if ($key === '') {
+                $key = trim((string) ($pay['name'] ?? ''));
+            }
+            $paymentLines[] = [
+                'methodId'  => $key !== '' ? $resolver->resolveMethodId($companyId, $key) : null,
+                'methodKey' => $key,
+                'amount'    => $amount,
+            ];
         }
 
         $sale = [
@@ -1289,7 +1405,7 @@ final class EInvoiceService
             'operationCondition'  => $operationCondition,
             'items'               => $items,
             'client'              => $client,
-            'paymentMethod'       => $paymentMethod,
+            'payments'            => $paymentLines,
         ];
 
         if ($operationCondition === 1) {

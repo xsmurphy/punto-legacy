@@ -122,91 +122,23 @@ final class ConfigService
 
     /**
      * Resuelve la cuenta destino de un método de pago para un movimiento
-     * derivado (Fase 3 — FinanceLedger). Dual-path según el shape de $key:
+     * derivado (Fase 3 — FinanceLedger).
      *
-     *   1. UUID (taxonomyId) → camino de ventas NUEVAS. Las ventas ahora
-     *      guardan el taxonomyId estable del método como clave del pago. Se
-     *      busca directo en finAccountMap[$key]; si el método es cash
-     *      (Efectivo) o no tiene mapeo → cuenta Efectivo.
-     *   2. slug legacy ("efectivo", "tcredito", "creditcard"…) → camino del
-     *      BACKFILL de ventas históricas. normalizeMethodKey + match por
-     *      nombre contra los métodos reales del tenant.
+     * La clave del pago (`transactionPaymentType[].type|name`) puede venir como
+     * taxonomyId (ventas nuevas) o como slug/nombre legacy (backfill histórico,
+     * fallback del POS, servicios internos). Esa resolución NO vive acá: es
+     * compartida con facturación electrónica y cualquier otro módulo que mapee
+     * pagos a config del tenant — ver PaymentMethods\PaymentMethodResolver.
      *
-     * Fallback final SIEMPRE = cuenta Efectivo: nunca se pierde el movimiento.
+     * Fallback final SIEMPRE = cuenta Efectivo: nunca se pierde el movimiento
+     * (método borrado, slug desconocido, o método sin banco asignado).
      */
     public function resolveAccountId(string $companyId, string $paymentMethodKey): string
     {
         $cashId = (new AccountService())->ensureCashAccountId($companyId);
 
-        // Camino 1 — ventas nuevas: la key es el taxonomyId (UUID) del método.
-        if ($this->isUuid($paymentMethodKey)) {
-            $map = $this->read($companyId);
-            foreach ($map as $entry) {
-                if ((string) $entry['methodId'] === $paymentMethodKey) {
-                    // Cash o sin banco asignado → Efectivo (read() ya resuelve
-                    // isCash → cuenta Efectivo, y null cuando no hay mapeo).
-                    return $entry['accountId'] ?? $cashId;
-                }
-            }
-            // taxonomyId huérfano (método borrado): cae en Efectivo.
-            return $cashId;
-        }
-
-        // Camino 2 — backfill histórico + POS (slug legacy, ej "tcredito",
-        // "efectivo"). El POS manda el slug/name crudo, NO el taxonomyId — hay
-        // que resolverlo al método REAL del tenant antes de mirar finAccountMap.
-        // Match defensivo, en orden: systemKey → code de taxonomy → nombre
-        // normalizado. Si nada matchea, cae a Efectivo (nunca se pierde el
-        // movimiento).
-        $normalized = $this->normalizeMethodKey($paymentMethodKey);
-        if ($normalized === 'efectivo') {
-            return $cashId;
-        }
-
-        $slugToCode = [
-            'efectivo' => 'A',
-            'tarjeta_credito' => 'S',
-            'tarjeta_debito' => 'D',
-            'cheque' => 'F',
-            'giftcard' => 'G',
-        ];
-        $slugToName = [
-            'tarjeta_credito' => 'T. Crédito',
-            'tarjeta_debito' => 'T. Débito',
-            'cheque' => 'Cheque',
-            'transferencia' => 'Transferencia',
-            'giftcard' => 'Gift Card',
-            'billetera' => 'Billetera',
-        ];
-        $wantedCode = $slugToCode[$normalized] ?? null;
-        $wantedName = $slugToName[$normalized] ?? $normalized;
-
-        $methods = $this->paymentMethodsFull($companyId);
-        $methodId = null;
-        foreach ($methods as $method) {
-            if ($method['systemKey'] !== null && $method['systemKey'] === $paymentMethodKey) {
-                $methodId = $method['id'];
-                break;
-            }
-        }
-        if ($methodId === null && $wantedCode !== null) {
-            foreach ($methods as $method) {
-                if ($method['code'] !== null && strcasecmp($method['code'], $wantedCode) === 0) {
-                    $methodId = $method['id'];
-                    break;
-                }
-            }
-        }
-        if ($methodId === null) {
-            foreach ($methods as $method) {
-                if (strcasecmp($method['name'], $wantedName) === 0
-                    || strcasecmp($method['name'], $paymentMethodKey) === 0
-                ) {
-                    $methodId = $method['id'];
-                    break;
-                }
-            }
-        }
+        $methodId = (new \Punto\Api\PaymentMethods\PaymentMethodResolver())
+            ->resolveMethodId($companyId, $paymentMethodKey);
         if ($methodId === null) {
             return $cashId;
         }
@@ -214,98 +146,25 @@ final class ConfigService
         $map = $this->read($companyId);
         foreach ($map as $entry) {
             if ((string) $entry['methodId'] === $methodId) {
+                // Cash o sin banco asignado → Efectivo (read() ya resuelve
+                // isCash → cuenta Efectivo, y null cuando no hay mapeo).
                 return $entry['accountId'] ?? $cashId;
             }
         }
         return $cashId;
     }
 
-    /** true si $key tiene forma de UUID (clave de método = taxonomyId). */
-    private function isUuid(string $key): bool
-    {
-        return (bool) preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
-            $key
-        );
-    }
-
-    /** Normaliza keys legacy/POS (cash, creditcard, debitcard, tcredito...) al vocabulario de Finanzas. */
-    private function normalizeMethodKey(string $key): string
-    {
-        $aliases = [
-            'cash' => 'efectivo', 'efectivo' => 'efectivo',
-            'creditcard' => 'tarjeta_credito', 'tcredito' => 'tarjeta_credito', 'card' => 'tarjeta_credito',
-            'debitcard' => 'tarjeta_debito', 'tdebito' => 'tarjeta_debito',
-            'transfer' => 'transferencia', 'transferencia' => 'transferencia',
-            'check' => 'cheque', 'cheque' => 'cheque',
-            'storeCredit' => 'billetera', 'inCredit' => 'billetera', 'billetera' => 'billetera',
-        ];
-        return $aliases[$key] ?? 'otro';
-    }
-
     /**
-     * Métodos de pago reales del tenant (taxonomía paymentMethod).
-     * Mismo patrón que SettingsService::taxonomies().
-     *
-     * @return array<int,array{id:string,name:string}>
-     */
-    private function paymentMethods(string $companyId): array
-    {
-        $res = ncmExecute(
-            "SELECT taxonomyId, taxonomyName FROM taxonomy WHERE taxonomyType = ? AND companyId = ? ORDER BY taxonomyName ASC",
-            ['paymentMethod', $companyId],
-            false,
-            true
-        );
-        $out = [];
-        if ($res && is_object($res)) {
-            while (!$res->EOF) {
-                $out[] = ['id' => (string) $res->fields['taxonomyId'], 'name' => (string) $res->fields['taxonomyName']];
-                $res->MoveNext();
-            }
-            $res->Close();
-        }
-        return $out;
-    }
-
-    /**
-     * Métodos de pago reales del tenant, incluyendo `code` y `systemKey`
-     * (viven en el JSONB `taxonomyExtra` — ver PaymentMethodService). Usado
-     * por el camino slug de resolveAccountId para matchear el slug del POS
-     * contra el método real más allá del nombre.
+     * Métodos de pago reales del tenant (taxonomía paymentMethod). Delega en
+     * PaymentMethods\PaymentMethodResolver — la lectura de la taxonomía y la
+     * decodificación de `taxonomyExtra` viven ahí, compartidas con el resto de
+     * los módulos que mapean pagos (facturación electrónica).
      *
      * @return array<int,array{id:string,name:string,code:?string,systemKey:?string}>
      */
-    private function paymentMethodsFull(string $companyId): array
+    private function paymentMethods(string $companyId): array
     {
-        // taxonomyExtra es TEXT (no jsonb): ->> no existe sobre esa columna y
-        // rompe la query (mismo bug que PaymentMethodService::list()). code y
-        // systemKey se extraen en PHP tras decodificar el JSON crudo.
-        $res = ncmExecute(
-            'SELECT taxonomyId, taxonomyName, taxonomyExtra
-               FROM taxonomy
-              WHERE taxonomyType = ? AND companyId = ?
-              ORDER BY taxonomyName ASC',
-            ['paymentMethod', $companyId],
-            false,
-            true
-        );
-        $out = [];
-        if ($res && is_object($res)) {
-            while (!$res->EOF) {
-                $extraRaw = $res->fields['taxonomyextra'] ?? null;
-                $extra = is_string($extraRaw) ? (json_decode($extraRaw, true) ?: []) : (is_array($extraRaw) ? $extraRaw : []);
-                $out[] = [
-                    'id'        => (string) $res->fields['taxonomyid'],
-                    'name'      => (string) $res->fields['taxonomyname'],
-                    'code'      => isset($extra['code']) && $extra['code'] !== '' ? (string) $extra['code'] : null,
-                    'systemKey' => isset($extra['systemKey']) && $extra['systemKey'] !== '' ? (string) $extra['systemKey'] : null,
-                ];
-                $res->MoveNext();
-            }
-            $res->Close();
-        }
-        return $out;
+        return (new \Punto\Api\PaymentMethods\PaymentMethodResolver())->methods($companyId);
     }
 
     /** Valida que $accountId sea una fin_account de tipo 'bank' perteneciente a $companyId. */
