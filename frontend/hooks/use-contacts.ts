@@ -198,6 +198,34 @@ export function useContactPacks(contactId: string | undefined) {
   })
 }
 
+/** Datos del contribuyente devueltos por el padrón (ver Contacts\TaxpayerLookupService). */
+export interface TaxpayerLookupResult {
+  /** RUC completo CON dígito verificador, tal como lo devolvió la fuente. */
+  ruc: string
+  /** Razón social / nombre del contribuyente. */
+  name: string
+  /** Estado en el padrón (ej. "ACTIVO"), si la fuente lo informa. */
+  status: string | null
+  /** `factomate` = padrón del emisor (autoritativo); `padron` = padrón público. */
+  source: "factomate" | "padron"
+}
+
+/**
+ * Consulta un RUC en el padrón de contribuyentes para autocompletar el alta.
+ * Mutation y no query porque se dispara con un click, no al montar.
+ *
+ * La consulta la hace el BACKEND (antes el navegador del cajero pegaba
+ * directo contra turuc.com.py): si el comercio tiene facturación electrónica
+ * conectada, la fuente autoritativa es el padrón de su propio emisor.
+ * 404 = RUC no encontrado en ninguna fuente.
+ */
+export function useTaxpayerLookup() {
+  return useMutation<TaxpayerLookupResult, Error, string>({
+    mutationFn: (ruc) =>
+      api.get<TaxpayerLookupResult>(`/v1/contacts?resource=taxpayer&ruc=${encodeURIComponent(ruc)}`),
+  })
+}
+
 /** Mapea form values al payload que el endpoint espera (snake-ish keys del legacy). */
 function serialize(values: ContactFormValues): Record<string, unknown> {
   // Decidir name vs fiscalName por kind. El backend acepta ambos en el mismo

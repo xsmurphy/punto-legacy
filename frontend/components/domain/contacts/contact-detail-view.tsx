@@ -26,7 +26,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import {
   Loader2, Archive, BarChart3, Wallet,
-  ShoppingBag, Layers,
+  SearchCode, ShoppingBag, Layers,
   CalendarDays, MapPin, Sparkles, Inbox, X,
   ClipboardList as OrdersIcon, Receipt,
   Pencil, Trash2,
@@ -102,9 +102,11 @@ import {
   useUpdateAddress,
   useSetDefaultAddress,
   useDeleteAddress,
+  useTaxpayerLookup,
 } from "@/hooks/use-contacts"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePriceLists } from "@/hooks/use-price-lists"
+import { ApiError } from "@/lib/api-client"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -508,6 +510,35 @@ function ContactFormBody({
   setCountry: (c: CountryCode) => void
 }) {
   const { data: priceLists } = usePriceLists()
+
+  // Lookup del RUC en el padrón (backend: /v1/contacts?resource=taxpayer).
+  // Completa la razón social del campo que corresponda al tipo de contacto:
+  // una empresa la lleva en `fiscalName`, una persona en `name`.
+  const lookupTaxpayer = useTaxpayerLookup()
+  function handleLookupRuc() {
+    const raw = (form.getValues("tin") ?? "").trim()
+    if (!raw) {
+      toast.warning("Ingresá un RUC para buscar")
+      return
+    }
+    lookupTaxpayer.mutate(raw, {
+      onSuccess: (data) => {
+        form.setValue("tin", data.ruc, { shouldValidate: true, shouldDirty: true })
+        form.setValue(kind === "empresa" ? "fiscalName" : "name", data.name, {
+          shouldValidate: true,
+          shouldDirty: true,
+        })
+        toast.success(data.status ? `${data.name} · ${data.status}` : data.name)
+      },
+      onError: (err) =>
+        toast.error(
+          err instanceof ApiError && err.status === 404
+            ? "RUC no encontrado"
+            : "No se pudo consultar el RUC",
+        ),
+    })
+  }
+
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {/* Identificación */}
@@ -585,9 +616,27 @@ function ContactFormBody({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>RUC</FormLabel>
-                <FormControl>
-                  <Input placeholder="Ej: 80012345-6" className="tabular-nums" {...field} />
-                </FormControl>
+                <div className="flex gap-2">
+                  <FormControl>
+                    <Input placeholder="Ej: 80012345-6" className="tabular-nums" {...field} />
+                  </FormControl>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={handleLookupRuc}
+                    disabled={lookupTaxpayer.isPending}
+                    title="Buscar datos del RUC"
+                    aria-label="Buscar datos del RUC"
+                  >
+                    {lookupTaxpayer.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <SearchCode className="size-4" />
+                    )}
+                  </Button>
+                </div>
                 <FormMessage />
               </FormItem>
             )}

@@ -114,6 +114,11 @@ define('FACTOMATE_BASE_URL_PROD', $_ENV['FACTOMATE_BASE_URL_PROD'] ?? '');
 // apiAuthTenant (no hay realm de panel en un cron). Vacía/no definida → el
 // endpoint responde 503 SIEMPRE, nunca abierto sin secreto.
 define('EINVOICE_DRAIN_SECRET', $_ENV['EINVOICE_DRAIN_SECRET'] ?? '');
+// TAXPAYER_LOOKUP_URL: padrón público de contribuyentes para el lookup de RUC
+// (GET {url}/{documento sin DV}). Fallback de Contacts\TaxpayerLookupService
+// cuando el comercio no tiene facturación electrónica conectada. Vacía →
+// el lookup solo responde con la fuente del proveedor de FE.
+define('TAXPAYER_LOOKUP_URL', $_ENV['TAXPAYER_LOOKUP_URL'] ?? 'https://turuc.com.py/api/contribuyente');
 
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);

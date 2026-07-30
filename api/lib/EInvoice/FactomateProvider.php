@@ -296,9 +296,22 @@ final class FactomateProvider implements EInvoiceProvider
         throw $lastError ?? new \RuntimeException('Factomate getkude falló sin excepción capturada (no debería pasar).');
     }
 
+    /**
+     * GET /api/Client/getbyruc/{ruc} — datos del contribuyente en el padrón que
+     * ve el emisor. Se manda el RUC TAL CUAL lo escribió el operador (con o sin
+     * dígito verificador): normalizarlo acá sería adivinar, y el DV lo devuelve
+     * la propia respuesta.
+     *
+     * SIN VERIFICAR contra la API real (2026-07-30): ni la ruta ni el shape de
+     * la respuesta se probaron todavía — la guía documenta el endpoint pero no
+     * el payload. El parseo defensivo vive en
+     * `Contacts\TaxpayerLookupService::fromFactomate()`, que trata un shape
+     * inesperado como "no encontrado" y cae al padrón público en vez de romper
+     * el alta del cliente.
+     */
     public function clientByRuc(string $environment, string $phone, string $bearer, string $ruc): array
     {
-        throw new \LogicException('FactomateProvider::clientByRuc — pendiente de F3 (GET /api/Client/getbyruc/{ruc})');
+        return $this->request('GET', '/api/Client/getbyruc/' . rawurlencode($ruc), null, $bearer, $phone, $environment);
     }
 
     /**

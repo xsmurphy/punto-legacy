@@ -5,6 +5,7 @@
  *   GET    /v1/contacts                          → lista paginada (q, status, limit, offset)
  *   GET    /v1/contacts?id=<uuid>                → detalle
  *   GET    /v1/contacts?id=<uuid>&resource=addresses → sub-recurso direcciones
+ *   GET    /v1/contacts?resource=taxpayer&ruc=<ruc>  → datos del contribuyente en el padrón
  *   POST   /v1/contacts                          → crea (body: { fiscalName|name, tin, ci, phone... })
  *   PUT    /v1/contacts?id=<uuid>                → update parcial (body: { campos... })
  *   DELETE /v1/contacts?id=<uuid>                → archive (soft-delete: contactStatus = 0)
@@ -43,6 +44,27 @@ if ($id !== null && $resource === 'addresses') {
         apiOk(['addresses' => $service->addresses($id, COMPANY_ID)]);
     }
     apiError('Method not allowed for /contacts/addresses', 405);
+}
+
+// ── Lookup de RUC en el padrón (F3 de facturación electrónica) ─────────────
+// No lleva $id: es una consulta previa al alta, todavía no hay contacto. Va
+// acá y no bajo /v1/einvoice porque sirve a CUALQUIER comercio (el que no
+// tiene FE conectada cae al padrón público) y porque el consumidor es el
+// formulario de contactos, en panel y en POS — los dos realms que este
+// endpoint ya autentica.
+if ($resource === 'taxpayer') {
+    if ($method !== 'GET') {
+        apiError('Method not allowed for /contacts?resource=taxpayer', 405);
+    }
+    $ruc = trim((string) ($_GET['ruc'] ?? ''));
+    if ($ruc === '') {
+        apiError('Falta el RUC a consultar', 422);
+    }
+    $taxpayer = (new \Punto\Api\Contacts\TaxpayerLookupService())->lookup(COMPANY_ID, $ruc);
+    if ($taxpayer === null) {
+        apiError('No se encontraron datos para ese RUC', 404);
+    }
+    apiOk($taxpayer);
 }
 
 // ── Sub-recurso: analytics (KPIs + comportamiento del contacto) ────────────

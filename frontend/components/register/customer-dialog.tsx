@@ -7,7 +7,7 @@
  *   - Barra "Buscar clientes" arriba → searchCustomers() local.
  *   - Lista de resultados (nombre + doc); click → setCustomer + cierra.
  *   - Panel "CREAR CLIENTE" con 2 secciones:
- *       DATOS DE FACTURACIÓN: Razón Social, RUC/N° doc + lupa turuc.com.py, Tipo ID,
+ *       DATOS DE FACTURACIÓN: Razón Social, RUC/N° doc + lupa del padrón, Tipo ID,
  *                             botón CREAR CLIENTE, link Borrar Formulario.
  *       DATOS PERSONALES: Nombre y Apellido, Doc. Identidad, E-mail,
  *                         Teléfono (PhoneInput → E.164), Dirección,
@@ -48,6 +48,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { searchCustomers } from "@/lib/catalog/search"
 import { executeCreateCustomer } from "@/lib/commands/create-customer"
+import { useTaxpayerLookup } from "@/hooks/use-contacts"
 import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
@@ -327,49 +328,34 @@ function CreateCustomerForm({
     reset()
   }
 
-  // Lookup del RUC contra el padrón público (turuc.com.py). El endpoint acepta
-  // solo el número de documento (sin dígito verificador). Al recibir los datos
-  // auto-completa Razón Social y reemplaza el campo TIN con el RUC formateado
-  // (ej. "7659394" → "7659394-0").
-  const [lookingUpRuc, setLookingUpRuc] = React.useState(false)
-  async function handleLookupRuc() {
+  // Lookup del RUC en el padrón — lo resuelve el BACKEND
+  // (`/v1/contacts?resource=taxpayer`), que consulta el padrón del emisor de
+  // facturación electrónica si el comercio lo tiene conectado y cae al padrón
+  // público si no. Antes se pegaba desde acá contra turuc.com.py: el alta de
+  // clientes dependía de que el navegador del cajero alcanzara a un tercero.
+  //
+  // Al recibir los datos auto-completa Razón Social y reemplaza el campo TIN
+  // con el RUC formateado (ej. "7659394" → "7659394-0").
+  const lookupTaxpayer = useTaxpayerLookup()
+  function handleLookupRuc() {
     const raw = (getValues("tin") || "").trim()
-    // turuc.com.py espera el número sin el dígito verificador.
-    // Si el user escribió "7659394-0", quedarnos sólo con "7659394".
-    const doc = raw.split("-")[0].replace(/[^\d]/g, "")
-    if (!doc) {
+    if (!raw) {
       toast.warning("Ingresá un RUC para buscar")
       return
     }
-    setLookingUpRuc(true)
-    try {
-      const res = await fetch(
-        `https://turuc.com.py/api/contribuyente/${doc}`,
-        { headers: { accept: "application/json" } },
-      )
-      if (!res.ok) {
-        toast.error(res.status === 404 ? "RUC no encontrado" : "No se pudo consultar el RUC")
-        return
-      }
-      const json = (await res.json()) as {
-        data?: { razonSocial?: string; ruc?: string; estado?: string }
-      }
-      const data = json.data
-      if (!data?.razonSocial) {
-        toast.error("RUC sin datos disponibles")
-        return
-      }
-      setValue("fiscalName", data.razonSocial, { shouldValidate: true, shouldDirty: true })
-      if (data.ruc) {
+    lookupTaxpayer.mutate(raw, {
+      onSuccess: (data) => {
+        setValue("fiscalName", data.name, { shouldValidate: true, shouldDirty: true })
         setValue("tin", data.ruc, { shouldValidate: true, shouldDirty: true })
-      }
-      const estadoSuffix = data.estado ? ` · ${data.estado}` : ""
-      toast.success(`${data.razonSocial}${estadoSuffix}`)
-    } catch {
-      toast.error("Error de red al consultar el RUC")
-    } finally {
-      setLookingUpRuc(false)
-    }
+        toast.success(data.status ? `${data.name} · ${data.status}` : data.name)
+      },
+      onError: (err) =>
+        toast.error(
+          err instanceof ApiError && err.status === 404
+            ? "RUC no encontrado"
+            : "No se pudo consultar el RUC",
+        ),
+    })
   }
 
   return (
@@ -419,7 +405,7 @@ function CreateCustomerForm({
               )}
             </div>
 
-            {/* RUC / N° documento + lupa turuc.com.py */}
+            {/* RUC / N° documento + lupa del padrón (backend) */}
             <div className="flex flex-col gap-1">
               <Label htmlFor="tin" className="text-xs">
                 RUC / N° Documento
@@ -430,18 +416,18 @@ function CreateCustomerForm({
                   className="flex-1"
                   {...register("tin")}
                 />
-                {/* Lupa: lookup contra el padrón público de RUC (turuc.com.py) */}
+                {/* Lupa: lookup del RUC en el padrón, resuelto por el backend */}
                 <Button
                   type="button"
                   variant="outline"
                   size="icon-sm"
                   onClick={handleLookupRuc}
-                  disabled={lookingUpRuc}
+                  disabled={lookupTaxpayer.isPending}
                   title="Buscar datos del RUC"
                   aria-label="Buscar datos del RUC"
                   className="shrink-0"
                 >
-                  {lookingUpRuc ? (
+                  {lookupTaxpayer.isPending ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <SearchCode className="size-4" />

@@ -297,6 +297,27 @@ final class EInvoiceService
     }
 
     /**
+     * Datos del contribuyente según el padrón que ve el emisor (F3). Devuelve
+     * el payload CRUDO: la normalización a un shape de contacto de Punto vive
+     * en `Contacts\TaxpayerLookupService`, que es quien decide qué hacer
+     * cuando la respuesta no trae nada usable.
+     *
+     * @return array<string,mixed>
+     * @throws \RuntimeException si la cuenta no está conectada (status != 'ok').
+     */
+    public function clientByRuc(string $companyId, string $ruc): array
+    {
+        $row = ncmExecute('SELECT status FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        if (!$row || (string) ($row['status'] ?? '') !== 'ok') {
+            throw new \RuntimeException('La cuenta de facturación electrónica no está conectada.');
+        }
+
+        $bearer = $this->session->getBearer($companyId);
+        [$phone, $environment] = $this->phoneAndEnvironment($companyId);
+        return $this->provider->clientByRuc($environment, $phone, $bearer, $ruc);
+    }
+
+    /**
      * `GET /api/PaymentMethod/get` no está tipado en la guía y devolvió
      * PascalCase contra la API real (2026-07-30). Se desenvuelve el contenedor
      * (`Items`/`data`) si viene, y de cada fila se toma:
