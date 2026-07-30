@@ -967,12 +967,46 @@ final class EInvoiceService
             }
         }
 
+        // Nota de crédito: solo tiene sentido si la venta original tiene una
+        // factura electrónica EMITIDA que corregir. Si no la tiene (comercio que
+        // conectó FE después de esa venta, o factura que quedó en error), no se
+        // encola nada: dejar el documento encolado lo mandaría a `error` en cada
+        // pasada del drainer sin que nadie pueda resolverlo.
+        if ($doctype === 'NC' && !$this->parentInvoiceIsIssued($companyId, $transactionId)) {
+            return;
+        }
+
         ncmExecute(
             "INSERT INTO einvoice_document (companyid, transactionid, doctype, status)
              VALUES (?, ?, ?, 'pending')
              ON CONFLICT (companyid, transactionid, doctype) DO NOTHING",
             [$companyId, $transactionId, $doctype]
         );
+    }
+
+    /**
+     * true si la venta original de una devolución tiene una factura electrónica
+     * emitida. `$transactionId` es el de la DEVOLUCIÓN — la original sale de
+     * `transactionParentId`.
+     */
+    private function parentInvoiceIsIssued(string $companyId, string $transactionId): bool
+    {
+        $tx = ncmExecute(
+            'SELECT transactionParentId FROM transaction WHERE transactionId = ? AND companyId = ?',
+            [$transactionId, $companyId]
+        );
+        $parentId = $tx ? trim((string) ($tx['transactionParentId'] ?? '')) : '';
+        if ($parentId === '') {
+            return false;
+        }
+
+        $doc = ncmExecute(
+            "SELECT einvoicedocid FROM einvoice_document
+              WHERE companyid = ? AND transactionid = ? AND status = 'issued' AND cdc IS NOT NULL
+              LIMIT 1",
+            [$companyId, $parentId]
+        );
+        return (bool) $doc;
     }
 
     /**
@@ -1310,8 +1344,12 @@ final class EInvoiceService
      */
     private function buildSaleArrayForMapper(string $companyId, string $transactionId, string $doctype): ?array
     {
+        if ($doctype === 'NC') {
+            return $this->buildCreditNoteArrayForMapper($companyId, $transactionId);
+        }
+
         $tx = ncmExecute(
-            "SELECT transactionType, transactionTotal, transactionCurrency, transactionDueDate,
+            "SELECT transactionType, transactionTotal, transactionDiscount, transactionCurrency, transactionDueDate,
                     customerId, transactionPaymentType, meta
                FROM transaction WHERE transactionId = ? AND companyId = ?",
             [$transactionId, $companyId]
@@ -1331,7 +1369,14 @@ final class EInvoiceService
         $payments = is_string($paymentsRaw) ? json_decode($paymentsRaw, true) : (is_array($paymentsRaw) ? $paymentsRaw : []);
         $payments = is_array($payments) ? $payments : [];
 
-        $total = (float) ($tx['transactionTotal'] ?? 0);
+        // El documento declara lo que el cliente PAGÓ, no el precio de lista.
+        // `transactionTotal` es el bruto (suma de los totales de línea antes de
+        // descuento) y `transactionDiscount` la suma de los descuentos de línea
+        // — el neto es la resta (ver create-sale.ts: "subtotal - discount da
+        // exactamente lo que se cobró"). Facturar el bruto declaraba de más en
+        // toda venta con descuento: más IVA del que se cobró, y un total que no
+        // coincide con los medios de pago.
+        $total = (float) ($tx['transactionTotal'] ?? 0) - (float) ($tx['transactionDiscount'] ?? 0);
 
         // Filtra ítems facturables ANTES de resolver tasas, para no pedir la tasa
         // de líneas que ni van a entrar al documento (inCredit, gift card, cantidad/total inválidos).
@@ -1341,8 +1386,8 @@ final class EInvoiceService
                 continue;
             }
             $count = (float) ($sD['count'] ?? 0);
-            $lineTotal = (float) ($sD['total'] ?? 0);
-            if ($count <= 0 || $lineTotal == 0.0) {
+            $lineNet = (float) ($sD['total'] ?? 0) - (float) ($sD['totalDiscount'] ?? 0);
+            if ($count <= 0 || $lineNet == 0.0) {
                 continue;
             }
             $billableDetail[] = $sD;
@@ -1354,36 +1399,23 @@ final class EInvoiceService
         foreach ($billableDetail as $sD) {
             $itemId = (string) $sD['itemId'];
             $count = (float) ($sD['count'] ?? 0);
-            $lineTotal = (float) ($sD['total'] ?? 0);
+            // Precio unitario NETO (con IVA incluido, ya descontado). El
+            // descuento se absorbe en el precio en vez de declararse en
+            // `itemUnitPriceDiscountWithTax`: la guía de Factomate documenta ese
+            // campo pero no cómo afecta a `total`/`subTotal`, y el único flujo
+            // verificado contra la API real cumple total = Σ(quantity ×
+            // unitPriceWithTax). Trade-off: el KuDE no desglosa el descuento.
+            $lineNet = (float) ($sD['total'] ?? 0) - (float) ($sD['totalDiscount'] ?? 0);
             $items[] = [
                 'description' => (string) ($sD['name'] ?? ''),
                 'quantity'    => $count,
-                'unitPrice'   => round($lineTotal / $count, 8),
-                'total'       => $lineTotal,
+                'unitPrice'   => round($lineNet / $count, 8),
+                'total'       => $lineNet,
                 'taxRate'     => $taxRateByItemId[$itemId],
             ];
         }
 
-        $clientId = $tx['customerId'] ?? null;
-        $client = ['nature' => 'innominado'];
-        if ($clientId !== null && $clientId !== '') {
-            $contact = ncmExecute(
-                'SELECT contactTIN, contactName, data FROM contact WHERE contactId = ? AND companyId = ?',
-                [$clientId, $companyId]
-            );
-            if ($contact) {
-                $tin = trim((string) ($contact['contactTIN'] ?? ''));
-                $ci  = trim((string) ($contact['contactCI'] ?? ''));
-                $name = trim((string) ($contact['contactName'] ?? ''));
-                if ($tin !== '') {
-                    $client = ['nature' => 'contribuyente', 'ruc' => $tin, 'ci' => $ci !== '' ? $ci : null, 'name' => $name];
-                } elseif ($ci !== '') {
-                    $client = ['nature' => 'fisica', 'ci' => $ci, 'name' => $name];
-                } else {
-                    $client = ['nature' => 'innominado', 'name' => $name !== '' ? $name : 'Consumidor final'];
-                }
-            }
-        }
+        $client = $this->resolveClient($companyId, $tx['customerId'] ?? null);
 
         $operationCondition = $doctype === 'FCR' ? 1 : 0;
 
@@ -1445,5 +1477,170 @@ final class EInvoiceService
         }
 
         return $sale;
+    }
+
+    /**
+     * Receptor del documento a partir del contacto de la transacción. Tres
+     * casos fiscales (ver SaleToInvoiceMapper::buildClient): contribuyente con
+     * RUC, persona física con CI, o innominado (consumidor final).
+     *
+     * @return array<string,mixed>
+     */
+    private function resolveClient(string $companyId, mixed $clientId): array
+    {
+        if ($clientId === null || $clientId === '') {
+            return ['nature' => 'innominado'];
+        }
+
+        $contact = ncmExecute(
+            'SELECT contactTIN, contactName, data FROM contact WHERE contactId = ? AND companyId = ?',
+            [$clientId, $companyId]
+        );
+        if (!$contact) {
+            return ['nature' => 'innominado'];
+        }
+
+        $tin  = trim((string) ($contact['contactTIN'] ?? ''));
+        $ci   = trim((string) ($contact['contactCI'] ?? '')); // flattenJsonb ya trajo contactCI desde `data`
+        $name = trim((string) ($contact['contactName'] ?? ''));
+
+        if ($tin !== '') {
+            return ['nature' => 'contribuyente', 'ruc' => $tin, 'ci' => $ci !== '' ? $ci : null, 'name' => $name];
+        }
+        if ($ci !== '') {
+            return ['nature' => 'fisica', 'ci' => $ci, 'name' => $name];
+        }
+        return ['nature' => 'innominado', 'name' => $name !== '' ? $name : 'Consumidor final'];
+    }
+
+    /**
+     * Shape `$sale` de una NOTA DE CRÉDITO (doctype 'NC') a partir de una
+     * devolución (`transaction.transactionType = 6`).
+     *
+     * Diferencias estructurales con una venta, y por qué:
+     *
+     * - **Los ítems salen de `itemSold`, no de `meta.transactionDetails`.**
+     *   `ReturnService::create` inserta la devolución con `meta = '{}'` — el
+     *   detalle vive solo en las filas de `itemSold`, con signo negativo.
+     * - **Todos los montos van en valor absoluto.** La devolución se persiste
+     *   en negativo (para que sume correctamente en los reportes), pero el
+     *   documento fiscal declara importes positivos: es la nota de crédito la
+     *   que resta, no el signo de sus líneas.
+     * - **Neto, igual que la factura**: `itemSoldTotal` es el bruto de la línea
+     *   e `itemSoldDiscount` su descuento — se declara la resta, que es lo que
+     *   el cliente había pagado y por lo tanto lo que se le acredita.
+     * - **Sin bloque de pagos**: una nota de crédito no cobra nada. La
+     *   devolución del dinero (efectivo o crédito en cuenta) es un movimiento
+     *   de caja de Punto, no una forma de pago del documento.
+     * - **Referencia obligatoria a la factura original**: sin el CDC de la
+     *   factura que se está corrigiendo, la nota de crédito no existe para
+     *   SIFEN. Si la venta original nunca se facturó electrónicamente, no hay
+     *   nada que corregir — se falla con un mensaje explícito en vez de emitir
+     *   una nota huérfana.
+     *
+     * @throws \RuntimeException con el motivo por el que no se puede emitir.
+     */
+    private function buildCreditNoteArrayForMapper(string $companyId, string $transactionId): ?array
+    {
+        $tx = ncmExecute(
+            'SELECT transactionTotal, transactionDiscount, transactionCurrency,
+                    transactionParentId, customerId
+               FROM transaction WHERE transactionId = ? AND companyId = ?',
+            [$transactionId, $companyId]
+        );
+        if (!$tx) {
+            return null;
+        }
+
+        $parentId = trim((string) ($tx['transactionParentId'] ?? ''));
+        if ($parentId === '') {
+            throw new \RuntimeException(
+                'La devolución no está vinculada a una venta original — no se puede emitir la nota de crédito.'
+            );
+        }
+
+        // Factura original: la que la nota de crédito corrige. Solo sirve una
+        // EMITIDA (una en error/pendiente no tiene CDC, y una ya cancelada no
+        // tiene nada que corregir).
+        $parentDoc = ncmExecute(
+            "SELECT cdc FROM einvoice_document
+              WHERE companyid = ? AND transactionid = ? AND status = 'issued' AND cdc IS NOT NULL
+              ORDER BY issued_at DESC LIMIT 1",
+            [$companyId, $parentId]
+        );
+        $parentCdc = $parentDoc ? trim((string) ($parentDoc['cdc'] ?? '')) : '';
+        if ($parentCdc === '') {
+            throw new \RuntimeException(
+                'La venta original no tiene una factura electrónica emitida — no hay documento que corregir '
+                . 'con una nota de crédito.'
+            );
+        }
+
+        $rs = ncmExecute(
+            'SELECT s.itemId AS itemId, s.itemSoldUnits AS units, s.itemSoldTotal AS lineTotal,
+                    s.itemSoldDiscount AS lineDiscount, item.itemName AS itemName
+               FROM "itemSold" s
+               JOIN item ON item.itemId = s.itemId
+              WHERE s.transactionId = ? AND item.companyId = ?',
+            [$transactionId, $companyId],
+            false,
+            true
+        );
+        if ($rs === false) {
+            throw new \RuntimeException('No se pudieron leer los ítems de la devolución — no se emite la nota de crédito.');
+        }
+
+        $lines = [];
+        while (!$rs->EOF) {
+            $lines[] = [
+                'itemId'   => (string) $rs->fields['itemid'],
+                'name'     => (string) ($rs->fields['itemname'] ?? ''),
+                'quantity' => abs((float) $rs->fields['units']),
+                'net'      => abs((float) $rs->fields['linetotal']) - abs((float) ($rs->fields['linediscount'] ?? 0)),
+            ];
+            $rs->MoveNext();
+        }
+        $rs->Close();
+
+        $billable = array_values(array_filter(
+            $lines,
+            static fn (array $l): bool => $l['quantity'] > 0 && $l['net'] != 0.0
+        ));
+        if ($billable === []) {
+            throw new \RuntimeException('La devolución no tiene ítems con importe — no se emite la nota de crédito.');
+        }
+
+        // resolveTaxRatesForItems espera la clave `itemId` (shape del detalle de venta).
+        $taxRateByItemId = $this->resolveTaxRatesForItems($companyId, $billable);
+
+        $items = [];
+        foreach ($billable as $line) {
+            $items[] = [
+                'description' => $line['name'],
+                'quantity'    => $line['quantity'],
+                'unitPrice'   => round($line['net'] / $line['quantity'], 8),
+                'total'       => $line['net'],
+                'taxRate'     => $taxRateByItemId[$line['itemId']],
+            ];
+        }
+
+        // El total sale de las líneas, no de `transactionTotal`: la devolución
+        // guarda el bruto y el descuento en columnas separadas igual que la
+        // venta, y acá ya se declaró el neto por línea.
+        $total = 0.0;
+        foreach ($items as $item) {
+            $total += (float) $item['total'];
+        }
+
+        return [
+            'documentType'       => 5, // Nota de crédito (guía §"Enviar DE – Tipo 5/6").
+            'associatedCdc'      => $parentCdc,
+            'total'              => $total,
+            'currency'           => (string) ($tx['transactionCurrency'] ?? 'PYG'),
+            'operationCondition' => 0,
+            'items'              => $items,
+            'client'             => $this->resolveClient($companyId, $tx['customerId'] ?? null),
+            'payments'           => [],
+        ];
     }
 }

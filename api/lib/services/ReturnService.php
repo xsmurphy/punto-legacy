@@ -243,12 +243,39 @@ final class ReturnService
                 );
             }
 
+            // Nota de crédito (F3): se encola DENTRO de la transacción, igual
+            // que la factura de una venta (SaleService::enqueueElectronicInvoice)
+            // — si la devolución se revierte, no queda un documento fiscal
+            // encolado para una devolución que nunca existió. El servicio es
+            // silencioso puertas adentro (sin cuenta conectada, autoIssue off);
+            // el try/catch es para que un bug del módulo de FE no tumbe una
+            // devolución ya validada.
+            try {
+                (new \Punto\Api\EInvoice\EInvoiceService())->enqueueForSale(
+                    $companyId,
+                    $newTransactionId,
+                    'NC',
+                    $parent['customerid'] ?? null,
+                );
+            } catch (\Throwable $e) {
+                error_log('[ReturnService] enqueue nota de crédito: ' . $e->getMessage());
+            }
+
             $db->CompleteTrans();
 
         } catch (\Throwable $e) {
             $db->FailTrans();
             $db->CompleteTrans();
             throw $e;
+        }
+
+        // Emisión inline POST-COMMIT, best-effort: la devolución ya está
+        // confirmada y un fallo acá solo deja el documento pendiente para el
+        // drainer (mismo criterio que SaleService::tryIssueElectronicInvoiceInline).
+        try {
+            (new \Punto\Api\EInvoice\EInvoiceService())->tryIssueInline($companyId, (string) $newTransactionId, 'NC');
+        } catch (\Throwable $e) {
+            error_log('[ReturnService] emisión inline de la nota de crédito: ' . $e->getMessage());
         }
 
         return [

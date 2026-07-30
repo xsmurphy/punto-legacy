@@ -19,7 +19,9 @@ namespace Punto\Api\EInvoice;
  * de la venta ya persistida — este mapper NO lee de la base, solo transforma):
  *
  * [
- *   'total'      => float,              // total de la venta, CON IVA incluido
+ *   'documentType' => ?int,             // 1 factura (default), 5 nota de crédito
+ *   'associatedCdc' => ?string,         // CDC de la factura corregida — OBLIGATORIO si documentType=5
+ *   'total'      => float,              // total del documento, CON IVA incluido
  *   'currency'   => string,             // 'PYG'; cualquier otra aborta la emisión
  *   'operationCondition' => 0|1,        // 0 contado, 1 crédito
  *   'items' => [
@@ -77,6 +79,16 @@ final class SaleToInvoiceMapper
     private const CONTRIBUTOR_TYPE_CON_RUC = 1;
     private const CONTRIBUTOR_TYPE_SIN_RUC = 2;
 
+    // documentTypeCode (guía §"Enviar DE"): 1=Factura, 4=Autofactura,
+    // 5=Nota de crédito, 6=Nota de débito, 7=Nota de remisión.
+    private const DOC_FACTURA = 1;
+    private const DOC_NOTA_CREDITO = 5;
+
+    // associatedDocumentType: 0 = documento electrónico (se referencia por CDC),
+    // 1 = documento impreso (timbrado + establecimiento + punto de expedición).
+    // Punto solo emite notas de crédito sobre facturas electrónicas propias.
+    private const ASSOCIATED_DOC_ELECTRONICO = 0;
+
     /**
      * @param array<string,mixed> $sale   Ver shape documentado arriba.
      * @param array<string,mixed> $stamp  Timbrado cacheado de einvoice_account.stamp (trae 'Id').
@@ -91,6 +103,8 @@ final class SaleToInvoiceMapper
     {
         $total = (float) ($sale['total'] ?? 0);
         $operationCondition = (int) ($sale['operationCondition'] ?? 0);
+        $documentType = (int) ($sale['documentType'] ?? self::DOC_FACTURA);
+        $isCreditNote = $documentType === self::DOC_NOTA_CREDITO;
         $items = $sale['items'] ?? [];
         if (!is_array($items) || empty($items)) {
             throw new \RuntimeException('La venta no tiene items — no se puede armar la factura electrónica.');
@@ -143,7 +157,7 @@ final class SaleToInvoiceMapper
         }
 
         $payload = [
-            'documentTypeCode'      => 1,
+            'documentTypeCode'      => $documentType,
             'issuingType'           => 0,
             // securityCode: obligatorio, 9 dígitos aleatorios. Verificado contra
             // la API real (2026-07-30) — sin este campo Factomate rechaza la emisión.
@@ -184,6 +198,29 @@ final class SaleToInvoiceMapper
             // fórmula global que solo es válida para el caso 100%-10%.
             'tax'      => round($taxSum),
         ];
+
+        if ($isCreditNote) {
+            // El cuerpo de la nota de crédito es el mismo de la factura; los
+            // únicos cambios son el tipo de documento y esta sección, que
+            // referencia por CDC el documento que se corrige (guía
+            // §"Documento asociado electrónico"). Sin ella SIFEN no tiene qué
+            // corregir y rechaza el documento.
+            $associatedCdc = trim((string) ($sale['associatedCdc'] ?? ''));
+            if ($associatedCdc === '') {
+                throw new \RuntimeException(
+                    'La nota de crédito no tiene el CDC de la factura original — no se puede emitir sin referenciarla.'
+                );
+            }
+            $payload['associatedDocuments'] = [[
+                'associatedDocumentType' => self::ASSOCIATED_DOC_ELECTRONICO,
+                'cdc'                    => $associatedCdc,
+            ]];
+
+            // Sin bloque `payments`: una nota de crédito no cobra. La
+            // devolución del dinero es un movimiento de caja de Punto, no una
+            // forma de pago del documento fiscal.
+            return $payload;
+        }
 
         $paymentsPayload = $this->buildPayments($sale, $total, $config, $operationCondition);
         if ($paymentsPayload !== []) {
