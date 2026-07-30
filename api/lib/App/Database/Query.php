@@ -50,18 +50,77 @@ final class Query
         }
 
         static $jsonbCols = ['data', 'meta', 'config'];
+        $raw = [];
         foreach ($jsonbCols as $col) {
             $val = $arr[$col] ?? null;
             if (isset($val) && is_string($val) && $val !== '') {
                 $decoded = json_decode($val, true);
                 if (is_array($decoded) && !array_is_list($decoded)) {
+                    $raw[$col] = $val;                 // NO se pierde: ver rawJsonb()
                     $arr = array_merge($decoded, $arr); // columna nombrada gana sobre JSONB
                     unset($arr[$col]);
                 }
             }
         }
 
-        return new \CaseInsensitiveArray($arr);
+        $cia = new \CaseInsensitiveArray($arr);
+        if ($raw !== []) {
+            self::rawStore()->offsetSet($cia, $raw);
+        }
+        return $cia;
+    }
+
+    /**
+     * JSON crudo de una columna JSONB que `flattenJsonb()` desempaquetó.
+     *
+     * El flatten mezcla el contenido del JSONB al nivel de la fila y saca la
+     * columna del array — necesario para que los campos demoted se lean como
+     * columnas, pero el payload original quedaba DESTRUIDO: todo caller que
+     * hiciera `$row['meta']` recibía null y, como no hay error, el dato
+     * simplemente desaparecía. Costó cuatro features en producción
+     * (ventas guardadas vacías, config del POS ignorada, ítems de compra
+     * perdidos, anular compra sin revertir stock — 2026-07-30).
+     *
+     * Ahora el crudo se preserva en un side-channel (WeakMap indexada por la
+     * fila devuelta) en vez de dejarse en el array. Por qué no simplemente no
+     * borrar la clave:
+     *   - Presenters que iteran TODAS las claves de la fila (ej. presentItem en
+     *     api/v1/items.php) empezarían a emitir el blob crudo en la respuesta.
+     *   - Los flujos leer-modificar-escribir mandarían ese string de vuelta a
+     *     ncmUpdate, donde `data` SÍ es columna real → se pisaría el JSONB.
+     * El side-channel deja la forma de la fila idéntica a hoy y no pierde nada.
+     *
+     * Uso:
+     *   $row = ncmExecute('SELECT * FROM transaction WHERE ...');
+     *   $meta = json_decode(Query::rawJsonb($row, 'meta') ?? '{}', true);
+     *
+     * Alternativa igual de válida cuando controlás el SQL: aliasear la columna
+     * (`meta::text AS meta_raw`) — el alias no está en la lista de flatten y
+     * sobrevive intacto.
+     *
+     * @return string|null JSON crudo, o null si esa fila no traía esa columna.
+     */
+    public static function rawJsonb(object $row, string $col): ?string
+    {
+        $store = self::rawStore();
+        if (!$store->offsetExists($row)) {
+            return null;
+        }
+        return $store->offsetGet($row)[strtolower($col)] ?? null;
+    }
+
+    /**
+     * WeakMap fila → {columna: JSON crudo}. Weak a propósito: las entradas se
+     * liberan cuando la fila se recolecta, así un SELECT de miles de filas no
+     * retiene los blobs durante todo el request.
+     */
+    private static function rawStore(): \WeakMap
+    {
+        static $store = null;
+        if ($store === null) {
+            $store = new \WeakMap();
+        }
+        return $store;
     }
 
     /**

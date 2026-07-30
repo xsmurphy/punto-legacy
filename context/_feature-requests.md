@@ -5,6 +5,55 @@
 
 # Feature requests — clientes
 
+## 2026-07-30 — owner
+
+### Settings
+
+**Buscador de secciones arriba del menú de `/settings`** — `S`
+> "Hay demasiadas secciones y ya se necesita un buscador."
+
+- Hoy `/settings` lista todas las secciones sin filtro; el menú creció a ~12
+  entradas (catalog, devices, espacios, facturación electrónica, price-lists,
+  print-templates, printers, roles, sessions, team, …) y va a seguir creciendo.
+- Implica: input de filtro arriba del menú + match por nombre y por sinónimos
+  (que "impresora" encuentre "print-templates", que "usuarios" encuentre "team")
+  — sin sinónimos el buscador falla justo en los casos donde más se necesita.
+- Sin backend: el catálogo de secciones ya está en el cliente. Ideal sumarle
+  atajo de teclado y navegación con flechas (el patrón de command palette que
+  el POS ya usa para buscar ítems).
+
+### Roles y permisos
+
+**Roles personalizados con permisos de Vista / Creación / Edición / Eliminación** — `L`
+> "Necesitamos una sección donde podamos crear Roles personalizados, y a estos
+> roles asignarle permisos sobre todo el sistema, especialmente de Vista,
+> Edición, Creación y Eliminación de contenido."
+
+- **Ya existe la base y bastante más de lo que parece**: `/settings/roles` con
+  ABM de roles personalizados y matriz de permisos por checkbox
+  (`frontend/app/(panel)/settings/roles/page.tsx`), catálogo de 45 permisos
+  (`api/lib/Auth/PermissionCatalog.php`), roles sembrados por tenant
+  (Dueño / Encargado / Cajero, `RoleService::SEED_PERMISSIONS`) y
+  `hasPermission()` en el backend.
+- **El problema real no es que falte la sección: es que la matriz es mayormente
+  decorativa.** Medido el 2026-07-30: de los 45 permisos del catálogo, solo
+  **17 se chequean** en algún lado del backend. Los 28 restantes se pueden
+  destildar y no pasa nada — entre ellos `pos.sale.void`, `pos.sale.refund`,
+  `pos.discount.apply`, `inventory.item.delete`, todo `contacts.*`,
+  `settings.device.manage` y `billing.manage`. Un rol "solo ver" hoy puede
+  anular ventas.
+- En el frontend el gating es casi inexistente: un solo archivo consume
+  `usePermissions()`. La UI no esconde ni deshabilita lo que el rol no puede.
+- La granularidad tampoco es uniforme: `inventory.item.*` y `contacts.customer.*`
+  ya tienen view/create/edit/delete, pero reportes son solo `.view` y
+  finanzas/producción/FE son un único `.manage` indivisible.
+- **Trabajo real**: (1) completar el catálogo a CRUD parejo por área,
+  (2) enforcement backend en TODOS los endpoints de escritura — es la parte
+  grande y la única que da la garantía, (3) gating en el frontend (ocultar/
+  deshabilitar), (4) tests por rol. El orden importa: sin (2), (3) es cosmético.
+- Relacionado: "Permisos granulares por usuario (override sobre el rol)" del
+  2026-06-16 más abajo — mismo sistema, capa extra encima del rol.
+
 ## 2026-06-24 — pendientes Panel (owner → desarrollo, lista vieja)
 
 Lista de bugs/feature requests del frontend que el owner mandó en sesiones

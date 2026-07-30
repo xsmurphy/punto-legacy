@@ -1242,6 +1242,18 @@ function _flattenJsonb($row): \CaseInsensitiveArray
 }
 
 /**
+ * JSON crudo de una columna JSONB (`data`/`meta`/`config`) que el flatten
+ * desempaquetó. Ver el docblock de `Query::rawJsonb()` — ahí está el porqué.
+ *
+ *   $row  = ncmExecute('SELECT * FROM transaction WHERE transactionId = ?', [$id]);
+ *   $meta = json_decode(_rawJsonb($row, 'meta') ?? '{}', true);
+ */
+function _rawJsonb(object $row, string $col): ?string
+{
+    return \Punto\App\Database\Query::rawJsonb($row, $col);
+}
+
+/**
  * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::execute()`. ~1035 callers.
  *             God node de DB del POS — semántica crítica, no modificar sin regression suite.
  */
