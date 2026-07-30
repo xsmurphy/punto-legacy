@@ -100,13 +100,20 @@ interface EInvoiceProvider
     public function clientByRuc(string $environment, string $phone, string $bearer, string $ruc): array;
 
     /**
-     * GET /api/ElectronicDocument/GetAll (F2) — reconciliación del estado
-     * FISCAL real: un CDC devuelto por /Bulk no garantiza aceptación
-     * definitiva, SIFEN puede rechazar minutos después. SIN VERIFICAR: la
-     * guía menciona el endpoint pero no documenta parámetros de filtro ni
-     * paginación — se pide sin parámetros y EInvoiceService::reconcile()
-     * matchea por CDC en memoria sobre el payload crudo devuelto acá.
+     * GET /api/electronicDocument/getBulk/{id} (F2) — ÚNICA fuente real de
+     * reconciliación del estado FISCAL. Verificado contra la API real
+     * (2026-07-30): `GET /api/ElectronicDocument/GetAll` devuelve
+     * `Items: []` incluso después de emitir — es un no-op silencioso, no
+     * sirve para esto. `$bulkId` es el `Id` raíz que devolvió
+     * `POST /Bulk` al emitir (persistido en `einvoice_document.provider_number`).
+     *
+     * CRÍTICO: un CDC con `Success: true` en la respuesta de `/Bulk` NO
+     * significa que SIFEN aceptó el documento — se comprobó hoy con un CDC
+     * válido que terminó `Rechazado` (código 1002, duplicado). El KuDE se
+     * descarga igual para un documento rechazado. El único campo que dice
+     * si la factura vale es `sifen_status`, derivado de esta respuesta
+     * (ver EInvoiceService::reconcile()).
      * @throws \RuntimeException
      */
-    public function getAllDocuments(string $environment, string $phone, string $bearer): array;
+    public function getBulk(string $environment, string $phone, string $bearer, string $bulkId): array;
 }

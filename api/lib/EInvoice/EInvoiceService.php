@@ -636,22 +636,27 @@ final class EInvoiceService
     }
 
     /**
-     * Reconcilia el estado FISCAL real contra `GET /api/ElectronicDocument/GetAll`
-     * para documentos `issued` que todavía no tienen `sifen_status`, o cuyo
-     * último chequeo es viejo. SIFEN puede rechazar un DE minutos después de
-     * que `/Bulk` ya devolvió un CDC válido (ej. código 1002, duplicado) —
-     * un CDC no es garantía de aceptación definitiva. `status` (outbox de
-     * Punto: ¿se mandó?) y `sifen_status` (fiscal: ¿SIFEN lo aceptó?) son
-     * dos cosas distintas — este método SOLO toca `sifen_status`/
-     * `sifen_result`/`sifen_checked_at`, nunca `status`.
+     * Reconcilia el estado FISCAL real contra `GET /api/electronicDocument/getBulk/{id}`
+     * para documentos `issued` con `provider_number` (el `Id` de bulk cacheado
+     * al emitir) que todavía no tienen `sifen_status`, o cuyo último chequeo
+     * es viejo.
      *
-     * SIN VERIFICAR contra la API real: la guía menciona el endpoint
-     * (`GET /api/ElectronicDocument/GetAll`) pero no documenta parámetros
-     * de filtro ni el shape exacto de la respuesta — se pide todo y se
-     * matchea por CDC en memoria, con parseo defensivo de casing (mismo
-     * criterio que el resto del provider). Si el endpoint pagina o requiere
-     * un filtro obligatorio, esto va a necesitar ajuste cuando se pruebe
-     * contra la cuenta real.
+     * CRÍTICO: SIFEN puede rechazar un DE minutos después de que `/Bulk` ya
+     * devolvió un CDC válido y `Success: true` — se comprobó hoy (2026-07-30)
+     * un caso real: CDC válido, Success true, rechazo posterior por SIFEN
+     * (código 1002, documento duplicado), y el KuDE se pudo descargar igual
+     * para ese documento rechazado. Ni el CDC ni el PDF prueban validez
+     * fiscal — el ÚNICO campo que dice si la factura vale es `sifen_status`,
+     * que este método pobla. `status` (outbox de Punto: ¿se mandó?) y
+     * `sifen_status` (fiscal: ¿SIFEN lo aceptó?) son dos cosas distintas —
+     * este método SOLO toca `sifen_status`/`sifen_result`/`sifen_checked_at`,
+     * nunca `status`.
+     *
+     * `GET /api/ElectronicDocument/GetAll` NO sirve para esto: verificado
+     * contra la API real (2026-07-30), devuelve `Items: []` incluso después
+     * de emitir con éxito — reconciliar contra ese endpoint era un no-op
+     * silencioso que nunca actualizaba nada. `getBulk/{id}` con el `Id` raíz
+     * del bulk es la fuente correcta.
      *
      * @return array{checked:int,updated:int} cuántos documentos se revisaron / cuántos cambiaron sifen_status.
      */
@@ -660,8 +665,8 @@ final class EInvoiceService
         $limit = min(200, max(1, $limit));
 
         $rs = ncmExecute(
-            "SELECT einvoicedocid, cdc FROM einvoice_document
-              WHERE companyid = ? AND status = 'issued' AND cdc IS NOT NULL
+            "SELECT einvoicedocid, provider_number FROM einvoice_document
+              WHERE companyid = ? AND status = 'issued' AND provider_number IS NOT NULL
                 AND (sifen_checked_at IS NULL OR sifen_checked_at < now() - interval '10 minutes')
               ORDER BY issued_at ASC NULLS LAST
               LIMIT ?",
@@ -673,7 +678,7 @@ final class EInvoiceService
         $pending = [];
         if ($rs !== false) {
             while (!$rs->EOF) {
-                $pending[] = ['id' => (string) $rs->fields['einvoicedocid'], 'cdc' => (string) $rs->fields['cdc']];
+                $pending[] = ['id' => (string) $rs->fields['einvoicedocid'], 'bulkId' => (string) $rs->fields['provider_number']];
                 $rs->MoveNext();
             }
         }
@@ -685,48 +690,52 @@ final class EInvoiceService
         $bearer = $this->session->getBearer($companyId);
         [$phone, $environment] = $this->phoneAndEnvironment($companyId);
 
-        // GET /api/ElectronicDocument/GetAll — sin params documentados (SIN
-        // VERIFICAR, ver docblock). Se implementa como request JSON GET
-        // genérico reusando el mismo cliente que el resto de F0/F1 en vez de
-        // agregar un método más a la interfaz — no cambia el contrato de
-        // EInvoiceProvider, solo se necesita GET+bearer+phone, que ya expone
-        // paymentMethods()/userInfo() con la misma firma. Se hace acá vía un
-        // método nuevo del provider para no violar la interfaz con un GET
-        // genérico ad-hoc.
-        $all = $this->provider->getAllDocuments($environment, $phone, $bearer);
-
-        // Índice por CDC — casing defensivo, igual criterio que extractStamp/extractToken.
-        $byCdc = [];
-        foreach (($all['items'] ?? $all['Items'] ?? $all ?? []) as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-            $itemCdc = $item['CDC'] ?? $item['cdc'] ?? null;
-            if (is_string($itemCdc) && $itemCdc !== '') {
-                $byCdc[$itemCdc] = $item;
-            }
-        }
-
         $updated = 0;
         foreach ($pending as $doc) {
-            $match = $byCdc[$doc['cdc']] ?? null;
-            if ($match === null) {
-                // No apareció en GetAll — se actualiza igual el checked_at
-                // para no re-consultarlo cada corrida, sin tocar sifen_status
-                // (mejor "sin dato" que inventar un estado).
-                ncmExecute(
-                    'UPDATE einvoice_document SET sifen_checked_at = now() WHERE einvoicedocid = ?',
-                    [$doc['id']]
-                );
+            try {
+                $bulk = $this->provider->getBulk($environment, $phone, $bearer, $doc['bulkId']);
+            } catch (\Throwable $e) {
+                // Un fallo de red/API en UN documento no puede tirar abajo la
+                // corrida entera — se loguea y se sigue con el resto, sin
+                // tocar sifen_checked_at (para que se reintente en la próxima).
+                error_log('[EInvoiceService] reconcile getBulk falló para ' . $doc['id'] . ': ' . $e->getMessage());
                 continue;
             }
 
-            $sifenStatus = (string) ($match['SifenStatus'] ?? $match['sifenStatus'] ?? $match['Status'] ?? $match['status'] ?? '');
+            $items = $bulk['Items'] ?? $bulk['items'] ?? [];
+            $item = is_array($items) && isset($items[0]) && is_array($items[0]) ? $items[0] : [];
+
+            // Parseo verificado con un rechazo real (2026-07-30). dEstResField
+            // ("Aprobado"/"Rechazado") es la fuente más confiable cuando está
+            // presente; StatusString/Success son el fallback cuando SIFEN
+            // todavía no devolvió el detalle anidado.
+            $sifenResult = $item['SifenResult'] ?? $item['sifenResult'] ?? null;
+            $dEstRes = null;
+            if (is_array($sifenResult)) {
+                $rProtDe = $sifenResult['rRetEnviDe']['rProtDeField'] ?? $sifenResult['rretEnviDe']['rProtDeField'] ?? null;
+                if (is_array($rProtDe)) {
+                    $dEstRes = $rProtDe['dEstResField'] ?? null;
+                }
+            }
+
+            $statusString = (string) ($item['StatusString'] ?? $item['statusString'] ?? '');
+            $success = $item['Success'] ?? $item['success'] ?? null;
+
+            if (is_string($dEstRes) && $dEstRes !== '') {
+                $sifenStatus = $dEstRes; // "Aprobado" | "Rechazado"
+            } elseif ($statusString !== '') {
+                $sifenStatus = $statusString; // ej. "Exitoso" | "FinalizadoERROR"
+            } elseif ($success !== null) {
+                $sifenStatus = $success ? 'Aprobado' : 'Rechazado';
+            } else {
+                $sifenStatus = null;
+            }
+
             ncmExecute(
                 "UPDATE einvoice_document
                     SET sifen_status = ?, sifen_result = ?::jsonb, sifen_checked_at = now()
                   WHERE einvoicedocid = ?",
-                [$sifenStatus !== '' ? $sifenStatus : null, json_encode($match, JSON_UNESCAPED_UNICODE), $doc['id']]
+                [$sifenStatus, json_encode($bulk, JSON_UNESCAPED_UNICODE), $doc['id']]
             );
             $updated++;
         }
@@ -979,9 +988,15 @@ final class EInvoiceService
             $stamp  = $this->decodeJsonb($account['stamp'] ?? null);
             $config = $this->decodeJsonb($account['account_config'] ?? null);
 
+            // issuedDate: naive local de Asunción, mismo criterio que signDate
+            // de la cancelación (ver FactomateProvider::cancel) —
+            // date_default_timezone_set del proceso PHP ya está en la TZ de
+            // Asunción (bootstrap del proyecto).
+            $issuedDate = date('Y-m-d\TH:i:s');
+
             $mapper = new SaleToInvoiceMapper();
             try {
-                $payload = $mapper->build($sale, $stamp, $config);
+                $payload = $mapper->build($sale, $stamp, $config, $issuedDate);
             } catch (\RuntimeException $e) {
                 // Regla fiscal violada o dato faltante — NUNCA se manda a Factomate
                 // para que rebote, se marca error directo con el motivo en castellano.
@@ -1009,14 +1024,21 @@ final class EInvoiceService
                 return false;
             }
 
+            // provider_number cachea el `Id` raíz del bulk devuelto por /Bulk —
+            // es la llave de reconciliación con getBulk() (ver reconcile() y
+            // FactomateProvider::getBulk). Columna heredada de mig 92
+            // (nombre genérico pensado para Automate, quedó sin uso tras el
+            // pivot a Factomate en mig 95) — se reusa acá en vez de sumar
+            // una columna nueva.
             ncmExecute(
                 "UPDATE einvoice_document
-                    SET status = 'issued', cdc = ?, document_number = ?, provider_response = ?::jsonb,
+                    SET status = 'issued', cdc = ?, document_number = ?, provider_number = ?, provider_response = ?::jsonb,
                         issued_at = now(), updated_at = now()
                   WHERE einvoicedocid = ?",
                 [
                     (string) $result['cdc'],
                     $result['documentNumber'] !== null ? (string) $result['documentNumber'] : null,
+                    $result['bulkId'] !== null ? (string) $result['bulkId'] : null,
                     json_encode($result['raw'] ?? [], JSON_UNESCAPED_UNICODE),
                     $docId,
                 ]

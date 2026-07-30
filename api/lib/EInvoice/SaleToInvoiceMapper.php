@@ -5,8 +5,15 @@ declare(strict_types=1);
 namespace Punto\Api\EInvoice;
 
 /**
- * Convierte una venta de Punto en el payload de `POST /api/electronicDocument/Bulk`
- * de Factomate.
+ * Convierte una venta de Punto en el documento (SIN envolver en
+ * `ElectronicDocuments: []`, eso lo hace FactomateProvider::issue()) que
+ * `POST /api/electronicDocument/Bulk` de Factomate espera.
+ *
+ * Shape verificado contra la API real (2026-07-30) — se emitió una factura
+ * de prueba exitosa con este shape exacto. Fuente de verdad:
+ * `/Users/xstian/Dropbox/Automate/Agent/src/integrations/efatech/efatech.types.ts`
+ * y `.../src/services/billing/document-builder.ts` (implementación real en
+ * producción de otro cliente de Factomate).
  *
  * Shape esperado de `$sale` (array asociativo armado por el caller a partir
  * de la venta ya persistida — este mapper NO lee de la base, solo transforma):
@@ -59,14 +66,21 @@ final class SaleToInvoiceMapper
 
     private const INNOMINADO_LIMITE_GS = 1_000_000;
 
+    // contributorType: con RUC → 1, sin RUC → 2. Ver nota en buildClient().
+    private const CONTRIBUTOR_TYPE_CON_RUC = 1;
+    private const CONTRIBUTOR_TYPE_SIN_RUC = 2;
+
     /**
      * @param array<string,mixed> $sale   Ver shape documentado arriba.
      * @param array<string,mixed> $stamp  Timbrado cacheado de einvoice_account.stamp (trae 'Id').
      * @param array<string,mixed> $config Config de la cuenta (paymentMethodMap, defaultPaymentMethodCode, series).
-     * @return array<string,mixed> Payload listo para POST /api/electronicDocument/Bulk.
+     * @param string $issuedDate Naive `YYYY-MM-DDTHH:MM:SS` en hora local de Asunción — mismo
+     *        criterio que `signDate` de la cancelación (ver FactomateProvider::cancel).
+     * @return array<string,mixed> UN documento — el caller (FactomateProvider::issue) lo envuelve en
+     *         `{"ElectronicDocuments": [...]}` antes de mandarlo.
      * @throws \RuntimeException Con mensaje en castellano indicando qué dato falta o qué regla fiscal se viola.
      */
-    public function build(array $sale, array $stamp, array $config): array
+    public function build(array $sale, array $stamp, array $config, string $issuedDate): array
     {
         $total = (float) ($sale['total'] ?? 0);
         $operationCondition = (int) ($sale['operationCondition'] ?? 0);
@@ -96,11 +110,16 @@ final class SaleToInvoiceMapper
 
         $client = $this->buildClient((array) ($sale['client'] ?? []), $total, $operationCondition);
 
+        // exchangeRate: 0 para PYG (único caso soportado, ver guard de moneda
+        // arriba). Se pasa el mismo valor a cada item vía itemExchangeRate —
+        // SIFEN valida consistencia entre ambos.
+        $exchangeRate = 0;
+
         $itemsPayload = [];
         $taxSum = 0.0;
         $itemTotalSum = 0.0;
         foreach ($items as $i => $item) {
-            [$itemPayload, $itemTax] = $this->buildItem((array) $item, $i);
+            [$itemPayload, $itemTax] = $this->buildItem((array) $item, $i, $exchangeRate);
             $itemsPayload[] = $itemPayload;
             $taxSum += $itemTax;
             $itemTotalSum += (float) ($item['total'] ?? 0);
@@ -119,12 +138,21 @@ final class SaleToInvoiceMapper
         $payload = [
             'documentTypeCode'      => 1,
             'issuingType'           => 0,
+            // securityCode: obligatorio, 9 dígitos aleatorios. Verificado contra
+            // la API real (2026-07-30) — sin este campo Factomate rechaza la emisión.
+            'securityCode'          => $this->randomSecurityCode(),
+            // Typo "aditionalInformation" (una sola 'd') es de la API de Factomate,
+            // no se corrige. Obligatorio, string vacío cuando no aplica.
+            'aditionalInformation'  => '',
             'number'                => -1, // SIEMPRE -1: numera la SET, no configurable.
             'series'                => (string) ($config['series'] ?? 'AA'),
+            // issuedDate (NO issueDate): naive YYYY-MM-DDTHH:MM:SS en hora local
+            // de Asunción, mismo criterio que signDate de la cancelación.
+            'issuedDate'            => $issuedDate,
             'transactionTypeCode'   => 2,
             'taxTypeCode'           => 1,
             'currencyTypeCode'      => 'PYG',
-            'exchangeRate'          => 0, // 0 para PYG. Si algún día se factura en otra moneda, > 0 obligatorio.
+            'exchangeRate'          => $exchangeRate,
             'PresenceIndicatorCode' => 1,
             'branch'                => [
                 'branchDocumentTypes' => [
@@ -133,7 +161,9 @@ final class SaleToInvoiceMapper
             ],
             'client'  => $client,
             'operationCondition' => $operationCondition,
-            'items'   => $itemsPayload,
+            // electronicDocumentItems (NO 'items' ni 'details') — verificado
+            // contra la API real (2026-07-30).
+            'electronicDocumentItems' => $itemsPayload,
             // subTotal === total, AMBOS con IVA incluido. La documentación de
             // integración lo describe como "sin IVA" pero el flujo probado en
             // producción manda subTotal === total y SIFEN deriva el desglose de
@@ -159,7 +189,7 @@ final class SaleToInvoiceMapper
     /**
      * @return array{0: array<string,mixed>, 1: float} [payload del item, IVA de ese item]
      */
-    private function buildItem(array $item, int $index): array
+    private function buildItem(array $item, int $index, int $exchangeRate): array
     {
         $unitPrice = (float) ($item['unitPrice'] ?? 0);
         $quantity = (float) ($item['quantity'] ?? 0);
@@ -181,25 +211,48 @@ final class SaleToInvoiceMapper
         // taxRate/exenta, este es el primer sospechoso.
         $itemTax = $taxRate > 0 ? round($itemTotal * $taxRate / (100 + $taxRate)) : 0.0;
 
+        // Nombres y campos verificados contra la API real (2026-07-30). No hay
+        // campo `total` por item — SIFEN lo deriva de quantity * unitPriceWithTax.
         return [
             [
-                'description'          => (string) ($item['description'] ?? ''),
-                'quantity'             => $quantity,
-                'measurementUnitCode'  => 0,
-                'internalCode'         => '-',
-                'unitPriceWithTax'     => $unitPrice,
-                'total'                => $itemTotal,
-                'taxImpact'            => 0,
-                'taxRate'              => $taxRate,
-                'taxedProportion'      => 100,
+                'internalCode'                              => '-',
+                'description'                                => (string) ($item['description'] ?? ''),
+                // Verificado: otros valores de measurementUnitCode rompen la
+                // serialización XML del lado de Factomate.
+                'measurementUnitCode'                       => 0,
+                'quantity'                                   => $quantity,
+                'informationOfInterest'                      => '',
+                'unitPriceWithTax'                           => $unitPrice,
                 // Debe ser igual al exchangeRate del documento (SIFEN valida
                 // consistencia); 0 porque el documento siempre va en PYG acá.
-                'itemExchangeRate'     => 0,
-                'discount'             => 0,
-                'advance'              => 0,
+                'itemExchangeRate'                           => $exchangeRate,
+                'itemUnitPriceDiscountWithTax'                => 0,
+                'itemDiscountPercentage'                      => 0,
+                'itemUnitPriceGlobalDiscountWithTax'          => 0,
+                'itemUnitPriceAdvanceWithTax'                 => 0,
+                'itemUnitPriceGlobalAdvanceWithTax'           => 0,
+                'taxImpact'                                   => 0,
+                'taxedProportion'                             => 100,
+                'taxRate'                                     => $taxRate,
             ],
             $itemTax,
         ];
+    }
+
+    /**
+     * 9 dígitos aleatorios. Verificado contra la API real (2026-07-30):
+     * Factomate parsea este campo numéricamente y un carácter no-dígito
+     * produce un 400 cuyo mensaje no tiene nada que ver con el campo real
+     * que falló — mismo criterio que `randomSecurityCode()` en la
+     * implementación de referencia (Automate/efatech).
+     */
+    private function randomSecurityCode(): string
+    {
+        $code = '';
+        for ($i = 0; $i < 9; $i++) {
+            $code .= (string) random_int(0, 9);
+        }
+        return $code;
     }
 
     /**
@@ -227,19 +280,33 @@ final class SaleToInvoiceMapper
             );
         }
 
+        // contributorType: con RUC → 1 (persona física), sin RUC → 2. Es lo que
+        // hace la implementación real de referencia (Automate/efatech,
+        // CONTRIBUTOR_TYPES) — verificado con una factura emitida con éxito
+        // (2026-07-30). No es intuitivo (uno esperaría 2=jurídica ligado a
+        // tener RUC) pero es el mapeo que la API acepta; no "corregir".
+        //
+        // businessName/fantasyName (NO 'name'), operationType, address, email
+        // y phoneNumber van SIEMPRE presentes, aunque vacíos — campos
+        // verificados contra la API real (2026-07-30).
         if ($nature === 'contribuyente') {
             if (empty($ruc)) {
                 throw new \RuntimeException('Falta el RUC del cliente — es obligatorio para facturar a un contribuyente.');
             }
             return [
                 'nature'                     => self::NATURE_CONTRIBUYENTE,
+                'operationType'              => 2, // B2C — único caso soportado hoy.
                 'identityDocumentTypeCode'   => self::DOC_TYPE_CEDULA,
-                'ruc'                        => (string) $ruc,
                 'identityDocumentNumber'     => $ci !== null && $ci !== '' ? (string) $ci : null,
-                'contributorType'            => (int) ($rawClient['contributorType'] ?? 2),
-                'name'                       => (string) ($rawClient['name'] ?? ''),
                 'countryCode'                => 107,
                 'countryName'                => 'Paraguay',
+                'contributorType'            => self::CONTRIBUTOR_TYPE_CON_RUC,
+                'ruc'                        => (string) $ruc,
+                'businessName'               => (string) ($rawClient['name'] ?? ''),
+                'fantasyName'                => (string) ($rawClient['name'] ?? ''),
+                'address'                    => (string) ($rawClient['address'] ?? ''),
+                'email'                      => (string) ($rawClient['email'] ?? ''),
+                'phoneNumber'                => (string) ($rawClient['phone'] ?? ''),
             ];
         }
 
@@ -249,26 +316,36 @@ final class SaleToInvoiceMapper
             }
             return [
                 'nature'                     => self::NATURE_FISICA_O_INNOMINADO,
+                'operationType'              => 2,
                 'identityDocumentTypeCode'   => self::DOC_TYPE_CEDULA,
-                'ruc'                        => null,
                 'identityDocumentNumber'     => (string) $ci,
-                'contributorType'            => 1,
-                'name'                       => (string) ($rawClient['name'] ?? ''),
                 'countryCode'                => 107,
                 'countryName'                => 'Paraguay',
+                'contributorType'            => self::CONTRIBUTOR_TYPE_SIN_RUC,
+                'ruc'                        => null,
+                'businessName'               => (string) ($rawClient['name'] ?? ''),
+                'fantasyName'                => (string) ($rawClient['name'] ?? ''),
+                'address'                    => (string) ($rawClient['address'] ?? ''),
+                'email'                      => (string) ($rawClient['email'] ?? ''),
+                'phoneNumber'                => (string) ($rawClient['phone'] ?? ''),
             ];
         }
 
         // Innominado (consumidor final, sin identificar; ya validado que el total lo permite).
         return [
             'nature'                     => self::NATURE_FISICA_O_INNOMINADO,
+            'operationType'              => 2,
             'identityDocumentTypeCode'   => self::DOC_TYPE_INNOMINADO,
-            'ruc'                        => null,
             'identityDocumentNumber'     => null,
-            'contributorType'            => 1,
-            'name'                       => (string) ($rawClient['name'] ?? 'Consumidor final'),
             'countryCode'                => 107,
             'countryName'                => 'Paraguay',
+            'contributorType'            => self::CONTRIBUTOR_TYPE_SIN_RUC,
+            'ruc'                        => null,
+            'businessName'               => (string) ($rawClient['name'] ?? 'Consumidor final'),
+            'fantasyName'                => (string) ($rawClient['name'] ?? 'Consumidor final'),
+            'address'                    => (string) ($rawClient['address'] ?? ''),
+            'email'                      => (string) ($rawClient['email'] ?? ''),
+            'phoneNumber'                => (string) ($rawClient['phone'] ?? ''),
         ];
     }
 

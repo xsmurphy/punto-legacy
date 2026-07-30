@@ -636,10 +636,65 @@ de prueba. **Cinco cosas estaban mal y solo se veían así.**
 Los tres primeros hacían que **ninguna cuenta pudiera conectarse**; el cuarto,
 que ninguna pudiera emitir.
 
+### Emisión verificada — el payload de la guía estaba mal
+
+Se emitió una factura de prueba real. **El shape de la guía no alcanzaba**: la
+guía nombra la mayoría de los campos de cabecera pero no el envoltorio, ni el
+nombre del array de ítems, ni el de la razón social, ni la fecha. Todo eso
+salió de la implementación real de otro cliente de Factomate, que vive en
+`/Users/xstian/Dropbox/Automate/Agent/src/` (`integrations/efatech/efatech.types.ts`
+y `services/billing/document-builder.ts`) — **es la fuente de verdad del payload**.
+
+Correcciones:
+
+- El body va envuelto en **`{"ElectronicDocuments": [ … ]}`**. Suelto responde
+  `400 "La propiedad ElectronicDocuments se encuentra vacia"`.
+- **`issuedDate`** (no `issueDate`), naive `YYYY-MM-DDTHH:MM:SS` hora Asunción.
+- **`electronicDocumentItems`** (no `items` ni `details`). Sin campo `total` por
+  ítem.
+- **`securityCode`** obligatorio: 9 dígitos aleatorios.
+- **`aditionalInformation`** obligatorio (el typo de una sola `d` es de la API).
+- Cliente: **`businessName`** + `fantasyName` (no `name`), más `operationType: 2`
+  (B2C), `address`, `email`, `phoneNumber`.
+- `contributorType`: **con RUC → 1, sin RUC → 2**.
+- `measurementUnitCode: 0`. Otros valores rompen la serialización XML del lado
+  de Factomate con un error de `LxSerializationException`.
+
+Respuesta de `/Bulk`: `Items[0]` trae `CDC`, `Success`, `StatusId`,
+`StatusString`, `Error`, `SecurityCode`, `SignDate`, **`DCarQR`** (link del QR
+de ekuatia, el que va impreso) y **`XmlUrl`**; a nivel raíz un `Id` que es la
+llave de reconciliación. **No existe `DocumentNumber` ni `StatusMessage`** — el
+código los leía y siempre obtenía null.
+
+El número lo asignó la SET: `CurrentNumber` estaba en 53 y el CDC emitido
+terminó en `…0000054`. `number: -1` funciona.
+
+### CRÍTICO — un CDC con `Success: true` NO significa que SIFEN aceptó
+
+Comprobado: la factura de prueba volvió con CDC válido y `Success: true`, y
+**SIFEN la rechazó** — `getBulk` la muestra como `FinalizadoERROR` /
+`Rechazado`, código **1002 (documento electrónico duplicado)**.
+
+Peor: **el KuDE se descargó igual** (PDF válido de 33 KB) para ese documento
+rechazado. Ni el CDC, ni el `Success`, ni el PDF prueban que la factura valga.
+**El único campo que lo dice es `sifen_status`.**
+
+### `GetAll` no sirve — la reconciliación va por `getBulk/{id}`
+
+`GET /api/ElectronicDocument/GetAll` devuelve `Items: []` incluso después de
+emitir (probado también con `?id=0` y con `?offset/size`). La reconciliación
+sobre `GetAll` era un **no-op silencioso**: nunca habría actualizado un
+`sifen_status`.
+
+La fuente real es `GET /api/electronicDocument/getBulk/{id}` con el `Id` raíz
+de la respuesta de `/Bulk`, que por eso ahora se persiste en
+`einvoice_document.provider_number`. El resultado de SIFEN se lee en
+`Items[0].SifenResult.rRetEnviDe.rProtDeField` → `dEstResField` y
+`gResProcField[].dCodResField/dMsgResField`.
+
 ### Todavía sin verificar
 
-`/Bulk` (emisión), `getkude`, `/event` (cancelación) y `GetAll`
-(reconciliación) — requieren emitir un documento real en el SIFEN de prueba.
+`/event` (cancelación) — requiere anular un documento emitido.
 
 ## Preguntas abiertas para Factomate
 

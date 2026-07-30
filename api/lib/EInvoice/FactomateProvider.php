@@ -165,13 +165,31 @@ final class FactomateProvider implements EInvoiceProvider
 
     // ── F1/F2/F3 — sin implementar en F0 ────────────────────────────────
 
+    /**
+     * POST /api/electronicDocument/Bulk. El body va ENVUELTO en
+     * `{"ElectronicDocuments": [$payload]}` — sin eso Factomate responde
+     * `400 "La propiedad ElectronicDocuments se encuentra vacia"` (verificado
+     * contra la API real, 2026-07-30). `$payload` es el documento SUELTO que
+     * arma `SaleToInvoiceMapper::build()` — el wrapping es responsabilidad de
+     * este método, no del mapper.
+     *
+     * CRÍTICO — leer antes de tocar el flujo de emisión: un `Success: true`
+     * acá NO significa que SIFEN aceptó el documento. Se comprobó hoy
+     * (2026-07-30) una emisión con CDC válido y `Success: true` que terminó
+     * `Rechazado` por SIFEN con código 1002 (documento duplicado) — y el
+     * KuDE se pudo descargar igual para ese documento rechazado. Ni el CDC
+     * ni el PDF prueban validez fiscal. El único campo que sí lo dice es
+     * `sifen_status`, poblado por `reconcile()` vía `getBulk()` más abajo —
+     * este `issue()` solo confirma que Factomate ACEPTÓ el envío a SIFEN,
+     * no que SIFEN lo aprobó.
+     *
+     * Devuelve también el `Id` raíz del bulk (crítico: es la llave de
+     * reconciliación con getBulk(), el caller lo persiste en
+     * `einvoice_document.provider_number`), `DCarQR` (link del QR de
+     * ekuatia — va impreso en el KuDE) y `XmlUrl`.
+     */
     public function issue(string $environment, string $phone, string $bearer, array $payload): array
     {
-        // La emisión es SINCRÓNICA: la respuesta de /Bulk ya trae el CDC en
-        // Items[0].CDC. NO se implementa polling a getBulk/{id} — la
-        // implementación de referencia lo sacó porque reventaba el
-        // presupuesto de 15 s del proxy en el entorno de test de SIFEN.
-        //
         // request() ya loguea el payload saliente completo a error_log (guía
         // §7) — es la única forma práctica de destrabar un rechazo, porque un
         // FormatException numérico de Factomate puede aparecer como un
@@ -179,16 +197,26 @@ final class FactomateProvider implements EInvoiceProvider
         // operacion a CREDITO debe ingresar Informaciones de Credito" por un
         // campo mal tipado). El bearer nunca se loguea: va solo en el header
         // Authorization, que request()/exec() no serializan a los logs.
-        $raw = $this->request('POST', '/api/electronicDocument/Bulk', $payload, $bearer, $phone, $environment);
+        $body = ['ElectronicDocuments' => [$payload]];
+        $raw = $this->request('POST', '/api/electronicDocument/Bulk', $body, $bearer, $phone, $environment);
 
         $items = $raw['Items'] ?? $raw['items'] ?? [];
         $first = is_array($items) && isset($items[0]) && is_array($items[0]) ? $items[0] : [];
 
         return [
             'cdc'            => $first['CDC'] ?? $first['cdc'] ?? null,
-            'documentNumber' => $raw['DocumentNumber'] ?? $raw['documentNumber'] ?? null,
+            // NO existe 'DocumentNumber' en la respuesta real — el número va
+            // dentro del CDC. Este campo queda deprecated a null; se mantiene
+            // en el array de retorno solo para no romper callers existentes.
+            'documentNumber' => null,
             'success'        => (bool) ($first['Success'] ?? $first['success'] ?? false),
-            'statusMessage'  => $first['StatusMessage'] ?? $first['statusMessage'] ?? null,
+            // 'StatusMessage' tampoco existe — el mensaje real está en
+            // StatusString (y Error). Verificado contra la API real (2026-07-30).
+            'statusMessage'  => $first['StatusString'] ?? $first['statusString'] ?? $first['Error'] ?? $first['error'] ?? null,
+            // Id raíz del bulk — llave de reconciliación, ver getBulk().
+            'bulkId'         => $raw['Id'] ?? $raw['id'] ?? null,
+            'dCarQR'         => $first['DCarQR'] ?? $first['dCarQR'] ?? null,
+            'xmlUrl'         => $first['XmlUrl'] ?? $first['xmlUrl'] ?? null,
             'raw'            => $raw,
         ];
     }
@@ -267,9 +295,26 @@ final class FactomateProvider implements EInvoiceProvider
         throw new \LogicException('FactomateProvider::clientByRuc — pendiente de F3 (GET /api/Client/getbyruc/{ruc})');
     }
 
-    public function getAllDocuments(string $environment, string $phone, string $bearer): array
+    /**
+     * GET /api/electronicDocument/getBulk/{id} — fuente REAL de
+     * reconciliación fiscal. Verificado contra la API real (2026-07-30):
+     * `GET /api/ElectronicDocument/GetAll` devuelve `Items: []` aun después
+     * de emitir con éxito — ese endpoint es un no-op silencioso para este
+     * propósito, no se usa más. `$bulkId` es el `Id` raíz que devolvió
+     * `/Bulk` al emitir (ver issue()), cacheado en
+     * `einvoice_document.provider_number`.
+     *
+     * Parseo del resultado (verificado con un rechazo real, 2026-07-30):
+     *   Items[0].SifenResult.rRetEnviDe.rProtDeField.dEstResField      → "Rechazado"/"Aprobado"
+     *   Items[0].SifenResult.rRetEnviDe.rProtDeField.gResProcField[]   → { dCodResField, dMsgResField }
+     *   Items[0].StatusString                                          → "FinalizadoERROR"/"Exitoso"
+     *   Items[0].Success                                               → false cuando SIFEN rechazó
+     * Ese parseo vive en EInvoiceService::reconcile(), no acá — este método
+     * solo devuelve el payload crudo.
+     */
+    public function getBulk(string $environment, string $phone, string $bearer, string $bulkId): array
     {
-        return $this->request('GET', '/api/ElectronicDocument/GetAll', null, $bearer, $phone, $environment);
+        return $this->request('GET', '/api/electronicDocument/getBulk/' . rawurlencode($bulkId), null, $bearer, $phone, $environment);
     }
 
     // ── Internals ────────────────────────────────────────────────────────
