@@ -115,7 +115,11 @@ final class PurchasesService
         // userId en `transaction` es en realidad un contactId (mismo patrón que
         // Reports/UsersService.php) — de ahí el segundo LEFT JOIN a contact.
         $row = ncmExecute(
-            "SELECT t.*, c.contactName AS supplierName, o.outletName,
+            // `t.meta::text AS meta_raw`: el wrapper aplana `meta` y borra la
+            // columna (Query::flattenJsonb), asi que `$row['meta']` volvia null
+            // y los items de la compra se perdian. El alias sobrevive al flatten.
+            "SELECT t.*, t.meta::text AS meta_raw,
+                    c.contactName AS supplierName, o.outletName,
                     u.contactName AS userName
                FROM transaction t
                LEFT JOIN contact c ON c.contactId = t.supplierId
@@ -128,9 +132,9 @@ final class PurchasesService
         if (!$row) {
             return null;
         }
-        // meta JSONB → array. Driver puede devolverlo como string JSON o ya
-        // decoded según el adapter; cubrimos ambos.
-        $meta = $row['meta'] ?? '{}';
+        // meta JSONB → array. Se lee del alias `meta_raw` (ver la query): la
+        // columna `meta` no sobrevive al flatten del wrapper.
+        $meta = $row['meta_raw'] ?? $row['meta'] ?? '{}';
         if (is_string($meta)) {
             $meta = json_decode($meta, true) ?: [];
         }
@@ -445,7 +449,7 @@ final class PurchasesService
         }
 
         $row = ncmExecute(
-            "SELECT * FROM transaction
+            "SELECT *, meta::text AS meta_raw FROM transaction
               WHERE transactionId = ? AND companyId = ? AND transactionType = 1
               LIMIT 1",
             [$id, $companyId]
@@ -457,8 +461,10 @@ final class PurchasesService
             throw new \RuntimeException('La compra ya fue anulada o no es anulable');
         }
 
-        // meta JSONB → array (string JSON o ya decoded según el adapter).
-        $meta = $row['meta'] ?? '{}';
+        // meta JSONB → array, desde el alias `meta_raw` (la columna `meta` la
+        // borra el flatten del wrapper). Sin esto, `details` quedaba vacio y
+        // anular una compra NO revertia el stock.
+        $meta = $row['meta_raw'] ?? $row['meta'] ?? '{}';
         if (is_string($meta)) {
             $meta = json_decode($meta, true) ?: [];
         }

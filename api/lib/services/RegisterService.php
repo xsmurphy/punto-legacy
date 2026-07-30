@@ -123,16 +123,22 @@ final class RegisterService
      */
     public function getConfig(string $registerId, string $companyId): array
     {
+        // OJO con el alias: `config` (igual que `data` y `meta`) es una de las
+        // columnas que el wrapper APLANA — Query::flattenJsonb decodifica su
+        // contenido al nivel de la fila y BORRA la clave. Con `AS config` esta
+        // función devolvía SIEMPRE [] y todos los toggles del POS se leían en su
+        // default, ignorando lo guardado (bug 2026-07-30). El alias `posconfig`
+        // no está en esa lista y sobrevive intacto.
         $row = ncmExecute(
-            "SELECT data->'posConfig' AS config FROM register
+            "SELECT data->'posConfig' AS posconfig FROM register
               WHERE registerId = ? AND companyId = ? LIMIT 1",
             [$registerId, $companyId],
             false
         );
-        if (!$row || empty($row['config'])) {
+        if (!$row || empty($row['posconfig'])) {
             return [];
         }
-        $decoded = json_decode((string) $row['config'], true);
+        $decoded = json_decode((string) $row['posconfig'], true);
         return is_array($decoded) ? $decoded : [];
     }
 

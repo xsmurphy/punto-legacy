@@ -76,7 +76,9 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
 
     // 1. Cargar transacción principal con datos de contactos y outlet
     $tx = ncmExecute(
-        "SELECT t.*,
+        // `t.meta::text AS meta_raw`: `meta` no sobrevive al flatten del wrapper
+        // (Query::flattenJsonb la desempaqueta y borra la columna).
+        "SELECT t.*, t.meta::text AS meta_raw,
                 c.contactName AS customerName,
                 u.contactName AS userName,
                 r.contactName AS responsibleName,
@@ -237,7 +239,7 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         'responsibleId'  => $tx['responsibleId'] !== null ? (string) $tx['responsibleId'] : null,
         'outletId'       => $tx['outletId'] !== null ? (string) $tx['outletId'] : null,
         'outletName'     => $tx['outletName'] !== null ? (string) $tx['outletName'] : null,
-        'meta'           => json_decode($tx['meta'] ?? '{}', true) ?? [],
+        'meta'           => json_decode($tx['meta_raw'] ?? $tx['meta'] ?? '{}', true) ?? [],
     ];
 
     apiOk([

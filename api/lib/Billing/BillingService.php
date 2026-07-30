@@ -49,8 +49,10 @@ final class BillingService
         $expired   = (bool)  ($co['planexpired']       ?? $co['planExpired'] ?? false);
         $expiresAt = $co['expiresat'] ?? $co['expiresAt'] ?? null;
 
-        // Desempaquetar config JSONB para moduleData (add-ons).
-        $config = $co['config'] ?? '';
+        // Desempaquetar config JSONB para moduleData (add-ons). Se lee del alias
+        // `config_raw`: la columna `config` la aplana y borra el wrapper
+        // (Query::flattenJsonb), asi que moduleData quedaba siempre vacio.
+        $config = $co['config_raw'] ?? $co['config'] ?? '';
         if (is_string($config)) {
             $config = json_decode($config, true) ?: [];
         }
