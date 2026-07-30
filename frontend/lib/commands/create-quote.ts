@@ -52,6 +52,8 @@ export async function createQuote(input: CreateQuoteInput): Promise<CreateQuoteR
   // Misma regla que la venta: los descuentos viven en el ítem. Antes esto
   // mandaba `discount: 0, totalDiscount: 0` fijo, así que una cotización con
   // líneas descontadas se guardaba e imprimía por el bruto.
+  // Sin `ivaRemoved`: una cotización se emite a precio de lista. El toggle de
+  // quitar IVA es de la venta, no del presupuesto.
   const allocations = allocateLineDiscounts(lines, saleDiscount)
 
   const saleItems = lines.map((line, i) => ({

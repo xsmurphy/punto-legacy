@@ -169,6 +169,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const sessionOrderIds = useCartStore((s) => s.sessionOrderIds)
   const settlementIntent = useCartStore((s) => s.settlementIntent)
   const saleDiscount = useCartStore((s) => s.saleDiscount)
+  // Venta sin IVA: viaja al payload (importes netos + flag) — mig 101.
+  const ivaRemoved = useCartStore((s) => s.ivaRemoved)
   const setQuoteParent = useCartStore((s) => s.setQuoteParent)
   const clearCart = useClearCart()
   const total = useCartStore(selectCartTotal)
@@ -362,6 +364,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         tags,
         quoteParentId,
         saleDiscount,
+        ivaRemoved,
         timezone: config?.timezone,
         dueDate: credito ? (dueDate || null) : null,
         uid: saleUidRef.current,
@@ -802,7 +805,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     // Rebuild minimal payload for reprint — real payload is local to handleConfirm.
     // Los descuentos se reparten igual que en la venta original (misma función):
     // con `discount: 0` fijo, el ticket reimpreso no mostraba ningún descuento.
-    const reprAllocations = allocateLineDiscounts(lines, saleDiscount)
+    const reprAllocations = allocateLineDiscounts(lines, saleDiscount, ivaRemoved)
     const reprPayload = {
       uid: "",
       type: credito ? 3 : 0,
@@ -820,6 +823,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       subtotal: saleResult.total,
       tax: 0,
       discount: reprAllocations.reduce((s, a) => s + a.totalDiscount, 0),
+      ivaRemoved,
       client: customer?.id ?? null,
       user: null,
       note: null,

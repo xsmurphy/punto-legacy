@@ -54,6 +54,14 @@ final class SaleInput
         // ── 35b: factura electrónica PY ────────────────────────────────────
         /** Payload EI construido por ncmFE.py.build() en el front. null = sin EI. */
         public readonly ?array $electronicInvoicePY = null,
+        /**
+         * Venta emitida SIN IVA (toggle del POS). Los importes del payload YA
+         * vienen netos — esta bandera dice por qué son esos y no los de lista, y
+         * es lo que tienen que mirar los reportes que derivan el IVA del `taxId`
+         * del ítem. Ver mig 101. Antes el toggle moría en el browser: se cobraba
+         * sin IVA pero se registraba con IVA.
+         */
+        public readonly bool $ivaRemoved = false,
     ) {
     }
 
@@ -130,6 +138,7 @@ final class SaleInput
             note:       !empty($payload['note'])      ? (string) $payload['note']      : null,
             ident:      !empty($payload['ident'])     ? (string) $payload['ident']     : null,
             invoiceNo:  isset($payload['invoiceno']) && $payload['invoiceno'] !== '' ? (int) $payload['invoiceno'] : null,
+            ivaRemoved: !empty($payload['ivaRemoved']),
             dueDate:    !empty($payload['dueDate'])   ? (string) $payload['dueDate']   : null,
             currency:   !empty($payload['currency'])  ? (string) $payload['currency']  : null,
             status:     self::normalizeStatus($payload['status'] ?? null),

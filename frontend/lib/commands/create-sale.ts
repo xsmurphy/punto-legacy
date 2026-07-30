@@ -30,7 +30,7 @@
 // device (`apiAuthPosContext`), nunca la cookie del panel.
 import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
-import { allocateLineDiscounts, type SaleDiscountInput } from "@/lib/cart/allocate-discounts"
+import { allocateLineDiscounts, TAX_RATE, type SaleDiscountInput } from "@/lib/cart/allocate-discounts"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { tenantNow } from "@/lib/format-date"
 
@@ -147,6 +147,12 @@ export interface CreateSalePayload {
   note: string | null
   /** Flag venta interna (consumo propio). */
   interno: boolean
+  /**
+   * Venta emitida sin IVA. Los importes ya vienen netos; el backend lo persiste
+   * en `transaction.ivaRemoved` (mig 101) para que los reportes que derivan el
+   * IVA del `taxId` del ítem no lo devenguen en esta venta.
+   */
+  ivaRemoved: boolean
   /** Etiquetas de texto libre asociadas a la venta. */
   tags: string[]
   /**
@@ -192,6 +198,12 @@ interface RawSaleResponse {
 
 export interface BuildSaleInput {
   lines: CartLine[]
+  /**
+   * Venta emitida sin IVA (toggle del POS). Los importes del payload salen
+   * netos y el flag viaja al backend (columna `transaction.ivaRemoved`, mig
+   * 101) — antes moría en el browser: se cobraba sin IVA y se registraba con.
+   */
+  ivaRemoved?: boolean
   payments: SalePaymentMethod[]
   credito: boolean
   interno: boolean
@@ -239,20 +251,22 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid, ivaRemoved = false } = input
 
   // Los descuentos se reparten por ÍTEM (ver lib/cart/allocate-discounts.ts):
   // el descuento de venta se prorratea entre las líneas y se suma al descuento
   // propio de cada una. `total` sigue siendo el BRUTO — es la semántica de
   // `itemSold.itemSoldTotal`, que los reportes suman aparte de
   // `itemSoldDiscount` — y el neto sale de restarlos.
-  const allocations = allocateLineDiscounts(lines, saleDiscount)
+  const allocations = allocateLineDiscounts(lines, saleDiscount, ivaRemoved)
 
   const saleItems: SaleItem[] = lines.map((line, i) => ({
     itemId: line.itemId,
     name: line.name,
     count: line.qty,
-    price: line.unitPrice,
+    // Precio unitario efectivamente cobrado: con IVA quitado, el neto. El
+    // importe de autoridad es `total` (el bruto de la línea, ya ajustado).
+    price: ivaRemoved ? Math.round(line.unitPrice / (1 + TAX_RATE)) : line.unitPrice,
     total: allocations[i].gross,
     // Porcentaje EFECTIVO de la línea: su descuento propio más la parte del
     // descuento de venta que le tocó.
@@ -309,6 +323,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     user: userId,
     note: null,
     interno,
+    ivaRemoved,
     tags,
     parentTransactionId: quoteParentId ?? null,
     // Solo se manda en venta a crédito — en contado el backend la ignoraría

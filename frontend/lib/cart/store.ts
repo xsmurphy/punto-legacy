@@ -23,6 +23,7 @@ import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { Order, Fulfillment } from "@/hooks/use-orders"
 import type { CustomerAddress } from "@/lib/types/contact"
+import { lineGross, TAX_RATE as ALLOC_TAX_RATE } from "@/lib/cart/allocate-discounts"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -93,12 +94,12 @@ export type SettlementIntent =
   | { sessionId: string; kind: "share"; shareCount: number; shareIndex: number }
 
 /**
- * Tasa del IVA. Por ahora hardcodeada al modelo paraguayo (10% incluido en
- * precio final del item). TODO: cuando el catálogo exponga `taxRate` por item
- * (y el config del tenant exponga el modo "incluido / no incluido"), derivarlo
- * de ahí — soporta multi-tax y otros países.
+ * Tasa del IVA — reexportada desde `lib/cart/allocate-discounts.ts`, que es
+ * donde vive la fórmula compartida con el payload de la venta. TODO: cuando el
+ * catálogo exponga `taxRate` por item (y el config del tenant el modo
+ * "incluido / no incluido"), derivarlo de ahí — soporta multi-tax y otros países.
  */
-const TAX_RATE = 0.10
+const TAX_RATE = ALLOC_TAX_RATE
 
 /**
  * Subtotal de una línea ajustado por el flag `ivaRemoved`. El cálculo vive
@@ -114,8 +115,9 @@ const TAX_RATE = 0.10
  */
 export function lineSubtotal(line: CartLine, ivaRemoved: boolean): number {
   const discountFactor = 1 - (line.discount ?? 0) / 100
-  const raw = line.qty * line.unitPrice * discountFactor
-  return ivaRemoved ? Math.round(raw / (1 + TAX_RATE)) : raw
+  // Misma función que usa el payload (allocate-discounts.lineGross) — si los
+  // dos lados redondearan por separado, lo cobrado y lo registrado divergirían.
+  return lineGross(line.qty * line.unitPrice * discountFactor, ivaRemoved)
 }
 
 /**

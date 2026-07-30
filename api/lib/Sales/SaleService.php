@@ -547,6 +547,10 @@ final class SaleService
             'transactionDiscount'    => flipOnReturn($typeStr, $input->discount),
             'transactionTax'         => flipOnReturn($typeStr, $input->tax),
             'transactionTotal'       => flipOnReturn($typeStr, $input->subtotal),
+            // Venta sin IVA (toggle del POS, mig 101): los importes de arriba ya
+            // vienen netos desde el front. Sin esta bandera no habia forma de
+            // distinguir una venta sin IVA de una con IVA mal cargada.
+            'ivaRemoved'             => $input->ivaRemoved,
             'transactionUnitsSold'   => flipOnReturn($typeStr, $totalUnits),
 
             // meta JSONB: shape EXACTO del legacy — ambas keys son JSON-STRINGS adentro

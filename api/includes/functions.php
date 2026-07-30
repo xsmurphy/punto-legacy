@@ -1424,7 +1424,9 @@ if (!function_exists('_getTableSchema')) {
                                'cashbackAmount', 'returnedAmount', 'customerId', 'supplierId',
                                'userId', 'registerId', 'outletId', 'companyId',
                                'transactionPaymentMethod', 'transactionPaymentDate',
-                               'updated_at', 'meta'],
+                               'updated_at', 'meta',
+                               // mig 101 — venta emitida sin IVA (toggle del POS).
+                               'ivaRemoved'],
             ],
             'outlet' => [
                 'pk'       => 'outletId',

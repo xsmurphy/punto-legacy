@@ -22,6 +22,23 @@
  * convención que el resto del POS (guaraníes, sin decimales).
  */
 
+/**
+ * Tasa de IVA del modelo paraguayo (10% incluido en el precio de lista).
+ * Vive acá porque la fórmula del bruto es compartida — ver `lineGross`.
+ */
+export const TAX_RATE = 0.10
+
+/**
+ * Importe de una línea, ajustado por `ivaRemoved`. FUENTE ÚNICA de la fórmula:
+ * la usa el carrito (`lineSubtotal` en lib/cart/store.ts) y el payload de la
+ * venta. Si cada lado redondeara por su cuenta, lo que se cobra y lo que se
+ * registra diferirían por unos guaraníes — y con "quitar IVA" activo, por el
+ * 10% entero.
+ */
+export function lineGross(raw: number, ivaRemoved = false): number {
+  return ivaRemoved ? Math.round(raw / (1 + TAX_RATE)) : raw
+}
+
 export interface DiscountableLine {
   /** Id de la línea — se cruza con `saleDiscount.lineIds` para saber si la alcanza. */
   lineId?: string
@@ -63,12 +80,17 @@ export interface SaleDiscountInput {
 export function allocateLineDiscounts(
   lines: DiscountableLine[],
   saleDiscount?: SaleDiscountInput | null,
+  ivaRemoved = false,
 ): LineDiscountAllocation[] {
-  const gross = lines.map((l) => l.qty * l.unitPrice)
-  const lineDiscount = lines.map((l, i) =>
-    Math.round((gross[i] * Math.min(100, Math.max(0, l.discount ?? 0))) / 100),
+  // Bruto y neto con la MISMA fórmula (y el mismo redondeo) que el carrito:
+  // el descuento propio de la línea sale de la diferencia entre los dos, no de
+  // un redondeo aparte. Así `subtotal - discount` del payload es exactamente el
+  // total que vio y cobró el cajero.
+  const gross = lines.map((l) => lineGross(l.qty * l.unitPrice, ivaRemoved))
+  const net = lines.map((l) =>
+    lineGross(l.qty * l.unitPrice * (1 - Math.min(100, Math.max(0, l.discount ?? 0)) / 100), ivaRemoved),
   )
-  const net = gross.map((g, i) => g - lineDiscount[i])
+  const lineDiscount = gross.map((g, i) => g - net[i])
 
   // Solo las líneas ALCANZADAS por el descuento de venta pesan en su reparto:
   // las demás quedan con peso 0 y no reciben nada.
