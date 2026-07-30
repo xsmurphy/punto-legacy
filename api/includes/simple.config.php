@@ -109,6 +109,11 @@ define('APP_ENCRYPTION_KEY', $_ENV['APP_ENCRYPTION_KEY'] ?? '');
 // no se detecta hasta que ya es tarde.
 define('FACTOMATE_BASE_URL_TEST', $_ENV['FACTOMATE_BASE_URL_TEST'] ?? 'https://factomatedev.tech-precision.com');
 define('FACTOMATE_BASE_URL_PROD', $_ENV['FACTOMATE_BASE_URL_PROD'] ?? '');
+// EINVOICE_DRAIN_SECRET: secreto compartido para POST /v1/einvoice?action=drain
+// (F1) — el cron del sistema invoca el drainer del outbox SIN pasar por
+// apiAuthTenant (no hay realm de panel en un cron). Vacía/no definida → el
+// endpoint responde 503 SIEMPRE, nunca abierto sin secreto.
+define('EINVOICE_DRAIN_SECRET', $_ENV['EINVOICE_DRAIN_SECRET'] ?? '');
 
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);

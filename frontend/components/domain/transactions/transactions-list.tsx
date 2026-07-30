@@ -72,6 +72,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useContacts } from "@/hooks/use-contacts"
 import { useOutlets } from "@/hooks/use-outlets"
@@ -476,6 +477,46 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
           )
         },
         meta: { label: "Estado", className: "w-24" },
+      },
+      {
+        id: "einvoice",
+        header: "Fact. electrónica",
+        cell: ({ row }) => {
+          const r = row.original
+          // null = tenant sin FE conectada o venta no encolada (autoIssue off,
+          // onlyWithTaxId sin cliente identificado) — no es un error, se omite
+          // el badge en vez de mostrar un falso "pendiente".
+          if (!r.einvoiceStatus) {
+            return <span className="text-muted-foreground">—</span>
+          }
+          if (r.einvoiceStatus === "issued") {
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="default" className="max-w-32 truncate">
+                    {r.einvoiceCdc ?? "Emitida"}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>{r.einvoiceCdc ?? "Emitida"}</TooltipContent>
+              </Tooltip>
+            )
+          }
+          if (r.einvoiceStatus === "error") {
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="destructive" className="max-w-32 truncate">
+                    Error
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>{r.einvoiceError ?? "Rechazada por el proveedor"}</TooltipContent>
+              </Tooltip>
+            )
+          }
+          // pending / sending / cancelled / skipped — estado transitorio u opcional.
+          return <Badge variant="secondary">Pendiente</Badge>
+        },
+        meta: { label: "Fact. electrónica", className: "w-32" },
       },
     ],
     [bootstrap],

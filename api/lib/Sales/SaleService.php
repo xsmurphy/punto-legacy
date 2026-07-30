@@ -142,6 +142,16 @@ final class SaleService
             if ($input->clientId !== null) {
                 $this->persistPackSales($input, (string) $transId, $saleDetail);
             }
+
+            // ── F1 facturación electrónica: enqueue transaccional ──────────────
+            // Dentro de la MISMA transacción de la venta: si la venta rollbackea,
+            // el documento encolado rollbackea con ella (nunca queda un outbox
+            // huérfano apuntando a una venta que no existe). best-effort: un
+            // fallo acá (cuenta mal configurada, etc.) NUNCA aborta la venta —
+            // reemplaza al hook legacy dispatchElectronicInvoice (eliminado, ver
+            // sub-slice 35b histórico), que vivía post-commit y dependía de
+            // FACTURACION_ELECTRONICA_TOKEN/sendFE (F4 rip-out, fuera de F1).
+            $this->enqueueElectronicInvoice($input, (string) $transId);
         }
 
         // ── B11: cerrar la transacción ──────────────────────────────────────
@@ -241,11 +251,17 @@ final class SaleService
             error_log('[SaleService] notifyGiftCard: ' . $e->getMessage() . "\n", 3, './error_log');
         }
 
-        // B14 (35b): factura electrónica PY — envío al proveedor FE (fire-and-forget).
+        // F1 facturación electrónica: intento de emisión inline. El documento ya
+        // fue encolado DENTRO de la transacción (ver save() — enqueueElectronicInvoice);
+        // acá solo se intenta emitirlo YA para no depender del cron del drainer en el
+        // caso feliz. Reemplaza al hook legacy dispatchElectronicInvoice/sendFE
+        // (FACTURACION_ELECTRONICA_TOKEN, F4 rip-out) — eliminado, no convive con la
+        // solución nueva (regla de arquitectura del repo: nunca parche + solución
+        // final compitiendo).
         try {
-            $this->dispatchElectronicInvoice($input);
+            $this->tryIssueElectronicInvoiceInline($input, $transId);
         } catch (\Throwable $e) {
-            error_log('[SaleService] dispatchElectronicInvoice: ' . $e->getMessage() . "\n", 3, './error_log');
+            error_log('[SaleService] tryIssueElectronicInvoiceInline: ' . $e->getMessage() . "\n", 3, './error_log');
         }
 
         // B15: registro de auditoría (FACTURACION).
@@ -257,48 +273,49 @@ final class SaleService
     }
 
     /**
-     * B14 (35b) — envío de factura electrónica al proveedor FE (Paraguay).
-     * Port del bloque EI del legacy (action.php:2742-2763 → sendFE).
-     * POST-COMMIT, BEST-EFFORT: la venta ya está confirmada. Fire-and-forget
-     * (el legacy también descarta $feresult). FACTURACION_ELECTRONICA_TOKEN
-     * definido en simple.config.php; si vacío → no-op (dev sin FE configurada).
-     *
-     * Tipo → typeDoc: FC (cashsale), FCR (creditsale). type=6 (NC) se agrega en 35e.
+     * F1 — encola el documento de facturación electrónica DENTRO de la
+     * transacción de la venta (ver save(), antes de CompleteTrans). Solo
+     * cashsale/creditsale (FC/FCR) — devoluciones (NC) quedan para F2.
+     * `EInvoiceService::enqueueForSale` es best-effort puertas adentro (silencioso
+     * si no hay cuenta 'ok', autoIssue off, o onlyWithTaxId sin RUC/CI) pero
+     * cualquier excepción inesperada acá SÍ podría abortar la venta si no se
+     * atrapa — se envuelve en try/catch para que un bug en el módulo de FE
+     * nunca tumbe una venta.
      */
-    private function dispatchElectronicInvoice(SaleInput $input): void
+    private function enqueueElectronicInvoice(SaleInput $input, string $transId): void
     {
-        if ($input->electronicInvoicePY === null) {
-            return;
-        }
-        // Solo FC y FCR en este sub-slice (type=6/NC es 35e — devoluciones).
-        $typeDoc = match ($input->type) {
+        $doctype = match ($input->type) {
             SaleType::Cashsale   => 'FC',
             SaleType::Creditsale => 'FCR',
             default              => null,
         };
-        if ($typeDoc === null) {
+        if ($doctype === null) {
             return;
         }
-        if (!defined('FACTURACION_ELECTRONICA_TOKEN') || FACTURACION_ELECTRONICA_TOKEN === '') {
-            return; // FE no configurada (dev/staging)
+        try {
+            (new \Punto\Api\EInvoice\EInvoiceService())->enqueueForSale(
+                $this->ctx->companyId,
+                $transId,
+                $doctype,
+                $input->clientId,
+            );
+        } catch (\Throwable $e) {
+            error_log('[SaleService] enqueueElectronicInvoice: ' . $e->getMessage() . "\n", 3, './error_log');
         }
+    }
 
-        $company = ncmExecute(
-            "SELECT config->>'settingRUC' AS settingRUC FROM company WHERE companyId = ? LIMIT 1",
-            [$this->ctx->companyId]
-        );
-        $ruc = ($company && (is_array($company) || $company instanceof \ArrayAccess))
-            ? (string) ($company['settingRUC'] ?? '')
-            : '';
-
-        $fedata = [
-            'ruc'   => $ruc,
-            'email' => (string) ($input->electronicInvoicePY['email'] ?? ''),
-            'type'  => $typeDoc,
-            'data'  => $input->electronicInvoicePY,
-        ];
-
-        sendFE($fedata, FACTURACION_ELECTRONICA_TOKEN);
+    /** F1 — intento de emisión inline post-commit (ver dispatchNotifications). */
+    private function tryIssueElectronicInvoiceInline(SaleInput $input, string $transId): void
+    {
+        $doctype = match ($input->type) {
+            SaleType::Cashsale   => 'FC',
+            SaleType::Creditsale => 'FCR',
+            default              => null,
+        };
+        if ($doctype === null) {
+            return;
+        }
+        (new \Punto\Api\EInvoice\EInvoiceService())->tryIssueInline($this->ctx->companyId, $transId, $doctype);
     }
 
     /**

@@ -85,6 +85,10 @@ final class TransactionsService
         $contacts  = $this->contactInfo(array_merge($custIds, $usrIds), $companyId);
         $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
         $registers = $this->registerInfo($regIds, $companyId);
+        // F1 facturación electrónica: estado por transacción, batch (evita N+1
+        // de un fetch por fila en el frontend). Mapa vacío si el tenant no tiene
+        // FE — las filas simplemente no traen badge (ver einvoiceInfo()).
+        $einvoiceMap = $this->einvoiceInfo($txIds, $companyId);
 
         $rows = [];
         foreach ($res as $f) {
@@ -127,9 +131,13 @@ final class TransactionsService
 
             $custId = (string) $f['customerId'];
             $usrId  = (string) $f['userId'];
+            $einv   = $einvoiceMap[(string) $f['transactionId']] ?? null;
 
             $rows[] = [
                 'transactionId'       => (string) $f['transactionId'],
+                'einvoiceStatus'      => $einv['status'] ?? null,
+                'einvoiceCdc'         => $einv['cdc'] ?? null,
+                'einvoiceError'       => $einv['errorMessage'] ?? null,
                 'authNo'              => $invoiceAuth,
                 'docNo'               => $invoicePrefix . $paddedNo,
                 'invoiceNo'           => $invoiceNo,
@@ -427,6 +435,42 @@ final class TransactionsService
         $map = [];
         foreach ($res as $r) {
             $map[(string) $r['transactionId']] = $r;
+        }
+        return $map;
+    }
+
+    /**
+     * F1 — estado de facturación electrónica por transactionId, batch (una
+     * sola query para toda la página, igual patrón que contactInfo/nameMap).
+     * Si una venta tiene más de un documento (no debería en F1 — una venta
+     * genera FC o FCR, nunca ambos), se queda con el más reciente.
+     */
+    private function einvoiceInfo(array $txIds, string $companyId): array
+    {
+        $ids = array_values(array_unique(array_filter($txIds)));
+        if (!$ids) {
+            return [];
+        }
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $res = ncmExecute(
+            "SELECT transactionid, status, cdc, error_message
+               FROM einvoice_document
+              WHERE companyid = ? AND transactionid IN ($ph)
+              ORDER BY created_at DESC",
+            array_merge([$companyId], $ids), false, false, true
+        );
+        $res = is_array($res) ? $res : [];
+        $map = [];
+        foreach ($res as $d) {
+            $txId = (string) ($d['transactionid'] ?? '');
+            if ($txId === '' || isset($map[$txId])) {
+                continue; // ya tomamos el más reciente (ORDER BY created_at DESC)
+            }
+            $map[$txId] = [
+                'status'       => (string) ($d['status'] ?? ''),
+                'cdc'          => $d['cdc'] ?? null,
+                'errorMessage' => $d['error_message'] ?? null,
+            ];
         }
         return $map;
     }

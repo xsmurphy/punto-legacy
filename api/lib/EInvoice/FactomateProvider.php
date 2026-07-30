@@ -149,7 +149,30 @@ final class FactomateProvider implements EInvoiceProvider
 
     public function issue(string $environment, string $phone, string $bearer, array $payload): array
     {
-        throw new \LogicException('FactomateProvider::issue — pendiente de F1 (POST /api/electronicDocument/Bulk)');
+        // La emisión es SINCRÓNICA: la respuesta de /Bulk ya trae el CDC en
+        // Items[0].CDC. NO se implementa polling a getBulk/{id} — la
+        // implementación de referencia lo sacó porque reventaba el
+        // presupuesto de 15 s del proxy en el entorno de test de SIFEN.
+        //
+        // request() ya loguea el payload saliente completo a error_log (guía
+        // §7) — es la única forma práctica de destrabar un rechazo, porque un
+        // FormatException numérico de Factomate puede aparecer como un
+        // mensaje de negocio que no tiene nada que ver (ej. "Para la
+        // operacion a CREDITO debe ingresar Informaciones de Credito" por un
+        // campo mal tipado). El bearer nunca se loguea: va solo en el header
+        // Authorization, que request()/exec() no serializan a los logs.
+        $raw = $this->request('POST', '/api/electronicDocument/Bulk', $payload, $bearer, $phone, $environment);
+
+        $items = $raw['Items'] ?? $raw['items'] ?? [];
+        $first = is_array($items) && isset($items[0]) && is_array($items[0]) ? $items[0] : [];
+
+        return [
+            'cdc'            => $first['CDC'] ?? $first['cdc'] ?? null,
+            'documentNumber' => $raw['DocumentNumber'] ?? $raw['documentNumber'] ?? null,
+            'success'        => (bool) ($first['Success'] ?? $first['success'] ?? false),
+            'statusMessage'  => $first['StatusMessage'] ?? $first['statusMessage'] ?? null,
+            'raw'            => $raw,
+        ];
     }
 
     public function cancel(string $environment, string $phone, string $bearer, string $cdc, string $reason): array

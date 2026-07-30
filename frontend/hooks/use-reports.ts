@@ -114,6 +114,11 @@ export interface TransactionRow {
   tax: number
   totalGravado: number
   total: number
+  // F1 facturación electrónica — null = tenant sin FE o venta no encolada
+  // (no es un error, simplemente no aplica). Ver TransactionsService::einvoiceInfo.
+  einvoiceStatus: "pending" | "sending" | "issued" | "error" | "cancelled" | "skipped" | null
+  einvoiceCdc: string | null
+  einvoiceError: string | null
 }
 
 export interface TransactionsReportResponse {
