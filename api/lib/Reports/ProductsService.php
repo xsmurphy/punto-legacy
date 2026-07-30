@@ -200,6 +200,7 @@ final class ProductsService
         $rocA = $this->rocAlias($roc, 'a');
         $sel = "a.customerId as customer, a.userId as trsUser, a.outletId, a.registerId,
                 a.invoiceNo, a.invoicePrefix, a.transactionType, a.transactionId,
+                a.ivaRemoved,
                 b.itemSoldId, b.itemId, b.itemSoldUnits, b.itemSoldTotal, b.itemSoldTax,
                 b.itemSoldDiscount, b.itemSoldDate, b.itemSoldDescription, b.itemSoldParent,
                 ABS(b.itemSoldCOGS) as itemSoldCOGS, b.itemSoldComission, b.userId as itemUser";
@@ -266,7 +267,12 @@ final class ProductsService
             $total = (float) $l['itemSoldTotal'];
             $tax   = (float) $l['itemSoldTax'];
 
-            if ($tax >= $total && $itm) {
+            // La derivacion por taxId NO aplica a una venta emitida sin IVA
+            // (mig 101): ahi el precio ya es neto y no hay impuesto que devengar.
+            $ivaRemoved = !empty($l['ivaRemoved']) && $l['ivaRemoved'] !== 'f';
+            if ($ivaRemoved) {
+                $tax = 0.0;
+            } elseif ($tax >= $total && $itm) {
                 $tax = self::taxOfPrice((float) getTaxValue($itm['taxId'] ?? null), $total);
             }
 

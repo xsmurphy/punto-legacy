@@ -114,6 +114,11 @@ export interface TransactionRow {
   tax: number
   totalGravado: number
   total: number
+  /**
+   * Venta emitida sin IVA (toggle del POS, mig 101). Cuando es true, `tax` y
+   * `totalGravado` vienen en 0: los importes ya son netos y no hay base gravada.
+   */
+  ivaRemoved?: boolean
   // F1 facturación electrónica — null = tenant sin FE o venta no encolada
   // (no es un error, simplemente no aplica). Ver TransactionsService::einvoiceInfo.
   einvoiceStatus: "pending" | "sending" | "issued" | "error" | "cancelled" | "skipped" | null

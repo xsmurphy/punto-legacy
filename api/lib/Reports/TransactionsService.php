@@ -31,7 +31,8 @@ final class TransactionsService
         $cols = "transactionId, transactionDate, transactionDiscount, transactionTax,
                  transactionTotal, transactionPaymentType, transactionType, transactionNote,
                  transactionDueDate, transactionStatus, transactionComplete, invoiceNo,
-                 invoicePrefix, customerId, registerId, userId, outletId, meta->>'tags' AS tags";
+                 invoicePrefix, customerId, registerId, userId, outletId, ivaRemoved,
+                 meta->>'tags' AS tags";
 
         if ($filters['singleRow']) {
             $sql = "SELECT $cols FROM transaction
@@ -104,6 +105,11 @@ final class TransactionsService
                 $topay = $netTotal - $payed;
             }
 
+            // Venta emitida SIN IVA (mig 101): los importes ya estan netos y no
+            // hay base gravada que declarar. Sin esto, el reporte mostraba como
+            // gravado el total de una venta que nunca devengo impuesto.
+            $ivaRemoved = !empty($f['ivaRemoved']) && $f['ivaRemoved'] !== 'f';
+
             if ($type === '7') {
                 $cDiscount = $cSubtotal = $cTax = $cNet = 0.0;
             } else {
@@ -157,8 +163,11 @@ final class TransactionsService
                 'netTotal'            => $cNet,
                 'discount'            => $cDiscount,
                 'subtotal'            => $cSubtotal,
-                'tax'                 => $cTax,
-                'totalGravado'        => $cNet - $cTax,
+                'tax'                 => $ivaRemoved ? 0.0 : $cTax,
+                // Sin IVA no hay base gravada: la venta es exenta, no "gravada
+                // con impuesto cero".
+                'totalGravado'        => $ivaRemoved ? 0.0 : ($cNet - $cTax),
+                'ivaRemoved'          => $ivaRemoved,
                 'total'               => $cNet,
             ];
         }

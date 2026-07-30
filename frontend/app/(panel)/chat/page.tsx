@@ -10,6 +10,7 @@ import {
   Plus as PlusIcon,
   Package,
   BarChart3,
+  Users,
   RotateCcw,
 } from "lucide-react"
 
@@ -50,14 +51,19 @@ interface Suggestion {
   text: string
 }
 
-// 5 sugerencias seleccionadas: las más representativas del alcance — consulta
-// rápida (sales/stock), búsqueda, creación con confirmación, análisis.
+// 6 sugerencias que muestran de qué es capaz el asistente, no qué sabe hacer un
+// buscador. Las anteriores ("¿cuánto vendí este mes?", "buscame el cliente
+// Juan") se resolvían mirando una pantalla del panel, así que no invitaban a
+// usarlo; estas piden cruces y rankings que el operador no tiene a mano en
+// ningún listado (pedido del owner, 2026-07-30). Se conserva una de creación
+// con confirmación, que es la otra mitad del alcance.
 const SUGGESTIONS: Suggestion[] = [
-  { icon: TrendingUp, text: "¿Cuánto vendí este mes?" },
-  { icon: Search,     text: "Buscame el cliente Juan" },
-  { icon: Package,    text: "¿Cuánto stock queda del producto X?" },
+  { icon: Users,      text: "¿Cuáles son nuestros top 5 clientes de este mes?" },
+  { icon: TrendingUp, text: "¿Qué producto tuvo el menor rendimiento este mes?" },
+  { icon: BarChart3,  text: "Compará las ventas de este mes contra el mes pasado" },
+  { icon: Package,    text: "¿Qué productos están por quedarse sin stock?" },
+  { icon: Search,     text: "¿Qué clientes me deben y cuánto?" },
   { icon: PlusIcon,   text: "Creá el producto Café Espresso a 12.000 Gs, categoría Bebidas" },
-  { icon: BarChart3,  text: "Resumen del año pasado" },
 ]
 
 export default function ChatPage() {
