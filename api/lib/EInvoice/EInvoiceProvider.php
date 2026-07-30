@@ -92,4 +92,15 @@ interface EInvoiceProvider
 
     /** @throws \RuntimeException|\LogicException GET /api/Client/getbyruc/{ruc} (F3). */
     public function clientByRuc(string $environment, string $phone, string $bearer, string $ruc): array;
+
+    /**
+     * GET /api/ElectronicDocument/GetAll (F2) — reconciliación del estado
+     * FISCAL real: un CDC devuelto por /Bulk no garantiza aceptación
+     * definitiva, SIFEN puede rechazar minutos después. SIN VERIFICAR: la
+     * guía menciona el endpoint pero no documenta parámetros de filtro ni
+     * paginación — se pide sin parámetros y EInvoiceService::reconcile()
+     * matchea por CDC en memoria sobre el payload crudo devuelto acá.
+     * @throws \RuntimeException
+     */
+    public function getAllDocuments(string $environment, string $phone, string $bearer): array;
 }

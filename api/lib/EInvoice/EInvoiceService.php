@@ -352,6 +352,404 @@ final class EInvoiceService
         return $out;
     }
 
+    // ── F2 — operación de los documentos ya emitidos ────────────────────
+
+    /**
+     * Listado paginado de `einvoice_document` para el panel — filtros de
+     * rango de fechas (sobre `created_at`), estado, y búsqueda libre por
+     * CDC/nombre de cliente. Scopeado SIEMPRE por `$companyId` del contexto
+     * (nunca un id del request — aislamiento multi-tenant).
+     *
+     * El nombre/total del cliente NO vive en `einvoice_document` (solo
+     * `transactionid`) — se hace JOIN contra `transaction`/`contact` para
+     * poder mostrarlo y para que la búsqueda por nombre de cliente funcione
+     * sin tener que desnormalizarlo en el outbox.
+     *
+     * `$filters` acepta: `from`/`to` (fecha 'Y-m-d', inclusive), `status`
+     * (uno de los valores del CHECK de mig 92, o 'stuck' — ver abajo),
+     * `search` (CDC parcial o nombre de cliente), `page`/`pageSize`.
+     *
+     * Documentos trabados en `sending`: si el proceso muere entre que el
+     * drainer reclama la fila y persiste el resultado, queda en `sending`
+     * para siempre sin que nadie los reintente automáticamente (NO es
+     * seguro reintentar solo — la emisión no es idempotente del lado de
+     * Factomate). `status: 'stuck'` es un filtro SINTÉTICO del panel (no
+     * existe en la BD): `sending` con `updated_at` de más de 15 minutos —
+     * umbral arbitrario pero generoso (la emisión real tarda segundos, no
+     * minutos) para no marcar como trabado un documento que el drainer
+     * está procesando en este instante.
+     */
+    public function documents(string $companyId, array $filters): array
+    {
+        $page     = max(1, (int) ($filters['page'] ?? 1));
+        $pageSize = min(100, max(1, (int) ($filters['pageSize'] ?? 25)));
+        $offset   = ($page - 1) * $pageSize;
+
+        $where  = ['d.companyid = ?'];
+        $params = [$companyId];
+
+        $from = trim((string) ($filters['from'] ?? ''));
+        if ($from !== '') {
+            $where[] = 'd.created_at >= ?::date';
+            $params[] = $from;
+        }
+        $to = trim((string) ($filters['to'] ?? ''));
+        if ($to !== '') {
+            // +1 día exclusivo — 'to' es inclusive del día completo, no de la medianoche.
+            $where[] = "d.created_at < (?::date + interval '1 day')";
+            $params[] = $to;
+        }
+
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status === 'stuck') {
+            $where[] = "d.status = 'sending' AND d.updated_at < now() - interval '15 minutes'";
+        } elseif ($status !== '') {
+            $where[] = 'd.status = ?';
+            $params[] = $status;
+        }
+
+        $search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $where[] = '(d.cdc ILIKE ? OR c.contactName ILIKE ?)';
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        $whereSql = implode(' AND ', $where);
+
+        // Total para paginación — misma condición, sin LIMIT/OFFSET.
+        $countRow = ncmExecute(
+            "SELECT COUNT(*) AS total
+               FROM einvoice_document d
+               LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
+               LEFT JOIN contact c ON c.contactId = t.customerId AND c.companyId = d.companyid
+              WHERE $whereSql",
+            $params
+        );
+        $total = (int) ($countRow['total'] ?? 0);
+
+        $rs = ncmExecute(
+            "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.error_message,
+                    d.issued_at, d.cancelled_at, d.attempts, d.created_at, d.updated_at,
+                    d.sifen_status, d.sifen_checked_at,
+                    t.transactionTotal AS total, t.transactionCurrency AS currency,
+                    c.contactName AS client_name
+               FROM einvoice_document d
+               LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
+               LEFT JOIN contact c ON c.contactId = t.customerId AND c.companyId = d.companyid
+              WHERE $whereSql
+              ORDER BY d.created_at DESC
+              LIMIT $pageSize OFFSET $offset",
+            $params,
+            false,
+            true
+        );
+
+        $rows = [];
+        if ($rs !== false) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $isStuck = (string) ($f['status'] ?? '') === 'sending'
+                    && strtotime((string) ($f['updated_at'] ?? '')) < (time() - 15 * 60);
+                $rows[] = [
+                    'id'             => (string) $f['einvoicedocid'],
+                    'doctype'        => (string) ($f['doctype'] ?? ''),
+                    'status'         => (string) ($f['status'] ?? ''),
+                    'stuck'          => $isStuck,
+                    'cdc'            => $f['cdc'] ?? null,
+                    'documentNumber' => $f['document_number'] ?? null,
+                    'errorMessage'   => $f['error_message'] ?? null,
+                    'issuedAt'       => $f['issued_at'] ?? null,
+                    'cancelledAt'    => $f['cancelled_at'] ?? null,
+                    'attempts'       => (int) ($f['attempts'] ?? 0),
+                    'createdAt'      => $f['created_at'] ?? null,
+                    'sifenStatus'    => $f['sifen_status'] ?? null,
+                    'sifenCheckedAt' => $f['sifen_checked_at'] ?? null,
+                    'total'          => $f['total'] !== null ? (float) $f['total'] : null,
+                    'currency'       => $f['currency'] ?? null,
+                    'clientName'     => $f['client_name'] ?? null,
+                ];
+                $rs->MoveNext();
+            }
+        }
+
+        return [
+            'items'    => $rows,
+            'page'     => $page,
+            'pageSize' => $pageSize,
+            'total'    => $total,
+        ];
+    }
+
+    /**
+     * Vuelve a poner un documento `error` en `pending` con `next_retry_at =
+     * now()` para que el drainer lo tome en la próxima corrida. SOLO desde
+     * `error` — reintentar un `issued` emitiría el documento fiscal DOS
+     * VECES (Factomate no tiene endpoint de "reemitir", cada /Bulk es un
+     * documento nuevo). El UPDATE con `WHERE status = 'error'` es el guard
+     * real (no solo una validación previa) — mismo patrón CAS que el resto
+     * del outbox, cierra la ventana de una request concurrente.
+     *
+     * @throws \RuntimeException si el documento no existe, no pertenece a
+     *         la company, o no está en `error`.
+     */
+    public function retry(string $companyId, string $docId): array
+    {
+        $updated = ncmExecute(
+            "UPDATE einvoice_document
+                SET status = 'pending', next_retry_at = now(), updated_at = now()
+              WHERE einvoicedocid = ? AND companyid = ? AND status = 'error'
+              RETURNING einvoicedocid",
+            [$docId, $companyId]
+        );
+        if (!$updated) {
+            throw new \RuntimeException(
+                'No se puede reintentar: el documento no existe o no está en estado de error.'
+            );
+        }
+
+        // Reintento inline best-effort (mismo criterio que tryIssueInline):
+        // si Factomate está caído igual queda en cola para el drainer del cron.
+        $doc = ncmExecute(
+            'SELECT transactionid, doctype FROM einvoice_document WHERE einvoicedocid = ?',
+            [$docId]
+        );
+        if ($doc) {
+            $this->tryIssueInline($companyId, (string) $doc['transactionid'], (string) $doc['doctype']);
+        }
+
+        return $this->documentById($companyId, $docId);
+    }
+
+    /**
+     * Anula un documento fiscal ya emitido — POST /api/electronicDocument/event
+     * (FactomateProvider::cancel). SOLO desde `issued`: no tiene sentido
+     * anular algo que nunca se emitió (`error`/`pending`, usar retry o
+     * dejar que expire) ni algo ya `cancelled`.
+     *
+     * Es irreversible y sale hacia afuera del sistema (SIFEN) — por eso el
+     * motivo es obligatorio. La validación de largo mínimo/máximo o de
+     * ventana de tiempo para cancelar NO está documentada en la guía —
+     * SIN VERIFICAR, solo se exige no-vacío acá; si Factomate rechaza por
+     * esas razones, el mensaje de error de la API vuelve tal cual al panel.
+     *
+     * @throws \RuntimeException si el documento no existe/no pertenece a la
+     *         company, no está `issued`, el motivo viene vacío, o Factomate
+     *         rechaza la cancelación.
+     */
+    public function cancel(string $companyId, string $docId, string $reason): array
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \RuntimeException('El motivo de la cancelación es obligatorio.');
+        }
+
+        $doc = ncmExecute(
+            'SELECT cdc FROM einvoice_document WHERE einvoicedocid = ? AND companyid = ? AND status = ?',
+            [$docId, $companyId, 'issued']
+        );
+        if (!$doc) {
+            throw new \RuntimeException('No se puede cancelar: el documento no existe o no está emitido.');
+        }
+        $cdc = (string) ($doc['cdc'] ?? '');
+        if ($cdc === '') {
+            // No debería pasar (issued siempre tiene CDC) pero sin CDC no hay
+            // nada que mandarle a Factomate — mejor un error claro que un 500.
+            throw new \RuntimeException('El documento emitido no tiene CDC registrado — no se puede cancelar.');
+        }
+
+        $bearer = $this->session->getBearer($companyId);
+        [$phone, $environment] = $this->phoneAndEnvironment($companyId);
+
+        $result = $this->provider->cancel($environment, $phone, $bearer, $cdc, $reason);
+        if (empty($result['success'])) {
+            $msg = (string) ($result['message'] ?? 'Factomate rechazó la cancelación sin motivo reconocible.');
+            throw new \RuntimeException($msg);
+        }
+
+        ncmExecute(
+            "UPDATE einvoice_document
+                SET status = 'cancelled', cancelled_at = now(), cancel_reason = ?, updated_at = now()
+              WHERE einvoicedocid = ?",
+            [mb_substr($reason, 0, 500), $docId]
+        );
+
+        return $this->documentById($companyId, $docId);
+    }
+
+    /**
+     * Bytes del PDF (KuDE) de un documento emitido. El PDF es OPCIONAL — si
+     * `getkude` falla en Factomate (ej. el KuDE todavía no terminó de
+     * generarse, ver FactomateProvider::kude), la excepción sube tal cual
+     * para que el endpoint la traduzca a un error visible con botón de
+     * reintento; NUNCA se marca el documento como error por esto — la
+     * factura ya se emitió igual.
+     *
+     * @throws \RuntimeException si el documento no existe/no pertenece a la
+     *         company, no tiene CDC (nunca se emitió), o Factomate falla.
+     */
+    public function kude(string $companyId, string $docId): string
+    {
+        $doc = ncmExecute(
+            'SELECT cdc FROM einvoice_document WHERE einvoicedocid = ? AND companyid = ?',
+            [$docId, $companyId]
+        );
+        if (!$doc) {
+            throw new \RuntimeException('Documento no encontrado.');
+        }
+        $cdc = (string) ($doc['cdc'] ?? '');
+        if ($cdc === '') {
+            throw new \RuntimeException('El documento todavía no tiene CDC — no se emitió (o falló la emisión).');
+        }
+
+        $bearer = $this->session->getBearer($companyId);
+        [$phone, $environment] = $this->phoneAndEnvironment($companyId);
+        return $this->provider->kude($environment, $phone, $bearer, $cdc);
+    }
+
+    /**
+     * Reconcilia el estado FISCAL real contra `GET /api/ElectronicDocument/GetAll`
+     * para documentos `issued` que todavía no tienen `sifen_status`, o cuyo
+     * último chequeo es viejo. SIFEN puede rechazar un DE minutos después de
+     * que `/Bulk` ya devolvió un CDC válido (ej. código 1002, duplicado) —
+     * un CDC no es garantía de aceptación definitiva. `status` (outbox de
+     * Punto: ¿se mandó?) y `sifen_status` (fiscal: ¿SIFEN lo aceptó?) son
+     * dos cosas distintas — este método SOLO toca `sifen_status`/
+     * `sifen_result`/`sifen_checked_at`, nunca `status`.
+     *
+     * SIN VERIFICAR contra la API real: la guía menciona el endpoint
+     * (`GET /api/ElectronicDocument/GetAll`) pero no documenta parámetros
+     * de filtro ni el shape exacto de la respuesta — se pide todo y se
+     * matchea por CDC en memoria, con parseo defensivo de casing (mismo
+     * criterio que el resto del provider). Si el endpoint pagina o requiere
+     * un filtro obligatorio, esto va a necesitar ajuste cuando se pruebe
+     * contra la cuenta real.
+     *
+     * @return array{checked:int,updated:int} cuántos documentos se revisaron / cuántos cambiaron sifen_status.
+     */
+    public function reconcile(string $companyId, int $limit = 50): array
+    {
+        $limit = min(200, max(1, $limit));
+
+        $rs = ncmExecute(
+            "SELECT einvoicedocid, cdc FROM einvoice_document
+              WHERE companyid = ? AND status = 'issued' AND cdc IS NOT NULL
+                AND (sifen_checked_at IS NULL OR sifen_checked_at < now() - interval '10 minutes')
+              ORDER BY issued_at ASC NULLS LAST
+              LIMIT ?",
+            [$companyId, $limit],
+            false,
+            true
+        );
+
+        $pending = [];
+        if ($rs !== false) {
+            while (!$rs->EOF) {
+                $pending[] = ['id' => (string) $rs->fields['einvoicedocid'], 'cdc' => (string) $rs->fields['cdc']];
+                $rs->MoveNext();
+            }
+        }
+
+        if ($pending === []) {
+            return ['checked' => 0, 'updated' => 0];
+        }
+
+        $bearer = $this->session->getBearer($companyId);
+        [$phone, $environment] = $this->phoneAndEnvironment($companyId);
+
+        // GET /api/ElectronicDocument/GetAll — sin params documentados (SIN
+        // VERIFICAR, ver docblock). Se implementa como request JSON GET
+        // genérico reusando el mismo cliente que el resto de F0/F1 en vez de
+        // agregar un método más a la interfaz — no cambia el contrato de
+        // EInvoiceProvider, solo se necesita GET+bearer+phone, que ya expone
+        // paymentMethods()/userInfo() con la misma firma. Se hace acá vía un
+        // método nuevo del provider para no violar la interfaz con un GET
+        // genérico ad-hoc.
+        $all = $this->provider->getAllDocuments($environment, $phone, $bearer);
+
+        // Índice por CDC — casing defensivo, igual criterio que extractStamp/extractToken.
+        $byCdc = [];
+        foreach (($all['items'] ?? $all['Items'] ?? $all ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $itemCdc = $item['CDC'] ?? $item['cdc'] ?? null;
+            if (is_string($itemCdc) && $itemCdc !== '') {
+                $byCdc[$itemCdc] = $item;
+            }
+        }
+
+        $updated = 0;
+        foreach ($pending as $doc) {
+            $match = $byCdc[$doc['cdc']] ?? null;
+            if ($match === null) {
+                // No apareció en GetAll — se actualiza igual el checked_at
+                // para no re-consultarlo cada corrida, sin tocar sifen_status
+                // (mejor "sin dato" que inventar un estado).
+                ncmExecute(
+                    'UPDATE einvoice_document SET sifen_checked_at = now() WHERE einvoicedocid = ?',
+                    [$doc['id']]
+                );
+                continue;
+            }
+
+            $sifenStatus = (string) ($match['SifenStatus'] ?? $match['sifenStatus'] ?? $match['Status'] ?? $match['status'] ?? '');
+            ncmExecute(
+                "UPDATE einvoice_document
+                    SET sifen_status = ?, sifen_result = ?::jsonb, sifen_checked_at = now()
+                  WHERE einvoicedocid = ?",
+                [$sifenStatus !== '' ? $sifenStatus : null, json_encode($match, JSON_UNESCAPED_UNICODE), $doc['id']]
+            );
+            $updated++;
+        }
+
+        return ['checked' => count($pending), 'updated' => $updated];
+    }
+
+    /** Fila única, scopeada por company, en el mismo shape que `documents()`. @throws \RuntimeException si no existe. */
+    private function documentById(string $companyId, string $docId): array
+    {
+        // documents() no filtra por id — se resuelve acá con una query directa
+        // en vez de forzar ese caso al método de listado (que solo prevé
+        // search/status/from/to como filtros).
+        $rs = ncmExecute(
+            "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.error_message,
+                    d.issued_at, d.cancelled_at, d.attempts, d.created_at, d.updated_at,
+                    d.sifen_status, d.sifen_checked_at,
+                    t.transactionTotal AS total, t.transactionCurrency AS currency,
+                    c.contactName AS client_name
+               FROM einvoice_document d
+               LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
+               LEFT JOIN contact c ON c.contactId = t.customerId AND c.companyId = d.companyid
+              WHERE d.einvoicedocid = ? AND d.companyid = ?",
+            [$docId, $companyId]
+        );
+        if (!$rs) {
+            throw new \RuntimeException('Documento no encontrado.');
+        }
+        $isStuck = (string) ($rs['status'] ?? '') === 'sending'
+            && strtotime((string) ($rs['updated_at'] ?? '')) < (time() - 15 * 60);
+        return [
+            'id'             => (string) $rs['einvoicedocid'],
+            'doctype'        => (string) ($rs['doctype'] ?? ''),
+            'status'         => (string) ($rs['status'] ?? ''),
+            'stuck'          => $isStuck,
+            'cdc'            => $rs['cdc'] ?? null,
+            'documentNumber' => $rs['document_number'] ?? null,
+            'errorMessage'   => $rs['error_message'] ?? null,
+            'issuedAt'       => $rs['issued_at'] ?? null,
+            'cancelledAt'    => $rs['cancelled_at'] ?? null,
+            'attempts'       => (int) ($rs['attempts'] ?? 0),
+            'createdAt'      => $rs['created_at'] ?? null,
+            'sifenStatus'    => $rs['sifen_status'] ?? null,
+            'sifenCheckedAt' => $rs['sifen_checked_at'] ?? null,
+            'total'          => $rs['total'] !== null ? (float) $rs['total'] : null,
+            'currency'       => $rs['currency'] ?? null,
+            'clientName'     => $rs['client_name'] ?? null,
+        ];
+    }
+
     private function decodeJsonb(mixed $value): array
     {
         if (is_array($value)) {

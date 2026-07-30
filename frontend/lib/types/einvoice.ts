@@ -56,3 +56,61 @@ export interface EInvoicePaymentMethod {
   name: string
   [key: string]: unknown
 }
+
+// ── F2 — operación de documentos ya emitidos ────────────────────────────
+
+/**
+ * Estados del outbox de Punto (`einvoice_document.status`, mig 92) MÁS
+ * `stuck` — filtro sintético del panel (no existe en la BD): `sending`
+ * varado más de 15 min sin nadie reintentándolo (ver EInvoiceService::
+ * documents — no se auto-reintenta, la emisión no es idempotente).
+ */
+export type EInvoiceDocumentStatus =
+  | "pending"
+  | "sending"
+  | "issued"
+  | "error"
+  | "cancelled"
+  | "skipped"
+
+export interface EInvoiceDocument {
+  id: string
+  doctype: string
+  status: EInvoiceDocumentStatus
+  /** true si status='sending' con updated_at > 15 min — trabado, necesita revisión manual. */
+  stuck: boolean
+  cdc: string | null
+  documentNumber: string | null
+  errorMessage: string | null
+  issuedAt: string | null
+  cancelledAt: string | null
+  attempts: number
+  createdAt: string | null
+  /** Estado FISCAL real (SIFEN), distinto de `status` (outbox) — puede quedar null si nunca se reconcilió. */
+  sifenStatus: string | null
+  sifenCheckedAt: string | null
+  total: number | null
+  currency: string | null
+  clientName: string | null
+}
+
+export interface EInvoiceDocumentFilters {
+  from?: string
+  to?: string
+  status?: EInvoiceDocumentStatus | "stuck" | ""
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface EInvoiceDocumentsPage {
+  items: EInvoiceDocument[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+export interface EInvoiceReconcileResult {
+  checked: number
+  updated: number
+}

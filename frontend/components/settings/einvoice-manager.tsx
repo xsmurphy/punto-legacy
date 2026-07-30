@@ -16,6 +16,7 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { PhoneInput } from "@/components/forms/phone-input"
+import { EInvoiceDocumentsCard } from "@/components/settings/einvoice-documents-table"
 
 import {
   useEinvoiceAccount,
@@ -382,6 +383,8 @@ export function EInvoiceManager() {
           </div>
         </CardContent>
       </Card>
+
+      <EInvoiceDocumentsCard />
     </div>
   )
 }

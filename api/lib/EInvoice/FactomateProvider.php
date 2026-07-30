@@ -177,17 +177,81 @@ final class FactomateProvider implements EInvoiceProvider
 
     public function cancel(string $environment, string $phone, string $bearer, string $cdc, string $reason): array
     {
-        throw new \LogicException('FactomateProvider::cancel — pendiente de F1/F2 (POST /api/electronicDocument/event)');
+        // signDate: hora LOCAL de Asunción, formato naive (sin zona) — guía
+        // §6. Mandarlo en UTC lo hace leer 3-4 h en el futuro para el parser
+        // de SIFEN y arriesga rechazo. Punto ya guarda timestamps naive en
+        // la TZ del tenant en toda la BD (transaction.transactionDate, etc,
+        // ver context/04-modelo-de-dominio.md) — se reusa ese mismo criterio
+        // acá en vez de inventar una conversión de zona horaria propia:
+        // `date_default_timezone_set` del proceso PHP YA está en la TZ de
+        // Asunción (bootstrap del proyecto), así que `date('Y-m-d\TH:i:s')`
+        // sin sufijo de zona es exactamente el naive-local que pide la guía.
+        $signDate = date('Y-m-d\TH:i:s');
+
+        // SIN VERIFICAR contra la API real: la guía documenta los 4 campos
+        // (typeCode/documentId/motivo/signDate) pero no el nombre exacto de
+        // la clave del motivo ni si "documentId" es literal. Se usa
+        // `documentId` porque así lo nombra la guía §6, y `reason` como
+        // nombre de campo más probable dado el resto del payload en inglés
+        // (ej. `ammount`, `taxRate`) — si Factomate espera otra clave
+        // (`comment`/`motivo`/`description`), este es el primer sospechoso.
+        $payload = [
+            'typeCode'   => 1,
+            'documentId' => $cdc,
+            'reason'     => $reason,
+            'signDate'   => $signDate,
+        ];
+
+        $raw = $this->request('POST', '/api/electronicDocument/event', $payload, $bearer, $phone, $environment);
+
+        // Parseo defensivo del resultado (mismo criterio que issue()): no hay
+        // spec tipado de la respuesta de /event, así que se buscan las
+        // claves más probables y se devuelve `raw` siempre para que el
+        // caller pueda inspeccionar lo que realmente vino.
+        $success = $raw['success'] ?? $raw['Success'] ?? null;
+        return [
+            'success' => $success === null ? true : (bool) $success, // 2xx sin campo explícito = éxito
+            'message' => $raw['message'] ?? $raw['Message'] ?? $raw['StatusMessage'] ?? null,
+            'raw'     => $raw,
+        ];
     }
 
     public function kude(string $environment, string $phone, string $bearer, string $cdc): string
     {
-        throw new \LogicException('FactomateProvider::kude — pendiente de F1/F2 (GET /api/electronicDocument/getkude/{cdc})');
+        // El KuDE llega tarde: Factomate tarda 3-8 s entre aceptar el /Bulk
+        // y terminar de generar el XML firmado + el PDF. Llamar de
+        // inmediato devuelve 500. Reintento 3 veces con backoff LINEAL
+        // (1 s, 2 s, 3 s) y SOLO ante 5xx — un 4xx (CDC mal formado) no se
+        // reintenta, se tira de una (guía §"El KuDE llega tarde" / F2 brief).
+        $maxAttempts = 3;
+        $lastError   = null;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                return $this->execBinary('/api/electronicDocument/getkude/' . rawurlencode($cdc), $bearer, $phone, $environment);
+            } catch (FactomateHttpException $e) {
+                if ($e->statusCode < 500) {
+                    // 4xx — no reintentar, el CDC está mal formado o no existe.
+                    throw $e;
+                }
+                $lastError = $e;
+                if ($attempt < $maxAttempts) {
+                    sleep($attempt); // backoff lineal: 1s, 2s, 3s
+                }
+            }
+        }
+
+        throw $lastError ?? new \RuntimeException('Factomate getkude falló sin excepción capturada (no debería pasar).');
     }
 
     public function clientByRuc(string $environment, string $phone, string $bearer, string $ruc): array
     {
         throw new \LogicException('FactomateProvider::clientByRuc — pendiente de F3 (GET /api/Client/getbyruc/{ruc})');
+    }
+
+    public function getAllDocuments(string $environment, string $phone, string $bearer): array
+    {
+        return $this->request('GET', '/api/ElectronicDocument/GetAll', null, $bearer, $phone, $environment);
     }
 
     // ── Internals ────────────────────────────────────────────────────────
@@ -344,5 +408,70 @@ final class FactomateProvider implements EInvoiceProvider
         }
 
         return $json;
+    }
+
+    /**
+     * GET binario — usado por kude(). Replica exactamente la regla (b) del
+     * cliente JSON (NUNCA Content-Type en un GET) porque este es justo el
+     * endpoint que la guía señala como el que revienta con 500 si se la
+     * viola (ASP.NET Web API intenta deserializar un body inexistente).
+     *
+     * Tira FactomateHttpException (con el status code) en vez de
+     * RuntimeException genérica — kude() necesita distinguir 4xx (no
+     * reintentar) de 5xx (reintentar con backoff).
+     */
+    private function execBinary(string $path, string $bearer, string $phone, string $environment): string
+    {
+        $headers = [
+            'Authorization: Bearer ' . $bearer,
+            'phonenumber: ' . $phone,
+            // Sin Accept: application/json — esto es un GET de binario, no
+            // tiene sentido pedir JSON, y menos mandar Content-Type (regla b).
+        ];
+
+        $ch = curl_init($this->baseUrl($environment) . $path);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST  => 'GET',
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+            CURLOPT_TIMEOUT        => self::TOTAL_TIMEOUT,
+        ]);
+
+        $resp = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+
+        if ($resp === false) {
+            // Error de red — se trata como reintentable (mismo criterio que
+            // un 5xx): un timeout/DNS temporal no debería tirar la toalla
+            // de una sola vez en un endpoint que sabemos que es lento.
+            throw new FactomateHttpException("Factomate GET $path — error de red: $err", 599);
+        }
+
+        if ($code < 200 || $code >= 300) {
+            // No hay body JSON confiable acá (puede ser el "500 An error
+            // has occurred" en texto plano de ASP.NET) — se loguea crudo,
+            // truncado, sin intentar json_decode.
+            $snippet = mb_substr((string) $resp, 0, 300);
+            error_log("[Factomate] GET $path failed HTTP $code: $snippet");
+            throw new FactomateHttpException("Factomate GET $path falló (HTTP $code)", $code);
+        }
+
+        return (string) $resp;
+    }
+}
+
+/**
+ * Excepción con status code explícito — kude() la usa para decidir si
+ * reintenta (5xx) o no (4xx). No extiende RuntimeException con un código
+ * genérico porque el caller necesita el status HTTP real, no solo "falló".
+ */
+final class FactomateHttpException extends \RuntimeException
+{
+    public function __construct(string $message, public readonly int $statusCode)
+    {
+        parent::__construct($message);
     }
 }
