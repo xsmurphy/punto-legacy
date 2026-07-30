@@ -394,8 +394,58 @@ confirmó que **sí existe por API** y cómo funciona:
 El comerciante **nunca ve ni tipea una credencial de Factomate**: es lo que
 hace posible el white-label.
 
-**Todavía faltan** los endpoints concretos de creación y el user/pass admin —
-sin eso F7 no se puede implementar, aunque el diseño ya está cerrado.
+#### El endpoint de alta — `POST /api/Tenant/CreateExternal`
+
+Factomate mandó el manual actualizado con el contrato (versión con §2 "Alta
+autoservicio"). Crea **usuario + tenant + rol + vínculo** en un solo POST.
+
+- **Auth: usuario autenticado SIN tenant** (`user.TenantId == null`). Un
+  usuario ya ligado a un emisor recibe 403 — es exactamente para que un emisor
+  no pueda crear otros. **Confirma que la credencial admin de Punto es un
+  usuario global de Factomate**, sin tenant asignado.
+- Request: `RazonSocial` (req), `NombreFantasia`, `Email` (req, **único** en
+  todo Factomate — es el `UserName` del admin creado), `Ruc` (req).
+- Response: `{ Success, Error, Id: tenantId, UserId, Email, Password }`.
+
+Ciclo de vida completo: `CreateExternal` → `PUT /api/Tenant` (datos fiscales)
+→ ABM de actividad/sucursales/timbrados → `UploadCert` → (opcional) probar
+contra SIFEN.
+
+#### Riesgos del alta, a resolver en el diseño de F7
+
+1. **La contraseña se devuelve UNA sola vez, en claro, y no se persiste del
+   lado de ellos.** Si Punto la pierde entre la respuesta de Factomate y su
+   propia escritura, queda un emisor creado al que no se puede entrar. La
+   escritura al vault tiene que ser lo inmediato siguiente a la respuesta; si
+   falla, error ruidoso con `tenantId`/`userId` (nunca la contraseña) para
+   poder resetear. **Falta saber si existe endpoint de reseteo.**
+2. **Sin transacción del lado de ellos** (§2.6: compensación manual). El alta
+   puede dejar huérfanos. Nuestro lado debe ser idempotente: no reintentar
+   `CreateExternal` a ciegas tras un timeout — puede haber creado el emisor.
+   Chequear por RUC antes de reintentar.
+3. **`Email` es único en todo Factomate.** Dos companies de Punto con el mismo
+   email de contacto colisionan, y un comercio que ya tenga cuenta en
+   Factomate también. El error `Ya existe un usuario con el email indicado`
+   tiene que ofrecer conectar la cuenta existente, no morir.
+4. **El teléfono no aparece en el alta.** `CreateExternal` no recibe teléfono y
+   el usuario queda con `UserName = Email`, pero `PhoneLogin` necesita el
+   header `phonenumber`. Sin resolver esto la cadena de auth post-alta queda
+   incompleta — ver pregunta 5.
+
+#### Agujero en la API de Factomate, a reportarles
+
+El manual (§7.5) documenta `GET /api/Consulta/Get?tenantId=&description=`
+—"Probar respuesta de la SET"— como **`[AllowAnonymous]` y sin aislamiento**:
+acepta cualquier `tenantId` sin verificar que pertenezca al usuario. Tal como
+está descripto, **un anónimo puede usar el certificado de cualquier emisor
+para consultar SIFEN**. Es del lado de ellos, pero son los certificados de
+nuestros tenants. El propio manual recomienda no replicarlo así al portar.
+
+Nos sirve igual como paso final del wizard de F7 (prueba de humo real del
+certificado, no solo que la contraseña lo abre) mandando nuestro propio
+`tenantId`.
+
+**Lo único que falta para implementar F7** es la credencial admin de Punto.
 
 #### Qué cambia en la arquitectura actual
 
@@ -461,16 +511,20 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 3. **Fecha de emisión diferida**: qué pasa con un DE enviado días después de
    la venta. ¿Ventana de tolerancia de SIFEN? ¿Qué pasa fuera de ella?
    Decide si F5 es viable.
-4. **Endpoints de alta de `Tenant` y de `User`** + el usuario/contraseña admin
-   de Punto. El modelo ya está confirmado (ver §Modelo de provisioning), falta
-   el contrato concreto. Bloquea F7.
-5. **El teléfono del usuario del tenant, ¿lo definimos nosotros en el alta?**
-   Es el que después va en el header `phonenumber` y en `PhoneLogin`, así que
-   hay que saber si se manda en el formulario de creación o si lo devuelven
-   ellos junto con el user/pass.
+4. ~~Endpoints de alta~~ — **RESUELTA**: `POST /api/Tenant/CreateExternal`.
+   Falta solo el **usuario/contraseña admin de Punto**, que es lo último que
+   bloquea F7.
+5. **¿De dónde sale el `phonenumber`?** `CreateExternal` no recibe teléfono y
+   deja al usuario con `UserName = Email`, pero `PhoneLogin` exige el header.
+   ¿Se setea después por otro endpoint, es el de la sucursal (`Branch.Phone`),
+   o `PhoneLogin` resuelve distinto para un usuario-email? **Bloquea la cadena
+   de auth de los emisores dados de alta por Punto.**
 6. **El admin, ¿autentica igual que un usuario de tenant** (`/Token` →
-   `PhoneLogin`) o solo con `/Token`? Un admin no tiene tenant asignado, así
-   que el segundo paso podría no aplicarle.
+   `PhoneLogin`) o solo con `/Token`? Ahora sabemos que el admin es un usuario
+   **sin tenant**, así que el segundo paso probablemente no le aplique.
+7. **¿Hay endpoint de reseteo de contraseña de un usuario de tenant?** La de
+   `CreateExternal` se devuelve una sola vez; sin reseteo, perderla deja al
+   emisor inaccesible.
 
 ## Fases
 
@@ -483,7 +537,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
 | **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante + listado por RUC con segundo factor | Pendiente |
-| **F7** | Onboarding white-label: formulario de datos del emisor → alta de tenant+usuario con la credencial admin de Punto → guardar `tenantId`/`userId`/credencial en el vault. Después: actividad económica, sucursales↔outlets, timbrados↔puntos de expedición, carga del certificado. Retira los campos manuales de F0. **Bloqueada** hasta tener endpoints de alta + credencial admin | Pendiente |
+| **F7** | Onboarding white-label: `CreateExternal` con la credencial admin → persistir `tenantId`/`userId`/credencial en el vault → `PUT /api/Tenant` (datos fiscales) → actividad, sucursales↔outlets, timbrados↔puntos de expedición → `UploadCert` → prueba contra SIFEN. Retira los campos manuales de F0. **Bloqueada** por la credencial admin y por el origen del `phonenumber` | Pendiente |
 
 ## Infra
 
