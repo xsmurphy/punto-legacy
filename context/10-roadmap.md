@@ -39,7 +39,10 @@ tragaba.
 ### Consumo a cuenta de empresa (viandas) — el caso real detrás de "Interno"
 
 Contado por el owner (2026-07-29). **No es una venta interna: es consumo a
-cuenta que se factura al cierre del período.** Un restaurante con convenio
+cuenta que se factura al cierre del período.** Re-reportado por testers el
+2026-07-30 ("pedidos de viandas semanales/mensuales por cliente o empresa,
+con resumen de consumiciones por fecha") — no sabían que ya está relevado con
+caso de negocio y solución propuesta. Un restaurante con convenio
 entrega almuerzos a empleados de una empresa; no cobra en el momento, registra
 quién pidió y cuánto; a fin de mes emite UNA factura a la empresa por el total,
 y la empresa exige el detalle de consumo por empleado.
@@ -145,7 +148,9 @@ No son correcciones: son features a planificar y priorizar aparte.
 - **Panel de transacciones más rico** — el cliente pidió más detalle del que hay
   hoy (adjuntó referencia visual en el doc).
 - **Pago de facturas a crédito desde Clientes** y **línea de crédito por cliente**
-  (hoy no hay dónde cargarla).
+  (hoy no hay dónde cargarla). Sigue sin implementar — verificado 2026-07-30:
+  `frontend/app/(panel)/contacts/[id]/page.tsx` no tiene tab ni lógica de
+  pago/cuenta corriente.
 - **Transacciones del contacto** dentro de su ficha, para anular o reimprimir.
 - **Gift card: permitir cargar un código manual** — el que genera el sistema no
   lo reconoce al canjear.
@@ -156,10 +161,13 @@ No son correcciones: son features a planificar y priorizar aparte.
 - **Órdenes**: notas y etiquetas por pedido; atajo de teclado `O` para saltar a
   órdenes.
 - **Pedidos de viandas** (semanales/mensuales por cliente o empresa, con resumen
-  de consumiciones por fecha) — es un módulo, no un ajuste.
+  de consumiciones por fecha) — es un módulo, no un ajuste. Re-reportado por
+  testers el 2026-07-30, ver nota arriba en "Consumo a cuenta de empresa".
 - **Chat de soporte embebido** en un costado de la pantalla.
 - **Facturación electrónica** — ya en curso, ver
   [28-facturacion-electronica-plan.md](28-facturacion-electronica-plan.md).
+  Re-reportado por testers el 2026-07-30 (marcado "se puede ver luego" en su
+  doc) sin saber que ya está F0-F2 completo contra API real.
 
 ### Pendientes de reproducción (no se pueden verificar leyendo código)
 
@@ -215,6 +223,105 @@ usan el neto, no el bruto (`9d46ad12`). El toggle "quitar IVA" también
 tenía el mismo tipo de bug (persistía mal entre carrito y payload) —
 arreglado con mig 101 (`transaction.ivaRemoved`) y `lineGross()` como
 fuente única de la fórmula del bruto.
+
+### Auditoría 2026-07-30 — reportes de testers (2 documentos)
+
+Fuente: dos documentos de testers ("Cambios para analizar dentro de Punto" y
+"Punto Panel"), con 12 candidatos a bug concretos más una lista larga de
+pedidos (ver `_feature-requests.md`). Se verificó cada bug contra el código,
+no contra el reporte.
+
+**Confirmados (6):**
+
+- **Lista de precios / descuento de cliente no se aplica en Caja al
+  totalizar.** `priceListId` se guarda en el cart store al elegir lista
+  manualmente (`frontend/components/register/sale-options-drawer.tsx:739`)
+  pero nada lo consume para recalcular precio —
+  `frontend/lib/cart/add-catalog-item.ts:39` siempre usa `item.price` plano.
+  Tampoco hay auto-aplicación del descuento del cliente seleccionado:
+  `PosCustomer` no trae `priceListId`. El backend ya tiene el endpoint
+  (`api/v1/price_resolve.php`, `resolvePriceBatch`) y el frontend tiene el
+  hook (`frontend/hooks/use-price-lists.ts:107`, `useResolvePrices`) — pero
+  ese hook no tiene NINGÚN consumidor en todo el repo. Endpoint construido,
+  nunca cableado al carrito.
+- **Gift card "no se encontró" al canjear** — no es el problema de código
+  manual (ya se puede tipear uno, `giftcard-validation-dialog.tsx:118-132`):
+  es un mismatch de case. La emisión fuerza mayúsculas
+  (`giftcard-issue-dialog.tsx:136`, `.toUpperCase()`), la validación del
+  canje NO normaliza (`giftcard-validation-dialog.tsx:122-126`) y el backend
+  hace match exacto case-sensitive (`api/v1/giftcards.php:38-40`,
+  `WHERE code = ?`). Un código tipeado en minúscula nunca matchea.
+- **Cotización: panel muestra el total sin descuento + "Ver"/imprimir no
+  hace nada** — dos causas independientes. (1) `TransactionsService::quotes()`
+  (`api/lib/Reports/TransactionsService.php:310`) devuelve `transactionTotal`
+  crudo sin restar el descuento, a diferencia de `detail()` que sí calcula
+  `netTotal`. (2) el tab "Cotizaciones" del listado de transacciones no tiene
+  `onRowClick` (`frontend/components/domain/transactions/transactions-list.tsx`,
+  fila ~768-785; comparar con el tab normal en ~738 que sí lo tiene) —
+  clickear una cotización no abre nada, por eso "guardar/imprimir desde VER"
+  no reacciona: nunca hay un VER.
+- **No imprime el cierre de caja al cerrar** — el botón "Imprimir" solo
+  existe dentro del bloque `{isOpen ? ... }` de `pos-main-menu.tsx:747-795`.
+  `handleSimpleConfirm` para el cierre (líneas 586-595) solo llama
+  `closeDrawer.mutateAsync` y cierra el modal; no imprime. Una vez cerrada la
+  caja el botón desaparece (`isOpen` pasa a `false`). No hay impresión
+  automática ni manual disponible después de cerrar.
+- **Timbrado 0 / INICIO / VENCIMIENTO / DIRECCIÓN vacíos en la factura
+  impresa** — confirma y amplía la trampa ya conocida (ver
+  `_handoff.md`/nota más arriba de razón social/RUC/email/timbrado):
+  `TicketData` (`frontend/lib/hardware/printers/build-ticket-data.ts:11-96`)
+  documenta en comentarios que `authNumber`/`authStartDate`/`authExpiration`
+  (timbrado) Y `outletAddress`/`companyAddress` (dirección) NO viajan al
+  bootstrap del POS hoy. Es exactamente el mismo problema, sin nada
+  adicional — DIRECCIÓN e INICIO/VENCIMIENTO caen en la misma causa raíz.
+- **Combo dinámico y combo fijo se agregan como producto suelto, sin
+  desplegar las categorías configuradas** — el backend modela combos con
+  grupos y `sourceType='category'` completo (`ComboGroupService.php`,
+  mig 20) y el panel permite configurarlos, pero
+  `frontend/lib/cart/add-catalog-item.ts` no tiene NINGÚN branching para
+  `kind === "combo_fijo"` / `"combo_dinamico"` — cae al mismo camino que un
+  producto normal, con precio plano y sin abrir selección de ítems. `PosItem`
+  (bootstrap) tampoco trae los grupos del combo. Gap end-to-end entre panel y
+  runtime del POS, no una regresión puntual.
+
+**Ya arreglados (5)** — el tester probó antes del fix o no volvió a probar:
+
+- Cantidades decimales al clickear una línea del carrito — mismo flujo ya
+  cerrado arriba, "Cerrados en la auditoría del 2026-07-30"
+  (`qty-edit-dialog.tsx:33-42`). Verificado que no hay otro flujo de edición
+  de cantidad (el buscador de productos solo agrega, no edita).
+- Descuento en cotización no persistía — commit `e7a3ad8d`
+  (`frontend/lib/commands/create-quote.ts` ahora usa
+  `allocateLineDiscounts()` en vez de `discount:0` hardcodeado).
+- Producción previa sin poder generar producción — commit `9fffd2b7`
+  (2026-07-17), botón "Producir" en el detalle del ítem navega a
+  `/produccion?newItemId=`.
+- Panel, combo dinámico "pide cambiar a producción" — commit `cddf45fb`
+  (2026-07-17): el gate de `showCompounds` estaba ordenado antes del branch
+  de `combo_dinamico` y lo tapaba con el mensaje "cambialo a un tipo
+  Producción o Combo"; ya se reordenó.
+- "Editar Stock en panel Legacy" no carga — commit `3d908f50` (2026-07-17):
+  el link muerto al panel PHP borrado se reemplazó por `/stock-adjustment`
+  nativo (el botón hoy dice "Ajustar stock", ya no menciona "legacy").
+
+**Matizado (1)**:
+
+- Documentos de impresión sin eliminar / sin "Texto Personalizado" — parcial.
+  Eliminar plantilla Y eliminar bloque YA existen
+  (`frontend/components/print-templates/template-editor.tsx:151,296-310`), y
+  el bloque "Texto Personalizado" (`type: "custom"`) ya permite texto libre
+  editable (`block-inspector.tsx:36,56-62`). Lo que sigue sin poder editarse:
+  el título/nombre de columna de los bloques dinámicos de tabla de ítems
+  (`item_receipt*`) — `block-inspector.tsx:63-72` los deja explícitamente de
+  solo lectura. Es la repro que faltaba para el pendiente "Texto
+  Personalizado sin repro" anotado en `_session-log.md`.
+
+**No es bug (1)**:
+
+- Conteo de Stock sin filtro por categoría — no hay regresión: ningún módulo
+  similar (`/stock-adjustment`, `/bulk-adjustment`) tiene ese filtro tampoco.
+  Es un pedido de feature legítimo, ya anotado en el backlog de 2026-07-07 de
+  abajo — re-reportado, no nuevo.
 
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 
@@ -1012,6 +1119,13 @@ system/
 ---
 
 ## Backlog testing 2026-07-07 — Panel + POS (feedback testers)
+
+**Re-reportado casi íntegro por testers el 2026-07-30** (doc "Punto Panel") —
+tres semanas después, sigue sin atacarse nada de esta lista. Es señal de
+prioridad, no una lista nueva. Los pocos puntos que SÍ son nuevos del batch
+2026-07-30 (reporte de gift card editable, columna de suma al pie en
+transacciones, columna de etiquetas internas, orden de pedido consolidado
+para cocina, tipo de venta/canal) están en `_feature-requests.md` §2026-07-30.
 
 **Fiscal/Reportes:**
 - Export RG90 / Libro de ventas (pedido 2x)

@@ -5,6 +5,92 @@
 
 # Feature requests — clientes
 
+## 2026-07-30 — testers (2 documentos)
+
+Dos documentos de testers ("Cambios para analizar dentro de Punto" — uso real
+en caja — y "Punto Panel"). Los 12 candidatos a bug están auditados en
+`10-roadmap.md` §"Auditoría 2026-07-30 — reportes de testers". Este bloque es
+solo lo que es pedido de producto (no bug) y que **no** está ya cubierto por
+el backlog de 2026-06-16 o el de 2026-07-07 — esos, en vez de duplicarse acá,
+quedaron marcados "re-reportado" en su lugar de origen (ver notas en
+`10-roadmap.md` y en las secciones de abajo). Casi todo el doc "Punto Panel"
+es un re-report casi literal del backlog 2026-07-07 — dato de prioridad, no
+pedido nuevo.
+
+### Producción / Cocina
+
+**Orden de pedido unificado para cocina (por cantidad de preparación)** — `M`
+> "Orden de pedido para producción en cocina: lista de pedidos unificados por
+> cantidad de preparación."
+
+- Distinto del KDS actual (`/pos/ordenes`, comandas en fila por pedido
+  individual, `context/24-orders-module-plan.md`): esto es una vista
+  CONSOLIDADA — "12 empanadas de carne" sumando todos los pedidos abiertos,
+  no una tarjeta por pedido. No hay endpoint ni vista que agregue por
+  producto entre órdenes abiertas hoy (verificado: cero referencias a
+  agregación por item en `frontend/app/(panel)/produccion` ni en el módulo
+  de Órdenes).
+- Implica: query que agrupe `pos_order_item`/`itemSold` de órdenes en estado
+  abierto por `itemId`, sumando cantidades — candidato natural para una
+  pantalla nueva en Producción o una vista alternativa del KDS.
+
+### Ventas — canal / tipo de venta
+
+**Identificar canal de venta (Pedidos Ya, Mayoristas) en las ventas
+realizadas** — `S`
+> "Poder identificar el tipo de venta (Pedidos Ya, Mayoristas) dentro de las
+> ventas realizadas."
+
+- Mucho más chico que la integración real con marketplaces (`XL`, ver
+  "Pedidos Ya y Monchis" más abajo, sección owner): acá alcanza con poder
+  ETIQUETAR manualmente una venta con su canal, no con ingestar pedidos
+  automáticamente.
+- El modelo ya tiene la pieza: `tags: string[]` en el carrito
+  (`frontend/lib/cart/store.ts:226`) y la opción "Etiquetas" en el drawer de
+  opciones de venta (`sale-options-drawer.tsx:298`) ya existen. Falta
+  exponer esas etiquetas como columna/filtro en el reporte de transacciones
+  — ver el ítem de abajo.
+
+### Reportes / Transacciones
+
+**Columna "etiquetas" en el listado de transacciones** — `S`
+> Columnas pedidas: factura, nota de crédito, etiquetas internas, método de
+> pago, caja registradora.
+
+- Las etiquetas de venta ya se capturan (`CartLine`/`tags` en
+  `frontend/lib/cart/store.ts:226`, ver ítem anterior); falta exponerlas
+  como columna en `transactions-list.tsx` y en el service de reportes. El
+  resto de las columnas pedidas (factura/NC/método/caja) ya está cubierto
+  por el backlog 2026-07-07 (`10-roadmap.md`, "Filtros en transacciones...
+  + columnas tipo doc/método/caja") — re-reportado, no nuevo.
+
+**Suma de la columna TOTAL al pie del listado** — `S`
+> "Que al pie de la columna TOTAL sume el total de transacciones en Gs."
+
+- Footer de agregación en el `<DataTable>` de transacciones. No hay
+  precedente de footer-sum en ese listado hoy (verificar si `<DataTable>`
+  soporta footer genérico o si hay que agregarlo al componente compartido —
+  en ese caso conviene resolverlo en el wrapper, no en la página, para que
+  otros reportes lo hereden gratis).
+
+### Gift Card
+
+**Reporte Gift Card editable — recargar créditos + saldo visible en el
+cliente** — `M`
+> "Poder editarlo para recargar créditos en una gift card ya vendida; mostrar
+> en la información del cliente cuánto saldo le queda."
+
+- Genuinamente nuevo — no está en ningún backlog anterior. Dos partes: (1)
+  UI de recarga sobre una gift card existente (`giftcard.currentBalance` ya
+  es mutable por diseño — el canje ya la decrementa,
+  `api/v1/giftcards.php` resource=consume — falta el camino inverso, sumar
+  saldo); (2) mostrar el saldo en la ficha del cliente beneficiario
+  (`giftcard.beneficiaryContactId` ya vincula la gift card a un contacto,
+  `SaleService.php:974-986` — falta el query + la UI en
+  `frontend/app/(panel)/contacts/[id]/page.tsx`).
+- Relacionado con el bug de case-sensitivity del canje (ver auditoría en
+  `10-roadmap.md`) — mismo módulo, no bloqueante entre sí.
+
 ## 2026-07-30 — owner
 
 ### Settings
@@ -302,6 +388,8 @@ Lista compilada por soporte tras múltiples contactos con clientes que pidieron 
 
 - Detallado = una row por venta del producto. Combos = expansión de items del combo.
 - Requiere endpoints adicionales o flags en el endpoint actual (`view=detail|combos`).
+- Re-reportado por testers el 2026-07-30 ("verificar ventas de productos en
+  resumen y tener detalle de sus movimientos").
 
 **Columnas descuento / usuario / comisiones / fecha / cliente** — `S`
 > Agregar columnas al reporte.
@@ -411,6 +499,13 @@ Lista compilada por soporte tras múltiples contactos con clientes que pidieron 
 > Combinación del anterior — variable por ambos ejes.
 
 - Mismo modelo. Va junto con el item anterior.
+- **Distinto** del pedido más simple "Comisiones por usuario (Gs. o %)" del
+  backlog 2026-07-07 (`10-roadmap.md`, re-reportado por testers el
+  2026-07-30): ese es un % o monto fijo por VENDEDOR sin importar el
+  producto — no existe ningún campo `commission` a nivel contacto/usuario
+  hoy (verificado, cero referencias en `api/lib/Items/*.php`,
+  `api/lib/Contacts/*.php`). Ese pedido simple podría resolverse sin tocar
+  el modelo por-producto de este ítem; no bloquear uno esperando al otro.
 
 **Mesas asignadas a meseros (mesero solo ve sus mesas)** — `M`
 > Restricción de acceso por mesa. Cada mesero solo ve y opera sus mesas.
@@ -427,6 +522,14 @@ Lista compilada por soporte tras múltiples contactos con clientes que pidieron 
 
 - Bug semántico de `manageStock` / `Inventory::manageStock` + cálculo de `itemSoldCogs` para items producidos.
 - Probablemente requiere snapshot del `lastPurchaseCost` por item antes de descontar.
+- **Re-reportado dos veces el 2026-07-30** (docs "Cambios para analizar" y
+  "Punto Panel"), con una SEGUNDA motivación que unifica con esta: si un
+  insumo se agota (ej. harina a 8.000 Gs/kg) y se sigue registrando
+  producción antes de cargar la factura de compra nueva, los reportes deben
+  seguir saliendo bien — los clientes cargan compras cuando baja el
+  movimiento, no al instante. Es el mismo campo (`lastPurchaseCost`
+  persistido) resolviendo dos síntomas: ruido en el % sobre costo (arriba) y
+  huecos de costo cuando la carga de la factura se demora.
 
 **Precios mayoristas / minoristas / por cajas + variantes (color y talle)** — `XXL`
 > Modelo de variantes (S/M/L, rojo/azul) + tiered pricing.
