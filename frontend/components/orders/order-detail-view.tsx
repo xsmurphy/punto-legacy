@@ -192,7 +192,10 @@ export function OrderDetailView({
             )}
           </div>
         </div>
-        <div className="shrink-0 flex flex-col items-end gap-2">
+        {/* pr-10: el botón X del Dialog es `absolute top-4 right-4` y quedaba
+            encima del monto (que es lo más grande del header). El padding le
+            reserva su lugar en vez de superponerse. */}
+        <div className="shrink-0 flex flex-col items-end gap-2 pr-10">
           <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
           <div className="inline-flex">
             <Button
@@ -212,14 +215,14 @@ export function OrderDetailView({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem disabled={!hasItems || printing} onSelect={() => void reprint()}>
-                  <Printer className="size-3.5" />
+                  <Printer className="size-3.5 shrink-0" />
                   Reimprimir comanda
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => setCancelOpen(true)}
                 >
-                  <X className="size-3.5" />
+                  <X className="size-3.5 shrink-0" />
                   Cancelar orden
                 </DropdownMenuItem>
               </DropdownMenuContent>
