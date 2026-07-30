@@ -22,6 +22,45 @@
   atajo de teclado y navegación con flechas (el patrón de command palette que
   el POS ya usa para buscar ítems).
 
+### Integraciones — delivery marketplaces
+
+**Pedidos Ya y Monchis: los pedidos caen en el panel de pedidos, con sonido y alerta** — `XL`
+> "Que los pedidos de cada comercio por estas plataformas caigan en su panel de
+> pedidos, debe haber un sonido que indique que llegó un nuevo pedido y una
+> alerta para que el cajero pueda tomarlo."
+
+- **La mitad del camino ya está hecha**: el módulo Órdenes (`context/24`) tiene
+  el panel (`/pos/ordenes`), estados con transiciones, KDS, pantalla de despacho
+  y realtime por WebSocket (canal `kds`). El schema ya contempla el origen
+  externo: `pos_order.source CHECK IN ('counter','table','ecommerce','schedule')`
+  y `fulfillment` es ortogonal (un pedido de plataforma es `delivery`), así que
+  un pedido de PedidosYa entra al mismo flujo sin inventar un modelo paralelo.
+- **Lo que falta es la capa de integración por plataforma**, y ahí está el 90%
+  del esfuerzo: credenciales por comercio (cada tenant tiene su cuenta en la
+  plataforma), ingesta por webhook con endpoint público + verificación de firma,
+  reintentos e idempotencia (las plataformas reenvían), y el **mapeo de catálogo**
+  — el ítem "Pizza Muzzarella" de PedidosYa tiene que resolver a un itemId de
+  Punto o el pedido entra sin stock ni COGS. Ese mapeo es el punto que más suele
+  doler: hace falta UI de vinculación producto↔producto por plataforma.
+- **Aceptar/rechazar tiene que viajar de vuelta**: si el cajero toma el pedido en
+  Punto, la plataforma tiene que enterarse (y viceversa — si el cliente cancela
+  en la app, la orden debe cancelarse acá). Es integración bidireccional, no solo
+  ingesta.
+- **Sonido y alerta**: hoy NO hay infraestructura de audio en el front (cero
+  `new Audio()` en todo el frontend). Existía un toggle "Sonidos en alertas"
+  (`sonidosAlertas`) sin ningún consumidor — se quitó de Ajustes el 2026-07-30
+  justamente por eso, la key sigue en `PosRegisterConfig`. Implica: asset de
+  sonido, desbloqueo de autoplay (los navegadores exigen interacción previa del
+  usuario — en una tablet de caja que queda abierta todo el día hay que resolver
+  el "primer gesto"), y una alerta visual persistente que no dependa de que
+  alguien esté mirando la pantalla correcta.
+- Sugerencia de corte: F1 ingesta de UNA plataforma (la que dé mejor API/sandbox)
+  con mapeo manual de catálogo + sonido/alerta; F2 la segunda plataforma sobre la
+  misma abstracción; F3 bidireccional (aceptar/rechazar/cancelar).
+- **Dato a confirmar antes de estimar**: ambas plataformas dan API pública de
+  partner o hay que ir por integrador (Otter/Deliverect y similares). Cambia por
+  completo el tamaño del trabajo.
+
 ### Roles y permisos
 
 **Roles personalizados con permisos de Vista / Creación / Edición / Eliminación** — `L`
