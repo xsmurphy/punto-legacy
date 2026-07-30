@@ -153,6 +153,26 @@ export function TemplateEditor({ existing }: Props) {
     setSelectedIdx(null)
   }
 
+  // Supr / Backspace borra el bloque seleccionado. La toolbar flotante sigue
+  // siendo el camino visible, pero el teclado es el reflejo de cualquier editor
+  // de layout y no depende de que ese chrome se vea (que es justo lo que falló:
+  // el `overflow: hidden` del bloque lo recortaba, ver canvas-block.tsx).
+  React.useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Delete" && e.key !== "Backspace") return
+      if (selectedIdx === null) return
+      // No robar la tecla mientras se escribe en el inspector.
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return
+      e.preventDefault()
+      deleteBlock(selectedIdx)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIdx])
+
   const cloneBlock = (idx: number) => {
     setBlocks((prev) => {
       const src = prev[idx]
@@ -292,32 +312,38 @@ export function TemplateEditor({ existing }: Props) {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          {/* Split button: izq → guardar; der (chevron) → dropdown con Vista Previa. */}
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-r-none"
-          >
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            Guardar
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                disabled={saving}
-                className="rounded-l-none border-l border-primary-foreground/20 px-2"
-                aria-label="Más opciones"
-              >
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setPreviewOpen(true)}>
-                <Eye className="size-4" />
-                Vista previa
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Split button: izq → guardar; der (chevron) → dropdown con Vista Previa.
+              El wrapper `inline-flex` NO es decorativo: sin él las dos mitades
+              son hijas directas del contenedor `gap-2` y quedaba un hueco entre
+              el botón y el chevron, que es justo lo que un split button no
+              puede tener (bug 2026-07-30). Mismo patrón que order-detail-view. */}
+          <div className="inline-flex">
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded-r-none"
+            >
+              {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              Guardar
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  disabled={saving}
+                  className="rounded-l-none border-l border-primary-foreground/20 px-2"
+                  aria-label="Más opciones"
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setPreviewOpen(true)}>
+                  <Eye className="size-4" />
+                  Vista previa
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 

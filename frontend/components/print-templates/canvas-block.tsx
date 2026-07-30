@@ -124,12 +124,26 @@ export function CanvasBlock({
         fontSize: block.size !== "inherit" ? block.size : undefined,
         fontFamily: block.family !== "inherit" ? block.family : undefined,
         fontWeight: block.bold,
-        overflow: block.textwrap === "cut" ? "hidden" : undefined,
-        whiteSpace: block.textwrap === "cut" ? "nowrap" : "normal",
-        textOverflow: block.textwrap === "cut" ? "clip" : undefined,
       }}
     >
-      <BlockContent block={block} />
+      {/* El recorte de texto (`textwrap: "cut"`) va en este wrapper interno, NO
+          en la raíz del bloque. Estaba en la raíz, y como la toolbar flotante es
+          hija absolute a `-top-9`, el `overflow: hidden` la recortaba entera:
+          todo bloque nuevo nace con textwrap "cut" (default en
+          lib/types/print-template.ts), así que el botón de eliminar era
+          literalmente invisible y no había forma de borrar un bloque recién
+          agregado (bug 2026-07-30). La raíz queda como contexto de posición
+          para el chrome; el clipping solo afecta al contenido. */}
+      <div
+        className="size-full"
+        style={{
+          overflow: block.textwrap === "cut" ? "hidden" : undefined,
+          whiteSpace: block.textwrap === "cut" ? "nowrap" : "normal",
+          textOverflow: block.textwrap === "cut" ? "clip" : undefined,
+        }}
+      >
+        <BlockContent block={block} />
+      </div>
 
       {selected && !moving && (
         <BlockToolbar
