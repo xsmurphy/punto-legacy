@@ -546,8 +546,9 @@ Todas flageadas en comentarios; son los primeros sospechosos ante un rechazo:
 - `contributorType` física/jurídica por heurística de longitud de RUC.
 - `creditDeadline` por defecto a +30 días cuando la venta no tiene
   `transactionDueDate`.
-- Un solo `paymentMethodCode` por documento: una venta con pago mixto se
-  declara con un único medio.
+- ~~Un solo `paymentMethodCode` por documento~~ — resuelto en F3: una entrada
+  de `payments[]` por medio de pago real. Sigue SIN VERIFICAR contra la API
+  real que Factomate acepte más de una.
 - (Heredadas de F0) el content-type de `POST /Token` y el shape de `stamps[0]`.
 
 ### Hueco conocido: documentos trabados en `sending`
@@ -719,6 +720,58 @@ de validación.
 
 **Sin verificar todavía**: una cancelación exitosa sobre un documento aprobado.
 
+## F3 — decisiones e invariantes
+
+- **El documento declara el NETO, no el bruto.** `transactionTotal` es la suma
+  de las líneas antes de descuento y `transactionDiscount` la suma de los
+  descuentos: el neto es la resta (ver `create-sale.ts`). Facturar el bruto
+  declaraba de más en toda venta con descuento — más IVA del que se cobró — y
+  el total no cerraba contra los medios de pago. El descuento se absorbe en el
+  precio unitario en vez de declararse en `itemUnitPriceDiscountWithTax`: la
+  guía documenta ese campo pero no cómo afecta a `total`/`subTotal`, y el único
+  flujo verificado contra la API real cumple `total = Σ(quantity ×
+  unitPriceWithTax)`. **Trade-off**: el KuDE no desglosa el descuento.
+- **Un `payments[]` por medio de pago real**, agrupando por código y validando
+  que la suma cierre contra el total (absorbe hasta 1 Gs de redondeo por línea;
+  una diferencia mayor aborta la emisión). En crédito las líneas son la
+  **entrega inicial**, no el total, y alimentan `credit.initialDeliveryAmmount`
+  (iba fijo en 0).
+- **Método sin mapear cae en `defaultPaymentMethodCode`**, no aborta: declarar
+  un medio de pago accesorio equivocado es menos grave que dejar al comercio
+  sin factura por un detalle de configuración.
+- **La resolución de la clave del pago es compartida**
+  (`PaymentMethods\PaymentMethodResolver`): `transactionPaymentType[].type`
+  puede ser el taxonomyId (ventas nuevas) o un slug legacy. Estaba embebida en
+  `Finance\ConfigService::resolveAccountId`; se extrajo en vez de duplicarla.
+- **`saveAccount` mergea la config clave por clave.** Antes cada sección de la
+  pantalla mandaba la config entera, así que tocar un switch de emisión borraba
+  el `paymentMethodMap`.
+- **Lookup de RUC en el backend** (`GET /v1/contacts?resource=taxpayer`):
+  primero el padrón del emisor vía Factomate (autoritativo — es el que valida
+  SIFEN), y si el comercio no tiene FE conectada cae al padrón público
+  (`TAXPAYER_LOOKUP_URL`). Antes lo consultaba el navegador del cajero contra
+  turuc.com.py, con el dominio hardcodeado en el bundle y sin reuso desde el
+  panel.
+- **Nota de crédito = devolución.** Una devolución (`transactionType = 6`)
+  encola su NC en la misma transacción y se emite inline post-commit. Los ítems
+  salen de `itemSold` (la devolución guarda `meta = '{}'`), en valor absoluto y
+  netos. `documentTypeCode: 5` + `associatedDocuments: [{associatedDocumentType:
+  0, cdc}]` de la factura original; sin CDC no se emite. **Sin bloque
+  `payments`**: una NC no cobra — la devolución del dinero es un movimiento de
+  caja, no una forma de pago del documento.
+- **Sin factura original emitida no se encola la NC.** Dejarla encolada la
+  mandaría a `error` en cada pasada del drainer sin salida posible.
+
+Suposiciones nuevas SIN VERIFICAR (flageadas en el código):
+
+- Que Factomate acepte más de una entrada en `payments[]`.
+- El bloque de pagos y `initialDeliveryAmmount` de una venta a crédito.
+- El payload completo de la nota de crédito (documentado en la guía, nunca
+  emitido) y **el motivo de emisión**: la guía expone `CreditNoteReason/get`
+  pero no nombra el campo del cuerpo donde va.
+- La ruta y el shape de `GET /api/Client/getbyruc/{ruc}` — el parseo es
+  defensivo y cae al padrón público ante cualquier respuesta inesperada.
+
 ## Preguntas abiertas para Factomate
 
 Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
@@ -750,6 +803,16 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
    todos los documentos del emisor y matchea en memoria.
 10. **¿Cómo se marca una línea exenta de IVA?** La guía solo documenta
     `taxRate` 10 y 5; hoy se manda 0 sin verificar, y Punto tiene ítems exentos.
+11. **Nota de crédito: ¿dónde va el motivo de emisión?** La guía expone el
+    catálogo `CreditNoteReason/get` pero el cuerpo documentado de la NC solo
+    cambia `documentTypeCode` y agrega `associatedDocuments` — no nombra el
+    campo del motivo, que SIFEN exige (iMotEmi). Hoy no se manda ninguno.
+12. **¿`payments[]` acepta más de una entrada?** Una venta con pago dividido
+    declara una línea por medio de pago; nunca se probó contra la API real.
+13. **Descuentos**: ¿cómo afectan `itemUnitPriceDiscountWithTax` y
+    `itemDiscountPercentage` a `total`/`subTotal`? Hoy el descuento se absorbe
+    en el precio unitario y esos campos van en 0, así que el KuDE no lo
+    desglosa.
 
 ## Fases
 
@@ -758,7 +821,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 | **F0** | Migs 92/93/95, vault, provider/session Factomate, módulo + página de config con teléfono/entorno/timbrado + *Probar conexión* | **Hecha** (pivot 2026-07-28) |
 | **F1** | Mapper, outbox transaccional, drainer con CAS, enqueue en `SaleService`, endpoint de drain, badge en transacciones | **Hecha** (2026-07-30) |
 | **F2** | DataTable de documentos, KuDE PDF (retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`), trabados en `sending` expuestos | **Hecha** (2026-07-30) |
-| **F3** | Mapping de medios de pago, lookup de RUC/CI en Contactos (`clientByRuc`), notas de crédito | Pendiente |
+| **F3** | Mapping de medios de pago (UI + `payments[]` por medio real), lookup de RUC en el backend (`clientByRuc` + padrón público), notas de crédito por devolución, factura por el neto | **Hecha** (2026-07-30) — sin verificar contra la API real |
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
 | **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante + listado por RUC con segundo factor | Pendiente |
@@ -772,3 +835,6 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 - `FACTOMATE_BASE_URL_PROD` — default vacío. Sin configurar, cualquier cuenta en
   `environment='prod'` falla explícito (nunca cae a test).
 - F1: `EINVOICE_DRAIN_SECRET` + entrada de cron en el server de producción.
+- F3: `TAXPAYER_LOOKUP_URL` — padrón público para el lookup de RUC
+  (`GET {url}/{documento sin DV}`), default `https://turuc.com.py/api/contribuyente`.
+  Vacía → el lookup solo responde con la fuente del proveedor de FE.
