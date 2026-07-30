@@ -23,6 +23,8 @@
  */
 
 export interface DiscountableLine {
+  /** Id de la línea — se cruza con `saleDiscount.lineIds` para saber si la alcanza. */
+  lineId?: string
   qty: number
   unitPrice: number
   /** Descuento propio de la línea, en porcentaje 0-100. */
@@ -45,6 +47,17 @@ export interface LineDiscountAllocation {
 export interface SaleDiscountInput {
   value: number
   mode: "percent" | "money"
+  /**
+   * Alcance CONGELADO del descuento: las líneas que estaban en el carrito al
+   * aplicarlo (ver `saleDiscount` en lib/cart/store.ts). Lo agregado después no
+   * entra, y una línea con descuento propio nunca entra — un producto lleva un
+   * solo descuento.
+   *
+   * Opcional por compatibilidad: una venta guardada antes del 2026-07-30 no lo
+   * tiene, y ahí se cae al comportamiento viejo (alcanza a todas las líneas sin
+   * descuento propio).
+   */
+  lineIds?: string[]
 }
 
 export function allocateLineDiscounts(
@@ -56,18 +69,27 @@ export function allocateLineDiscounts(
     Math.round((gross[i] * Math.min(100, Math.max(0, l.discount ?? 0))) / 100),
   )
   const net = gross.map((g, i) => g - lineDiscount[i])
-  const netTotal = net.reduce((s, n) => s + n, 0)
+
+  // Solo las líneas ALCANZADAS por el descuento de venta pesan en su reparto:
+  // las demás quedan con peso 0 y no reciben nada.
+  const covered = lines.map((l) => {
+    if (l.discount) return false // ya tiene descuento propio → nunca dos
+    if (!saleDiscount?.lineIds) return true // venta vieja sin alcance: todas
+    return l.lineId !== undefined && saleDiscount.lineIds.includes(l.lineId)
+  })
+  const coveredWeights = net.map((n, i) => (covered[i] ? n : 0))
+  const coveredTotal = coveredWeights.reduce((s, n) => s + n, 0)
 
   const saleDiscountTotal = (() => {
-    if (!saleDiscount || netTotal <= 0) return 0
+    if (!saleDiscount || coveredTotal <= 0) return 0
     if (saleDiscount.mode === "money") {
-      return Math.min(Math.max(0, saleDiscount.value), netTotal)
+      return Math.min(Math.max(0, saleDiscount.value), coveredTotal)
     }
     const pct = Math.min(100, Math.max(0, saleDiscount.value))
-    return Math.round((netTotal * pct) / 100)
+    return Math.round((coveredTotal * pct) / 100)
   })()
 
-  const saleShare = distributeByLargestRemainder(net, saleDiscountTotal)
+  const saleShare = distributeByLargestRemainder(coveredWeights, saleDiscountTotal)
 
   return lines.map((_, i) => {
     const totalDiscount = lineDiscount[i] + saleShare[i]
@@ -100,8 +122,11 @@ function distributeByLargestRemainder(weights: number[], amount: number): number
   const floors = exact.map((e) => Math.floor(e))
   let assigned = floors.reduce((s, f) => s + f, 0)
 
+  // Solo las partes con peso positivo entran en el reparto del resto: una línea
+  // fuera del alcance (peso 0) nunca debe recibir un guaraní suelto.
   const order = exact
     .map((e, i) => ({ i, remainder: e - Math.floor(e) }))
+    .filter(({ i }) => weights[i] > 0)
     .sort((a, b) => b.remainder - a.remainder)
 
   const result = [...floors]

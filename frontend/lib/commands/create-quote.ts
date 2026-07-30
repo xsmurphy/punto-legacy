@@ -12,7 +12,7 @@
 // (cookie) el POST era un 401 garantizado — la cotización nunca se guardaba.
 import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
-import { allocateLineDiscounts } from "@/lib/cart/allocate-discounts"
+import { allocateLineDiscounts, type SaleDiscountInput } from "@/lib/cart/allocate-discounts"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 
 export interface CreateQuoteInput {
@@ -21,8 +21,11 @@ export interface CreateQuoteInput {
   userId: string | null
   note: string | null
   tags: string[]
-  /** Descuento de venta activo en el carrito, si lo hay. Se prorratea entre las líneas. */
-  saleDiscount?: { value: number; mode: "percent" | "money" } | null
+  /**
+   * Descuento de venta activo en el carrito, si lo hay. Se prorratea entre las
+   * líneas que ALCANZA (`lineIds`) — ver lib/cart/allocate-discounts.ts.
+   */
+  saleDiscount?: SaleDiscountInput | null
 }
 
 export interface CreateQuoteResult {

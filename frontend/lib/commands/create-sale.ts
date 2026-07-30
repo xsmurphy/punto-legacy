@@ -30,7 +30,7 @@
 // device (`apiAuthPosContext`), nunca la cookie del panel.
 import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
-import { allocateLineDiscounts } from "@/lib/cart/allocate-discounts"
+import { allocateLineDiscounts, type SaleDiscountInput } from "@/lib/cart/allocate-discounts"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { tenantNow } from "@/lib/format-date"
 
@@ -210,7 +210,7 @@ export interface BuildSaleInput {
    * mandarse al backend (campo `discount` top-level del payload, tipo float).
    * SaleInput.php::fromPayload lee: `(float) ($payload['discount'] ?? 0)`.
    */
-  saleDiscount?: { value: number; mode: "percent" | "money" } | null
+  saleDiscount?: SaleDiscountInput | null
   /**
    * TZ IANA del tenant (PosConfig.timezone). La fecha de la venta se formatea
    * en esta TZ para que un device en otra zona no la desfase. Si es falsy se

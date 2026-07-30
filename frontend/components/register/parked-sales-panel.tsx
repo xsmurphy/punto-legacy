@@ -18,7 +18,7 @@ import {
   useDeleteParkedSale,
   type ParkedSale,
 } from "@/hooks/use-parked-sales"
-import { useCartStore, lineSubtotal } from "@/lib/cart/store"
+import { useCartStore, lineSubtotal, eligibleForSaleDiscount } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
 import { toast } from "sonner"
@@ -42,7 +42,20 @@ export function ParkedSalesPanel() {
           // La venta se retoma ENTERA: descuento de venta y etiquetas también
           // (guardados desde 2026-07-30; ventas viejas traen null/[] y esto
           // queda igual que antes).
-          saleDiscount: sale.data.saleDiscount ?? null,
+          //
+          // `lineIds` es el alcance congelado del descuento. Una venta guardada
+          // ANTES de que existiera no lo trae: se reconstruye sobre las líneas
+          // sin descuento propio, que es exactamente a quiénes alcanzaba cuando
+          // se guardó.
+          saleDiscount: sale.data.saleDiscount
+            ? {
+                value: sale.data.saleDiscount.value,
+                mode: sale.data.saleDiscount.mode,
+                lineIds:
+                  sale.data.saleDiscount.lineIds ??
+                  eligibleForSaleDiscount(sale.data.cart).map((l) => l.lineId),
+              }
+            : null,
           tags: sale.data.tags ?? [],
         })
         toast.success("Venta retomada")

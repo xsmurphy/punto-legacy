@@ -12,8 +12,13 @@ export interface ParkedSaleData {
   customer: PosCustomer | null
   notes?: string | null
   title?: string | null
-  /** Descuento de venta activo al guardar — sin esto, retomar perdía el descuento. */
-  saleDiscount?: { value: number; mode: "percent" | "money" } | null
+  /**
+   * Descuento de venta activo al guardar — sin esto, retomar perdía el descuento.
+   * `lineIds` = alcance congelado (ver store). Las ventas guardadas antes del
+   * 2026-07-30 no lo traen; al retomarlas se recalcula sobre las líneas sin
+   * descuento propio, que es el comportamiento que tenían cuando se guardaron.
+   */
+  saleDiscount?: { value: number; mode: "percent" | "money"; lineIds?: string[] } | null
   /** Etiquetas de la venta al guardar. */
   tags?: string[]
 }
@@ -63,7 +68,15 @@ function normalizeParkedSaleData(raw: unknown): ParkedSaleData {
     typeof rawDiscount === "object" &&
     typeof rawDiscount.value === "number" &&
     (rawDiscount.mode === "percent" || rawDiscount.mode === "money")
-      ? { value: rawDiscount.value, mode: rawDiscount.mode as "percent" | "money" }
+      ? {
+          value: rawDiscount.value,
+          mode: rawDiscount.mode as "percent" | "money",
+          lineIds: Array.isArray((rawDiscount as { lineIds?: unknown }).lineIds)
+            ? ((rawDiscount as { lineIds: unknown[] }).lineIds.filter(
+                (x): x is string => typeof x === "string",
+              ))
+            : undefined,
+        }
       : null
 
   return {

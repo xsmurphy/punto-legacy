@@ -824,7 +824,15 @@ function CartRowCollapsed({
   // debe coincidir con el total del botón cobrar.
   const ivaRemoved = useCartStore((s) => s.ivaRemoved)
   const subtotal = lineSubtotal(line, ivaRemoved)
-  const hasDiscount = (line.discount ?? 0) > 0
+  // Una línea está descontada si tiene descuento PROPIO o si la alcanza el
+  // descuento de venta (que congela su alcance al aplicarse — ver el store).
+  // El cajero tiene que poder ver de un vistazo qué se descontó y qué no:
+  // desde que el global dejó de alcanzar todo el carrito, el borde amarillo es
+  // la única señal de la diferencia (pedido del owner, 2026-07-30).
+  const coveredBySaleDiscount = useCartStore((s) =>
+    s.saleDiscount ? s.saleDiscount.lineIds.includes(line.lineId) : false,
+  )
+  const hasDiscount = (line.discount ?? 0) > 0 || coveredBySaleDiscount
   const hasSeller = Boolean(line.sellerId)
   const hasTags = (line.tags?.length ?? 0) > 0
   const hasNote = Boolean(line.note && line.note.trim().length > 0)
@@ -880,7 +888,12 @@ function CartRowCollapsed({
         <span className="text-sm font-semibold tabular-nums text-foreground">
           {formatAmount(subtotal, config)}
         </span>
-        {hasDiscount && (
+        {/* El % solo se muestra si es de la LÍNEA. Una línea alcanzada por el
+            descuento de venta se marca con el borde amarillo, pero su % no se
+            imprime acá: el monto de ese descuento se prorratea entre todas las
+            líneas alcanzadas y ponerle un número por línea daría a entender un
+            descuento propio que no tiene. */}
+        {(line.discount ?? 0) > 0 && (
           <span className="text-[10px] font-medium text-yellow-500">
             -{Math.round(line.discount ?? 0)}%
           </span>
@@ -924,8 +937,22 @@ function CartRowExpanded({
   // acá (UI) y con backstop server-side (SaleService rechaza count != 1).
   const qtyLocked = !!line.giftcard
 
+  // Misma señal que la fila compacta: toda línea con descuento —propio o
+  // alcanzada por el descuento de venta— lleva el borde izquierdo amarillo.
+  // La fila expandida no lo tenía, así que al seleccionar una línea descontada
+  // la marca desaparecía (regla del owner: SIEMPRE marcada).
+  const coveredBySaleDiscount = useCartStore((s) =>
+    s.saleDiscount ? s.saleDiscount.lineIds.includes(line.lineId) : false,
+  )
+  const hasDiscount = (line.discount ?? 0) > 0 || coveredBySaleDiscount
+
   return (
-    <div className="bg-accent/40 px-3 py-3">
+    <div
+      className={cn(
+        "bg-accent/40 px-3 py-3",
+        hasDiscount && "border-l-[3px] border-l-yellow-500",
+      )}
+    >
       {/* Header — nombre del item en negrita. */}
       <div className="mb-2 text-center">
         <span className="truncate text-sm font-bold text-foreground">

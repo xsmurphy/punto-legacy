@@ -119,21 +119,46 @@ export function lineSubtotal(line: CartLine, ivaRemoved: boolean): number {
 }
 
 /**
- * Subtotal de las líneas (post-descuentos de línea, pre-descuento de venta).
- * Es la base sobre la que se aplica saleDiscount.
+ * Subtotal de TODAS las líneas (post-descuentos de línea, pre-descuento de
+ * venta). Es lo que se muestra como subtotal del carrito.
  */
 export const selectLinesSubtotal = (s: CartState): number =>
   s.lines.reduce((sum, line) => sum + lineSubtotal(line, s.ivaRemoved), 0)
 
 /**
- * Monto en plata del descuento de venta. Calcula sobre selectLinesSubtotal:
- * - mode "percent": porcentaje del subtotal de líneas.
- * - mode "money": monto directo (capeado al subtotal de líneas).
- * Devuelve 0 si no hay saleDiscount activo.
+ * Líneas ELEGIBLES para un descuento de venta: las que no tienen descuento
+ * propio. Un producto lleva un solo descuento (regla del owner).
+ */
+export function eligibleForSaleDiscount(lines: CartLine[]): CartLine[] {
+  return lines.filter((l) => !l.discount)
+}
+
+/**
+ * Líneas que el descuento de venta activo alcanza HOY: las que estaban en su
+ * alcance al aplicarlo y siguen en el carrito sin descuento propio.
+ */
+export function linesCoveredBySaleDiscount(s: CartState): CartLine[] {
+  if (!s.saleDiscount) return []
+  const ids = new Set(s.saleDiscount.lineIds)
+  return s.lines.filter((l) => ids.has(l.lineId) && !l.discount)
+}
+
+/**
+ * Base del descuento de venta: subtotal de las líneas que alcanza, NO del
+ * carrito entero. Lo agregado después de aplicarlo no entra.
+ */
+export const selectSaleDiscountBase = (s: CartState): number =>
+  linesCoveredBySaleDiscount(s).reduce((sum, line) => sum + lineSubtotal(line, s.ivaRemoved), 0)
+
+/**
+ * Monto en plata del descuento de venta, sobre su base congelada:
+ * - mode "percent": porcentaje de esa base.
+ * - mode "money": monto directo (capeado a esa base).
+ * Devuelve 0 si no hay saleDiscount activo o si ya no alcanza ninguna línea.
  */
 export const selectSaleDiscountAmount = (s: CartState): number => {
   if (!s.saleDiscount) return 0
-  const base = selectLinesSubtotal(s)
+  const base = selectSaleDiscountBase(s)
   if (base === 0) return 0
   if (s.saleDiscount.mode === "money") {
     return Math.min(s.saleDiscount.value, base)
@@ -199,11 +224,21 @@ interface CartState {
   tags: string[]
 
   /**
-   * Descuento a nivel venta (transactionDiscount). Se resuelve en plata en
-   * selectSaleDiscountAmount y se resta al total en selectCartTotal. NO se
-   * bakea en las líneas — siempre removible con clearSaleDiscount().
+   * Descuento a nivel venta. Se resuelve en plata en selectSaleDiscountAmount y
+   * se resta al total en selectCartTotal. NO se bakea en las líneas — siempre
+   * removible con clearSaleDiscount().
+   *
+   * `lineIds` congela SU ALCANCE al momento de aplicarlo (reglas del owner,
+   * 2026-07-30):
+   *   1. Cubre las líneas que estaban en el carrito cuando se aplicó. Un
+   *      producto agregado DESPUÉS no queda alcanzado — antes el porcentaje se
+   *      recalculaba sobre el carrito entero en cada render, así que todo lo que
+   *      entraba después se descontaba solo.
+   *   2. Nunca cubre una línea que ya tiene descuento propio: un producto lleva
+   *      UN descuento, no dos. Si a una línea alcanzada se le pone después un
+   *      descuento individual, sale del alcance (ver setLineDiscount).
    */
-  saleDiscount: { value: number; mode: "percent" | "money" } | null
+  saleDiscount: { value: number; mode: "percent" | "money"; lineIds: string[] } | null
 
   /**
    * ID de cotización padre. Cuando el cajero elige "Facturar" desde una
@@ -501,7 +536,7 @@ const initialState = {
   mergeRepeated: true,
   tags: [] as string[],
   quoteParentId: null as string | null,
-  saleDiscount: null as { value: number; mode: "percent" | "money" } | null,
+  saleDiscount: null as { value: number; mode: "percent" | "money"; lineIds: string[] } | null,
   posMode: "venta" as "venta" | "orden" | "cotizacion",
   orderParentId: null as string | null,
   spaceSessionId: null as string | null,
@@ -531,9 +566,14 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       ) {
         return "discount-missing"
       }
-      set({
-        saleDiscount: { value: Math.min(100, item.discountPercent), mode: "percent" },
-      })
+      set((state) => ({
+        saleDiscount: {
+          value: Math.min(100, item.discountPercent as number),
+          mode: "percent",
+          // Mismo congelamiento que setSaleDiscount: alcanza lo que hay ahora.
+          lineIds: eligibleForSaleDiscount(state.lines).map((l) => l.lineId),
+        },
+      }))
       return "discount-applied"
     }
 
@@ -686,6 +726,10 @@ export const useCartStore = create<CartState>()((set, _get) => ({
           ? { ...l, discount: clamped === 0 ? undefined : clamped }
           : l,
       ),
+      // Un producto lleva UN descuento: al ponerle uno individual, la línea sale
+      // del alcance del descuento de venta (y vuelve a entrar si se lo quitan,
+      // solo si ya estaba en el alcance original).
+      saleDiscount: state.saleDiscount,
     }))
   },
 
@@ -857,7 +901,14 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   setSaleDiscount: (value, mode) => {
-    set({ saleDiscount: { value, mode } })
+    // El alcance se congela ACÁ: las líneas presentes y sin descuento propio.
+    set((state) => ({
+      saleDiscount: {
+        value,
+        mode,
+        lineIds: eligibleForSaleDiscount(state.lines).map((l) => l.lineId),
+      },
+    }))
   },
 
   clearSaleDiscount: () => {
@@ -866,7 +917,13 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   // @deprecated alias — redirige a setSaleDiscount
   applyGlobalDiscount: (value, mode) => {
-    set({ saleDiscount: { value, mode } })
+    set((state) => ({
+      saleDiscount: {
+        value,
+        mode,
+        lineIds: eligibleForSaleDiscount(state.lines).map((l) => l.lineId),
+      },
+    }))
   },
 
   addLines: (lines) => {
