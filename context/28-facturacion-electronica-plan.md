@@ -563,6 +563,35 @@ arreglarlo: **F2 tiene que exponerlos** para revisión manual (contra
 `GET /api/ElectronicDocument/GetAll` se puede confirmar si llegaron a emitirse
 antes de decidir).
 
+## F2 — decisiones e invariantes
+
+- **Cancelar llama a Factomate PRIMERO** y solo marca el documento como
+  cancelado si la API confirma. Al revés mostraríamos como anulado algo que
+  sigue vigente en SIFEN. El fallo inverso (Factomate cancela y falla nuestro
+  UPDATE) deja el documento como `issued` — menos peligroso, y un segundo
+  intento de cancelar lo resuelve.
+- **`signDate` en hora local de Asunción, naive y sin zona.** En UTC el parser
+  de SIFEN lo lee 3-4 h en el futuro y arriesga rechazo.
+- **El KuDE es opcional**: falla ≠ factura no emitida. Retry 3× con backoff
+  lineal y **solo ante 5xx**; un 4xx falla de una. El documento nunca se marca
+  como error por no poder bajar el PDF.
+- **Reintento manual solo desde `error`.** Reintentar un `issued` emitiría dos
+  veces el mismo documento fiscal.
+- **`status` ≠ `sifen_status`.** El primero es el estado del outbox de Punto
+  (¿se mandó?), el segundo el estado fiscal real (¿SIFEN lo aceptó?). Se
+  pueblan en momentos distintos. Si un documento no aparece en `GetAll`, se
+  actualiza solo `sifen_checked_at` — no se le inventa un estado.
+
+Suposiciones nuevas SIN VERIFICAR (flageadas en el código):
+
+- La clave del motivo en el body de `/event` (se asumió `reason`) y el shape de
+  la respuesta de éxito.
+- `GetAll` no documenta filtros ni paginación: se pide sin parámetros y se
+  matchea por CDC en memoria. **Escala mal** con muchos documentos — revisar
+  cuando haya volumen real.
+- Largo mínimo/máximo del motivo y **ventana legal para anular**: solo se valida
+  que no venga vacío.
+
 ## Preguntas abiertas para Factomate
 
 Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
@@ -588,6 +617,12 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 7. **¿Hay endpoint de reseteo de contraseña de un usuario de tenant?** La de
    `CreateExternal` se devuelve una sola vez; sin reseteo, perderla deja al
    emisor inaccesible.
+8. **Cancelación**: ¿cuál es la ventana legal para anular un DE, y el motivo
+   tiene largo mínimo/máximo? Hoy solo se valida que no venga vacío.
+9. **`GetAll`**: ¿acepta filtros o paginación? Sin eso, la reconciliación baja
+   todos los documentos del emisor y matchea en memoria.
+10. **¿Cómo se marca una línea exenta de IVA?** La guía solo documenta
+    `taxRate` 10 y 5; hoy se manda 0 sin verificar, y Punto tiene ítems exentos.
 
 ## Fases
 
@@ -595,7 +630,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 |---|---|---|
 | **F0** | Migs 92/93/95, vault, provider/session Factomate, módulo + página de config con teléfono/entorno/timbrado + *Probar conexión* | **Hecha** (pivot 2026-07-28) |
 | **F1** | Mapper, outbox transaccional, drainer con CAS, enqueue en `SaleService`, endpoint de drain, badge en transacciones | **Hecha** (2026-07-30) |
-| **F2** | DataTable de documentos, KuDE PDF (con retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`), **exponer los trabados en `sending`** | Pendiente |
+| **F2** | DataTable de documentos, KuDE PDF (retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`), trabados en `sending` expuestos | **Hecha** (2026-07-30) |
 | **F3** | Mapping de medios de pago, lookup de RUC/CI en Contactos (`clientByRuc`), notas de crédito | Pendiente |
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
