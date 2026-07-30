@@ -20,7 +20,7 @@ La F0 original (2026-07-27) se implementó contra **Automate**
 facturación electrónica para Paraguay. **Es un error**: Automate es OTRO
 cliente de Factomate, exactamente igual que Punto va a serlo. El motor real
 — el que firma, timbra y manda a SIFEN — es **Factomate** (a.k.a. efatech,
-`https://factomatedev.tech-precision.com` en test).
+`https://facturadordev.automate.com.py` en test).
 
 El error se detectó antes de implementar emisión real (F0 solo conecta la
 cuenta y lee el timbrado), así que el costo del pivot se limitó a: reemplazar
@@ -592,6 +592,55 @@ Suposiciones nuevas SIN VERIFICAR (flageadas en el código):
 - Largo mínimo/máximo del motivo y **ventana legal para anular**: solo se valida
   que no venga vacío.
 
+## Verificado contra la API real (DEV, 2026-07-30)
+
+Primera corrida contra `https://facturadordev.automate.com.py` con la cuenta
+de prueba. **Cinco cosas estaban mal y solo se veían así.**
+
+### Confirmado
+
+- `POST /Token` es **form-urlencoded** con `grant_type=password` — la
+  suposición era correcta. Con `Content-Type: application/json` responde
+  `400 unsupported_grant_type`. Devuelve `access_token` + `expires_in: 899`
+  (~15 min), como decía la guía.
+- `PhoneLogin` devuelve `expires_in: 86400` (24 h).
+- El header `phonenumber` es la **identidad de login** (vuelve como `userName`),
+  distinto del campo `PhoneNumber` del usuario.
+- `PaymentMethod/get`: el código que espera SIFEN es **`Identifier`**, no `Id`.
+  1=Efectivo, 2=Cheque, 3=Tarjeta de crédito, 4=Tarjeta de débito,
+  5=Transferencia, 6=Giro, 7=Billetera electrónica, 8=Tarjeta empresarial.
+- El timbrado de prueba tiene `CurrentNumber: 53` y `Serie: "AA"` — confirma
+  que Factomate lleva el correlativo y valida la decisión de `number: -1`.
+
+### Corregido
+
+1. **Base URL equivocada.** Era `factomatedev.tech-precision.com` (la de la
+   guía); la real es `facturadordev.automate.com.py`.
+2. **`PhoneLogin` sin body → `411 Length Required`.** IIS rechaza antes de
+   llegar a la aplicación. Se manda `{}` explícito.
+3. **La respuesta de `PhoneLogin` viene DOBLE-CODIFICADA**: un string JSON que
+   contiene el JSON útil. Un solo `json_decode` devolvía un string, el parseo
+   encontraba `[]` y fallaba con "no devolvió un token reconocible". `exec()`
+   ahora desenvuelve una vez más.
+4. **El timbrado NO sale de `sincro/config`.** Ese endpoint devuelve
+   `{tenantId, stamps: []}` — **vacío aun con timbrado vigente cargado**. La
+   fuente real es `GET /api/BranchDocumentType/Get`, que además trae todo lo
+   necesario: `Id` (el de `branch.branchDocumentTypes[0].id` al emitir),
+   `Stablishment`, `ExpeditionPoint`, `StampNumber`, `CurrentNumber`, `Serie`.
+   Se sigue consultando `sincro/config` primero por si algún emisor lo trae
+   poblado, pero ya no se depende de él.
+5. **Timbrados dados de baja**: Factomate usa borrado lógico (`Deleted`), así
+   que `extractStamp` los saltea — facturar contra un timbrado de baja es
+   rechazo seguro de SIFEN.
+
+Los tres primeros hacían que **ninguna cuenta pudiera conectarse**; el cuarto,
+que ninguna pudiera emitir.
+
+### Todavía sin verificar
+
+`/Bulk` (emisión), `getkude`, `/event` (cancelación) y `GetAll`
+(reconciliación) — requieren emitir un documento real en el SIFEN de prueba.
+
 ## Preguntas abiertas para Factomate
 
 Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
@@ -641,7 +690,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 
 - `APP_ENCRYPTION_KEY` — base64 de 32 bytes. **Sin ella el vault no arranca** y el
   módulo queda `unconfigured`. Generar con `openssl rand -base64 32`.
-- `FACTOMATE_BASE_URL_TEST` — default `https://factomatedev.tech-precision.com` (el de la guía).
+- `FACTOMATE_BASE_URL_TEST` — default `https://facturadordev.automate.com.py` (el de la guía).
 - `FACTOMATE_BASE_URL_PROD` — default vacío. Sin configurar, cualquier cuenta en
   `environment='prod'` falla explícito (nunca cae a test).
 - F1: `EINVOICE_DRAIN_SECRET` + entrada de cron en el server de producción.

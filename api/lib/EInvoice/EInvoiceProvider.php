@@ -74,6 +74,12 @@ interface EInvoiceProvider
      * para mapear contra los medios de pago de Punto (F3).
      * @throws \RuntimeException
      */
+    /**
+     * Timbrados del emisor (`GET /api/BranchDocumentType/Get`). Fuente REAL del
+     * timbrado: `sincroConfig()` devuelve `stamps: []` aun con timbrado vigente.
+     */
+    public function stamps(string $environment, string $phone, string $bearer): array;
+
     public function paymentMethods(string $environment, string $phone, string $bearer): array;
 
     // ── F1/F2/F3 ─────────────────────────────────────────────────────────

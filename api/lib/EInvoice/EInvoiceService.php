@@ -209,8 +209,21 @@ final class EInvoiceService
             [$phone, $environment] = $this->phoneAndEnvironment($companyId);
 
             $emitter = $this->provider->userInfo($environment, $phone, $bearer);
-            $sincro  = $this->provider->sincroConfig($environment, $phone, $bearer);
-            $stamp   = $this->extractStamp($sincro);
+
+            // El timbrado NO sale de sincro/config. Verificado contra la API real
+            // (2026-07-30): sincro/config devuelve `{tenantId, stamps: []}` — la
+            // lista viene VACÍA aun cuando el emisor tiene timbrado vigente. El
+            // timbrado real vive en `GET /api/BranchDocumentType/Get`, que además
+            // trae todo lo que se necesita: `Id` (el que va en
+            // branch.branchDocumentTypes[0].id del payload de emisión),
+            // Stablishment, ExpeditionPoint, StampNumber y CurrentNumber.
+            //
+            // Se consulta sincro/config igual, primero, por si en algún emisor sí
+            // viene poblado — pero no se depende de él.
+            $stamp = $this->extractStamp($this->provider->sincroConfig($environment, $phone, $bearer));
+            if ($stamp === null) {
+                $stamp = $this->extractStamp($this->provider->stamps($environment, $phone, $bearer));
+            }
 
             if ($stamp === null) {
                 $message = 'Factomate no devolvió un timbrado vigente para esta cuenta — sin timbrado no se puede '
@@ -285,6 +298,20 @@ final class EInvoiceService
      */
     private function extractStamp(array $sincro): ?array
     {
+        // `Items` es el envoltorio de BranchDocumentType/Get (la fuente que sí
+        // trae el timbrado — ver testConnection). Se descartan los borrados
+        // lógicos: Factomate no borra físicamente, marca `Deleted` (§1 del
+        // manual de ABM), y facturar contra un timbrado dado de baja es
+        // exactamente el error que SIFEN rechaza.
+        $items = $sincro['Items'] ?? $sincro['items'] ?? null;
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (is_array($item) && empty($item['Deleted']) && empty($item['deleted'])) {
+                    return $item;
+                }
+            }
+        }
+
         foreach (['stamps', 'Stamps'] as $key) {
             if (is_array($sincro[$key] ?? null) && is_array($sincro[$key][0] ?? null)) {
                 return $sincro[$key][0];

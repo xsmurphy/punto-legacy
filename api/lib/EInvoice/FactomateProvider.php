@@ -55,7 +55,7 @@ final class FactomateProvider implements EInvoiceProvider
      * pasar en un boot normal, pero evita un warning de PHP en vez de un
      * error claro si alguna vez falta el include.
      */
-    private const FALLBACK_TEST_URL = 'https://factomatedev.tech-precision.com';
+    private const FALLBACK_TEST_URL = 'https://facturadordev.automate.com.py';
 
     private function baseUrl(string $environment): string
     {
@@ -110,10 +110,12 @@ final class FactomateProvider implements EInvoiceProvider
 
     public function phoneLogin(string $environment, string $phone, string $tokenStep1): array
     {
-        // Sin body: toda la información de este paso va en headers
-        // (Authorization: Bearer <tokenStep1> + phonenumber). La guía no
-        // menciona ningún campo de body para PhoneLogin.
-        $raw = $this->request('POST', '/api/account/PhoneLogin', null, $tokenStep1, $phone, $environment);
+        // Toda la información de este paso va en headers (Authorization con el
+        // bearer de /Token + phonenumber), pero el body vacío NO puede omitirse:
+        // sin Content-Length, IIS responde 411 Length Required antes de que la
+        // request llegue a la aplicación (verificado contra la API real el
+        // 2026-07-30). Se manda `{}` explícito, que sí funciona.
+        $raw = $this->request('POST', '/api/account/PhoneLogin', [], $tokenStep1, $phone, $environment);
 
         $token = $this->extractToken($raw);
         if ($token === null) {
@@ -140,8 +142,24 @@ final class FactomateProvider implements EInvoiceProvider
         return $this->request('POST', '/api/sincro/config', [], $bearer, $phone, $environment);
     }
 
+    /**
+     * Timbrados del emisor. ESTA es la fuente real, no `sincro/config`:
+     * verificado contra la API (2026-07-30), sincro/config devuelve
+     * `stamps: []` aun con timbrado vigente cargado, mientras que este
+     * endpoint devuelve el `Items[]` completo — `Id` (el que va en
+     * `branch.branchDocumentTypes[0].id` al emitir), `Stablishment`,
+     * `ExpeditionPoint`, `StampNumber`, `CurrentNumber` y `Serie`.
+     */
+    public function stamps(string $environment, string $phone, string $bearer): array
+    {
+        return $this->request('GET', '/api/BranchDocumentType/Get', null, $bearer, $phone, $environment);
+    }
+
     public function paymentMethods(string $environment, string $phone, string $bearer): array
     {
+        // Ojo al consumir: el código que espera SIFEN en `paymentMethodCode` es
+        // `Identifier`, no `Id` (hoy coinciden en el emisor de prueba, pero son
+        // campos distintos). 1=Efectivo, 2=Cheque, 3=Tarjeta de crédito, …
         return $this->request('GET', '/api/PaymentMethod/get', null, $bearer, $phone, $environment);
     }
 
@@ -378,6 +396,14 @@ final class FactomateProvider implements EInvoiceProvider
         }
 
         $json = json_decode((string) $resp, true);
+        // Doble-encode: algunos endpoints (PhoneLogin, verificado contra la API
+        // real el 2026-07-30) devuelven un STRING JSON que a su vez contiene el
+        // JSON útil — `"{\"access_token\":...}"`. Un solo decode deja un string,
+        // no un array, y el parseo posterior encontraba [] y fallaba con
+        // "no devolvió un token reconocible". Se desenvuelve una vez más.
+        if (is_string($json)) {
+            $json = json_decode($json, true);
+        }
         $json = is_array($json) ? $json : [];
 
         if ($code < 200 || $code >= 300) {

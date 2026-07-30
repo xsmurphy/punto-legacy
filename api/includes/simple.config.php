@@ -107,7 +107,7 @@ define('APP_ENCRYPTION_KEY', $_ENV['APP_ENCRYPTION_KEY'] ?? '');
 // FactomateProvider tira error explícito en vez de caer a test (o viceversa):
 // mandar facturas de prueba a producción, o al revés, es el tipo de bug que
 // no se detecta hasta que ya es tarde.
-define('FACTOMATE_BASE_URL_TEST', $_ENV['FACTOMATE_BASE_URL_TEST'] ?? 'https://factomatedev.tech-precision.com');
+define('FACTOMATE_BASE_URL_TEST', $_ENV['FACTOMATE_BASE_URL_TEST'] ?? 'https://facturadordev.automate.com.py');
 define('FACTOMATE_BASE_URL_PROD', $_ENV['FACTOMATE_BASE_URL_PROD'] ?? '');
 // EINVOICE_DRAIN_SECRET: secreto compartido para POST /v1/einvoice?action=drain
 // (F1) — el cron del sistema invoca el drainer del outbox SIN pasar por
