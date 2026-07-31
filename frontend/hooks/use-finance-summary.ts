@@ -16,7 +16,7 @@ export interface FinanceSummary {
 }
 
 /** Resumen del dashboard de Finanzas: saldos + KPIs del período + últimos movimientos. */
-export function useFinanceSummary(range?: { from?: string; to?: string }) {
+export function useFinanceSummary(range?: { from?: string; to?: string }, opts?: { enabled?: boolean }) {
   const qs = new URLSearchParams()
   if (range?.from) qs.set("from", range.from)
   if (range?.to) qs.set("to", range.to)
@@ -25,5 +25,6 @@ export function useFinanceSummary(range?: { from?: string; to?: string }) {
     queryKey: ["finance", "summary", range ?? {}],
     queryFn: () => api.get<FinanceSummary>(`/v1/finance/summary${query ? "?" + query : ""}`),
     staleTime: 30_000,
+    enabled: opts?.enabled ?? true,
   })
 }
