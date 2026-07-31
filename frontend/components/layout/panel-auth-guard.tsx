@@ -23,12 +23,11 @@ import {
   Users,
   Truck,
   UserCog,
-  Receipt,
+  BanknoteArrowDown,
   ScrollText,
   HandCoins,
   Gift,
   RefreshCw,
-  ShoppingCart,
   Package,
   ClipboardList,
   Wallet,
@@ -61,7 +60,7 @@ const panelNav: NavEntry[] = [
   { title: "Asistente", to: "/chat", icon: MessageCircle, hideOnMobile: true },
   {
     title: "Ventas",
-    icon: Receipt,
+    icon: BanknoteArrowDown,
     items: [
       { title: "Transacciones", to: "/reports/transactions", icon: ScrollText, requires: "reports.sales.view" },
       { title: "Cuentas por cobrar", to: "/reports/open-invoices", icon: HandCoins, requires: "reports.sales.view" },
@@ -82,7 +81,7 @@ const panelNav: NavEntry[] = [
   },
   {
     title: "Compras y Gastos",
-    icon: ShoppingCart,
+    icon: ShoppingBasket,
     items: [
       { title: "Registro de compras", to: "/purchase", icon: Package },
       { title: "Compras y gastos", to: "/reports/purchases", icon: ClipboardList, requires: "reports.purchases.view" },

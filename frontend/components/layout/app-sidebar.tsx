@@ -42,7 +42,7 @@ import {
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { AppCommandPalette } from "@/components/layout/app-command-palette"
-import { NotificationBell } from "@/components/layout/notification-bell"
+import { NotificationsMenuItem, NotificationUnreadDot } from "@/components/layout/notification-bell"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -299,19 +299,6 @@ export function AppSidebar({
           </SidebarGroup>
         )}
 
-        {/* Campanita de notificaciones (context/31) — solo panel, no admin
-            ni /pos: `/v1/notifications/feed` es realm panel. Fila propia,
-            siempre presente (igual que "Buscar"), no desplaza el resto. */}
-        {!isPos && scope === "Panel" && (
-          <SidebarGroup className="pt-0 pb-0">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <NotificationBell />
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-2">
@@ -352,12 +339,19 @@ export function AppSidebar({
                   // sutil sobre el bg del sidebar).
                   className="cursor-pointer hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] data-[state=open]:!bg-[#EAEEF1] dark:data-[state=open]:!bg-[#1A1D1F] data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:!p-0"
                 >
-                  <Avatar className="size-8 rounded-lg">
-                    {companyLogo && <AvatarImage src={companyLogo} alt={user.name} />}
-                    <AvatarFallback className="rounded-lg text-xs">
-                      {userInitials || "?"}
-                    </AvatarFallback>
-                  </Avatar>
+                  <span className="relative">
+                    <Avatar className="size-8 rounded-lg">
+                      {companyLogo && <AvatarImage src={companyLogo} alt={user.name} />}
+                      <AvatarFallback className="rounded-lg text-xs">
+                        {userInitials || "?"}
+                      </AvatarFallback>
+                    </Avatar>
+                    {/* Punto de no-leídos (context/31) — sin él, el conteo del
+                        menú queda invisible hasta abrirlo. Solo panel. */}
+                    {!isPos && scope === "Panel" && (
+                      <NotificationUnreadDot className="absolute -right-0.5 -top-0.5" />
+                    )}
+                  </span>
                   <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                     <span className="truncate font-semibold">{user.name}</span>
                     {user.subtitle && (
@@ -396,6 +390,7 @@ export function AppSidebar({
                 {/* Items del dropdown legacy (panel/includes/functions.php
                     leftMenu():5722-5726). En el orden exacto del legacy. */}
                 <DropdownMenuGroup>
+                  {scope === "Panel" && <NotificationsMenuItem />}
                   <DropdownMenuItem asChild>
                     <Link href="/history-billing">
                       <ReceiptText />
