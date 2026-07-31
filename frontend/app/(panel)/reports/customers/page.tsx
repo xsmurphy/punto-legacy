@@ -28,6 +28,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type CustomerRow } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function CustomersReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -230,16 +231,16 @@ export default function CustomersReportPage() {
       )}
 
       {!isLoading && rows.length > 0 && (
-        <div className="flex flex-wrap gap-6 border-y py-3 text-sm">
-          <Stat label="Clientes" value={rows.length.toString()} />
-          <Stat label="Compras" value={totals.count.toLocaleString()} />
-          <Stat label="Unidades vendidas" value={totals.units.toLocaleString()} />
-          <Stat
+        <StatsRow>
+          <StatTile label="Clientes" value={rows.length.toString()} />
+          <StatTile label="Compras" value={totals.count.toLocaleString()} />
+          <StatTile label="Unidades vendidas" value={totals.units.toLocaleString()} />
+          <StatTile
             label="Total facturado"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.total, bootstrap)}`}
+            value={formatMoney(totals.total, bootstrap)}
             emphasis
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -259,33 +260,6 @@ export default function CustomersReportPage() {
           />
         }
       />
-    </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
     </div>
   )
 }

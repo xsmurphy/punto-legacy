@@ -28,6 +28,7 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 interface RankingRow {
   name: string
@@ -177,15 +178,15 @@ export function RankingReportPage<TRawRow>({
       )}
 
       {!isLoading && rows.length > 0 && (
-        <div className="flex flex-wrap gap-6 border-y py-3 text-sm">
-          <Stat label="Items en ranking" value={rows.length.toString()} />
-          <Stat label={unitsColLabel} value={totals.units.toLocaleString()} />
-          <Stat
+        <StatsRow>
+          <StatTile label="Items en ranking" value={rows.length.toString()} />
+          <StatTile label={unitsColLabel} value={totals.units.toLocaleString()} />
+          <StatTile
             label="Total facturado"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.total, bootstrap)}`}
+            value={formatMoney(totals.total, bootstrap)}
             emphasis
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -204,33 +205,6 @@ export function RankingReportPage<TRawRow>({
           />
         }
       />
-    </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
     </div>
   )
 }

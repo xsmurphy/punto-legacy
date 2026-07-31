@@ -32,6 +32,7 @@ import {
   type ProductsReportResponse,
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function ProductsReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -192,27 +193,27 @@ export default function ProductsReportPage() {
       )}
 
       {!isLoading && rows.length > 0 && (
-        <div className="flex flex-wrap gap-6 border-y py-3 text-sm">
-          <Stat label="Artículos" value={rows.length.toString()} />
-          <Stat
+        <StatsRow>
+          <StatTile label="Artículos" value={rows.length.toString()} />
+          <StatTile
             label="Unidades vendidas"
             value={totals.usold.toLocaleString()}
           />
-          <Stat
+          <StatTile
             label="Total facturado"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.total, bootstrap)}`}
+            value={formatMoney(totals.total, bootstrap)}
             emphasis
           />
-          <Stat
+          <StatTile
             label="Costo total"
             value={formatMoney(totals.cogs, bootstrap)}
           />
-          <Stat
+          <StatTile
             label="Utilidad"
             value={formatMoney(totals.utility, bootstrap)}
             emphasis
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -231,33 +232,6 @@ export default function ProductsReportPage() {
           </div>
         }
       />
-    </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
     </div>
   )
 }

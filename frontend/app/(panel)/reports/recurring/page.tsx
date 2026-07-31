@@ -23,6 +23,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type RecurringRow, type RecurringReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 const FRECUENCY_LABELS: Record<string, string> = {
   weekly: "Semanal",
@@ -161,14 +162,14 @@ export default function RecurringReportPage() {
       )}
 
       {!isLoading && rows.length > 0 && (
-        <div className="flex flex-wrap gap-6 border-y py-3 text-sm">
-          <Stat label="Activas" value={totals.active.toLocaleString()} emphasis />
-          <Stat label="Pausadas" value={totals.paused.toLocaleString()} />
-          <Stat
+        <StatsRow>
+          <StatTile label="Activas" value={totals.active.toLocaleString()} emphasis />
+          <StatTile label="Pausadas" value={totals.paused.toLocaleString()} />
+          <StatTile
             label="Monto recurrente total"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.totalAmount, bootstrap)}`}
+            value={formatMoney(totals.totalAmount, bootstrap)}
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -191,22 +192,6 @@ export default function RecurringReportPage() {
   )
 }
 
-function Stat({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
 
 function BackLink() {
   return (

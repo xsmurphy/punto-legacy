@@ -67,6 +67,7 @@ import { useReport, type ExpenseRow } from "@/hooks/use-reports"
 import { useUpdateExpense, useDeleteExpense } from "@/hooks/use-expenses"
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function ExpensesReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -283,26 +284,26 @@ export default function ExpensesReportPage() {
       )}
 
       {!isLoading && rows.length > 0 && (
-        <div className="grid grid-cols-3 gap-6 border-y py-3 text-sm">
-          <Stat
+        <StatsRow>
+          <StatTile
             icon={<ArrowUp className="size-3.5 text-emerald-600" />}
             label="Ingresos"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.income, bootstrap)}`}
+            value={formatMoney(totals.income, bootstrap)}
             tone="positive"
           />
-          <Stat
+          <StatTile
             icon={<ArrowDown className="size-3.5 text-destructive" />}
             label="Extracciones"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.extraction, bootstrap)}`}
+            value={formatMoney(totals.extraction, bootstrap)}
             tone="negative"
           />
-          <Stat
+          <StatTile
             label="Neto"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.net, bootstrap)}`}
+            value={formatMoney(totals.net, bootstrap)}
             emphasis
             tone={totals.net >= 0 ? "positive" : "negative"}
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -392,7 +393,7 @@ export default function ExpensesReportPage() {
             <AlertDialogTitle>Eliminar movimiento</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteRow
-                ? `¿Eliminar el movimiento del ${niceDateTime(deleteRow.date)} por ${bootstrap?.currency ?? ""} ${formatMoney(deleteRow.amount, bootstrap)}? Esta acción no se puede deshacer.`
+                ? `¿Eliminar el movimiento del ${niceDateTime(deleteRow.date)} por ${formatMoney(deleteRow.amount, bootstrap)}? Esta acción no se puede deshacer.`
                 : "¿Confirmar eliminación?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -413,41 +414,6 @@ export default function ExpensesReportPage() {
 }
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
-
-function Stat({
-  icon,
-  label,
-  value,
-  emphasis,
-  tone,
-}: {
-  icon?: React.ReactNode
-  label: string
-  value: string
-  emphasis?: boolean
-  tone?: "positive" | "negative"
-}) {
-  const valueCls = emphasis
-    ? tone === "positive"
-      ? "text-base font-semibold tabular-nums text-emerald-600"
-      : tone === "negative"
-        ? "text-base font-semibold tabular-nums text-destructive"
-        : "text-base font-semibold tabular-nums"
-    : tone === "positive"
-      ? "text-sm font-medium tabular-nums text-emerald-600"
-      : tone === "negative"
-        ? "text-sm font-medium tabular-nums text-destructive"
-        : "text-sm font-medium tabular-nums"
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {icon}
-        {label}
-      </span>
-      <span className={valueCls}>{value}</span>
-    </div>
-  )
-}
 
 function BackLink() {
   return (

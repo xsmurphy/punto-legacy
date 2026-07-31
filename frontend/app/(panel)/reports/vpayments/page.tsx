@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type VPaymentRow, type VPaymentsReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 function niceDate(iso: string): string {
   if (!iso) return "—"
@@ -50,7 +51,6 @@ export default function VPaymentsReportPage() {
   const { data, isLoading, error } = useReport<VPaymentsReportResponse>("vpayments", opts)
   const rows = React.useMemo(() => data?.rows ?? [], [data])
   const kpi = data?.kpi
-  const currency = bootstrap?.currency ?? ""
 
   const columns = React.useMemo<ColumnDef<VPaymentRow>[]>(
     () => [
@@ -174,15 +174,15 @@ export default function VPaymentsReportPage() {
       )}
 
       {!isLoading && kpi && kpi.count > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <KpiCard label="Transacciones" value={kpi.count.toLocaleString()} />
-          <KpiCard label="Vendido" value={`${currency} ${formatMoney(kpi.sold, bootstrap)}`} />
-          <KpiCard label="Acreditado" value={`${currency} ${formatMoney(kpi.deposited, bootstrap)}`} />
-          <KpiCard
+        <StatsRow>
+          <StatTile label="Transacciones" value={kpi.count.toLocaleString()} />
+          <StatTile label="Vendido" value={formatMoney(kpi.sold, bootstrap)} />
+          <StatTile label="Acreditado" value={formatMoney(kpi.deposited, bootstrap)} />
+          <StatTile
             label="Pendiente acreditación"
-            value={`${currency} ${formatMoney(kpi.pendingDeposit, bootstrap)}`}
+            value={formatMoney(kpi.pendingDeposit, bootstrap)}
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -202,15 +202,6 @@ export default function VPaymentsReportPage() {
           />
         }
       />
-    </div>
-  )
-}
-
-function KpiCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-base font-medium tabular-nums">{value}</p>
     </div>
   )
 }
