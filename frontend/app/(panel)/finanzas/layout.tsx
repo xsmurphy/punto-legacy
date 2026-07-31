@@ -16,13 +16,15 @@ const TABS = [
   { href: "/finanzas/movimientos", label: "Movimientos" },
   { href: "/finanzas/cuentas", label: "Cuentas" },
   { href: "/finanzas/cheques", label: "Cheques" },
+  { href: "/finanzas/creditos", label: "Créditos" },
+  { href: "/finanzas/prevision", label: "Previsión" },
   { href: "/finanzas/conciliacion", label: "Conciliación" },
   { href: "/finanzas/reportes", label: "Reportes" },
   { href: "/finanzas/configuracion", label: "Configuración" },
 ] as const
 
 // Índice donde empieza el segundo grupo (Reportes) — divide Operación del resto.
-const GROUP_BREAK_INDEX = 5
+const GROUP_BREAK_INDEX = 7
 
 export default function FinanzasLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -42,7 +44,7 @@ export default function FinanzasLayout({ children }: { children: React.ReactNode
       </div>
 
       <Tabs value={activeTab}>
-        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto md:grid md:grid-cols-8 md:overflow-visible">
+        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto md:grid md:grid-cols-9 md:overflow-visible">
           {TABS.map((tab, i) => (
             <React.Fragment key={tab.href}>
               {i === GROUP_BREAK_INDEX && (
