@@ -5,6 +5,91 @@
 
 # Feature requests — clientes
 
+## 2026-07-31 — testers, segunda tanda (Requerimientos Panel + POS)
+
+Dos docs nuevos de los mismos testers. Bugs auditados en `10-roadmap.md`
+§"Auditoría 2026-07-31". Re-reportado (no se duplica): filtros+columnas de
+transacciones, footer-sum TOTAL, etiquetas/canal de venta, gift card
+recarga+saldo, conteo de stock por categoría, cocina unificada, viandas
+(roadmap §"Consumo a cuenta"), timbrados en caja (ya existe
+`register.invoiceAuth`/`invoicePrefix` — el pedido es la UI de settings),
+facturación electrónica (en curso, `context/28`).
+
+### Catálogo / Items
+
+- **Crear categoría inline desde el form de artículo** — `S`. Hoy obliga a ir
+  a settings/catalog; agregar "crear" en el combobox de categorías.
+- **Cantidad de sesiones en packs de sesiones** — `S`. Verificar: `itemSessions`
+  existe como columna (está en BULK_EDIT_WHITELIST de `ItemService.php`) pero
+  el form de item no la expone.
+- **Stock mínimo + notificación automática** — `M`. Hook natural: centro de
+  notificaciones (`context/31`). Requiere umbral por item (¿columna nueva o
+  JSONB?) + job que compare stock.
+- **Columnas "stock actual" y "costo del stock" en el listado de items** — `S`.
+- **Historial de movimientos del artículo (kardex) en el detalle** — `M`. La
+  data existe (inventory ledger); falta query + tab/vista.
+
+### Contactos / Usuarios
+
+- **Comisiones por usuario en Gs. o %** — `M`. Hoy la comisión es por item
+  (`itemComissionPercent`/`Type`); esto pide default por usuario.
+- **Línea de crédito: dónde cargarla** — `S`. `contact.contactCreditLine` ya
+  existe en BD; falta exponerla en la ficha del contacto.
+- **Cobrar facturas a crédito desde el módulo Clientes** — `M`. Hoy solo desde
+  POS/transacciones.
+- **Historial de transacciones en la ficha del contacto** — `M`. Para
+  anulaciones/reimpresiones sin buscar en reportes.
+
+### Reportes
+
+- **RG90 / Libro de Ventas y Compras (export fiscal PY)** — `L`. Formato
+  normado por la SET; definir alcance con el owner.
+- **Export/print en TODOS los módulos de reportes** — `S-M`. `<DataTable>` ya
+  trae export XLSX; sweep de los reportes que no lo usan + botón imprimir.
+- **Notificaciones de facturas a crédito por vencer** con detalle completo
+  (doc, cliente, ítems, IVA) — `M`. Centro de notificaciones (`context/31`).
+- **Reporte de productos "modo detallado"** (usuario, cliente, doc,
+  fecha/hora por venta) — `M`. Es un drill-down de itemSold.
+- **Medios de pago: vista "Detallado"** (doc, cliente, RUC, método, sucursal,
+  entregado, total) — `S-M`.
+- **Control de cajas: imprimir/PDF + edición para admin/jefe** — `M`.
+- **Reporte de transferencias de stock** (quién envió/recibió, productos,
+  fechas) con formato de **Nota de Remisión** — `M`. La remisión es documento
+  fiscal — cruzar con FE (`context/28`).
+
+### Compras / Gastos
+
+- **Columnas doc/timbrado/usuario/condición (contado-crédito) en registro y
+  reporte de compras** — `S`. `/purchase` ya captura timbrado+prefijo+nro.
+- **Compra por caja/paquete (1 caja = 24 unidades)** — `M`. Factor de
+  conversión de unidad de compra → unidad de stock.
+- **Subcategorías de gastos** — `M`. `fin_category` es árbol de 1 nivel por
+  diseño (`CategoryService.php`); esto pide nivel 2.
+- **Recordar último costo de compra por producto** — `S-M`. Pedido en ambos
+  docs (también para producción sin stock). Precargar el último
+  `purchase.cost` del item en `/purchase`.
+
+### POS / Espacios
+
+- **Asignar mozo a espacio/mesa** — `M`.
+- **Renombrar/etiquetar espacios** — `S` (el editor de layout ya edita nombre
+  — verificar qué falta: ¿desde el POS?).
+- **Shortcut de teclado "O" para pantalla de órdenes** — `S`, baja prioridad.
+  Respeta convención shortcuts Q/W/E/R (`context/08 §pos`).
+- **Cobro por ítems individuales** — YA EXISTE (split `kind='items'`,
+  2026-07-27). El tester no lo encontró o le falló (ver bug "Sale transaction
+  aborted" en roadmap) — puede ser problema de descubribilidad.
+
+### Impresión
+
+- **Imprimir recibo al registrar pagos de crédito + cierre de caja
+  automático al cerrar** — `M`. El cierre sin impresión ya está confirmado
+  como bug (auditoría 2026-07-30); esto amplía a recibos de cobro. Los docs
+  traen formatos de referencia de recibo y factura (ver los .docx).
+- **Plantillas: columna de IVA por ítem + total IVA** — `S` (template editor).
+- **Formatos A4 / preimpresos con posicionamiento** — `L`. Editor de layout
+  para hoja completa, distinto del ticket 80mm.
+
 ## 2026-07-30 — testers (2 documentos)
 
 Dos documentos de testers ("Cambios para analizar dentro de Punto" — uso real

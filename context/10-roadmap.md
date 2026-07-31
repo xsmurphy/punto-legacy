@@ -323,6 +323,48 @@ no contra el reporte.
   Es un pedido de feature legítimo, ya anotado en el backlog de 2026-07-07 de
   abajo — re-reportado, no nuevo.
 
+### Auditoría 2026-07-31 — reportes de testers, segunda tanda (2 documentos)
+
+Fuente: "Requerimientos_Panel_Punto.docx" + "requerimientos_punto_de_venta.docx".
+~70% re-reporta lo ya auditado el 2026-07-30 (mismos testers) — esos ítems NO se
+duplican acá; quedan como dato de prioridad. Los pedidos de producto nuevos
+están en `_feature-requests.md` §2026-07-31. Bugs nuevos verificados contra código:
+
+**Confirmado (1):**
+
+- **"Ingreso de dinero" en caja se muestra como "Extracción" en el panel.**
+  Convención real de la tabla `expenses` (fuente de verdad
+  `DrawerService.php:325-410`, `getIncome`/`getExpenses`): `type IS NULL` =
+  extracción, `type = 1` = ingreso. Nadie escribe `type = 2` en todo el repo.
+  Pero `frontend/app/(panel)/reports/expenses/page.tsx` clasifica con
+  `type === 2` (KPIs línea ~100, badge ~173, signo ~229/234) → todo ingreso
+  cae al branch extracción. Fix: front pasa a `=== 1`.
+
+**Probablemente ya arreglado (2)** — reverificar post-deploy, el tester probó antes del fix:
+
+- Ventas guardadas "desaparecen" (0 ítems / Gs. 0) — fix `229e654c`
+  (2026-07-30, flattenJsonb en `parked-sales.php`).
+- Tab Variantes no abre nada al activar el switch — fix `f8d7cd68`
+  (2026-07-29). Verificado en esta sesión que el código en main es correcto
+  para ítems guardados; si persiste en prod es bundle viejo del service
+  worker o deploy pendiente, no código.
+
+**Pendiente de reproducción (3)** — necesitan BD/sesión viva:
+
+- **Espacios: orden "Cobrada" re-suma su subtotal a pendientes** (duplica lo
+  ya pagado en pantalla). Sospechoso: `space-session-dialog.tsx:90-94` suma
+  TODAS las órdenes no-canceladas por diseño ("consumo total de la mesa") —
+  puede ser display de total donde el cajero espera saldo, o un settled-flag
+  que no se refleja. Ver flujo split en `espacios/page.tsx:232-340`.
+- **"Sale transaction aborted" al cobrar la última parte de una mesa por
+  partes.** El mensaje sale de `api/v1/sales.php:123` /
+  `SaleService.php:189` (venta no persistió tras commit). Repro necesaria
+  con sesión de espacios real.
+- **Productos de ambas sucursales mezclados en el catálogo** pese a asignar
+  outlet al crear. Área view-scope (`context/25-sucursales-y-scopes.md`) —
+  definir primero cuál es el comportamiento esperado (catálogo es
+  company-wide con outlet opcional por diseño).
+
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 
 - **Producción v1** ✅ — plan `context/23-production-module-plan.md`. F0 recetas canónicas en `item_compound` (mig 75), F1 `production_order`+`waste_event` (migs 76/77, permiso `production.manage`), F2 UI `/produccion`. Pendiente: v2 (parcial/co-productos/reversa).
