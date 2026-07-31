@@ -1,6 +1,6 @@
 # Facturación Electrónica (Factomate / SIFEN) — plan del módulo
 
-> Estado: **F0–F4 y F6 implementadas** (F0 2026-07-28, el resto 2026-07-30 — ver tabla de fases).
+> Estado: **F0–F4, F6 y F7 implementadas** (F0 2026-07-28, el resto 2026-07-30/31 — ver tabla de fases).
 > F1–F3 verificadas contra la API real solo en el camino de factura al contado con un único medio de pago.
 > Decisiones cerradas con el owner el 2026-07-27 (numeración: ver nota, quedó reabierta el 2026-07-28) — no relitigar sin motivo nuevo.
 
@@ -479,7 +479,29 @@ Nos sirve igual como paso final del wizard de F7 (prueba de humo real del
 certificado, no solo que la contraseña lo abre) mandando nuestro propio
 `tenantId`.
 
-**Lo único que falta para implementar F7** es la credencial admin de Punto.
+**F7 quedó implementada (2026-07-31)** — falta solo cargar la credencial admin
+real en env para poder verificarla contra la API. Cómo quedó:
+
+- `EInvoiceProvisioningService` — alta compuesta REANUDABLE con checkpoint por
+  paso en `einvoice_account.provisioning` (mig 100): CreateExternal → PUT
+  Tenant → Activity → BranchDocumentType (FC+NC, sin sucursal) → sync del
+  timbrado + status 'ok'. CreateExternal jamás se repite si ya hay
+  `factomate_tenant_id` (no es idempotente del lado de ellos).
+- La contraseña del alta se escribe al vault como paso INMEDIATO siguiente a
+  la respuesta; si esa escritura falla, error ruidoso con código `FT-<tenantId>`
+  (nunca la contraseña).
+- **La pregunta 5 (phonenumber) quedó resuelta por diseño**: el header es la
+  IDENTIDAD DE LOGIN del usuario (verificado 2026-07-30 — vuelve como
+  `userName`), y para usuarios de CreateExternal `UserName = Email`. Se guarda
+  el email cifrado en `phone_enc` (nombre heredado, documentado en mig 100).
+  SIN VERIFICAR contra la API real con un usuario provisionado.
+- **La pregunta 6 (auth del admin) quedó resuelta por el código de Automate**:
+  el admin autentica SOLO con `/Token` (efatech.token.ts) y con su bearer se
+  emiten bearers de usuario vía PhoneLogin sin contraseña del usuario final
+  (factomate-auth.service.ts `resolveByPhoneViaAdmin`, producción). Esa es
+  ahora la cadena por defecto de `FactomateSession`; la cadena vieja
+  (credencial propia del tenant) queda como fallback para cuentas manuales
+  de F0 y se retira cuando no queden.
 
 #### Qué cambia en la arquitectura actual
 
@@ -489,16 +511,16 @@ certificado, no solo que la contraseña lo abre) mandando nuestro propio
   **nunca en BD** y nunca alcanzable desde un endpoint con auth de tenant.
   Mismo criterio que el resto de los secretos de bootstrap (`env_to_admin_panel`
   explícitamente deja bootstrap+secretos en env).
-- **La credencial por comercio deja de ser input del usuario.** Hoy
-  `einvoice-manager.tsx` pide usuario/contraseña de Factomate; bajo este modelo
-  el comerciante llena datos fiscales y Punto recibe la credencial de vuelta y
-  la guarda en el vault. **El vault, el schema y `FactomateSession` sobreviven
-  sin cambios** — cambian el formulario y `EInvoiceService::saveAccount`.
-- **Los campos manuales de F0 son andamio**, no producto final: sirven para
-  probar F1 contra una cuenta provisionada a mano. **Se retiran cuando entre
-  F7** — no deben quedar dos caminos de alta conviviendo.
-- **Columnas nuevas** (migración de F7): `factomate_tenant_id`,
-  `factomate_user_id` en `einvoice_account`.
+- **La credencial por comercio dejó de ser input del usuario** (hecho,
+  2026-07-31): `einvoice-manager.tsx` es ahora un formulario de datos LEGALES
+  (RUC, actividad, timbrado, certificado) — cero campos de credencial. La
+  credencial del tenant llega de CreateExternal directo al vault.
+- **Los campos manuales de F0 se retiraron** con el rewrite — no conviven dos
+  caminos de alta. `EInvoiceService::saveAccount` fue reemplazado por
+  `saveConfig` (solo config de emisión).
+- **Columnas nuevas** (mig 100): `factomate_tenant_id`, `factomate_user_id`,
+  `fiscal` (espejo del formulario, sin secretos), `provisioning` (checkpoints).
+  Status nuevo `provisioning` en el CHECK.
 
 #### Consecuencia a no perder de vista
 
@@ -859,7 +881,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | **Hecha** (2026-07-30) |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
 | **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante (QR) + página pública `/factura/<token>` | **Hecha** (2026-07-30) — el listado por RUC con segundo factor queda sin hacer (decisión de producto abierta) |
-| **F7** | Onboarding white-label: `CreateExternal` con la credencial admin → persistir `tenantId`/`userId`/credencial en el vault → `PUT /api/Tenant` (datos fiscales) → actividad, sucursales↔outlets, timbrados↔puntos de expedición → `UploadCert` → prueba contra SIFEN. Retira los campos manuales de F0. **Bloqueada** por la credencial admin y por el origen del `phonenumber` | Pendiente |
+| **F7** | Onboarding white-label: formulario legal → `CreateExternal` (admin) → vault → `PUT Tenant` → actividad → timbrado (FC+NC, sin sucursal) → `UploadCert` → prueba SET. Campos manuales de F0 retirados. Cadena de auth admin (PhoneLogin sin contraseña del tenant) como default | **Hecha** (2026-07-31) — SIN VERIFICAR contra la API real: falta la credencial admin en env. Sucursales↔outlets diferido |
 
 ## Infra
 

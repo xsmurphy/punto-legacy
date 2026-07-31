@@ -31,11 +31,19 @@ final class EInvoiceService
     }
 
     /** Shape estable aunque no haya cuenta configurada — el frontend no rama por null. */
+    /**
+     * Estado de la cuenta para el PANEL del comercio. White-label (F7): acá
+     * NUNCA sale una credencial de Factomate — ni usuario, ni teléfono, ni
+     * el nombre del proveedor como dato prominente. El comercio ve su
+     * estado fiscal (datos del emisor, timbrado, certificado), no la
+     * integración.
+     */
     public function getAccount(string $companyId): array
     {
         $row = ncmExecute(
-            'SELECT provider, username, phone_enc, environment, status, emitter, stamp, stamp_synced_at,
-                    last_check_at, last_error, config AS account_config
+            'SELECT provider, environment, status, emitter, stamp, stamp_synced_at,
+                    last_check_at, last_error, factomate_tenant_id, fiscal, provisioning,
+                    config AS account_config
                FROM einvoice_account WHERE companyid = ?',
             [$companyId]
         );
@@ -43,11 +51,10 @@ final class EInvoiceService
         if (!$row) {
             return [
                 'configured'    => false,
-                'provider'      => 'factomate',
-                'username'      => '',
-                'phone'         => '',
-                'environment'   => 'test',
+                'provisioned'   => false,
                 'status'        => 'unconfigured',
+                'fiscal'        => [],
+                'certUploaded'  => false,
                 'emitter'       => [],
                 'stamp'         => [],
                 'stampSyncedAt' => null,
@@ -57,23 +64,22 @@ final class EInvoiceService
             ];
         }
 
+        $provisioning = $this->decodeJsonb($row['provisioning'] ?? null);
+        $tenantId = $row['factomate_tenant_id'] ?? null;
+
         return [
-            'configured'  => true,
-            'provider'    => (string) ($row['provider'] ?? 'factomate'),
-            'username'    => (string) ($row['username'] ?? ''),
-            // Se devuelve DESCIFRADO (a diferencia de la contraseña, que
-            // nunca vuelve): el teléfono no es secreto en sí mismo — es un
-            // factor de auth (header phonenumber) igual que el usuario, no
-            // una clave que desbloquea la cuenta por sí sola. Cifrarlo en
-            // BD protege un dump/backup; el operador autenticado de su
-            // propia cuenta ya lo conoce, y necesita verlo para poder
-            // editar el resto sin tener que re-tipearlo cada vez.
-            'phone'       => $this->tryDecryptPhone($row['phone_enc'] ?? null) ?? '',
-            'environment' => (string) ($row['environment'] ?? 'test'),
-            'status'      => (string) ($row['status'] ?? 'unconfigured'),
-            'emitter'     => $this->decodeJsonb($row['emitter'] ?? null),
-            // Timbrado vigente cacheado de sincro/config — se LEE, no se
-            // crea (ver FactomateProvider::sincroConfig).
+            'configured'   => true,
+            // provisioned = el emisor existe del lado del proveedor. La UI
+            // decide con esto si muestra el formulario de alta o el estado.
+            'provisioned'  => $tenantId !== null && (int) $tenantId > 0,
+            'status'       => (string) ($row['status'] ?? 'unconfigured'),
+            // Espejo del formulario legal (sin secretos — ver
+            // EInvoiceProvisioningService::stripSecrets).
+            'fiscal'       => $this->decodeJsonb($row['fiscal'] ?? null),
+            'certUploaded' => !empty($provisioning['certUploaded']),
+            'emitter'      => $this->decodeJsonb($row['emitter'] ?? null),
+            // Timbrado vigente cacheado de BranchDocumentType/Get — la
+            // fuente real del correlativo (lo lleva el proveedor).
             'stamp'         => $this->decodeJsonb($row['stamp'] ?? null),
             'stampSyncedAt' => $row['stamp_synced_at'] ?? null,
             'lastCheckAt'   => $row['last_check_at'] ?? null,
@@ -83,119 +89,36 @@ final class EInvoiceService
     }
 
     /**
-     * Crea o actualiza la cuenta. $password null/'' = conservar la guardada
-     * (el frontend nunca la trae de vuelta, así que "no tocar" es el
-     * default cuando el campo viene vacío) — a diferencia de username/phone/
-     * environment, que SIEMPRE vienen del form porque getAccount() los
-     * devuelve en claro y el frontend los pre-carga.
+     * Config de emisión del comercio (autoIssue, onlyWithTaxId,
+     * paymentMethodMap, defaultPaymentMethodCode). F7: las CREDENCIALES ya
+     * no son input del usuario — el alta del emisor la hace
+     * EInvoiceProvisioningService con la credencial admin de Punto; este
+     * método solo toca `config`.
      *
-     * `$config` se MERGEA sobre la config guardada, no la reemplaza: la
-     * pantalla tiene varias secciones (conexión, emisión, medios de pago) que
-     * guardan por separado, y un PUT destructivo hacía que tocar un switch de
-     * emisión borrara el `paymentMethodMap` entero. Mismo criterio que
-     * Finance\ConfigService::update (merge no-destructivo sobre settingObj).
-     * Para borrar una clave se manda explícitamente en null.
+     * `$config` se MERGEA clave por clave sobre la guardada (`null` borra la
+     * clave): la pantalla tiene varias secciones que guardan por separado, y
+     * un PUT destructivo hacía que tocar un switch de emisión borrara el
+     * `paymentMethodMap` entero.
      *
-     * Cambiar cualquiera de los cuatro (usuario, contraseña, teléfono,
-     * entorno) invalida el bearer cacheado: quedó emitido para una
-     * combinación de credenciales o un HOST (test≠prod son hosts distintos)
-     * que ya no aplica. Una credencial nueva sin probar no puede quedar
-     * mostrando "Conectado".
-     *
-     * @throws \RuntimeException
+     * @throws \RuntimeException si la cuenta no existe todavía.
      */
-    public function saveAccount(
-        string $companyId,
-        string $username,
-        ?string $password,
-        string $phone,
-        string $environment,
-        array $config
-    ): array {
-        $username = trim($username);
-        if ($username === '') {
-            throw new \RuntimeException('El usuario de Factomate es obligatorio.');
-        }
-
-        if (!in_array($environment, ['test', 'prod'], true)) {
-            throw new \RuntimeException('Entorno inválido (esperado: test o prod).');
-        }
-
-        // phoneValidateForStorage (api/includes/phone.php) es el helper
-        // canónico del proyecto: valida con libphonenumber y normaliza a
-        // storage SIN '+' (convención del repo, ver
-        // feedback_phone_storage_no_plus) — se reusa en vez de inventar
-        // otra normalización acá. require_once defensivo porque no todo
-        // caller de EInvoiceService pasa por functions.php (que ya lo
-        // incluye) — mismo patrón que ContactService/UsersService.
-        require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
-        $phoneForStorage = phoneValidateForStorage($phone, 'PY', 'El teléfono del titular no es un número válido.');
-        if ($phoneForStorage === null) {
-            throw new \RuntimeException('El teléfono del titular es obligatorio.');
-        }
-
+    public function saveConfig(string $companyId, array $config): array
+    {
         // `config AS account_config`: flattenJsonb aplana toda columna llamada
         // `config` y la vuelve inutilizable (ver nota en context/28 §Schema).
         $existing = ncmExecute(
-            'SELECT username, phone_enc, environment, config AS account_config FROM einvoice_account WHERE companyid = ?',
+            'SELECT config AS account_config FROM einvoice_account WHERE companyid = ?',
             [$companyId]
         );
-
-        $config = $this->mergeConfig(
-            $existing ? $this->decodeJsonb($existing['account_config'] ?? null) : [],
-            $config
-        );
-
-        $passwordChanged = $password !== null && $password !== '';
-        $existingPhone    = $existing ? $this->tryDecryptPhone($existing['phone_enc'] ?? null) : null;
-        $usernameChanged  = $existing && $username !== (string) ($existing['username'] ?? '');
-        $phoneChanged     = $existing && $phoneForStorage !== $existingPhone;
-        $environmentChanged = $existing && $environment !== (string) ($existing['environment'] ?? 'test');
-        $credentialsChanged = $passwordChanged || $usernameChanged || $phoneChanged || $environmentChanged;
-
-        $configJson = json_encode($config, JSON_UNESCAPED_UNICODE);
-        $phoneEnc   = CredentialVault::encrypt($phoneForStorage);
-
         if (!$existing) {
-            if (!$passwordChanged) {
-                throw new \RuntimeException('La contraseña es obligatoria para conectar la cuenta por primera vez.');
-            }
-            ncmExecute(
-                "INSERT INTO einvoice_account (companyid, provider, username, password_enc, phone_enc, environment, status, config)
-                 VALUES (?, 'factomate', ?, ?, ?, ?, 'unconfigured', ?::jsonb)",
-                [$companyId, $username, CredentialVault::encrypt($password), $phoneEnc, $environment, $configJson]
-            );
-        } elseif ($credentialsChanged) {
-            if ($passwordChanged) {
-                ncmExecute(
-                    "UPDATE einvoice_account
-                        SET username = ?, password_enc = ?, phone_enc = ?, environment = ?,
-                            token_enc = NULL, token_expires_at = NULL,
-                            status = 'unconfigured', last_error = NULL, config = ?::jsonb, updated_at = now()
-                      WHERE companyid = ?",
-                    [$username, CredentialVault::encrypt($password), $phoneEnc, $environment, $configJson, $companyId]
-                );
-            } else {
-                // Usuario/teléfono/entorno cambiaron pero la contraseña no:
-                // se conserva password_enc, se pisa el resto y se descarta
-                // el token — vuelve a "sin probar".
-                ncmExecute(
-                    "UPDATE einvoice_account
-                        SET username = ?, phone_enc = ?, environment = ?,
-                            token_enc = NULL, token_expires_at = NULL,
-                            status = 'unconfigured', last_error = NULL, config = ?::jsonb, updated_at = now()
-                      WHERE companyid = ?",
-                    [$username, $phoneEnc, $environment, $configJson, $companyId]
-                );
-            }
-        } else {
-            // Nada de lo que invalida el bearer cambió (ej. solo se tocó
-            // autoIssue/onlyWithTaxId) — se actualiza config sin resetear status.
-            ncmExecute(
-                'UPDATE einvoice_account SET username = ?, config = ?::jsonb, updated_at = now() WHERE companyid = ?',
-                [$username, $configJson, $companyId]
-            );
+            throw new \RuntimeException('Completá primero los datos del emisor.');
         }
+
+        $merged = $this->mergeConfig($this->decodeJsonb($existing['account_config'] ?? null), $config);
+        ncmExecute(
+            'UPDATE einvoice_account SET config = ?::jsonb, updated_at = now() WHERE companyid = ?',
+            [json_encode($merged, JSON_UNESCAPED_UNICODE), $companyId]
+        );
 
         return $this->getAccount($companyId);
     }
@@ -372,15 +295,20 @@ final class EInvoiceService
     }
 
     /**
-     * @return array{0: string, 1: string} [$phone, $environment] descifrados/listos para pasar al provider.
-     * @throws \RuntimeException si falta el teléfono (cuenta a medio configurar).
+     * Identidad de login del usuario del tenant (header `phonenumber` — es
+     * el UserName del usuario, verificado 2026-07-30: para cuentas
+     * provisionadas por F7 es su email; para las manuales de F0, el
+     * teléfono) + environment.
+     *
+     * @return array{0: string, 1: string} [$login, $environment] descifrados/listos para pasar al provider.
+     * @throws \RuntimeException si falta (cuenta a medio provisionar).
      */
     private function phoneAndEnvironment(string $companyId): array
     {
         $row   = ncmExecute('SELECT phone_enc, environment FROM einvoice_account WHERE companyid = ?', [$companyId]);
         $phone = $this->tryDecryptPhone($row['phone_enc'] ?? null);
         if ($phone === null) {
-            throw new \RuntimeException('Falta el teléfono del titular — es obligatorio para autenticar con Factomate.');
+            throw new \RuntimeException('La cuenta de facturación electrónica no terminó de provisionarse.');
         }
         return [$phone, (string) ($row['environment'] ?? 'test')];
     }

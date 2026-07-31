@@ -336,6 +336,110 @@ final class FactomateProvider implements EInvoiceProvider
         return $this->request('GET', '/api/electronicDocument/getBulk/' . rawurlencode($bulkId), null, $bearer, $phone, $environment);
     }
 
+    // ── F7 — provisioning white-label ────────────────────────────────────
+
+    /**
+     * Alta compuesta del emisor (manual ABM §2). `$adminLogin` viaja como
+     * header `phonenumber` — la regla de Factomate es "en TODAS las llamadas
+     * autenticadas" y el header es la identidad de login, no un teléfono
+     * literal (verificado 2026-07-30: vuelve como `userName`).
+     * SIN VERIFICAR contra la API real: si CreateExternal rechaza el header
+     * de un usuario sin tenant, probarlo sin `phonenumber` es el primer
+     * intento de fix.
+     */
+    public function createExternal(string $environment, string $adminLogin, string $adminBearer, array $data): array
+    {
+        $raw = $this->request('POST', '/api/Tenant/CreateExternal', [
+            'RazonSocial'    => (string) ($data['razonSocial'] ?? ''),
+            'NombreFantasia' => (string) ($data['nombreFantasia'] ?? ''),
+            'Email'          => (string) ($data['email'] ?? ''),
+            'Ruc'            => (string) ($data['ruc'] ?? ''),
+        ], $adminBearer, $adminLogin, $environment);
+
+        if (empty($raw['Success'] ?? $raw['success'] ?? false)) {
+            $error = (string) ($raw['Error'] ?? $raw['error'] ?? 'Factomate rechazó el alta del emisor sin motivo.');
+            throw new \RuntimeException($error);
+        }
+
+        $tenantId = $raw['Id'] ?? $raw['id'] ?? null;
+        $password = $raw['Password'] ?? $raw['password'] ?? null;
+        if ($tenantId === null || $password === null || $password === '') {
+            // Sin tenantId o sin contraseña el alta es inutilizable — y la
+            // contraseña NO se puede volver a pedir (manual §2.4). Error
+            // ruidoso SIN incluir la contraseña en el mensaje.
+            $keys = implode(', ', array_keys($raw));
+            throw new \RuntimeException(
+                "CreateExternal respondió sin tenantId o sin contraseña (claves: $keys) — revisar con Factomate antes de reintentar."
+            );
+        }
+
+        return [
+            'tenantId' => (int) $tenantId,
+            'userId'   => (string) ($raw['UserId'] ?? $raw['userId'] ?? ''),
+            'email'    => (string) ($raw['Email'] ?? $raw['email'] ?? ($data['email'] ?? '')),
+            'password' => (string) $password,
+            'raw'      => $raw,
+        ];
+    }
+
+    public function updateTenant(string $environment, string $phone, string $bearer, array $tenant): array
+    {
+        return $this->request('PUT', '/api/Tenant', $tenant, $bearer, $phone, $environment);
+    }
+
+    public function createActivity(string $environment, string $phone, string $bearer, int $tenantId, int $identifier, string $name): array
+    {
+        return $this->request('POST', '/api/Activity', [
+            'tenantId'   => $tenantId,
+            'Identifier' => $identifier,
+            'Name'       => $name,
+        ], $bearer, $phone, $environment);
+    }
+
+    /**
+     * Alta del timbrado (manual §5). `DocumentTypeIds` crea un timbrado por
+     * tipo de documento — se dan de alta FC (1) y NC (5) juntos, que son los
+     * dos tipos que Punto emite (F1 + F3). `CurrentNumber: 1` — el
+     * correlativo lo lleva Factomate desde ahí (decisión `number: -1`).
+     */
+    public function createStamp(string $environment, string $phone, string $bearer, array $stamp): array
+    {
+        return $this->request('POST', '/api/BranchDocumentType', [
+            'DocumentTypeIds' => $stamp['documentTypeIds'] ?? [1, 5],
+            'Stablishment'    => (string) ($stamp['stablishment'] ?? '001'),
+            'ExpeditionPoint' => (string) ($stamp['expeditionPoint'] ?? '001'),
+            'StampNumber'     => (string) ($stamp['stampNumber'] ?? ''),
+            'StampDate'       => (string) ($stamp['stampDate'] ?? ''),
+            'CurrentNumber'   => (int) ($stamp['currentNumber'] ?? 1),
+            'Serie'           => (string) ($stamp['serie'] ?? ''),
+        ], $bearer, $phone, $environment);
+    }
+
+    /**
+     * Certificado de firma (manual §7). El `.pfx` y su contraseña PASAN por
+     * acá y no se persisten en ningún lado nuestro — y bajo ninguna
+     * circunstancia se loguean: request() loguea el body de los POST, así
+     * que este método NO usa request() para el envío, duplica el camino con
+     * el log redactado.
+     */
+    public function uploadCert(string $environment, string $phone, string $bearer, int $tenantId, string $certBase64, string $certPassword): array
+    {
+        $path = '/api/Tenant/' . $tenantId . '/UploadCert';
+        error_log("[Factomate] POST $path body=<certificado redactado>");
+        return $this->requestUnlogged('POST', $path, [
+            'certBase64'   => $certBase64,
+            'certPassword' => $certPassword,
+        ], $bearer, $phone, $environment);
+    }
+
+    public function testSet(string $environment, string $phone, string $bearer, int $tenantId, string $ruc): array
+    {
+        // El RUC va SIN dígito verificador (manual §7.5.1: split('-')[0]).
+        $doc = explode('-', trim($ruc))[0];
+        $qs  = http_build_query(['tenantId' => $tenantId, 'description' => $doc]);
+        return $this->request('GET', '/api/Consulta/Get?' . $qs, null, $bearer, $phone, $environment);
+    }
+
     // ── Internals ────────────────────────────────────────────────────────
 
     /**
@@ -431,6 +535,24 @@ final class FactomateProvider implements EInvoiceProvider
             error_log("[Factomate] $method $path body=$body");
         }
 
+        return $this->exec($path, $method, $headers, $body, $environment);
+    }
+
+    /**
+     * Igual que request() pero SIN loguear el body: para payloads que llevan
+     * secretos que no pueden tocar un log ni redactados a medias (el
+     * certificado de firma y su contraseña — ver uploadCert()). El caller es
+     * responsable de loguear una línea redactada si quiere traza.
+     */
+    private function requestUnlogged(string $method, string $path, array $jsonBody, string $bearer, string $phone, string $environment): array
+    {
+        $headers = [
+            'Accept: application/json',
+            'Authorization: Bearer ' . $bearer,
+            'phonenumber: ' . $phone,
+            'Content-Type: application/json',
+        ];
+        $body = $jsonBody === [] ? '{}' : json_encode($jsonBody, JSON_UNESCAPED_UNICODE);
         return $this->exec($path, $method, $headers, $body, $environment);
     }
 

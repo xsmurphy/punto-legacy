@@ -118,4 +118,62 @@ interface EInvoiceProvider
      * @throws \RuntimeException
      */
     public function getBulk(string $environment, string $phone, string $bearer, string $bulkId): array;
+
+    // ── F7 — provisioning white-label ────────────────────────────────────
+    // El comercio nunca ve Factomate: Punto crea el emisor con su credencial
+    // ADMIN (env, ver FactomateSession::getAdminBearer) y de ahí en adelante
+    // opera con el usuario del tenant que devolvió el alta. Manual de
+    // referencia: ~/Downloads/manual-tenant-abm (§2 CreateExternal, §3 PUT
+    // Tenant, §4 Activity, §5 BranchDocumentType, §7 UploadCert).
+
+    /**
+     * POST /api/Tenant/CreateExternal — alta compuesta (usuario + tenant +
+     * rol + vínculo). Requiere un bearer de usuario SIN tenant (el admin
+     * global de Punto). Devuelve
+     * ['tenantId','userId','email','password','raw'] — la contraseña viaja
+     * UNA sola vez y no es recuperable después (manual §2.4): el caller la
+     * persiste en el vault como paso inmediato siguiente.
+     * @param array{razonSocial:string,nombreFantasia:?string,email:string,ruc:string} $data
+     * @throws \RuntimeException
+     */
+    public function createExternal(string $environment, string $adminLogin, string $adminBearer, array $data): array;
+
+    /**
+     * PUT /api/Tenant — datos fiscales del emisor (manual §3). Con el bearer
+     * del USUARIO del tenant (su rol Administrador alcanza).
+     * @throws \RuntimeException
+     */
+    public function updateTenant(string $environment, string $phone, string $bearer, array $tenant): array;
+
+    /**
+     * POST /api/Activity — actividad económica SIFEN del emisor (manual §4).
+     * @throws \RuntimeException
+     */
+    public function createActivity(string $environment, string $phone, string $bearer, int $tenantId, int $identifier, string $name): array;
+
+    /**
+     * POST /api/BranchDocumentType — alta del timbrado (manual §5).
+     * `TenantId` NO viaja: Factomate lo fuerza server-side al del usuario
+     * autenticado, por eso este método exige el bearer del tenant.
+     * @throws \RuntimeException
+     */
+    public function createStamp(string $environment, string $phone, string $bearer, array $stamp): array;
+
+    /**
+     * POST /api/Tenant/{id}/UploadCert — certificado de firma (manual §7).
+     * SOLO el usuario propio del tenant puede subirlo (§7.2 — el admin
+     * global recibe 403), por eso va con el bearer del tenant. El caller
+     * NUNCA persiste ni loguea `certBase64`/`certPassword` (regla del plan).
+     * @throws \RuntimeException
+     */
+    public function uploadCert(string $environment, string $phone, string $bearer, int $tenantId, string $certBase64, string $certPassword): array;
+
+    /**
+     * GET /api/Consulta/Get?tenantId=&description= — prueba de humo REAL del
+     * certificado: consulta de RUC contra SIFEN usando el certificado del
+     * emisor como cert cliente TLS (manual §7.5). 200 = certificado y CSC
+     * operativos; error = "Error de Certificado o CSC".
+     * @throws \RuntimeException
+     */
+    public function testSet(string $environment, string $phone, string $bearer, int $tenantId, string $ruc): array;
 }

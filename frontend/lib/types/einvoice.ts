@@ -1,12 +1,13 @@
 /**
- * Shapes de `/v1/einvoice` — Facturación Electrónica (Factomate/SIFEN), F0.
+ * Shapes de `/v1/einvoice` — Facturación Electrónica (SIFEN).
  * Ver `context/28-facturacion-electronica-plan.md`.
+ *
+ * WHITE-LABEL (F7): el comercio nunca ve al proveedor de FE. El alta es un
+ * formulario de datos LEGALES (RUC, actividad, timbrado) y Punto provisiona
+ * el emisor por detrás — acá no existe ningún shape de credencial.
  */
 
-export type EInvoiceStatus = "unconfigured" | "ok" | "auth_error"
-
-/** Factomate tiene HOSTS DISTINTOS para test y prod — no es un flag cosmético. */
-export type EInvoiceEnvironment = "test" | "prod"
+export type EInvoiceStatus = "unconfigured" | "provisioning" | "ok" | "auth_error"
 
 /**
  * Config de emisión. El backend la MERGEA clave por clave (ver
@@ -27,31 +28,59 @@ export interface EInvoiceConfig {
   [key: string]: unknown
 }
 
+/** Datos del timbrado que el comercio recibe de la SET. */
+export interface EInvoiceStampForm {
+  /** Número de timbrado (lo asigna la SET). */
+  numero: string
+  /** Establecimiento, 3 dígitos (ej. "001"). */
+  establecimiento: string
+  /** Punto de expedición, 3 dígitos (ej. "001"). */
+  puntoExpedicion: string
+  /** Fecha de inicio de vigencia, "YYYY-MM-DD". */
+  fechaInicio: string
+  serie?: string
+}
+
+/**
+ * Formulario legal del emisor (F7). Es TODO lo que el comercio completa —
+ * el resto (credenciales, cuenta del proveedor) lo resuelve Punto.
+ * `cscSecret` pasa al proveedor y nunca vuelve del backend.
+ */
+export interface EInvoiceFiscalForm {
+  ruc: string
+  razonSocial: string
+  nombreFantasia?: string
+  /** Email de facturación — identidad del emisor, único en el sistema fiscal. */
+  email: string
+  /** 1 = persona física, 2 = persona jurídica. */
+  taxpayerType?: number
+  /** Código SIFEN de la actividad económica (ej. 62010). */
+  actividadCodigo: number | ""
+  actividadNombre: string
+  /** Id del CSC de SIFEN (producción) — opcional hasta operar en prod. */
+  cscId?: string
+  /** Secreto del CSC — pasa, no se guarda. */
+  cscSecret?: string
+  /** Texto adicional impreso en la factura. */
+  infoAdicional?: string
+  timbrado: EInvoiceStampForm
+}
+
 export interface EInvoiceAccount {
   configured: boolean
-  provider: string
-  username: string
-  /** E.164 SIN '+' (convención de storage del proyecto), ej "595981612192". */
-  phone: string
-  environment: EInvoiceEnvironment
+  /** true = el emisor ya existe del lado fiscal; la UI muestra estado, no formulario. */
+  provisioned: boolean
   status: EInvoiceStatus
-  /** Payload crudo de GetUserInfo — el spec de Factomate no tipa la respuesta. */
+  /** Espejo del formulario legal guardado (sin secretos). */
+  fiscal: Partial<EInvoiceFiscalForm>
+  certUploaded: boolean
+  /** Payload crudo del emisor según el proveedor — shape sin tipar. */
   emitter: Record<string, unknown>
-  /** Timbrado vigente (`stamps[0]` de sincro/config) — shape sin tipar, se lee, no se crea. */
+  /** Timbrado vigente cacheado — shape sin tipar; el correlativo lo lleva el proveedor. */
   stamp: Record<string, unknown>
   stampSyncedAt: string | null
   lastCheckAt: string | null
   lastError: string | null
-  config: EInvoiceConfig
-}
-
-export interface EInvoiceSaveAccountPayload {
-  username: string
-  /** E.164, con o sin '+' — el backend normaliza con el helper canónico de teléfonos. */
-  phone: string
-  environment: EInvoiceEnvironment
-  /** `undefined`/`""` conserva la contraseña guardada — nunca vuelve del backend. */
-  password?: string
   config: EInvoiceConfig
 }
 

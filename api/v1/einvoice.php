@@ -3,9 +3,12 @@
  * REST — Facturación electrónica (Factomate / SIFEN). F0: cuenta del comercio.
  * F1: outbox de emisión (context/28-facturacion-electronica-plan.md).
  *
- *   GET  /v1/einvoice?resource=account          → estado de la cuenta conectada (incluye timbrado)
- *   POST /v1/einvoice?action=account            → guarda usuario/teléfono/entorno/contraseña/config
- *   POST /v1/einvoice?action=test               → prueba la conexión (Token → PhoneLogin → GetUserInfo → sincro/config)
+ *   GET  /v1/einvoice?resource=account          → estado del emisor (fiscal, timbrado, certificado, config)
+ *   POST /v1/einvoice?action=provision          → F7: crea/retoma el emisor con los datos legales (white-label)
+ *   POST /v1/einvoice?action=config             → guarda config de emisión (autoIssue/onlyWithTaxId/paymentMethodMap)
+ *   POST /v1/einvoice?action=uploadCert         → sube el certificado de firma (.pfx base64 + contraseña; pasa, no se guarda)
+ *   POST /v1/einvoice?action=testSet            → prueba de humo del certificado contra SIFEN (consulta de RUC)
+ *   POST /v1/einvoice?action=test               → re-verifica la cuenta (auth + timbrado) y refresca el cache
  *   GET  /v1/einvoice?resource=paymentMethods   → proxy de códigos de medio de pago
  *   GET  /v1/einvoice?resource=documents&transactionId=X → estado del documento de una venta (solo lectura)
  *   POST /v1/einvoice?action=drain              → drena el outbox (pending/error vencidos) — SOLO cron, secreto compartido
@@ -25,10 +28,12 @@
  * es SIEMPRE la de COMPANY_ID del contexto — nunca un id del request
  * (aislamiento multi-tenant, ver context/25-sucursales-y-scopes.md).
  *
- * password_enc/token_enc NUNCA salen de acá — EInvoiceService::getAccount()
- * ya los excluye del SELECT. phone_enc SÍ vuelve descifrado (ver comentario
- * en EInvoiceService::getAccount — no es secreto en el mismo sentido que la
- * contraseña, el operador lo necesita para editar sin re-tipearlo).
+ * WHITE-LABEL (F7): el comercio nunca ve una credencial de Factomate — el
+ * alta del emisor la hace Punto con su credencial admin (env,
+ * FACTOMATE_ADMIN_*) vía EInvoiceProvisioningService. Ninguna respuesta de
+ * este endpoint incluye usuario/contraseña/identidad de login del proveedor
+ * (getAccount ya los excluye del SELECT). El certificado y el secreto del
+ * CSC pasan por acá hacia el proveedor y NO se persisten ni se loguean.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -131,22 +136,64 @@ switch ($method) {
             apiError('No tenés permiso para esta acción (requiere: einvoice.manage)', 403);
         }
 
-        if ($action === 'account') {
-            $username    = (string) (validateHttp('username', 'post') ?: '');
-            $phone       = (string) (validateHttp('phone', 'post') ?: '');
-            $environment = (string) (validateHttp('environment', 'post') ?: 'test');
-            $passwordRaw = validateHttp('password', 'post');
-            $password    = $passwordRaw === false || $passwordRaw === null ? null : (string) $passwordRaw;
-            $configRaw   = (string) (validateHttp('config', 'post') ?: '{}');
-            $config      = json_decode($configRaw, true);
+        if ($action === 'provision') {
+            // El formulario legal entero viaja como JSON en `form`. No pasa
+            // por validateHttp campo por campo: la validación semántica
+            // (qué es obligatorio, formatos de timbrado) vive en
+            // EInvoiceProvisioningService::validateForm, con mensajes para
+            // el comercio.
+            $form = $_POST['form'] ?? null;
+            if (is_string($form)) {
+                $form = json_decode($form, true);
+            }
+            if (!is_array($form)) {
+                apiError('Faltan los datos del emisor', 422);
+            }
 
+            try {
+                apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->provision($companyId, $form));
+            } catch (\RuntimeException $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
+        if ($action === 'config') {
+            $configRaw = (string) (validateHttp('config', 'post') ?: '{}');
+            $config    = json_decode($configRaw, true);
             if (!is_array($config)) {
                 apiError('El parámetro config debe ser un objeto JSON válido', 422);
             }
 
             try {
-                apiOk($svc->saveAccount($companyId, $username, $password, $phone, $environment, $config));
+                apiOk($svc->saveConfig($companyId, $config));
             } catch (\RuntimeException $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
+        if ($action === 'uploadCert') {
+            // Directo de $_POST, NUNCA por validateHttp ni a un log: el
+            // certificado es la identidad de firma del contribuyente y la
+            // contraseña lo abre. Pasan al proveedor y se descartan.
+            $certBase64   = (string) ($_POST['certBase64'] ?? '');
+            $certPassword = (string) ($_POST['certPassword'] ?? '');
+
+            try {
+                apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->uploadCert($companyId, $certBase64, $certPassword));
+            } catch (\RuntimeException $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
+        if ($action === 'testSet') {
+            try {
+                apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->testSet($companyId));
+            } catch (\RuntimeException $e) {
+                // 422 con el detalle: "Error de Certificado o CSC" es
+                // información accionable para el operador, no un 500.
                 apiError($e->getMessage(), 422);
             }
             break;
@@ -199,7 +246,7 @@ switch ($method) {
             break;
         }
 
-        apiError('action inválida (esperado: account|test|retry|cancel|reconcile)', 422);
+        apiError('action inválida (esperado: provision|config|uploadCert|testSet|test|retry|cancel|reconcile)', 422);
         break;
 
     default:

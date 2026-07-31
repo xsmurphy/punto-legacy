@@ -113,6 +113,18 @@ define('APP_ENCRYPTION_KEY', $_ENV['APP_ENCRYPTION_KEY'] ?? '');
 // no se detecta hasta que ya es tarde.
 define('FACTOMATE_BASE_URL_TEST', $_ENV['FACTOMATE_BASE_URL_TEST'] ?? 'https://facturadordev.automate.com.py');
 define('FACTOMATE_BASE_URL_PROD', $_ENV['FACTOMATE_BASE_URL_PROD'] ?? '');
+// FACTOMATE_ADMIN_* — credencial ADMIN de Punto en Factomate (F7 white-label):
+// usuario global SIN tenant, el secreto más poderoso del módulo (crea
+// emisores y emite bearers de cualquier tenant vía PhoneLogin). SIEMPRE en
+// env, NUNCA en BD ni alcanzable desde un endpoint con auth de tenant. Una
+// por entorno — test y prod son hosts distintos con cuentas distintas.
+define('FACTOMATE_ADMIN_USERNAME_TEST', $_ENV['FACTOMATE_ADMIN_USERNAME_TEST'] ?? '');
+define('FACTOMATE_ADMIN_PASSWORD_TEST', $_ENV['FACTOMATE_ADMIN_PASSWORD_TEST'] ?? '');
+define('FACTOMATE_ADMIN_USERNAME_PROD', $_ENV['FACTOMATE_ADMIN_USERNAME_PROD'] ?? '');
+define('FACTOMATE_ADMIN_PASSWORD_PROD', $_ENV['FACTOMATE_ADMIN_PASSWORD_PROD'] ?? '');
+// Entorno donde se provisionan los emisores NUEVOS (F7). Global, no elección
+// del tenant. 'test' hasta que el white-label esté validado contra prod.
+define('EINVOICE_DEFAULT_ENVIRONMENT', $_ENV['EINVOICE_DEFAULT_ENVIRONMENT'] ?? 'test');
 // EINVOICE_DRAIN_SECRET: secreto compartido para POST /v1/einvoice?action=drain
 // (F1) — el cron del sistema invoca el drainer del outbox SIN pasar por
 // apiAuthTenant (no hay realm de panel en un cron). Vacía/no definida → el

@@ -4,12 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import type {
   EInvoiceAccount,
+  EInvoiceConfig,
   EInvoiceDocument,
   EInvoiceDocumentFilters,
   EInvoiceDocumentsPage,
+  EInvoiceFiscalForm,
   EInvoicePaymentMethod,
   EInvoiceReconcileResult,
-  EInvoiceSaveAccountPayload,
   EInvoiceTestResult,
 } from "@/lib/types/einvoice"
 
@@ -30,16 +31,30 @@ export function useEinvoiceAccount() {
   })
 }
 
-/** Guarda usuario/teléfono/entorno/contraseña (opcional) + config. Resetea status a 'unconfigured' si cambia alguna credencial (server-side). */
-export function useSaveEinvoiceAccount() {
+/**
+ * F7 — crea (o retoma) el emisor con los datos legales del formulario. El
+ * provisioning es reanudable server-side: si un paso falla, volver a mandar
+ * el mismo form continúa desde donde quedó, sin duplicar el alta.
+ */
+export function useProvisionEinvoice() {
   const qc = useQueryClient()
-  return useMutation<EInvoiceAccount, Error, EInvoiceSaveAccountPayload>({
-    mutationFn: ({ username, phone, environment, password, config }) =>
-      api.post<EInvoiceAccount>("/v1/einvoice?action=account", {
-        username,
-        phone,
-        environment,
-        password: password ?? "",
+  return useMutation<EInvoiceAccount, Error, EInvoiceFiscalForm>({
+    mutationFn: (form) =>
+      api.post<EInvoiceAccount>("/v1/einvoice?action=provision", {
+        form: form as unknown as Record<string, unknown>,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNT_KEY })
+    },
+  })
+}
+
+/** Config de emisión (autoIssue/onlyWithTaxId/paymentMethodMap) — el backend mergea clave por clave. */
+export function useSaveEinvoiceConfig() {
+  const qc = useQueryClient()
+  return useMutation<EInvoiceAccount, Error, EInvoiceConfig>({
+    mutationFn: (config) =>
+      api.post<EInvoiceAccount>("/v1/einvoice?action=config", {
         config: JSON.stringify(config),
       }),
     onSuccess: () => {
@@ -48,7 +63,29 @@ export function useSaveEinvoiceAccount() {
   })
 }
 
-/** Token → PhoneLogin → GetUserInfo → sincro/config contra Factomate — persiste status/emitter/stamp/lastError server-side. */
+/**
+ * Certificado de firma: el `.pfx` viaja en base64 y NO se persiste en
+ * ningún lado (backend lo pasa al proveedor y lo descarta).
+ */
+export function useUploadEinvoiceCert() {
+  const qc = useQueryClient()
+  return useMutation<{ uploaded: boolean }, Error, { certBase64: string; certPassword: string }>({
+    mutationFn: (body) =>
+      api.post<{ uploaded: boolean }>("/v1/einvoice?action=uploadCert", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNT_KEY })
+    },
+  })
+}
+
+/** Prueba de humo del certificado contra la SET (consulta de RUC real). */
+export function useTestEinvoiceSet() {
+  return useMutation<Record<string, unknown>, Error, void>({
+    mutationFn: () => api.post<Record<string, unknown>>("/v1/einvoice?action=testSet"),
+  })
+}
+
+/** Re-verifica el emisor (auth + timbrado) y refresca el cache — persiste status/emitter/stamp/lastError server-side. */
 export function useTestEinvoiceConnection() {
   const qc = useQueryClient()
   return useMutation<EInvoiceTestResult, Error, void>({
