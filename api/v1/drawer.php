@@ -12,6 +12,7 @@ require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/DrawerService.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\DrawerService;
+use Punto\Api\Support\TenantClock;
 
 $ctx        = apiAuthTenant(['panel', 'pos-app']);
 // Defensa-en-profundidad: una pantalla cliente no debe poder operar el cajón.
@@ -100,7 +101,10 @@ if ($method === 'POST') {
     $user   = trim((string) ($body['user'] ?? ''));
 
     if ($date === '') {
-        $date = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+        // Tenant-local naive (no UTC del container) — ver TenantClock. Sin esto
+        // los gastos/ingresos de caja quedaban +3h adelantados y se ordenaban
+        // por encima de eventos posteriores en "últimos movimientos" (2026-07-30).
+        $date = TenantClock::now($companyId);
     }
 
     // userId del JWT tiene precedencia; $user del body es solo para auditoría/email del legacy

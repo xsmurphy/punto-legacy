@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Punto\Api\Finance;
 
+use Punto\Api\PaymentMethods\PaymentMethodResolver;
+use Punto\Api\Support\TenantClock;
+
 /**
  * CRUD de movimientos de Finanzas (`fin_movement`) — el ledger de caja simple
  * (single-entry, NO partida doble). Actualiza `fin_account.currentbalance`
@@ -59,10 +62,17 @@ final class MovementService
         $totalRow = ncmExecute("SELECT COUNT(*) AS n FROM fin_movement m WHERE {$where}", $params);
         $total = (int) ($totalRow['n'] ?? 0);
 
-        $sql = "SELECT m.*, a.name AS accountname, c.name AS categoryname
+        // LEFT JOIN taxonomy resuelve paymentmethod → nombre real cuando es un
+        // taxonomyId (ventas nuevas, UUID); las claves legacy ('efectivo', etc.)
+        // no matchean acá y se resuelven en shape() vía PaymentMethodResolver
+        // (bug 2026-07-30: el listado mostraba el UUID crudo en "Medio de pago").
+        $sql = "SELECT m.*, a.name AS accountname, c.name AS categoryname, t.taxonomyname AS paymentmethodname
                   FROM fin_movement m
                   LEFT JOIN fin_account a ON a.accountid = m.accountid
                   LEFT JOIN fin_category c ON c.categoryid = m.categoryid
+                  LEFT JOIN taxonomy t ON t.taxonomyid::text = m.paymentmethod
+                                       AND t.companyid = m.companyid
+                                       AND t.taxonomytype = 'paymentMethod'
                  WHERE {$where}
                  ORDER BY m.date DESC, m.created_at DESC
                  LIMIT {$limit} OFFSET {$offset}";
@@ -71,7 +81,7 @@ final class MovementService
         $rows = [];
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
-                $rows[] = $this->shape($rs->fields);
+                $rows[] = $this->shape($rs->fields, $companyId);
                 $rs->MoveNext();
             }
             $rs->Close();
@@ -196,14 +206,17 @@ final class MovementService
             return null;
         }
         $row = ncmExecute(
-            "SELECT m.*, a.name AS accountname, c.name AS categoryname
+            "SELECT m.*, a.name AS accountname, c.name AS categoryname, t.taxonomyname AS paymentmethodname
                FROM fin_movement m
                LEFT JOIN fin_account a ON a.accountid = m.accountid
                LEFT JOIN fin_category c ON c.categoryid = m.categoryid
+               LEFT JOIN taxonomy t ON t.taxonomyid::text = m.paymentmethod
+                                    AND t.companyid = m.companyid
+                                    AND t.taxonomytype = 'paymentMethod'
               WHERE m.movementid = ? AND m.companyid = ? LIMIT 1",
             [$id, $companyId]
         );
-        return $row ? $this->shape($row) : null;
+        return $row ? $this->shape($row, $companyId) : null;
     }
 
     /**
@@ -243,7 +256,7 @@ final class MovementService
             'categoryid'    => $categoryId,
             'kind'          => $kind,
             'amount'        => $amount,
-            'date'          => $this->normalizeDate($data['date'] ?? null),
+            'date'          => $this->normalizeDate($data['date'] ?? null, $companyId),
             'description'   => (string) ($data['description'] ?? '') ?: null,
             'paymentmethod' => (string) ($data['paymentMethod'] ?? '') ?: null,
             'source'        => 'manual',
@@ -295,7 +308,7 @@ final class MovementService
             throw new \RuntimeException('Cuenta de origen o destino no encontrada');
         }
 
-        $date        = $this->normalizeDate($data['date'] ?? null);
+        $date        = $this->normalizeDate($data['date'] ?? null, $companyId);
         $description = (string) ($data['description'] ?? '') ?: null;
         $userId      = (string) ($data['userId'] ?? '') ?: null;
         $outletId    = (string) ($data['outletId'] ?? '') ?: null;
@@ -336,10 +349,13 @@ final class MovementService
         }
 
         $rs = ncmExecute(
-            "SELECT m.*, a.name AS accountname, c.name AS categoryname
+            "SELECT m.*, a.name AS accountname, c.name AS categoryname, t.taxonomyname AS paymentmethodname
                FROM fin_movement m
                LEFT JOIN fin_account a ON a.accountid = m.accountid
                LEFT JOIN fin_category c ON c.categoryid = m.categoryid
+               LEFT JOIN taxonomy t ON t.taxonomyid::text = m.paymentmethod
+                                    AND t.companyid = m.companyid
+                                    AND t.taxonomytype = 'paymentMethod'
               WHERE m.transfergroupid = ? AND m.companyid = ?
               ORDER BY m.kind ASC",
             [$groupId, $companyId],
@@ -349,7 +365,7 @@ final class MovementService
         $rows = [];
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
-                $rows[] = $this->shape($rs->fields);
+                $rows[] = $this->shape($rs->fields, $companyId);
                 $rs->MoveNext();
             }
             $rs->Close();
@@ -467,7 +483,7 @@ final class MovementService
         $categoryId = ($categoryId !== '' && preg_match(self::UUID_RE, $categoryId)) ? $categoryId : null;
 
         $movementId = $this->uuidV4();
-        $date       = $this->normalizeDate($fields['date'] ?? null);
+        $date       = $this->normalizeDate($fields['date'] ?? null, $companyId);
         $userId     = (string) ($fields['userId'] ?? '') ?: null;
         $outletId   = (string) ($fields['outletId'] ?? '') ?: null;
         $description = (string) ($fields['description'] ?? '') ?: null;
@@ -585,11 +601,11 @@ final class MovementService
         );
     }
 
-    private function normalizeDate(?string $val): string
+    private function normalizeDate(?string $val, string $companyId): string
     {
         $val = $val !== null ? trim($val) : '';
         if ($val === '') {
-            return date('Y-m-d H:i:s');
+            return TenantClock::now($companyId);
         }
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)) {
             return $val . ' 00:00:00';
@@ -605,24 +621,43 @@ final class MovementService
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 
-    private function shape($f): array
+    /**
+     * $companyId es opcional para no romper callers legacy que todavía no lo
+     * pasan; sin él, paymentMethodName cae al valor crudo (mejor que un 500).
+     */
+    private function shape($f, string $companyId = ''): array
     {
+        $paymentMethod = $f['paymentmethod'] !== null ? (string) $f['paymentmethod'] : null;
+        $paymentMethodName = isset($f['paymentmethodname']) && $f['paymentmethodname'] !== null
+            ? (string) $f['paymentmethodname']
+            : null;
+        // El JOIN por taxonomyId solo resuelve ventas nuevas (UUID). Claves
+        // legacy ('efectivo', 'cheque', slugs del POS…) no matchean ahí —
+        // se resuelven acá vía el mismo wrapper que usa el resto del sistema
+        // (PaymentMethodResolver), sin duplicar el mapa de aliases.
+        if ($paymentMethodName === null && $paymentMethod !== null && $paymentMethod !== '' && $companyId !== '') {
+            $paymentMethodName = (new PaymentMethodResolver())->resolveMethodName($companyId, $paymentMethod);
+        }
+
         return [
-            'id'               => (string) $f['movementid'],
-            'accountId'        => (string) $f['accountid'],
-            'accountName'      => $f['accountname'] !== null ? (string) $f['accountname'] : null,
-            'categoryId'       => $f['categoryid'] !== null ? (string) $f['categoryid'] : null,
-            'categoryName'     => $f['categoryname'] !== null ? (string) $f['categoryname'] : null,
-            'kind'             => (string) $f['kind'],
-            'amount'           => (float) $f['amount'],
-            'date'             => (string) $f['date'],
-            'description'      => $f['description'] !== null ? (string) $f['description'] : null,
-            'paymentMethod'    => $f['paymentmethod'] !== null ? (string) $f['paymentmethod'] : null,
-            'source'           => (string) $f['source'],
-            'sourceId'         => $f['sourceid'] !== null ? (string) $f['sourceid'] : null,
-            'transferGroupId'  => $f['transfergroupid'] !== null ? (string) $f['transfergroupid'] : null,
-            'reconciled'       => (bool) $f['reconciled'],
-            'status'           => (int) $f['status'],
+            'id'                 => (string) $f['movementid'],
+            'accountId'          => (string) $f['accountid'],
+            'accountName'        => $f['accountname'] !== null ? (string) $f['accountname'] : null,
+            'categoryId'         => $f['categoryid'] !== null ? (string) $f['categoryid'] : null,
+            'categoryName'       => $f['categoryname'] !== null ? (string) $f['categoryname'] : null,
+            'kind'               => (string) $f['kind'],
+            'amount'             => (float) $f['amount'],
+            'date'               => (string) $f['date'],
+            'description'        => $f['description'] !== null ? (string) $f['description'] : null,
+            'paymentMethod'      => $paymentMethod,
+            // Nombre para mostrar — cae al valor crudo si no se pudo resolver
+            // (mejor un slug legible que un campo vacío en la UI).
+            'paymentMethodName'  => $paymentMethodName ?? $paymentMethod,
+            'source'             => (string) $f['source'],
+            'sourceId'           => $f['sourceid'] !== null ? (string) $f['sourceid'] : null,
+            'transferGroupId'    => $f['transfergroupid'] !== null ? (string) $f['transfergroupid'] : null,
+            'reconciled'         => (bool) $f['reconciled'],
+            'status'             => (int) $f['status'],
         ];
     }
 }

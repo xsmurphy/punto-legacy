@@ -44,11 +44,19 @@ export default function FinanzasLayout({ children }: { children: React.ReactNode
       </div>
 
       <Tabs value={activeTab}>
-        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto md:grid md:grid-cols-9 md:overflow-visible">
+        {/*
+          Flex, no grid: con 9 tabs + 1 Separator, un grid-cols-9 deja al
+          Separator como "child #7" y empuja el último tab (Configuración) a
+          una fila propia (10 children en 9 columnas). Flex absorbe el
+          Separator sin contarlo como columna — los 9 triggers (flex-1 por
+          default en TabsTrigger) se reparten el ancho en una sola fila en
+          md+, el Separator solo ocupa su ancho fijo.
+        */}
+        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto md:overflow-visible">
           {TABS.map((tab, i) => (
             <React.Fragment key={tab.href}>
               {i === GROUP_BREAK_INDEX && (
-                <Separator orientation="vertical" className="mx-1 h-5 self-center" />
+                <Separator orientation="vertical" className="mx-1 h-5 shrink-0 self-center" />
               )}
               <TabsTrigger value={tab.href} asChild className="shrink-0 md:shrink">
                 <Link href={tab.href}>{tab.label}</Link>

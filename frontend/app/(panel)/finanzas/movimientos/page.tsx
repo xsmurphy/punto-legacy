@@ -162,7 +162,7 @@ function FinanzasMovimientosPageInner() {
         meta: { label: "Descripción" },
       },
       {
-        accessorKey: "paymentMethod",
+        accessorKey: "paymentMethodName",
         header: "Medio de pago",
         cell: ({ getValue }) => {
           const v = getValue() as string | null

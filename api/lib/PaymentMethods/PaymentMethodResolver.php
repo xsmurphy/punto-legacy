@@ -95,6 +95,26 @@ final class PaymentMethodResolver
      * systemKey es estable e inmutable, el code es configurable por el
      * tenant, y el nombre es lo más volátil.
      */
+    /**
+     * Nombre para mostrar del método de pago — resuelve la clave (UUID o
+     * legacy: `efectivo`, `tcredito`…) al `taxonomyName` real del tenant.
+     * Usado por los listados de Finanzas para no exponer la clave cruda
+     * (UUID o slug) en la UI. `null` si no matchea ningún método.
+     */
+    public function resolveMethodName(string $companyId, string $key): ?string
+    {
+        $id = $this->resolveMethodId($companyId, $key);
+        if ($id === null) {
+            return null;
+        }
+        foreach ($this->methods($companyId) as $method) {
+            if ($method['id'] === $id) {
+                return $method['name'];
+            }
+        }
+        return null;
+    }
+
     public function resolveMethodId(string $companyId, string $key): ?string
     {
         $key = trim($key);
