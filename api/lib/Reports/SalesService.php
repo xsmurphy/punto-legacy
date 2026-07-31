@@ -175,18 +175,27 @@ final class SalesService
         ];
     }
 
-    /** Conteo de ventas por hora del día (tipos 0,3) — para el gráfico "Ventas por Hora". */
+    /**
+     * Conteo de ventas por hora del día (tipos 0,3) — para el gráfico "Ventas por Hora".
+     *
+     * La columna del bucket se alias`ea `bucket` como el resto de los datasets:
+     * `rows()` lee `$f['bucket']` y nada más. Con el alias viejo (`hour`) el
+     * campo no existía, `(int) null` daba 0 y las 24 horas colapsaban en la
+     * hora 0 — el gráfico mostraba todo el período apilado en "00h" y el resto
+     * en cero. Toda query nueva de este servicio nombra su bucket `bucket`.
+     */
     public function hours($from, $to, $roc): array
     {
-        $sql = 'SELECT EXTRACT(HOUR FROM transactionDate)::int AS hour,
-                    COUNT(transactionId)                   AS total,
-                    COALESCE(SUM(transactionUnitsSold), 0) AS units
+        $sql = 'SELECT EXTRACT(HOUR FROM transactionDate)::int AS bucket,
+                    COUNT(transactionId)                   AS count,
+                    COALESCE(SUM(transactionUnitsSold), 0) AS units,
+                    COALESCE(SUM(transactionTotal), 0)     AS total
                 FROM transaction
                 WHERE transactionType IN (0, 3)
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc . '
-                GROUP BY hour
-                ORDER BY hour ASC';
+                GROUP BY bucket
+                ORDER BY bucket ASC';
 
         return $this->rows($sql, [$from, $to], true);
     }

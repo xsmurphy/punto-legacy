@@ -74,7 +74,11 @@ interface ByDayRow {
 }
 
 interface HoursRow {
+  /** Hora del día 0-23 (mismo nombre de bucket que el resto de los datasets). */
   bucket: number
+  /** Cantidad de ventas en esa hora — lo que grafica "Ventas por Hora". */
+  count: number
+  /** Monto vendido en esa hora (hoy no se grafica). */
   total: number
   units?: number
 }
@@ -187,10 +191,10 @@ export default function SummaryReportPage() {
   // ── Ventas por hora ──────────────────────────────────────────────────────
   const hoursData = React.useMemo(() => {
     const map = new Map<number, number>()
-    for (const r of hours.data ?? []) map.set(Number(r.bucket), num(r.total))
+    for (const r of hours.data ?? []) map.set(Number(r.bucket), num(r.count))
     return Array.from({ length: 24 }, (_, h) => ({
       hour: String(h).padStart(2, "0") + "h",
-      total: map.get(h) ?? 0,
+      count: map.get(h) ?? 0,
     }))
   }, [hours.data])
 
@@ -604,14 +608,14 @@ function WeekdayChart({
 // ── Hours chart ────────────────────────────────────────────────────────────
 
 const hoursChartConfig = {
-  total: { label: "Ventas", color: "var(--chart-1)" },
+  count: { label: "Ventas", color: "var(--chart-1)" },
 } satisfies ChartConfig
 
 function HoursChart({
   data,
   isLoading,
 }: {
-  data: Array<{ hour: string; total: number }>
+  data: Array<{ hour: string; count: number }>
   isLoading: boolean
 }) {
   return (
@@ -646,8 +650,8 @@ function HoursChart({
               />
               <Line
                 type="monotone"
-                dataKey="total"
-                stroke="var(--color-total)"
+                dataKey="count"
+                stroke="var(--color-count)"
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}
