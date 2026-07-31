@@ -80,17 +80,6 @@ export default function SignupPage() {
     },
   })
 
-  // Predicado de "el error es del backend porque todavía no existe el
-  // endpoint o no levantó el server" vs "el error es un problema real".
-  // Para slice 1B avanzamos el flow cuando es lo primero, mostramos error
-  // cuando es lo segundo. En prod (con todos los endpoints portados) esto
-  // se simplifica a strict.
-  const isBackendUnavailable = (err: unknown): boolean => {
-    if (err instanceof ApiError) return err.status === 404 || err.status >= 500
-    // TypeError: Failed to fetch (network), AbortError, etc.
-    return err instanceof Error && err.name !== "ApiError"
-  }
-
   // ── Step 1: enviar OTP al teléfono ─────────────────────────────────────
   const submitStep1 = async () => {
     const ok = await form.trigger(["phone"])
@@ -105,14 +94,9 @@ export default function SignupPage() {
       toast.success("Código enviado por WhatsApp")
       setStep(2)
     } catch (err) {
-      if (isBackendUnavailable(err)) {
-        toast.warning("Modo dev: avanzando (backend /v1/signup/start pendiente)")
-        setStep(2)
-      } else {
-        toast.error("No se pudo enviar el código", {
-          description: err instanceof Error ? err.message : "Error desconocido",
-        })
-      }
+      toast.error("No se pudo enviar el código", {
+        description: err instanceof Error ? err.message : "Error desconocido",
+      })
     } finally {
       setSubmitting(false)
     }
@@ -132,9 +116,6 @@ export default function SignupPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         form.setError("otp", { message: "Código inválido o expirado" })
-      } else if (isBackendUnavailable(err)) {
-        toast.warning("Modo dev: avanzando (backend /v1/signup/verify pendiente)")
-        setStep(3)
       } else {
         toast.error("No se pudo verificar el código")
       }
@@ -168,13 +149,9 @@ export default function SignupPage() {
       toast.success("¡Empresa creada! Iniciando sesión…")
       router.push("/")
     } catch (err) {
-      if (isBackendUnavailable(err)) {
-        toast.warning("Modo dev: registro simulado (backend /v1/signup pendiente)")
-      } else {
-        toast.error("No se pudo crear la empresa", {
-          description: err instanceof Error ? err.message : "Error desconocido",
-        })
-      }
+      toast.error("No se pudo crear la empresa", {
+        description: err instanceof Error ? err.message : "Error desconocido",
+      })
     } finally {
       setSubmitting(false)
     }

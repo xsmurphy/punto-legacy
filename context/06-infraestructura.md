@@ -72,6 +72,7 @@ Archivo: `.env` (no commiteado). Template: `.env.example`
 | `HASHIDS_SALT` | Salt legacy (todavía referenciado) | (random) |
 | `APP_ENV` | Entorno | `local` / `production` |
 | `APP_DEBUG` | Debug mode | `true` / `false` |
+| `SIGNUP_OTP` | Modo de verificación OTP del signup (`api/lib/Auth/SignupOtp.php`). Default `off` si no está seteada: el registro funciona sin validar el código real (rearmado post-limpieza de `2fapin.php`/`phonevalidator.php`, mig 106 `signup_otp`). Setear `on` + `EVOLUTION_API_URL`/`EVOLUTION_INSTANCE`/`EVOLUTION_API_KEY` para activar el envío/validación real por WhatsApp. | `off` / `on` |
 
 **Nota — modelo "device pairing" de /app (actualizado 2026-06-09):**
 El `JWT_TTL=0` (token eterno sin `exp`) es el valor recomendado para producción POS. El JWT de /app NO es una sesión de usuario — es un *device pairing*: el admin activa la caja una sola vez con user+password (cookie `_jwt`) y queda permanentemente asociada a esa empresa/outlet. Los cajeros no tocan ese JWT; entran y salen con un PIN de 4 dígitos (mecanismo separado: `ncmAuth.activeUser` + `lockPad` en el front).
@@ -88,6 +89,7 @@ Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el 
 
 | Variable | Servicio |
 |----------|----------|
+| `EVOLUTION_API_URL` + `EVOLUTION_INSTANCE` + `EVOLUTION_API_KEY` | WhatsApp via Evolution API — usado por `SIGNUP_OTP=on` (`api/v1/signup/start.php`) |
 | `TWILIO_SID` + `TWILIO_AUTH_TOKEN` | SMS via Twilio |
 | `SENDGRID_API_KEY` | Email via SendGrid (API key) |
 | `SENDGRID_SMTP_USER` + `SENDGRID_SMTP_PASS` | Email via SendGrid SMTP (`Notification::sendSMTP`). Definidos en `app/` y `panel/includes/simple.config.php`. (agregado commit e51d5e7, 2026-06-05) |

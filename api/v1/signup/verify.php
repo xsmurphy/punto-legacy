@@ -6,10 +6,16 @@
  *       → { ok: true, data: { phone } }
  *       → 401 { error: 'invalid' } si el código no matchea
  *
- * Endpoint PÚBLICO. Port FIEL de panel/API/check_verification.php.
+ * Endpoint PÚBLICO. El chequeo real pasa por SignupOtp::check() (única
+ * fuente de verdad, ver api/lib/Auth/SignupOtp.php) — en modo 'off'
+ * siempre válido, en modo 'on' valida contra el hash guardado en
+ * `signup_otp`. `APP_DEBUG=true` sigue aceptando el código fijo '0000'
+ * como antes, en cualquier modo.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
+
+use Punto\Api\Auth\SignupOtp;
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
@@ -31,7 +37,6 @@ if ($phone === '' || $code === '') {
 }
 
 $isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
-
 if ($isDebug) {
     if ($code === '0000') {
         apiOk(['phone' => $phone]);
@@ -39,16 +44,7 @@ if ($isDebug) {
     apiError('Código inválido o expirado', 401);
 }
 
-$apiUrl = defined('API_URL') ? rtrim(API_URL, '/') : '';
-if ($apiUrl === '') {
-    apiError('API_URL no configurada', 500);
-}
-
-$pinResponse = json_decode((string) getFileContent(
-    $apiUrl . '/2fapin.php?phone=' . rawurlencode($phone)
-), true);
-
-if (!is_array($pinResponse) || ((string) ($pinResponse['code'] ?? '')) !== $code) {
+if (!SignupOtp::check($phone, $code)) {
     apiError('Código inválido o expirado', 401);
 }
 

@@ -55,6 +55,12 @@ define('TWILIO_AUTH_TOKEN',                $_ENV['TWILIO_AUTH_TOKEN']           
 define('SENDGRID_API_KEY',                 $_ENV['SENDGRID_API_KEY']                 ?? '');
 define('INFOBIP_PHONE',                    $_ENV['INFOBIP_PHONE']                    ?? '29000');
 define('INFOBIP_AUTH',                     $_ENV['INFOBIP_AUTH']                     ?? '');
+// Evolution API (WhatsApp) — usada por api/v1/signup/start.php para enviar
+// el OTP cuando SIGNUP_OTP=on. Sin definir acá, `defined('EVOLUTION_API_URL')`
+// es siempre false aunque la env esté seteada (bug preexistente).
+define('EVOLUTION_API_URL',                $_ENV['EVOLUTION_API_URL']                ?? '');
+define('EVOLUTION_INSTANCE',               $_ENV['EVOLUTION_INSTANCE']               ?? '');
+define('EVOLUTION_API_KEY',                $_ENV['EVOLUTION_API_KEY']                ?? '');
 define('PDF_API_KEY',                      $_ENV['PDF_API_KEY']                      ?? '');
 define('API_LAYER_KEY',                    $_ENV['API_LAYER_KEY']                    ?? '');
 define('INCOME_COMPANY_ID', 15);

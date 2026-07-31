@@ -5,11 +5,24 @@
  *   POST /v1/signup/start { phone: "...", country: "PY" }
  *       → { ok: true, data: { phone: "+595...", code?: "0000" (solo debug) } }
  *
- * Endpoint PÚBLICO. Port FIEL de panel/API/send_verification.php.
- * Cambios: POST con JSON en vez de GET con query, envelope canónico.
+ * Endpoint PÚBLICO.
+ *
+ * Modo de OTP (env `SIGNUP_OTP`, ver api/lib/Auth/SignupOtp.php):
+ *   - 'off' (default): no se genera ni envía código real — el registro
+ *     funciona sin OTP verdadero mientras Evolution no esté configurada.
+ *   - 'on': genera código real (SignupOtp::issue) y lo envía por WhatsApp
+ *     vía Evolution API.
+ * `APP_DEBUG=true` sigue devolviendo el código fijo '0000' en la respuesta
+ * para autocompletar en dev, en CUALQUIER modo.
+ *
+ * La validación de teléfono usa `phoneToE164` para todos los modos — los
+ * scripts legacy `phonevalidator.php`/`2fapin.php` fueron borrados en la
+ * limpieza 2026-06-29 y ya no existen.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
+
+use Punto\Api\Auth\SignupOtp;
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
@@ -30,50 +43,29 @@ if ($phone === '') {
     apiError('phone requerido', 400);
 }
 
-$isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+$e164 = phoneToE164($phone, $country);
+if ($e164 === null) {
+    apiError('Número de teléfono inválido', 400);
+}
 
+$isDebug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
 if ($isDebug) {
-    // En debug evitamos self-HTTP y devolvemos código fijo '0000' para
-    // que el front pueda autocompletar (matchea check_verification.php).
-    $e164 = phoneToE164($phone, $country);
-    if ($e164 === null) {
-        apiError('Número de teléfono inválido', 400);
-    }
+    // En debug evitamos el envío real y devolvemos código fijo '0000' para
+    // que el front pueda autocompletar (matchea la rama debug de verify.php).
     apiOk(['phone' => $e164, 'code' => '0000']);
 }
 
-// PROD: validar via /phonevalidator.php + generar code via /2fapin.php + enviar
-// por WhatsApp via Evolution API. URLs absolutas a la API URL (configurada en env).
-$apiUrl = defined('API_URL') ? rtrim(API_URL, '/') : '';
-if ($apiUrl === '') {
-    apiError('API_URL no configurada', 500);
+if (SignupOtp::mode() === 'off') {
+    // Registro funcionando sin validación real de OTP (decisión del owner,
+    // reactivable con SIGNUP_OTP=on + Evolution). No se genera ni envía nada.
+    apiOk(['phone' => $e164]);
 }
 
-$valid = json_decode((string) getFileContent(
-    $apiUrl . '/phonevalidator.php?phone=' . rawurlencode($phone)
-    . '&country=' . rawurlencode($country) . '&format=international'
-), true);
-
-if (!is_array($valid) || !empty($valid['error']) || empty($valid['phone'])) {
-    apiError('Número de teléfono inválido', 400);
-}
-if (isset($valid['type']) && (int) $valid['type'] < 1) {
-    apiError('El número no es un celular válido', 400);
-}
-
-$formattedPhone = (string) $valid['phone'];
-
-$pinResponse = json_decode((string) getFileContent(
-    $apiUrl . '/2fapin.php?new=1&phone=' . rawurlencode($formattedPhone)
-), true);
-if (!is_array($pinResponse) || !empty($pinResponse['error'])) {
-    apiError('No se pudo generar el código', 500);
-}
-$code = (string) ($pinResponse['code'] ?? '');
+$code = SignupOtp::issue($e164);
 
 $msg     = '[' . (defined('APP_NAME') ? APP_NAME : 'Punto') . '] '
          . $code . ' es tu código de verificación. Válido por 4 minutos.';
-$phoneE  = ltrim($formattedPhone, '+');
+$phoneE  = ltrim($e164, '+');
 $payload = json_encode(['number' => $phoneE, 'text' => $msg]);
 
 $evolutionUrl  = defined('EVOLUTION_API_URL') ? rtrim(EVOLUTION_API_URL, '/') : '';
@@ -96,6 +88,6 @@ $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
 if ($httpCode >= 200 && $httpCode < 300) {
-    apiOk(['phone' => $formattedPhone]);
+    apiOk(['phone' => $e164]);
 }
 apiError('No se pudo enviar el código. Verificá el número e intentá de nuevo.', 500);

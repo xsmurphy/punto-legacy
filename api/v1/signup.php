@@ -21,6 +21,8 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
+use Punto\Api\Auth\SignupOtp;
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
 }
@@ -56,14 +58,8 @@ if ($isDebug) {
     if ($code !== '0000') {
         apiError('Código inválido o expirado', 401);
     }
-} else {
-    $apiUrl = defined('API_URL') ? rtrim(API_URL, '/') : '';
-    $pinResponse = json_decode((string) getFileContent(
-        $apiUrl . '/2fapin.php?phone=' . rawurlencode($phone)
-    ), true);
-    if (!is_array($pinResponse) || ((string) ($pinResponse['code'] ?? '')) !== $code) {
-        apiError('Código inválido o expirado', 401);
-    }
+} elseif (!SignupOtp::check($phone, $code)) {
+    apiError('Código inválido o expirado', 401);
 }
 
 $result = \Punto\Api\Auth\SignupService::create([
