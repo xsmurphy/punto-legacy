@@ -28,7 +28,7 @@ import {
   YAxis,
 } from "recharts"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -48,6 +48,13 @@ import {
 } from "@/components/ui/chart"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { usePermission } from "@/hooks/use-permissions"
+import { useFinanceSummary } from "@/hooks/use-finance-summary"
+import {
+  useFinanceForecast,
+  type ForecastRow,
+  type ForecastRowType,
+} from "@/hooks/use-finance-forecast"
 import {
   DateRangePicker,
   rangeToBackend,
@@ -68,6 +75,7 @@ import {
   type TopTaxonomyRow,
 } from "@/hooks/use-dashboard-widget"
 import { formatInt, formatMoney } from "@/lib/format"
+import { formatDate } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
 
 /**
@@ -89,7 +97,8 @@ export default function DashboardPage() {
   const topItems = useDashboardWidget<TopItemRow[]>("topItems", opts)
   const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", opts)
   const topHours = useDashboardWidget<TopHoursWidget>("topHours", opts)
-  const satisfaction = useDashboardWidget<SatisfactionWidget>("satisfaction", opts)
+  // NPS oculto (ver comentario en <aside>) — fetch de "satisfaction" removido:
+  // quedaría huérfano sin SatisfactionCard montado.
 
   // "Negocio sin actividad" = cero transacciones (el dashboard es de ventas).
   // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
@@ -244,10 +253,11 @@ export default function DashboardPage() {
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
-          <SatisfactionCard
-            data={satisfaction.data}
-            isLoading={satisfaction.isLoading}
-          />
+          <FinanceCard />
+          {/* NPS oculto a pedido del owner — el módulo de satisfacción de
+              clientes todavía no está desarrollado. Componente y helpers
+              (SatisfactionCard, NpsTooltipRow) quedan dormidos: la feature
+              vuelve más adelante. */}
           <CustomersCard
             data={customers.data}
             rates={customersRates.data}
@@ -512,6 +522,120 @@ function compactNumber(v: number): string {
   if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
   if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}k`
   return String(Math.round(v))
+}
+
+// ── Finanzas ──────────────────────────────────────────────────────────────
+
+const FORECAST_TYPE_LABELS: Record<ForecastRowType, string> = {
+  check: "Cheque",
+  loan_installment: "Cuota",
+  purchase: "Factura",
+}
+
+function isForecastOverdue(dueDate: string): boolean {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return new Date(dueDate).getTime() < today.getTime()
+}
+
+function addDaysISO(base: Date, days: number): string {
+  const d = new Date(base.getTime() + days * 24 * 60 * 60 * 1000)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+/**
+ * Card de Finanzas en el dashboard — mismo gate que el link "Finanzas" del
+ * sidebar nav (permiso `finance.manage`). Sin placeholder: si el usuario no
+ * tiene el permiso, la card no se monta (ni dispara sus fetches).
+ */
+function FinanceCard() {
+  const canManageFinance = usePermission("finance.manage")
+  const { data: bootstrap } = useBootstrap()
+
+  const forecastRange = React.useMemo(() => ({ to: addDaysISO(new Date(), 7) }), [])
+
+  const summary = useFinanceSummary(undefined, { enabled: canManageFinance })
+  const forecast = useFinanceForecast(forecastRange, { enabled: canManageFinance })
+
+  if (!canManageFinance) return null
+
+  const obligations = [...(forecast.data?.obligations ?? [])].sort((a, b) => {
+    const overdueA = isForecastOverdue(a.dueDate)
+    const overdueB = isForecastOverdue(b.dueDate)
+    if (overdueA !== overdueB) return overdueA ? -1 : 1
+    return a.dueDate.localeCompare(b.dueDate)
+  })
+  const top3 = obligations.slice(0, 3)
+  const totalToPay = obligations.reduce((s, r) => s + r.amount, 0)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">Finanzas</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Saldo disponible
+          </span>
+          {summary.isLoading ? (
+            <Skeleton className="h-7 w-28" />
+          ) : (
+            <span className="text-xl font-semibold tabular-nums">
+              {formatMoney(summary.data?.totalBalance ?? 0, bootstrap)}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span>Próximos 7 días</span>
+            {!forecast.isLoading && (
+              <span className="text-xs font-medium normal-case tabular-nums text-foreground">
+                {formatMoney(totalToPay, bootstrap)}
+              </span>
+            )}
+          </div>
+          {forecast.isLoading ? (
+            <div className="flex flex-col gap-1.5">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ) : top3.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Sin vencimientos próximos.</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {top3.map((row) => {
+                const overdue = isForecastOverdue(row.dueDate)
+                return (
+                  <div
+                    key={`${row.type}-${row.id}`}
+                    className="flex items-center justify-between gap-2 text-xs"
+                  >
+                    <span className={cn("truncate", overdue && "font-medium text-destructive")}>
+                      {FORECAST_TYPE_LABELS[row.type]} · {formatDate(row.dueDate)}
+                    </span>
+                    <span className={cn("shrink-0 tabular-nums", overdue && "font-medium text-destructive")}>
+                      {formatMoney(row.amount, bootstrap)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </CardContent>
+      <CardFooter className="border-t">
+        <Link
+          href="/finanzas/prevision"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Ver previsión <ChevronRight className="size-3.5" />
+        </Link>
+      </CardFooter>
+    </Card>
+  )
 }
 
 // ── Satisfacción (NPS) — sin caritas, solo dots + número ──────────────────

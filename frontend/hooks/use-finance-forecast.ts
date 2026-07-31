@@ -31,7 +31,10 @@ export interface FinanceForecastFilters {
 }
 
 /** Previsión (F3, context/30) — lista de vencimientos futuros, solo lectura. */
-export function useFinanceForecast(filters: FinanceForecastFilters = {}) {
+export function useFinanceForecast(
+  filters: FinanceForecastFilters = {},
+  opts?: { enabled?: boolean },
+) {
   const qs = new URLSearchParams()
   if (filters.from) qs.set("from", filters.from)
   if (filters.to) qs.set("to", filters.to)
@@ -40,5 +43,6 @@ export function useFinanceForecast(filters: FinanceForecastFilters = {}) {
     queryKey: ["finance", "forecast", filters],
     queryFn: () => api.get<FinanceForecastResponse>(`/v1/finance/forecast${query ? "?" + query : ""}`),
     staleTime: 15_000,
+    enabled: opts?.enabled ?? true,
   })
 }
