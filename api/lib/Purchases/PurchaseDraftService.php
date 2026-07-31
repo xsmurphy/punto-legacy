@@ -389,7 +389,7 @@ final class PurchaseDraftService
         return $match ? 'Ya existe una compra registrada con esta factura y este proveedor.' : null;
     }
 
-    private function presentSummary(array $f): array
+    private function presentSummary(array|\CaseInsensitiveArray $f): array
     {
         $extracted = $this->decodeJsonb($f['extracted_raw'] ?? null) ?? [];
         return [
@@ -406,7 +406,7 @@ final class PurchaseDraftService
         ];
     }
 
-    private function present(array $row): array
+    private function present(array|\CaseInsensitiveArray $row): array
     {
         return [
             'id'            => (string) $row['draftid'],
