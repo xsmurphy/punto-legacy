@@ -14,6 +14,8 @@ export interface FinanceMovement {
   date: string
   description: string | null
   paymentMethod: string | null
+  /** Nombre para mostrar del medio de pago — el backend ya resuelve UUID/slug legacy. */
+  paymentMethodName: string | null
   source: string
   sourceId: string | null
   transferGroupId: string | null

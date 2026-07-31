@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Finance;
 
+use Punto\Api\Support\TenantClock;
+
 /**
  * Créditos básicos (F2, context/30-cheques-prevision-creditos.md — plan
  * cerrado 2026-07-30). Alcance v1: total / cuotas iguales / primera fecha,
@@ -257,7 +259,7 @@ final class LoanService
             'accountId'   => $accountId,
             'kind'        => 'expense',
             'amount'      => (float) $installment['amount'],
-            'date'        => date('Y-m-d H:i:s'),
+            'date'        => TenantClock::now($companyId),
             'description' => "Cuota {$installment['seq']} — {$loanName}",
             'userId'      => $userId,
             'outletId'    => $outletId,
@@ -265,7 +267,7 @@ final class LoanService
 
         ncmExecute(
             'UPDATE fin_loan_installment SET status = ?, paiddate = ?, movementid = ? WHERE installmentid = ? AND companyid = ?',
-            ['paid', date('Y-m-d H:i:s'), $result['movementId'], $installmentId, $companyId]
+            ['paid', TenantClock::now($companyId), $result['movementId'], $installmentId, $companyId]
         );
 
         $this->syncLoanStatus($loanId, $companyId);

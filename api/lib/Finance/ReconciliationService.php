@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Finance;
 
+use Punto\Api\Support\TenantClock;
+
 /**
  * Sesiones de conciliación bancaria (`fin_reconciliation`) — comparar el
  * saldo del extracto bancario contra los movimientos de una cuenta,
@@ -150,7 +152,7 @@ final class ReconciliationService
             'records' => [
                 'companyid'        => $companyId,
                 'accountid'        => $accountId,
-                'statementdate'    => $this->normalizeDate($statementDate),
+                'statementdate'    => $this->normalizeDate($statementDate, $companyId),
                 'statementbalance' => $statementBalance,
                 'status'           => 'open',
                 'userid'           => $userId,
@@ -200,7 +202,7 @@ final class ReconciliationService
         if ($reconciled) {
             ncmExecute(
                 'UPDATE fin_movement SET reconciled = true, reconciliationid = ?, reconciled_at = ? WHERE movementid = ? AND companyid = ?',
-                [$sessionId, date('Y-m-d H:i:s'), $movementId, $companyId]
+                [$sessionId, TenantClock::now($companyId), $movementId, $companyId]
             );
         } else {
             ncmExecute(
@@ -255,13 +257,13 @@ final class ReconciliationService
                     'categoryid'       => $categoryId,
                     'kind'             => $kind,
                     'amount'           => $amount,
-                    'date'             => date('Y-m-d H:i:s'),
+                    'date'             => TenantClock::now($companyId),
                     'description'      => 'Ajuste de conciliación bancaria',
                     'source'           => 'adjustment',
                     'sourceid'         => $sessionId,
                     'reconciliationid' => $sessionId,
                     'reconciled'       => true,
-                    'reconciled_at'    => date('Y-m-d H:i:s'),
+                    'reconciled_at'    => TenantClock::now($companyId),
                     'userid'           => $userId,
                     'status'           => 1,
                 ],
@@ -282,7 +284,7 @@ final class ReconciliationService
 
         ncmExecute(
             "UPDATE fin_reconciliation SET status = 'closed', closed_at = ? WHERE reconciliationid = ? AND companyid = ?",
-            [date('Y-m-d H:i:s'), $sessionId, $companyId]
+            [TenantClock::now($companyId), $sessionId, $companyId]
         );
 
         $failed = $db->HasFailedTrans();
@@ -327,7 +329,7 @@ final class ReconciliationService
         );
         ncmExecute(
             "UPDATE fin_reconciliation SET status = 'closed', closed_at = ?, data = data || '{\"cancelled\":true}'::jsonb WHERE reconciliationid = ? AND companyid = ?",
-            [date('Y-m-d H:i:s'), $sessionId, $companyId]
+            [TenantClock::now($companyId), $sessionId, $companyId]
         );
 
         $failed = $db->HasFailedTrans();
@@ -359,11 +361,11 @@ final class ReconciliationService
         return ($val !== '' && preg_match(self::UUID_RE, $val)) ? $val : null;
     }
 
-    private function normalizeDate(?string $val): string
+    private function normalizeDate(?string $val, string $companyId): string
     {
         $val = $val !== null ? trim($val) : '';
         if ($val === '') {
-            return date('Y-m-d H:i:s');
+            return TenantClock::now($companyId);
         }
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)) {
             return $val . ' 00:00:00';

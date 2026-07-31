@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Finance;
 
+use Punto\Api\Support\TenantClock;
+
 /**
  * CRUD de cheques de Finanzas (`fin_check`) — emitidos ('issued') o recibidos
  * ('received'). Al pasar a un estado "efectivizado" genera un fin_movement
@@ -125,8 +127,8 @@ final class CheckService
                 'bankname'    => (string) ($data['bankName'] ?? '') ?: null,
                 'checknumber' => (string) ($data['checkNumber'] ?? '') ?: null,
                 'amount'      => $amount,
-                'issuedate'   => $this->normalizeDate($data['issueDate'] ?? null),
-                'duedate'     => !empty($data['dueDate']) ? $this->normalizeDate($data['dueDate']) : null,
+                'issuedate'   => $this->normalizeDate($data['issueDate'] ?? null, $companyId),
+                'duedate'     => !empty($data['dueDate']) ? $this->normalizeDate($data['dueDate'], $companyId) : null,
                 'contactid'   => $contactId,
                 'partyname'   => (string) ($data['partyName'] ?? '') ?: null,
                 'categoryid'  => $categoryId,
@@ -203,8 +205,8 @@ final class CheckService
                 'bankname'      => $bankName,
                 'checknumber'   => $checkNumber,
                 'amount'        => $amount,
-                'issuedate'     => date('Y-m-d H:i:s'),
-                'duedate'       => $dueDateRaw !== '' ? $this->normalizeDate($dueDateRaw) : null,
+                'issuedate'     => TenantClock::now($companyId),
+                'duedate'       => $dueDateRaw !== '' ? $this->normalizeDate($dueDateRaw, $companyId) : null,
                 'contactid'     => $contactId,
                 'partyname'     => $partyName !== null && $partyName !== '' ? $partyName : null,
                 'categoryid'    => null,
@@ -272,10 +274,10 @@ final class CheckService
             $records['checknumber'] = (string) $data['checkNumber'] ?: null;
         }
         if (array_key_exists('issueDate', $data)) {
-            $records['issuedate'] = $this->normalizeDate($data['issueDate']);
+            $records['issuedate'] = $this->normalizeDate($data['issueDate'], $companyId);
         }
         if (array_key_exists('dueDate', $data)) {
-            $records['duedate'] = !empty($data['dueDate']) ? $this->normalizeDate($data['dueDate']) : null;
+            $records['duedate'] = !empty($data['dueDate']) ? $this->normalizeDate($data['dueDate'], $companyId) : null;
         }
         if (array_key_exists('description', $data)) {
             $records['description'] = (string) $data['description'] ?: null;
@@ -330,7 +332,7 @@ final class CheckService
             $this->ensureMovement($id, $companyId, $check, $userId, $outletId);
             ncmExecute(
                 'UPDATE fin_check SET status = ?, cleareddate = ? WHERE checkid = ? AND companyid = ?',
-                [$newStatus, date('Y-m-d H:i:s'), $id, $companyId]
+                [$newStatus, TenantClock::now($companyId), $id, $companyId]
             );
         } elseif ($wasCleared && !$willClear) {
             $this->voidMovementIfExists($id, $companyId);
@@ -396,7 +398,7 @@ final class CheckService
              RETURNING movementid',
             [
                 $companyId, $check['accountId'], $check['categoryId'], $kind, $check['amount'],
-                date('Y-m-d H:i:s'), $description, self::SOURCE, $checkId, $checkId, $userId, $outletId,
+                TenantClock::now($companyId), $description, self::SOURCE, $checkId, $checkId, $userId, $outletId,
             ]
         );
 
@@ -442,11 +444,11 @@ final class CheckService
         return ($val !== '' && preg_match(self::UUID_RE, $val)) ? $val : null;
     }
 
-    private function normalizeDate(?string $val): string
+    private function normalizeDate(?string $val, string $companyId): string
     {
         $val = $val !== null ? trim($val) : '';
         if ($val === '') {
-            return date('Y-m-d H:i:s');
+            return TenantClock::now($companyId);
         }
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)) {
             return $val . ' 00:00:00';
