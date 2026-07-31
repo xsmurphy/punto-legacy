@@ -23,6 +23,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type GiftCardRow, type GiftcardsReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 type GiftCardStatus = "expired" | "soon" | "used" | "active"
 
@@ -183,16 +184,16 @@ export default function GiftcardsReportPage() {
       )}
 
       {!isLoading && rows.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <KpiCard label="Vencidas" value={kpi.expired.toLocaleString()} />
-          <KpiCard label="Por vencer" value={kpi.soon.toLocaleString()} />
-          <KpiCard label="Canjeadas" value={kpi.used.toLocaleString()} />
-          <KpiCard
+        <StatsRow>
+          <StatTile label="Vencidas" value={kpi.expired.toLocaleString()} />
+          <StatTile label="Por vencer" value={kpi.soon.toLocaleString()} />
+          <StatTile label="Canjeadas" value={kpi.used.toLocaleString()} />
+          <StatTile
             label={`${kpi.active} vigentes — saldo`}
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(kpi.activeValue, bootstrap)}`}
+            value={formatMoney(kpi.activeValue, bootstrap)}
             emphasis
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -212,17 +213,6 @@ export default function GiftcardsReportPage() {
           />
         }
       />
-    </div>
-  )
-}
-
-function KpiCard({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className={emphasis ? "mt-1 text-lg font-semibold tabular-nums" : "mt-1 text-2xl font-bold tabular-nums"}>
-        {value}
-      </p>
     </div>
   )
 }

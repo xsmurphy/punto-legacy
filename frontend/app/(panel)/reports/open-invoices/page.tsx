@@ -30,6 +30,7 @@ import {
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 type State = "income" | "outcome"
 
@@ -193,30 +194,29 @@ export default function OpenInvoicesReportPage() {
       {/* KPI strip — espejo del legacy. Total adeudado destacado, # cuentas,
           vencidas y por vencer con sus íconos respectivos. */}
       {!isLoading && kpi && rows.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 border-y py-3 text-sm sm:grid-cols-4">
-          <KpiStat
+        <StatsRow>
+          <StatTile
             icon={<Wallet className="size-3.5 text-muted-foreground" />}
             label={isOutcome ? "Total a pagar" : "Total a cobrar"}
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(kpi.totalDebt, bootstrap)}`}
+            value={formatMoney(kpi.totalDebt, bootstrap)}
             emphasis
           />
-          <KpiStat
-            icon={null}
+          <StatTile
             label={subjectPlural}
             value={kpi.accounts.toString()}
           />
-          <KpiStat
+          <StatTile
             icon={<AlertTriangle className="size-3.5 text-destructive" />}
             label="Vencidas"
             value={kpi.expired.toString()}
-            tone="destructive"
+            tone="negative"
           />
-          <KpiStat
+          <StatTile
             icon={<Clock className="size-3.5 text-amber-500" />}
             label="Por vencer (7 días)"
             value={kpi.toExpire.toString()}
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -245,41 +245,6 @@ export default function OpenInvoicesReportPage() {
   )
 }
 
-function KpiStat({
-  icon,
-  label,
-  value,
-  emphasis,
-  tone,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  emphasis?: boolean
-  tone?: "destructive"
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {icon}
-        {label}
-      </span>
-      <span
-        className={
-          emphasis
-            ? tone === "destructive"
-              ? "text-base font-semibold tabular-nums text-destructive"
-              : "text-base font-semibold tabular-nums"
-            : tone === "destructive"
-              ? "text-sm font-medium tabular-nums text-destructive"
-              : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
 
 function BackLink() {
   return (

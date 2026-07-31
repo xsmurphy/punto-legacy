@@ -38,6 +38,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type SummaryYearResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -83,8 +84,6 @@ export default function SummaryYearPage() {
     [months],
   )
 
-  const currency = bootstrap?.currency ?? ""
-
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -120,33 +119,31 @@ export default function SummaryYearPage() {
       )}
 
       {/* KPI cards */}
-      {isLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-lg" />
-          ))}
-        </div>
-      ) : months.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <KpiCard
+      {(isLoading || months.length > 0) && (
+        <StatsRow>
+          <StatTile
             label="Ventas brutas"
-            value={`${currency} ${formatMoney(annualTotals.sales, bootstrap)}`}
+            value={formatMoney(annualTotals.sales, bootstrap)}
+            isLoading={isLoading}
           />
-          <KpiCard
+          <StatTile
             label="Devoluciones"
-            value={`${currency} ${formatMoney(annualTotals.returns, bootstrap)}`}
+            value={formatMoney(annualTotals.returns, bootstrap)}
+            isLoading={isLoading}
           />
-          <KpiCard
+          <StatTile
             label="Egresos"
-            value={`${currency} ${formatMoney(annualTotals.expenses, bootstrap)}`}
+            value={formatMoney(annualTotals.expenses, bootstrap)}
+            isLoading={isLoading}
           />
-          <KpiCard
+          <StatTile
             label="Ventas netas"
-            value={`${currency} ${formatMoney(annualTotals.net, bootstrap)}`}
+            value={formatMoney(annualTotals.net, bootstrap)}
             emphasis
+            isLoading={isLoading}
           />
-        </div>
-      ) : null}
+        </StatsRow>
+      )}
 
       {/* Chart */}
       {!isLoading && chartData.length > 0 && (
@@ -177,7 +174,7 @@ export default function SummaryYearPage() {
                 }}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
               formatter={(value: any, name: any) => [
-                  `${currency} ${formatMoney(Number(value) || 0, bootstrap)}`,
+                  formatMoney(Number(value) || 0, bootstrap),
                   String(name),
                 ]}
               />
@@ -219,13 +216,13 @@ export default function SummaryYearPage() {
                 <tr key={m.month} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-2 font-medium">{MONTH_NAMES[m.month - 1]}</td>
                   <td className="px-4 py-2 text-right tabular-nums">
-                    {currency} {formatMoney(m.salesTotal, bootstrap)}
+                    {formatMoney(m.salesTotal, bootstrap)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
-                    {currency} {formatMoney(m.returnsTotal, bootstrap)}
+                    {formatMoney(m.returnsTotal, bootstrap)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
-                    {currency} {formatMoney(m.expensesTotal, bootstrap)}
+                    {formatMoney(m.expensesTotal, bootstrap)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
                     {m.count.toLocaleString()}
@@ -238,13 +235,13 @@ export default function SummaryYearPage() {
               <tr className="border-t bg-muted/20 font-semibold">
                 <td className="px-4 py-2">Total</td>
                 <td className="px-4 py-2 text-right tabular-nums">
-                  {currency} {formatMoney(annualTotals.sales, bootstrap)}
+                  {formatMoney(annualTotals.sales, bootstrap)}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">
-                  {currency} {formatMoney(annualTotals.returns, bootstrap)}
+                  {formatMoney(annualTotals.returns, bootstrap)}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">
-                  {currency} {formatMoney(annualTotals.expenses, bootstrap)}
+                  {formatMoney(annualTotals.expenses, bootstrap)}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">
                   {annualTotals.count.toLocaleString()}
@@ -257,31 +254,6 @@ export default function SummaryYearPage() {
           </table>
         </div>
       )}
-    </div>
-  )
-}
-
-function KpiCard({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p
-        className={
-          emphasis
-            ? "mt-1 text-lg font-semibold tabular-nums"
-            : "mt-1 text-base font-medium tabular-nums"
-        }
-      >
-        {value}
-      </p>
     </div>
   )
 }

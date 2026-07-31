@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type StockRow, type StockReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function StockReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -152,15 +153,15 @@ export default function StockReportPage() {
       )}
 
       {!isLoading && !needsOutlet && rows.length > 0 && (
-        <div className="flex flex-wrap gap-6 border-y py-3 text-sm">
-          <Stat label="Productos" value={rows.length.toLocaleString()} />
-          <Stat label="Unidades en stock" value={totals.onHand.toLocaleString()} />
-          <Stat
+        <StatsRow>
+          <StatTile label="Productos" value={rows.length.toLocaleString()} />
+          <StatTile label="Unidades en stock" value={totals.onHand.toLocaleString()} />
+          <StatTile
             label="Valor al costo"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.cogs, bootstrap)}`}
+            value={formatMoney(totals.cogs, bootstrap)}
             emphasis
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -179,31 +180,6 @@ export default function StockReportPage() {
           />
         }
       />
-    </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
     </div>
   )
 }

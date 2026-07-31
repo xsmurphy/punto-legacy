@@ -26,6 +26,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type CashflowResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 interface FlowLine {
   label: string
@@ -40,7 +41,6 @@ export default function CashflowReportPage() {
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const { data, isLoading, error } = useReport<CashflowResponse>("cashflow", opts)
-  const currency = bootstrap?.currency ?? ""
 
   const lines = React.useMemo<FlowLine[]>(() => {
     if (!data) return []
@@ -84,20 +84,14 @@ export default function CashflowReportPage() {
       )}
 
       {/* KPI cards */}
-      {isLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-lg" />
-          ))}
-        </div>
-      ) : hasData ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <KpiCard label="Saldo Inicial" value={`${currency} ${formatMoney(data.initialCash, bootstrap)}`} />
-          <KpiCard label="Ingresos" value={`${currency} ${formatMoney(data.incomeTotal, bootstrap)}`} />
-          <KpiCard label="Egresos" value={`${currency} ${formatMoney(data.outcomeTotal, bootstrap)}`} />
-          <KpiCard label="Saldo Final" value={`${currency} ${formatMoney(data.accumulated, bootstrap)}`} emphasis />
-        </div>
-      ) : null}
+      {(isLoading || hasData) && (
+        <StatsRow>
+          <StatTile label="Saldo Inicial" value={data ? formatMoney(data.initialCash, bootstrap) : ""} isLoading={isLoading} />
+          <StatTile label="Ingresos" value={data ? formatMoney(data.incomeTotal, bootstrap) : ""} isLoading={isLoading} />
+          <StatTile label="Egresos" value={data ? formatMoney(data.outcomeTotal, bootstrap) : ""} isLoading={isLoading} />
+          <StatTile label="Saldo Final" value={data ? formatMoney(data.accumulated, bootstrap) : ""} emphasis isLoading={isLoading} />
+        </StatsRow>
+      )}
 
       {/* Breakdown table */}
       {isLoading ? (
@@ -135,7 +129,7 @@ export default function CashflowReportPage() {
                     {line.label}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
-                    {currency} {formatMoney(line.value, bootstrap)}
+                    {formatMoney(line.value, bootstrap)}
                   </td>
                 </tr>
               ))}
@@ -143,31 +137,6 @@ export default function CashflowReportPage() {
           </table>
         </div>
       )}
-    </div>
-  )
-}
-
-function KpiCard({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p
-        className={
-          emphasis
-            ? "mt-1 text-lg font-semibold tabular-nums"
-            : "mt-1 text-base font-medium tabular-nums"
-        }
-      >
-        {value}
-      </p>
     </div>
   )
 }

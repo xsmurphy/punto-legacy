@@ -26,6 +26,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type UserReportRow } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function UsersReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -135,16 +136,16 @@ export default function UsersReportPage() {
       )}
 
       {!isLoading && rows.length > 0 && (
-        <div className="flex flex-wrap gap-6 border-y py-3 text-sm">
-          <Stat label="Usuarios" value={rows.length.toLocaleString()} />
-          <Stat label="Transacciones" value={totals.count.toLocaleString()} />
-          <Stat label="Unidades vendidas" value={totals.usold.toLocaleString()} />
-          <Stat
+        <StatsRow>
+          <StatTile label="Usuarios" value={rows.length.toLocaleString()} />
+          <StatTile label="Transacciones" value={totals.count.toLocaleString()} />
+          <StatTile label="Unidades vendidas" value={totals.usold.toLocaleString()} />
+          <StatTile
             label="Total ventas"
-            value={`${bootstrap?.currency ?? ""} ${formatMoney(totals.total, bootstrap)}`}
+            value={formatMoney(totals.total, bootstrap)}
             emphasis
           />
-        </div>
+        </StatsRow>
       )}
 
       <DataTable
@@ -163,31 +164,6 @@ export default function UsersReportPage() {
           />
         }
       />
-    </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string
-  value: string
-  emphasis?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
     </div>
   )
 }
