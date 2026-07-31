@@ -38,6 +38,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   usePurchase,
   useVoidPurchase,
+  type PurchaseDetail,
   type PurchaseDetailItem,
 } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
@@ -92,6 +93,10 @@ export default function PurchaseDetailPage() {
     0,
   )
 
+  // Datos de cheque (F1, context/30) — solo presentes si el método de pago
+  // de la compra tiene systemKey='check' e identifier (nro de cheque).
+  const checkLine = purchase.paymentType?.find((p) => p.identifier)
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -127,6 +132,15 @@ export default function PurchaseDetailPage() {
             label="Método de pago"
             value={paymentMethodLabel(purchase.paymentType)}
           />
+          {checkLine && (
+            <>
+              <InfoRow label="Nro de cheque" value={checkLine.identifier ?? "—"} />
+              {checkLine.bankName && <InfoRow label="Banco" value={checkLine.bankName} />}
+              {checkLine.dueDate && (
+                <InfoRow label="Vencimiento cheque" value={formatDate(checkLine.dueDate)} />
+              )}
+            </>
+          )}
         </InfoCard>
 
         <InfoCard title="Totales">
@@ -345,11 +359,11 @@ function InfoRow({
 }
 
 /**
- * Mapea la key guardada por el form de creación (purchase/page.tsx, Select
- * "Método de pago") a un label legible. Mismo set hardcodeado que el form —
- * si se migra a taxonomy paymentMethod (PaymentMethodConfig), reemplazar acá.
+ * Label legible del método de pago. Desde la mig 102 el backend resuelve
+ * `name` server-side (taxonomy paymentMethod real, ver PurchasesService::
+ * create) — el mapa de slugs solo cubre compras viejas sin `name` guardado.
  */
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
+const LEGACY_PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: "Efectivo",
   card: "Tarjeta",
   transfer: "Transferencia",
@@ -358,11 +372,12 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 }
 
 function paymentMethodLabel(
-  paymentType: Array<{ type: string; price: number }> | null,
+  paymentType: PurchaseDetail["paymentType"],
 ): string {
-  const key = paymentType?.[0]?.type
-  if (!key) return "—"
-  return PAYMENT_METHOD_LABELS[key] ?? key
+  const line = paymentType?.[0]
+  if (!line) return "—"
+  if (line.name) return line.name
+  return LEGACY_PAYMENT_METHOD_LABELS[line.type] ?? line.type
 }
 
 function formatDate(s: string): string {

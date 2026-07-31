@@ -147,6 +147,81 @@ final class CheckService
     }
 
     /**
+     * Crea el cheque asociado a UNA línea de pago de una transacción real
+     * (venta/pago de crédito/compra) — F1, context/30. Único punto de
+     * creación automática, llamado desde `FinanceLedger` (recordSale/
+     * recordCreditPayment/recordPurchase), nunca duplicado por call-site.
+     *
+     * Idempotente por el UNIQUE parcial `(companyid, transactionid)` (mig
+     * 102): si la transacción ya generó un cheque, devuelve el existente sin
+     * insertar de nuevo — cubre reintentos del hook best-effort y reprocesos
+     * (backfill, sync offline reenviando el mismo transactionId).
+     *
+     * Estado inicial SIEMPRE 'pending' — el cheque NO genera movimiento al
+     * nacer (ver comentario de clase: solo `cleared` impacta saldo). `line`
+     * es la línea de pago decodificada de `transactionPaymentType`: usa
+     * `identifier` como nro de cheque, y opcionalmente `bankName`/`dueDate`
+     * si el origen los captura (compras — POS/ventas solo mandan identifier).
+     *
+     * @param array{identifier?:string,bankName?:string,dueDate?:string,price?:float,total?:float} $line
+     */
+    public function createFromPayment(
+        string $companyId,
+        string $transactionId,
+        array $line,
+        string $direction,
+        ?string $contactId = null,
+        ?string $partyName = null
+    ): ?array {
+        if (!preg_match(self::UUID_RE, $transactionId) || !in_array($direction, self::DIRECTIONS, true)) {
+            return null;
+        }
+
+        $existing = ncmExecute(
+            'SELECT checkid FROM fin_check WHERE companyid = ? AND transactionid = ? LIMIT 1',
+            [$companyId, $transactionId]
+        );
+        if ($existing) {
+            return $this->find((string) $existing['checkid'], $companyId);
+        }
+
+        $amount = abs((float) ($line['price'] ?? $line['total'] ?? 0));
+        if ($amount <= 0) {
+            return null;
+        }
+
+        $checkNumber = trim((string) ($line['identifier'] ?? '')) ?: null;
+        $bankName    = trim((string) ($line['bankName'] ?? '')) ?: null;
+        $dueDateRaw  = trim((string) ($line['dueDate'] ?? ''));
+        $contactId   = $this->nullableUuid($contactId);
+
+        $id = ncmInsert([
+            'records' => [
+                'companyid'     => $companyId,
+                'direction'     => $direction,
+                'accountid'     => null,
+                'bankname'      => $bankName,
+                'checknumber'   => $checkNumber,
+                'amount'        => $amount,
+                'issuedate'     => date('Y-m-d H:i:s'),
+                'duedate'       => $dueDateRaw !== '' ? $this->normalizeDate($dueDateRaw) : null,
+                'contactid'     => $contactId,
+                'partyname'     => $partyName !== null && $partyName !== '' ? $partyName : null,
+                'categoryid'    => null,
+                'status'        => 'pending',
+                'description'   => null,
+                'transactionid' => $transactionId,
+            ],
+            'table' => 'fin_check',
+        ]);
+        if (!$id) {
+            return null; // best-effort — el caller (FinanceLedger) nunca rompe la venta/compra
+        }
+
+        return $this->find((string) $id, $companyId);
+    }
+
+    /**
      * Edita datos descriptivos del cheque. NO permite tocar direction/amount
      * si ya tiene un movimiento generado (cleared) — evitaría descuadrar el
      * saldo ya aplicado; para eso hay que revertir el estado primero.
@@ -401,6 +476,7 @@ final class CheckService
             'status'       => (string) $f['status'],
             'clearedDate'  => $f['cleareddate'] !== null ? (string) $f['cleareddate'] : null,
             'description'  => $f['description'] !== null ? (string) $f['description'] : null,
+            'transactionId' => isset($f['transactionid']) && $f['transactionid'] !== null ? (string) $f['transactionid'] : null,
         ];
     }
 }

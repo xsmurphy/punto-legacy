@@ -57,6 +57,18 @@ final class FinanceLedger
         $invoiceNo  = (string) ($row['invoiceNo'] ?? '');
         $description = 'Venta' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
 
+        // F1 cheques (context/30): el cheque nace del pago — si alguna línea
+        // usa el método con systemKey='check', crea el fin_check (pending)
+        // ANTES de recordPaymentLines. Independiente de esa función: el
+        // cheque nace siempre, tenga o no la línea una cuenta mapeada.
+        $this->createCheckFromLines(
+            $companyId,
+            $transactionId,
+            $this->decodePaymentLines($row),
+            'received',
+            $this->nullableUuid($row['customerId'] ?? null),
+        );
+
         $this->recordPaymentLines(
             companyId: $companyId,
             source: 'sale',
@@ -85,6 +97,15 @@ final class FinanceLedger
         $categoryId = $this->categories->ensureSalesCategoryId($companyId);
         $invoiceNo  = (string) ($row['invoiceNo'] ?? '');
         $description = 'Pago de crédito' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
+
+        // F1 cheques (context/30) — ver comentario espejo en recordSale().
+        $this->createCheckFromLines(
+            $companyId,
+            $transactionId,
+            $this->decodePaymentLines($row),
+            'received',
+            $this->nullableUuid($row['customerId'] ?? null),
+        );
 
         $this->recordPaymentLines(
             companyId: $companyId,
@@ -117,21 +138,78 @@ final class FinanceLedger
 
         $lines = $this->decodePaymentLines($row);
         if (empty($lines)) {
-            // Sin líneas de pago detalladas: el flujo de compras hoy no
-            // captura con qué cuenta se pagó (transactionPaymentType vacío
-            // en type=1). NO hay una cuenta real a la que imputar — el
-            // fallback anterior (debitar Efectivo por el total) contaminó
-            // la caja con débitos que nunca salieron de ahí (incidente
-            // 2026-07: 198 compras, ~737M debitados erróneamente de
-            // Efectivo). Se salta el movimiento derivado hasta que el flujo
-            // de compras capture la cuenta de pago real (Parte 2, pendiente).
-            error_log("[FinanceLedger] recordPurchase: compra sin cuenta de pago, no se genera movimiento — transactionId={$transactionId}");
+            // Sin líneas de pago detalladas: dato legacy previo a la mig 102
+            // (Parte 2 del incidente 2026-07 — 198 compras, ~737M debitados
+            // erróneamente de Efectivo por un fallback que asumía cash — ya
+            // resuelta: el form de compra persiste método+cuenta como ventas,
+            // y `_getTableSchema()` ya no enruta transactionPaymentType al
+            // JSONB `meta`). NO hay una cuenta real a la que imputar acá — se
+            // salta el movimiento en vez de adivinar.
+            error_log("[FinanceLedger] recordPurchase: compra sin línea de pago (legacy pre-102) — transactionId={$transactionId}");
             return;
         }
+
+        // F1 cheques (context/30) — ver comentario espejo en recordSale().
+        // Compra pagada con cheque = cheque EMITIDO por el comercio.
+        $this->createCheckFromLines(
+            $companyId,
+            $transactionId,
+            $lines,
+            'issued',
+            $this->nullableUuid($row['supplierId'] ?? null),
+        );
 
         $this->recordPaymentLines(
             companyId: $companyId,
             source: 'purchase',
+            sourceId: $transactionId,
+            row: $row,
+            kind: 'expense',
+            categoryId: $categoryId,
+            description: $description,
+        );
+    }
+
+    /**
+     * Devolución (transactionType=6). Sale plata de la caja → kind='expense'.
+     *
+     * ReturnService persiste la línea de pago en NEGATIVO (`total` = -neto);
+     * `recordPaymentLines` toma abs() y el signo contable lo define $kind, así
+     * que el movimiento queda como egreso por el neto devuelto.
+     *
+     * Devolución acreditada al cliente (`refundMode='credit'` → línea
+     * `type='storeCredit'`): NO genera movimiento. No sale plata de ninguna
+     * cuenta — sube `contact.contactStoreCredit`, que es un pasivo con el
+     * cliente, no caja. El filtro vive en `recordPaymentLines` (compartido con
+     * ventas: una venta pagada con crédito interno / puntos / gift card tampoco
+     * mueve plata).
+     */
+    public function recordReturn(string $companyId, string $transactionId): void
+    {
+        // El nro de comprobante de una devolución vive en la venta original
+        // (la fila type=6 se inserta sin invoiceNo) — se trae por el parent para
+        // que el movimiento sea rastreable hasta la venta que se devolvió.
+        $row = ncmExecute(
+            'SELECT t.*, p.invoiceNo AS parentInvoiceNo
+               FROM transaction t
+               LEFT JOIN transaction p ON p.transactionId = t.transactionParentId
+              WHERE t.transactionId = ? AND t.companyId = ? LIMIT 1',
+            [$transactionId, $companyId]
+        );
+        if (!$row) {
+            return;
+        }
+        if ((string) ($row['transactionType'] ?? '') !== '6') {
+            return;
+        }
+
+        $categoryId = $this->categories->ensureReturnsCategoryId($companyId);
+        $invoiceNo  = (string) ($row['parentInvoiceNo'] ?? '');
+        $description = 'Devolución' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
+
+        $this->recordPaymentLines(
+            companyId: $companyId,
+            source: 'return',
             sourceId: $transactionId,
             row: $row,
             kind: 'expense',
@@ -225,11 +303,14 @@ final class FinanceLedger
         // Agrupar por accountId: [accountId => ['amount' => sum, 'methodKey' => representativo]]
         $byAccount = [];
         foreach ($lines as $line) {
+            $methodKey = (string) ($line['type'] ?? $line['name'] ?? '');
+            if ($this->isNonCashMethod($companyId, $methodKey)) {
+                continue;
+            }
             $amount = abs((float) ($line['price'] ?? $line['total'] ?? 0));
             if ($amount <= 0) {
                 continue;
             }
-            $methodKey = (string) ($line['type'] ?? $line['name'] ?? '');
             $accountId = $this->config->resolveAccountId($companyId, $methodKey);
 
             if (!isset($byAccount[$accountId])) {
@@ -254,6 +335,119 @@ final class FinanceLedger
                 'outletId'      => $outletId,
             ]);
         }
+    }
+
+    /**
+     * Medios que NO mueven plata de una cuenta real DIRECTAMENTE desde la
+     * línea de pago: crédito interno del cliente, puntos de loyalty y gift
+     * card (la plata entró cuando se vendió la gift card, no cuando se
+     * canjea) — mismo error de clase que el fallback viejo de
+     * `recordPurchase` (incidente 2026-07). El vocabulario es el de
+     * `Reports\NonAddingSales` (ventas que no suman).
+     *
+     * `check` (F1, context/30) entra en la misma lista por una razón
+     * distinta: la plata del cheque NO es real hasta que se efectiviza
+     * (`CheckService::changeStatus` a 'cleared') — si la línea de pago
+     * generara un movimiento acá TAMBIÉN, el cheque duplicaría el ingreso/
+     * egreso (una vez al nacer, otra al aclarar). Exclusión incondicional,
+     * tenga o no `finAccountMap` asignado — nunca "cae a Efectivo".
+     *
+     * Aplica a TODOS los orígenes (venta, pago de crédito, compra,
+     * devolución): la regla es del wrapper, no del call-site. En
+     * devoluciones es lo que hace que `refundMode='credit'` no toque la caja.
+     */
+    private const NON_CASH_METHODS = ['storecredit', 'incredit', 'points', 'giftcard', 'check'];
+
+    /**
+     * La clave del pago puede venir como slug legacy ('storeCredit') o como
+     * taxonomyId del método (ventas nuevas) — para el segundo caso el
+     * vocabulario estable es el `systemKey` del método.
+     */
+    private function isNonCashMethod(string $companyId, string $methodKey): bool
+    {
+        $key = strtolower(trim($methodKey));
+        if ($key === '') {
+            return false;
+        }
+        if (in_array($key, self::NON_CASH_METHODS, true)) {
+            return true;
+        }
+
+        $resolver = new \Punto\Api\PaymentMethods\PaymentMethodResolver();
+        $methodId = $resolver->resolveMethodId($companyId, $methodKey);
+        if ($methodId === null) {
+            return false;
+        }
+        foreach ($resolver->methods($companyId) as $method) {
+            if (strcasecmp($method['id'], $methodId) === 0) {
+                $systemKey = strtolower((string) ($method['systemKey'] ?? ''));
+                return $systemKey !== '' && in_array($systemKey, self::NON_CASH_METHODS, true);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * F1 cheques (context/30): si alguna línea de pago corresponde al método
+     * con `systemKey='check'`, crea el `fin_check` asociado (pending). A lo
+     * sumo un cheque por transacción — el primer match gana (mismo criterio
+     * que el UNIQUE `(companyid, transactionid)` de `fin_check`, mig 102); un
+     * pago dividido con dos líneas "cheque" no está soportado en v1.
+     *
+     * Best-effort por línea: un fallo acá NUNCA bloquea el resto del ledger
+     * (movimiento derivado de la venta/compra sigue su curso normal).
+     *
+     * @param array<int,array<string,mixed>> $lines
+     */
+    private function createCheckFromLines(
+        string $companyId,
+        string $transactionId,
+        array $lines,
+        string $direction,
+        ?string $contactId
+    ): void {
+        foreach ($lines as $line) {
+            $methodKey = (string) ($line['type'] ?? $line['name'] ?? '');
+            if (!$this->isCheckMethod($companyId, $methodKey)) {
+                continue;
+            }
+            try {
+                (new CheckService())->createFromPayment(
+                    companyId: $companyId,
+                    transactionId: $transactionId,
+                    line: $line,
+                    direction: $direction,
+                    contactId: $contactId,
+                );
+            } catch (\Throwable $e) {
+                error_log("[FinanceLedger] createCheckFromLines falló para transactionId={$transactionId}: " . $e->getMessage());
+            }
+            return; // a lo sumo un cheque por transacción
+        }
+    }
+
+    /** Análogo a isNonCashMethod pero discrimina específicamente el método Cheque. */
+    private function isCheckMethod(string $companyId, string $methodKey): bool
+    {
+        $key = strtolower(trim($methodKey));
+        if ($key === '') {
+            return false;
+        }
+        if ($key === 'check' || $key === 'cheque') {
+            return true;
+        }
+
+        $resolver = new \Punto\Api\PaymentMethods\PaymentMethodResolver();
+        $methodId = $resolver->resolveMethodId($companyId, $methodKey);
+        if ($methodId === null) {
+            return false;
+        }
+        foreach ($resolver->methods($companyId) as $method) {
+            if (strcasecmp($method['id'], $methodId) === 0) {
+                return strtolower((string) ($method['systemKey'] ?? '')) === 'check';
+            }
+        }
+        return false;
     }
 
     /** @return array<int,array<string,mixed>> */

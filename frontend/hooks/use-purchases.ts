@@ -51,7 +51,16 @@ export interface PurchaseDetail {
   outletName: string | null
   userId: string | null
   userName: string | null
-  paymentType: Array<{ type: string; price: number }> | null
+  paymentType: Array<{
+    type: string
+    name?: string
+    total?: number
+    /** Shape legacy pre-mig 102 — algunas compras viejas solo tienen `price`. */
+    price?: number
+    identifier?: string
+    bankName?: string
+    dueDate?: string
+  }> | null
   details: PurchaseDetailItem[]
 }
 
@@ -72,7 +81,12 @@ export interface PurchaseCreatePayload {
   invoiceNo?: number | string | null
   invoicePrefix?: string
   authNo?: string
-  paymentMethod?: string
+  /** taxonomyId real del medio de pago (@see usePaymentMethods) — resuelve cuenta vía finAccountMap. */
+  paymentMethodId?: string
+  /** Solo si el método tiene systemKey='check' — F1, context/30. */
+  checkNumber?: string
+  checkBank?: string
+  checkDueDate?: string
   discount?: number
   note?: string
   items: PurchaseFormItem[]

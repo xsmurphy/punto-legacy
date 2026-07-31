@@ -140,14 +140,20 @@ final class PurchasesService
         }
         $details = is_array($meta['details'] ?? null) ? $meta['details'] : [];
 
-        // transactionPaymentType NO es columna real de `transaction` (ver
-        // _getTableSchema() en api/includes/functions.php) → ncmInsert la
-        // enruta al JSONB `meta`. Además create() la guarda ya como string
-        // json_encode'ada, así que dentro de meta queda doble-encodeada
-        // (string que contiene JSON) — hay que decodificarla una vez más acá.
-        $paymentType = $meta['transactionPaymentType'] ?? null;
+        // transactionPaymentType es columna real de `transaction` desde la
+        // mig 102 (_getTableSchema() en api/includes/functions.php ya la
+        // lista — antes ncmInsert la enrutaba al JSONB `meta`, root-cause de
+        // la Parte 2 del incidente 737M). El fallback a `meta` cubre compras
+        // anteriores a la promoción de datos de esa misma migración, por si
+        // alguna quedó fuera del backfill.
+        $paymentType = $row['transactionpaymenttype'] ?? null;
+        if ($paymentType === null || $paymentType === '') {
+            $paymentType = $meta['transactionPaymentType'] ?? null;
+        }
         if (is_string($paymentType) && $paymentType !== '') {
             $paymentType = json_decode($paymentType, true) ?: null;
+        } elseif (!is_array($paymentType)) {
+            $paymentType = null;
         }
 
         // Resolver nombres de producto para líneas con itemId pero title vacío
@@ -267,7 +273,14 @@ final class PurchasesService
         $authNo      = (string) ($data['authNo'] ?? '');
         $prefix      = (string) ($data['invoicePrefix'] ?? '');
         $invoiceNo   = isset($data['invoiceNo']) && $data['invoiceNo'] !== '' ? (int) $data['invoiceNo'] : null;
-        $payMethod   = (string) ($data['paymentMethod'] ?? '');
+        // paymentMethodId: taxonomyId real del medio de pago (igual que ventas —
+        // resuelve cuenta vía finAccountMap en FinanceLedger). Se acepta el legacy
+        // `paymentMethod` (slug) como fallback para no romper integraciones viejas;
+        // PaymentMethodResolver matchea ambos caminos igual.
+        $payMethod    = trim((string) ($data['paymentMethodId'] ?? $data['paymentMethod'] ?? ''));
+        $checkNumber  = trim((string) ($data['checkNumber'] ?? ''));
+        $checkBank    = trim((string) ($data['checkBank'] ?? ''));
+        $checkDueDate = (string) ($data['checkDueDate'] ?? '');
 
         // Procesar items: calcular totales + separar productos vs gastos libres.
         $totalUnits = 0.0;
@@ -314,10 +327,29 @@ final class PurchasesService
 
         $netTotal = $total - $discount;
 
-        // Payment type — JSON array como el legacy.
-        $paymentTypeJson = $payMethod !== ''
-            ? json_encode([['type' => $payMethod, 'price' => $netTotal]])
-            : null;
+        // Payment type — mismo shape que ventas ({type,name,total,identifier?}),
+        // para que FinanceLedger::recordPaymentLines/createCheckFromLines lo lean
+        // con la misma lógica (resolver la Parte 2 de raíz: antes esto era
+        // {type,price} y no lo alimentaba nada además de recordPurchase). `name`
+        // se resuelve server-side — nunca se confía el label del cliente.
+        $paymentTypeJson = null;
+        if ($payMethod !== '') {
+            $methodName = getPaymentMethodName($payMethod) ?: $payMethod;
+            $line = ['type' => $payMethod, 'name' => $methodName, 'total' => $netTotal];
+            if ($checkNumber !== '') {
+                $line['identifier'] = $checkNumber;
+            }
+            if ($checkBank !== '') {
+                $line['bankName'] = $checkBank;
+            }
+            if ($checkDueDate !== '') {
+                $normalizedCheckDue = $this->normalizeDate($checkDueDate, false);
+                if ($normalizedCheckDue !== null) {
+                    $line['dueDate'] = $normalizedCheckDue;
+                }
+            }
+            $paymentTypeJson = json_encode([$line]);
+        }
 
         // Prefix del legacy: "authNo;prefix" — preservado para compat de
         // facturación electrónica que puede parsear ese shape.

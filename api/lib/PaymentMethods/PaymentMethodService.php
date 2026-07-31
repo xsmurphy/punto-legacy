@@ -223,6 +223,11 @@ final class PaymentMethodService
             ['T. Crédito', ['code' => 'S', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456', 'color' => 'sky']],
             ['T. Débito', ['code' => 'D', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de operación', 'identifierPlaceholder' => 'Ej. 123456', 'color' => 'violet']],
             ['Giftcard', ['code' => 'G', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Código de giftcard', 'identifierPlaceholder' => 'Ej. GC-1234-5678', 'systemKey' => 'giftcard', 'color' => 'amber']],
+            // Cheques (F1, context/30): systemKey='check' dispara el prompt de
+            // identifier existente en el pay-dialog del POS (nro de cheque) y
+            // es el discriminante que usa FinanceLedger para no generar
+            // movimiento directo (la plata entra recién al efectivizar).
+            ['Cheque', ['code' => 'F', 'hasChange' => false, 'requiresIdentifier' => true, 'identifierLabel' => 'Nro de cheque', 'identifierPlaceholder' => 'Ej. 001234', 'systemKey' => 'check', 'color' => 'rose']],
         ];
         foreach ($defaults as $i => [$name, $extra]) {
             $extra['sortOrder'] = $i;

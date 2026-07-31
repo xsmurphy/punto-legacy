@@ -31,7 +31,7 @@ export interface PaymentMethodConfig {
    * usar esto en vez de comparar contra el `id` (taxonomyId), que varía por
    * tenant y no es estable entre entornos.
    */
-  systemKey?: "cash" | "giftcard" | "internal" | null
+  systemKey?: "cash" | "giftcard" | "internal" | "check" | null
   /** Key de color de la paleta unificada (lib/ui/color-palette.ts). Acento en el pill. */
   color?: string
   /** Orden de aparición en el pay-dialog (drag&drop del panel). */

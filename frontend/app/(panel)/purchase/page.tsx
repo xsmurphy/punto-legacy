@@ -37,6 +37,7 @@ import { useItems } from "@/hooks/use-items"
 import { api } from "@/lib/api-client"
 import { useTaxes } from "@/hooks/use-taxes"
 import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
+import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { formatMoney } from "@/lib/format"
 import { DatePicker } from "@/components/date-picker"
 import { MoneyInput } from "@/components/ui/money-input"
@@ -97,7 +98,10 @@ export default function NewPurchasePage() {
   const [authNo, setAuthNo] = React.useState("")
   const [invoicePrefix, setInvoicePrefix] = React.useState("")
   const [invoiceNo, setInvoiceNo] = React.useState("")
-  const [paymentMethod, setPaymentMethod] = React.useState("cash")
+  const [paymentMethodId, setPaymentMethodId] = React.useState("")
+  const [checkNumber, setCheckNumber] = React.useState("")
+  const [checkBank, setCheckBank] = React.useState("")
+  const [checkDueDate, setCheckDueDate] = React.useState<string>("")
   const [discount, setDiscount] = React.useState<number | null>(null)
   const [note, setNote] = React.useState("")
   const [lines, setLines] = React.useState<FormLine[]>([emptyLine()])
@@ -110,6 +114,21 @@ export default function NewPurchasePage() {
   }, [bootstrap?.activeOutletId, outletId])
 
   const outlets = bootstrap?.outlets ?? []
+
+  // Medios de pago reales del tenant (taxonomy paymentMethod) — mismo catálogo
+  // que ventas/POS, resuelve cuenta vía finAccountMap (Parte 2, context/30).
+  const { data: paymentMethodsData } = usePaymentMethods()
+  const paymentMethods = paymentMethodsData?.paymentMethods ?? []
+  const selectedMethod = paymentMethods.find((m) => m.id === paymentMethodId)
+  const isCheckMethod = selectedMethod?.systemKey === "check"
+
+  // Default: primer método (sortOrder) al cargar el catálogo, si no hay elegido.
+  React.useEffect(() => {
+    if (!paymentMethodId && paymentMethods.length > 0) {
+      const sorted = [...paymentMethods].sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))
+      setPaymentMethodId(sorted[0].id)
+    }
+  }, [paymentMethodId, paymentMethods])
 
   // Totales reactivos
   const totals = React.useMemo(() => {
@@ -186,7 +205,10 @@ export default function NewPurchasePage() {
     setAuthNo("")
     setInvoicePrefix("")
     setInvoiceNo("")
-    setPaymentMethod("cash")
+    setCheckNumber("")
+    setCheckBank("")
+    setCheckDueDate("")
+    // paymentMethodId se conserva (el lote de compras suele repetir método).
     setDiscount(null)
     setNote("")
     const fresh = emptyLine()
@@ -212,6 +234,11 @@ export default function NewPurchasePage() {
         taxValue: Number(l.taxValue) || 0,
       }))
 
+    if (isCheckMethod && checkNumber.trim() === "") {
+      toast.error("Ingresá el número de cheque.")
+      return
+    }
+
     try {
       await createPurchase.mutateAsync({
         supplierId: supplierId || null,
@@ -221,7 +248,14 @@ export default function NewPurchasePage() {
         invoiceNo: invoiceNo || null,
         invoicePrefix,
         authNo,
-        paymentMethod,
+        paymentMethodId: paymentMethodId || undefined,
+        ...(isCheckMethod
+          ? {
+              checkNumber: checkNumber.trim(),
+              checkBank: checkBank.trim() || undefined,
+              checkDueDate: checkDueDate || undefined,
+            }
+          : {}),
         discount: discount ?? 0,
         note,
         items,
@@ -357,19 +391,54 @@ export default function NewPurchasePage() {
           </div>
 
           <Field label="Método de pago" id="paymentMethod">
-            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+            <Select value={paymentMethodId} onValueChange={setPaymentMethodId}>
               <SelectTrigger id="paymentMethod">
-                <SelectValue />
+                <SelectValue placeholder="Seleccionar método" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cash">Efectivo</SelectItem>
-                <SelectItem value="card">Tarjeta</SelectItem>
-                <SelectItem value="transfer">Transferencia</SelectItem>
-                <SelectItem value="check">Cheque</SelectItem>
-                <SelectItem value="credit">A crédito</SelectItem>
+                {paymentMethods.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </Field>
+
+          {/* Cheque emitido: banco/nro/vencimiento — nace el fin_check (F1, context/30). */}
+          {isCheckMethod && (
+            <div className="flex flex-col gap-3 rounded-md border bg-background/40 p-3">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Datos del cheque
+              </div>
+              <Field label="Número de cheque" id="checkNumber">
+                <Input
+                  id="checkNumber"
+                  value={checkNumber}
+                  onChange={(e) => setCheckNumber(e.target.value)}
+                  placeholder="Ej. 001234"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Banco" id="checkBank">
+                  <Input
+                    id="checkBank"
+                    value={checkBank}
+                    onChange={(e) => setCheckBank(e.target.value)}
+                    placeholder="Opcional"
+                  />
+                </Field>
+                <Field label="Vencimiento" id="checkDueDate">
+                  <DatePicker
+                    id="checkDueDate"
+                    value={checkDueDate}
+                    onChange={setCheckDueDate}
+                    placeholder="Opcional"
+                  />
+                </Field>
+              </div>
+            </div>
+          )}
 
           <Field label="Descuento global" id="discount">
             <MoneyInput

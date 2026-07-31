@@ -1426,7 +1426,14 @@ if (!function_exists('_getTableSchema')) {
                                'transactionPaymentMethod', 'transactionPaymentDate',
                                'updated_at', 'meta',
                                // mig 101 — venta emitida sin IVA (toggle del POS).
-                               'ivaRemoved'],
+                               'ivaRemoved',
+                               // mig 102 — faltaba acá: ncmInsert (PurchasesService::create)
+                               // enrutaba transactionPaymentType al JSONB `meta` en vez de la
+                               // columna real, dejando las compras sin línea de pago legible
+                               // para FinanceLedger::recordPurchase (Parte 2 del incidente
+                               // 737M). SaleService/CreditPaymentService no sufrían el bug
+                               // porque escriben con AutoExecute directo, no con ncmInsert.
+                               'transactionPaymentType'],
             ],
             'outlet' => [
                 'pk'       => 'outletId',
