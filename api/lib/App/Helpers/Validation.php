@@ -60,6 +60,21 @@ final class Validation
         if (!isset($value)) {
             return false;
         }
+        // Booleanos ANTES de la cadena de comparaciones sueltas de abajo: en
+        // PHP 8 `true == 'undefined'` es TRUE (el string no vacío se castea a
+        // bool), así que un `true` genuino caía en ese guard y salía como
+        // false. Cualquier campo booleano que llegue por JSON —el cliente
+        // moderno manda `true`/`false` reales, no "1"/"0"— se perdía en
+        // silencio: el endpoint leía false y guardaba lo contrario de lo que
+        // pidió el usuario (síntoma real: los switches de /modules no
+        // activaban nada). Con $force='boolean' el bloque de abajo sigue
+        // validando el tipo igual que antes.
+        if (is_bool($value)) {
+            if ($force !== false) {
+                return $force === 'boolean' ? $value : false;
+            }
+            return $value === true ? true : false;
+        }
         if (!$value || empty($value) || $value == 'undefined' || $value === null || $value == false || $value === false || $value == '') {
             return false;
         }
