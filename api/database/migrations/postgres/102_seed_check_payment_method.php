@@ -28,14 +28,20 @@ if (!$pdo) {
 $companies = $pdo->query('SELECT companyId FROM company')->fetchAll(PDO::FETCH_ASSOC);
 
 $methodsStmt = $pdo->prepare(
-    "SELECT taxonomyId, taxonomyExtra FROM taxonomy WHERE companyId = ? AND taxonomyType = 'paymentMethod'"
+    "SELECT taxonomyId, taxonomyName, taxonomyExtra FROM taxonomy WHERE companyId = ? AND taxonomyType = 'paymentMethod'"
 );
 $insertStmt = $pdo->prepare(
     "INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, taxonomyName, taxonomyExtra)
      VALUES (gen_random_uuid(), ?, 'paymentMethod', 'Cheque', ?::jsonb)"
 );
 
+$updateStmt = $pdo->prepare(
+    "UPDATE taxonomy SET taxonomyExtra = ?::jsonb
+      WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = 'paymentMethod'"
+);
+
 $created = 0;
+$adopted = 0;
 $skipped = 0;
 
 foreach ($companies as $company) {
@@ -53,6 +59,7 @@ foreach ($companies as $company) {
     }
 
     $hasCheck = false;
+    $manualCheck = null; // método "Cheque" creado a mano (sin systemKey) → se ADOPTA
     $maxSortOrder = -1;
     foreach ($rows as $row) {
         $extra = json_decode((string) ($row['taxonomyextra'] ?? '{}'), true) ?: [];
@@ -60,12 +67,34 @@ foreach ($companies as $company) {
             $hasCheck = true;
             break;
         }
+        // La taxonomy tiene UNIQUE (companyId, type, lower(name)) — si el tenant ya
+        // creó "Cheque" a mano, insertar otro rompe el boot (23505, pasó en prod
+        // 2026-07-31). Adoptarlo además preserva las ventas históricas que ya
+        // referencian ese taxonomyId como medio de pago.
+        if ($manualCheck === null && mb_strtolower(trim((string) ($row['taxonomyname'] ?? ''))) === 'cheque') {
+            $manualCheck = ['id' => (string) $row['taxonomyid'], 'extra' => $extra];
+        }
         if (isset($extra['sortOrder']) && (int) $extra['sortOrder'] > $maxSortOrder) {
             $maxSortOrder = (int) $extra['sortOrder'];
         }
     }
     if ($hasCheck) {
         $skipped++;
+        continue;
+    }
+
+    if ($manualCheck !== null) {
+        $extra = $manualCheck['extra'];
+        $extra['systemKey'] = 'check';
+        $extra['requiresIdentifier'] = true;
+        if (trim((string) ($extra['identifierLabel'] ?? '')) === '') {
+            $extra['identifierLabel'] = 'Nro de cheque';
+        }
+        if (trim((string) ($extra['identifierPlaceholder'] ?? '')) === '') {
+            $extra['identifierPlaceholder'] = 'Ej. 001234';
+        }
+        $updateStmt->execute([json_encode($extra), $manualCheck['id'], $companyId]);
+        $adopted++;
         continue;
     }
 
@@ -83,4 +112,4 @@ foreach ($companies as $company) {
     $created++;
 }
 
-echo "[migrate] 102_seed_check_payment_method: {$created} tenant(s) con 'Cheque' creado, {$skipped} sin cambios\n";
+echo "[migrate] 102_seed_check_payment_method: {$created} creado(s), {$adopted} adoptado(s), {$skipped} sin cambios\n";
