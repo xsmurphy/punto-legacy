@@ -103,8 +103,15 @@ export function useSetPriceListItems() {
   })
 }
 
-/** Resuelve precios en batch para un contexto de venta. */
-export function useResolvePrices() {
+/**
+ * Resuelve precios en batch para un contexto de venta. Multi-realm en backend
+ * (`/v1/price_resolve` acepta panel + pos-app) — mismo patrón de `client`
+ * inyectable que `usePriceLists`: el POS (`use-price-context.ts`) pasa
+ * `client: posApi` (Bearer), el panel usa el default `api` (cookie). Nunca
+ * mezclar credenciales entre realms.
+ */
+export function useResolvePrices(opts: { client?: HttpClient } = {}) {
+  const client = opts.client ?? api
   return useMutation<
     ResolvedPrice[],
     Error,
@@ -116,6 +123,6 @@ export function useResolvePrices() {
     }
   >({
     mutationFn: (payload) =>
-      api.post<ResolvedPrice[]>("/v1/price_resolve", payload as unknown as Record<string, unknown>),
+      client.post<ResolvedPrice[]>("/v1/price_resolve", payload as unknown as Record<string, unknown>),
   })
 }

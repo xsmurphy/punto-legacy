@@ -105,6 +105,7 @@ export function CartPanel() {
   const lines = useCartStore((s) => s.lines)
   const selectedLineId = useCartStore((s) => s.selectedLineId)
   const customer = useCartStore((s) => s.customer)
+  const priceListName = useCartStore((s) => s.priceListName)
   const note = useCartStore((s) => s.note)
   const spaceSessionId = useCartStore((s) => s.spaceSessionId)
   const spaceName = useCartStore((s) => s.spaceName)
@@ -531,8 +532,8 @@ export function CartPanel() {
           cobrar el espacio completo, sin X). */}
       <SpaceChip spaceName={spaceName} onClear={clearSelectedSpace} />
 
-      {/* ── Chip de cliente ── */}
-      <CustomerChip customer={customer} />
+      {/* ── Chip de cliente (con lista de precios activa, si hay) ── */}
+      <CustomerChip customer={customer} priceListName={priceListName} />
 
       {/* ── Strip de dirección de envío elegida (context/27 §D.4) ── */}
       <DeliveryAddressChip
@@ -743,12 +744,30 @@ function SpaceChip({
 
 function CustomerChip({
   customer,
+  priceListName,
 }: {
   customer: ReturnType<typeof useCartStore.getState>["customer"]
+  /**
+   * Lista de precios efectivamente aplicada por `usePriceContext` (puede ser
+   * la del cliente, no necesariamente una elegida a mano). Se muestra acá
+   * como texto secundario — mismo lugar donde ya se muestra el contexto de
+   * la venta, sin banner nuevo (posiciones estables del POS, context/08).
+   */
+  priceListName: string | null
 }) {
   const setCustomer = useCartStore((s) => s.setCustomer)
 
-  if (!customer) return null
+  if (!customer) {
+    // Sin cliente pero con lista elegida a mano (sale-options-drawer.tsx):
+    // el chip de cliente no existe, así que la señal de lista va sola acá
+    // mismo — mismo slot, sin desplazar nada de lo que ya está debajo.
+    if (!priceListName) return null
+    return (
+      <div className="px-3 py-1.5">
+        <p className="truncate text-[10px] text-muted-foreground">Lista: {priceListName}</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5">
@@ -756,6 +775,9 @@ function CustomerChip({
         <p className="truncate text-xs font-medium text-foreground">{customer.name}</p>
         {customer.tin && (
           <p className="text-[10px] text-muted-foreground">{customer.tin}</p>
+        )}
+        {priceListName && (
+          <p className="truncate text-[10px] text-muted-foreground">Lista: {priceListName}</p>
         )}
       </div>
       <Button

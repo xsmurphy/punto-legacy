@@ -34,6 +34,20 @@ export interface CartLine {
   name: string
   qty: number
   unitPrice: number
+  /**
+   * Precio de catálogo al momento del add (antes de resolución de lista de
+   * precios). Base para volver a recalcular cuando cambia el contexto de
+   * precio (cliente/lista) — ver `usePriceContext` en
+   * `hooks/use-price-context.ts`. Líneas viejas (guardadas/parked antes de
+   * este campo) no lo traen: se usa `unitPrice` como fallback de base.
+   */
+  basePrice?: number
+  /**
+   * true si el cajero editó el precio a mano (LinePriceDialog/setLinePrice).
+   * `usePriceContext` nunca pisa el precio de una línea con este flag — un
+   * override manual del cajero gana siempre sobre la resolución automática.
+   */
+  priceOverridden?: boolean
   note?: string
   /** ID del vendedor asignado a esta línea (stub — sin UI aún). */
   sellerId?: string
@@ -217,10 +231,21 @@ interface CartState {
   note: string | null
 
   /**
-   * ID de la lista de precios activa. Solo persiste el ID —
-   * la lógica de resolución de precios es responsabilidad de fases posteriores.
+   * ID de la lista de precios activa (elegida a mano desde
+   * sale-options-drawer.tsx → PriceListDialog). `usePriceContext` la observa
+   * junto con `customer` para resolver precios server-side vía
+   * `/v1/price_resolve` — prioridad override de línea > lista manual > lista
+   * del contacto > lista del outlet (resuelta en el backend).
    */
   priceListId: string | null
+
+  /**
+   * Nombre de la lista efectivamente aplicada por la última resolución
+   * (puede ser la del contacto, no `priceListId` manual — el backend decide
+   * la prioridad). Solo para mostrar en UI (CustomerChip/PriceListChip).
+   * null cuando no hay contexto de precio o la resolución no encontró lista.
+   */
+  priceListName: string | null
 
   /** Etiquetas de texto libre asociadas a la venta. */
   tags: string[]
@@ -403,8 +428,31 @@ interface CartState {
   /** Fija el flag de agrupado de ítems repetidos. */
   setMergeRepeated: (v: boolean) => void
 
-  /** Modifica el precio unitario de una línea (sin mutar el precio base del catálogo). */
+  /**
+   * Modifica el precio unitario de una línea a mano (sin mutar el precio
+   * base del catálogo). Marca `priceOverridden: true` — `usePriceContext`
+   * nunca vuelve a pisar esta línea con una resolución automática hasta que
+   * se agregue de nuevo (línea nueva).
+   */
   setLinePrice: (lineId: string, price: number) => void
+
+  /**
+   * Aplica precios resueltos server-side (`/v1/price_resolve`, ver
+   * `usePriceContext`) a las líneas no-overridden cuyo `itemId` está en el
+   * mapa. Actualiza `unitPrice` y persiste `priceListName` para la UI.
+   * Líneas con `priceOverridden: true` o `itemId` ausente del mapa quedan
+   * intactas.
+   */
+  applyResolvedPrices: (
+    resolved: Map<string, { price: number; priceListName: string | null }>,
+  ) => void
+
+  /**
+   * Restaura `unitPrice = basePrice` en todas las líneas no-overridden y
+   * limpia `priceListName`. Se llama cuando el contexto de precio desaparece
+   * (cliente deseleccionado y sin lista manual) — ver `usePriceContext`.
+   */
+  restoreBasePrices: () => void
 
   /**
    * Aplica un descuento porcentual a una línea (0–100).
@@ -535,6 +583,7 @@ const initialState = {
   ivaRemoved: false,
   note: null as string | null,
   priceListId: null as string | null,
+  priceListName: null as string | null,
   mergeRepeated: true,
   tags: [] as string[],
   quoteParentId: null as string | null,
@@ -589,6 +638,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         name: item.name,
         qty: 1,
         unitPrice: item.price,
+        basePrice: item.price,
       })
 
       if (!state.mergeRepeated) {
@@ -715,8 +765,38 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   setLinePrice: (lineId, price) => {
     set((state) => ({
       lines: state.lines.map((l) =>
-        l.lineId === lineId ? { ...l, unitPrice: price } : l,
+        l.lineId === lineId ? { ...l, unitPrice: price, priceOverridden: true } : l,
       ),
+    }))
+  },
+
+  applyResolvedPrices: (resolved) => {
+    set((state) => {
+      // Nombre de lista activa: sale SOLO de esta resolución. Si el backend no
+      // aplicó ninguna lista (cliente sin lista, sin default de outlet), el
+      // nombre queda null — arrastrar el anterior mostraba una lista que ya
+      // no estaba aplicada.
+      let activeName: string | null = null
+      const lines = state.lines.map((l) => {
+        if (l.priceOverridden) return l
+        const r = resolved.get(l.itemId)
+        if (!r) return l
+        if (r.priceListName) activeName = r.priceListName
+        if (r.price === l.unitPrice) return l
+        return { ...l, unitPrice: r.price }
+      })
+      return { lines, priceListName: activeName }
+    })
+  },
+
+  restoreBasePrices: () => {
+    set((state) => ({
+      lines: state.lines.map((l) =>
+        l.priceOverridden || l.unitPrice === (l.basePrice ?? l.unitPrice)
+          ? l
+          : { ...l, unitPrice: l.basePrice ?? l.unitPrice },
+      ),
+      priceListName: null,
     }))
   },
 

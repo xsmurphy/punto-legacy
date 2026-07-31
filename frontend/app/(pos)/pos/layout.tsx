@@ -28,6 +28,7 @@ import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
+import { usePriceContext } from "@/hooks/use-price-context"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { posApi } from "@/lib/api/pos-client"
 import { useLockStore } from "@/lib/pos/lock-store"
@@ -93,6 +94,7 @@ export default function PosWorkspaceLayout({
   useCatalogSeed()
   useHotkeys()
   usePosHotkeys()
+  usePriceContext()
 
   // Auto-lock al arrancar si hay >1 operador (sin flash entre paints).
   // El flag vive en el lock-store (no en un useRef local) para sobrevivir
