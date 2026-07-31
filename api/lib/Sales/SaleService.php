@@ -148,9 +148,9 @@ final class SaleService
             // el documento encolado rollbackea con ella (nunca queda un outbox
             // huérfano apuntando a una venta que no existe). best-effort: un
             // fallo acá (cuenta mal configurada, etc.) NUNCA aborta la venta —
-            // reemplaza al hook legacy dispatchElectronicInvoice (eliminado, ver
-            // sub-slice 35b histórico), que vivía post-commit y dependía de
-            // FACTURACION_ELECTRONICA_TOKEN/sendFE (F4 rip-out, fuera de F1).
+            // reemplaza al hook legacy dispatchElectronicInvoice, que vivía
+            // post-commit y dependía de sendFE/FACTURACION_ELECTRONICA_TOKEN
+            // (proveedor de FE anterior, retirado entero en F4).
             $this->enqueueElectronicInvoice($input, (string) $transId);
         }
 
@@ -254,10 +254,9 @@ final class SaleService
         // F1 facturación electrónica: intento de emisión inline. El documento ya
         // fue encolado DENTRO de la transacción (ver save() — enqueueElectronicInvoice);
         // acá solo se intenta emitirlo YA para no depender del cron del drainer en el
-        // caso feliz. Reemplaza al hook legacy dispatchElectronicInvoice/sendFE
-        // (FACTURACION_ELECTRONICA_TOKEN, F4 rip-out) — eliminado, no convive con la
-        // solución nueva (regla de arquitectura del repo: nunca parche + solución
-        // final compitiendo).
+        // caso feliz. Reemplazó al hook legacy dispatchElectronicInvoice/sendFE,
+        // retirado entero en F4 — no convive con la solución nueva (regla de
+        // arquitectura del repo: nunca parche + solución final compitiendo).
         try {
             $this->tryIssueElectronicInvoiceInline($input, $transId);
         } catch (\Throwable $e) {
@@ -408,15 +407,16 @@ final class SaleService
 
         // URL del recibo — misma lógica de prioridad que el legacy (action.php:2594-2601):
         //   1. digitalInvoice activo → pantalla de factura digital
-        //   2. EI presente (35b)    → URL del proveedor FE (no es URL local)
-        //   3. Default              → pantalla de recibo
+        //   2. Default               → pantalla de recibo
+        //
+        // El legacy tenía un caso intermedio: con `electronicInvoicePY` en el
+        // payload mandaba la URL raíz del proveedor de FE anterior. Se retiró
+        // en F4 junto con ese proveedor — el documento electrónico de hoy vive
+        // en el panel (KuDE) y no reemplaza al recibo de la venta.
         $hasDigitalInvoice = $this->moduleEnabled('digitalInvoice');
         if ($hasDigitalInvoice) {
             $surl = '/screens/digitalInvoice?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId)) . '&pdf=1';
             $url  = getShortURL($surl);
-        } elseif ($input->electronicInvoicePY !== null
-            && defined('FACTURACION_ELECTRONICA_URL') && FACTURACION_ELECTRONICA_URL !== '') {
-            $url = FACTURACION_ELECTRONICA_URL; // el legacy usa la URL raíz del proveedor EI
         } else {
             $surl = '/screens/receipt?s=' . base64_encode(enc($transId) . ',' . enc($this->ctx->companyId));
             $url  = getShortURL($surl);

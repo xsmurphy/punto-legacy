@@ -25,8 +25,10 @@ namespace Punto\Api\EInvoice;
  *
  * Sigue detrás de una interfaz (mismo criterio que los proveedores de pago
  * en api/lib/Billing/Payments/) para no casar el módulo a Factomate y
- * poder retirar el camino legacy (sendFE/consultFE,
- * ElectronicInvoiceService) entero en F4 sin tocar EInvoiceService.
+ * poder cambiar de proveedor sin tocar EInvoiceService. El camino legacy
+ * (sendFE/consultFE, ElectronicInvoiceService, /v1/electronic_invoice.php)
+ * se retiró entero en F4 — esta interfaz es el único acceso a un proveedor
+ * de facturación electrónica.
  *
  * F0 sólo implementa token/phoneLogin/userInfo/sincroConfig/paymentMethods
  * (conexión de cuenta + lectura del timbrado). Las firmas de F1/F2/F3

@@ -55,8 +55,6 @@ define('TWILIO_AUTH_TOKEN',                $_ENV['TWILIO_AUTH_TOKEN']           
 define('SENDGRID_API_KEY',                 $_ENV['SENDGRID_API_KEY']                 ?? '');
 define('INFOBIP_PHONE',                    $_ENV['INFOBIP_PHONE']                    ?? '29000');
 define('INFOBIP_AUTH',                     $_ENV['INFOBIP_AUTH']                     ?? '');
-define('FACTURACION_ELECTRONICA_URL',      $_ENV['FACTURACION_ELECTRONICA_URL']      ?? '');
-define('FACTURACION_ELECTRONICA_TOKEN',    $_ENV['FACTURACION_ELECTRONICA_TOKEN']    ?? '');
 define('PDF_API_KEY',                      $_ENV['PDF_API_KEY']                      ?? '');
 define('API_LAYER_KEY',                    $_ENV['API_LAYER_KEY']                    ?? '');
 define('INCOME_COMPANY_ID', 15);

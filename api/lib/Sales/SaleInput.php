@@ -51,9 +51,6 @@ final class SaleInput
         public readonly ?string $repeatF = null,
         /** Número de repeticiones */
         public readonly ?int $repeatT = null,
-        // ── 35b: factura electrónica PY ────────────────────────────────────
-        /** Payload EI construido por ncmFE.py.build() en el front. null = sin EI. */
-        public readonly ?array $electronicInvoicePY = null,
         /**
          * Venta emitida SIN IVA (toggle del POS). Los importes del payload YA
          * vienen netos — esta bandera dice por qué son esos y no los de lista, y
@@ -149,10 +146,6 @@ final class SaleInput
             repeat:  !empty($payload['repeat']),
             repeatF: !empty($payload['repeatF']) ? (string) $payload['repeatF'] : null,
             repeatT: isset($payload['repeatT']) && is_numeric($payload['repeatT']) ? (int) $payload['repeatT'] : null,
-            // ── 35b: factura electrónica PY ──────────────────────────────────
-            electronicInvoicePY: isset($payload['electronicInvoicePY']) && is_array($payload['electronicInvoicePY'])
-                ? $payload['electronicInvoicePY']
-                : null,
         );
     }
 
@@ -217,7 +210,6 @@ final class SaleInput
      *
      * Paths diferidos a sub-slices futuros — si alguno aparece, lanzamos
      * InvalidSaleInputException (422) para que el caller use el legacy processData:
-     *   - electronicInvoicePY  → factura electrónica (35b)
      *   - repeat               → venta recurrente (35f)
      *   - parentId             → venta con padre (no path simple)
      *   - item.giftcardId      → gift card (35c)

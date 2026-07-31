@@ -2391,29 +2391,6 @@ function curlContents($url, $method = 'GET', $data = false, $headers = false, $r
     }
 }
 
-function sendFE($data, $token){
-	$curl = curl_init();
-
-	curl_setopt_array($curl, array(
-		CURLOPT_URL 						=> FACTURACION_ELECTRONICA_URL.'/api/transaction',
-		CURLOPT_RETURNTRANSFER 				=> true,
-		CURLOPT_ENCODING 					=> '',
-		CURLOPT_MAXREDIRS 					=> 10,
-		CURLOPT_TIMEOUT 					=> 0,
-		CURLOPT_FOLLOWLOCATION 				=> true,
-		CURLOPT_HTTP_VERSION 				=> CURL_HTTP_VERSION_1_1,
-		CURLOPT_CUSTOMREQUEST 				=> 'POST',
-		CURLOPT_POSTFIELDS 					=> json_encode($data),
-		CURLOPT_HTTPHEADER 					=> [
-													'Content-Type: application/json',
-													'Authorization: Bearer ' . $token
-												]
-	));
-
-	$response = curl_exec($curl);
-	curl_close($curl);
-	return $response;
-}
 
 function sendAuditoria($data, $token){
 	$curl = curl_init();
@@ -2439,29 +2416,6 @@ function sendAuditoria($data, $token){
 	return $response;
 }
 
-function consultFE($data, $token){
-	$curl = curl_init();
-
-	curl_setopt_array($curl, array(
-		CURLOPT_URL 						=> FACTURACION_ELECTRONICA_URL.'/api/companies/documents',
-		CURLOPT_RETURNTRANSFER 				=> true,
-		CURLOPT_ENCODING 					=> '',
-		CURLOPT_MAXREDIRS 					=> 10,
-		CURLOPT_TIMEOUT 					=> 0,
-		CURLOPT_FOLLOWLOCATION 				=> true,
-		CURLOPT_HTTP_VERSION 				=> CURL_HTTP_VERSION_1_1,
-		CURLOPT_CUSTOMREQUEST 				=> 'POST',
-		CURLOPT_POSTFIELDS 					=> json_encode($data),
-		CURLOPT_HTTPHEADER 					=> [
-													'Content-Type: application/json',
-													'Authorization: Bearer ' . $token
-												]
-	));
-
-	$response = curl_exec($curl);
-	curl_close($curl);
-	return $response;
-}
 
 function getFileContent($url){//usar solo con urls propias y controladas por encom
 	$ops = 	[
@@ -2700,8 +2654,9 @@ function jsonDieMsg($msg='true',$code=401,$type='error'){
  */
 function saleIsSimplePathEligible(array $payload, array $sale): ?string
 {
-	// `electronicInvoicePY` migrado en 35b (SaleService::dispatchElectronicInvoice).
-	// Ya no se rechaza.
+	// `electronicInvoicePY` era el payload del proveedor de FE legacy, retirado
+	// en F4 — la facturación electrónica vive en api/lib/EInvoice/ y no viaja en
+	// el payload de la venta. No se rechaza.
 	// `repeat` migrado en 35f (SaleService::persistRecurring). No se rechaza.
 	if (!empty($payload['parentId'])) {
 		return 'Venta con parentId no soportada en este path (usar legacy)';

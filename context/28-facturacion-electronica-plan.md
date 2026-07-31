@@ -1,12 +1,13 @@
 # Facturación Electrónica (Factomate / SIFEN) — plan del módulo
 
-> Estado: **F0 implementada** (2026-07-28, sobre Factomate — ver pivot abajo). F1–F4 pendientes.
+> Estado: **F0–F4 implementadas** (F0 2026-07-28, F1–F4 2026-07-30 — ver tabla de fases).
+> F1–F3 verificadas contra la API real solo en el camino de factura al contado con un único medio de pago.
 > Decisiones cerradas con el owner el 2026-07-27 (numeración: ver nota, quedó reabierta el 2026-07-28) — no relitigar sin motivo nuevo.
 
 ## Por qué
 
-Punto no emite facturación electrónica. Lo único que existía era un resto del
-legacy: `sendFE`/`consultFE` (`api/includes/functions.php:2229,2273`),
+Punto no emitía facturación electrónica. Lo único que existía era un resto del
+legacy (retirado entero en F4): `sendFE`/`consultFE` (`api/includes/functions.php:2229,2273`),
 `SaleService::dispatchElectronicInvoice`, `api/lib/services/ElectronicInvoiceService.php`
 y `api/v1/electronic_invoice.php`, todo contra un proveedor genérico con un **token
 global de entorno** (`FACTURACION_ELECTRONICA_TOKEN`) y disparado sólo si la venta
@@ -822,7 +823,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 | **F1** | Mapper, outbox transaccional, drainer con CAS, enqueue en `SaleService`, endpoint de drain, badge en transacciones | **Hecha** (2026-07-30) |
 | **F2** | DataTable de documentos, KuDE PDF (retry 5xx), cancelación, reintento manual, reconciliación SIFEN (`GetAll`), trabados en `sending` expuestos | **Hecha** (2026-07-30) |
 | **F3** | Mapping de medios de pago (UI + `payments[]` por medio real), lookup de RUC en el backend (`clientByRuc` + padrón público), notas de crédito por devolución, factura por el neto | **Hecha** (2026-07-30) — sin verificar contra la API real |
-| **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | Pendiente |
+| **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | **Hecha** (2026-07-30) |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
 | **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante + listado por RUC con segundo factor | Pendiente |
 | **F7** | Onboarding white-label: `CreateExternal` con la credencial admin → persistir `tenantId`/`userId`/credencial en el vault → `PUT /api/Tenant` (datos fiscales) → actividad, sucursales↔outlets, timbrados↔puntos de expedición → `UploadCert` → prueba contra SIFEN. Retira los campos manuales de F0. **Bloqueada** por la credencial admin y por el origen del `phonenumber` | Pendiente |
