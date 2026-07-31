@@ -307,7 +307,9 @@ final class TransactionsService
                 'customerTIN'       => $custId ? ($contacts[$custId]['tin'] ?? '') : '',
                 'userName'          => $usrId ? ($contacts[$usrId]['name'] ?? '-') : '-',
                 'outletName'        => $outlets[(string) $f['outletId']] ?? '',
-                'total'             => (float) $f['transactionTotal'],
+                // Neto con descuento, igual que detail(): total crudo mostraba el
+                // monto sin restar el descuento aplicado a la cotización.
+                'total'             => (float) $f['transactionTotal'] - (float) $f['transactionDiscount'],
                 'outletId'          => (string) $f['outletId'],
                 'type'              => (int) $f['transactionType'],
             ];

@@ -32,10 +32,12 @@ if ($method === 'POST') {
             apiError('code requerido', 400);
         }
 
+        // Match case-insensitivo: la emisión guarda el code en MAYÚSCULAS
+        // (giftcard-issue-dialog.tsx), pero el cajero puede tipearlo en minúscula.
         $row = ncmExecute(
             'SELECT id, code, "currentBalance", "expiresAt", "usedAt"
                FROM giftcard
-              WHERE "companyId" = ? AND code = ?
+              WHERE "companyId" = ? AND UPPER(code) = UPPER(?)
               LIMIT 1',
             [$companyId, $code]
         );
@@ -72,10 +74,11 @@ if ($method === 'POST') {
         }
 
         // Idempotencia: si ya fue consumida por esta misma transacción, ok.
+        // Match case-insensitivo: mismo motivo que en validate() arriba.
         $row = ncmExecute(
-            'SELECT id, "usedAt", "usedByTransactionId", "expiresAt"
+            'SELECT id, code, "usedAt", "usedByTransactionId", "expiresAt"
                FROM giftcard
-              WHERE "companyId" = ? AND code = ?
+              WHERE "companyId" = ? AND UPPER(code) = UPPER(?)
               LIMIT 1',
             [$companyId, $code]
         );
@@ -96,14 +99,15 @@ if ($method === 'POST') {
         }
 
         // Lock optimista: WHERE "usedAt" IS NULL garantiza que solo un proceso
-        // la consume (si 0 filas afectadas → conflict).
+        // la consume (si 0 filas afectadas → conflict). Usa el code real de la
+        // fila encontrada arriba (no el tipeado) para que el UPDATE matchee.
         $db->Execute(
             'UPDATE giftcard
                 SET "usedAt" = NOW(),
                     "usedByTransactionId" = ?,
                     "currentBalance" = 0
               WHERE "companyId" = ? AND code = ? AND "usedAt" IS NULL',
-            [$transactionId, $companyId, $code]
+            [$transactionId, $companyId, $row['code']]
         );
 
         if ((int) $db->Affected_Rows() === 0) {

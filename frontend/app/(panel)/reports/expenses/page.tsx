@@ -96,8 +96,9 @@ export default function ExpensesReportPage() {
     let income = 0
     let extraction = 0
     rows.forEach((r) => {
-      // type: 1 = extracción (sale del cajón), 2 = ingreso (entra al cajón).
-      if (r.type === 2) income += r.amount
+      // type: NULL/0 = extracción (sale del cajón), 1 = ingreso (entra al cajón).
+      // Fuente de verdad: api/lib/services/DrawerService.php.
+      if (r.type === 1) income += r.amount
       else extraction += r.amount
     })
     return { income, extraction, net: income - extraction }
@@ -170,7 +171,7 @@ export default function ExpensesReportPage() {
         header: "Tipo",
         cell: ({ row }) => {
           const t = row.original.type
-          return t === 2 ? (
+          return t === 1 ? (
             <Badge variant="default" className="gap-1">
               <ArrowUp className="size-3" />
               Ingreso
@@ -226,12 +227,12 @@ export default function ExpensesReportPage() {
         cell: ({ row }) => {
           const r = row.original
           const cls =
-            r.type === 2
+            r.type === 1
               ? "tabular-nums font-medium text-emerald-600"
               : "tabular-nums font-medium text-destructive"
           return (
             <span className={cls}>
-              {r.type === 2 ? "+" : "−"} {formatMoney(r.amount, bootstrap)}
+              {r.type === 1 ? "+" : "−"} {formatMoney(r.amount, bootstrap)}
             </span>
           )
         },

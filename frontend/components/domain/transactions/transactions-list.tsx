@@ -268,7 +268,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
   const { data: teamData } = useTeamMembers({ status: "1" })
   const paymentMethods = useCatalogStore((s) => s.paymentMethods)
 
-  function handleRowClick(row: TransactionRow) {
+  function handleRowClick(row: { transactionId: string }) {
     if (mode === "pos") {
       setSelectedId(row.transactionId)
       setSheetOpen(true)
@@ -774,6 +774,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
               isLoading={quotesLoading}
               searchPlaceholder="Buscar por documento, cliente, usuario…"
               exportFileName="cotizaciones"
+              onRowClick={handleRowClick}
               emptyMessage={
                 <EmptyState
                   icon={Receipt}

@@ -53,7 +53,7 @@ export function GiftcardValidationDialog({
   }, [open])
 
   async function handleValidate() {
-    const trimmed = code.trim()
+    const trimmed = code.trim().toUpperCase()
     if (!trimmed) {
       setError("Ingresá el código de la giftcard")
       return
