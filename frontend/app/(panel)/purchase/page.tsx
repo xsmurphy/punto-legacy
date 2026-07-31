@@ -290,7 +290,8 @@ export default function NewPurchasePage() {
       {/* Layout 2-col: izquierda datos generales, derecha items + totales */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
         {/* ── Columna izquierda — datos generales ───────────────────────── */}
-        <aside className="flex flex-col gap-5 rounded-lg border bg-card p-4">
+        {/* Card soft: fondo gris unificado de cards angostas (context/20 §cards). */}
+        <aside className="flex flex-col gap-5 rounded-lg border bg-[#f3f4f6] p-4 dark:bg-muted">
           <SupplierPicker
             value={supplierId}
             displayName={supplierName}
