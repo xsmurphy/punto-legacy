@@ -18,7 +18,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 }
 
 $widgets = [
-    'info', 'incomeOutcomeStats', 'paymentStatus', 'customers', 'customersRates',
+    'info', 'incomeOutcomeStats', 'paymentStatus', 'customers', 'customersRates', 'customersSeries',
     'topItems', 'topHours', 'topCategories', 'topBrands', 'topPayments', 'satisfaction',
     'orders', 'tables', 'schedule', 'notifications', 'notificationsCount', 'getReminders',
 ];

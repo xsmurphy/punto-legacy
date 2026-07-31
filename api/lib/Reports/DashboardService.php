@@ -44,6 +44,7 @@ final class DashboardService
             case 'paymentStatus':       return $this->paymentStatus($opts, $roc, $companyId);
             case 'customers':           return $this->customers($opts, $roc, $companyId);
             case 'customersRates':      return $this->customersRates($opts, $roc, $companyId);
+            case 'customersSeries':     return $this->customersSeries($opts, $companyId);
             case 'topItems':            return $this->topItems($opts, $roc, $companyId);
             case 'topHours':            return $this->topHours($opts, $roc);
             case 'topCategories':       return $this->topTaxonomy($opts, 'categoryId', 'Sin categoría', $roc, $companyId);
@@ -198,6 +199,37 @@ final class DashboardService
     {
         [$from, $to] = $this->range($opts);
         return $this->customersRate($from, $to, $roc, $companyId);
+    }
+
+    /**
+     * Serie de clientes NUEVOS por mes (para gráficos de evolución, ej. el agente IA).
+     * Mismo criterio que `customers()->new`: contact.type=1, contactDate en rango,
+     * companyId. Sin roc: contact NO está scopeado por outlet (igual que `customers()`,
+     * cuyo `new`/`total` tampoco aplica $roc — solo el join de recurrentes lo usa).
+     */
+    private function customersSeries(array $opts, string $companyId): array
+    {
+        [$from, $to] = $this->range($opts);
+
+        $sql = "SELECT to_char(date_trunc('month', contactDate), 'YYYY-MM') AS bucket,
+                       COUNT(contactId) AS count
+                FROM contact
+                WHERE type = 1 AND companyId = ? AND contactDate BETWEEN ? AND ?
+                GROUP BY bucket
+                ORDER BY bucket ASC";
+
+        $res  = ncmExecute($sql, [$companyId, $from, $to], false, true);
+        $rows = [];
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $f      = $res->fields;
+                $rows[] = ['bucket' => (string) $f['bucket'], 'new' => (int) ($f['count'] ?? 0)];
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+
+        return ['rows' => $rows];
     }
 
     /* ───────────── widgets "top" ───────────── */

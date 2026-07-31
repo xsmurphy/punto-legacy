@@ -21,6 +21,7 @@ import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
+import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
@@ -307,6 +308,15 @@ export default function ChatPage() {
                         }
                         if (part.type === "tool-execute_action" && part.state === "output-available") {
                           return <ExecuteActionSummary key={idx} output={part.output as never} />
+                        }
+                        if (part.type === "tool-render_chart") {
+                          if (part.state === "output-available") {
+                            return <AgentChart key={idx} input={part.input} />
+                          }
+                          if (part.state === "input-available") {
+                            return <AgentChartSkeleton key={idx} />
+                          }
+                          return null
                         }
                         return null
                       }
