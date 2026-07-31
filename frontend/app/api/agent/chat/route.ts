@@ -3,6 +3,7 @@ import { streamText, tool, convertToModelMessages, stepCountIs, hasToolCall, smo
 import { z } from "zod"
 import type { UIMessage } from "ai"
 import { makeActionTools } from "@/lib/agent/confirm-tool"
+import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -73,23 +74,17 @@ export async function POST(req: Request) {
     console.error("[agent] fallo al leer ai/config, usando default", e)
   }
 
-  // Gate: verificar balance antes de llamar al modelo
+  // Gate de créditos ANTES de llamar al modelo — wrapper compartido con
+  // /api/ocr-invoice (lib/ai/billing-gate.ts). FAIL-CLOSED: si no se puede
+  // verificar el balance, no procede (antes era fail-open).
+  const requestId = crypto.randomUUID()
   try {
-    const balRes = await fetch(`${apiUrl}/v1/ai/balance`, {
-      headers: { cookie },
-    })
-    if (balRes.ok) {
-      const balData = (await balRes.json()) as { data?: { balance: number }; balance?: number }
-      const balance = balData?.data?.balance ?? (balData as { balance?: number })?.balance ?? 0
-      if (balance <= 0) {
-        return Response.json({ error: "Sin créditos" }, { status: 402 })
-      }
-    } else {
-      console.error(`[agent] ai/balance respondió ${balRes.status}, fail-open (no se gatea)`)
-    }
+    await assertAiCredits({ apiUrl, cookie, logPrefix: "[agent]" })
   } catch (e) {
-    // fail-open: si no podemos verificar, dejamos pasar, pero dejamos rastro
-    console.error("[agent] fallo al verificar balance, fail-open (no se gatea)", e)
+    if (e instanceof AiCreditsError) {
+      return Response.json({ error: e.message }, { status: e.status })
+    }
+    throw e
   }
 
   // Contexto del negocio (server-side, autoritativo): moneda + país. Para que el
@@ -209,21 +204,16 @@ export async function POST(req: Request) {
     onFinish: async ({ usage }) => {
       const tokensIn  = Number(usage.inputTokens  ?? 0)
       const tokensOut = Number(usage.outputTokens ?? 0)
-      if (tokensIn === 0 && tokensOut === 0) return
-      try {
-        await fetch(`${apiUrl}/v1/ai/debit`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", cookie },
-          body: JSON.stringify({
-            tokensIn,
-            tokensOut,
-            capability: "chat",
-            model: modelId,
-          }),
-        })
-      } catch (e) {
-        console.error("[agent] debit failed", e)
-      }
+      await debitAiUsage({
+        apiUrl,
+        cookie,
+        tokensIn,
+        tokensOut,
+        capability: "chat",
+        model: modelId,
+        requestId,
+        logPrefix: "[agent]",
+      })
     },
     tools: {
       get_sales_summary: tool({

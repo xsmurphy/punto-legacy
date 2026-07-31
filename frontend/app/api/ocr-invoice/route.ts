@@ -1,16 +1,18 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import { generateObject } from "ai"
 import { z } from "zod"
+import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 
 /**
  * BFF — OCR de facturas de compra (context/32-ocr-facturas-compra.md).
  *
  *   POST /api/ocr-invoice   multipart/form-data { image: File, outletId: string }
  *
- * Patrón calcado de `app/api/agent/chat/route.ts`: mismo gate de créditos
- * (`/v1/ai/balance`), mismo mecanismo de elegir modelo (`/v1/ai/config`, acá
- * capability `vision`), mismo débito best-effort (`/v1/ai/debit`). NO
- * Anthropic SDK — OpenRouter vía `@openrouter/ai-sdk-provider`.
+ * Patrón calcado de `app/api/agent/chat/route.ts`: mismo mecanismo de elegir
+ * modelo (`/v1/ai/config`, acá capability `vision`). El gate de créditos
+ * (pre-check fail-closed) y el débito (post, best-effort) están en el
+ * wrapper compartido `lib/ai/billing-gate.ts` — no duplicar esa lógica acá.
+ * NO Anthropic SDK — OpenRouter vía `@openrouter/ai-sdk-provider`.
  *
  * Flujo:
  *   1. Gate de créditos ANTES de gastar nada.
@@ -124,24 +126,18 @@ export async function POST(req: Request) {
   }
   const outletId = String(form.get("outletId") ?? "")
 
-  // Gate de créditos ANTES de procesar — mismo criterio que el chat
-  // (ai/balance). Falla clara al usuario en vez de gastar la llamada IA.
+  // Gate de créditos ANTES de procesar — wrapper compartido con el chat
+  // (lib/ai/billing-gate.ts). FAIL-CLOSED: si no se puede verificar el
+  // balance, no procede (antes era fail-open).
+  const requestId = crypto.randomUUID()
   try {
-    const balRes = await fetch(`${apiUrl}/v1/ai/balance`, { headers: { cookie } })
-    if (balRes.ok) {
-      const balData = (await balRes.json()) as { data?: { balance: number }; balance?: number }
-      const balance = balData?.data?.balance ?? (balData as { balance?: number })?.balance ?? 0
-      if (balance <= 0) {
-        return Response.json(
-          { ok: false, error: { message: "Sin créditos para procesar facturas con IA" } },
-          { status: 402 },
-        )
-      }
-    } else {
-      console.error(`[ocr-invoice] ai/balance respondió ${balRes.status}, fail-open (no se gatea)`)
-    }
+    await assertAiCredits({ apiUrl, cookie, logPrefix: "[ocr-invoice]" })
   } catch (e) {
-    console.error("[ocr-invoice] fallo al verificar balance, fail-open", e)
+    if (e instanceof AiCreditsError) {
+      const message = e.status === 402 ? "Sin créditos para procesar facturas con IA" : e.message
+      return Response.json({ ok: false, error: { message } }, { status: e.status })
+    }
+    throw e
   }
 
   // Modelo de la capability 'vision' (ai_model_config, mig 43/98). Fallback
@@ -201,19 +197,18 @@ export async function POST(req: Request) {
     extractError = e instanceof Error ? e.message : "No se pudo leer la factura"
   }
 
-  // Débito best-effort — mismo patrón que el chat (onFinish del stream): si
-  // falla, se loguea pero NO bloquea la creación del borrador.
-  if (tokensIn + tokensOut > 0) {
-    try {
-      await fetch(`${apiUrl}/v1/ai/debit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", cookie },
-        body: JSON.stringify({ tokensIn, tokensOut, capability: "vision", model: modelId }),
-      })
-    } catch (e) {
-      console.error("[ocr-invoice] debit failed", e)
-    }
-  }
+  // Débito best-effort — mismo wrapper que el chat: si falla, se loguea con
+  // requestId para reconciliar pero NO bloquea la creación del borrador.
+  await debitAiUsage({
+    apiUrl,
+    cookie,
+    tokensIn,
+    tokensOut,
+    capability: "vision",
+    model: modelId,
+    requestId,
+    logPrefix: "[ocr-invoice]",
+  })
 
   // Crear el borrador vía PHP — sube la imagen (S3/DO Spaces, mismo
   // mecanismo que items.php) y persiste `extracted`. Reenviamos los MISMOS
