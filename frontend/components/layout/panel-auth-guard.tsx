@@ -23,6 +23,17 @@ import {
   Users,
   Truck,
   UserCog,
+  Receipt,
+  ScrollText,
+  HandCoins,
+  Gift,
+  RefreshCw,
+  ShoppingCart,
+  Package,
+  ClipboardList,
+  Wallet,
+  Banknote,
+  Landmark,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -49,6 +60,16 @@ const panelNav: NavEntry[] = [
   { title: "Dashboard", to: "/", icon: LayoutDashboard },
   { title: "Asistente", to: "/chat", icon: MessageCircle, hideOnMobile: true },
   {
+    title: "Ventas",
+    icon: Receipt,
+    items: [
+      { title: "Transacciones", to: "/reports/transactions", icon: ScrollText, requires: "reports.sales.view" },
+      { title: "Cuentas por cobrar", to: "/reports/open-invoices", icon: HandCoins, requires: "reports.sales.view" },
+      { title: "Gift cards", to: "/reports/giftcards", icon: Gift, requires: "reports.giftcards.view" },
+      { title: "Facturas recurrentes", to: "/reports/recurring", icon: RefreshCw, requires: "reports.recurring.view" },
+    ],
+  },
+  {
     title: "Artículos",
     icon: LayoutTemplate,
     items: [
@@ -60,6 +81,16 @@ const panelNav: NavEntry[] = [
     ],
   },
   {
+    title: "Compras y Gastos",
+    icon: ShoppingCart,
+    items: [
+      { title: "Registro de compras", to: "/purchase", icon: Package },
+      { title: "Compras y gastos", to: "/reports/purchases", icon: ClipboardList, requires: "reports.purchases.view" },
+      { title: "Cuentas por pagar", to: "/reports/open-invoices?state=outcome", icon: Wallet, requires: "reports.sales.view" },
+      { title: "Movimientos de caja", to: "/reports/expenses", icon: Banknote, requires: "reports.expenses.view" },
+    ],
+  },
+  {
     title: "Contactos",
     icon: Contact,
     items: [
@@ -68,6 +99,7 @@ const panelNav: NavEntry[] = [
       { title: "Usuarios", to: "/contacts?type=0", icon: UserCog, requires: "contacts.user.view" },
     ],
   },
+  { title: "Finanzas", to: "/finanzas", icon: Landmark, requires: "finance.manage" },
   { title: "Reportes", to: "/reports", icon: ChartPie, requires: "reports.sales.view" },
   { title: "Caja", to: "/pos", icon: ScanBarcode }, // Caja = POS dentro del propio panel...
 ]

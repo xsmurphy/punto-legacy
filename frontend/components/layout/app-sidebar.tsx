@@ -37,7 +37,6 @@ import {
   Search,
   ChevronRight,
   ReceiptText,
-  ShoppingCart,
   Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -401,12 +400,6 @@ export function AppSidebar({
                     <Link href="/history-billing">
                       <ReceiptText />
                       Mi Plan
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/purchase">
-                      <ShoppingCart />
-                      Compras y Gastos
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
