@@ -370,41 +370,38 @@ final class CheckService
 
     // ── helpers internos ─────────────────────────────────────────────────
 
-    /** Crea el movimiento asociado al cheque si todavía no existe (idempotente por UNIQUE source+sourceid). */
+    /** Crea el movimiento asociado al cheque si todavía no existe (idempotente por UNIQUE source+sourceid+accountid). */
     private function ensureMovement(string $checkId, string $companyId, array $check, ?string $userId, ?string $outletId): void
     {
-        $existing = ncmExecute(
-            "SELECT movementid FROM fin_movement WHERE companyid = ? AND source = ? AND sourceid = ? AND status = 1 LIMIT 1",
-            [$companyId, self::SOURCE, $checkId]
-        );
-        if ($existing) {
-            return; // ya existe — idempotente, no duplicar
-        }
-
         $kind = $check['direction'] === 'received' ? 'income' : 'expense';
         $label = $check['direction'] === 'received' ? 'Cheque recibido' : 'Cheque emitido';
         $description = $check['description'] ?: ($label . ($check['partyName'] ? ' — ' . $check['partyName'] : ''));
 
-        $movementId = ncmInsert([
-            'records' => [
-                'companyid'   => $companyId,
-                'accountid'   => $check['accountId'],
-                'categoryid'  => $check['categoryId'],
-                'kind'        => $kind,
-                'amount'      => $check['amount'],
-                'date'        => date('Y-m-d H:i:s'),
-                'description' => $description,
-                'source'      => self::SOURCE,
-                'sourceid'    => $checkId,
-                'checkid'     => $checkId,
-                'userid'      => $userId,
-                'outletid'    => $outletId,
-                'status'      => 1,
-            ],
-            'table' => 'fin_movement',
-        ]);
-        if (!$movementId) {
-            throw new \RuntimeException('No se pudo generar el movimiento del cheque');
+        // Idempotencia ATÓMICA: INSERT ... ON CONFLICT DO NOTHING RETURNING —
+        // mismo patrón que MovementService::recordDerivedMovement. El UNIQUE
+        // (companyid, source, sourceid, accountid) de fin_movement (mig 73) es
+        // el árbitro: si otro request ya efectivizó este cheque, el ON CONFLICT
+        // no crea fila y el RETURNING viene vacío → NO ajustamos saldo.
+        // Reemplaza el patrón SELECT-luego-INSERT anterior, que dejaba una
+        // ventana TOCTOU: dos requests marcando 'cleared' a la vez chocaban
+        // contra el UNIQUE como error duro en vez de resolver como no-op.
+        $inserted = ncmExecute(
+            'INSERT INTO fin_movement
+                (companyid, accountid, categoryid, kind, amount, date, description,
+                 source, sourceid, checkid, userid, outletid, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+             ON CONFLICT (companyid, source, sourceid, accountid)
+                 WHERE sourceid IS NOT NULL
+             DO NOTHING
+             RETURNING movementid',
+            [
+                $companyId, $check['accountId'], $check['categoryId'], $kind, $check['amount'],
+                date('Y-m-d H:i:s'), $description, self::SOURCE, $checkId, $checkId, $userId, $outletId,
+            ]
+        );
+
+        if (!$inserted || empty($inserted['movementid'])) {
+            return; // ya existía (otro request ganó la carrera) — no duplicar saldo
         }
 
         $sign = $kind === 'income' ? '+' : '-';

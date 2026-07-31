@@ -59,13 +59,14 @@ final class LoanService
                            COUNT(*) FILTER (WHERE status = 'paid') AS paidcount,
                            MIN(duedate) FILTER (WHERE status = 'pending') AS nextduedate
                       FROM fin_loan_installment
+                     WHERE companyid = ?
                      GROUP BY loanid
                   ) agg ON agg.loanid = l.loanid
                  WHERE {$where}
                  ORDER BY l.created_at DESC
                  LIMIT {$limit} OFFSET {$offset}";
 
-        $rs = ncmExecute($sql, $params, false, true);
+        $rs = ncmExecute($sql, array_merge([$companyId], $params), false, true);
         $rows = [];
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
@@ -215,25 +216,37 @@ final class LoanService
         ?string $userId = null,
         ?string $outletId = null
     ): array {
+        global $db;
+
         if (!preg_match(self::UUID_RE, $installmentId)) {
             throw new \RuntimeException('id de cuota inválido');
         }
         if (!preg_match(self::UUID_RE, $accountId)) {
             throw new \RuntimeException('Seleccioná una cuenta para registrar el pago');
         }
+        if (!(new AccountService())->find($accountId, $companyId)) {
+            throw new \RuntimeException('Cuenta no encontrada');
+        }
 
+        $db->StartTrans();
+
+        // SELECT ... FOR UPDATE: bloquea la fila de la cuota durante toda la
+        // transacción. Dos pagos concurrentes sobre la misma cuota (aunque
+        // apunten a cuentas distintas) se serializan acá — el segundo espera
+        // el lock, relee el status YA 'paid' que dejó el primero dentro de
+        // ESTA transacción, y sale por el camino idempotente en vez de
+        // generar un segundo movimiento.
         $installment = ncmExecute(
-            'SELECT * FROM fin_loan_installment WHERE installmentid = ? AND companyid = ? LIMIT 1',
+            'SELECT * FROM fin_loan_installment WHERE installmentid = ? AND companyid = ? LIMIT 1 FOR UPDATE',
             [$installmentId, $companyId]
         );
         if (!$installment) {
+            $db->CompleteTrans();
             throw new \RuntimeException('Cuota no encontrada');
         }
         if ((string) $installment['status'] === 'paid') {
+            $db->CompleteTrans();
             return $this->findInstallment($installmentId, $companyId); // idempotente
-        }
-        if (!(new AccountService())->find($accountId, $companyId)) {
-            throw new \RuntimeException('Cuenta no encontrada');
         }
 
         $loanId = (string) $installment['loanid'];
@@ -256,6 +269,12 @@ final class LoanService
         );
 
         $this->syncLoanStatus($loanId, $companyId);
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException('No se pudo registrar el pago de la cuota');
+        }
 
         return $this->findInstallment($installmentId, $companyId);
     }
