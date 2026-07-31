@@ -408,12 +408,14 @@ final class PurchaseDraftService
 
     private function present(array|\CaseInsensitiveArray $row): array
     {
+        $extracted = $this->decodeJsonb($row['extracted_raw'] ?? $row['extracted'] ?? null);
         return [
             'id'            => (string) $row['draftid'],
             'status'        => (string) $row['status'],
             'imageUrl'      => $row['imageref'] !== null ? (string) $row['imageref'] : null,
-            'extracted'     => $this->decodeJsonb($row['extracted_raw'] ?? $row['extracted'] ?? null),
+            'extracted'     => $extracted,
             'edited'        => $this->decodeJsonb($row['edited_raw'] ?? $row['edited'] ?? null),
+            'warnings'      => $this->computeWarnings($extracted),
             'contactId'     => $row['contactid'] !== null ? (string) $row['contactid'] : null,
             'contactName'   => $row['contactname'] ?? null,
             'contactTin'    => $row['contacttin'] ?? null,
@@ -424,6 +426,61 @@ final class PurchaseDraftService
             'createdAt'     => (string) $row['created_at'],
             'approvedAt'    => $row['approved_at'] !== null ? (string) $row['approved_at'] : null,
         ];
+    }
+
+    /**
+     * Validación aritmética post-extracción — la IA no valida sus propias
+     * sumas y nadie más lo chequeaba. Compara (1) suma de items[].total vs
+     * totals.subtotal y (2) subtotal + iva5 + iva10 - discount vs
+     * totals.total, con tolerancia ±1 (redondeos de la imagen/OCR).
+     *
+     * NO bloquea nada — son warnings informativos para la pantalla de
+     * revisión, el humano decide igual. Única fuente de esta validación:
+     * se recalcula acá en cada lectura a partir de `extracted` (jsonb
+     * inmutable, nunca se persiste un resultado que pueda desincronizarse).
+     *
+     * @param array<string,mixed>|null $extracted
+     * @return string[]
+     */
+    private function computeWarnings(?array $extracted): array
+    {
+        if ($extracted === null) {
+            return [];
+        }
+
+        $tolerance = 1.0;
+        $warnings  = [];
+
+        $items  = is_array($extracted['items'] ?? null) ? $extracted['items'] : [];
+        $totals = is_array($extracted['totals'] ?? null) ? $extracted['totals'] : [];
+
+        $itemsSum      = 0.0;
+        $hasItemTotals = false;
+        foreach ($items as $item) {
+            if (is_array($item) && isset($item['total']) && is_numeric($item['total'])) {
+                $itemsSum += (float) $item['total'];
+                $hasItemTotals = true;
+            }
+        }
+
+        $subtotal = isset($totals['subtotal']) && is_numeric($totals['subtotal']) ? (float) $totals['subtotal'] : null;
+        if ($hasItemTotals && $subtotal !== null && abs($itemsSum - $subtotal) > $tolerance) {
+            $warnings[] = 'Los montos no cuadran: la suma de los ítems no coincide con el subtotal.';
+        }
+
+        $iva5     = isset($totals['iva5']) && is_numeric($totals['iva5']) ? (float) $totals['iva5'] : 0.0;
+        $iva10    = isset($totals['iva10']) && is_numeric($totals['iva10']) ? (float) $totals['iva10'] : 0.0;
+        $discount = isset($totals['discount']) && is_numeric($totals['discount']) ? (float) $totals['discount'] : 0.0;
+        $total    = isset($totals['total']) && is_numeric($totals['total']) ? (float) $totals['total'] : null;
+
+        if ($subtotal !== null && $total !== null) {
+            $expected = $subtotal + $iva5 + $iva10 - $discount;
+            if (abs($expected - $total) > $tolerance) {
+                $warnings[] = 'Los montos no cuadran: subtotal + IVA - descuento no coincide con el total.';
+            }
+        }
+
+        return $warnings;
     }
 
     private function decodeJsonb($val): ?array

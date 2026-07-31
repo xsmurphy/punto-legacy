@@ -406,6 +406,29 @@ export default function PurchaseDraftReviewPage() {
           <AlertDescription>Revisá con cuidado todos los campos antes de aprobar.</AlertDescription>
         </Alert>
       )}
+      {draft.warnings.length > 0 && (
+        <Alert>
+          <TriangleAlert />
+          <AlertTitle>Los montos no cuadran</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc pl-4">
+              {draft.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+      {draft.extracted?.receiverMatchesTenant === false && (
+        <Alert>
+          <TriangleAlert />
+          <AlertTitle>Esta factura no parece estar emitida a nombre de tu empresa</AlertTitle>
+          <AlertDescription>
+            RUC del receptor detectado: {draft.extracted.receiver?.ruc ?? "no legible"}. Revisá que sea
+            la factura correcta antes de aprobar.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
         {/* ── Imagen de la factura ──────────────────────────────────────── */}

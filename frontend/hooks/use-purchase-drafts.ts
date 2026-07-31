@@ -28,20 +28,31 @@ export interface ExtractedInvoiceItem {
 
 export interface ExtractedInvoice {
   supplier: { name: string | null; ruc: string | null }
+  receiver: { ruc: string | null; name: string | null }
   invoice: {
     number: string | null
     timbrado: string | null
+    timbradoStart: string | null
+    timbradoEnd: string | null
     date: string | null
     condition: "contado" | "credito" | null
     dueDate?: string | null
+    isElectronic: boolean | null
+    cdc: string | null
   }
   items: ExtractedInvoiceItem[]
   totals: {
     subtotal: number | null
+    exempt: number | null
+    discount: number | null
     iva5: number | null
     iva10: number | null
     total: number | null
   }
+  currency: string
+  isInvoice: boolean
+  /** null = no había RUC de tenant cargado en la sucursal para comparar. */
+  receiverMatchesTenant: boolean | null
   confidence: number
 }
 
@@ -64,6 +75,8 @@ export interface PurchaseDraftDetail {
   imageUrl: string | null
   extracted: ExtractedInvoice | null
   edited: PurchaseCreatePayload | null
+  /** Validación aritmética post-extracción (subtotal/IVA/total) — no bloqueante. */
+  warnings: string[]
   contactId: string | null
   contactName: string | null
   contactTin: string | null

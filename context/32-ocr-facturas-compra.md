@@ -29,13 +29,62 @@
 
 ## JSON de extracción
 
-{ supplier: { name, ruc }, invoice: { number, timbrado, date,
-  condition: 'contado'|'credito', dueDate? }, items: [ { description,
-  quantity, unitPrice, total, ivaRate: 0|5|10 } ], totals: { subtotal,
-  iva5, iva10, total }, confidence: 0..1 }
+{ supplier: { name, ruc }, receiver: { ruc, name }, invoice: { number,
+  timbrado, timbradoStart, timbradoEnd, date, condition: 'contado'|'credito',
+  dueDate?, isElectronic, cdc }, items: [ { description, quantity,
+  unitPrice, total, ivaRate: 0|5|10 } ], totals: { subtotal, exempt,
+  discount, iva5, iva10, total }, currency, isInvoice, receiverMatchesTenant,
+  confidence: 0..1 }
 
 Campos que la IA no pudo leer → null (nunca inventar). `confidence` bajo →
 banner de advertencia en la UI de revisión.
+
+## Criterios de extracción
+
+Técnicas tomadas del pipeline de facturas de Urban Domus (proyecto hermano
+del owner, mismo dominio: facturas de proveedores paraguayos), adaptadas a
+multi-tenant. Implementado en `EXTRACTION_PROMPT` / `buildExtractionPrompt`
+(`frontend/app/api/ocr-invoice/route.ts`).
+
+- **Guía espacial por bloques** — el prompt le dice al modelo dónde suele
+  estar cada dato, que es lo que más sube la precisión: Bloque A (superior,
+  timbrado + nro factura + RUC/razón social emisor), Bloque B (centro o pie
+  en tickets: fechas, RUC/razón social/dirección del cliente, condición de
+  venta), Bloque C (centro, detalle de ítems), Bloque D (inferior, totales/
+  IVA/moneda). Si un dato se repite, prioriza el bloque que le corresponde.
+- **Formatos PY**: nro factura `XXX-XXX-XXXXXXX` (3-3-7, agregar guiones si
+  vienen corridos), timbrado 8 dígitos exactos, RUC hasta 8 dígitos + guion
+  + dígito verificador, números con punto decimal, montos PYG enteros sin
+  separadores, fechas `YYYY-MM-DD`.
+- **Identificación del documento**: válida solo si contiene "factura" o
+  "timbrado" (o variantes) → `isInvoice`. No bloquea el resto de la
+  extracción si es `false`.
+- **Verificación de destinatario multi-tenant**: el prompt de referencia
+  hardcodea una allowlist de 3 RUCs — acá eso NO existe. Se resuelve el RUC
+  de la sucursal (`outlet.ruc`, vía `GET /v1/outlets?id=`) por request; si no
+  hay RUC cargado, se omite la sección del prompt entera. `receiver.ruc` lo
+  extrae el modelo, pero `receiverMatchesTenant` SIEMPRE se recalcula en
+  código (`rucsMatch` en route.ts) — nunca se confía en la comparación del
+  LLM. `false` → warning no bloqueante en la UI, nunca invalida la factura.
+- **Regla de nulls (NO se copia del proyecto de referencia)**: Urban Domus
+  rellena defaults inventados (timbrado `11111111`, descripción `SERVICIOS
+  PRESTADOS`, precision fija 95) para nunca devolver vacío. Para Punto es
+  inaceptable — el borrador lo aprueba un humano y un default inventado se
+  cuela como si fuera un dato real leído de la factura. Campo ilegible →
+  `null`, siempre. Único default real: `currency` = "PYG" cuando no se
+  detecta explícitamente (es la moneda del tenant, no un dato de la
+  factura), aplicado en código, no pedido al modelo.
+- **Validación aritmética post-extracción** (código, no prompt — la IA no
+  valida sus propias sumas): `PurchaseDraftService::computeWarnings()`
+  compara suma de `items[].total` vs `totals.subtotal`, y `subtotal + iva5 +
+  iva10 - discount` vs `totals.total`, tolerancia ±1 (redondeos). Se
+  recalcula en cada lectura a partir de `extracted` (nunca se persiste, una
+  sola fuente). Discrepancia → `warnings: string[]` en el draft, banner no
+  bloqueante en la pantalla de revisión — el humano decide igual.
+
+**Fuera de alcance (decisión pendiente del owner)**: el preprocesado de
+imagen que usa Urban Domus (servicio externo `invoice-cleaner.actuo.app`,
+API key propia) no se adoptó — requiere decisión de costo/credenciales.
 
 ## UI
 
