@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Landmark, Loader2, MoreVertical, Plus, Receipt } from "lucide-react"
+import { Landmark, Loader2, MoreVertical, Plus } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -146,7 +146,6 @@ export default function FinanzasCuentasPage() {
                   <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenuItem asChild>
                       <Link href={`/finanzas/movimientos?accountId=${account.id}`}>
-                        <Receipt className="size-4" />
                         Ver movimientos
                       </Link>
                     </DropdownMenuItem>
