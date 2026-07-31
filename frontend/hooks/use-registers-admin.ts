@@ -3,12 +3,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 
+/**
+ * Timbrado de la caja — la caja ES el punto de expedición (context/29 §1),
+ * así que su timbrado (número, EEE-PPP, vigencia) vive acá y no en la
+ * pantalla de facturación electrónica, que solo lo LEE.
+ */
+export interface RegisterFiscal {
+  /** Número de timbrado asignado por la SET. */
+  invoiceAuth: string
+  /** "EEE-PPP" — establecimiento y punto de expedición (ej. "001-001"). */
+  invoicePrefix: string
+  /** Inicio de vigencia, "YYYY-MM-DD". */
+  invoiceAuthStart: string
+  /** Vencimiento, "YYYY-MM-DD". */
+  invoiceAuthExpiration: string
+}
+
 export interface RegisterListItem {
   id: string
   name: string
   outletId: string
   outletName: string
   status: boolean
+  fiscal: RegisterFiscal
 }
 
 export function useRegistersAdmin() {
@@ -41,12 +58,13 @@ export function useUpdateRegister() {
   return useMutation<
     { ok: boolean },
     Error,
-    { id: string; name?: string; status?: boolean }
+    { id: string; name?: string; status?: boolean; fiscal?: Partial<RegisterFiscal> }
   >({
     mutationFn: (vars) => {
       const payload: Record<string, unknown> = { action: "update", id: vars.id }
       if (vars.name !== undefined)   payload.name   = vars.name
       if (vars.status !== undefined) payload.status = vars.status
+      if (vars.fiscal !== undefined) payload.fiscal = vars.fiscal
       return api.post<{ ok: boolean }>("/v1/register", payload)
     },
     onSuccess: () => {

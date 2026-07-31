@@ -3,11 +3,13 @@
 /**
  * Facturación Electrónica — configuración del comercio (F7, white-label).
  *
- * El comercio NUNCA ve al proveedor de FE: acá se completan los datos
- * LEGALES del emisor (RUC, actividad económica, timbrado de la SET,
- * certificado de firma) y Punto provisiona la cuenta por detrás con su
- * credencial admin (ver EInvoiceProvisioningService). Ninguna sección de
- * esta pantalla pide ni muestra credenciales.
+ * El comercio NUNCA ve al proveedor de FE, y NO re-tipea lo que Punto ya
+ * tiene: el RUC y la razón social salen de Configuración del negocio, y los
+ * timbrados de las CAJAS — cada caja es un punto de expedición (context/29
+ * §1), la sección "Timbrados por caja" edita LA CAJA, no una copia. Acá solo
+ * se completa lo que no existe en otro lado (actividad económica, tipo de
+ * contribuyente, email, CSC, certificado). Punto provisiona la cuenta por
+ * detrás con su credencial admin (EInvoiceProvisioningService).
  *
  * Dos estados:
  *   - Sin provisionar → formulario de alta (datos fiscales + timbrado).
@@ -43,7 +45,10 @@ import {
 } from "@/hooks/use-einvoice"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { usePermission } from "@/hooks/use-permissions"
+import { useRegistersAdmin, useUpdateRegister, type RegisterFiscal, type RegisterListItem } from "@/hooks/use-registers-admin"
+import { useSettings } from "@/hooks/use-settings"
 import type { EInvoiceConfig, EInvoiceFiscalForm, EInvoiceStatus } from "@/lib/types/einvoice"
+import Link from "next/link"
 
 function StatusBadge({ status }: { status: EInvoiceStatus }) {
   if (status === "ok") return <Badge>Habilitado</Badge>
@@ -108,9 +113,6 @@ export function EInvoiceManager() {
 // ── Alta del emisor — formulario legal ──────────────────────────────────────
 
 const EMPTY_FORM: EInvoiceFiscalForm = {
-  ruc: "",
-  razonSocial: "",
-  nombreFantasia: "",
   email: "",
   taxpayerType: 2,
   actividadCodigo: "",
@@ -118,7 +120,168 @@ const EMPTY_FORM: EInvoiceFiscalForm = {
   cscId: "",
   cscSecret: "",
   infoAdicional: "",
-  timbrado: { numero: "", establecimiento: "001", puntoExpedicion: "001", fechaInicio: "", serie: "" },
+}
+
+/**
+ * RUC y razón social — solo LECTURA: la fuente es Configuración del negocio.
+ * Si faltan, el link lleva a cargarlos ahí (un solo lugar por dato).
+ */
+function CompanyFiscalSummary() {
+  const { data: settings, isLoading } = useSettings()
+  const ruc = settings?.ruc?.trim() ?? ""
+  const billingName = settings?.billingName?.trim() || settings?.name?.trim() || ""
+  const missing = !isLoading && (ruc === "" || billingName === "")
+
+  return (
+    <div className="flex flex-col gap-2">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
+        <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+          <dt className="text-xs text-muted-foreground">RUC</dt>
+          <dd className="text-sm tabular-nums">{isLoading ? "…" : ruc || "—"}</dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+          <dt className="text-xs text-muted-foreground">Razón social</dt>
+          <dd className="text-sm">{isLoading ? "…" : billingName || "—"}</dd>
+        </div>
+      </dl>
+      <p className="text-sm text-muted-foreground">
+        {missing ? "Faltan datos del negocio — completalos en " : "Estos datos salen de "}
+        <Link href="/settings" className="underline underline-offset-2">
+          Configuración del negocio
+        </Link>
+        .
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Timbrados POR CAJA — cada caja es un punto de expedición (context/29 §1).
+ * Esta sección edita LA CAJA (register.data, vía el endpoint de cajas): no
+ * existe una copia del timbrado en facturación electrónica. El alta del
+ * emisor lee de acá.
+ */
+function RegisterStampsCard({ canManage }: { canManage: boolean }) {
+  const { data, isLoading } = useRegistersAdmin()
+  const registers = (data?.registers ?? []).filter((r) => r.status)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Timbrados por caja</CardTitle>
+        <CardDescription>
+          Cada caja es un punto de expedición: cargá el timbrado que la SET le asignó. Las cajas
+          sin timbrado no emiten factura electrónica.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {isLoading ? (
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ) : registers.length === 0 ? (
+          <EmptyState
+            icon={CreditCard}
+            title="Sin cajas activas"
+            description="Creá una caja en Configuración antes de habilitar la facturación electrónica."
+            ghost={false}
+          />
+        ) : (
+          registers.map((r) => <RegisterStampRow key={r.id} register={r} canManage={canManage} />)
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function RegisterStampRow({ register, canManage }: { register: RegisterListItem; canManage: boolean }) {
+  const update = useUpdateRegister()
+  const [fiscal, setFiscal] = React.useState<RegisterFiscal>(register.fiscal)
+  const dirty =
+    fiscal.invoiceAuth !== register.fiscal.invoiceAuth ||
+    fiscal.invoicePrefix !== register.fiscal.invoicePrefix ||
+    fiscal.invoiceAuthStart !== register.fiscal.invoiceAuthStart ||
+    fiscal.invoiceAuthExpiration !== register.fiscal.invoiceAuthExpiration
+
+  function patch(p: Partial<RegisterFiscal>) {
+    setFiscal((f) => ({ ...f, ...p }))
+  }
+
+  function handleSave() {
+    update.mutate(
+      { id: register.id, fiscal },
+      {
+        onSuccess: () => toast.success(`Timbrado de ${register.name} guardado.`),
+        onError: (err) =>
+          toast.error(`No se pudo guardar el timbrado de ${register.name}`, { description: err.message }),
+      },
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-md border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">
+          {register.name}
+          <span className="ml-2 text-xs text-muted-foreground">{register.outletName}</span>
+        </p>
+        {register.fiscal.invoiceAuth && <Badge variant="secondary">Timbrado cargado</Badge>}
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="space-y-1.5">
+          <Label htmlFor={`stamp-auth-${register.id}`}>Número de timbrado</Label>
+          <Input
+            id={`stamp-auth-${register.id}`}
+            value={fiscal.invoiceAuth}
+            onChange={(e) => patch({ invoiceAuth: e.target.value.replace(/\D/g, "") })}
+            placeholder="12345678"
+            className="tabular-nums"
+            disabled={!canManage}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`stamp-prefix-${register.id}`}>Estab. y punto (EEE-PPP)</Label>
+          <Input
+            id={`stamp-prefix-${register.id}`}
+            value={fiscal.invoicePrefix}
+            onChange={(e) => patch({ invoicePrefix: e.target.value.replace(/[^0-9-]/g, "").slice(0, 7) })}
+            placeholder="001-001"
+            className="tabular-nums"
+            disabled={!canManage}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`stamp-start-${register.id}`}>Vigente desde</Label>
+          <Input
+            id={`stamp-start-${register.id}`}
+            type="date"
+            value={fiscal.invoiceAuthStart}
+            onChange={(e) => patch({ invoiceAuthStart: e.target.value })}
+            disabled={!canManage}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`stamp-exp-${register.id}`}>Vence</Label>
+          <Input
+            id={`stamp-exp-${register.id}`}
+            type="date"
+            value={fiscal.invoiceAuthExpiration}
+            onChange={(e) => patch({ invoiceAuthExpiration: e.target.value })}
+            disabled={!canManage}
+          />
+        </div>
+      </div>
+      {dirty && (
+        <div>
+          <Button type="button" size="sm" onClick={handleSave} disabled={update.isPending || !canManage}>
+            {update.isPending && <Loader2 className="size-4 animate-spin" />}
+            Guardar timbrado
+          </Button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ProvisionForm({
@@ -136,14 +299,10 @@ function ProvisionForm({
   const [form, setForm] = React.useState<EInvoiceFiscalForm>(() => ({
     ...EMPTY_FORM,
     ...initial,
-    timbrado: { ...EMPTY_FORM.timbrado, ...(initial?.timbrado ?? {}) },
   }))
 
   function patch(p: Partial<EInvoiceFiscalForm>) {
     setForm((f) => ({ ...f, ...p }))
-  }
-  function patchStamp(p: Partial<EInvoiceFiscalForm["timbrado"]>) {
-    setForm((f) => ({ ...f, timbrado: { ...f.timbrado, ...p } }))
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -161,7 +320,7 @@ function ProvisionForm({
         <CardHeader>
           <CardTitle>Datos del emisor</CardTitle>
           <CardDescription>
-            Los datos fiscales de tu comercio, tal como figuran en la SET.
+            Lo que falta para registrarte como emisor de documentos electrónicos.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -171,15 +330,20 @@ function ProvisionForm({
             </Alert>
           )}
 
+          <CompanyFiscalSummary />
+
+          <Separator />
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="ei-ruc">RUC</Label>
+              <Label htmlFor="ei-email">Email de facturación</Label>
               <Input
-                id="ei-ruc"
-                value={form.ruc}
-                onChange={(e) => patch({ ruc: e.target.value })}
-                placeholder="Ej: 80012345-6"
-                className="tabular-nums"
+                id="ei-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => patch({ email: e.target.value })}
+                placeholder="facturacion@tucomercio.com"
+                autoComplete="email"
                 disabled={!canManage}
               />
             </div>
@@ -199,45 +363,6 @@ function ProvisionForm({
                 </SelectContent>
               </Select>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-razon">Razón social</Label>
-              <Input
-                id="ei-razon"
-                value={form.razonSocial}
-                onChange={(e) => patch({ razonSocial: e.target.value })}
-                placeholder="Como figura en el RUC"
-                disabled={!canManage}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-fantasia">Nombre de fantasía</Label>
-              <Input
-                id="ei-fantasia"
-                value={form.nombreFantasia ?? ""}
-                onChange={(e) => patch({ nombreFantasia: e.target.value })}
-                placeholder="Opcional"
-                disabled={!canManage}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="ei-email">Email de facturación</Label>
-            <Input
-              id="ei-email"
-              type="email"
-              value={form.email}
-              onChange={(e) => patch({ email: e.target.value })}
-              placeholder="facturacion@tucomercio.com"
-              autoComplete="email"
-              disabled={!canManage}
-            />
-            <p className="text-sm text-muted-foreground">
-              Identifica a tu emisor en el sistema fiscal — usá uno que no cambie.
-            </p>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -268,69 +393,13 @@ function ProvisionForm({
           </div>
 
           <p className="text-sm text-muted-foreground">
-            El código de actividad figura en tu constancia de RUC (padrón de la SET).
+            El código de actividad figura en tu constancia de RUC (padrón de la SET). El email
+            identifica a tu emisor en el sistema fiscal — usá uno que no cambie.
           </p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Timbrado</CardTitle>
-          <CardDescription>
-            Los datos del timbrado de documentos electrónicos que te asignó la SET.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-stamp-num">Número de timbrado</Label>
-              <Input
-                id="ei-stamp-num"
-                value={form.timbrado.numero}
-                onChange={(e) => patchStamp({ numero: e.target.value.replace(/\D/g, "") })}
-                placeholder="Ej: 12345678"
-                className="tabular-nums"
-                disabled={!canManage}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-stamp-date">Inicio de vigencia</Label>
-              <Input
-                id="ei-stamp-date"
-                type="date"
-                value={form.timbrado.fechaInicio}
-                onChange={(e) => patchStamp({ fechaInicio: e.target.value })}
-                disabled={!canManage}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-stamp-estab">Establecimiento</Label>
-              <Input
-                id="ei-stamp-estab"
-                value={form.timbrado.establecimiento}
-                onChange={(e) => patchStamp({ establecimiento: e.target.value.replace(/\D/g, "").slice(0, 3) })}
-                placeholder="001"
-                className="tabular-nums"
-                disabled={!canManage}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-stamp-punto">Punto de expedición</Label>
-              <Input
-                id="ei-stamp-punto"
-                value={form.timbrado.puntoExpedicion}
-                onChange={(e) => patchStamp({ puntoExpedicion: e.target.value.replace(/\D/g, "").slice(0, 3) })}
-                placeholder="001"
-                className="tabular-nums"
-                disabled={!canManage}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <RegisterStampsCard canManage={canManage} />
 
       {!canManage && (
         <p className="text-sm text-muted-foreground">
@@ -395,7 +464,6 @@ function ProvisionedView({
   }
 
   const fiscal = account.fiscal
-  const stamp = account.stamp
   const syncedAt = formatSyncedAt(account.stampSyncedAt)
 
   return (
@@ -417,15 +485,10 @@ function ProvisionedView({
             </Alert>
           )}
 
+          {/* RUC/razón social salen de Configuración del negocio; el
+              timbrado, de las cajas — acá solo lo que es propio del emisor. */}
+          <CompanyFiscalSummary />
           <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
-            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <dt className="text-xs text-muted-foreground">RUC</dt>
-              <dd className="text-sm tabular-nums">{String(fiscal.ruc ?? "—")}</dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <dt className="text-xs text-muted-foreground">Razón social</dt>
-              <dd className="text-sm">{String(fiscal.razonSocial ?? "—")}</dd>
-            </div>
             <div className="flex items-baseline justify-between gap-3 sm:justify-start">
               <dt className="text-xs text-muted-foreground">Actividad</dt>
               <dd className="text-sm">
@@ -433,14 +496,8 @@ function ProvisionedView({
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <dt className="text-xs text-muted-foreground">Timbrado</dt>
-              <dd className="text-sm tabular-nums">
-                {String(
-                  (stamp.StampNumber as string) ??
-                    fiscal.timbrado?.numero ??
-                    "—",
-                )}
-              </dd>
+              <dt className="text-xs text-muted-foreground">Email de facturación</dt>
+              <dd className="text-sm">{String(fiscal.email ?? "—")}</dd>
             </div>
           </dl>
 
@@ -465,6 +522,8 @@ function ProvisionedView({
           </div>
         </CardContent>
       </Card>
+
+      <RegisterStampsCard canManage={canManage} />
 
       <CertificateCard canManage={canManage} certUploaded={account.certUploaded} />
 

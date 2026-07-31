@@ -7,11 +7,15 @@ namespace Punto\Api\EInvoice;
 /**
  * F7 — provisioning white-label del emisor (context/28 §Onboarding).
  *
- * El comercio llena UN formulario con sus datos legales (RUC, razón social,
- * actividad económica, timbrado) y Punto crea el emisor en Factomate con su
- * credencial ADMIN. El comercio nunca ve una credencial de Factomate — ni
- * sabe que existe: la cadena de auth por-tenant sale del bearer admin vía
- * PhoneLogin (ver FactomateSession).
+ * El comercio NO re-tipea nada que Punto ya tenga: el RUC y la razón social
+ * salen de Configuración del negocio (companyFiscal) y los timbrados de las
+ * CAJAS — cada caja es un punto de expedición (context/29 §1) y su timbrado
+ * se administra en la caja (registerStamps). El formulario de facturación
+ * electrónica solo pide lo que no existe en otro lado: actividad económica,
+ * tipo de contribuyente, email de facturación y CSC. Punto crea el emisor en
+ * Factomate con su credencial ADMIN; el comercio nunca ve una credencial de
+ * Factomate — ni sabe que existe: la cadena de auth por-tenant sale del
+ * bearer admin vía PhoneLogin (ver FactomateSession).
  *
  * Alta compuesta REANUDABLE: Factomate no tiene transacción del lado de
  * ellos (manual §2.6, compensación manual) y `CreateExternal` NO es
@@ -23,7 +27,9 @@ namespace Punto\Api\EInvoice;
  *   1. createExternal      → factomate_tenant_id/user_id + credencial al vault
  *   2. PUT /api/Tenant     → datos fiscales (tipo contribuyente, CSC, textos)
  *   3. POST /api/Activity  → actividad económica SIFEN
- *   4. POST /api/BranchDocumentType → timbrado (FC + NC)
+ *   4. POST /api/BranchDocumentType → UN timbrado POR CAJA (FC + NC),
+ *      checkpoint por caja + mapa registerId → ids (la emisión usa el
+ *      timbrado de la caja de la venta — EInvoiceService::stampForDocument)
  *   5. sync del timbrado   → stamp cache + status 'ok'
  *
  * La CONTRASEÑA del paso 1 se devuelve una sola vez y no es recuperable
@@ -100,13 +106,16 @@ final class EInvoiceProvisioningService
         }
 
         try {
-            $tenantId = $this->ensureTenantCreated($companyId, $fiscal, $environment);
+            $company = $this->companyFiscal($companyId);
+            $stamps  = $this->registerStamps($companyId);
+
+            $tenantId = $this->ensureTenantCreated($companyId, $fiscal, $company, $environment);
             $bearer   = $this->session->getBearer($companyId);
             $login    = $this->accountLogin($companyId);
 
-            $this->ensureFiscalApplied($companyId, $fiscal, $environment, $login, $bearer, $tenantId);
+            $this->ensureFiscalApplied($companyId, $fiscal, $company, $environment, $login, $bearer, $tenantId);
             $this->ensureActivityCreated($companyId, $fiscal, $environment, $login, $bearer, $tenantId);
-            $this->ensureStampCreated($companyId, $fiscal, $environment, $login, $bearer);
+            $this->ensureStampsCreated($companyId, $stamps, $environment, $login, $bearer);
 
             // Paso final: releer el timbrado desde Factomate (fuente real:
             // BranchDocumentType/Get) y marcar la cuenta operativa. Reusa
@@ -174,7 +183,7 @@ final class EInvoiceProvisioningService
 
     // ── Pasos (cada uno con su checkpoint) ──────────────────────────────
 
-    private function ensureTenantCreated(string $companyId, array $fiscal, string $environment): int
+    private function ensureTenantCreated(string $companyId, array $fiscal, array $company, string $environment): int
     {
         $row = ncmExecute('SELECT factomate_tenant_id FROM einvoice_account WHERE companyid = ?', [$companyId]);
         $tenantId = $row['factomate_tenant_id'] ?? null;
@@ -186,10 +195,10 @@ final class EInvoiceProvisioningService
         $adminLogin  = $this->session->getAdminLogin($environment);
 
         $created = $this->provider->createExternal($environment, $adminLogin, $adminBearer, [
-            'razonSocial'    => $fiscal['razonSocial'],
-            'nombreFantasia' => $fiscal['nombreFantasia'] ?? '',
+            'razonSocial'    => $company['razonSocial'],
+            'nombreFantasia' => $company['nombreFantasia'],
             'email'          => $fiscal['email'],
-            'ruc'            => $fiscal['ruc'],
+            'ruc'            => $company['ruc'],
         ]);
 
         // ESCRITURA INMEDIATA — la contraseña no se puede volver a pedir.
@@ -229,7 +238,7 @@ final class EInvoiceProvisioningService
         return $created['tenantId'];
     }
 
-    private function ensureFiscalApplied(string $companyId, array $fiscal, string $environment, string $login, string $bearer, int $tenantId): void
+    private function ensureFiscalApplied(string $companyId, array $fiscal, array $company, string $environment, string $login, string $bearer, int $tenantId): void
     {
         if ($this->checkpoint($companyId, 'fiscalApplied')) {
             return;
@@ -237,9 +246,9 @@ final class EInvoiceProvisioningService
 
         $tenant = [
             'Id'           => $tenantId,
-            'Ruc'          => $fiscal['ruc'],
-            'Name'         => $fiscal['razonSocial'],
-            'TenancyName'  => $fiscal['nombreFantasia'] ?? '',
+            'Ruc'          => $company['ruc'],
+            'Name'         => $company['razonSocial'],
+            'TenancyName'  => $company['nombreFantasia'],
         ];
         if (isset($fiscal['taxpayerType'])) {
             $tenant['TaxpayerType'] = (int) $fiscal['taxpayerType'];
@@ -288,30 +297,73 @@ final class EInvoiceProvisioningService
         $this->mergeProvisioning($companyId, ['activityCreated' => true]);
     }
 
-    private function ensureStampCreated(string $companyId, array $fiscal, string $environment, string $login, string $bearer): void
+    /**
+     * Un timbrado de Factomate POR CAJA: cada caja es un punto de expedición
+     * y la emisión usa el timbrado de la caja de la venta (ver
+     * EInvoiceService::stampIdForRegister). Checkpoint POR caja
+     * (`provisioning.stampRegisters`): agregar una caja nueva y re-provisionar
+     * crea solo el timbrado que falta.
+     *
+     * Tras crear, se releen los timbrados del proveedor y se persiste el mapa
+     * registerId → {fc, nc} (ids de BranchDocumentType por tipo de documento)
+     * en `provisioning.stampMap`, matcheando por número + EEE-PPP.
+     *
+     * @param array<int,array<string,string>> $stamps
+     */
+    private function ensureStampsCreated(string $companyId, array $stamps, string $environment, string $login, string $bearer): void
     {
-        if ($this->checkpoint($companyId, 'stampCreated')) {
-            return;
+        $row = ncmExecute('SELECT provisioning FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        $prov = json_decode((string) ($row['provisioning'] ?? '{}'), true);
+        $done = is_array($prov['stampRegisters'] ?? null) ? $prov['stampRegisters'] : [];
+
+        foreach ($stamps as $stamp) {
+            if (!empty($done[$stamp['registerId']])) {
+                continue;
+            }
+            $raw = $this->provider->createStamp($environment, $login, $bearer, [
+                // FC (1) + NC (5): los dos tipos que Punto emite. Timbrado SIN
+                // sucursal (BranchId opcional, manual §5) — el mapeo
+                // sucursales↔outlets queda para una fase posterior.
+                'documentTypeIds' => [1, 5],
+                'stablishment'    => $stamp['establecimiento'],
+                'expeditionPoint' => $stamp['puntoExpedicion'],
+                'stampNumber'     => $stamp['numero'],
+                'stampDate'       => $stamp['fechaInicio'],
+                'currentNumber'   => 1,
+                'serie'           => '',
+            ]);
+            if (empty($raw['Success'] ?? $raw['success'] ?? true) && !empty($raw['Error'] ?? $raw['error'] ?? '')) {
+                throw new \RuntimeException(
+                    "No se pudo registrar el timbrado de la caja {$stamp['name']}: " . (string) ($raw['Error'] ?? $raw['error'])
+                );
+            }
+            $done[$stamp['registerId']] = true;
+            $this->mergeProvisioning($companyId, ['stampRegisters' => $done]);
         }
 
-        $t = $fiscal['timbrado'];
-        $raw = $this->provider->createStamp($environment, $login, $bearer, [
-            // FC (1) + NC (5): los dos tipos que Punto emite. Timbrado SIN
-            // sucursal (BranchId opcional, manual §5) — el mapeo
-            // sucursales↔outlets queda para una fase posterior.
-            'documentTypeIds' => [1, 5],
-            'stablishment'    => $t['establecimiento'],
-            'expeditionPoint' => $t['puntoExpedicion'],
-            'stampNumber'     => $t['numero'],
-            'stampDate'       => $t['fechaInicio'],
-            'currentNumber'   => 1,
-            'serie'           => (string) ($t['serie'] ?? ''),
-        ]);
-        if (empty($raw['Success'] ?? $raw['success'] ?? true) && !empty($raw['Error'] ?? $raw['error'] ?? '')) {
-            throw new \RuntimeException('No se pudo registrar el timbrado: ' . (string) ($raw['Error'] ?? $raw['error']));
+        // Mapa registerId → ids de timbrado del proveedor, matcheando por
+        // número + establecimiento + punto (el POST no devuelve los ids de
+        // los BranchDocumentType creados de forma confiable — alta múltiple).
+        $remote = $this->provider->stamps($environment, $login, $bearer);
+        $items = $remote['Items'] ?? $remote['items'] ?? [];
+        $map = [];
+        foreach ($stamps as $stamp) {
+            foreach ((array) $items as $item) {
+                if (!is_array($item) || !empty($item['Deleted'] ?? $item['deleted'] ?? null)) {
+                    continue;
+                }
+                $matches = (string) ($item['StampNumber'] ?? '') === $stamp['numero']
+                    && (string) ($item['Stablishment'] ?? '') === $stamp['establecimiento']
+                    && (string) ($item['ExpeditionPoint'] ?? '') === $stamp['puntoExpedicion'];
+                if (!$matches) {
+                    continue;
+                }
+                $docType = (int) ($item['DocumentTypeId'] ?? 0);
+                $key = $docType === 5 ? 'nc' : 'fc';
+                $map[$stamp['registerId']][$key] = $item['Id'] ?? null;
+            }
         }
-
-        $this->mergeProvisioning($companyId, ['stampCreated' => true]);
+        $this->mergeProvisioning($companyId, ['stampMap' => $map]);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -325,16 +377,13 @@ final class EInvoiceProvisioningService
      */
     private function validateForm(array $form): array
     {
-        $ruc         = trim((string) ($form['ruc'] ?? ''));
-        $razonSocial = trim((string) ($form['razonSocial'] ?? ''));
-        $email       = trim((string) ($form['email'] ?? ''));
-
-        if ($ruc === '') {
-            throw new \RuntimeException('El RUC es obligatorio.');
-        }
-        if ($razonSocial === '') {
-            throw new \RuntimeException('La razón social es obligatoria.');
-        }
+        // El formulario pide SOLO lo que Punto no tiene en ningún otro lado.
+        // RUC y razón social viven en Configuración del negocio
+        // (company.config.settingRUC/settingBillingName) y los timbrados en
+        // las CAJAS (cada caja es un punto de expedición, context/29 §1) —
+        // se leen de ahí, nunca se piden de nuevo (ver companyFiscal() y
+        // registerStamps()).
+        $email = trim((string) ($form['email'] ?? ''));
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new \RuntimeException('Ingresá un email de facturación válido.');
         }
@@ -345,22 +394,7 @@ final class EInvoiceProvisioningService
             throw new \RuntimeException('La actividad económica (código y descripción) es obligatoria.');
         }
 
-        $t = is_array($form['timbrado'] ?? null) ? $form['timbrado'] : [];
-        $numero = trim((string) ($t['numero'] ?? ''));
-        $estab  = trim((string) ($t['establecimiento'] ?? ''));
-        $punto  = trim((string) ($t['puntoExpedicion'] ?? ''));
-        $fecha  = trim((string) ($t['fechaInicio'] ?? ''));
-        if ($numero === '' || $fecha === '') {
-            throw new \RuntimeException('El número de timbrado y su fecha de inicio de vigencia son obligatorios.');
-        }
-        if (!preg_match('/^\d{3}$/', $estab) || !preg_match('/^\d{3}$/', $punto)) {
-            throw new \RuntimeException('Establecimiento y punto de expedición deben ser de 3 dígitos (ej. 001).');
-        }
-
         return [
-            'ruc'             => str_replace(' ', '', $ruc),
-            'razonSocial'     => $razonSocial,
-            'nombreFantasia'  => trim((string) ($form['nombreFantasia'] ?? '')),
             'email'           => $email,
             'taxpayerType'    => isset($form['taxpayerType']) && is_numeric($form['taxpayerType']) ? (int) $form['taxpayerType'] : null,
             'regimeId'        => isset($form['regimeId']) && is_numeric($form['regimeId']) ? (int) $form['regimeId'] : null,
@@ -369,14 +403,115 @@ final class EInvoiceProvisioningService
             'cscId'           => trim((string) ($form['cscId'] ?? '')),
             'cscSecret'       => (string) ($form['cscSecret'] ?? ''),
             'infoAdicional'   => trim((string) ($form['infoAdicional'] ?? '')),
-            'timbrado'        => [
-                'numero'          => $numero,
-                'establecimiento' => $estab,
-                'puntoExpedicion' => $punto,
-                'fechaInicio'     => $fecha,
-                'serie'           => trim((string) ($t['serie'] ?? '')),
-            ],
         ];
+    }
+
+    /**
+     * RUC y razón social del emisor — la fuente es Configuración del negocio,
+     * no el formulario de facturación electrónica (un solo lugar por dato).
+     *
+     * @return array{ruc:string,razonSocial:string,nombreFantasia:string}
+     * @throws \RuntimeException si faltan, con el mensaje apuntando a dónde cargarlos.
+     */
+    private function companyFiscal(string $companyId): array
+    {
+        $row = ncmExecute(
+            "SELECT config->>'settingRUC' AS ruc,
+                    config->>'settingBillingName' AS billing_name,
+                    config->>'settingName' AS name
+               FROM company WHERE companyId = ? LIMIT 1",
+            [$companyId]
+        );
+        $ruc     = trim((string) ($row['ruc'] ?? ''));
+        $billing = trim((string) ($row['billing_name'] ?? ''));
+        $name    = trim((string) ($row['name'] ?? ''));
+
+        if ($ruc === '') {
+            throw new \RuntimeException(
+                'Falta el RUC del negocio — cargalo en Configuración antes de habilitar la facturación electrónica.'
+            );
+        }
+        if ($billing === '' && $name === '') {
+            throw new \RuntimeException(
+                'Falta la razón social del negocio — cargala en Configuración antes de habilitar la facturación electrónica.'
+            );
+        }
+
+        return [
+            'ruc'            => str_replace(' ', '', $ruc),
+            'razonSocial'    => $billing !== '' ? $billing : $name,
+            'nombreFantasia' => $name,
+        ];
+    }
+
+    /**
+     * Timbrados a provisionar — salen de las CAJAS: cada caja es un punto de
+     * expedición (context/29 §1) y su timbrado (número, EEE-PPP, vigencia) se
+     * administra en la caja (RegisterAdminService), no acá.
+     *
+     * @return array<int,array{registerId:string,name:string,numero:string,establecimiento:string,puntoExpedicion:string,fechaInicio:string}>
+     * @throws \RuntimeException si ninguna caja activa tiene timbrado completo.
+     */
+    private function registerStamps(string $companyId): array
+    {
+        $rs = ncmExecute(
+            'SELECT registerId, registerName, data FROM register
+              WHERE companyId = ? AND registerStatus = TRUE
+              ORDER BY registerName ASC',
+            [$companyId],
+            false,
+            true
+        );
+
+        $stamps = [];
+        $incomplete = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $data = json_decode((string) ($f['data'] ?? '{}'), true);
+                $data = is_array($data) ? $data : [];
+
+                $auth   = trim((string) ($data['registerInvoiceAuth'] ?? ''));
+                $prefix = trim((string) ($data['registerInvoicePrefix'] ?? ''));
+                $start  = trim((string) ($data['registerInvoiceAuthStart'] ?? ''));
+                $name   = (string) ($f['registername'] ?? $f['registerName'] ?? '');
+
+                if ($auth === '' && $prefix === '') {
+                    $rs->MoveNext();
+                    continue; // caja sin timbrado — no participa de la FE
+                }
+                if ($auth === '' || !preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) || $start === '') {
+                    $incomplete[] = $name;
+                    $rs->MoveNext();
+                    continue;
+                }
+
+                $stamps[] = [
+                    'registerId'      => (string) ($f['registerid'] ?? $f['registerId'] ?? ''),
+                    'name'            => $name,
+                    'numero'          => $auth,
+                    'establecimiento' => $m[1],
+                    'puntoExpedicion' => $m[2],
+                    'fechaInicio'     => $start,
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        if ($incomplete !== []) {
+            throw new \RuntimeException(
+                'Estas cajas tienen el timbrado incompleto (número, establecimiento-punto y fecha de inicio son obligatorios): '
+                . implode(', ', $incomplete) . '.'
+            );
+        }
+        if ($stamps === []) {
+            throw new \RuntimeException(
+                'Ninguna caja tiene timbrado cargado. Cargá el timbrado de al menos una caja en la sección Timbrados por caja.'
+            );
+        }
+
+        return $stamps;
     }
 
     /** @param array<string,mixed> $fiscal */

@@ -21,7 +21,7 @@ final class RegisterAdminService
     public function listAll(): array
     {
         $rs = ncmExecute(
-            'SELECT r.registerId, r.registerName, r.outletId, o.outletName, r.registerStatus
+            'SELECT r.registerId, r.registerName, r.outletId, o.outletName, r.registerStatus, r.data
                FROM register r
                JOIN outlet o ON o.outletId = r.outletId AND o.companyId = r.companyId
               WHERE r.companyId = ?
@@ -34,12 +34,26 @@ final class RegisterAdminService
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
                 $f = $rs->fields;
+                // Timbrado de la caja (mig 26 lo demoteó a `data` JSONB): la
+                // caja ES el punto de expedición (context/29 §1), así que su
+                // timbrado se administra acá — facturación electrónica lo LEE
+                // de la caja, nunca lo pide de nuevo.
+                $data = json_decode((string)($f['data'] ?? '{}'), true);
+                $data = is_array($data) ? $data : [];
                 $out[] = [
                     'id'         => (string)($f['registerId']    ?? $f['registerid']    ?? ''),
                     'name'       => (string)($f['registerName']  ?? $f['registername']  ?? ''),
                     'outletId'   => (string)($f['outletId']      ?? $f['outletid']      ?? ''),
                     'outletName' => (string)($f['outletName']    ?? $f['outletname']    ?? ''),
                     'status'     => (bool)($f['registerStatus']  ?? $f['registerstatus'] ?? false),
+                    'fiscal'     => [
+                        'invoiceAuth'           => isset($data['registerInvoiceAuth']) && $data['registerInvoiceAuth'] !== null
+                            ? (string) $data['registerInvoiceAuth'] : '',
+                        // "EEE-PPP" — establecimiento y punto de expedición.
+                        'invoicePrefix'         => (string) ($data['registerInvoicePrefix'] ?? ''),
+                        'invoiceAuthStart'      => (string) ($data['registerInvoiceAuthStart'] ?? ''),
+                        'invoiceAuthExpiration' => (string) ($data['registerInvoiceAuthExpiration'] ?? ''),
+                    ],
                 ];
                 $rs->MoveNext();
             }
@@ -137,19 +151,63 @@ final class RegisterAdminService
             $params[]   = (bool)$fields['status'];
         }
 
-        if (empty($setParts)) {
+        // Timbrado de la caja — merge sobre `data` JSONB (mig 26). La caja es
+        // el punto de expedición: este es EL lugar donde vive el timbrado
+        // (número, EEE-PPP, vigencia); facturación electrónica y la
+        // numeración fiscal (context/29 §4.2) lo leen de acá.
+        $fiscalPatch = [];
+        if (is_array($fields['fiscal'] ?? null)) {
+            $fc = $fields['fiscal'];
+            if (array_key_exists('invoiceAuth', $fc)) {
+                $auth = trim((string) $fc['invoiceAuth']);
+                if ($auth !== '' && !preg_match('/^\d+$/', $auth)) {
+                    apiError('El número de timbrado debe ser numérico', 422);
+                }
+                $fiscalPatch['registerInvoiceAuth'] = $auth === '' ? null : (int) $auth;
+            }
+            if (array_key_exists('invoicePrefix', $fc)) {
+                $prefix = trim((string) $fc['invoicePrefix']);
+                if ($prefix !== '' && !preg_match('/^\d{3}-\d{3}$/', $prefix)) {
+                    apiError('Establecimiento y punto de expedición van como EEE-PPP (ej. 001-001)', 422);
+                }
+                $fiscalPatch['registerInvoicePrefix'] = $prefix === '' ? null : $prefix;
+            }
+            foreach (['invoiceAuthStart' => 'registerInvoiceAuthStart', 'invoiceAuthExpiration' => 'registerInvoiceAuthExpiration'] as $in => $key) {
+                if (array_key_exists($in, $fc)) {
+                    $v = trim((string) $fc[$in]);
+                    if ($v !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
+                        apiError('Las fechas del timbrado van como YYYY-MM-DD', 422);
+                    }
+                    $fiscalPatch[$key] = $v === '' ? null : $v;
+                }
+            }
+        }
+
+        if (empty($setParts) && empty($fiscalPatch)) {
             return ['ok' => true];
         }
 
-        $params[] = $id;
-        $params[] = $this->companyId;
-
         global $db;
-        $db->Execute(
-            'UPDATE register SET ' . implode(', ', $setParts) .
-            ' WHERE registerId = ? AND companyId = ?',
-            $params
-        );
+        if (!empty($setParts)) {
+            $colParams   = $params;
+            $colParams[] = $id;
+            $colParams[] = $this->companyId;
+            $db->Execute(
+                'UPDATE register SET ' . implode(', ', $setParts) .
+                ' WHERE registerId = ? AND companyId = ?',
+                $colParams
+            );
+        }
+        if (!empty($fiscalPatch)) {
+            // `||` mergea claves; las que vienen null quedan null adentro del
+            // JSONB (semántica "borrado" para estos campos — los lectores
+            // hacen `?? ''`).
+            $db->Execute(
+                "UPDATE register SET data = COALESCE(data, '{}'::jsonb) || ?::jsonb
+                  WHERE registerId = ? AND companyId = ?",
+                [json_encode($fiscalPatch), $id, $this->companyId]
+            );
+        }
 
         realtimePublish('register', 'update', $id);
         return ['ok' => true];

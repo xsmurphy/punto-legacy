@@ -62,6 +62,9 @@ if ($method === 'POST') {
         $fields = [];
         if (isset($body['name']))   { $fields['name']   = $body['name']; }
         if (isset($body['status'])) { $fields['status'] = filter_var($body['status'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool)$body['status']; }
+        // Timbrado de la caja (número, EEE-PPP, vigencia) — la caja es el
+        // punto de expedición; ver RegisterAdminService::update.
+        if (isset($body['fiscal']) && is_array($body['fiscal'])) { $fields['fiscal'] = $body['fiscal']; }
         if ($id === '') { apiError('id requerido', 422); }
         apiOk($adminSvc->update($id, $fields));
     }

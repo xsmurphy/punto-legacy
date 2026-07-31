@@ -1186,7 +1186,7 @@ final class EInvoiceService
             $attempts      = (int) ($doc['attempts'] ?? 0);
 
             $account = ncmExecute(
-                'SELECT status, environment, phone_enc, stamp, config AS account_config
+                'SELECT status, environment, phone_enc, stamp, provisioning, config AS account_config
                    FROM einvoice_account WHERE companyid = ?',
                 [$companyId]
             );
@@ -1201,7 +1201,15 @@ final class EInvoiceService
                 return false;
             }
 
-            $stamp  = $this->decodeJsonb($account['stamp'] ?? null);
+            // Timbrado de la CAJA de la venta (F7): cada caja es un punto de
+            // expedición (context/29 §1), así que el documento sale con el
+            // timbrado de la caja que vendió — no con uno global. El mapa
+            // registerId → {fc, nc} lo arma el provisioning
+            // (EInvoiceProvisioningService::ensureStampsCreated); FC/FCR usan
+            // el id de tipo factura, NC el de nota de crédito. Fallback: el
+            // stamp cacheado global (cuentas manuales de F0, o venta sin
+            // registerId — panel sin caja).
+            $stamp  = $this->stampForDocument($companyId, $transactionId, $doctype, $account);
             $config = $this->decodeJsonb($account['account_config'] ?? null);
 
             // issuedDate: naive local de Asunción, mismo criterio que signDate
@@ -1274,6 +1282,35 @@ final class EInvoiceService
             }
             return false;
         }
+    }
+
+    /**
+     * Resuelve el timbrado con el que se emite UN documento: el de la caja
+     * de la venta si el mapa del provisioning la conoce, el cacheado global
+     * si no. Devuelve el shape que espera SaleToInvoiceMapper ('Id').
+     *
+     * @param array|\ArrayAccess $account Fila de einvoice_account (con provisioning y stamp).
+     * @return array<string,mixed>
+     */
+    private function stampForDocument(string $companyId, string $transactionId, string $doctype, $account): array
+    {
+        $provisioning = $this->decodeJsonb($account['provisioning'] ?? null);
+        $stampMap = is_array($provisioning['stampMap'] ?? null) ? $provisioning['stampMap'] : [];
+
+        if ($stampMap !== []) {
+            $tx = ncmExecute(
+                'SELECT registerId FROM transaction WHERE transactionId = ? AND companyId = ?',
+                [$transactionId, $companyId]
+            );
+            $registerId = $tx ? trim((string) ($tx['registerId'] ?? '')) : '';
+            $key = $doctype === 'NC' ? 'nc' : 'fc';
+            $stampId = $stampMap[$registerId][$key] ?? null;
+            if ($registerId !== '' && $stampId !== null && $stampId !== '') {
+                return ['Id' => $stampId];
+            }
+        }
+
+        return $this->decodeJsonb($account['stamp'] ?? null);
     }
 
     private function markError(string $docId, int $attemptsBefore, string $message): void

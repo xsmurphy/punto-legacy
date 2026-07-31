@@ -28,28 +28,14 @@ export interface EInvoiceConfig {
   [key: string]: unknown
 }
 
-/** Datos del timbrado que el comercio recibe de la SET. */
-export interface EInvoiceStampForm {
-  /** Número de timbrado (lo asigna la SET). */
-  numero: string
-  /** Establecimiento, 3 dígitos (ej. "001"). */
-  establecimiento: string
-  /** Punto de expedición, 3 dígitos (ej. "001"). */
-  puntoExpedicion: string
-  /** Fecha de inicio de vigencia, "YYYY-MM-DD". */
-  fechaInicio: string
-  serie?: string
-}
-
 /**
- * Formulario legal del emisor (F7). Es TODO lo que el comercio completa —
- * el resto (credenciales, cuenta del proveedor) lo resuelve Punto.
- * `cscSecret` pasa al proveedor y nunca vuelve del backend.
+ * Formulario legal del emisor (F7). Pide SOLO lo que Punto no tiene en otro
+ * lado: el RUC y la razón social salen de Configuración del negocio, y los
+ * timbrados de las CAJAS (cada caja es un punto de expedición — se editan en
+ * la sección Timbrados por caja, que escribe sobre la caja). `cscSecret`
+ * pasa al proveedor y nunca vuelve del backend.
  */
 export interface EInvoiceFiscalForm {
-  ruc: string
-  razonSocial: string
-  nombreFantasia?: string
   /** Email de facturación — identidad del emisor, único en el sistema fiscal. */
   email: string
   /** 1 = persona física, 2 = persona jurídica. */
@@ -63,7 +49,6 @@ export interface EInvoiceFiscalForm {
   cscSecret?: string
   /** Texto adicional impreso en la factura. */
   infoAdicional?: string
-  timbrado: EInvoiceStampForm
 }
 
 export interface EInvoiceAccount {
