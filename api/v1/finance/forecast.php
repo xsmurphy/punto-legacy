@@ -41,7 +41,16 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
     $to = date('Y-m-d', strtotime('+30 days'));
 }
 
-// Label legible de un cheque: "Banco #nro" con fallback si no hay ninguno cargado.
+// Cheques emitidos + cuotas de crédito + compras con vencimiento: query
+// compartido con el feed de notificaciones (context/31) — ver
+// Punto\Api\Finance\ObligationsService. `$from` concreto acá preserva el
+// comportamiento previo (rango acotado), sin cambios en la respuesta.
+$obligations = (new \Punto\Api\Finance\ObligationsService())->list($companyId, $from, $to);
+usort($obligations, static fn (array $a, array $b): int => $a['dueDate'] <=> $b['dueDate']);
+
+$income = [];
+
+// Label legible de un cheque recibido: "Banco #nro" con fallback si no hay ninguno cargado.
 $checkLabel = static function (array $f, string $fallback): string {
     $parts = [];
     if (!empty($f['bankname'])) {
@@ -52,97 +61,6 @@ $checkLabel = static function (array $f, string $fallback): string {
     }
     return $parts !== [] ? implode(' ', $parts) : $fallback;
 };
-
-$obligations = [];
-$income = [];
-
-// ── Cheques emitidos (egreso) ────────────────────────────────────────────
-$rs = ncmExecute(
-    "SELECT checkid, duedate, amount, partyname, bankname, checknumber
-       FROM fin_check
-      WHERE companyid = ? AND direction = 'issued' AND status IN ('pending', 'deposited')
-        AND duedate IS NOT NULL AND duedate::date BETWEEN ? AND ?
-      ORDER BY duedate ASC",
-    [$companyId, $from, $to],
-    false,
-    true
-);
-if ($rs && is_object($rs)) {
-    while (!$rs->EOF) {
-        $f = $rs->fields;
-        $obligations[] = [
-            'id'      => (string) $f['checkid'],
-            'type'    => 'check',
-            'label'   => $checkLabel($f, 'Cheque emitido'),
-            'party'   => $f['partyname'] !== null ? (string) $f['partyname'] : null,
-            'dueDate' => (string) $f['duedate'],
-            'amount'  => (float) $f['amount'],
-            'link'    => '/finanzas/cheques',
-        ];
-        $rs->MoveNext();
-    }
-    $rs->Close();
-}
-
-// ── Cuotas de crédito pendientes (egreso) ────────────────────────────────
-$rs = ncmExecute(
-    "SELECT i.installmentid, i.duedate, i.amount, i.seq, l.loanid, l.name
-       FROM fin_loan_installment i
-       JOIN fin_loan l ON l.loanid = i.loanid
-      WHERE i.companyid = ? AND i.status = 'pending'
-        AND i.duedate::date BETWEEN ? AND ?
-      ORDER BY i.duedate ASC",
-    [$companyId, $from, $to],
-    false,
-    true
-);
-if ($rs && is_object($rs)) {
-    while (!$rs->EOF) {
-        $f = $rs->fields;
-        $obligations[] = [
-            'id'      => (string) $f['installmentid'],
-            'type'    => 'loan_installment',
-            'label'   => 'Cuota ' . (string) $f['seq'] . ' — ' . (string) $f['name'],
-            'party'   => null,
-            'dueDate' => (string) $f['duedate'],
-            'amount'  => (float) $f['amount'],
-            'link'    => '/finanzas/creditos?id=' . (string) $f['loanid'],
-        ];
-        $rs->MoveNext();
-    }
-    $rs->Close();
-}
-
-// ── Compras con vencimiento (cuentas por pagar, egreso) ──────────────────
-$rs = ncmExecute(
-    "SELECT transactionId, transactionDueDate, transactionTotal, transactionDiscount, invoiceNo
-       FROM transaction
-      WHERE companyId = ? AND transactionType = 1 AND transactionStatus = 1
-        AND transactionDueDate IS NOT NULL AND transactionDueDate::date BETWEEN ? AND ?
-      ORDER BY transactionDueDate ASC",
-    [$companyId, $from, $to],
-    false,
-    true
-);
-if ($rs && is_object($rs)) {
-    while (!$rs->EOF) {
-        $f = $rs->fields;
-        $invoiceNo = $f['invoiceno'] ?? null;
-        $obligations[] = [
-            'id'      => (string) $f['transactionid'],
-            'type'    => 'purchase',
-            'label'   => 'Compra' . ($invoiceNo !== null ? ' ' . (string) $invoiceNo : ''),
-            'party'   => null,
-            'dueDate' => (string) $f['transactionduedate'],
-            'amount'  => (float) $f['transactiontotal'] - (float) ($f['transactiondiscount'] ?? 0),
-            'link'    => '/purchase/' . (string) $f['transactionid'],
-        ];
-        $rs->MoveNext();
-    }
-    $rs->Close();
-}
-
-usort($obligations, static fn (array $a, array $b): int => $a['dueDate'] <=> $b['dueDate']);
 
 // ── Cheques recibidos pendientes de depositar/cobrar (ingreso, separado) ─
 $rs = ncmExecute(
