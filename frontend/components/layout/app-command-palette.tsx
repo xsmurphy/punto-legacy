@@ -176,7 +176,7 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     title: "Reportes · Transacciones",
     to: "/reports/transactions",
     icon: Receipt,
-    group: "Reportes",
+    group: "Operaciones",
     keywords: ["transactions", "ventas", "facturas", "tickets"],
   },
   {
@@ -190,14 +190,14 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     title: "Reportes · Cuentas por cobrar",
     to: "/reports/open-invoices",
     icon: Wallet,
-    group: "Reportes",
+    group: "Operaciones",
     keywords: ["open invoices", "credit", "deuda", "cobrar", "income"],
   },
   {
     title: "Reportes · Cuentas por pagar",
     to: "/reports/open-invoices?state=outcome",
     icon: Wallet,
-    group: "Reportes",
+    group: "Operaciones",
     keywords: ["open invoices", "pagar", "deuda proveedores", "outcome"],
   },
   {
@@ -239,7 +239,7 @@ const EXTRA_ROUTES: ExtraRoute[] = [
     title: "Reportes · Movimientos de Caja",
     to: "/reports/expenses",
     icon: Wallet,
-    group: "Reportes",
+    group: "Operaciones",
     keywords: ["expenses", "movimientos", "extracciones", "ingresos manuales", "cajon"],
   },
 ]
