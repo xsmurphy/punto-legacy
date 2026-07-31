@@ -43,6 +43,7 @@ import {
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { AppCommandPalette } from "@/components/layout/app-command-palette"
+import { NotificationBell } from "@/components/layout/notification-bell"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -294,6 +295,19 @@ export function AppSidebar({
                     </kbd>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {/* Campanita de notificaciones (context/31) — solo panel, no admin
+            ni /pos: `/v1/notifications/feed` es realm panel. Fila propia,
+            siempre presente (igual que "Buscar"), no desplaza el resto. */}
+        {!isPos && scope === "Panel" && (
+          <SidebarGroup className="pt-0 pb-0">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <NotificationBell />
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
