@@ -569,7 +569,7 @@ function FinanceCard() {
   const totalToPay = obligations.reduce((s, r) => s + r.amount, 0)
 
   return (
-    <Card>
+    <Card variant="soft">
       <CardHeader>
         <CardTitle className="text-sm font-medium">Finanzas</CardTitle>
       </CardHeader>
@@ -897,7 +897,7 @@ function CustomersCard({
   const churn = toPct(rates?.churn)
 
   return (
-    <Card className="bg-[#f3f4f6] dark:bg-muted">
+    <Card variant="soft">
       <CardHeader>
         <CardTitle className="text-sm font-medium">Clientes</CardTitle>
       </CardHeader>
@@ -1032,7 +1032,7 @@ function InfoGeneralCard({
     },
   ]
   return (
-    <Card className="bg-[#f3f4f6] dark:bg-muted">
+    <Card variant="soft">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">Información general</CardTitle>
       </CardHeader>
@@ -1098,7 +1098,7 @@ function PlanSidebarCard({
     },
   ]
   return (
-    <Card className="bg-[#f3f4f6] dark:bg-muted">
+    <Card variant="soft">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center justify-between text-sm font-medium">
           <span>Plan {info?.plan || ""}</span>

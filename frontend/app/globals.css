@@ -340,6 +340,22 @@
     code, kbd, pre, samp { @apply font-mono; }
 }
 
+/* Campos dentro de una card `soft` (fondo gris): el fill default del Input es
+   `bg-input/50`, que sobre gris se funde con la superficie y el campo deja de
+   leerse como campo. Dentro de una superficie soft el fill pasa a sólido.
+   Se resuelve acá y no en cada call-site: cualquier form que viva en una card
+   soft lo hereda. La segunda regla revierte el fill translúcido cuando hay una
+   card `default` (blanca) anidada adentro de una soft — mismo peso de selector,
+   gana por orden. */
+[data-slot="card"][data-variant="soft"]
+    :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) {
+    background-color: var(--background);
+}
+[data-slot="card"][data-variant="default"]
+    :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) {
+    background-color: color-mix(in oklab, var(--input) 50%, transparent);
+}
+
 /* POS — typography táctil para inputs/textareas. El cajero necesita leer
    rápido lo que tipea sin esfuerzo. Aplica scoped al árbol bajo .pos-scope
    (el SidebarInset del layout (pos)/) — fuera del POS los inputs del panel
